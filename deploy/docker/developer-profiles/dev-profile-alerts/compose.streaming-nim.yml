@@ -1,0 +1,85 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Optional overlay for MODE=2d_vlm only. Load after deploy/docker/compose.yml.
+# RTVI continues decoding and publishing alerts; NIM owns inference and history.
+services:
+  rtvi-vlm:
+    environment:
+      VLM_MODEL_TO_USE: openai-compat
+      RTVI_STREAMING_VLM_ENABLED: "false"
+      VIA_VLM_STREAMING_NIM_ENABLED: "true"
+      VIA_VLM_ENDPOINT: http://streaming-nim:8000/v1
+      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: "${VLM_NAME}"
+      VIA_VLM_API_KEY: local
+      OPENAI_API_KEY: local
+      OPENAI_MAX_PARALLEL_REQUESTS: "${RTVI_NIM_MAX_PARALLEL_REQUESTS:-10}"
+      NUM_VLM_PROCS: "1"
+      NUM_GPUS: "1"
+      VLM_BATCH_SIZE: "${RTVI_VLM_BATCH_SIZE:-1}"
+      SKIP_PIPELINE_WARMUP: "true"
+      RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT: "false"
+      # Match the perf-tests live-frame delivery and session cleanup settings.
+      RTVI_LIVE_STREAM_EMIT_EOS_ENDPOINT: "true"
+      RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY: "false"
+      RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS: "2"
+      RTVI_ENABLE_LIVE_TIMESTAMP_FILTER: "false"
+      RTVI_EMPTY_CUDA_CACHE_ON_RESULT: "false"
+    depends_on:
+      streaming-nim:
+        condition: service_healthy
+
+  streaming-nim-cache-init:
+    image: "${STREAMING_NIM_IMAGE:?Set STREAMING_NIM_IMAGE to a streaming-capable Cosmos3 NIM image}"
+    profiles: ["rtvi-vlm"]
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - 'test "$$MODE" = 2d_vlm || { echo "Streaming NIM requires MODE=2d_vlm" >&2; exit 1; }; chown -R 1000:1000 /opt/nim/.cache'
+    environment:
+      MODE: "${MODE}"
+    volumes:
+      - streaming-nim-cache:/opt/nim/.cache
+    restart: "no"
+
+  streaming-nim:
+    image: "${STREAMING_NIM_IMAGE:?Set STREAMING_NIM_IMAGE to a streaming-capable Cosmos3 NIM image}"
+    profiles: ["rtvi-vlm"]
+    container_name: vss-alerts-streaming-nim
+    runtime: nvidia
+    shm_size: 16gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              device_ids: ["${STREAMING_NIM_DEVICE_ID:?Set STREAMING_NIM_DEVICE_ID}"]
+    environment:
+      NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      CUDA_VISIBLE_DEVICES: "0"
+      NIM_MODEL_TYPE: reasoner
+      NIM_MODEL_VARIANT: nano
+      NIM_PRECISION: bf16
+      NIM_ENABLE_STREAMING: "1"
+      NIM_STREAMING_MAX_VIDEO_SEGMENTS: "8"
+      NIM_STREAMING_MAX_SESSIONS: "${NIM_STREAMING_MAX_SESSIONS:-8}"
+      NIM_MAX_MODEL_LEN: "16384"
+      NIM_GPU_MEMORY_UTILIZATION: "${NIM_GPU_MEMORY_UTILIZATION:-0.90}"
+      NIM_USE_DFLASH: "0"
+      NIM_MM_PROCESSOR_KWARGS: '{"min_pixels":784,"max_pixels":665600}'
+    volumes:
+      - streaming-nim-cache:/opt/nim/.cache
+    depends_on:
+      streaming-nim-cache-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/v1/health/ready"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s
+    restart: unless-stopped
+
+volumes:
+  streaming-nim-cache:

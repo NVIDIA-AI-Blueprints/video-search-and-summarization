@@ -1,5 +1,12 @@
 # Deployment Reference: Alert Microservice
 
+For a **full dev Alerts profile deployment**, use
+[`vss-build-vision-ai`](../../../vss-build-vision-ai/SKILL.md). Its real-time
+Docker flow asks Chunking (default) or Streaming, then Native or Separate NIM
+when streaming is selected. Follow that intake before deployment; do not use
+this operational reference to bypass it. Do not ask these deployment questions
+while managing rules on an already running stack.
+
 Deployment-time contract for the `alert-bridge` microservice (the **Alert Microservice**, formerly "Alert Verification" / "Alert Bridge"; image/container identifiers unchanged — `vss-alert-verification` / `vss-alert-bridge`). Pairs with `integrate-alerts.md`. Build-time composition — service keys, required peers, and the one `alert-bridge` patch (a custom response-parser mount) — lives in [`vss-build-vision-ai/references/services/alerts.md`](../../../vss-build-vision-ai/references/services/alerts.md).
 
 ## Container Image
