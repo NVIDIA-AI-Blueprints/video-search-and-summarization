@@ -9,6 +9,8 @@ For **remote** LLMs, as long as the API is [OpenAI compatible](https://platform.
 
 Agent containers default `OPENAI_API_KEY` to `NOAPIKEYSET` for local OpenAI-compatible clients, including direct NAT evaluation commands. Set a real `OPENAI_API_KEY` for an authenticated OpenAI endpoint; supplied Compose values and Helm `extraEnv` overrides take precedence.
 
+The Base and LVS evaluation configurations give `eval_llm_judge` the stock reasoning model's 32,768-token output budget so it can finish its score. When selecting a different judge model, adjust `max_tokens` to that model's supported output budget.
+
 ## Local LLM customization
 
 When deploying with a local LLM, the agent workflow uses a default NIM endpoint. You can customize it as follows:
