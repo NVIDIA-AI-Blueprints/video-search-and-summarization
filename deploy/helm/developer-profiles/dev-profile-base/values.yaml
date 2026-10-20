@@ -251,7 +251,7 @@ agent:
       - name: NVIDIA_API_KEY
         value: ''
       - name: OPENAI_API_KEY
-        value: ''
+        value: 'NOAPIKEYSET'
       # Enterprise RAG (used by config_rag.yml when enabled). Compose parity:
       # deploy/docker/services/agent/compose.yml.
       - name: RAG_SERVER_URL

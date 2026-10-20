@@ -189,7 +189,7 @@ env:
 - name: NVIDIA_API_KEY
   value: ''
 - name: OPENAI_API_KEY
-  value: ''
+  value: 'NOAPIKEYSET'
 # Patent-encumbered media codecs (H.264/H.265) are NOT bundled in the image for
 # licensing reasons. Defaults to 'true': opencv-python-headless is installed from
 # PyPI at container startup so video decoding works out of the box. Set to 'false'

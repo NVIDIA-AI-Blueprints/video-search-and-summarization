@@ -125,8 +125,8 @@ services:
 
       # NVIDIA API Key (for remote NIM)
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}
-      # OpenAI API Key (for remote openai LLM/VLM)
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Local OpenAI-compatible clients also need a key in processes that bypass the entrypoint.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-NOAPIKEYSET}
 
       # Enterprise RAG (used by config_rag.yml when enabled)
       RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag-server:8081/v1}

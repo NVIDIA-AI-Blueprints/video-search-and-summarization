@@ -327,7 +327,7 @@ agent:
       - name: NVIDIA_API_KEY
         value: ''
       - name: OPENAI_API_KEY
-        value: ''
+        value: 'NOAPIKEYSET'
       # Enterprise RAG defaults used by config_rag.yml when enabled.
       - name: RAG_SERVER_URL
         value: 'http://rag-server:8081/v1'
