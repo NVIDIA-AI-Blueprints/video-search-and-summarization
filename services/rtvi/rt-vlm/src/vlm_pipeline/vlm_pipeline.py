@@ -24,7 +24,7 @@ import time
 from argparse import ArgumentParser
 from dataclasses import dataclass, field
 from enum import Enum
-from threading import Event, Lock, Thread
+from threading import Condition, Event, Lock, Thread
 from typing import Callable, Optional
 
 import nvtx
@@ -525,7 +525,7 @@ class DecoderProcess(ProcessBase):
             if stream_id not in self._dropped_live_handoff_stream_ids:
                 while not self._stop.is_set():
                     try:
-                        self._output_queue.put(item, timeout=0.1)
+                        self._put_output_item(item, timeout=0.1)
                         delivered = True
                         break
                     except queue.Full:
@@ -550,7 +550,7 @@ class DecoderProcess(ProcessBase):
             must_stage = self._live_output_handoff_pending > 0
             if not must_stage:
                 try:
-                    self._output_queue.put_nowait(item)
+                    self._put_output_item(item, block=False)
                     return
                 except queue.Full:
                     pass
@@ -1285,6 +1285,18 @@ class VlmProcess(ProcessBase):
                 )
                 return False
 
+    def _abort_request(self, request_id, timeout_sec):
+        if self._disabled:
+            return 0
+        abort = getattr(self._model, "abort_request_generations", None)
+        if not callable(abort):
+            raise NotImplementedError("This model backend does not support request cancellation")
+        return abort(request_id, timeout_sec=timeout_sec)
+
+    def _release_request_tracking(self, request_id):
+        if not self._disabled:
+            self._model.release_request_tracking(request_id)
+
     def _deinitialize(self):
         self._model = None
 
@@ -1832,6 +1844,7 @@ class PipelineChunkResult:
     audio_transcript: str = ""
     error: str | None = None
     error_status_code: int = 500
+    cancelled: bool = False
     queue_time: float = 0
     processing_latency: float = 0
     is_live_stream_ended: bool = False
@@ -1979,6 +1992,10 @@ class VlmPipeline:
         self._live_stream_lock = Lock()
 
         self._enqueue_lock = Lock()
+        self._request_drain_condition = Condition(self._enqueue_lock)
+        self._request_chunk_ids: dict[str, set[int]] = {}
+        self._chunk_request_ids: dict[int, str] = {}
+        self._cancelled_request_ids: set[str] = set()
 
         # Model path is required for locally executed models like CR1
         if (
@@ -2123,7 +2140,8 @@ class VlmPipeline:
             # Only route to ASR if audio is enabled AND VLM doesn't handle audio natively
             if self._args.enable_audio and not vlm_supports_audio:
                 # Audio enabled but VLM doesn't support it → use ASR for transcription
-                vlm_proc.set_output_queue(self._asr_procs[idx % self._num_asr_procs].input_queue)
+                asr_proc = self._asr_procs[idx % self._num_asr_procs]
+                vlm_proc.set_output_queue(asr_proc.input_queue, asr_proc.input_queue_lock)
             else:
                 # Either audio disabled OR VLM handles audio natively → skip ASR
                 vlm_proc.set_output_queue(self._processed_chunk_queue)
@@ -2146,7 +2164,8 @@ class VlmPipeline:
         ]
         for idx, dec_proc in enumerate(self._decoder_procs):
             dec_proc.set_output_queue(
-                self._vlm_procs[idx % self._num_vlm_procs].input_queue
+                self._vlm_procs[idx % self._num_vlm_procs].input_queue,
+                self._vlm_procs[idx % self._num_vlm_procs].input_queue_lock,
             )
             dec_proc.set_final_output_queue(self._processed_chunk_queue)
             dec_proc.start()
@@ -2248,9 +2267,13 @@ class VlmPipeline:
             chunk_result = PipelineChunkResult()
             chunk_result.error = item.get("error", None)
             chunk_result.error_status_code = item.get("error_status_code", 500)
+            chunk_result.cancelled = item.get("cancelled", False)
             chunk_result.chunk = item["chunk"]
             chunk_result.decode_retry_count = item.get("decode_retry_count", 0)
-            if not chunk_result.error:
+            request_id = item.get("request_id", "")
+            if request_id and request_id in getattr(self, "_cancelled_request_ids", ()):
+                chunk_result.cancelled = True
+            if not chunk_result.error and not chunk_result.cancelled:
                 # vlm_output is a single VlmModelOutput object (already unbatched)
                 chunk_result.vlm_model_output = item.get("vlm_output", None)
 
@@ -2370,9 +2393,26 @@ class VlmPipeline:
                     ).start()
                 continue
 
-            callback = self._chunk_callback_map.pop(item["chunk_id"], None)
+            self._complete_chunk(item["chunk_id"], chunk_result)
+
+    def _complete_chunk(self, chunk_id, chunk_result):
+        with self._enqueue_lock:
+            callback = self._chunk_callback_map.pop(chunk_id, None)
+        try:
             if callback:
                 callback(chunk_result)
+        except Exception:
+            logger.exception("Pipeline callback failed for chunk %s", chunk_id)
+        finally:
+            # A callback releases handler admission credits; drain includes that work.
+            with self._request_drain_condition:
+                request_id = self._chunk_request_ids.pop(chunk_id, None)
+                if request_id:
+                    pending = self._request_chunk_ids[request_id]
+                    pending.discard(chunk_id)
+                    if not pending:
+                        self._request_chunk_ids.pop(request_id)
+                    self._request_drain_condition.notify_all()
 
     def close_evs_sessions(self, stream_id: str):
         for proc in self._vlm_procs:
@@ -2408,6 +2448,55 @@ class VlmPipeline:
     def abort_chunks_done(self, stream_id: str):
         for proc in self._decoder_procs + self._vlm_procs + self._asr_procs:
             proc.send_command("stop-drop-chunks", stream_id=stream_id)
+
+    def abort_request(self, request_id: str, timeout_sec: float = 30.0):
+        """Stop owned work and wait for all registered chunk callbacks to finish.
+
+        The caller must first stop its producer. Cancellation markers intentionally
+        survive this method so a late submission cannot restart the request.
+        """
+        deadline = time.monotonic() + timeout_sec
+        with self._request_drain_condition:
+            self._cancelled_request_ids.add(request_id)
+
+        def abort_worker(process):
+            remaining = max(0.0, deadline - time.monotonic())
+            return process.send_command(
+                "abort-request",
+                request_id=request_id,
+                timeout_sec=remaining,
+                response_timeout_sec=remaining,
+            )
+
+        processes = self._decoder_procs + self._vlm_procs + self._asr_procs
+        # Send to all stages before waiting: a full downstream queue must not keep
+        # an upstream stage from receiving its cancellation marker.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(processes))) as pool:
+            futures = [pool.submit(abort_worker, process) for process in processes]
+            for future in futures:
+                future.result(timeout=max(0.0, deadline - time.monotonic()))
+        with self._request_drain_condition:
+            drained = self._request_drain_condition.wait_for(
+                lambda: not self._request_chunk_ids.get(request_id),
+                timeout=max(0.0, deadline - time.monotonic()),
+            )
+        if not drained:
+            raise TimeoutError(f"Pipeline request {request_id} did not drain after cancellation")
+
+    def release_request_cancellation(self, request_id: str, timeout_sec: float = 30.0):
+        """Forget a drained request after its producer can no longer submit work."""
+        with self._enqueue_lock:
+            if self._request_chunk_ids.get(request_id):
+                raise RuntimeError(f"Cannot release active request {request_id}")
+        deadline = time.monotonic() + timeout_sec
+        for process in self._decoder_procs + self._vlm_procs + self._asr_procs:
+            process.send_command(
+                "release-request-cancellation",
+                request_id=request_id,
+                response_timeout_sec=max(0.0, deadline - time.monotonic()),
+            )
+        with self._enqueue_lock:
+            self._cancelled_request_ids.discard(request_id)
 
     def stop(self, force=False):
         """Stop the VLM Pipeline"""
@@ -2485,8 +2574,10 @@ class VlmPipeline:
         request_params = VlmRequestParams.from_vlm_query(vlm_query)
 
         curr_chunk_counter = self._reserve_chunk_callback(
-            chunk, on_chunk_result, raise_on_unhealthy=True
+            chunk, on_chunk_result, raise_on_unhealthy=True, request_id=request_id
         )
+        if curr_chunk_counter is None:
+            return
         self._decoder_procs[curr_chunk_counter % self._args.num_gpus].enqueue_chunk(
             chunk,
             vlm_query=vlm_query,
@@ -2519,7 +2610,9 @@ class VlmPipeline:
         request_params = VlmRequestParams.from_vlm_query(vlm_query)
         if chat_messages:
             request_params.chat_messages = chat_messages
-        curr_chunk_counter = self._reserve_chunk_callback(chunk, on_chunk_result)
+        curr_chunk_counter = self._reserve_chunk_callback(
+            chunk, on_chunk_result, request_id=request_id
+        )
         if curr_chunk_counter is None:
             return
         with self._enqueue_lock:
@@ -2548,7 +2641,9 @@ class VlmPipeline:
         request_id="",
     ):
         request_params = VlmRequestParams.from_text_embeddings_query(text_embeddings_query)
-        curr_chunk_counter = self._reserve_chunk_callback(chunk, on_chunk_result)
+        curr_chunk_counter = self._reserve_chunk_callback(
+            chunk, on_chunk_result, request_id=request_id
+        )
         if curr_chunk_counter is None:
             return
         with self._enqueue_lock:
@@ -2574,13 +2669,21 @@ class VlmPipeline:
         chunk: ChunkInfo,
         on_chunk_result: Callable[[PipelineChunkResult], None],
         raise_on_unhealthy: bool = False,
+        request_id: str = "",
     ) -> int | None:
         with self._enqueue_lock:
+            cancelled = bool(request_id) and request_id in self._cancelled_request_ids
             curr_chunk_counter = self._chunk_counter
             self._chunk_counter += 1
-            if self._all_vlm_processes_healthy():
+            if not cancelled and self._all_vlm_processes_healthy():
                 self._chunk_callback_map[curr_chunk_counter] = on_chunk_result
+                if request_id:
+                    self._request_chunk_ids.setdefault(request_id, set()).add(curr_chunk_counter)
+                    self._chunk_request_ids[curr_chunk_counter] = request_id
                 return curr_chunk_counter
+        if cancelled:
+            on_chunk_result(PipelineChunkResult(chunk=chunk, cancelled=True))
+            return None
         if raise_on_unhealthy:
             raise ServiceException(MODEL_BACKEND_UNAVAILABLE_MESSAGE, "ServiceUnavailable", 503)
         on_chunk_result(
