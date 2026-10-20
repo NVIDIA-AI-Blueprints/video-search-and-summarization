@@ -1,27 +1,28 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Approximate playback KPIs from Jenkins benchmark-perf-test #65
-# (vss-behavior-analytics:nightly-20261017, warehouse_2d Kafka playback,
-# last latency-monitor dump). Headroom is ~5-10x the measured corrected
-# latency so the first gate catches collapse, not tight SLOs.
-# Yun / Ganapathy should replace these values. FR-10 later replaces this
-# file with dynamic per-release baselines.
+# Playback KPI thresholds from Yun He, 2026-10-19:
+# https://nvidia.slack.com/archives/C05RW9T7X7V/p1792432872569139
+# ?thread_ts=1792203671.915059
+#
+# Message Type        | p50 (s) | p99 (s)
+# Frame Messages      | 0.02    | 0.05
+# Incident Messages   | 0.03    | 0.06
+# Behavior Messages   | 0.04    | 0.1
+# Event Messages      | 0.04    | 0.1
 #
 # Latency limits are seconds. BA topics use topic-minus-raw (corrected).
+# min_count is a run-validity floor, not part of Yun's table.
+# Warehouse kafka playback currently reports ~6s behavior latency because
+# of behaviorWatermarkSec; that will fail these behavior p50/p99 gates
+# until the monitor matches Yun's in-process numbers.
 
 schema_version: "0.1"
 service: behavior-analytics
 source:
-  job: benchmark-perf-test/65
-  artifact_ref: nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-behavior-analytics:nightly-20261017
+  owner: Yun He
+  slack: https://nvidia.slack.com/archives/C05RW9T7X7V/p1792432872569139
   setup: warehouse_2d_kafka_playback
-  measured:
-    raw_count: 5649
-    frames_p95_s: 0.011
-    events_p95_s: 0.042
-    incidents_p95_s: 0.011
-    behavior_avg_s: 6.015
 
 scenarios:
   quick_test:
@@ -34,21 +35,19 @@ scenarios:
         - incidents
       raw:
         min_count: 1000
-        max_p95_s: 0.01
       frames:
         min_count: 1000
-        max_avg_s: 0.05
-        max_p95_s: 0.08
+        max_p50_s: 0.02
+        max_p99_s: 0.05
+      incidents:
+        min_count: 1000
+        max_p50_s: 0.03
+        max_p99_s: 0.06
+      behavior:
+        min_count: 1
+        max_p50_s: 0.04
         max_p99_s: 0.1
       events:
         min_count: 10
-        max_avg_s: 0.1
-        max_p95_s: 0.2
-      incidents:
-        min_count: 1000
-        max_avg_s: 0.05
-        max_p95_s: 0.08
-      behavior:
-        min_count: 1
-        max_avg_s: 15.0
-        max_p95_s: 20.0
+        max_p50_s: 0.04
+        max_p99_s: 0.1

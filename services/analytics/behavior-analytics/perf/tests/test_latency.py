@@ -102,11 +102,15 @@ class LatencyCorrectionTest(unittest.TestCase):
             duration_seconds=60,
             warmup_seconds=10,
         )
-        self.assertTrue(result["success"])
+        self.assertFalse(result["success"], result.get("error"))
         self.assertEqual(result["raw"]["count"], 5649)
         self.assertEqual(result["topics"]["frames"]["total"]["count"], 5670)
         self.assertAlmostEqual(result["topics"]["frames"]["corrected"]["avg_s"], 0.007333, places=5)
-        self.assertTrue(result["kpis"]["passed"], result["kpis"])
+        self.assertFalse(result["kpis"]["passed"], result["kpis"])
+        self.assertTrue(
+            any("behavior.corrected.p50_s" in item for item in result["kpis"]["violations"]),
+            result["kpis"],
+        )
 
     def test_subtract_raw_from_output_topics(self) -> None:
         result = correct_topics(parse_latency_report(REPORT))
@@ -122,9 +126,20 @@ class LatencyCorrectionTest(unittest.TestCase):
         kpis = load_kpis()
         simple = _load_simple_yaml(DEFAULT_KPIS_PATH.read_text())
         spec = kpis["scenarios"]["quick_test"]["warehouse_2d-kafka-playback"]
-        self.assertEqual(simple["scenarios"]["quick_test"]["warehouse_2d-kafka-playback"]["frames"]["max_p95_s"], spec["frames"]["max_p95_s"])
+        self.assertEqual(
+            simple["scenarios"]["quick_test"]["warehouse_2d-kafka-playback"]["frames"]["max_p50_s"],
+            spec["frames"]["max_p50_s"],
+        )
+        self.assertEqual(spec["frames"]["max_p50_s"], 0.02)
+        self.assertEqual(spec["frames"]["max_p99_s"], 0.05)
+        self.assertEqual(spec["incidents"]["max_p50_s"], 0.03)
+        self.assertEqual(spec["incidents"]["max_p99_s"], 0.06)
+        self.assertEqual(spec["behavior"]["max_p50_s"], 0.04)
+        self.assertEqual(spec["behavior"]["max_p99_s"], 0.1)
+        self.assertEqual(spec["events"]["max_p50_s"], 0.04)
+        self.assertEqual(spec["events"]["max_p99_s"], 0.1)
         self.assertEqual(spec["required_topics"], ["raw", "frames", "behavior", "events", "incidents"])
-        passing = build_result(
+        measured = build_result(
             CUMULATIVE_REPORT,
             artifact_ref="nvcr.io/example/behavior-analytics:test",
             scenario="quick_test",
@@ -132,20 +147,37 @@ class LatencyCorrectionTest(unittest.TestCase):
             duration_seconds=60,
             warmup_seconds=10,
         )
+        self.assertFalse(measured["success"], measured.get("error"))
+        self.assertTrue(
+            any("behavior.corrected.p50_s" in item for item in measured["kpis"]["violations"]),
+            measured["kpis"],
+        )
+        in_process = CUMULATIVE_REPORT
+        for token in ("6.011", "6.012", "6.013", "6.015", "6.016", "6.017", "6.018", "6.020"):
+            in_process = in_process.replace(token, "0.030")
+        passing = build_result(
+            in_process,
+            artifact_ref="nvcr.io/example/behavior-analytics:test",
+            scenario="quick_test",
+            config_id="warehouse_2d-kafka-playback",
+            duration_seconds=60,
+            warmup_seconds=10,
+        )
         self.assertTrue(passing["success"], passing.get("error"))
+        self.assertTrue(passing["kpis"]["passed"], passing["kpis"])
         tight = {
             "scenarios": {
                 "quick_test": {
                     "warehouse_2d-kafka-playback": {
                         "required_topics": ["raw", "frames"],
-                        "frames": {"max_p95_s": 0.001},
+                        "frames": {"max_p50_s": 0.001},
                     }
                 }
             }
         }
-        failed = evaluate_kpis(passing, tight)
+        failed = evaluate_kpis(measured, tight)
         self.assertFalse(failed["passed"])
-        self.assertTrue(any("frames.corrected.p95_s" in item for item in failed["violations"]))
+        self.assertTrue(any("frames.corrected.p50_s" in item for item in failed["violations"]))
         missing_events = build_result(
             REPORT,
             artifact_ref="nvcr.io/example/behavior-analytics:test",
