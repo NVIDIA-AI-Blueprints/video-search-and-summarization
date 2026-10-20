@@ -297,7 +297,7 @@ agent:
       - name: NVIDIA_API_KEY
         value: ''
       - name: OPENAI_API_KEY
-        value: ''
+        value: 'NOAPIKEYSET'
       - name: INSTALL_PROPRIETARY_CODECS
         value: 'true'
       # Enterprise RAG defaults used by config_rag.yml when enabled.

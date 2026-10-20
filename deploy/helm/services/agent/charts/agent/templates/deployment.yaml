@@ -95,6 +95,12 @@ spec:
               mountPath: /etc/vss-agent/config.yml
               subPath: config.yml
               readOnly: true
+            {{- if .Values.searchPromptPolicy | default false }}
+            - name: config
+              mountPath: /etc/vss-agent/search_prompt_policy.py
+              subPath: search_prompt_policy.py
+              readOnly: true
+            {{- end }}
             {{- if .Values.mountConfigEdge }}
             - name: config
               mountPath: /etc/vss-agent/config_edge.yml

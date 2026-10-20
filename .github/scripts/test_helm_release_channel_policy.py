@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Regression tests for the shared Docker/Helm managed-image channel."""
+
 from __future__ import annotations
 
 import json
@@ -246,19 +247,40 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
 
     def test_search_profile_does_not_pin_managed_ui_image(self):
         text = (
-            REPO_ROOT
-            / "deploy/helm/developer-profiles/dev-profile-search/values.yaml"
+            REPO_ROOT / "deploy/helm/developer-profiles/dev-profile-search/values.yaml"
         ).read_text()
         self.assertNotIn(f"{NGC_STAGING_ROOT}/vss-agent-ui", text)
 
-    def test_compose_keeps_the_managed_developer_channel(self):
+    def test_compose_defaults_to_release_channel(self):
         for name, relative_paths in COMPOSE_FILES.items():
             for relative_path in relative_paths:
                 text = (REPO_ROOT / relative_path).read_text()
-                self.assertIn(GHCR_ROOT, text)
+                self.assertIn(RELEASE_ROOT, text)
                 self.assertIn(f"/{name}", text)
-                self.assertIn(COMPOSE_TAG_VARIABLES.get(name, "VSS_CONTAINER_TAG"), text)
-                self.assertIn("develop-latest", text)
+                self.assertIn(
+                    COMPOSE_TAG_VARIABLES.get(name, "VSS_CONTAINER_TAG"), text
+                )
+                self.assertIn(RELEASE_TAG, text)
+                self.assertNotIn("develop-latest", text)
+
+    def test_base_profile_vlm_memory_matches_compose(self):
+        compose = (
+            REPO_ROOT
+            / "deploy/docker/developer-profiles/dev-profile-base/overrides.env"
+        ).read_text()
+        helm = (
+            REPO_ROOT / "deploy/helm/developer-profiles/dev-profile-base/values.yaml"
+        ).read_text()
+        fraction = re.search(
+            r"^RTVI_VLLM_GPU_MEMORY_UTILIZATION=(.+)$", compose, re.MULTILINE
+        )
+        helm_fraction = re.search(
+            r'- name: VLLM_GPU_MEMORY_UTILIZATION\n\s+value: "([^"]*)"', helm
+        )
+        self.assertIsNotNone(fraction)
+        self.assertIsNotNone(helm_fraction)
+        self.assertEqual(fraction[1], "0.4")
+        self.assertEqual(helm_fraction[1], fraction[1])
 
     def test_helm_sync_prompt_enforces_shared_channel(self):
         prompt = (REPO_ROOT / ".github/helm-sync/AGENTS.md").read_text()

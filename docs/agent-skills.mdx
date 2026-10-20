@@ -63,6 +63,24 @@ VSS Agent Skills are used in two complementary ways:
   manage cameras and streams, submit and verify alerts, run searches, summarize videos,
   and generate reports through natural-language chat.
 
+### Validate a release Compose plan
+
+For VSS 3.3.0, run the host-side release validator from the repository checkout
+before deploying a generated `resolved.yml`:
+
+```bash
+export VSS_CONTAINER_TAG=3.3.0  # or the image tag selected for this deployment
+# Export the tag before generating resolved.yml with docker compose config.
+uv run --script deploy/docker/scripts/validate_release_compose.py \
+  resolved.yml --repo-root . --expect-container-tag "$VSS_CONTAINER_TAG"
+```
+
+This entry point supplies the release's `3.3.0` fallback to the shared Skill
+validator. It catches managed images left on that fallback when another tag
+was selected, and retains the placeholder, bind-mount, credential, and Alerts UI
+checks. Mirrored ecosystem images keep their independent tag pins. Use this
+release entry point when following the Skill's pre-deployment validation step.
+
 ## Available Skills
 
 The official VSS Agent Skills are published in the `skills/` folder of the
@@ -161,6 +179,26 @@ For more information on agent harnesses with VSS, see [Agent Harnesses](/vss/vis
 | Claude Code | `~/.claude/skills/<name>/` |
 | Codex | `~/.codex/skills/<name>/` |
 | Other `agentskills.io`-compatible hosts | `~/.agents/skills/<name>/` |
+
+## Discovering and invoking a Skill
+
+From a new session opened at the checkout root, ask the agent to read
+`skills/README.md` and list the installed VSS Skills. Installation takes a
+Skill directory containing `SKILL.md`; the category name `operations` is not
+part of the invocable name. If discovery misses a Skill, give its path or use
+an explicit invocation.
+
+| Host | Explicit deployment prompt |
+| --- | --- |
+| Codex | `$vss-build-vision-ai Deploy the VSS base profile on this machine with NemoClaw.` |
+| Claude Code | `/vss-build-vision-ai Deploy the VSS base profile on this machine with NemoClaw.` |
+| Other compatible harness | `Read skills/vss-build-vision-ai/SKILL.md and use it to deploy the VSS base profile with NemoClaw.` |
+
+Use a model with tool use and enough context for the deployment plan. Choose
+high reasoning effort if your host exposes that control. The validation
+statement above records the tested model; it does not establish that every
+model/effort combination has been tested. If an intake question tool is
+unavailable, ask the agent to present the question in ordinary conversation.
 
 ## Installing Skills
 

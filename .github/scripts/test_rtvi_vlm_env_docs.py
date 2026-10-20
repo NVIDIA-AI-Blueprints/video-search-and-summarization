@@ -53,8 +53,8 @@ def main() -> None:
         assert PUBLIC_IMAGE in path.read_text(encoding="utf-8")
 
     helm_values = HELM_VALUES.read_text(encoding="utf-8")
-    assert "repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm" in helm_values
-    assert 'tag: "develop-latest"' in helm_values
+    assert "repository: nvcr.io/nvidia/vss-core/vss-rt-vlm" in helm_values
+    assert 'tag: "3.3.0"' in helm_values
 
     assert (
         "https://github.com/NVIDIA-AI-Blueprints/"

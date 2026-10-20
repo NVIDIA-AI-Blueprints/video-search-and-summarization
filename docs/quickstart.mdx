@@ -141,6 +141,11 @@ release-specific.
 
 ## Prepare your coding agent
 
+For an agent-assisted check, ask your host coding agent to read
+`docs/prerequisites.mdx` and verify the shared prerequisites, GPU memory,
+free model/data disk space, occupied ports, and required credentials. Have it
+report missing values without displaying secrets before starting deployment.
+
 Run the coding agent in an environment that can access the VSS Blueprint checkout
 and run deployment commands on the target host. For the Docker Compose
 quickstart, the deployment host must meet the supported Linux platform,
@@ -639,6 +644,7 @@ RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 
 ```ini
 HARDWARE_PROFILE=H100
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 LLM_DEVICE_ID=0
 VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
@@ -650,6 +656,7 @@ VLM_MODE=local
 
 ```ini
 HARDWARE_PROFILE=H100
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -779,6 +786,7 @@ RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 LLM_DEVICE_ID=0
 VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
@@ -790,6 +798,7 @@ VLM_MODE=local
 
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -971,6 +980,7 @@ See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) for kno
 
 ```ini
 HARDWARE_PROFILE=OTHER
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 LLM_ENV_FILE=/path/to/llm.env
 VLM_ENV_FILE=/path/to/vlm.env
 ```
@@ -979,6 +989,7 @@ VLM_ENV_FILE=/path/to/vlm.env
 
 ```ini
 HARDWARE_PROFILE=OTHER
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 LLM_DEVICE_ID=0
 VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
@@ -992,6 +1003,7 @@ VLM_ENV_FILE=/path/to/vlm.env
 
 ```ini
 HARDWARE_PROFILE=OTHER
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -1040,6 +1052,20 @@ RTVI_VLM_MODEL_PATH=none
 </Tab>
 </Tabs>
 
+### Shared GPU memory and port checks
+
+The base template sets `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4`, leaving
+headroom for the local LLM and CUDA allocations on the reviewed 96 GB GPU.
+Inspect `nvidia-smi` before launch and compare the selected layout with the
+[GPU requirements](/getting-started/prerequisites#development-profile-gpu-requirements).
+Other models, GPUs, or active workloads require a fresh memory budget.
+
+Before launch, inspect `df -h` for the model/data filesystem and `ss -ltn`
+for occupied ports. If Redis reports `address already in use` on port 6379,
+change the existing `REDIS_HOST_PORT=6379` assignment to `REDIS_HOST_PORT=6380`
+in `user-overrides.env`, choose another free port if needed, and rerun the same
+Compose command. Container traffic still uses Redis's internal port 6379.
+
 After replacing every placeholder in the selected layout, from `deploy/docker`
 validate the resolved configuration, then start the profile:
 
@@ -1055,8 +1081,15 @@ docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
   --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up --detach --pull always --force-recreate --build
+  up --detach --pull always --force-recreate --build --wait
 ```
+
+`--wait` waits for services to be running or healthy; container creation alone
+does not establish readiness. Cold first starts can take more than 20 minutes
+while models download and load. If you set `--wait-timeout`, it also limits each
+`service_healthy` dependency wait, so allow for the slowest cold-start healthcheck
+budget. If startup fails, inspect the failing service's state and logs before
+recreating containers.
 
 Review every unset-variable warning from `config --quiet` against the selected
 profile before running `up --detach --pull always --force-recreate --build`. A zero exit code confirms that Compose could

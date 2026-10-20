@@ -35,6 +35,8 @@ service:
 # default; profiles whose agent runs long operations (search, LVS) raise it.
 ingressTimeoutServer: ""
 profile: base
+# Enable with search_prompt_policy.SearchPromptWorker and its ConfigMap module.
+searchPromptPolicy: false
 # Structured NAT interactions are enabled by default; set false to disable.
 # Keep the matching UI NEXT_PUBLIC_* HITL flags aligned in the same release.
 hitlEnabled: true
@@ -187,7 +189,7 @@ env:
 - name: NVIDIA_API_KEY
   value: ''
 - name: OPENAI_API_KEY
-  value: ''
+  value: 'NOAPIKEYSET'
 # Patent-encumbered media codecs (H.264/H.265) are NOT bundled in the image for
 # licensing reasons. Defaults to 'true': opencv-python-headless is installed from
 # PyPI at container startup so video decoding works out of the box. Set to 'false'
