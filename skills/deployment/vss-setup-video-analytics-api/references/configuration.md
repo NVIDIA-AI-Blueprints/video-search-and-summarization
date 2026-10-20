@@ -115,6 +115,9 @@ Any absolute host path. Copy one of the above as a starting point and edit. Bind
 ## Tips
 
 - Keep `server.configs[].value` as strings — the server parses types internally.
-- When running with `network_mode: "host"`, Elasticsearch and Kafka must also be on the host network.
+- The service-shipped config uses Compose DNS (`elasticsearch:9200`,
+  `kafka:29092`) on the default bridge network. If a custom deployment switches
+  this service to host networking, it must also replace those addresses with
+  host-reachable endpoints.
 - `STREAM_TYPE` must be `kafka` or `redis`; when unset, it defaults to `kafka`. Select `redis` to skip Kafka startup work. For `kafka`, set `kafka.brokers` to `[]` to skip Kafka startup work. Kafka-dependent endpoints (dynamic config, dynamic calibration, RTLS/AMR) require `STREAM_TYPE=kafka` and configured brokers.
 - The `amrRetentionInSec` default is `"3"` in both the service-shipped config and the image-baked default.

@@ -147,7 +147,7 @@ Neo4j graph backend with the open-source `neo4j:5.26.4` container:
 
 ```bash
 LVS_DATABASE_BACKEND=graph_db
-GRAPH_DB_HOST=127.0.0.1          # or ${HOST_IP}; avoid graph-db with host-networked lvs-server
+GRAPH_DB_HOST=graph-db            # Compose service name
 GRAPH_DB_USERNAME=neo4j
 GRAPH_DB_PASSWORD=<neo4j-password>
 GRAPH_DB_HTTP_PORT=7474
@@ -163,7 +163,7 @@ container:
 
 ```bash
 LVS_DATABASE_BACKEND=graph_db_arango
-ARANGO_DB_HOST=127.0.0.1         # or ${HOST_IP}; avoid arango-db with host-networked lvs-server
+ARANGO_DB_HOST=arango-db          # Compose service name
 ARANGO_DB_USERNAME=root
 ARANGO_DB_PASSWORD=<arango-password>
 ARANGO_DB_PORT=8529
@@ -183,11 +183,10 @@ embedding endpoint and copy it into `LVS_EMB_MODEL_NAME`:
 curl -fsS "${LVS_EMB_BASE_URL%/}/models" | jq -r '.data[].id'
 ```
 
-The current Docker `lvs-server` runs with host networking, while the checked-in
-video summarization compose uses `graph-db` / `arango-db` as default service
-hostnames. If you deploy the DB containers from a Compose override, override
-the corresponding DB host env to a host-reachable address (`127.0.0.1` or
-`${HOST_IP}`) in the resolved deployment.
+The current Docker `lvs-server` uses the default Compose bridge network, and
+the checked-in compose uses `graph-db` / `arango-db` as service hostnames.
+Override the corresponding DB host only when the database runs outside that
+Compose network.
 
 ## Runtime Rules
 

@@ -13,7 +13,7 @@ The Alert Microservice (`alert-bridge`, image `vss-alert-ms`, container
 exposes a FastAPI REST surface on `:9080` (verification ingress
 `/api/v1/alerts`, `/api/v1/incidents`, `/api/v1/verification/ondemand`;
 verifier-prompt config CRUD `/api/v1/verification/config`; realtime rules
-`/api/v1/realtime`; `/health`, `/metrics`) and runs a Kafka/Redis event-bridge
+`/api/v1/realtime`; `/health`, `/metrics`) and runs a Kafka event-bridge
 worker pool. Its core loop is: **(1)** receive a candidate event, **(2)** resolve
 the sensor/stream and retrieve its VIOS/VST clip, **(3)** send the clip and
 prompt to a VLM, and **(4)** publish the verdict to the broker and/or
@@ -35,7 +35,7 @@ VSS showcases **two approaches** for using a VLM to generate alerts in the agent
 - **Key features:** RTVI CV real-time open-vocabulary object detection (Grounding DINO); Behavior Analytics rule-based/configurable alert generation; VLM-based clip review to **reduce false positives**; alert storage for query/reporting; report generation (via VSS Agent).
 - **Estimated deployment time:** 15–20 minutes.
 
-Source-of-truth definitions: `deploy/docker/services/alert/compose.yml` (the `alert-bridge` service block), `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml` (the CV-side `perception-alerts` + `vss-behavior-analytics-alerts` + `nvstreamer-alerts` + agent/analytics services), `services/alert/config.yaml` (runtime config: VST/Kafka/Redis/VLM/sinks), and `services/alert/openapi.json` (the full 14-endpoint REST schema).
+Source-of-truth definitions: `deploy/docker/services/alert/compose.yml` (the `alert-bridge` service block), `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml` (the CV-side `perception-alerts` + `vss-behavior-analytics-alerts` + `nvstreamer-alerts` + agent/analytics services), `deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml` (runtime VST/Kafka/VLM/sink config), and the repository-root `services/alert/openapi.json` plus `services/alert/schemas/` (API contract).
 
 ## Required Peer Services
 

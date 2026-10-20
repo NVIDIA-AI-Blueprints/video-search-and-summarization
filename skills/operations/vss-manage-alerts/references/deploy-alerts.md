@@ -49,13 +49,13 @@ Microservice**, formerly "Alert Verification" / "Alert Bridge"; image
 
 | Mount Path | Purpose | Type | Size estimate | Required permissions |
 |---|---|---|---|---|
-| `/app/configs/config.yml` | Verifier runtime config (VST/Kafka/Redis/VLM/sinks) | bind (ro) | < 1 MB | readable by container |
+| `/app/configs/config.yml` | Verifier runtime config (VST/Kafka/VLM/sinks) | bind (ro) | < 1 MB | readable by container |
 | `/app/configs/realtime-config.yml` | Optional always-on / realtime rule config source; required when always-on is enabled | bind (ro) | < 1 MB | readable by container |
 | `/app/alert_type_config.json` | CV `category` → VLM verifier prompt map (CV mode) | bind (ro) | < 1 MB | readable by container |
 | `/app/env-substitute.py` | Entrypoint that renders the required main YAML and optional realtime YAML | bind (ro) | < 1 MB | readable by container |
 | `/app/runtime` | Resolved `config.yml` and `realtime-config.yml` outputs (`CONFIG_PATH` / `ALWAYS_ON_RULES_CONFIG`) | tmpfs | 10 MB | `mode=1777` (compose-set) |
 
-No large or persistent volumes are required by `alert-bridge` itself. Durable state (alert configs, prompts, realtime rules) is stored in **Elasticsearch** (`persistence.backend: elasticsearch`, index prefix `ab-`), so it survives `docker compose down` independently of this container. Dedup state lives in **Redis** (TTL-bounded).
+No large or persistent volumes are required by `alert-bridge` itself. Durable state (alert configs, prompts, realtime rules, and confirmed-verdict protection) is stored in **Elasticsearch** (`persistence.backend: elasticsearch`, index prefix `ab-`), so it survives `docker compose down` independently of this container. Event deduplication is TTL-bounded in process.
 
 ## Startup Behavior
 
@@ -101,7 +101,7 @@ healthcheck:
 - **Docker / Compose:** Compose v2.36+ (the same `depends_on` strip requirement as the rest of VSS — undefined `required: false` peers are rejected at project-load).
 - **API keys:** `NGC_CLI_API_KEY` (image pull). `NVIDIA_API_KEY` if the VLM peer uses a remote build.nvidia.com endpoint.
 - **Free ports:** `9080` (REST realtime API) on the host interface.
-- **Reachable peers:** Kafka `:9092`, Redis `:6379`, Elasticsearch `:9200`, VIOS/VST `:30888`, and a verification VLM (`:8018` RT-VLM or `:30082` NIM).
+- **Reachable peers:** from `alert-bridge`, Kafka at `kafka:29092`, Elasticsearch at `elasticsearch:9200`, VIOS/VST at `vst-ingress:30888`, and the selected verification VLM (by default `rtvi-vlm:8000`).
 - **Network reachability:** `nvcr.io` for the image pull.
 
 ## Verify Deployment
@@ -119,4 +119,4 @@ curl -sf "http://${HOST_IP}:9200/mdx-vlm-incidents/_count" | jq '.count'
 
 ## Tear Down
 
-`docker compose ... --profile <flag> down` stops `alert-bridge`. Durable alert configs / prompts / realtime rules persist in Elasticsearch (`ab-*` indices) and are NOT removed by stopping the container; `down -v` removes Redis/ES volumes and therefore wipes dedup state and persisted rules. Warn the operator before using `-v`.
+`docker compose ... --profile <flag> down` stops `alert-bridge`. Durable alert configs / prompts / realtime rules persist in Elasticsearch (`ab-*` indices) and are NOT removed by stopping the container; `down -v` removes the ES volume and therefore wipes persisted rules and verdict state. Warn the operator before using `-v`.

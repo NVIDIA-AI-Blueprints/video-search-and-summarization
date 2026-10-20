@@ -8,7 +8,7 @@ Use this service when the workflow requires either (a) dense captioning of a sto
 
 ## Required Peer Services
 
-- **Kafka** — required when `MESSAGE_BUS=kafka`. RT-VLM publishes generated caption records to `${MESSAGE_BUS_TOPIC}` and incident protobuf records to `${KAFKA_INCIDENT_TOPIC}`. Broker must be reachable at `${KAFKA_BOOTSTRAP_SERVERS}` (compose default `${HOST_IP}:9092` for host-network Kafka).
+- **Kafka** — required when `MESSAGE_BUS=kafka`. RT-VLM publishes generated caption records to `${MESSAGE_BUS_TOPIC}` and incident protobuf records to `${KAFKA_INCIDENT_TOPIC}`. Broker must be reachable at `${KAFKA_BOOTSTRAP_SERVERS}` (Compose default `kafka:29092`).
 - **Sibling VLM backend** — required when `VLM_MODEL_TO_USE=openai-compat`,
   which is the Compose default. Use `cosmos3-reasoner` or
   `cosmos3-reasoner-shared-gpu` at `${VIA_VLM_ENDPOINT}`, or a remote
@@ -115,7 +115,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `RTVI_VLM_PORT` | Host REST API port (rewrites to container `8000`) | strict (`${RTVI_VLM_PORT?}`) | **Yes** |
-| `HOST_IP` | Interpolated into `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; no fallback | — | **Yes (effective)** |
+| `HOST_IP` | Host-reachable address used by external endpoints; not needed for the default in-Compose Kafka endpoint | — | conditional |
 | `VSS_DATA_DIR` | Bind-mount root for VST clip storage `${VSS_DATA_DIR}/data_log/vst/clip_storage` | — | **Yes** |
 | `NGC_CLI_API_KEY` / `RTVI_VLM_API_KEY` | rewrites to `NGC_API_KEY` + `VIA_VLM_API_KEY` for model download and NIM auth | — | **Yes** |
 | `HF_TOKEN` | Gated HuggingFace pulls (Qwen3-VL, Cosmos3) | — | conditional |
@@ -128,7 +128,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | `RTVI_VLM_MESSAGE_BUS_TOPIC` → `MESSAGE_BUS_TOPIC` | Caption topic / Redis stream | `mdx-vlm-captions` (VSS 3.2 — subscribed by `mdx-lvs` Logstash pipeline) | optional |
 | `RTVI_VLM_ERROR_BUS` → `ERROR_BUS` | Error-output broker type | `kafka` | optional; empty disables errors |
 | `RTVI_VLM_KAFKA_INCIDENT_TOPIC` → `KAFKA_INCIDENT_TOPIC` | Incident topic | `mdx-vlm-incidents` | optional |
-| `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `${HOST_IP}:9092` (host-net) or `kafka:9092` (compose-net) | **Yes (effective)** |
+| `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `kafka:29092` | **Yes (effective)** |
 | `RTVI_VLM_ERROR_MESSAGE_TOPIC` → `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
@@ -139,11 +139,11 @@ The host-side variable names that the compose interpolates differ from the canon
 - **Ports exposed:** `${RTVI_VLM_PORT}:8000` (host:container). FastAPI binds `0.0.0.0:8000` inside the container. No other host-bound ports.
 - **Inbound traffic:** REST clients on `${RTVI_VLM_PORT}` for API. No inbound from peers — RT-VLM is a pure publisher to Kafka and pure REST callee.
 - **Outbound traffic:**
-  - Kafka broker on `${KAFKA_BOOTSTRAP_SERVERS}` (host:9092 by default)
+  - Kafka broker on `${KAFKA_BOOTSTRAP_SERVERS}` (`kafka:29092` by default)
   - Redis on `${REDIS_HOST}:${REDIS_PORT}` when `ENABLE_REDIS_ERROR_MESSAGES=true`
   - NIM backend on `${VIA_VLM_ENDPOINT}` when `VLM_MODEL_TO_USE=openai-compat`
   - NGC image registry `nvcr.io`, `huggingface.co` for model downloads on first boot
-- **DNS / hostname assumptions:** the compose default `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` assumes Kafka runs on the **host network**, not the compose bridge — this is the foundational IN-1 wiring (compose puts the broker on `network_mode: host` and RT-VLM on bridge → RT-VLM reaches it via the host IP). `extra_hosts: host.docker.internal: host-gateway` is wired as an alternative way to reach the host. Source: `real-time-vlm.rst` § Sample docker-compose.yml (lines 386–388) + `deploy-rt-vlm-service.md` §10.
+- **DNS / hostname assumptions:** the Compose default `kafka:29092` uses service-name DNS on the Compose bridge. For an external broker, override `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` with a container-reachable address such as `host.docker.internal:9092`; `extra_hosts: host.docker.internal: host-gateway` provides that host alias.
 - **`network_mode`:** bridge (default Docker compose network). RT-VLM does NOT use `network_mode: host` — distinguishing it from the ELK + Kafka foundational services.
 
 ## Known Integration Constraints
@@ -190,7 +190,7 @@ services:
       MESSAGE_BUS_TOPIC: "${RTVI_VLM_MESSAGE_BUS_TOPIC:-mdx-vlm-captions}"
       ERROR_BUS: "${RTVI_VLM_ERROR_BUS:-kafka}"
       KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-mdx-vlm-incidents}"
-      KAFKA_BOOTSTRAP_SERVERS: "${HOST_IP}:9092"
+      KAFKA_BOOTSTRAP_SERVERS: "${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}"
       ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-mdx-vlm-errors}"
     deploy:
       resources:

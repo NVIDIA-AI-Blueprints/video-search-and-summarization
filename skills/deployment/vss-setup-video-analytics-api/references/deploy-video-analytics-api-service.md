@@ -134,7 +134,10 @@ If you don't need image upload endpoints, you can drop this mount — the contai
 
 The server waits for Elasticsearch and the `insertion-timestamp-pipeline` before it registers routes and binds port 8081. With `STREAM_TYPE=kafka` and configured brokers, it also waits for its required Kafka topics. Thus an unavailable `/livez` does not identify which bootstrap prerequisite is missing. An open Elasticsearch port or a healthy cluster alone does not prove that the custom ingest pipeline exists.
 
-Make sure the `elasticsearch.node` in your config matches the running ES instance. With `network_mode: "host"`, ES must also be on the host network.
+Make sure the `elasticsearch.node` in your config matches the running ES
+instance. The service-shipped config expects Compose DNS at
+`http://elasticsearch:9200`; a custom host-network deployment must replace it
+with a host-reachable endpoint and similarly update the Kafka broker address.
 
 If you need to bring up Elasticsearch too, start the database and its initializer together:
 

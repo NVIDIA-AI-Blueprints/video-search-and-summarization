@@ -19,8 +19,8 @@ Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode 
 segmentation → VLM inference (vLLM) → Kafka publication (NvSchema protobuf).
 In this compose, rtvi-vlm can call a **sibling NIM**
 (`cosmos3-reasoner` or `cosmos3-reasoner-shared-gpu`) over
-OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). **Kafka lives on the
-host**, not in-compose (`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`).
+OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). Kafka defaults to
+the in-Compose endpoint `kafka:29092`.
 
 ## 2. Related Skill
 
@@ -46,7 +46,8 @@ live-authoritative schema — see §16.
   - `shm_size: '16gb'` — required for vLLM IPC. Source: `real-time-vlm.rst` § Sample docker-compose.yml line 278.
   - `ulimits: { memlock: { soft: -1, hard: -1 }, stack: 67108864 }` — required for vLLM page-locked allocations. Source: lines 378–382.
   - `ipc: host` — required so vLLM shared-memory IPC reaches the host kernel SHM segment. Source: line 383.
-- **Kafka on host** reachable at `${HOST_IP}:9092` (compose does NOT bundle Kafka)
+- **Kafka** reachable at `kafka:29092` by default; override
+  `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` for an external broker.
 - **Sibling NIM compose** providing the VLM backend: rtvi-vlm `depends_on`
   `cosmos3-reasoner` / `cosmos3-reasoner-shared-gpu`, both `required: false`.
   Launch one first, or configure `openai-compat` with an external endpoint.
@@ -299,9 +300,8 @@ RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 
 # rtvi-vlm.env for cosmos-reason1:
-# Confirm the release-supported reason1 tag from VSS release notes or
-# deploy/docker/services/nim/cosmos-reason1-7b/compose.yml before use; do not
-# reuse the cosmos-reason2 hf-1208 tag.
+# Confirm a release-supported reason1 tag from the VSS release notes before
+# use; this repository has no reason1 NIM Compose definition.
 RTVI_VLM_MODEL_TO_USE=cosmos-reason1
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason1-7b:release-supported-tag
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
@@ -690,7 +690,7 @@ once the service is up):
 |---|---|---|
 | `docker compose up` starts nothing | `--profile` not specified | Add `--profile rtvi-vlm` (§12) |
 | `Exited (1)` immediately, logs mention `RTVI_VLM_PORT` | Strict sentinel fired | Set `RTVI_VLM_PORT` in `rtvi-vlm.env` |
-| Container starts but Kafka errors `:9092 connection refused` or offsets stay at 0 | `HOST_IP` unset, or no broker is reachable at `${HOST_IP}:9092` when RT-VLM starts | Set `HOST_IP` to an address reachable from the container, start Kafka with that advertised listener, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
+| Container starts but Kafka connection errors appear or offsets stay at 0 | No broker is reachable at `${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` when RT-VLM starts | Start the in-Compose Kafka service, or set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to a container-reachable external broker, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
 | Volume mount error mentioning `data_log/vst/clip_storage` | `VSS_DATA_DIR` unset → malformed mount | Set `VSS_DATA_DIR`; pre-create the `data_log/vst/clip_storage` subtree |
 | `sudo -n chown` reports that a password is required or fails in an agent session | Host path ownership requires user privileges and passwordless sudo is unavailable | Ask the host owner to run `sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"`; do not use `chmod 777` |
 | `sudo -n docker ...` reports that a password is required | Docker requires elevated privileges, but the agent cannot satisfy an interactive sudo prompt | Prefer adding the user to the docker group, enable passwordless sudo for Docker, or have the host owner run the printed Docker command manually. Do not retry with interactive sudo. |
