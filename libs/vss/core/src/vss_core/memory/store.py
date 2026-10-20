@@ -3,8 +3,8 @@
 """Implementation-neutral store contract for unified memory.
 
 Concrete backends live under ``memory.backends`` (``InMemoryStore``,
-``ElasticsearchMemoryStore``). Keep this module free of backend code so the
-tree matches ``vss_core.knowledge`` (contract vs implementations).
+``ElasticsearchMemoryStore``). Keep this module free of backend code
+(contract vs implementations).
 
 Public identities:
 

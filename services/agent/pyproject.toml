@@ -34,6 +34,8 @@ nvidia-vss-agents = { workspace = true }
 # runs one way: the agent uses the library, never the reverse.
 nvidia-vss-core = { path = "../../libs/vss/core", editable = true }
 nvidia-vss-cli = { path = "../../libs/vss/cli", editable = true }
+# Knowledge retrieval (nvidia_vision_ai.knowledge) lives in the vision-ai workspace.
+nvidia-vision-ai = { path = "../../libs/vision-ai/libs/vision-ai", editable = true }
 # nvidia index currently only has langchain-nvidia-ai-endpoints up to 1.0.3; source = pypi so uv gets versions >1.0.3 from PyPI
 langchain-nvidia-ai-endpoints = { index = "pypi" }
 torch = [
@@ -146,11 +148,11 @@ cli = ["nvidia-vss-cli"]
 # installs `--extra agent`. Keeping cli here means `uv sync --extra agent`
 # resolves every package the suite imports. Do NOT drop nvidia-vss-cli.
 agent = ["nvidia-vss-agents", "nvidia-vss-cli"]
-arango_graph = [
-    "langchain-classic>=1.0",
-    "langchain-community>=0.3.27",
-    "python-arango>=8.2",
-]
+# Experimental knowledge backends (`--extra <backend>`); the adapters live in nvidia-vision-ai.
+arango_graph = ["nvidia-vision-ai[arango_graph]"]
+frag_lib = ["nvidia-vision-ai[frag_lib]"]
+langchain = ["nvidia-vision-ai[langchain]"]
+llama_index = ["nvidia-vision-ai[llama_index]"]
 all = ["nvidia-vss-agents", "nvidia-vss-cli"]
 
 [dependency-groups]
@@ -293,7 +295,7 @@ pretty = true
 explicit_package_bases = true
 namespace_packages = true
 ignore_missing_imports = true
-mypy_path = "packages/vss_agents/src:packages/vss_agents/stubs:../../libs/vss/core/src:../../libs/vss/cli/src"
+mypy_path = "packages/vss_agents/src:packages/vss_agents/stubs:../../libs/vss/core/src:../../libs/vss/cli/src:../../libs/vision-ai/libs/vision-ai/src"
 
 [[tool.mypy.overrides]]
 module = "docker.*"

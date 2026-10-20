@@ -52,7 +52,7 @@
       "name": "vss-agent",
       "strategy": "build",
       "ghcr_build": true,
-      "source_path": ["services/agent", "libs/vss"],
+      "source_path": ["services/agent", "libs/vss", "libs/vision-ai/libs/vision-ai"],
       "context": ".",
       "dockerfile": "services/agent/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],

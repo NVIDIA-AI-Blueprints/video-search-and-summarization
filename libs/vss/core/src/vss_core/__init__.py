@@ -17,7 +17,6 @@
 The base ``nvidia-vss`` distribution (no extras) supports ``lib.search_core``
 (whose ``critic`` verifier ships as a submodule), ``lib.vlm``, ``lib.vst``, and the
 ``vss`` console script
-with explicit runtime configuration. ``lib.knowledge`` belongs to the full
-agent application, may read deployment environment variables, and requires
-the dependencies installed by the ``agent`` extra (``nvidia-vss[agent]``).
+with explicit runtime configuration. Knowledge retrieval lives in
+``nvidia_vision_ai.knowledge`` (libs/vision-ai).
 """

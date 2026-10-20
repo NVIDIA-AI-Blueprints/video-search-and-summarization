@@ -629,6 +629,59 @@ jobs:
           name: vss-cli-coverage-report
           path: libs/vss/coverage-lib.xml
 
+  vision-ai-test:
+    name: Test (vision-ai)
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        # Mirrors metromind/cosmos-harness: its own workspace and lock.
+        working-directory: libs/vision-ai
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.6.2"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.13"
+
+      - name: Lint, type-check and test
+        run: |
+          uv sync --frozen
+          uv run --frozen ruff check .
+          uv run --frozen ruff format --check .
+          uv run --frozen pyright
+          uv run --frozen pytest -q
+
+      - name: Smoke-test built wheels in a clean environment
+        run: |
+          rm -rf dist .wheel-smoke
+          uv build --all-packages --out-dir dist
+          uv venv --python 3.13 .wheel-smoke
+          uv pip install --python .wheel-smoke/bin/python dist/*.whl
+          .wheel-smoke/bin/vision-ai --help
+          .wheel-smoke/bin/vision-ai vlm --help
+          .wheel-smoke/bin/python -I -c "import importlib.util as u, sys;
+          import nvidia_vision_ai_cli.app, nvidia_vision_ai.vlm, nvidia_vision_ai.memory, nvidia_vision_ai.knowledge;
+          bad = [m for m in ('vss_core', 'vss_cli', 'aiohttp', 'elasticsearch', 'cv2') if m in sys.modules or u.find_spec(m)];
+          sys.exit(f'unexpected modules: {bad}' if bad else 0)"
+
   # ---------------------------------------------------------------------------
   # Job 5a: Behavior analytics unit tests
   # ---------------------------------------------------------------------------

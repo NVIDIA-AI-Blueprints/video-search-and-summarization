@@ -16,6 +16,7 @@
 
 from collections.abc import AsyncGenerator
 import logging
+import os
 from typing import Any
 from typing import Literal
 
@@ -27,14 +28,14 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
+from nvidia_vision_ai.knowledge import BackendAdapter
+from nvidia_vision_ai.knowledge import RetrievalResult
+from nvidia_vision_ai.knowledge import get_retriever
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
 from vss_agents.tools.lvs_media_state import configured_media
-from vss_core.knowledge import BackendAdapter
-from vss_core.knowledge import RetrievalResult
-from vss_core.knowledge import get_retriever
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "'langchain' = in-process LangChain over a Chroma-backed vector store "
             "(requires the `nvidia-vss[agent,langchain]` extras); "
             "'arango_graph' = in-process LangChain graph QA over ArangoDB "
-            "(requires the `nvidia-vss[arango_graph]` extra); "
+            "(requires the `nvidia-vss[agent,arango_graph]` extras); "
             "'es_caption' = BM25 over RT-VLM caption store in Elasticsearch."
         ),
     )
@@ -136,8 +137,41 @@ class KnowledgeRetrievalInput(BaseModel):
     )
 
 
+# Deployment environment for each backend's config, first variable set wins.
+# nvidia_vision_ai.knowledge takes every value as a parameter, so the agent reads
+# what the adapters used to. An explicit backend_config value always wins.
+_BACKEND_ENV: dict[str, dict[str, tuple[str, ...]]] = {
+    "frag_api": {
+        "rag_url": ("RAG_SERVER_URL",),
+        "api_key": ("RAG_API_KEY",),
+        "collection_name": ("KNOWLEDGE_COLLECTION",),
+    },
+    "es_caption": {"elasticsearch_url": ("ELASTIC_SEARCH_ENDPOINT",)},
+    "langchain": {"persist_dir": ("VSS_CHROMA_DIR",), "embed_api_key": ("NVIDIA_API_KEY",)},
+    "llama_index": {"persist_dir": ("VSS_CHROMA_DIR",), "embed_api_key": ("NVIDIA_API_KEY",)},
+    "arango_graph": {
+        "arango_url": ("ARANGO_URL",),
+        "arango_database": ("ARANGO_DB",),
+        "arango_username": ("ARANGO_USER", "ARANGO_DB_USERNAME"),
+        "arango_password": ("ARANGO_PASSWORD", "ARANGO_DB_PASSWORD"),
+        "arango_graph_name": ("ARANGO_GRAPH_NAME",),
+    },
+}
+# The Chroma backends need a directory; this was their default before the move.
+_DEFAULT_CHROMA_DIR = "/tmp/chroma_data"
+
+
 def _setup_backend(config: KnowledgeRetrievalConfig, _builder: Builder) -> tuple[str, dict[str, Any]]:
-    return config.backend, dict(config.backend_config or {})
+    backend_config = dict(config.backend_config or {})
+    for field, names in _BACKEND_ENV.get(config.backend, {}).items():
+        if backend_config.get(field) is not None:
+            continue
+        value = next((os.environ[name] for name in names if name in os.environ), None)
+        if value is not None:
+            backend_config[field] = value
+    if config.backend in ("langchain", "llama_index") and backend_config.get("persist_dir") is None:
+        backend_config["persist_dir"] = _DEFAULT_CHROMA_DIR
+    return config.backend, backend_config
 
 
 async def _setup_retriever(
@@ -152,8 +186,8 @@ async def _setup_retriever(
     if not config.llm_name:
         raise ValueError("arango_graph requires top-level `llm_name`, e.g. llm_name: nim_llm.")
 
-    from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-    from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+    from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+    from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
     llm = await builder.get_llm(config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     logger.info("knowledge_retrieval arango_graph LLM resolved: %s", config.llm_name)

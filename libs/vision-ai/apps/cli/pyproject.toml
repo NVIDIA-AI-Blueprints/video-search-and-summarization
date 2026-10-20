@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nvidia_vision_ai_cli"]
+
+[project]
+name = "nvidia-vision-ai-cli"
+# Versioned on its own, not from the repo's v* tags.
+version = "0.1.0"
+requires-python = ">=3.13,<3.15"
+description = "The `vision-ai` command line: tools over nvidia-vision-ai with per-tool config and a local job store"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "NVIDIA Corporation" }]
+maintainers = [{ name = "NVIDIA Corporation" }]
+dependencies = [
+  "click>=8.1",
+  # Same minor as this CLI; widen deliberately when the library's API is stable.
+  "nvidia-vision-ai>=0.1.0.dev0,<0.2",
+]
+
+[project.scripts]
+vision-ai = "nvidia_vision_ai_cli.app:main"
+
+# First-party tools register through the same contract third parties use.
+[project.entry-points."vision_ai.tools"]
+vlm = "nvidia_vision_ai_cli.tools.vlm:TOOL"
