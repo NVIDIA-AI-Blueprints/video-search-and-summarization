@@ -141,10 +141,13 @@ instance. The service-shipped config expects Compose DNS at
 `http://elasticsearch:9200`; a custom host-network deployment must replace it
 with a host-reachable endpoint and similarly update the Kafka broker address.
 
-If you need to bring up Elasticsearch too, start the database and its initializer together:
+If you need to bring up Elasticsearch too, start the database and its
+initializer together. Use the same project name for infra and the API so they
+share `vss-analytics_default` and the service DNS names resolve:
 
 ```bash
-docker compose --profile elasticsearch --profile elasticsearch-init-container \
+docker compose --project-name vss-analytics \
+  --profile elasticsearch --profile elasticsearch-init-container \
   -f services/infra/compose.yml up -d elasticsearch elasticsearch-init-container
 ```
 
@@ -208,7 +211,7 @@ mkdir -p "$VSS_DATA_DIR/data_log/vss_video_analytics_api"
 
 # (one-time) edit services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json if needed.
 
-docker compose --profile vss-video-analytics-api \
+docker compose --project-name vss-analytics --profile vss-video-analytics-api \
   -f services/analytics/video-analytics-api/compose.yml up -d vss-video-analytics-api
 
 docker ps --filter "name=vss-video-analytics-api" --format '{{.Names}}\t{{.Status}}'
@@ -239,7 +242,8 @@ The API checks once per second until the pipeline exists, then, only with `STREA
 ## Teardown
 
 ```bash
-docker compose -f services/analytics/video-analytics-api/compose.yml down
+docker compose --project-name vss-analytics --profile vss-video-analytics-api \
+  -f services/analytics/video-analytics-api/compose.yml down
 ```
 
 For a multi-service teardown (broker, ES, etc.), use the `vss-build-vision-ai` teardown workflow.
@@ -270,7 +274,8 @@ docker exec vss-video-analytics-api node -e \
 With compose (standalone deploy):
 
 ```bash
-docker compose -f services/analytics/video-analytics-api/compose.yml \
+docker compose --project-name vss-analytics \
+  -f services/analytics/video-analytics-api/compose.yml \
   exec vss-video-analytics-api node -e \
   "const fs=require('fs'); const p='/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json'; console.log(JSON.stringify(JSON.parse(fs.readFileSync(p,'utf8')), null, 2))"
 ```

@@ -97,10 +97,14 @@ wrong, Docker may create an empty directory and LVS will fail at startup.
 
 ## Dry Run
 
-From the generated build directory:
+From the generated build directory, set `COMPOSE_PROFILE` to the profile name
+written by the build (for a direct source-compose deployment, use
+`lvs-server`):
 
 ```bash
-docker compose --env-file .env -f compose.yml --profile <invented-flag> config >/tmp/lvs-resolved.yml
+docker compose --env-file .env -f compose.yml \
+  --profile "${COMPOSE_PROFILE:?Set COMPOSE_PROFILE to the generated profile name}" \
+  config >/tmp/lvs-resolved.yml
 ```
 
 Then verify no real unexpanded variables remain:
@@ -153,7 +157,9 @@ curl -sf "http://${HOST_IP}:38111/metrics" | head
 Use the generated build profile and generated env:
 
 ```bash
-docker compose --env-file .env -f compose.yml --profile <invented-flag> down
+docker compose --env-file .env -f compose.yml \
+  --profile "${COMPOSE_PROFILE:?Set COMPOSE_PROFILE to the generated profile name}" \
+  down
 ```
 
 Use `down -v` only when you intentionally want to remove Docker named volumes

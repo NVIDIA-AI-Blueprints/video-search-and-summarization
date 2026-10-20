@@ -220,7 +220,7 @@ services:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE}:/app/configs/config.yml:ro
       - ${VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE}:/app/alert_type_config.json:ro
-      - $VSS_APPS_DIR/services/alert/scripts/env-substitute.py:/app/env-substitute.py:ro
+      - ${VSS_APPS_DIR}/services/alert/scripts/env-substitute.py:/app/env-substitute.py:ro
     tmpfs:
       - /app/runtime:mode=1777,size=10M
     depends_on:
@@ -255,7 +255,8 @@ The candidate-event protobuf (`nv.Incident` / `nv.Behavior` on `mdx-incidents` /
 - **Verified records in ES:** after a detection, confirm verified docs land in `mdx-vlm-incidents`:
 
 ```bash
-curl -sf "http://${HOST_IP}:9200/mdx-vlm-incidents/_count" | jq '.count'
+curl -sf --connect-timeout 10 --max-time 15 \
+  "http://${HOST_IP}:9200/mdx-vlm-incidents/_count" | jq '.count'
 curl -sf "http://${HOST_IP}:9200/mdx-vlm-incidents/_search?size=1" \
   | jq '.hits.hits[0]._source.info | {verdict, reasoning, verification_response_code}'
 ```

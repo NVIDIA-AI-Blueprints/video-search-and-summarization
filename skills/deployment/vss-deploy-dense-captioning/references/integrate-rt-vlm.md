@@ -79,7 +79,9 @@ deploy because recent Docker Compose rejects undefined peers at project load.
   **Partition key:** `<request_id>:<chunk_idx>` — guarantees caption and matching incident (if any) land on the same partition for join-by-key consumers.
 
 - **Method:** Kafka topic — incident records (alert-positive captions)
-  **Topic:** `${KAFKA_INCIDENT_TOPIC}` (compose default `mdx-vlm-incidents`; raw upstream compose fallback `vision-llm-events-incidents`)
+  **Topic:** `${KAFKA_INCIDENT_TOPIC}` (bare Compose fallback
+  `vision-llm-events-incidents`; full-profile `.env` override
+  `mdx-vlm-incidents`)
   **Schema:** NvSchema `nv.Incident` protobuf. The server lower-cases each chunk's VLM response and checks for the tokens `"yes"` or `"true"` — if either appears, an `nv.Incident` record is built with `isAnomaly=True`, `info["triggerPhrase"]=<matched tokens>`, `info["verdict"]="confirmed"`. Headers: `message_type: incident`. Source: `kafka-workflows.md` § 3 Dense captions with alerts.
   **Trigger:** per-chunk, only when the lower-cased response contains `"yes"` or `"true"`.
 
@@ -123,11 +125,11 @@ The host-side variable names that the compose interpolates differ from the canon
 | `RTVI_VLM_MODEL_PATH` → `MODEL_PATH` | NGC/git path to the model when not `openai-compat`; override it only when selecting a different backend/model. | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | conditional |
 | `RT_VLM_DEVICE_ID` | GPU `device_ids` entry (breaks `RTVI_VLM_*` pattern by design — fixed by upstream compose) | `0` | optional |
 | `RTVI_VLM_NVIDIA_VISIBLE_DEVICES` → `NVIDIA_VISIBLE_DEVICES` | GPU visibility | `all` | optional |
-| `KAFKA_ENABLED` | Toggle Kafka output | `true` | optional |
+| `RTVI_VLM_KAFKA_ENABLED` → `KAFKA_ENABLED` | Toggle Kafka output | `true` | optional |
 | `RTVI_VLM_MESSAGE_BUS` → `MESSAGE_BUS` | Generated-output broker type | `kafka` | optional |
 | `RTVI_VLM_MESSAGE_BUS_TOPIC` → `MESSAGE_BUS_TOPIC` | Caption topic / Redis stream | `mdx-vlm-captions` (VSS 3.2 — subscribed by `mdx-lvs` Logstash pipeline) | optional |
 | `RTVI_VLM_ERROR_BUS` → `ERROR_BUS` | Error-output broker type | `kafka` | optional; empty disables errors |
-| `RTVI_VLM_KAFKA_INCIDENT_TOPIC` → `KAFKA_INCIDENT_TOPIC` | Incident topic | `mdx-vlm-incidents` | optional |
+| `RTVI_VLM_KAFKA_INCIDENT_TOPIC` → `KAFKA_INCIDENT_TOPIC` | Incident topic | `vision-llm-events-incidents` in bare Compose; `mdx-vlm-incidents` from the full-profile `.env` | optional |
 | `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` → `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `kafka:29092` | **Yes (effective)** |
 | `RTVI_VLM_ERROR_MESSAGE_TOPIC` → `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
@@ -185,11 +187,12 @@ services:
       HF_TOKEN: "${HF_TOKEN:-}"
       VLM_MODEL_TO_USE: "${RTVI_VLM_MODEL_TO_USE:-openai-compat}"
       MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final}"
-      KAFKA_ENABLED: "true"
+      KAFKA_ENABLED: "${RTVI_VLM_KAFKA_ENABLED:-true}"
       MESSAGE_BUS: "${RTVI_VLM_MESSAGE_BUS:-kafka}"
       MESSAGE_BUS_TOPIC: "${RTVI_VLM_MESSAGE_BUS_TOPIC:-mdx-vlm-captions}"
       ERROR_BUS: "${RTVI_VLM_ERROR_BUS:-kafka}"
-      KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-mdx-vlm-incidents}"
+      # Full profiles override this bare-Compose fallback to mdx-vlm-incidents.
+      KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-vision-llm-events-incidents}"
       KAFKA_BOOTSTRAP_SERVERS: "${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}"
       ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-mdx-vlm-errors}"
     deploy:

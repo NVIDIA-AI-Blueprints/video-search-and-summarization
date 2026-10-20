@@ -11,8 +11,10 @@ Microservice**, formerly "Alert Verification" / "Alert Bridge"; image
 > **Source of truth — read it from the compose, do not hardcode.** The
 > `alert-bridge` image in `deploy/docker/services/alert/compose.yml` uses
 > `VSS_ALERT_IMAGE` as a full-reference override. Otherwise it composes the
-> repository from `VSS_CONTAINER_REGISTRY` and the tag from
-> `VSS_CONTAINER_TAG` or `VSS_ALERT_TAG`. To read the current expression:
+> repository from `VSS_CONTAINER_REGISTRY`; the tag resolves as
+> `${VSS_CONTAINER_TAG:-${VSS_ALERT_TAG:-3.3.0}}`. The global
+> `VSS_CONTAINER_TAG` wins when set, and `VSS_ALERT_TAG` is used only when the
+> global tag is unset. To read the current expression:
 >
 > ```bash
 > # authoritative image:tag for this deployment
@@ -114,7 +116,8 @@ curl -sf --connect-timeout 5 http://${HOST_IP}:9080/health && echo "alert-bridge
 curl -s http://${HOST_IP}:9080/api/v1/realtime | jq .
 
 # 3. Verified records land in Elasticsearch after a detection
-curl -sf "http://${HOST_IP}:9200/mdx-vlm-incidents/_count" | jq '.count'
+curl -sf --connect-timeout 10 --max-time 15 \
+  "http://${HOST_IP}:9200/mdx-vlm-incidents/_count" | jq '.count'
 ```
 
 ## Tear Down
