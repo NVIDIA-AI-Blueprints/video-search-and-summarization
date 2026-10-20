@@ -97,7 +97,7 @@ the existing Compose service already mounts and renders this file.
 
 Use the native settings listed in the docs in the build's `override.env`:
 `RTVI_STREAMING_VLM_ENABLED=true`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`,
-`VLLM_ENFORCE_EAGER=true`, FP8 KV cache, warmup skipped, frame timestamps off,
+warmup skipped, frame timestamps off,
 batch/session capacity 8, window capacity 8, total segment capacity 64, and
 session token budget 14000, with generated-text retention, exact compaction,
 and raw-key shadow disabled. Copy the exact variable names/values from the
