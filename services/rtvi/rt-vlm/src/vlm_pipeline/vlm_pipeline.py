@@ -1294,6 +1294,10 @@ class VlmProcess(ProcessBase):
     def _can_batch(self, item1, item2):
         if item1.get("is_live_stream", False) or item2.get("is_live_stream", False):
             return False
+        if callable(getattr(self._model, "abort_request_generations", None)) and item1.get(
+            "request_id"
+        ) != item2.get("request_id"):
+            return False
         if hasattr(self._model, "can_batch"):
             return self._model.can_batch(item1, item2)
         else:
@@ -1390,6 +1394,12 @@ class VlmProcess(ProcessBase):
 
         # Use model classes directly instead of context classes
         ctx = self._model
+        ownership_kwargs = {}
+        if callable(getattr(ctx, "abort_request_generations", None)):
+            parent_ids = kwargs.get("request_id", [""])
+            if len(set(parent_ids)) != 1:
+                raise ValueError("Cancellable generation requires one parent request per batch")
+            ownership_kwargs["parent_request_id"] = parent_ids[0]
 
         frames = kwargs.pop("frames", None)
         frame_times = kwargs.pop("frame_times", [[]] * len(chunk))
@@ -1475,6 +1485,7 @@ class VlmProcess(ProcessBase):
                         async for delta in ctx.generate_text_only_stream(
                             messages=messages,
                             generation_config=request_params[0].vlm_generation_config,
+                            **ownership_kwargs,
                         ):
                             token_count += 1
                             self._token_stream_queue.put(
@@ -1508,12 +1519,14 @@ class VlmProcess(ProcessBase):
                     video_frames=frames,
                     video_frames_times=frame_times,
                     generation_config=request_params[0].vlm_generation_config,
+                    **ownership_kwargs,
                 )
             else:
                 try:
                     vlm_output_batch = ctx.generate_text_only(
                         messages=messages,
                         generation_config=request_params[0].vlm_generation_config,
+                        **ownership_kwargs,
                     )
                 except NotImplementedError:
                     vlm_output_batch = ctx.generate(
@@ -1522,6 +1535,7 @@ class VlmProcess(ProcessBase):
                         video_frames=frames,
                         video_frames_times=frame_times,
                         generation_config=request_params[0].vlm_generation_config,
+                        **ownership_kwargs,
                     )
         else:
             vlm_output_batch = ctx.generate(
@@ -1532,6 +1546,7 @@ class VlmProcess(ProcessBase):
                 generation_config=request_params[0].vlm_generation_config,
                 audio_frames=audio_frames,
                 is_live_stream=bool(kwargs.get("is_live_stream", [False])[0]),
+                **ownership_kwargs,
             )
         if "is_live_stream" in kwargs and self._num_gpus > 1:
             time.sleep(0.1)

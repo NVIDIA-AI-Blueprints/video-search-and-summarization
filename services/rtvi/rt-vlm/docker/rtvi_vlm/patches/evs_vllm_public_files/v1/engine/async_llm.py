@@ -363,7 +363,7 @@ class AsyncLLM(EngineClient):
         else:
             supported_tasks = await self.get_supported_tasks()
             loop = asyncio.get_running_loop()
-            request = await loop.run_in_executor(
+            preprocessing = loop.run_in_executor(
                 self._preprocess_executor,
                 lambda: self.input_processor.process_inputs(
                     request_id,
@@ -379,6 +379,22 @@ class AsyncLLM(EngineClient):
                     resumable=resumable,
                 ),
             )
+            try:
+                request = await asyncio.shield(preprocessing)
+            except asyncio.CancelledError:
+                # Cancelling the waiter cannot stop process_inputs' executor
+                # thread. Keep its inputs alive until it settles, and never
+                # admit the cancelled request to EngineCore afterwards.
+                while not preprocessing.done():
+                    try:
+                        await asyncio.shield(preprocessing)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:
+                        break
+                if not preprocessing.cancelled():
+                    preprocessing.exception()
+                raise
             if discard_prior_output:
                 request.discard_prior_output = True
             prompt_text, _, _ = extract_prompt_components(self.model_config, prompt)
@@ -430,7 +446,22 @@ class AsyncLLM(EngineClient):
         self.output_processor.add_request(request, prompt, parent_req, index, queue)
 
         # Add the EngineCoreRequest to EngineCore (separate process).
-        await self.engine_core.add_request_async(request)
+        submission = asyncio.ensure_future(self.engine_core.add_request_async(request))
+        try:
+            await asyncio.shield(submission)
+        except asyncio.CancelledError:
+            # Do not let an interrupted admission RPC enqueue a request after
+            # its abort. Preserve command order, then abort its internal ID.
+            try:
+                while not submission.done():
+                    try:
+                        await asyncio.shield(submission)
+                    except asyncio.CancelledError:
+                        continue
+                submission.result()
+            finally:
+                await self.abort(request.request_id, internal=True)
+            raise
 
         if self.log_requests:
             logger.info("Added request %s.", request.request_id)

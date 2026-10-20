@@ -51,6 +51,10 @@ from models.vllm_compatible.adaptive_preprocess_limiter import (
     AdaptivePreprocessLimiter,
     PreprocessAdmissionTimeout,
 )
+from models.vllm_compatible.request_generation_tracker import (
+    RequestGenerationTracker,
+    await_preprocessing,
+)
 from utils.env_validation import get_video_pruning_rate, get_vllm_mm_tensor_ipc
 
 _RTVI_VLLM_ENV_ALIASES = {
@@ -1394,6 +1398,7 @@ class VllmCompatible(BaseVlmModel):
         self._live_request_futures: dict[str, concurrent.futures.Future] = {}
         self._live_stream_abort_requested: set[str] = set()
         self._live_request_ids_lock = threading.Lock()
+        self._request_generations = RequestGenerationTracker()
 
         # Set resize parameters
         self._max_pixels = MAX_PIXELS
@@ -2414,6 +2419,20 @@ class VllmCompatible(BaseVlmModel):
         abort_future.result(timeout=timeout_sec)
         return len(request_ids)
 
+    def abort_request_generations(self, parent_id: str, timeout_sec: float = 30.0) -> int:
+        """Abort one parent's actual engine IDs and await coroutine cleanup.
+
+        The pipeline must retain this cancellation marker until all queued
+        chunks are drained, then call release_request_tracking().
+        """
+        return self._request_generations.abort(
+            parent_id, self._event_loop, self._llm.abort, timeout_sec
+        )
+
+    def release_request_tracking(self, parent_id: str) -> None:
+        """Release a parent only after no more pipeline chunks can arrive."""
+        self._request_generations.release(parent_id)
+
     async def process_async_vllm(
         self,
         llm_inputs,
@@ -2472,7 +2491,9 @@ class VllmCompatible(BaseVlmModel):
                     # torch_shm, keep Qwen3-VL frames on CUDA: its fast HF
                     # processor is torch-native and the processed CUDA tensor is
                     # transferred to EngineCore by vLLM's tensor IPC queue.
-                    video_tensor_cpu = await asyncio.to_thread(lambda: video_tensor.cpu().numpy())
+                    video_tensor_cpu = await await_preprocessing(
+                        asyncio.to_thread(lambda: video_tensor.cpu().numpy())
+                    )
                     llm_inputs["multi_modal_data"]["video"][0] = (
                         video_tensor_cpu,
                         video_metadata,
@@ -2501,13 +2522,17 @@ class VllmCompatible(BaseVlmModel):
                         return image_tensor.cpu().numpy()
 
                     if isinstance(image_input, list):
-                        images_numpy = await asyncio.to_thread(
-                            lambda: [_image_to_numpy(image_tensor) for image_tensor in image_input]
+                        images_numpy = await await_preprocessing(
+                            asyncio.to_thread(
+                                lambda: [
+                                    _image_to_numpy(image_tensor) for image_tensor in image_input
+                                ]
+                            )
                         )
                     else:
                         images_tensor = image_input[0]
-                        images_numpy = await asyncio.to_thread(
-                            lambda: _image_to_numpy(images_tensor)
+                        images_numpy = await await_preprocessing(
+                            asyncio.to_thread(lambda: _image_to_numpy(images_tensor))
                         )
 
                     if self._model_architecture in _NEMOTRON_OMNI_ARCHS:
@@ -4009,8 +4034,8 @@ class VllmCompatible(BaseVlmModel):
             if stream_id:
                 self._register_live_request(stream_id, request_id)
 
-            generation_future = asyncio.run_coroutine_threadsafe(
-                self.process_async_vllm(
+            def generate_owned():
+                return self.process_async_vllm(
                     llm_inputs,
                     vllm_sampling_params,
                     video_frames_times,
@@ -4019,11 +4044,7 @@ class VllmCompatible(BaseVlmModel):
                     preserve_reasoning_tags=config.preserve_reasoning_tags,
                     stream_id=stream_id,
                     generation_config=config,
-                ),
-                self._event_loop,
-            )
-            if stream_id:
-                self._attach_live_request_future(stream_id, request_id, generation_future)
+                )
 
             # A live-stream teardown can cancel the concurrent future before
             # process_async_vllm starts (or while cancellation is propagating).
@@ -4034,13 +4055,28 @@ class VllmCompatible(BaseVlmModel):
             # Normal completions release residency at first encoder output; this
             # callback is therefore a no-op on the hot path and a final safety
             # net for cancellation and submission failures.
-            def _cleanup_request_tracking(_future):
+            def _cleanup_request_tracking():
                 self._finish_preprocess_submission(request_id)
                 self._finish_cuda_mm_submission(request_id)
                 self._release_cuda_mm_residency(request_id)
                 self._release_live_request(stream_id, request_id)
 
-            generation_future.add_done_callback(_cleanup_request_tracking)
+            parent_id = kwargs.get("parent_request_id")
+            if parent_id is not None:
+                generation_future = self._request_generations.submit(
+                    parent_id,
+                    request_id,
+                    generate_owned,
+                    self._event_loop,
+                    cleanup=_cleanup_request_tracking,
+                )
+            else:
+                generation_future = asyncio.run_coroutine_threadsafe(
+                    generate_owned(), self._event_loop
+                )
+                generation_future.add_done_callback(lambda _: _cleanup_request_tracking())
+            if stream_id:
+                self._attach_live_request_future(stream_id, request_id, generation_future)
             return generation_future
 
         except Exception as e:
@@ -4058,6 +4094,7 @@ class VllmCompatible(BaseVlmModel):
         self,
         messages: list[dict],
         generation_config: Optional[VlmGenerationConfig] = None,
+        parent_request_id: Optional[str] = None,
     ):
         """Text-only generation using the vLLM engine (no multimodal data)."""
         config = generation_config or VlmGenerationConfig()
@@ -4076,15 +4113,23 @@ class VllmCompatible(BaseVlmModel):
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
 
-        return asyncio.run_coroutine_threadsafe(
-            self._process_text_only_async(
+        def generate_owned():
+            return self._process_text_only_async(
                 llm_inputs,
                 vllm_sampling_params,
                 request_id,
                 config.preserve_reasoning_tags,
-            ),
-            self._event_loop,
-        )
+            )
+
+        if parent_request_id is not None:
+            return self._request_generations.submit(
+                parent_request_id,
+                request_id,
+                generate_owned,
+                self._event_loop,
+                cleanup=lambda: self._release_live_request(None, request_id),
+            )
+        return asyncio.run_coroutine_threadsafe(generate_owned(), self._event_loop)
 
     async def _process_text_only_async(
         self,
@@ -4162,6 +4207,7 @@ class VllmCompatible(BaseVlmModel):
         self,
         messages: list[dict],
         generation_config: Optional[VlmGenerationConfig] = None,
+        parent_request_id: Optional[str] = None,
     ):
         """Async generator yielding text deltas for token-level streaming."""
         config = generation_config or VlmGenerationConfig()
@@ -4187,10 +4233,16 @@ class VllmCompatible(BaseVlmModel):
             and bool(config.ignore_eos)
         )
         answer_boundary_seen = False
+        generation = None
+        stream_finished = False
+        engine_outputs = self._llm.generate(
+            llm_inputs, sampling_params=vllm_sampling_params, request_id=request_id
+        )
         try:
-            async for output_item in self._llm.generate(
-                llm_inputs, sampling_params=vllm_sampling_params, request_id=request_id
-            ):
+            if parent_request_id is not None:
+                generation = self._request_generations.register(parent_request_id, request_id)
+                self._request_generations.started(generation)
+            async for output_item in engine_outputs:
                 if output_item.outputs:
                     if answer_boundary_seen:
                         # Keep consuming the fixed-work generation, but never expose
@@ -4209,12 +4261,30 @@ class VllmCompatible(BaseVlmModel):
                     if delta:
                         previous_text = current_text
                         yield delta
+            stream_finished = True
+        except concurrent.futures.CancelledError as exc:
+            raise asyncio.CancelledError from exc
         except Exception as e:
             logger.error("Error during text-only vLLM streaming: %s", e)
             raise
         finally:
-            if request_id in self._inflight_req_ids:
-                self._inflight_req_ids.remove(request_id)
+            try:
+                if generation is not None:
+                    # Closing an outer generator does not automatically close
+                    # its engine iterator suspended at a yielded delta.
+                    cleanup_error = None
+                    try:
+                        await engine_outputs.aclose()
+                        if not stream_finished:
+                            await self._llm.abort(request_id)
+                    except BaseException as exc:
+                        cleanup_error = exc
+                        raise
+                    finally:
+                        self._request_generations.finished(generation, cleanup_error)
+            finally:
+                if request_id in self._inflight_req_ids:
+                    self._inflight_req_ids.remove(request_id)
 
     def _process_audio_frames(self, audio_frames):
         """
