@@ -8,13 +8,8 @@ Use this service when the workflow requires either (a) dense captioning of a sto
 
 ## Required Peer Services
 
-- **Kafka** — required when `MESSAGE_BUS=kafka`. RT-VLM publishes generated caption records to `${MESSAGE_BUS_TOPIC}` and incident protobuf records to `${KAFKA_INCIDENT_TOPIC}`. Broker must be reachable at `${KAFKA_BOOTSTRAP_SERVERS}` (Compose default `kafka:29092`).
-- **Sibling VLM backend** — required when `VLM_MODEL_TO_USE=openai-compat`,
-  which is the Compose default. Use `cosmos3-reasoner` or
-  `cosmos3-reasoner-shared-gpu` at `${VIA_VLM_ENDPOINT}`, or a remote
-  OpenAI-compatible endpoint. In-process operation uses
-  `VLM_MODEL_TO_USE=cosmos-reason3` or `vllm-compatible` with `MODEL_PATH`
-  pointing at an NGC or git URL.
+- **Kafka** — required when `MESSAGE_BUS=kafka`. RT-VLM publishes generated caption records to `${MESSAGE_BUS_TOPIC}` and incident protobuf records to `${KAFKA_INCIDENT_TOPIC}`. Broker must be reachable at `${KAFKA_BOOTSTRAP_SERVERS}` (compose default `${HOST_IP}:9092` for host-network Kafka).
+- **Sibling VLM backend** — required when `VLM_MODEL_TO_USE=openai-compat`, which is the compose default. Either a sibling NIM (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `qwen3-vl-8b-instruct`) reachable at `${VIA_VLM_ENDPOINT}`, OR remote OpenAI/Azure. In-process operation requires switching `VLM_MODEL_TO_USE` to `cosmos-reason1` / `cosmos-reason2` / `cosmos-reason3` / `vllm-compatible` and pointing `MODEL_PATH` at an NGC or git URL. Source: `real-time-vlm.rst` § Models Supported (lines 62–87).
 - **Video source** — RT-VLM accepts video input via **three independent paths**:
   1. **On-demand (VOD) via VIOS-shared bind mount.** Operator uploads to VIOS `POST /vst/api/v1/files`, file lands in `${VSS_DATA_DIR}/data_log/vst/clip_storage/`, RT-VLM mounts the same host directory at `/home/vst/vst_release/streamer_videos/` and can reference the file path in `POST /v1/files` or `POST /v1/generate_captions`. **VIOS is the producer; RT-VLM is the reader.** Both must mount the same host path or the path-based caption call gets "file not found".
   2. **On-demand (VOD) via direct URL.** Send `POST /v1/files` to RT-VLM with `url` as a **multipart form field** (`-F url=https://…|s3://…|file://…`, not a JSON body) — RT-VLM downloads and processes directly. VIOS is NOT involved. Available 3.2.0+ per `real-time-vlm.rst` § New API Capabilities lines 131–135.
@@ -24,11 +19,7 @@ Use this service when the workflow requires either (a) dense captioning of a sto
 - **Redis** — optional. Required only when `ENABLE_REDIS_ERROR_MESSAGES=true` to publish VLM/decode errors onto a Redis channel. Source: `real-time-vlm.rst` § Sample docker-compose.yml (lines 350–354).
 - **Elasticsearch + Logstash + Kibana (via ELK stack)** — optional but standard for IN-1: Logstash consumes `${MESSAGE_BUS_TOPIC}` when `MESSAGE_BUS=kafka`, plus `${KAFKA_INCIDENT_TOPIC}`, and writes documents into Elasticsearch. Schema compatibility is mediated by the NvSchema protobuf descriptors (`schema.desc` + `ext.desc`) shared between RT-VLM (producer) and Logstash (consumer). Source: `integrate-elk.md` § Required Peer Services + § Known Integration Constraints.
 
-Sibling NIM backends `cosmos3-reasoner` and
-`cosmos3-reasoner-shared-gpu` live in the NIM Compose. When an in-process or
-remote backend is used, those service keys are not deployed, and their
-`depends_on: { required: false }` entries must be stripped from a standalone
-deploy because recent Docker Compose rejects undefined peers at project load.
+Sibling NIM backends (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `cosmos3-reasoner`, `qwen3-vl-8b-instruct`, plus their `-shared-gpu` variants) live in a separate `services/nim/compose.yml` and have their own forthcoming `integrate-vlm-nim.md`. When the in-process backend is used (the IN-1 default), those NIM service-keys are not deployed, and their `depends_on: { required: false }` entries on rtvi-vlm must be stripped from a standalone deploy — recent Docker Compose rejects undefined peers at project-load (see § Known Integration Constraints).
 
 ## Integration Interfaces
 
@@ -79,9 +70,7 @@ deploy because recent Docker Compose rejects undefined peers at project load.
   **Partition key:** `<request_id>:<chunk_idx>` — guarantees caption and matching incident (if any) land on the same partition for join-by-key consumers.
 
 - **Method:** Kafka topic — incident records (alert-positive captions)
-  **Topic:** `${KAFKA_INCIDENT_TOPIC}` (bare Compose fallback
-  `vision-llm-events-incidents`; full-profile `.env` override
-  `mdx-vlm-incidents`)
+  **Topic:** `${KAFKA_INCIDENT_TOPIC}` (compose default `mdx-vlm-incidents`; raw upstream compose fallback `vision-llm-events-incidents`)
   **Schema:** NvSchema `nv.Incident` protobuf. The server lower-cases each chunk's VLM response and checks for the tokens `"yes"` or `"true"` — if either appears, an `nv.Incident` record is built with `isAnomaly=True`, `info["triggerPhrase"]=<matched tokens>`, `info["verdict"]="confirmed"`. Headers: `message_type: incident`. Source: `kafka-workflows.md` § 3 Dense captions with alerts.
   **Trigger:** per-chunk, only when the lower-cased response contains `"yes"` or `"true"`.
 
@@ -117,7 +106,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `RTVI_VLM_PORT` | Host REST API port (rewrites to container `8000`) | strict (`${RTVI_VLM_PORT?}`) | **Yes** |
-| `HOST_IP` | Host-reachable address used by external endpoints; not needed for the default in-Compose Kafka endpoint | — | conditional |
+| `HOST_IP` | Interpolated into `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; no fallback | — | **Yes (effective)** |
 | `VSS_DATA_DIR` | Bind-mount root for VST clip storage `${VSS_DATA_DIR}/data_log/vst/clip_storage` | — | **Yes** |
 | `NGC_CLI_API_KEY` / `RTVI_VLM_API_KEY` | rewrites to `NGC_API_KEY` + `VIA_VLM_API_KEY` for model download and NIM auth | — | **Yes** |
 | `HF_TOKEN` | Gated HuggingFace pulls (Qwen3-VL, Cosmos3) | — | conditional |
@@ -125,34 +114,34 @@ The host-side variable names that the compose interpolates differ from the canon
 | `RTVI_VLM_MODEL_PATH` → `MODEL_PATH` | NGC/git path to the model when not `openai-compat`; override it only when selecting a different backend/model. | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | conditional |
 | `RT_VLM_DEVICE_ID` | GPU `device_ids` entry (breaks `RTVI_VLM_*` pattern by design — fixed by upstream compose) | `0` | optional |
 | `RTVI_VLM_NVIDIA_VISIBLE_DEVICES` → `NVIDIA_VISIBLE_DEVICES` | GPU visibility | `all` | optional |
-| `RTVI_VLM_KAFKA_ENABLED` → `KAFKA_ENABLED` | Toggle Kafka output | `true` | optional |
+| `KAFKA_ENABLED` | Toggle Kafka output | `true` | optional |
 | `RTVI_VLM_MESSAGE_BUS` → `MESSAGE_BUS` | Generated-output broker type | `kafka` | optional |
 | `RTVI_VLM_MESSAGE_BUS_TOPIC` → `MESSAGE_BUS_TOPIC` | Caption topic / Redis stream | `mdx-vlm-captions` (VSS 3.2 — subscribed by `mdx-lvs` Logstash pipeline) | optional |
 | `RTVI_VLM_ERROR_BUS` → `ERROR_BUS` | Error-output broker type | `kafka` | optional; empty disables errors |
-| `RTVI_VLM_KAFKA_INCIDENT_TOPIC` → `KAFKA_INCIDENT_TOPIC` | Incident topic | `vision-llm-events-incidents` in bare Compose; `mdx-vlm-incidents` from the full-profile `.env` | optional |
-| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` → `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `kafka:29092` | **Yes (effective)** |
+| `RTVI_VLM_KAFKA_INCIDENT_TOPIC` → `KAFKA_INCIDENT_TOPIC` | Incident topic | `mdx-vlm-incidents` | optional |
+| `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `${HOST_IP}:9092` (host-net) or `kafka:9092` (compose-net) | **Yes (effective)** |
 | `RTVI_VLM_ERROR_MESSAGE_TOPIC` → `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
-| `VSS_RT_VLM_TAG` | Compose image-tag override; append `-sbsa` only for SBSA Grace/Spark. Resolve the standalone default from the canonical RT-VLM Compose file; the full VSS project may override it through `deploy/docker/containers.env`. | `3.3.0` | optional |
+| `VSS_RT_VLM_TAG` | Compose image-tag override; append `-sbsa` only for SBSA Grace/Spark. Resolve the standalone default from the canonical RT-VLM Compose file; the full VSS project may override it through `deploy/docker/containers.env`. | `develop-latest` (standalone Compose) | optional |
 
 ## Network Requirements
 
 - **Ports exposed:** `${RTVI_VLM_PORT}:8000` (host:container). FastAPI binds `0.0.0.0:8000` inside the container. No other host-bound ports.
 - **Inbound traffic:** REST clients on `${RTVI_VLM_PORT}` for API. No inbound from peers — RT-VLM is a pure publisher to Kafka and pure REST callee.
 - **Outbound traffic:**
-  - Kafka broker on `${KAFKA_BOOTSTRAP_SERVERS}` (`kafka:29092` by default)
+  - Kafka broker on `${KAFKA_BOOTSTRAP_SERVERS}` (host:9092 by default)
   - Redis on `${REDIS_HOST}:${REDIS_PORT}` when `ENABLE_REDIS_ERROR_MESSAGES=true`
   - NIM backend on `${VIA_VLM_ENDPOINT}` when `VLM_MODEL_TO_USE=openai-compat`
   - NGC image registry `nvcr.io`, `huggingface.co` for model downloads on first boot
-- **DNS / hostname assumptions:** the Compose default `kafka:29092` uses service-name DNS on the Compose bridge. For an external broker, override `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` with a container-reachable address such as `host.docker.internal:9092`; `extra_hosts: host.docker.internal: host-gateway` provides that host alias.
+- **DNS / hostname assumptions:** the compose default `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` assumes Kafka runs on the **host network**, not the compose bridge — this is the foundational IN-1 wiring (compose puts the broker on `network_mode: host` and RT-VLM on bridge → RT-VLM reaches it via the host IP). `extra_hosts: host.docker.internal: host-gateway` is wired as an alternative way to reach the host. Source: `real-time-vlm.rst` § Sample docker-compose.yml (lines 386–388) + `deploy-rt-vlm-service.md` §10.
 - **`network_mode`:** bridge (default Docker compose network). RT-VLM does NOT use `network_mode: host` — distinguishing it from the ELK + Kafka foundational services.
 
 ## Known Integration Constraints
 
 - **Endpoint rename (3.2.0 breaking change).** `/v1/generate_captions_alerts` was renamed to `/v1/generate_captions`. 3.1.0-era clients break — update before deployment. Source: `real-time-vlm.rst` § Breaking Changes.
 - **Duplicate stream/camera IDs now 409.** Re-adding a stream with the same ID returns HTTP 409 (`DuplicateStreamId` / `DuplicateCameraId`) instead of silently overwriting. Idempotent registration code must remove first or handle 409. Source: `real-time-vlm.rst` § Breaking Changes (lines 99–102).
-- **`depends_on.required: false` is NOT enough on recent Docker Compose.** The live compose declares two sibling-NIM peers plus `broker-health-check`, all `required: false`. Recent Compose still rejects undefined peers during standalone project loading. Follow the guarded fallback in `deploy-rt-vlm-service.md`: normalize only after canonical validation fails, and only when every dependency matches the documented optional-peer allowlist. Reject unknown or required dependencies instead of hiding a Compose regression.
+- **`depends_on.required: false` is NOT enough on recent Docker Compose.** The live compose declares eight sibling-NIM peers plus `broker-health-check`, all `required: false`. Recent Compose still rejects undefined peers during standalone project loading. Follow the guarded fallback in `deploy-rt-vlm-service.md`: normalize only after canonical validation fails, and only when every dependency matches the documented optional-peer allowlist. Reject unknown or required dependencies instead of hiding a Compose regression.
 - **Profiles are mandatory.** The standalone RT-VLM Compose file declares only `rtvi-vlm`; additional blueprint profiles come from the full VSS include graph. Standalone deployment must pass `--profile rtvi-vlm`.
 - **Single-instance.** `container_name: vss-rtvi-vlm` is hardcoded in the upstream compose. A second instance on the same host fails with `Conflict. The container name "/vss-rtvi-vlm" is already in use`. Source: `deploy-rt-vlm-service.md` §20.
 - **NvSchema protobuf must align with Logstash descriptors.** The producer (RT-VLM) and the consumer (Logstash) must agree on the `nv.VisionLLM` and `nv.Incident` proto schema. The shared source-of-truth is the descriptor pair at `deploy/docker/services/infra/elk/pb_definitions/descriptors/{schema.desc, ext.desc}`. Schema drift on one side without the other causes Logstash to write empty/default-valued documents to ES without raising. Source: `integrate-elk.md` § Known Integration Constraints.
@@ -170,7 +159,7 @@ Minimal standalone-relevant block. The canonical source is `deploy/docker/servic
 ```yaml
 services:
   rtvi-vlm:
-    image: ${VSS_RT_VLM_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-vlm}:${VSS_RT_VLM_TAG:-3.3.0}
+    image: ${VSS_RT_VLM_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-vlm}:${VSS_RT_VLM_TAG:-develop-latest}
     container_name: vss-rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia
@@ -187,13 +176,12 @@ services:
       HF_TOKEN: "${HF_TOKEN:-}"
       VLM_MODEL_TO_USE: "${RTVI_VLM_MODEL_TO_USE:-openai-compat}"
       MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final}"
-      KAFKA_ENABLED: "${RTVI_VLM_KAFKA_ENABLED:-true}"
+      KAFKA_ENABLED: "true"
       MESSAGE_BUS: "${RTVI_VLM_MESSAGE_BUS:-kafka}"
       MESSAGE_BUS_TOPIC: "${RTVI_VLM_MESSAGE_BUS_TOPIC:-mdx-vlm-captions}"
       ERROR_BUS: "${RTVI_VLM_ERROR_BUS:-kafka}"
-      # Full profiles override this bare-Compose fallback to mdx-vlm-incidents.
-      KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-vision-llm-events-incidents}"
-      KAFKA_BOOTSTRAP_SERVERS: "${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}"
+      KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-mdx-vlm-incidents}"
+      KAFKA_BOOTSTRAP_SERVERS: "${HOST_IP}:9092"
       ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-mdx-vlm-errors}"
     deploy:
       resources:
@@ -215,8 +203,9 @@ services:
       stack: 67108864
     ipc: host
     # depends_on: the undefined sibling-NIM peers must be STRIPPED for a standalone deploy.
-    # Upstream compose declares cosmos3-reasoner and its shared-gpu variant
-    # required:false, but recent Docker Compose still rejects undefined peers.
+    # Upstream compose declares depends_on for sibling NIMs (cosmos-reason1-7b,
+    # cosmos-reason2-8b, cosmos3-reasoner, qwen3-vl-8b-instruct) all required:false, but recent
+    # Docker Compose rejects the standalone project at load time.
 
 volumes:
   rtvi-hf-cache:
@@ -232,9 +221,6 @@ The `nv.VisionLLM` and `nv.Incident` protobuf schemas are the contract between R
 - **Health:** `curl -f http://localhost:${RTVI_VLM_PORT}/v1/health/ready` — used by the Docker healthcheck; expect HTTP 200.
 - **Loaded model ID:** `curl -s http://localhost:${RTVI_VLM_PORT}/v1/models | jq` — confirms the model resolved at warmup. Source: `real-time-vlm.rst` § Usage Examples note (lines 478–491).
 - **End-to-end caption + Kafka:** upload via `POST /v1/files`, call `POST /v1/generate_captions`, then poll `mdx-vlm-captions` topic offsets:
-
-  These commands run inside the `kafka` container, where `127.0.0.1:9092` is
-  valid. Sibling containers must use `kafka:29092`.
 
 ```bash
 docker exec kafka kafka-get-offsets --bootstrap-server 127.0.0.1:9092 --topic mdx-vlm-captions

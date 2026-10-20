@@ -13,14 +13,14 @@ The video-analytics-api server loads a JSON config file at startup via the `--co
     "configs": [...]
   },
   "elasticsearch": {
-    "node": "http://elasticsearch:9200",
+    "node": "http://localhost:9200",
     "indexPrefix": "mdx-",
     "rawIndex": "mdx-raw-*",
     "retries": 15
   },
   "kafka": {
-    "brokers": ["kafka:29092"],
-    "retries": 15
+    "brokers": ["localhost:9092"],
+    "retries": null
   }
 }
 ```
@@ -48,7 +48,7 @@ The video-analytics-api server loads a JSON config file at startup via the `--co
 
 | Field | Type | Default | What it controls |
 |---|---|---|---|
-| `node` | string | `"http://elasticsearch:9200"` (service-shipped) / `"http://localhost:9200"` (image-baked) | Elasticsearch URL. The server pings this on startup; if unreachable, the server exits. |
+| `node` | string | `"http://localhost:9200"` | Elasticsearch URL. The server pings this on startup; if unreachable, the server exits. |
 | `indexPrefix` | string | `"mdx-"` | Prefix for all Elasticsearch index names. |
 | `rawIndex` | string | `"mdx-raw-*"` | Raw data index pattern. |
 | `retries` | number | `15` | Number of Elasticsearch connection retries before giving up. |
@@ -63,8 +63,8 @@ The video-analytics-api server loads a JSON config file at startup via the `--co
 
 | Field | Type | Default | What it controls |
 |---|---|---|---|
-| `brokers` | array of strings | `["kafka:29092"]` (service-shipped) / `[]` (image-baked) | Kafka broker addresses. With `STREAM_TYPE=kafka`, an empty array or `null` skips Kafka startup work. `STREAM_TYPE=redis` also skips Kafka startup work, regardless of this setting. |
-| `retries` | number or null | `15` (service-shipped) / `null` (image-baked) | KafkaJS retry count. `null` uses KafkaJS defaults. |
+| `brokers` | array of strings | `["localhost:9092"]` (service-shipped) / `[]` (image-baked) | Kafka broker addresses. With `STREAM_TYPE=kafka`, an empty array or `null` skips Kafka startup work. `STREAM_TYPE=redis` also skips Kafka startup work, regardless of this setting. |
+| `retries` | number or null | `null` | KafkaJS retry count. `null` uses KafkaJS defaults. |
 
 ## Config sources
 
@@ -78,11 +78,9 @@ Assumes Elasticsearch at `http://localhost:9200`, index prefix `mdx-`, Kafka **d
 
 ### Service-shipped config (default in compose)
 
-Path on host: `deploy/docker/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`
+Path on host: `services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`
 
-The service-shipped config uses Elasticsearch at `http://elasticsearch:9200`
-and enables Kafka at `kafka:29092`. These are Compose-internal service
-addresses.
+Identical to the image-baked default except Kafka is **enabled** (`brokers: ["localhost:9092"]`). This is the right choice when you have a local Kafka broker running.
 
 ### Custom config
 
@@ -100,14 +98,14 @@ Any absolute host path. Copy one of the above as a starting point and edit. Bind
     ]
   },
   "elasticsearch": {
-    "node": "http://elasticsearch:9200",
+    "node": "http://localhost:9200",
     "indexPrefix": "mdx-",
     "rawIndex": "mdx-raw-*",
     "retries": 15
   },
   "kafka": {
-    "brokers": ["kafka:29092"],
-    "retries": 15
+    "brokers": ["localhost:9092"],
+    "retries": null
   }
 }
 ```
@@ -115,9 +113,6 @@ Any absolute host path. Copy one of the above as a starting point and edit. Bind
 ## Tips
 
 - Keep `server.configs[].value` as strings — the server parses types internally.
-- The service-shipped config uses Compose DNS (`elasticsearch:9200`,
-  `kafka:29092`) on the default bridge network. If a custom deployment switches
-  this service to host networking, it must also replace those addresses with
-  host-reachable endpoints.
+- When running with `network_mode: "host"`, Elasticsearch and Kafka must also be on the host network.
 - `STREAM_TYPE` must be `kafka` or `redis`; when unset, it defaults to `kafka`. Select `redis` to skip Kafka startup work. For `kafka`, set `kafka.brokers` to `[]` to skip Kafka startup work. Kafka-dependent endpoints (dynamic config, dynamic calibration, RTLS/AMR) require `STREAM_TYPE=kafka` and configured brokers.
 - The `amrRetentionInSec` default is `"3"` in both the service-shipped config and the image-baked default.

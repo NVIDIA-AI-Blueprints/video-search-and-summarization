@@ -4,23 +4,23 @@
 
 **Service**: `rtvi-vlm` (container name `vss-rtvi-vlm`)
 **Image**: resolve it from the canonical Compose file; its standalone default is
-`nvcr.io/nvidia/vss-core/vss-rt-vlm:3.3.0`, and environment overrides may
-select another registry/tag or the `-sbsa` platform variant.
+`ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest`, and environment
+overrides may select a release registry/tag or the `-sbsa` platform variant.
 **Primary port**: `${RTVI_VLM_PORT}` → container `8000` (FastAPI REST, `/v1`)
 **Validated GPUs**: H100 · RTX PRO 6000 Blackwell · L40S · DGX SPARK · IGX Thor · AGX Thor
 
 Derive `<compose-default>` from the checked-out
 `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` instead of
 hardcoding it in commands. The current compose default is
-`3.3.0`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All
+`develop-latest`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All
 other platforms use the normal multiarch tag.
 
 Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode →
 segmentation → VLM inference (vLLM) → Kafka publication (NvSchema protobuf).
-In this compose, rtvi-vlm can call a **sibling NIM**
-(`cosmos3-reasoner` or `cosmos3-reasoner-shared-gpu`) over
-OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). Kafka defaults to
-the in-Compose endpoint `kafka:29092`.
+In this compose, rtvi-vlm is wired by default to call a **sibling NIM**
+(`cosmos-reason1-7b`, `cosmos-reason2-8b`, or `qwen3-vl-8b-instruct`) over
+OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). **Kafka lives on the
+host**, not in-compose (`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`).
 
 ## 2. Related Skill
 
@@ -46,15 +46,14 @@ live-authoritative schema — see §16.
   - `shm_size: '16gb'` — required for vLLM IPC. Source: `real-time-vlm.rst` § Sample docker-compose.yml line 278.
   - `ulimits: { memlock: { soft: -1, hard: -1 }, stack: 67108864 }` — required for vLLM page-locked allocations. Source: lines 378–382.
   - `ipc: host` — required so vLLM shared-memory IPC reaches the host kernel SHM segment. Source: line 383.
-- **Kafka** reachable at `kafka:29092` by default; override
-  `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` for an external broker.
+- **Kafka on host** reachable at `${HOST_IP}:9092` (compose does NOT bundle Kafka)
 - **Sibling NIM compose** providing the VLM backend: rtvi-vlm `depends_on`
-  `cosmos3-reasoner` / `cosmos3-reasoner-shared-gpu`, both `required: false`.
-  Launch one first, or configure `openai-compat` with an external endpoint.
+  `cosmos-reason1-7b` / `cosmos-reason2-8b` / `qwen3-vl-8b-instruct`, all
+  `required: false`. Launch one of those first.
 - **`VSS_DATA_DIR`** host path — compose bind-mounts
   `${VSS_DATA_DIR}/data_log/vst/clip_storage` with no default → mount breaks if unset
 - **Free port**: `${RTVI_VLM_PORT}` (whatever you pick)
-- **Outbound**: the Compose-resolved image registry (`nvcr.io` by default),
+- **Outbound**: the Compose-resolved image registry (`ghcr.io` by default),
   `nvcr.io`, `huggingface.co`, and any remote NIM/OpenAI endpoints
 
 > ⚠ **Profiles are mandatory.** The standalone file declares only `rtvi-vlm`.
@@ -236,11 +235,7 @@ concurrent — cap at ≤2 streams or drop input resolution.
 |---|---|---|
 | `8000` | `${RTVI_VLM_PORT}` | Many NVIDIA NIMs also bind 8000 — pick an unused port in `rtvi-vlm.env` |
 
-Kafka is not defined in the RT-VLM service compose; its `kafka:29092` default
-expects the sibling Kafka service on the shared Compose network. For an external
-broker, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS`. Redis is required when
-`RTVI_VLM_MESSAGE_BUS=redis`, `RTVI_VLM_ERROR_BUS=redis`, or
-`ENABLE_REDIS_ERROR_MESSAGES=true`.
+Kafka and Redis are **not bundled** — expected on host or in a sibling compose.
 
 ## 11. Models Used & Swap Guide
 
@@ -304,8 +299,9 @@ RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 
 # rtvi-vlm.env for cosmos-reason1:
-# Confirm a release-supported reason1 tag from the VSS release notes before
-# use; this repository has no reason1 NIM Compose definition.
+# Confirm the release-supported reason1 tag from VSS release notes or
+# deploy/docker/services/nim/cosmos-reason1-7b/compose.yml before use; do not
+# reuse the cosmos-reason2 hf-1208 tag.
 RTVI_VLM_MODEL_TO_USE=cosmos-reason1
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason1-7b:release-supported-tag
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
@@ -442,9 +438,11 @@ export VSS_DATA_DIR="${VSS_DATA_DIR:-$RTVI_DEPLOY_DIR/vss-data}"
 # host's trust boundary.
 umask 077  # ensure the file is created mode 0600
 : "${NGC_CLI_API_KEY:?Set NGC_CLI_API_KEY before writing rtvi-vlm.env}"
+: "${HOST_IP:?Set HOST_IP to an address reachable from the RT-VLM container}"
 cat > rtvi-vlm.env <<EOF
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 RTVI_VLM_PORT=8018
+HOST_IP=${HOST_IP}
 VSS_DATA_DIR=${VSS_DATA_DIR}
 VSS_RT_VLM_TAG=${VLM_TAG}
 RT_VLM_DEVICE_ID=0
@@ -452,8 +450,6 @@ RT_VLM_DEVICE_ID=0
 RTVI_VLM_MODEL_TO_USE=cosmos-reason3
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 EOF
-# HOST_IP is optional for the default in-Compose Kafka endpoint. Add it only
-# when an external endpoint or broker requires a host-reachable address.
 chmod 600 rtvi-vlm.env
 grep -qxF rtvi-vlm.env .gitignore 2>/dev/null || printf 'rtvi-vlm.env\n' >> .gitignore
 
@@ -494,15 +490,21 @@ if ! COMPOSE_ERROR=$(docker_cmd compose --env-file rtvi-vlm.env -f "$COMPOSE_FIL
       printf '%s\n' "$COMPOSE_ERROR" >&2
       COMPOSE_FILE="$RTVI_DEPLOY_DIR/rtvi-vlm-docker-compose.yml"
       cp "$CANONICAL_COMPOSE" "$COMPOSE_FILE"
-      if ! python3 - "$COMPOSE_FILE" <<'PY'
+      python3 - "$COMPOSE_FILE" <<'PY'
 from pathlib import Path
 import sys
 
 p = Path(sys.argv[1])
 allowed = {
     "broker-health-check",
+    "cosmos-reason1-7b",
+    "cosmos-reason1-7b-shared-gpu",
+    "cosmos-reason2-8b",
+    "cosmos-reason2-8b-shared-gpu",
     "cosmos3-reasoner",
     "cosmos3-reasoner-shared-gpu",
+    "qwen3-vl-8b-instruct",
+    "qwen3-vl-8b-instruct-shared-gpu",
 }
 lines = p.read_text().splitlines()
 dependencies = {}
@@ -542,12 +544,8 @@ if not dependencies or unsafe:
 out = lines[:depends_start] + lines[depends_end:]
 p.write_text("\n".join(out) + "\n")
 PY
-      then
-        echo "Compose normalization refused; aborting." >&2
-        exit 1
-      fi
       docker_cmd compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" \
-        --profile rtvi-vlm config --quiet || exit 1
+        --profile rtvi-vlm config --quiet
       ;;
     *) printf '%s\n' "$COMPOSE_ERROR" >&2; exit 1 ;;
   esac
@@ -698,7 +696,7 @@ once the service is up):
 |---|---|---|
 | `docker compose up` starts nothing | `--profile` not specified | Add `--profile rtvi-vlm` (§12) |
 | `Exited (1)` immediately, logs mention `RTVI_VLM_PORT` | Strict sentinel fired | Set `RTVI_VLM_PORT` in `rtvi-vlm.env` |
-| Container starts but Kafka connection errors appear or offsets stay at 0 | No broker is reachable at `${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` when RT-VLM starts | Start the in-Compose Kafka service, or set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to a container-reachable external broker, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
+| Container starts but Kafka errors `:9092 connection refused` or offsets stay at 0 | `HOST_IP` unset, or no broker is reachable at `${HOST_IP}:9092` when RT-VLM starts | Set `HOST_IP` to an address reachable from the container, start Kafka with that advertised listener, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
 | Volume mount error mentioning `data_log/vst/clip_storage` | `VSS_DATA_DIR` unset → malformed mount | Set `VSS_DATA_DIR`; pre-create the `data_log/vst/clip_storage` subtree |
 | `sudo -n chown` reports that a password is required or fails in an agent session | Host path ownership requires user privileges and passwordless sudo is unavailable | Ask the host owner to run `sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"`; do not use `chmod 777` |
 | `sudo -n docker ...` reports that a password is required | Docker requires elevated privileges, but the agent cannot satisfy an interactive sudo prompt | Prefer adding the user to the docker group, enable passwordless sudo for Docker, or have the host owner run the printed Docker command manually. Do not retry with interactive sudo. |

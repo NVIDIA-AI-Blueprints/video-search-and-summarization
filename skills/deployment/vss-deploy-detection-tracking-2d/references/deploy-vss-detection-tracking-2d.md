@@ -102,7 +102,7 @@ directly to the matching flow. Only ask via `AskQuestion` when ambiguous.
 
 ## Deployment Workflow (high-level map)
 
-The skill renders progress as a 5-task list (see `task-list.md`)
+The skill renders progress as a 10-task list (see `task-list.md`)
 and walks through six logical steps. Each step links to the file with the
 detailed bash and decision logic.
 

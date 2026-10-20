@@ -78,8 +78,7 @@ Underlying evaluation signals used in this run: <br>
 | Efficiency | 2 | 86% (+26%) | 77% (+10%) |
 
 ## Skill Version(s): <br>
-Current skill metadata: 3.3.0 (`SKILL.md`). <br>
-Evaluated snapshot: 3.2.1. The results above were recorded against that snapshot and are not a 3.3.0 re-evaluation. <br>
+3.2.1 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

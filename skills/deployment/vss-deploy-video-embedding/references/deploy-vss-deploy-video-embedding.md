@@ -2,11 +2,11 @@
 
 ## Container Image
 
-- **Image name** — `nvcr.io/nvidia/vss-core/vss-rt-embed`. The Compose service uses `${VSS_RT_EMBED_IMAGE}` and `${VSS_RT_EMBED_TAG}` so the image and tag are overridable per environment.
-- **Tag** — `3.3.0` is the release default; use `3.3.0-sbsa` on SBSA/DGX Spark. Override `VSS_RT_EMBED_TAG` only when pinning another promoted or immutable build.
-- **Registry** — `nvcr.io`. Authenticate with an NGC API key before pulling the default image.
+- **Image name** — `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed`. The Compose service uses `${VSS_RT_EMBED_IMAGE}` and `${VSS_RT_EMBED_TAG}` so the image and tag are overridable per environment.
+- **Tag** — `develop-latest` tracks the latest develop build. Override `VSS_RT_EMBED_TAG` only when pinning a promoted or immutable build.
+- **Registry** — `ghcr.io`. The default image is publicly pullable; no registry login is required.
 - **NGC model and asset access** — Set `NGC_API_KEY` in the container environment when the selected model or asset requires NGC access.
-- **Architecture support** — Use the normal tag on x86 and the `-sbsa` variant on SBSA/DGX Spark.
+- **Architecture support** — The GHCR image is a `linux/amd64` and `linux/arm64` multi-architecture manifest.
 
 ## GPU Requirements
 
@@ -77,11 +77,9 @@ The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-mode
 - Docker Engine and Docker Compose plugin recent enough to support the conditional `${VAR:+...}` bind-mount syntax used by the optional `ASSET_STORAGE_DIR` and `RTVI_EMBED_LOG_DIR` mounts.
 - NVIDIA Container Toolkit configured as the default container runtime.
 - API keys exposed to the runtime: `NGC_API_KEY` (required), `NVIDIA_API_KEY` (defaults to a sentinel; set to a real key if your downstream calls require it), and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
-- An authenticated Docker session for `nvcr.io`; use the same NGC API key with
-  the literal `'$oauthtoken'` username before pulling the image.
 - Host environment variables: `RTVI_EMBED_PORT` and `VSS_DATA_DIR`. Set `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` only when Kafka buses are enabled and the default `kafka:29092` broker address is not correct for your Compose network.
 - Disk space sufficient for the Hugging Face cache, NGC model cache, and Triton model repository volumes.
-- Network reachability to `nvcr.io` for the container image, `huggingface.co` for the default model, `prod.api.nvidia.com` when using NGC-hosted models or assets, and any enabled peer services (Redis, Kafka).
+- Network reachability to `ghcr.io` for the container image, `huggingface.co` for the default model, `prod.api.nvidia.com` when using NGC-hosted models or assets, and any enabled peer services (Redis, Kafka).
 
 ## Standalone Quick Start
 
@@ -106,14 +104,6 @@ export HF_TOKEN="${HF_TOKEN:-}"  # optional, but recommended to avoid HF 429s
 export MESSAGE_BUS=
 export ERROR_BUS=
 export ENABLE_REDIS_ERROR_MESSAGES=false
-
-# Authenticate to the release image registry without printing the key.
-printf '%s\n' "$NGC_API_KEY" |
-  docker login nvcr.io --username '$oauthtoken' --password-stdin || {
-    echo "ERROR: docker login to nvcr.io failed; verify NGC_API_KEY." >&2
-    return 1 2>/dev/null || exit 1
-  }
-# '$oauthtoken' above is the literal username required by NGC, not a shell variable.
 
 # Prepare the VST clip-storage host directory used by the compose bind mount.
 CLIP_STORAGE_DIR="${VSS_DATA_DIR}/data_log/vst/clip_storage"

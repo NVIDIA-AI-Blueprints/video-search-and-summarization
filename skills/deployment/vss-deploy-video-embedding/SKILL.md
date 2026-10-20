@@ -45,8 +45,8 @@ RT-Embed.
 - **Legacy 3.1 name:** RT-Embed.
 - **Compose service:** `rtvi-embed`.
 - **Container name:** `vss-rtvi-embed`.
-- **Image:** `nvcr.io/nvidia/vss-core/vss-rt-embed` (override with `VSS_RT_EMBED_IMAGE`).
-- **Default tag:** `3.3.0` (override with `VSS_RT_EMBED_TAG`; use `3.3.0-sbsa` for an SBSA/DGX Spark host).
+- **Image:** `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed` (override with `VSS_RT_EMBED_IMAGE`).
+- **Default tag:** `develop-latest` (override with `VSS_RT_EMBED_TAG`; use `develop-latest-sbsa` for an SBSA/DGX Spark host).
 - **Profile:** `rtvi-embed`.
 - **Container port:** `8000` (host-side `${RTVI_EMBED_PORT}`).
 - **Default model:** `cosmos-embed1-448p` from `nvidia/Cosmos-Embed1-448p`.

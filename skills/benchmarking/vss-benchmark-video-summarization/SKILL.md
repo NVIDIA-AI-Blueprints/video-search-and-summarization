@@ -177,7 +177,7 @@ The benchmark uses warehouse surveillance videos from the VSS sample dataset, ho
 ```bash
 export VSS_BENCHMARK_DATA_DIR=${VSS_BENCHMARK_DATA_DIR:-$HOME/vss-benchmark-data}
 
-# Idempotent; add FORCE=1 to re-fetch, or pass a package version (default 3.3.0)
+# Idempotent; add FORCE=1 to re-fetch, or pass a package version (default 3.2.0)
 ./scripts/fetch-videos.sh
 
 # Probe video durations to verify what was downloaded
