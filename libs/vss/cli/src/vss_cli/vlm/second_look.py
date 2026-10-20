@@ -10,7 +10,9 @@ from dataclasses import asdict
 from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING
+from typing import Any
 from typing import Literal
+from typing import override
 
 from vss_cli import memory as memory_mod
 from vss_cli.exits import Exit
@@ -20,6 +22,7 @@ from vss_core import vios
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core.memory import MemoryNotFoundError
 from vss_core.memory import MemoryOutput
+from vss_core.vlm import VLMAnalyzer
 from vss_core.vlm import second_look
 
 if TYPE_CHECKING:
@@ -30,13 +33,14 @@ if TYPE_CHECKING:
     from .group import VlmInput
 
 
-class _CliAnalyzer:
+class _CliAnalyzer(VLMAnalyzer):
     def __init__(self, group: VlmGroup, inputs: VlmInput, ctx: Context) -> None:
         self.group = group
         self.inputs = inputs
         self.ctx = ctx
         self.reads: list[Result] = []
 
+    @override
     async def analyze(
         self,
         *,
@@ -44,7 +48,7 @@ class _CliAnalyzer:
         start_timestamp: str,
         end_timestamp: str,
         prompt: str,
-        time_format: Literal["iso", "offset"] = "iso",  # noqa: ARG002 - CLI accepts both formats.
+        time_format: Literal["iso", "offset"] = "iso",
     ) -> str:
         inputs = self.inputs.model_copy(
             update={
@@ -88,6 +92,54 @@ def _reread_inputs(inputs: VlmInput, policy: VlmConfig | None) -> VlmInput:
     return _apply_vlm_policy(inputs.model_copy(update=updates), policy)
 
 
+async def _resolve_windows(origin: str, sensor: str, inputs: VlmInput) -> tuple[list[str], Literal["iso", "offset"]]:
+    ref = await vios.resolve_sensor(origin, sensor)
+    segments = await vios.recorded_segments(origin, ref.stream_id)
+    if not segments:
+        raise vios.VIOSInvalidInputError("second look requires a recorded segment")
+    bounds = [
+        *vios.resolve_window(segments, inputs.start_time, inputs.end_time, ref.kind),
+        *vios.resolve_window(segments, inputs.relook_start_time, inputs.relook_end_time, ref.kind),
+    ]
+    if ref.kind == "video":
+        source_start = datetime.fromisoformat(segments[0][0].replace("Z", "+00:00"))
+        bounds = [
+            str((datetime.fromisoformat(value.replace("Z", "+00:00")) - source_start).total_seconds())
+            for value in bounds
+        ]
+        return bounds, "offset"
+    return bounds, "iso"
+
+
+def _save_metadata(
+    memory: memory_mod.Memory | None,
+    reads: list[Result],
+    selected: Result,
+    relationship: dict[str, Any],
+    details: dict[str, Any],
+) -> bool:
+    if memory is None:
+        return True
+    saved = True
+    persistence_errors: tuple[type[BaseException], ...] = (MemoryNotFoundError, *memory_mod.write_failures())
+    for index, read in enumerate(reads):
+        if not read.body.get("persisted", read.extra.get("marker", {}).get("persisted", False)):
+            continue
+        metadata = relationship | {"role": "first" if index == 0 else "targeted", "selected": False}
+        if read is selected:
+            metadata = details
+        try:
+            record = memory.service.get(read.job_id)
+            if record.output is None and read.exit in (Exit.SUCCESS, Exit.PARTIAL):
+                raise MemoryNotFoundError("Completed read has no saved output")
+            output = record.output or MemoryOutput()
+            output = output.model_copy(update={"ext": {**(output.ext or {}), "second_look": metadata}})
+            memory.service.upsert(record.model_copy(update={"output": output}))
+        except persistence_errors:
+            saved = False
+    return saved
+
+
 def run_second_look(group: VlmGroup, inputs: VlmInput, ctx: Context, *, policy: VlmConfig | None) -> Result:
     from .group import _vios_exit_for
 
@@ -100,26 +152,8 @@ def run_second_look(group: VlmGroup, inputs: VlmInput, ctx: Context, *, policy: 
 
         raise ConfigError("second look requires a VSS deployment with VIOS")
 
-    async def resolve() -> tuple[str, list[str], Literal["iso", "offset"]]:
-        ref = await vios.resolve_sensor(origin, sensor)
-        segments = await vios.recorded_segments(origin, ref.stream_id)
-        if not segments:
-            raise vios.VIOSInvalidInputError("second look requires a recorded segment")
-        bounds = [
-            *vios.resolve_window(segments, inputs.start_time, inputs.end_time, ref.kind),
-            *vios.resolve_window(segments, inputs.relook_start_time, inputs.relook_end_time, ref.kind),
-        ]
-        if ref.kind == "video":
-            source_start = datetime.fromisoformat(segments[0][0].replace("Z", "+00:00"))
-            bounds = [
-                str((datetime.fromisoformat(value.replace("Z", "+00:00")) - source_start).total_seconds())
-                for value in bounds
-            ]
-            return sensor, bounds, "offset"
-        return sensor, bounds, "iso"
-
     try:
-        sensor_id, bounds, time_format = asyncio.run(resolve())
+        bounds, time_format = asyncio.run(_resolve_windows(origin, sensor, inputs))
     except (vios.VIOSInvalidInputError, vios.VIOSNotFoundError, vios.VIOSTimeoutError, BackendUnreachableError) as exc:
         code, status = _vios_exit_for(exc)
         return Result(body={"status": status, "error": str(exc)}, exit=code)
@@ -142,7 +176,7 @@ def run_second_look(group: VlmGroup, inputs: VlmInput, ctx: Context, *, policy: 
             outcome = asyncio.run(
                 second_look(
                     analyzer,
-                    sensor_id=sensor_id,
+                    sensor_id=sensor,
                     start_timestamp=bounds[0],
                     end_timestamp=bounds[1],
                     second_start_timestamp=bounds[2],
@@ -184,27 +218,10 @@ def run_second_look(group: VlmGroup, inputs: VlmInput, ctx: Context, *, policy: 
         )
         body = dict(selected.body, answer=outcome.answer, second_look=details)
         partial = bool(outcome.fallback_reason) or any(read.exit != Exit.SUCCESS for read in reads)
-        if memory is not None:
-            persistence_errors: tuple[type[BaseException], ...] = (MemoryNotFoundError, *memory_mod.write_failures())
-            for index, read in enumerate(reads):
-                if not read.body.get("persisted", read.extra.get("marker", {}).get("persisted", False)):
-                    continue
-                metadata = (
-                    details
-                    if read is selected
-                    else relationship | {"role": "first" if index == 0 else "targeted", "selected": False}
-                )
-                try:
-                    record = memory.service.get(read.job_id)
-                    if record.output is None and read.exit in (Exit.SUCCESS, Exit.PARTIAL):
-                        raise MemoryNotFoundError("Completed read has no saved output")
-                    output = record.output or MemoryOutput()
-                    output = output.model_copy(update={"ext": {**(output.ext or {}), "second_look": metadata}})
-                    memory.service.upsert(record.model_copy(update={"output": output}))
-                except persistence_errors:
-                    body["persisted"] = False
-                    body["persist_error"] = "Second-look metadata could not be saved."
-                    partial = True
+        if not _save_metadata(memory, reads, selected, relationship, details):
+            body["persisted"] = False
+            body["persist_error"] = "Second-look metadata could not be saved."
+            partial = True
         return Result(
             body=body,
             job_id=selected.job_id,

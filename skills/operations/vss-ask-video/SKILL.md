@@ -371,8 +371,8 @@ leave shell/tool history and prior answers out. Free-form questions stay
 free-form. The helper adds the time cue; it does not shorten the caller's prompt.
 
 Second look requires a VIOS sensor, not `--file` or `--media-url`, and disabled
-chunking (`--chunk-duration 0`); a locked deployment policy still applies.
-Add `--relook-start-time "${RELOOK_START_TIME}" --relook-end-time "${RELOOK_END_TIME}"`
+chunking (`--chunk-duration 0`); a policy locking nonzero chunking blocks it.
+Add `--chunk-duration 0 --relook-start-time "${RELOOK_START_TIME}" --relook-end-time "${RELOOK_END_TIME}"`
 to the sensor command below, preserving its exit-code guard.
 Keep the original window in `--start-time` and `--end-time`; both must fit in one
 recorded segment and the relook must be strictly narrower. This is one command
@@ -380,11 +380,11 @@ with at most 2 logical reads, not an extra command after a completed inspection.
 It does not extend introspection's follow-ups or allow retries after a failure.
 
 For denser evidence, set `--relook-fps` or `--relook-max-frames` within the
-configured policy. RT-VLM and Cosmos NIM use one or the other; vLLM can combine
+configured policy. RT-VLM and Cosmos Reason NIM use one or the other; vLLM can combine
 them. A fixed frame budget on a shorter window increases temporal density;
 unchanged FPS does not. The plain OpenAI backend cannot apply these overrides.
 
-The CLI returns both answers and selects the narrower answer when available.
+The CLI returns both answers as JSON and selects the narrower answer when available.
 Selection is a policy, not proof of improvement. Show both answers if they
 disagree and state which was selected. If the optional read fails, return the
 retained first answer and its fallback reason without claiming confirmation.

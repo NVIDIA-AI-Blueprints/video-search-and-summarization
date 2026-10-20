@@ -185,9 +185,28 @@ async def test_vst_clip_rejects_mixed_iso_and_offset_inputs() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("transcode", "container"), [(None, None), ("full", None), ("full", "mkv")])
-async def test_vst_clip_media_options_are_sent_only_when_requested(
-    monkeypatch: pytest.MonkeyPatch, transcode: str | None, container: str | None
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        ("2026-01-01T00:00:03Z", "2026-01-01T00:00:06Z", ("2026-01-01T00:00:03Z", "2026-01-01T00:00:06Z")),
+        (None, None, ("2026-01-01T00:00:00.000Z", "2026-01-01T00:05:00.000Z")),
+        (3.125, None, ("2026-01-01T00:00:03.125Z", "2026-01-01T00:05:00.000Z")),
+        (None, 6, ("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:06.000Z")),
+        (100, 400, ("2026-01-01T00:01:40.000Z", "2026-01-01T00:05:00.000Z")),
+        (400, None, ("2026-01-01T00:05:00.000Z", "2026-01-01T00:05:00.000Z")),
+        (0, 0, ("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z")),
+    ],
+)
+async def test_vst_clip_query_preserves_bounds_and_optional_media_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    transcode: str | None,
+    container: str | None,
+    start: float | str | None,
+    end: float | str | None,
+    expected: tuple[str, str],
 ) -> None:
+    timeline = AsyncMock(return_value=("2026-01-01T00:00:00Z", "2026-01-01T00:05:00Z"))
+    monkeypatch.setattr(vst_module, "get_timeline", timeline)
     response = AsyncMock()
     response.status = 200
     response.text.return_value = '{"videoUrl": "http://vst/clip.mp4"}'
@@ -201,23 +220,41 @@ async def test_vst_clip_media_options_are_sent_only_when_requested(
         kwargs["container"] = container
     url = await vst_module.get_video_clip_url(
         stream_id="stream-1",
-        start_time="2026-01-01T00:00:03Z",
-        end_time="2026-01-01T00:00:06Z",
+        start_time=start,
+        end_time=end,
         vst_internal_url="http://vst",
         **kwargs,
     )
 
     assert url == "http://vst/clip.mp4"
+    assert timeline.await_count == (0 if isinstance(start, str) else 1)
     session.get.assert_called_once()
     query = parse_qs(urlparse(session.get.call_args.args[0]).query)
     assert query == {
-        "startTime": ["2026-01-01T00:00:03Z"],
-        "endTime": ["2026-01-01T00:00:06Z"],
+        "startTime": [expected[0]],
+        "endTime": [expected[1]],
         "blocking": ["true"],
         "disableAudio": ["true"],
         **({"transcode": ["full"]} if transcode is not None else {}),
         **({"container": ["mkv"]} if container is not None else {}),
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("start", "end"), [(-1, 10), (10, 5), (None, -1)])
+async def test_vst_clip_rejects_invalid_offsets_before_request(
+    monkeypatch: pytest.MonkeyPatch, start: float | None, end: float
+) -> None:
+    monkeypatch.setattr(
+        vst_module, "get_timeline", AsyncMock(return_value=("2026-01-01T00:00:00Z", "2026-01-01T00:05:00Z"))
+    )
+    session = MagicMock()
+    monkeypatch.setattr(vst_module.aiohttp, "ClientSession", session)
+    with pytest.raises(VSTError, match="Clip times must be within the stream timeline"):
+        await vst_module.get_video_clip_url(
+            stream_id="stream-1", start_time=start, end_time=end, vst_internal_url="http://vst"
+        )
+    session.assert_not_called()
 
 
 @pytest.mark.asyncio

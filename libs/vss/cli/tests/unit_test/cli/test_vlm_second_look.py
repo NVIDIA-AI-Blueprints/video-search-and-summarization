@@ -165,7 +165,7 @@ def test_two_reads_map_file_source_time_and_persist_selected_job(
     ]
     assert [clip.get("transcode") for clip in clips] == ["full", "full"]
     for request, expected_window in zip(requests, ["01:40 to 03:20", "02:00 to 02:03"], strict=True):
-        assert request.get("chunk_duration", 0) == 0
+        assert request["chunk_duration"] == 0
         assert len(request["messages"]) == 1
         prompt = next(part["text"] for part in request["messages"][0]["content"] if part["type"] == "text")
         assert prompt == f"This clip is from {expected_window} in the original video.\n\nWhat is visible at 02:01?"

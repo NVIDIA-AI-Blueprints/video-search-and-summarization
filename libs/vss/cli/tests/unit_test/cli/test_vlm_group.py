@@ -1506,6 +1506,7 @@ def test_run_file_source_does_not_persist_local_path(
         ("http://localhost:30888/vst/api/v1/storage/file/abc/url", False, "video/mp4"),
         ("http://10.176.222.209:17777/vst/storage/clip.mp4", True, "video/mp4"),
         ("http://10.176.222.209:17777/vst/storage/clip.mkv", True, "video/x-matroska"),
+        ("http://10.176.222.209:17777/vst/storage/clip.ts", True, "video/mp4"),
     ],
 )
 def test_sensor_inline_delivery_preserves_bytes_and_cleans_up_tempfile(
