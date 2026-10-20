@@ -218,6 +218,13 @@ See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-spe
 
 ### Known Issues and Limitations
 
+- **Alerts developer profile (real-time mode):** The default sample prompt
+  may cause false positives on some streams. When using a video other than
+  the default sample stream, update and make the alert prompt as specific as possible
+  about the conditions to detect.
+- **Alerts developer profile (real-time mode) input support:** Only RTSP
+  streams are supported as input. Attempting to upload MP4 files directly to VIOS causes
+  RTVI VLM errors.
 - **RTSP searches return no results for queries without visual
   attributes:** In the Search profile, in-stack VSS Agent query
   decomposition applies a 2025-01-01 time window to queries that describe
