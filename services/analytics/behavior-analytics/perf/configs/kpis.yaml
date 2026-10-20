@@ -13,9 +13,9 @@
 #
 # Latency limits are seconds. BA topics use topic-minus-raw (corrected).
 # min_count is a run-validity floor, not part of Yun's table.
-# Warehouse kafka playback currently reports ~6s behavior latency because
-# of behaviorWatermarkSec; that will fail these behavior p50/p99 gates
-# until the monitor matches Yun's in-process numbers.
+# Warehouse kafka playback fixture sets behaviorEmitOnce=true, which holds
+# each behavior for behaviorStateValidInterval (default 6s). Perf overlay
+# turns emit-once off so this gate can be compared to Yun's 40/100 ms.
 
 schema_version: "0.1"
 service: behavior-analytics

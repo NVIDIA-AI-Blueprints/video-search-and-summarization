@@ -14,6 +14,10 @@ from kpis import DEFAULT_KPIS_PATH, _load_simple_yaml, evaluate_kpis, load_kpis
 from latency import build_result, correct_topics, parse_latency_report
 from minio_upload import minio_settings, publish_result
 
+OVERLAY = (
+    Path(__file__).resolve().parents[1] / "scripts" / "overlay_app_config.py"
+)
+
 CORE = Path(__file__).resolve().parents[1] / "benchmark" / "core" / "vss_perf_benchmark.py"
 REPO_ROOT = Path(__file__).resolve().parents[5]
 
@@ -376,6 +380,18 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertNotIn("--no-build", deploy)
         self.assertIn('chmod -R a+rwX "$BA_PERF_DATA_DIR"', deploy)
         self.assertIn("export BA_PERF_DATA_DIR", deploy)
+        self.assertIn("overlay_app_config.py", deploy)
+        self.assertIn("BA_PERF_BEHAVIOR_EMIT_ONCE", deploy)
+        post_deploy = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "perf"
+            / "scripts"
+            / "post_deploy.sh"
+        ).read_text()
+        self.assertIn("behaviorEmitOnce", post_deploy)
         teardown = (
             REPO_ROOT
             / "services"
@@ -400,6 +416,74 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertIn("profile_services=", deploy)
         self.assertIn("compose up -d --build --force-recreate $profile_services analytics-stream", deploy)
         self.assertIn("docker volume rm -f", deploy)
+
+    def test_overlay_turns_emit_once_off_without_editing_fixture(self) -> None:
+        spec = importlib.util.spec_from_file_location("overlay_app_config", OVERLAY)
+        module = importlib.util.module_from_spec(spec)
+        assert spec is not None and spec.loader is not None
+        spec.loader.exec_module(module)
+        fixture = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "tests"
+            / "integration"
+            / "docker_compose"
+            / "apps"
+            / "warehouse_2d"
+            / "analytics-stream-kafka-config.json"
+        )
+        original = json.loads(fixture.read_text())
+        self.assertEqual(
+            next(item["value"] for item in original["app"] if item["name"] == "behaviorEmitOnce"),
+            "true",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "analytics-stream-kafka-config.json"
+            stamp = Path(tmp) / "perf_app_overlay.json"
+            work.write_text(fixture.read_text())
+            applied = module.overlay_config(work, {"behaviorEmitOnce": "false"}, stamp=stamp)
+            patched = json.loads(work.read_text())
+            self.assertEqual(applied["behaviorEmitOnce"], "false")
+            self.assertEqual(
+                next(item["value"] for item in patched["app"] if item["name"] == "behaviorEmitOnce"),
+                "false",
+            )
+            self.assertEqual(json.loads(stamp.read_text())["app"]["behaviorEmitOnce"], "false")
+            self.assertEqual(
+                next(
+                    item["value"]
+                    for item in json.loads(fixture.read_text())["app"]
+                    if item["name"] == "behaviorEmitOnce"
+                ),
+                "true",
+            )
+        with tempfile.TemporaryDirectory() as tmp:
+            stamp = Path(tmp) / "perf_app_overlay.json"
+            stamp.write_text(json.dumps({"app": {"behaviorEmitOnce": "false"}}))
+            with patch.dict(os.environ, {"BA_PERF_OVERLAY_STAMP": str(stamp)}, clear=False):
+                result = build_result(
+                    REPORT,
+                    artifact_ref="nvcr.io/example/behavior-analytics:test",
+                    scenario="quick_test",
+                    config_id="warehouse_2d-kafka-playback",
+                    duration_seconds=60,
+                    warmup_seconds=10,
+                    apply_kpis=False,
+                )
+            self.assertEqual(result["app_overlay"]["app"]["behaviorEmitOnce"], "false")
+
+    def test_measure_uses_latency_monitor_placeholder(self) -> None:
+        deploy = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "perf"
+            / "scripts"
+            / "deploy.sh"
+        ).read_text()
         measure = (
             REPO_ROOT
             / "services"

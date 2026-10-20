@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
+from pathlib import Path
 from typing import Mapping
 
 from kpis import evaluate_kpis, load_kpis
@@ -129,6 +132,7 @@ def build_result(
         "duration_seconds": duration_seconds,
         "warmup_seconds": warmup_seconds,
         "setup": "warehouse_2d_kafka_playback",
+        "app_overlay": _load_app_overlay(),
         "correction": "topic_summary_minus_raw",
         "success": correction["success"],
         "error": correction["error"],
@@ -145,6 +149,23 @@ def build_result(
                 f"{previous}; {kpi_result['error']}" if previous else kpi_result["error"]
             )
     return payload
+
+
+def _load_app_overlay() -> dict[str, object]:
+    stamp = os.environ.get("BA_PERF_OVERLAY_STAMP")
+    if not stamp:
+        data_dir = os.environ.get("BA_PERF_DATA_DIR", "/tmp/ba-perf-data")
+        stamp = str(Path(data_dir) / "perf_app_overlay.json")
+    path = Path(stamp)
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if isinstance(payload, dict):
+        return payload
+    return {}
 
 
 def _parse_row(line: str) -> dict[str, float] | None:

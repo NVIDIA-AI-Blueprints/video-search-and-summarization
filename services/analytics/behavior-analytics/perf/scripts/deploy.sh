@@ -16,6 +16,17 @@ source "$INTEGRATION_DIR/generate_env.sh"
 load_compose_env
 docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 
+# Warehouse kafka playback sets behaviorEmitOnce=true, which holds each
+# behavior until behaviorStateValidInterval (default 6s). Yun's 40/100 ms
+# KPI is hypothesized to be per-batch (product default false). Overlay the
+# mounted config copy; do not change the git fixture. Restore the fixture
+# with BA_PERF_BEHAVIOR_EMIT_ONCE=true.
+config_file="$MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}/analytics-stream-${STREAMING_SERVICE}-config.json"
+python3 "$PERF_DIR/scripts/overlay_app_config.py" \
+    "$config_file" \
+    --behavior-emit-once "${BA_PERF_BEHAVIOR_EMIT_ONCE:-false}" \
+    --stamp "$BA_PERF_DATA_DIR/perf_app_overlay.json"
+
 # Kafka and Elasticsearch run as uid 1000. Keep their bind mounts under
 # /tmp (BA_PERF_DATA_DIR), not the Jenkins checkout. #62 failed at GPU
 # deleteDir on leftover ES lucene files from #60.
