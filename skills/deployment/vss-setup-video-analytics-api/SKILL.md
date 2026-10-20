@@ -32,7 +32,8 @@ cd $REPO/deploy/docker
 export VSS_APPS_DIR=$(pwd)
 export VSS_DATA_DIR=${VSS_DATA_DIR:-/tmp/vss-data}
 mkdir -p "$VSS_DATA_DIR/data_log/vss_video_analytics_api"
-docker compose -f services/analytics/video-analytics-api/compose.yml up -d vss-video-analytics-api
+docker compose --profile vss-video-analytics-api \
+  -f services/analytics/video-analytics-api/compose.yml up -d vss-video-analytics-api
 curl -sf http://localhost:8081/livez
 ```
 

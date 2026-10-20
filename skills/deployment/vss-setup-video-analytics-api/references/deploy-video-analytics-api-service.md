@@ -48,10 +48,12 @@ The defaults assume:
 The base compose already mounts the config from the services directory:
 
 ```
-services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json
+deploy/docker/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json
 ```
 
-This config uses Compose-internal peers: Elasticsearch at
+This repository-relative path is mounted by Compose from its
+`deploy/docker` working directory. The config uses Compose-internal peers:
+Elasticsearch at
 `http://elasticsearch:9200` and Kafka at `kafka:29092`. Kafka must contain
 `mdx-notification`, `mdx-amr`, and at least one topic matching `mdx-rtls*`;
 the server waits for those topics before it listens. Use Option A or a custom
@@ -142,7 +144,8 @@ with a host-reachable endpoint and similarly update the Kafka broker address.
 If you need to bring up Elasticsearch too, start the database and its initializer together:
 
 ```bash
-docker compose -f services/infra/compose.yml up -d elasticsearch elasticsearch-init-container
+docker compose --profile elasticsearch --profile elasticsearch-init-container \
+  -f services/infra/compose.yml up -d elasticsearch elasticsearch-init-container
 ```
 
 Wait for ES to be healthy before starting the API:
@@ -205,7 +208,8 @@ mkdir -p "$VSS_DATA_DIR/data_log/vss_video_analytics_api"
 
 # (one-time) edit services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json if needed.
 
-docker compose -f services/analytics/video-analytics-api/compose.yml up -d vss-video-analytics-api
+docker compose --profile vss-video-analytics-api \
+  -f services/analytics/video-analytics-api/compose.yml up -d vss-video-analytics-api
 
 docker ps --filter "name=vss-video-analytics-api" --format '{{.Names}}\t{{.Status}}'
 # compose.yml sets container_name explicitly:

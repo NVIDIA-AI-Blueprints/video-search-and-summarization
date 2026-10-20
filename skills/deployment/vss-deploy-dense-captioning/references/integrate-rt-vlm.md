@@ -128,7 +128,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | `RTVI_VLM_MESSAGE_BUS_TOPIC` → `MESSAGE_BUS_TOPIC` | Caption topic / Redis stream | `mdx-vlm-captions` (VSS 3.2 — subscribed by `mdx-lvs` Logstash pipeline) | optional |
 | `RTVI_VLM_ERROR_BUS` → `ERROR_BUS` | Error-output broker type | `kafka` | optional; empty disables errors |
 | `RTVI_VLM_KAFKA_INCIDENT_TOPIC` → `KAFKA_INCIDENT_TOPIC` | Incident topic | `mdx-vlm-incidents` | optional |
-| `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `kafka:29092` | **Yes (effective)** |
+| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` → `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `kafka:29092` | **Yes (effective)** |
 | `RTVI_VLM_ERROR_MESSAGE_TOPIC` → `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |

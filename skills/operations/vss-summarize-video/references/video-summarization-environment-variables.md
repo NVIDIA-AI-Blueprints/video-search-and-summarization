@@ -58,7 +58,7 @@ RT-VLM:
 | `VSS_RT_VLM_TAG` | `3.3.0` on x86/Tegra; `3.3.0-sbsa` on SBSA | RT-VLM image tag. |
 | `RTVI_VLM_BASE_URL` | `http://rtvi-vlm:8000` | Compose service URL injected into LVS as `RTVI_VLM_URL`. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
-| `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
+| `RTVI_VLM_URL` | `http://rtvi-vlm:8000` (derived from `RTVI_VLM_BASE_URL`) | video summarization-facing URL. |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | Default integrated backend selector. |
 | `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default checkpoint. |
 | `RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK` | empty; `5` for remote openai-compat LVS deployments | RT-VLM fixed-frame default used when LVS requests omit frame sampling overrides. Leave model-specific local defaults unchanged. |

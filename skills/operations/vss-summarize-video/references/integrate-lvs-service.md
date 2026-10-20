@@ -55,7 +55,8 @@ making this service skill depend back on the orchestrator.
   **Authentication:** Same deployment-level auth behavior as the summarize API.
 
 - **Method:** Peer REST call
-  **Endpoint:** `RTVI_VLM_URL`, default `http://${HOST_IP}:8018`
+  **Endpoint:** `RTVI_VLM_URL`, populated from `RTVI_VLM_BASE_URL` (the
+  developer profile sets `http://rtvi-vlm:8000`)
   **Purpose:** LVS calls RT-VLM while summarizing a stored video file or clip.
   **Authentication:** Local default is unauthenticated; remote endpoints use the
   configured API key.
@@ -173,10 +174,10 @@ jq -e '.choices[0].message.content | length > 0'
 - **Model id must be discovered.** `VLM_NAME` must match `GET /models`; a
   friendly model name that RT-VLM does not advertise causes summarize requests
   to fail.
-- **`lvs` has peer `depends_on` entries.** Standalone generated builds must keep
-  included peers such as Elasticsearch and LLM readiness helpers, and strip only
-  undefined optional peers when a wrapper or selected deployment shape declares
-  them.
+- **`lvs` has optional peer `depends_on` entries.** Standalone generated builds
+  must keep selected Nemotron/Cosmos NIM and `rtvi-vlm` peers, and strip only
+  undefined optional peers when a wrapper or selected deployment shape does not
+  declare them.
 - **LVS config bind mount must resolve to a file.** The compose mount for
   `config.yaml` must point to a real file, not a Docker-created directory.
 - **Image variable isolation.** Generated profiles must keep the LVS image
@@ -210,10 +211,25 @@ services:
       RTVI_VLM_URL: ${RTVI_VLM_BASE_URL:-}
       RTVI_VLM_URL_PASSTHROUGH: true
     depends_on:
-      elasticsearch:
-        condition: service_started
-      wait-for-elasticsearch:
-        condition: service_completed_successfully
-      wait-for-llm:
-        condition: service_completed_successfully
+      nvidia-nemotron-nano-9b-v2-fp8:
+        condition: service_healthy
+        required: false
+      nemotron-3.5-lightning-30b-a3b:
+        condition: service_healthy
+        required: false
+      nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
+        condition: service_healthy
+        required: false
+      nemotron-3.5-lightning-30b-a3b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner-shared-gpu:
+        condition: service_healthy
+        required: false
+      rtvi-vlm:
+        condition: service_healthy
+        required: false
 ```

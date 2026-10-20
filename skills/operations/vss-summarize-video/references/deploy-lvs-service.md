@@ -56,10 +56,11 @@ wrong, Docker may create an empty directory and LVS will fail at startup.
 - **Expected startup time:** `lvs` usually becomes ready within 2 minutes
   after its peers are available. First boot of local RT-VLM or LLM peers can take
   up to 20 minutes due to image/model download and model warmup.
-- **Startup ordering dependencies:** `lvs` declares peer `depends_on` entries
-  for services such as Elasticsearch and LLM readiness helpers. Generated
-  standalone builds must keep included peers and strip only undefined optional
-  peers when a wrapper or selected deployment shape declares them.
+- **Startup ordering dependencies:** `lvs` declares optional, healthy
+  `depends_on` entries for the supported Nemotron and Cosmos NIM service keys
+  and for `rtvi-vlm`. Generated standalone builds must keep selected peers and
+  strip only undefined optional peers when a wrapper or selected deployment
+  shape does not define them.
 - **Health check endpoint:** `GET http://localhost:38111/v1/ready`
 - **Health check tuning:** `interval: 30s`, `timeout: 10s`, `retries: 10`,
   `start_period: 120s`

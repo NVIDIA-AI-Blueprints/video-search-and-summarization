@@ -21,7 +21,10 @@ by `agent.md`; the SOP-report-specific patch is owned by `sop.md`.
 
 ## Required peers
 
-- `alert-bridge` requires Kafka, Elasticsearch, topic initialization, and
+- The Alerts Foundation requires Kafka, Elasticsearch, topic initialization,
+  and Redis. Alert Bridge itself has no Redis `depends_on`, but both VIOS
+  notification modes use `redis:6379`, so keep `redis` in
+  `COMPOSE_PROFILES_CV` and `COMPOSE_PROFILES_VLM`. It requires
   **no service-definition patch**: the stock definition carries the `alert-bridge`
   profile gate, reads `VLM_BASE_URL`/`VLM_NAME` from env, and mounts its verifier
   configs from env-interpolated sources (`VLM_AS_VERIFIER_CONFIG_FILE*`). Wire it in

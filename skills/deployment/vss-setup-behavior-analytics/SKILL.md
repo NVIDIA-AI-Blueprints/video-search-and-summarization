@@ -31,6 +31,9 @@ A minimal standalone bring-up looks like:
 ```bash
 cd $REPO/deploy/docker
 export VSS_APPS_DIR=$(pwd)
+: "${NGC_CLI_API_KEY:?Set NGC_CLI_API_KEY before Docker login}"
+printf '%s\n' "$NGC_CLI_API_KEY" |
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
 docker compose -f services/analytics/behavior-analytics/compose.yml up -d vss-behavior-analytics-base
 ```
 

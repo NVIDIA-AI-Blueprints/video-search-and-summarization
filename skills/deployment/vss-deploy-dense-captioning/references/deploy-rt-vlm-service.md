@@ -236,7 +236,10 @@ concurrent — cap at ≤2 streams or drop input resolution.
 |---|---|---|
 | `8000` | `${RTVI_VLM_PORT}` | Many NVIDIA NIMs also bind 8000 — pick an unused port in `rtvi-vlm.env` |
 
-Kafka and Redis are **not bundled** — expected on host or in a sibling compose.
+Kafka is not defined in the RT-VLM service compose; its `kafka:29092` default
+expects the sibling Kafka service on the shared Compose network. For an external
+broker, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS`. Redis is required only when
+`ENABLE_REDIS_ERROR_MESSAGES=true`.
 
 ## 11. Models Used & Swap Guide
 
