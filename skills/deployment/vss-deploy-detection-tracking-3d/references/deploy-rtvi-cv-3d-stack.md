@@ -36,7 +36,7 @@ Compose source: `docker/compose.yml` under `RTCV3D_APP`. Image values come from 
 
 | Service | Container | Image expression | Role |
 |---|---|---|---|
-| `perception` | `vss-rtvi-cv-mv3dt` | `${PERCEPTION_IMAGE}:${PERCEPTION_TAG}` | RT-DETR plus MV3DT perception; publishes `mdx-raw`. |
+| `perception` | `vss-rtvi-cv-mv3dt` | `${VSS_RT_CV_IMAGE}:${VSS_RT_CV_TAG}` | RT-DETR plus MV3DT perception; publishes `mdx-raw`. |
 | `bev-fusion` | `vss-rtvi-cv-bev-fusion` | `${BEV_FUSION_IMAGE}:${BEV_FUSION_TAG}` | Fuses `mdx-raw` measurements and publishes `mdx-bev`. |
 | `mosquitto` | `vss-mosquitto-mv3dt` | `${MOSQUITTO_IMAGE}` | Bundled MQTT broker for `/trck/*`, profile `mosquitto`. |
 | `kafka` | `kafka` | `${KAFKA_IMAGE}` | Bundled Kafka broker for `mdx-raw` and `mdx-bev`, profile `kafka`. |
@@ -49,7 +49,7 @@ cd "${RTCV3D_APP}/docker"
 docker compose config --images | sort -u
 ```
 
-Use platform-specific image tags only when they are already supplied by the checked-out compose package/`docker/.env` or explicitly provided by the user. Do not set, derive, or recommend a specific `PERCEPTION_TAG` or `BEV_FUSION_TAG` in this skill.
+Use platform-specific image tags only when they are already supplied by the checked-out compose package/`docker/.env` or explicitly provided by the user. Do not set, derive, or recommend a specific `VSS_RT_CV_TAG` or `BEV_FUSION_TAG` in this skill.
 
 ## Prerequisites
 

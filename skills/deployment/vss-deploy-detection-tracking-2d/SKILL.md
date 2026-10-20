@@ -86,8 +86,6 @@ vss-deploy-detection-tracking-2d/
 
 For the full per-file inventory and what each reference covers, see
 [`references/workflow-reference.md`](references/workflow-reference.md).
-For integrating the service into a wider VSS composition, use
-[`references/integrate-vss-detection-tracking-2d.md`](references/integrate-vss-detection-tracking-2d.md).
 
 All scripts are invoked from the skill root via `$SKILL_DIR/scripts/<name>` — paths inside the deploy reference doc are preserved verbatim and resolve correctly when the agent runs from skill root.
 

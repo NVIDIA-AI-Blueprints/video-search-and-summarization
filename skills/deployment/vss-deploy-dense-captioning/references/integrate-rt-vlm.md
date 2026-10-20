@@ -12,9 +12,10 @@ Use this service when the workflow requires either (a) dense captioning of a sto
 - **Sibling VLM backend** — required when `VLM_MODEL_TO_USE=openai-compat`,
   which is the Compose default. Use `cosmos3-reasoner` or
   `cosmos3-reasoner-shared-gpu` at `${VIA_VLM_ENDPOINT}`, or a remote
-  OpenAI-compatible endpoint. In-process operation uses
-  `VLM_MODEL_TO_USE=cosmos-reason3` or `vllm-compatible` with `MODEL_PATH`
-  pointing at an NGC or git URL.
+  OpenAI-compatible endpoint. In-process operation requires switching
+  `VLM_MODEL_TO_USE` to `cosmos-reason1` / `cosmos-reason2` / `cosmos-reason3` /
+  `vllm-compatible` and pointing `MODEL_PATH` at an NGC or git URL. Source:
+  `real-time-vlm.rst` § Models Supported (lines 62–87).
 - **Video source** — RT-VLM accepts video input via **three independent paths**:
   1. **On-demand (VOD) via VIOS-shared bind mount.** Operator uploads to VIOS `POST /vst/api/v1/files`, file lands in `${VSS_DATA_DIR}/data_log/vst/clip_storage/`, RT-VLM mounts the same host directory at `/home/vst/vst_release/streamer_videos/` and can reference the file path in `POST /v1/files` or `POST /v1/generate_captions`. **VIOS is the producer; RT-VLM is the reader.** Both must mount the same host path or the path-based caption call gets "file not found".
   2. **On-demand (VOD) via direct URL.** Send `POST /v1/files` to RT-VLM with `url` as a **multipart form field** (`-F url=https://…|s3://…|file://…`, not a JSON body) — RT-VLM downloads and processes directly. VIOS is NOT involved. Available 3.2.0+ per `real-time-vlm.rst` § New API Capabilities lines 131–135.
@@ -232,10 +233,6 @@ The `nv.VisionLLM` and `nv.Incident` protobuf schemas are the contract between R
 - **Health:** `curl -f http://localhost:${RTVI_VLM_PORT}/v1/health/ready` — used by the Docker healthcheck; expect HTTP 200.
 - **Loaded model ID:** `curl -s http://localhost:${RTVI_VLM_PORT}/v1/models | jq` — confirms the model resolved at warmup. Source: `real-time-vlm.rst` § Usage Examples note (lines 478–491).
 - **End-to-end caption + Kafka:** upload via `POST /v1/files`, call `POST /v1/generate_captions`, then poll `mdx-vlm-captions` topic offsets:
-
-  These commands run inside the `kafka` container, where `127.0.0.1:9092` is
-  valid. Sibling containers must use `kafka:29092`.
-
 ```bash
 docker exec kafka kafka-get-offsets --bootstrap-server 127.0.0.1:9092 --topic mdx-vlm-captions
 docker exec kafka kafka-console-consumer \

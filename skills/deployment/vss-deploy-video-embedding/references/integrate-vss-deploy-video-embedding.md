@@ -124,6 +124,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `ASSET_STORAGE_DIR` | Optional host directory bound to `/tmp/assets` inside the container. | (unset; mount is skipped) | No |
 | `RTVI_EMBED_LOG_DIR` | Optional host directory bound to `/opt/nvidia/rtvi/log/rtvi/`. | (unset; mount is skipped) | No |
 | `VSS_DATA_DIR` | Host root for VSS data; `data_log/vst/clip_storage` under this path is mounted into the container. | (unset) | Yes |
+| `RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH` | Container-side clip reader mount for the VST `clip_storage` bind (matches `rtvi-embed-docker-compose.yml`). | (from shipped compose; see export below) | Yes when binding clip storage |
 
 ## Network Requirements
 
@@ -146,9 +147,20 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 
 ## Example Compose Snippet
 
-The shipped Compose file fixes the container-side clip reader mount at
-`/home/vst/vst_release/streamer_videos`; the example below uses the same
-literal target.
+Set the container-side clip reader mount before validating or starting this snippet. Run from the VSS repo root so the relative compose path resolves. Read the target from the shipped compose file (same value as in `rtvi-embed-docker-compose.yml`):
+
+```bash
+RTVI_EMBED_COMPOSE=deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml
+export RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH="$(
+  grep 'data_log/vst/clip_storage' "$RTVI_EMBED_COMPOSE" \
+    | head -1 \
+    | sed -E 's/.*clip_storage:([^[:space:]]+).*/\1/'
+)"
+[ -z "$RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH" ] && {
+  echo "ERROR: could not extract container clip-storage path from $RTVI_EMBED_COMPOSE" >&2
+  return 1 2>/dev/null || exit 1
+}
+```
 
 ```yaml
 services:
@@ -183,7 +195,7 @@ services:
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_EMBED_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
       - "rtvi-triton-model-repo:/tmp/triton_model_repo"
-      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos"
+      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:${RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH}"
     ipc: host
     ulimits:
       memlock:
@@ -207,9 +219,7 @@ volumes:
   rtvi-triton-model-repo:
 ```
 
-The path above matches the container-side `clip_storage` target in
-`deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`; update
-this example if that canonical mount changes.
+The export above parses the container-side target from the clip_storage volume line in `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 ## Authentication & Authorization
 

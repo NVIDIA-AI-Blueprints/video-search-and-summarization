@@ -212,9 +212,6 @@ docker --version        # need 28.3.3
 docker compose version  # need v2.39.1+
 
 export VSS_APPS_DIR=$(pwd)
-: "${NGC_CLI_API_KEY:?Set NGC_CLI_API_KEY before Docker login}"
-printf '%s' "$NGC_CLI_API_KEY" |
-  docker login nvcr.io --username '$oauthtoken' --password-stdin
 
 # (one-time) edit services/analytics/behavior-analytics/compose.yml — entrypoint, config volume, optional calibration volume.
 

@@ -106,15 +106,6 @@ export HF_TOKEN="${HF_TOKEN:-}"  # optional, but recommended to avoid HF 429s
 export MESSAGE_BUS=
 export ERROR_BUS=
 export ENABLE_REDIS_ERROR_MESSAGES=false
-
-# Authenticate to the release image registry without printing the key.
-printf '%s\n' "$NGC_API_KEY" |
-  docker login nvcr.io --username '$oauthtoken' --password-stdin || {
-    echo "ERROR: docker login to nvcr.io failed; verify NGC_API_KEY." >&2
-    return 1 2>/dev/null || exit 1
-  }
-# '$oauthtoken' above is the literal username required by NGC, not a shell variable.
-
 # Prepare the VST clip-storage host directory used by the compose bind mount.
 CLIP_STORAGE_DIR="${VSS_DATA_DIR}/data_log/vst/clip_storage"
 mkdir -p "$CLIP_STORAGE_DIR"
