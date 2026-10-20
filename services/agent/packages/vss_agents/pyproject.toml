@@ -37,7 +37,8 @@ dependencies = [
     "matplotlib>=3.8.0",
     "mcp >= 1.28.1",
     "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiler,s3]==1.8.0",
-    "nvidia-vision-ai",
+    # frag_api is the default knowledge backend and es_caption is built in; both need aiohttp.
+    "nvidia-vision-ai[es_caption,frag_api]",
     "nvidia-vss-core",
     "protobuf>=6.33.5",
     "pydantic-settings~=2.13",
