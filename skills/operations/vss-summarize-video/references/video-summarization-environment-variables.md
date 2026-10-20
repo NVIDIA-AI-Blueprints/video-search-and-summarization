@@ -56,7 +56,7 @@ RT-VLM:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `VSS_RT_VLM_TAG` | `3.3.0` on x86/Tegra; `3.3.0-sbsa` on SBSA | RT-VLM image tag. |
-| `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
+| `RTVI_VLM_BASE_URL` | `http://rtvi-vlm:8000` | Compose service URL injected into LVS as `RTVI_VLM_URL`. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | Default integrated backend selector. |

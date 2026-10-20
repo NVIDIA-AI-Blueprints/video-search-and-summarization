@@ -127,7 +127,7 @@ details live in
 
 ## API Schema
 
-The full REST surface (`alert-bridge` on `:9080`) is specified in `services/alert/openapi.json` (14 endpoints), with request/response models in `services/alert/schemas/{request_schema.yaml,response_schema.yaml}`. The event-bridge (Kafka/Redis) consume→verify→sink loop has no REST surface — it is configured through the mounted `config.yml` — but the same verification engine is also reachable over HTTP via the ingress endpoints below.
+The full REST surface (`alert-bridge` on `:9080`) is specified in `services/alert/openapi.json` (14 endpoints), with request/response models in `services/alert/schemas/{request_schema.yaml,response_schema.yaml}`. The Kafka event-bridge consume→verify→sink loop has no REST surface — it is configured through the mounted `config.yml` — but the same verification engine is also reachable over HTTP via the ingress endpoints below.
 
 | Category | Endpoint(s) | Purpose |
 |---|---|---|
@@ -139,18 +139,18 @@ The full REST surface (`alert-bridge` on `:9080`) is specified in `services/aler
 
 ## Environment Variables
 
-The compose interpolates host-side names; the `env-substitute.py` entrypoint folds `${...}` into the mounted `config.yml` at container start. Subset relevant to composing a deployment (full runtime knobs live in `services/alert/config.yaml`):
+The compose interpolates host-side names; the `env-substitute.py` entrypoint folds `${...}` into the mounted `config.yml` at container start. Subset relevant to composing a deployment (the shipped profile config is `deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml`):
 
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `ALERT_BRIDGE_PORT` / `FASTAPI_PORT` | Host REST API port for `/api/v1/realtime` + `/health` | `9080` | **Yes (effective)** |
-| `HOST_IP` (→ `INTERNAL_IP`) | Interpolated into Kafka/Redis/ES/VST/VLM URLs; no fallback | — | **Yes** |
+| `HOST_IP` (→ `INTERNAL_IP`) | Internal-to-external media URL rewriting; no fallback | — | **Yes** |
 | `EXTERNAL_IP` | URL-rewrite target so clip/media URLs handed to the VLM/UI are externally reachable (`alert_agent.url_transform`) | `${HOST_IP}` | **Yes (effective)** |
 | `VLM_BASE_URL` | Verification VLM endpoint (NIM backend) | `http://${HOST_IP}:${VLM_PORT}` | conditional (NIM backend) |
-| `VLM_NAME` | VLM model id; must match what the backend advertises (`/v1/models`) or requests 400 | `nim_nvidia_cosmos-reason2-8b_hf-1208` | **Yes (effective)** |
+| `VLM_NAME` | VLM model id; must match what the backend advertises (`/v1/models`) or requests 400 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | **Yes (effective)** |
 | `VLM_MODE` / `LLM_MODE` | Inference placement: `remote` / `local` / `local_shared` | `local_shared` | **Yes** |
-| `RTVI_VLM_BASE_URL` | RT-VLM realtime endpoint (drives `/v1/streams/add` for `vlm-realtime`) | `http://${HOST_IP}:8018` | conditional (realtime) |
-| `RTVI_VLM_MODEL_TO_USE` | RT-VLM backend selector the realtime path requests | `cosmos-reason2` | conditional (realtime) |
+| `RTVI_VLM_BASE_URL` | RT-VLM realtime endpoint (drives `/v1/streams/add` for `vlm-realtime`) | `http://rtvi-vlm:8000` | conditional (realtime) |
+| `RTVI_VLM_MODEL_TO_USE` | RT-VLM backend selector the realtime path requests | `cosmos-reason3` | conditional (realtime) |
 | `VLM_AS_VERIFIER_CONFIG_FILE` | Host path to the mounted verifier `config.yml` (`→ /app/configs/config.yml`) | `.../vlm-as-verifier/configs/config.yml` | **Yes** |
 | `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME` | Host path to `realtime-config.yml` (`→ /app/configs/realtime-config.yml`) | `.../realtime-config.yml` | **Yes** |
 | `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` | Host path to `alert_type_config.json` (CV `category` → verifier prompts) | `.../alert_type_config.json` | **Yes (CV mode)** |

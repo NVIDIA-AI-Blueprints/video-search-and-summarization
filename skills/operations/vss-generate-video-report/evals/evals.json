@@ -167,7 +167,7 @@
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "Offers provide endpoint option.",
-        "Offers public Ingress VLM option only when VSS_PUBLIC_URL is set.",
+        "Offers the public Ingress VLM option and explains that it is applicable when VSS_PUBLIC_URL is set.",
         "Offers auto-discover based suggestion option.",
         "Offers deploy local VLM option."
       ]

@@ -134,8 +134,8 @@ jq -e '.choices[0].message.content | length > 0'
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker address from the LVS container | `kafka:29092` | Yes when Kafka is enabled |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | Structured summary topic | `mdx-structured-events-summary` | Yes when Kafka is enabled |
 | `LVS_ENABLE_LLM_MERGING` | Merge duplicate or overlapping events with the LLM | `true` | No |
-| `RTVI_VLM_URL` | RT-VLM endpoint LVS calls | `http://${HOST_IP}:${RTVI_VLM_PORT}` | Yes for local RT-VLM |
-| `RTVI_VLM_BASE_URL` | Operator/agent-facing RT-VLM URL | `http://${HOST_IP}:8018` | Yes for local RT-VLM |
+| `RTVI_VLM_URL` | Container-internal RT-VLM URL populated by Compose from `RTVI_VLM_BASE_URL`; do not set directly | `http://rtvi-vlm:8000` | Yes for local RT-VLM |
+| `RTVI_VLM_BASE_URL` | Host-side Compose input for the RT-VLM peer | `http://rtvi-vlm:8000` | Yes for local RT-VLM |
 | `RTVI_VLM_MODEL_TO_USE` | RT-VLM backend selector | `cosmos-reason3` | Yes for integrated RT-VLM |
 | `RTVI_VLM_MODEL_PATH` | Integrated RT-VLM checkpoint | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Yes for integrated RT-VLM |
 | `RTVI_VLM_MESSAGE_BUS` | Generated-output broker type | `kafka` | Yes when RT-VLM Kafka is enabled |
@@ -207,7 +207,7 @@ services:
       KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
       KAFKA_STRUCTURED_SUMMARY_TOPIC: ${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
-      RTVI_VLM_URL: ${RTVI_VLM_BASE_URL:-}
+      RTVI_VLM_URL: ${RTVI_VLM_BASE_URL:-http://rtvi-vlm:8000}
     depends_on:
       elasticsearch:
         condition: service_started

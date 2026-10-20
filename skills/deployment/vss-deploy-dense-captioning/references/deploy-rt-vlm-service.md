@@ -438,11 +438,9 @@ export VSS_DATA_DIR="${VSS_DATA_DIR:-$RTVI_DEPLOY_DIR/vss-data}"
 # host's trust boundary.
 umask 077  # ensure the file is created mode 0600
 : "${NGC_CLI_API_KEY:?Set NGC_CLI_API_KEY before writing rtvi-vlm.env}"
-: "${HOST_IP:?Set HOST_IP to an address reachable from the RT-VLM container}"
 cat > rtvi-vlm.env <<EOF
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 RTVI_VLM_PORT=8018
-HOST_IP=${HOST_IP}
 VSS_DATA_DIR=${VSS_DATA_DIR}
 VSS_RT_VLM_TAG=${VLM_TAG}
 RT_VLM_DEVICE_ID=0
@@ -450,6 +448,8 @@ RT_VLM_DEVICE_ID=0
 RTVI_VLM_MODEL_TO_USE=cosmos-reason3
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 EOF
+# HOST_IP is optional for the default in-Compose Kafka endpoint. Add it only
+# when an external endpoint or broker requires a host-reachable address.
 chmod 600 rtvi-vlm.env
 grep -qxF rtvi-vlm.env .gitignore 2>/dev/null || printf 'rtvi-vlm.env\n' >> .gitignore
 
