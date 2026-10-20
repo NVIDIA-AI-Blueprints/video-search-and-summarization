@@ -238,7 +238,8 @@ concurrent — cap at ≤2 streams or drop input resolution.
 
 Kafka is not defined in the RT-VLM service compose; its `kafka:29092` default
 expects the sibling Kafka service on the shared Compose network. For an external
-broker, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS`. Redis is required only when
+broker, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS`. Redis is required when
+`RTVI_VLM_MESSAGE_BUS=redis`, `RTVI_VLM_ERROR_BUS=redis`, or
 `ENABLE_REDIS_ERROR_MESSAGES=true`.
 
 ## 11. Models Used & Swap Guide

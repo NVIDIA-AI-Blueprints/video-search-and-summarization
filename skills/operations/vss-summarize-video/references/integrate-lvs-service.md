@@ -209,7 +209,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
       KAFKA_STRUCTURED_SUMMARY_TOPIC: ${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
       RTVI_VLM_URL: ${RTVI_VLM_BASE_URL:-}
-      RTVI_VLM_URL_PASSTHROUGH: true
+      RTVI_VLM_URL_PASSTHROUGH: "true"
     depends_on:
       nvidia-nemotron-nano-9b-v2-fp8:
         condition: service_healthy
