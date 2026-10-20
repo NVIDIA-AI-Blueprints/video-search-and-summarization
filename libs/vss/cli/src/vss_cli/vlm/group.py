@@ -41,8 +41,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 import json as _json_mod
 import logging
+import math
 import mimetypes
 import os
 import secrets
@@ -71,7 +74,10 @@ from vss_cli.group import InvalidInput
 from vss_cli.group import Result
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
     from collections.abc import Sequence
+
+    import httpx
 
     from vss_core.memory.models import MemoryInput
 
@@ -645,6 +651,61 @@ def _iter_base64_json(
         raise InvalidInput(f"cannot read local file {file_path!r}: {exc}") from exc
 
 
+async def _post_second_look(
+    url: str, *, backend: str, model: str, inputs: VlmInput, media_url: str, inline: bool
+) -> httpx.Response:
+    """Retry explicit refusals within one cancellable model-request budget."""
+    import httpx
+
+    async def body() -> AsyncGenerator[bytes]:
+        with contextlib.closing(
+            _iter_base64_json(backend=backend, prompt=inputs.prompt, file_path=media_url, model=model, inputs=inputs)
+        ) as chunks:
+            for chunk in chunks:
+                yield chunk
+
+    deadline = time.monotonic() + float(inputs.timeout)
+    try:
+        async with asyncio.timeout(float(inputs.timeout)), httpx.AsyncClient() as client:
+            for attempt in range(3):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError
+                if inline:
+                    async with contextlib.aclosing(body()) as content:
+                        response = await client.post(url, content=content, headers=_vlm_headers(), timeout=remaining)
+                else:
+                    response = await client.post(
+                        url,
+                        json=_build_vlm_request(
+                            backend=backend, prompt=inputs.prompt, media_url=media_url, model=model, inputs=inputs
+                        ),
+                        headers=_vlm_headers(),
+                        timeout=remaining,
+                    )
+                if response.status_code not in (429, 502, 503, 504) or attempt == 2:
+                    return response
+                delay = 2.0 * (attempt + 1)
+                try:
+                    value = response.headers["Retry-After"]
+                    try:
+                        retry_after = float(value)
+                    except ValueError:
+                        retry_at = parsedate_to_datetime(value)
+                        retry_after = retry_at.replace(tzinfo=retry_at.tzinfo or UTC).timestamp() - time.time()
+                    if math.isfinite(retry_after) and retry_after >= 0:
+                        delay = max(delay, retry_after)
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    pass
+                if delay >= deadline - time.monotonic():
+                    return response
+                await response.aclose()
+                await asyncio.sleep(delay)
+    except TimeoutError as exc:
+        raise httpx.TimeoutException("Second-look model-request deadline reached") from exc
+    raise AssertionError("unreachable: final attempt returns its response")
+
+
 class VlmGroup(CommandGroup):
     """Ask a visual question about video and persist the answer to memory."""
 
@@ -910,14 +971,22 @@ class VlmGroup(CommandGroup):
                     open(file_to_read, "rb").close()
                 except OSError as exc:
                     raise InvalidInput(f"cannot read local file {file_to_read!r}: {exc}") from exc
+            if ctx.extra.get("_second_look_exact_clip"):
+                response = asyncio.run(
+                    _post_second_look(
+                        vlm_url,
+                        backend=backend,
+                        model=model,
+                        inputs=inputs,
+                        media_url=file_to_read if _use_base64_effective else media_url,
+                        inline=_use_base64_effective,
+                    )
+                )
+            elif _use_base64_effective:
                 response = httpx.post(
                     vlm_url,
                     content=_iter_base64_json(
-                        backend=backend,
-                        prompt=inputs.prompt,
-                        file_path=file_to_read,
-                        model=model,
-                        inputs=inputs,
+                        backend=backend, prompt=inputs.prompt, file_path=file_to_read, model=model, inputs=inputs
                     ),
                     headers=_vlm_headers(),
                     timeout=float(inputs.timeout),
@@ -926,11 +995,7 @@ class VlmGroup(CommandGroup):
                 response = httpx.post(
                     vlm_url,
                     json=_build_vlm_request(
-                        backend=backend,
-                        prompt=inputs.prompt,
-                        media_url=media_url,
-                        model=model,
-                        inputs=inputs,
+                        backend=backend, prompt=inputs.prompt, media_url=media_url, model=model, inputs=inputs
                     ),
                     headers=_vlm_headers(),
                     timeout=float(inputs.timeout),
