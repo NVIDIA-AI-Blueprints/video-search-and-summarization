@@ -643,8 +643,80 @@ class FocusedManualDispatch(unittest.TestCase):
              patch.object(plan_matrix, "list_changed_files", return_value=paths), \
              patch.object(plan_matrix, "build_matrix", return_value=rows) as build, \
              patch.object(plan_matrix, "emit") as emit:
-            rc = plan_matrix.main()
+            try:
+                rc = plan_matrix.main()
+            except ValueError:
+                emit.assert_not_called()
+                raise
         return rc, build, emit
+
+    def test_partial_platform_match_rejects_every_dropped_requested_spec(self):
+        paths = [f"skills/operations/alerts/evals/{name}.json" for name in ("cv", "realtime")]
+        rows = [{"spec_path": paths[0], "platform": "DGX-SPARK"},
+                {"spec_path": paths[1], "platform": "L40S"}]
+        for spark, dropped in (("true", paths[1]), ("false", paths[0])):
+            with self.subTest(spark=spark), self.assertRaisesRegex(ValueError, dropped):
+                self.run_plan({"MANUAL_SKILLS_FILTER": "alerts", "MANUAL_SPECS_FILTER": "cv,realtime",
+                               "SKILLS_EVAL_SPARK_RUNNER": spark}, paths, rows)
+
+    def test_supported_multi_spec_selection_keeps_all_requested_specs(self):
+        paths = [f"skills/operations/alerts/evals/{name}.json" for name in ("cv", "realtime")]
+        rows = [{"spec_path": path, "platform": platform}
+                for path in paths for platform in ("DGX-SPARK", "L40S")]
+        for spark, platform in (("true", "DGX-SPARK"), ("false", "L40S")):
+            with self.subTest(spark=spark):
+                rc, _, emit = self.run_plan(
+                    {"MANUAL_SKILLS_FILTER": "alerts", "MANUAL_SPECS_FILTER": "cv,realtime",
+                     "SKILLS_EVAL_SPARK_RUNNER": spark}, paths, rows,
+                )
+                self.assertEqual(rc, 0)
+                emit.assert_called_once_with([row for row in rows if row["platform"] == platform])
+
+    def test_unrestricted_sweep_can_filter_out_unsupported_specs(self):
+        paths = [f"skills/operations/alerts/evals/{name}.json" for name in ("cv", "realtime")]
+        rows = [{"spec_path": paths[0], "platform": "DGX-SPARK"},
+                {"spec_path": paths[1], "platform": "L40S"}]
+        rc, _, emit = self.run_plan(
+            {"MANUAL_SKILLS_FILTER": "alerts", "SKILLS_EVAL_SPARK_RUNNER": "true"}, paths, rows,
+        )
+        self.assertEqual(rc, 0)
+        emit.assert_called_once_with(rows[:1])
+
+    def test_adapter_creation_blocker_covers_its_requested_specs(self):
+        paths = [f"skills/operations/alerts/evals/{name}.json" for name in ("cv", "realtime")]
+        rows = [{"skill": "alerts", "spec_path": "", "platform": "", "kind": "missing_adapter"}]
+        rc, _, emit = self.run_plan(
+            {"MANUAL_SKILLS_FILTER": "alerts", "MANUAL_SPECS_FILTER": "cv,realtime",
+             "SKILLS_EVAL_SPARK_RUNNER": "true"}, paths, rows,
+        )
+        self.assertEqual(rc, 0)
+        emit.assert_called_once_with(rows)
+
+    def test_adapter_blocker_cannot_hide_an_unrelated_dropped_spec(self):
+        paths = ["skills/operations/new-skill/evals/new.json", "skills/operations/alerts/evals/cv.json"]
+        rows = [{"skill": "new-skill", "spec_path": "", "platform": "", "kind": "missing_adapter"},
+                {"skill": "alerts", "spec_path": paths[1], "platform": "L40S"}]
+        with self.assertRaisesRegex(ValueError, paths[1]):
+            self.run_plan({"MANUAL_SKILLS_FILTER": "operations", "MANUAL_SPECS_FILTER": "new,cv",
+                           "SKILLS_EVAL_SPARK_RUNNER": "true"}, paths, rows)
+
+    def test_shared_filename_stem_cannot_hide_a_dropped_skill_spec(self):
+        paths = [f"skills/operations/{skill}/evals/cv.json" for skill in ("alerts", "other")]
+        rows = [{"spec_path": paths[0], "platform": "DGX-SPARK"},
+                {"spec_path": paths[1], "platform": "L40S"}]
+        with self.assertRaisesRegex(ValueError, paths[1]):
+            self.run_plan({"MANUAL_SKILLS_FILTER": "operations", "MANUAL_SPECS_FILTER": "cv",
+                           "SKILLS_EVAL_SPARK_RUNNER": "true"}, paths, rows)
+
+    def test_explicit_selection_preserves_a_missing_platform_blocker(self):
+        path = "skills/operations/alerts/evals/cv.json"
+        rows = [{"spec_path": path, "platform": "", "kind": "missing_platform"}]
+        rc, _, emit = self.run_plan(
+            {"MANUAL_SKILLS_FILTER": "alerts", "MANUAL_SPECS_FILTER": "cv",
+             "SKILLS_EVAL_SPARK_RUNNER": "true"}, [path], rows,
+        )
+        self.assertEqual(rc, 0)
+        emit.assert_called_once_with(rows)
 
     def test_exact_spec_filter_selects_only_requested_operational_spec(self):
         paths = [f"skills/operations/alerts/evals/{name}.json" for name in ("cv", "realtime")]

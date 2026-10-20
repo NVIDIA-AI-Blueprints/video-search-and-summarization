@@ -540,6 +540,8 @@ def main() -> int:
     for f in changed:
         print(f"  {f}", file=sys.stderr)
     matrix = build_matrix(changed)
+    # Adapter-creation blockers have no spec path and must remain dispatchable.
+    planned_specs = {row["spec_path"] for row in matrix if row.get("spec_path")}
     if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
         matrix = [row for row in matrix if row.get("platform") == "DGX-SPARK"
                   or (not row.get("platform") and row.get("kind") in {"missing_adapter", "missing_platform"})]
@@ -551,6 +553,14 @@ def main() -> int:
         matrix = [row for row in matrix if row.get("platform") != "DGX-SPARK"]
     if (specs_filter or setup_only) and not matrix:
         raise ValueError("no eval targets match the selected specs/platform")
+    if specs_filter:
+        surviving_specs = {row["spec_path"] for row in matrix if row.get("spec_path")}
+        dropped_specs = planned_specs - surviving_specs
+        if dropped_specs:
+            raise ValueError(
+                "requested specs have no targets after platform filtering: "
+                + ", ".join(sorted(dropped_specs))
+            )
     emit(matrix)
     return 0
 
