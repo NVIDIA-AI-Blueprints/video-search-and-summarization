@@ -207,6 +207,17 @@ rules:
       another VSS stack's containers. Preferred fix: filter by
       com.docker.compose.project, as the volume cleanup does.
 
+  - id: "SDI-4"
+    path: "references/teardown.md"
+    message: "*docker ps*"
+    reason: >-
+      Accepted risk, to revisit after the release: same catch-all as the TM2
+      entry above, reported by the LLM scanner with varying wording. The sweep
+      removes stale VSS-named containers left by a prior deploy, which otherwise
+      bind ports the new deploy needs (issue #151: /sensor/list returns 502) or
+      serve stale data. It runs only when the user explicitly asks for a
+      teardown. Preferred fix: filter by com.docker.compose.project.
+
   - id: "TM1"
     path: "references/data-directory.md"
     message: "*a+rwx*"
