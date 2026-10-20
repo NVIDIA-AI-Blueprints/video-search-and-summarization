@@ -1052,7 +1052,8 @@ class VlmGroup(CommandGroup):
             from .second_look import run_second_look
 
             relook_inputs: VlmInput = inputs.model_copy(update={"model": model, "chunk_duration": 0})
-            return run_second_look(self, relook_inputs, replace(ctx, deployment=deployment), policy=policy)
+            relook_ctx: Context = replace(ctx, deployment=deployment)
+            return run_second_look(self, relook_inputs, relook_ctx, policy=policy)
         return _VlmJob(self, inputs, ctx, options, model).execute(deployment, options, ctx, backend)
 
 
