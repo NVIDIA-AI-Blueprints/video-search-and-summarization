@@ -133,6 +133,33 @@ def test_policy_copies_and_compose_import_path():
     assert config["general"]["front_end"]["runner_class"] == WORKER
 
 
+@pytest.mark.skipif(
+    shutil.which("helm") is None, reason="Helm is required for chart rendering"
+)
+def test_standalone_search_chart_keeps_policy_opt_in():
+    chart = DEPLOY / "helm/services/agent/charts/agent"
+    rendered = subprocess.run(
+        [
+            "helm",
+            "template",
+            "standalone",
+            str(chart),
+            "--set",
+            "enabled=true,profile=search",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    documents = [item for item in yaml.safe_load_all(rendered.stdout) if item]
+    deployment = next(item for item in documents if item.get("kind") == "Deployment")
+    agent = deployment["spec"]["template"]["spec"]["containers"][0]
+    assert not any(
+        mount.get("subPath") == "search_prompt_policy.py"
+        for mount in agent["volumeMounts"]
+    )
+
+
 @pytest.mark.parametrize("profile", ["base", "alerts", "lvs", "search"])
 @pytest.mark.skipif(
     shutil.which("helm") is None, reason="Helm is required for chart rendering"

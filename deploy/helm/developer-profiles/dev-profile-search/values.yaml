@@ -701,6 +701,7 @@ agent:
     global:
       imagePullPolicy: IfNotPresent
     profile: search
+    searchPromptPolicy: true
     replicas: 1
     rtviEmbedModelName: cosmos-embed1-448p-anomaly-detection
     llmName: nvidia/nemotron-3.5-lightning-30b-a3b
