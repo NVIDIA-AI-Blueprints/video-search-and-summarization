@@ -79,15 +79,25 @@ force-sort-within-sections = true
 "**/tests/**" = ["ARG", "PLC0415", "S"]
 # Moved from vss_core.knowledge unchanged: backends import their optional
 # extras lazily, and the Chroma default directory is the existing contract.
-"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/**" = ["PLC0415", "PLR0912", "S108"]
+"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/arango_graph.py" = ["PLC0415"]
+"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/es_caption.py" = ["PLR0912"]
+"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/frag_lib.py" = ["PLC0415"]
+"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/langchain.py" = ["PLC0415", "S108"]
+"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/llama_index.py" = ["PLC0415", "S108"]
 
 [tool.pyright]
 include = ["libs/vision-ai/src", "apps/cli/src"]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
-# Moved from vss_core.knowledge, which was never type-checked: the adapters import
-# optional extras and arango_graph reads untyped config. Typing them is follow-up work.
-ignore = ["libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters"]
+# Moved from vss_core.knowledge, which was never type-checked: these adapters import
+# optional extras the dev environment does not install, and arango_graph reads untyped
+# config. es_caption and frag_api stay checked. Typing the rest is follow-up work.
+ignore = [
+  "libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/arango_graph.py",
+  "libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/frag_lib.py",
+  "libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/langchain.py",
+  "libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/llama_index.py",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["libs/vision-ai/tests", "apps/cli/tests"]

@@ -71,7 +71,7 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "'langchain' = in-process LangChain over a Chroma-backed vector store "
             "(requires the `nvidia-vss[agent,langchain]` extras); "
             "'arango_graph' = in-process LangChain graph QA over ArangoDB "
-            "(requires the `nvidia-vss[arango_graph]` extra); "
+            "(requires the `nvidia-vss[agent,arango_graph]` extras); "
             "'es_caption' = BM25 over RT-VLM caption store in Elasticsearch."
         ),
     )
