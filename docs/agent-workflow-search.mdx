@@ -312,6 +312,12 @@ For instructions on downloading the deployment package, see [Download the Deploy
 
 #### Step 1: Deploy the Search Agent
 
+The release Search configuration loads `search_prompt_policy.SearchPromptWorker` from the
+deployment's mounted `search_prompt_policy.py`. Keep that module on `PYTHONPATH` when
+customizing the agent container; the supplied Compose and Helm deployments configure
+the mount and import path. Its prompt policy infers time filters only when the query
+explicitly requests a date or time. Explicit API start/end parameters still apply.
+
 <Note>
 - Set the NGC CLI API key and authenticate Docker to `nvcr.io` before running the deploy commands. See [Verify Your NGC Access](/vss/getting-started/prerequisites#verify-your-ngc-access).
 

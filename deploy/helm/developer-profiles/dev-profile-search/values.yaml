@@ -759,6 +759,8 @@ agent:
         cpu: '2'
     # vss-agent: full explicit container env for Search (Option A, local NIMs). URLs use Helm `tpl` against this chart's values + global.
     env:
+      - name: PYTHONPATH
+        value: /etc/vss-agent
       - name: VSS_AGENT_CONFIG_FILE
         value: '{{ .Values.configFilePath | default "/etc/vss-agent/config.yml" }}'
       - name: VSS_AGENT_HOST
