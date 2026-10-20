@@ -183,8 +183,8 @@ class HandlerCancellationTests(unittest.TestCase):
         self.assertFalse(self.request.status_event.is_set())
         self.assertEqual(self.asset.releases, 0)
 
-        self.handler._vlm_pipeline.release_request_cancellation = (
-            lambda rid, **kw: self.calls.append(("release", rid))
+        self.handler._vlm_pipeline.release_request_cancellation = lambda rid, **kw: (
+            self.calls.append(("release", rid))
         )
         self.handler.abort_request("A")
         self.handler.abort_request("A")
@@ -328,6 +328,44 @@ class HandlerCancellationTests(unittest.TestCase):
         self.assertNotIn(request_id, self.handler._request_info_map)
         self.assertEqual(self.asset.releases, 1)
         self.assertEqual(self.handler._metrics._queries_pending_counter.value, 0)
+
+    def test_registration_exposes_owned_producer_before_blocking_submission(self):
+        self.handler._args = SimpleNamespace(max_file_duration=0)
+        self.handler._vlm_pipeline.ensure_model_available = lambda: None
+        registered, abort_unblocks_producer = Event(), Event()
+        request_ids = []
+
+        def on_registered(request_id):
+            request_ids.append(request_id)
+            record = self.handler._request_info_map[request_id]
+            self.assertFalse(record.producer_done.is_set())
+            registered.set()
+
+        def blocked_producer(record, *args):
+            self.assertTrue(registered.is_set())
+            self.assertTrue(abort_unblocks_producer.wait(timeout=2))
+
+        def abort(request_id, **kwargs):
+            self.calls.append(("abort", request_id))
+            abort_unblocks_producer.set()
+
+        self.handler._trigger_query = blocked_producer
+        self.handler._vlm_pipeline.abort_request = abort
+        query = SimpleNamespace(chunk_duration=0, chunk_overlap_duration=0, media_info=None)
+        producer = threading.Thread(
+            target=self.handler.query,
+            args=([self.asset], query),
+            kwargs={"on_registered": on_registered},
+        )
+        producer.start()
+        try:
+            self.assertTrue(registered.wait(timeout=1))
+            self.handler.abort_request(request_ids[0], timeout_sec=2)
+        finally:
+            abort_unblocks_producer.set()
+            producer.join(timeout=2)
+        self.assertFalse(producer.is_alive())
+        self.assertTrue(self.handler.request_is_drained(request_ids[0]))
 
     def test_failed_outcome_is_preserved_while_remaining_work_is_drained(self):
         self.request.status = RequestInfo.Status.FAILED

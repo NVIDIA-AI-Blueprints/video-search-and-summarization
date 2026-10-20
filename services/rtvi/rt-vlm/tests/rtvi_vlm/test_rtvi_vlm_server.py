@@ -815,6 +815,8 @@ class TestCaptionGeneration:
             assets=[asset],
             is_live=False,
         )
+        req_info.status_event.set()
+        req_info.resources_released.set()
         chunk = PipelineChunkResult(
             chunk=ChunkInfo(chunkIdx=7, start_pts=0, end_pts=10_000_000_000),
             vlm_model_output=None if error else VlmModelOutput(output=""),
@@ -862,6 +864,8 @@ class TestCaptionGeneration:
         )
         req_info = RequestInfo(request_id=request_id)
         req_info.status = RequestInfo.Status.FAILED
+        req_info.status_event.set()
+        req_info.resources_released.set()
         req_info.queue_time = time.time()
         rtvi_server._stream_handler._request_info_map[request_id] = req_info
         rtvi_server._stream_handler.get_response = MagicMock(return_value=(req_info, []))
@@ -970,7 +974,7 @@ class TestCaptionGeneration:
         req_info.error_message = error_message
         req_info.error_status_code = 400
 
-        rtvi_server._stream_handler.wait_for_request_done = MagicMock()
+        rtvi_server._wait_for_http_request = AsyncMock()
         rtvi_server._stream_handler.get_response = MagicMock(return_value=(req_info, []))
         rtvi_server._stream_handler._send_error_message_to_kafka = MagicMock()
 
@@ -2033,6 +2037,44 @@ class TestCVStreamEndpoints:
 class TestNIMCompatibleEndpoints:
     """Test NIM-compatible endpoints"""
 
+    @pytest.mark.parametrize("endpoint", ["chat/completions", "generate_captions"])
+    @pytest.mark.parametrize("stream", [False, True])
+    def test_cancelled_request_never_reports_success(
+        self, test_client, rtvi_server, tmp_path, endpoint, stream
+    ):
+        media_path = tmp_path / "clip.mp4"
+        media_path.write_bytes(b"test-video")
+        asset_id = rtvi_server._asset_manager.add_file(str(media_path), "vision", "video")
+        asset = rtvi_server._asset_manager.get_asset(asset_id)
+        request_id = str(uuid.uuid4())
+        req_info = RequestInfo(
+            request_id=request_id,
+            status=RequestInfo.Status.CANCELLED,
+            queue_time=time.time(),
+            assets=[asset],
+        )
+        req_info.status_event.set()
+        req_info.resources_released.set()
+        rtvi_server._stream_handler._request_info_map[request_id] = req_info
+        rtvi_server._process_vlm_request = AsyncMock(return_value=(request_id, asset, [asset]))
+        rtvi_server._stream_handler.get_response = MagicMock(return_value=(req_info, []))
+        body = {"id": asset_id, "model": "test-model", "stream": stream}
+        if endpoint == "generate_captions":
+            body["prompt"] = "Describe the video."
+        else:
+            body["messages"] = [{"role": "user", "content": "Describe the video."}]
+
+        response = test_client.post(f"{API_PREFIX}/{endpoint}", json=body)
+
+        if stream:
+            assert response.status_code == 200  # SSE headers precede backend cancellation.
+            assert '"code": "RequestCancelled"' in response.text
+            assert '"finish_reason": "stop"' not in response.text
+            assert "[DONE]" not in response.text
+        else:
+            assert response.status_code == 499
+            assert response.json()["code"] == "RequestCancelled"
+
     def test_temporary_chat_asset_cleanup_unregisters_and_deduplicates(self, rtvi_server, tmp_path):
         """Temporary chat assets are removed from handler and AssetManager exactly once."""
         media_path = tmp_path / "clip.mp4"
@@ -2095,7 +2137,9 @@ class TestNIMCompatibleEndpoints:
         media_path.write_bytes(b"test-video")
         created_asset_ids = []
 
-        async def process_request(vlm_query, video_id_list, log_prefix, is_chat_completion=False):
+        async def process_request(
+            vlm_query, video_id_list, log_prefix, is_chat_completion=False, on_registered=None
+        ):
             del vlm_query, log_prefix
             assert is_chat_completion is True
             created_asset_ids.extend(video_id_list)
@@ -2103,7 +2147,7 @@ class TestNIMCompatibleEndpoints:
             return str(uuid.uuid4()), asset, [asset]
 
         rtvi_server._process_vlm_request = AsyncMock(side_effect=process_request)
-        rtvi_server._stream_handler.wait_for_request_done = MagicMock(
+        rtvi_server._wait_for_http_request = AsyncMock(
             side_effect=RuntimeError("forced wait failure")
         )
         rtvi_server._stream_handler.remove_video_file = MagicMock()
@@ -2180,13 +2224,15 @@ class TestNIMCompatibleEndpoints:
         asset_id = rtvi_server._asset_manager.add_file(str(media_path), "vision", "video")
         asset = rtvi_server._asset_manager.get_asset(asset_id)
 
-        async def process_request(vlm_query, video_id_list, log_prefix, is_chat_completion=False):
+        async def process_request(
+            vlm_query, video_id_list, log_prefix, is_chat_completion=False, on_registered=None
+        ):
             del vlm_query, video_id_list, log_prefix
             assert is_chat_completion is True
             return str(uuid.uuid4()), asset, [asset]
 
         rtvi_server._process_vlm_request = AsyncMock(side_effect=process_request)
-        rtvi_server._stream_handler.wait_for_request_done = MagicMock(
+        rtvi_server._wait_for_http_request = AsyncMock(
             side_effect=RuntimeError("forced wait failure")
         )
         rtvi_server._stream_handler.remove_video_file = MagicMock()
@@ -2216,7 +2262,9 @@ class TestNIMCompatibleEndpoints:
         request_id = str(uuid.uuid4())
         created_asset_ids = []
 
-        async def process_request(vlm_query, video_id_list, log_prefix, is_chat_completion=False):
+        async def process_request(
+            vlm_query, video_id_list, log_prefix, is_chat_completion=False, on_registered=None
+        ):
             del vlm_query, log_prefix
             assert is_chat_completion is True
             created_asset_ids.extend(video_id_list)
@@ -2224,6 +2272,8 @@ class TestNIMCompatibleEndpoints:
             req_info = RequestInfo()
             req_info.request_id = request_id
             req_info.status = RequestInfo.Status.SUCCESSFUL
+            req_info.status_event.set()
+            req_info.resources_released.set()
             req_info.queue_time = time.time()
             req_info.assets = [asset]
             req_info.is_live = False
@@ -2387,7 +2437,11 @@ class TestNIMCompatibleEndpoints:
         )
 
         with pytest.raises(ServiceException) as exc_info:
-            asyncio.run(rtvi_server._handle_text_only_chat(request, "", "Test"))
+            asyncio.run(
+                rtvi_server._handle_text_only_chat(
+                    request, "", "Test", MagicMock(is_disconnected=AsyncMock(return_value=False))
+                )
+            )
 
         assert exc_info.value.status_code == 503
 

@@ -47,6 +47,7 @@ server/protos/__init__.py
 server/protos/ext_pb2.py
 server/protos/nv_pb2.py
 server/rtvi_vlm_server.py
+server/request_lifecycle.py
 server/rtvi_stream_handler.py
 utils/asset_manager.py
 utils/dense_caption_serializer.py

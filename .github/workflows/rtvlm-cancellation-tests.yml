@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: RT-VLM cancellation tests
+
+"on":
+  pull_request:
+    branches: [develop, "fix/rtvlm-*"]
+    paths:
+      - "services/rtvi/rt-vlm/**"
+      - ".github/workflows/rtvlm-cancellation-tests.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "services/rtvi/rt-vlm/**"
+      - ".github/workflows/rtvlm-cancellation-tests.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rtvlm-cancellation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cancellation:
+    name: Test (RT-VLM cancellation, CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+          lfs: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Install CPU test dependencies
+        run: |
+          # HTTP versions match docker/rtvi_vlm/py_deps/requirements.txt.
+          python -m pip install \
+            pytest==9.1.1 fastapi==0.141.1 starlette==1.3.1 \
+            sse-starlette==3.4.8 anyio==4.14.2 uvicorn==0.52.4 httpx==0.28.1
+      - name: Test model, pipeline and HTTP cancellation
+        run: |
+          # Avoid the unrelated CUDA/DeepStream fixtures and configuration.
+          python -m pytest --noconftest -c /dev/null -p no:cacheprovider \
+            -W error::RuntimeWarning -W error::ResourceWarning \
+            services/rtvi/rt-vlm/tests/model/test_request_cancellation.py \
+            services/rtvi/rt-vlm/tests/cancellation -v
