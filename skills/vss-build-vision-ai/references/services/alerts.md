@@ -21,7 +21,7 @@ by `agent.md`; the SOP-report-specific patch is owned by `sop.md`.
 
 ## Required peers
 
-- `alert-bridge` requires Kafka, Elasticsearch, topic initialization, Redis, and
+- `alert-bridge` requires Kafka, Elasticsearch, topic initialization, and
   **no service-definition patch**: the stock definition carries the `alert-bridge`
   profile gate, reads `VLM_BASE_URL`/`VLM_NAME` from env, and mounts its verifier
   configs from env-interpolated sources (`VLM_AS_VERIFIER_CONFIG_FILE*`). Wire it in

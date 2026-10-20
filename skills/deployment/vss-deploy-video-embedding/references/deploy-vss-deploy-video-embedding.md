@@ -78,7 +78,7 @@ The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-mode
 - NVIDIA Container Toolkit configured as the default container runtime.
 - API keys exposed to the runtime: `NGC_API_KEY` (required), `NVIDIA_API_KEY` (defaults to a sentinel; set to a real key if your downstream calls require it), and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
 - An authenticated Docker session for `nvcr.io`; use the same NGC API key with
-  the `$oauthtoken` username before pulling the image.
+  the literal `'$oauthtoken'` username before pulling the image.
 - Host environment variables: `RTVI_EMBED_PORT` and `VSS_DATA_DIR`. Set `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` only when Kafka buses are enabled and the default `kafka:29092` broker address is not correct for your Compose network.
 - Disk space sufficient for the Hugging Face cache, NGC model cache, and Triton model repository volumes.
 - Network reachability to `nvcr.io` for the container image, `huggingface.co` for the default model, `prod.api.nvidia.com` when using NGC-hosted models or assets, and any enabled peer services (Redis, Kafka).
@@ -111,7 +111,7 @@ export ENABLE_REDIS_ERROR_MESSAGES=false
 printf '%s\n' "$NGC_API_KEY" |
   docker login nvcr.io --username '$oauthtoken' --password-stdin || {
     echo "ERROR: docker login to nvcr.io failed; verify NGC_API_KEY." >&2
-    exit 1
+    return 1 2>/dev/null || exit 1
   }
 # '$oauthtoken' above is the literal username required by NGC, not a shell variable.
 

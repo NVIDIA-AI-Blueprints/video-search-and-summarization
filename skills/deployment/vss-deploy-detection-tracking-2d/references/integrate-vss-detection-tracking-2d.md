@@ -89,7 +89,7 @@ The important RT-CV API categories are:
 | `VSS_APPS_DIR` | Root used to resolve the RT-CV compose and config mounts | — | **Yes** |
 | `VSS_DATA_DIR` | Root used for model, cache, and sample-video mounts | — | **Yes** |
 | `VISION_ENCODER_MODEL` | Vision encoder downloaded by ds-start phase 0 | `siglip_v2` | Optional |
-| `VISION_ENCODER_VERSION` | Vision encoder version downloaded by ds-start phase 0 | `v1.1` | Optional |
+| `VISION_ENCODER_VERSION` | Vision encoder version downloaded by ds-start phase 0 | `v2.0` | Optional |
 | `NGC_CLI_API_KEY` | NGC credential used by ds-start phase 0 for model downloads | — | **Yes** for model downloads |
 | `NVSTREAMER_IMAGE_TAG` | Image tag for the optional sample-data publisher | deployment-specific | Optional |
 | `NVSTREAMER_HTTP_PORT` | HTTP API port for `nvstreamer-2d-fusion` | deployment-specific | Optional |

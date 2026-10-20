@@ -490,7 +490,7 @@ if ! COMPOSE_ERROR=$(docker_cmd compose --env-file rtvi-vlm.env -f "$COMPOSE_FIL
       printf '%s\n' "$COMPOSE_ERROR" >&2
       COMPOSE_FILE="$RTVI_DEPLOY_DIR/rtvi-vlm-docker-compose.yml"
       cp "$CANONICAL_COMPOSE" "$COMPOSE_FILE"
-      python3 - "$COMPOSE_FILE" <<'PY'
+      if ! python3 - "$COMPOSE_FILE" <<'PY'
 from pathlib import Path
 import sys
 
@@ -538,8 +538,12 @@ if not dependencies or unsafe:
 out = lines[:depends_start] + lines[depends_end:]
 p.write_text("\n".join(out) + "\n")
 PY
+      then
+        echo "Compose normalization refused; aborting." >&2
+        exit 1
+      fi
       docker_cmd compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" \
-        --profile rtvi-vlm config --quiet
+        --profile rtvi-vlm config --quiet || exit 1
       ;;
     *) printf '%s\n' "$COMPOSE_ERROR" >&2; exit 1 ;;
   esac

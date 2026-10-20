@@ -150,7 +150,7 @@ The host-side variable names that the compose interpolates differ from the canon
 
 - **Endpoint rename (3.2.0 breaking change).** `/v1/generate_captions_alerts` was renamed to `/v1/generate_captions`. 3.1.0-era clients break — update before deployment. Source: `real-time-vlm.rst` § Breaking Changes.
 - **Duplicate stream/camera IDs now 409.** Re-adding a stream with the same ID returns HTTP 409 (`DuplicateStreamId` / `DuplicateCameraId`) instead of silently overwriting. Idempotent registration code must remove first or handle 409. Source: `real-time-vlm.rst` § Breaking Changes (lines 99–102).
-- **`depends_on.required: false` is NOT enough on recent Docker Compose.** The live compose declares eight sibling-NIM peers plus `broker-health-check`, all `required: false`. Recent Compose still rejects undefined peers during standalone project loading. Follow the guarded fallback in `deploy-rt-vlm-service.md`: normalize only after canonical validation fails, and only when every dependency matches the documented optional-peer allowlist. Reject unknown or required dependencies instead of hiding a Compose regression.
+- **`depends_on.required: false` is NOT enough on recent Docker Compose.** The live compose declares two sibling-NIM peers plus `broker-health-check`, all `required: false`. Recent Compose still rejects undefined peers during standalone project loading. Follow the guarded fallback in `deploy-rt-vlm-service.md`: normalize only after canonical validation fails, and only when every dependency matches the documented optional-peer allowlist. Reject unknown or required dependencies instead of hiding a Compose regression.
 - **Profiles are mandatory.** The standalone RT-VLM Compose file declares only `rtvi-vlm`; additional blueprint profiles come from the full VSS include graph. Standalone deployment must pass `--profile rtvi-vlm`.
 - **Single-instance.** `container_name: vss-rtvi-vlm` is hardcoded in the upstream compose. A second instance on the same host fails with `Conflict. The container name "/vss-rtvi-vlm" is already in use`. Source: `deploy-rt-vlm-service.md` §20.
 - **NvSchema protobuf must align with Logstash descriptors.** The producer (RT-VLM) and the consumer (Logstash) must agree on the `nv.VisionLLM` and `nv.Incident` proto schema. The shared source-of-truth is the descriptor pair at `deploy/docker/services/infra/elk/pb_definitions/descriptors/{schema.desc, ext.desc}`. Schema drift on one side without the other causes Logstash to write empty/default-valued documents to ES without raising. Source: `integrate-elk.md` § Known Integration Constraints.
@@ -229,6 +229,9 @@ The `nv.VisionLLM` and `nv.Incident` protobuf schemas are the contract between R
 - **Health:** `curl -f http://localhost:${RTVI_VLM_PORT}/v1/health/ready` — used by the Docker healthcheck; expect HTTP 200.
 - **Loaded model ID:** `curl -s http://localhost:${RTVI_VLM_PORT}/v1/models | jq` — confirms the model resolved at warmup. Source: `real-time-vlm.rst` § Usage Examples note (lines 478–491).
 - **End-to-end caption + Kafka:** upload via `POST /v1/files`, call `POST /v1/generate_captions`, then poll `mdx-vlm-captions` topic offsets:
+
+  These commands run inside the `kafka` container, where `127.0.0.1:9092` is
+  valid. Sibling containers must use `kafka:29092`.
 
 ```bash
 docker exec kafka kafka-get-offsets --bootstrap-server 127.0.0.1:9092 --topic mdx-vlm-captions

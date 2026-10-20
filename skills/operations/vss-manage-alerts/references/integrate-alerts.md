@@ -213,6 +213,7 @@ services:
       RTVI_VLM_MODEL_TO_USE: ${RTVI_VLM_MODEL_TO_USE}
       RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL:-http://rtvi-vlm:8000}
       VST_INTERNAL_URL: ${VST_INTERNAL_URL:-http://vst-ingress:30888}
+      ALERT_AGENT_ALWAYS_ON: ${ALERT_AGENT_ALWAYS_ON:-false}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/runtime/realtime-config.yml
     volumes:

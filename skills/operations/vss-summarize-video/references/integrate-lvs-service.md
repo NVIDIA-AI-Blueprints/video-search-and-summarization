@@ -207,7 +207,8 @@ services:
       KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
       KAFKA_STRUCTURED_SUMMARY_TOPIC: ${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
-      RTVI_VLM_URL: ${RTVI_VLM_BASE_URL:-http://rtvi-vlm:8000}
+      RTVI_VLM_URL: ${RTVI_VLM_BASE_URL:-}
+      RTVI_VLM_URL_PASSTHROUGH: true
     depends_on:
       elasticsearch:
         condition: service_started
