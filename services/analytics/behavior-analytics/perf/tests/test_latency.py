@@ -660,7 +660,24 @@ INCIDENTS MESSAGES
         self.assertIn("--entrypoint python3", measure)
         self.assertIn("tools/latency/latency_monitor.py", measure)
         self.assertIn('--user "$(id -u):$(id -g)"', measure)
+        self.assertIn("--skip-completed-behaviors", measure)
         self.assertNotIn("chmod 0777", measure)
+        monitor = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "src"
+            / "mdx"
+            / "analytics"
+            / "core"
+            / "tools"
+            / "latency"
+            / "latency_monitor.py"
+        ).read_text()
+        self.assertIn("--skip-completed-behaviors", monitor)
+        self.assertIn("skip_completed_behaviors", monitor)
+        self.assertIn('message_type == "behavior" and skip_completed_behaviors', monitor)
         pre_flight = (
             REPO_ROOT
             / "services"

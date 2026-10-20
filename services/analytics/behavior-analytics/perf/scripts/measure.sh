@@ -48,21 +48,31 @@ read -r -a monitor_topics <<< "$PERF_TOPICS"
 read -r -a monitor_percentiles <<< "$PERF_PERCENTILES"
 # Distroless image documents `python3 <script>` as the container command.
 # Run as the host user so OUTPUT_DIR does not need world-writable mode.
-if ! docker run -d \
-    --name "$MONITOR_NAME" \
-    --network "$network" \
-    --user "$(id -u):$(id -g)" \
-    -v "$OUTPUT_DIR:/output" \
-    --entrypoint python3 \
-    "$image" \
-    tools/latency/latency_monitor.py \
-    --source-type kafka \
-    --host kafka \
-    --port 29092 \
-    --topics "${monitor_topics[@]}" \
-    --percentiles "${monitor_percentiles[@]}" \
-    --output-file /output/latency.txt
-then
+# Skip completed behaviors only when the image monitor supports the flag.
+# Older images reject unknown arguments. The overlay is emit-once off, so
+# live updates remain after this filter.
+monitor_help="$(docker run --rm --entrypoint python3 --user "$(id -u):$(id -g)" \
+    "$image" tools/latency/latency_monitor.py --help 2>&1 || true)"
+monitor_cmd=(
+    docker run -d
+    --name "$MONITOR_NAME"
+    --network "$network"
+    --user "$(id -u):$(id -g)"
+    -v "$OUTPUT_DIR:/output"
+    --entrypoint python3
+    "$image"
+    tools/latency/latency_monitor.py
+    --source-type kafka
+    --host kafka
+    --port 29092
+    --topics "${monitor_topics[@]}"
+    --percentiles "${monitor_percentiles[@]}"
+)
+if grep -q -- '--skip-completed-behaviors' <<<"$monitor_help"; then
+    monitor_cmd+=(--skip-completed-behaviors)
+fi
+monitor_cmd+=(--output-file /output/latency.txt)
+if ! "${monitor_cmd[@]}"; then
     fail_measure "latency monitor failed to start"
 fi
 if [[ "$(docker inspect -f '{{.State.Status}}' "$MONITOR_NAME" 2>/dev/null || true)" != "running" ]]; then

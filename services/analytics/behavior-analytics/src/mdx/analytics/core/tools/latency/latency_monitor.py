@@ -277,6 +277,15 @@ Examples:
         help="Save statistics to file (in addition to console output)"
     )
 
+    parser.add_argument(
+        "--skip-completed-behaviors",
+        action="store_true",
+        help=(
+            "Exclude behavior messages with isComplete=true from live latency. "
+            "Do not enable when behaviorEmitOnce=true; that mode only writes completed behaviors."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -783,7 +792,7 @@ class StatsAggregator:
 
 
 def process_message(
-    source: Source, config: AppConfig, message_type: str, aggregators: dict[str, StatsAggregator], percentiles: list[int], output_file: TextIO | None = None
+    source: Source, config: AppConfig, message_type: str, aggregators: dict[str, StatsAggregator], percentiles: list[int], output_file: TextIO | None = None, skip_completed_behaviors: bool = False
 ) -> None:
     """
     Process messages from Stream and update statistics.
@@ -828,8 +837,14 @@ def process_message(
             timestamp_field = getattr(data, timestamp_path)
             data_timestamp = get_timestamp_from_proto_ts(timestamp_field).timestamp() * 1000
             # Completion messages include an intentional inactivity/expiration wait,
-            # rather than just live-update processing latency.
-            if message_type in ("incidents", "behavior") and data.info.get("isComplete") == "true":
+            # rather than just live-update processing latency. Always skip completed
+            # incidents. Skip completed behaviors only when requested: emit-once
+            # deployments write only those messages, so the default monitor must
+            # still report them.
+            skip_complete = message_type == "incidents" or (
+                message_type == "behavior" and skip_completed_behaviors
+            )
+            if skip_complete and data.info.get("isComplete") == "true":
                 continue
                 
         delay = calculate_delay(data_timestamp, stream_timestamp)
@@ -945,7 +960,15 @@ def main() -> None:
                             output_file = None
 
                     for message_type in selected_message_types:
-                        process_message(source, config, message_type, aggregators, percentiles, output_file)
+                        process_message(
+                            source,
+                            config,
+                            message_type,
+                            aggregators,
+                            percentiles,
+                            output_file,
+                            skip_completed_behaviors=args.skip_completed_behaviors,
+                        )
 
                     time.sleep(args.poll_interval)
 
