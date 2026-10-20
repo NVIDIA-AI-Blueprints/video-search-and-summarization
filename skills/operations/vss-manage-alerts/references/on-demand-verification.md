@@ -45,7 +45,7 @@ Background task → VLM call → result published via the same sink as the Kafka
 | Submission | Kind | Store | How to query |
 |---|---|---|---|
 | Minimal `{category, info}` (the default) | **incident** | `mdx-vlm-incidents-*` | **`GET $AB/api/v1/realtime/incidents`** — a real REST endpoint (Workflow C's) |
-| Payload carrying `notification_type: "alert"` | alert | `mdx-vlm-alerts-*` | Workflow B's interim ES probe |
+| Payload carrying `notification_type: "alert"` | alert | `mdx-vlm-alerts-*` | not through Alert Bridge — the alert-kind Elasticsearch read in `references/verification.md`; keep the minimal submission |
 
 ```bash
 # default case: poll the incident endpoint (allow ≥2 minutes for the VLM round-trip)

@@ -71,10 +71,12 @@ principal data flows and topics).
   vss-behavior-analytics-alerts -> mdx-incidents` (candidate incidents) `->
   alert-bridge` (retrieves the clip and runs VLM inference on `rtvi-vlm`) `->
   mdx-vlm-incidents` (verified). Alert Bridge writes the verified record with its
-  `verdict` **directly to Elasticsearch** `mdx-vlm-incidents-*` and
-  `mdx-vlm-alerts-*` (its `vlm_enhanced_sink`; optionally also to Kafka
-  `mdx-vlm-incidents`). Requires RT-CV, Behavior Analytics with incident generation
-  enabled, and `rtvi-vlm`.
+  `verdict` **directly to Elasticsearch** `mdx-vlm-incidents-*` (its stock
+  `vlm_enhanced_sink`; `type: kafka` publishes to Kafka `mdx-vlm-incidents` instead), readable through
+  `GET /api/v1/realtime/incidents`. Its `mdx-vlm-alerts-*` index receives only
+  alert-kind input, which the alerts profile's Behavior Analytics does not publish (Smart
+  Cities' does, for its anomaly modules). Requires RT-CV, Behavior Analytics with incident
+  generation enabled, and `rtvi-vlm`.
 - **VLM real-time** (`alert-bridge` realtime rules + `rtvi-vlm`, no Behavior
   Analytics): an `alert-bridge` realtime rule drives `rtvi-vlm` over the live stream;
   `rtvi-vlm -> mdx-vlm-incidents` (`RTVI_VLM_KAFKA_INCIDENT_TOPIC`) `-> Logstash ->
