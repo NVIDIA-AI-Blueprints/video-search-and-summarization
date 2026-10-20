@@ -124,6 +124,7 @@ wheels = [
 
 [[package]]
 name = "nvidia-vision-ai"
+version = "0.1.0"
 source = { editable = "libs/vision-ai" }
 dependencies = [
     { name = "httpx" },
@@ -140,6 +141,7 @@ requires-dist = [
 
 [[package]]
 name = "nvidia-vision-ai-cli"
+version = "0.1.0"
 source = { editable = "apps/cli" }
 dependencies = [
     { name = "click" },
