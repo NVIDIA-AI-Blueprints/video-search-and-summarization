@@ -158,7 +158,7 @@ when dense vectors are being indexed, use `nvtop` or `nvidia-smi`.
 | `mdx-sensor-lookup` | Stores sensor lookup information for coordinate mapping. |
 | `default_<normalized-stream-id>` or a custom collection name | Stores video captions and summaries received from `mdx-vlm-captions` and `mdx-structured-events-summary`. See the naming examples below. |
 | `ab-alert_configs` | Stores Alert Bridge alert configurations when Elasticsearch persistence is enabled. |
-| `ab-confirmed-verdicts` | Stores confirmed Alert Bridge verdicts used for deduplication. |
+| `ab-confirmed-verdicts` | Stores internal confirmed-verdict deduplication markers (`created_at`, `expires_at`); not alert history and has no `@timestamp` field. |
 
 Caption and summary indices use a collection name rather than the Kafka topic name or a daily suffix:
 

@@ -701,6 +701,7 @@ agent:
     global:
       imagePullPolicy: IfNotPresent
     profile: search
+    searchPromptPolicy: true
     replicas: 1
     rtviEmbedModelName: cosmos-embed1-448p-anomaly-detection
     llmName: nvidia/nemotron-3.5-lightning-30b-a3b
@@ -759,6 +760,8 @@ agent:
         cpu: '2'
     # vss-agent: full explicit container env for Search (Option A, local NIMs). URLs use Helm `tpl` against this chart's values + global.
     env:
+      - name: PYTHONPATH
+        value: /etc/vss-agent
       - name: VSS_AGENT_CONFIG_FILE
         value: '{{ .Values.configFilePath | default "/etc/vss-agent/config.yml" }}'
       - name: VSS_AGENT_HOST
@@ -800,7 +803,7 @@ agent:
       - name: NVIDIA_API_KEY
         value: ''
       - name: OPENAI_API_KEY
-        value: ''
+        value: 'NOAPIKEYSET'
       # Enterprise RAG (used by config_rag.yml when enabled). Compose parity:
       # deploy/docker/services/agent/compose.yml.
       - name: RAG_SERVER_URL
