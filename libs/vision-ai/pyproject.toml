@@ -77,13 +77,13 @@ force-sort-within-sections = true
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["ARG", "PLC0415", "S"]
-# Moved from vss_core.knowledge unchanged: backends import their optional
-# extras lazily, and the Chroma default directory is the existing contract.
+# The knowledge backends import their optional extras where they use them.
 "libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/arango_graph.py" = ["PLC0415"]
-"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/es_caption.py" = ["PLR0912"]
+"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/es_caption.py" = ["PLC0415", "PLR0912"]
+"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/frag_api.py" = ["PLC0415"]
 "libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/frag_lib.py" = ["PLC0415"]
-"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/langchain.py" = ["PLC0415", "S108"]
-"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/llama_index.py" = ["PLC0415", "S108"]
+"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/langchain.py" = ["PLC0415"]
+"libs/vision-ai/src/nvidia_vision_ai/knowledge/adapters/llama_index.py" = ["PLC0415"]
 
 [tool.pyright]
 include = ["libs/vision-ai/src", "apps/cli/src"]

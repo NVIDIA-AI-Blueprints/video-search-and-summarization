@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for lib.knowledge.factory."""
+"""Tests for nvidia_vision_ai.knowledge.factory."""
 
 from pydantic import BaseModel
 import pytest

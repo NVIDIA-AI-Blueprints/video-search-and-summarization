@@ -47,10 +47,7 @@ FILTER_OVERFETCH_MULTIPLIER = 4
 
 
 class LlamaIndexConfig(BaseModel):
-    persist_dir: str = Field(
-        default_factory=lambda: os.environ.get("VSS_CHROMA_DIR", "/tmp/chroma_data"),
-        description="ChromaDB persist directory. Defaults to `VSS_CHROMA_DIR`, then `/tmp/chroma_data`.",
-    )
+    persist_dir: str = Field(description="ChromaDB persist directory.")
     collection_name: str = Field(
         default="default",
         description="Default Chroma collection; used when the LLM omits `collection`.",
@@ -96,7 +93,7 @@ class LlamaIndexAdapter(BackendAdapter):
         os.makedirs(config.persist_dir, exist_ok=True)
         self._chroma_client = chromadb.PersistentClient(path=config.persist_dir)
 
-        api_key = config.embed_api_key or os.environ.get("NVIDIA_API_KEY")
+        api_key = config.embed_api_key
         self._embed_model = NVIDIAEmbedding(
             model=config.embed_model,
             base_url=config.embed_base_url,

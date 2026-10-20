@@ -72,6 +72,60 @@ class TestKnowledgeRetrievalConfig:
             KnowledgeRetrievalConfig(rag_url="http://rag:8081/v1")
 
 
+class TestBackendEnvironment:
+    """`_setup_backend` fills unset fields from the deployment environment."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        for name in (
+            "RAG_SERVER_URL",
+            "RAG_API_KEY",
+            "KNOWLEDGE_COLLECTION",
+            "VSS_CHROMA_DIR",
+            "NVIDIA_API_KEY",
+            "ARANGO_USER",
+            "ARANGO_DB_USERNAME",
+        ):
+            monkeypatch.delenv(name, raising=False)
+
+    def test_env_fills_unset_fields(self, monkeypatch):
+        monkeypatch.setenv("RAG_SERVER_URL", "http://rag-env:8081/v1")
+        monkeypatch.setenv("KNOWLEDGE_COLLECTION", "env_collection")
+        cfg = KnowledgeRetrievalConfig(backend="frag_api")
+        _, adapter_cfg = _setup_backend(cfg, MagicMock())
+        assert adapter_cfg == {"rag_url": "http://rag-env:8081/v1", "collection_name": "env_collection"}
+
+    def test_explicit_config_beats_env(self, monkeypatch):
+        monkeypatch.setenv("RAG_SERVER_URL", "http://rag-env:8081/v1")
+        cfg = KnowledgeRetrievalConfig(backend="frag_api", backend_config={"rag_url": "http://rag:8081/v1"})
+        _, adapter_cfg = _setup_backend(cfg, MagicMock())
+        assert adapter_cfg["rag_url"] == "http://rag:8081/v1"
+
+    def test_first_set_variable_wins(self, monkeypatch):
+        monkeypatch.setenv("ARANGO_DB_USERNAME", "fallback_user")
+        cfg = KnowledgeRetrievalConfig(backend="arango_graph")
+        _, adapter_cfg = _setup_backend(cfg, MagicMock())
+        assert adapter_cfg["arango_username"] == "fallback_user"
+
+        monkeypatch.setenv("ARANGO_USER", "primary_user")
+        _, adapter_cfg = _setup_backend(cfg, MagicMock())
+        assert adapter_cfg["arango_username"] == "primary_user"
+
+    @pytest.mark.parametrize("backend", ["langchain", "llama_index"])
+    def test_chroma_dir_and_embed_key(self, backend, monkeypatch):
+        cfg = KnowledgeRetrievalConfig(backend=backend)
+        _, adapter_cfg = _setup_backend(cfg, MagicMock())
+        assert adapter_cfg == {"persist_dir": "/tmp/chroma_data"}
+
+        monkeypatch.setenv("VSS_CHROMA_DIR", "/var/lib/chroma")
+        monkeypatch.setenv("NVIDIA_API_KEY", "env-key-123")  # pragma: allowlist secret
+        _, adapter_cfg = _setup_backend(cfg, MagicMock())
+        assert adapter_cfg == {
+            "persist_dir": "/var/lib/chroma",
+            "embed_api_key": "env-key-123",  # pragma: allowlist secret
+        }
+
+
 class TestSetupBackend:
     """`_setup_backend` returns the backend config dict for the factory."""
 

@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any
 from typing import ClassVar
 
@@ -57,22 +56,22 @@ class ArangoGraphConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     arango_url: str = Field(
-        default_factory=lambda: os.environ.get("ARANGO_URL", "http://arango-db:8529"),
+        default="http://arango-db:8529",
         description="ArangoDB HTTP endpoint.",
     )
     arango_database: str = Field(
-        default_factory=lambda: os.environ.get("ARANGO_DB", "example_graphs"),
+        default="example_graphs",
         description="ArangoDB database name.",
     )
     arango_username: str = Field(
-        default_factory=lambda: os.environ.get("ARANGO_USER", os.environ.get("ARANGO_DB_USERNAME", "vss_graph_reader")),
+        default="vss_graph_reader",
         description="ArangoDB username. Use a read-only graph user in production.",
     )
     arango_password: str | None = Field(
-        default_factory=lambda: os.environ.get("ARANGO_PASSWORD", os.environ.get("ARANGO_DB_PASSWORD")),
+        default=None,
     )
     arango_graph_name: str = Field(
-        default_factory=lambda: os.environ.get("ARANGO_GRAPH_NAME", "example_graph"),
+        default="example_graph",
         description="ArangoDB named graph.",
     )
 
