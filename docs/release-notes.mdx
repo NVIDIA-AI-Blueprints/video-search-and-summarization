@@ -182,22 +182,17 @@ See [Warehouse Known Limitations](/vision-agent/agent-workflows/industry-specifi
   single-GB300 Cosmos Reason 3 Nano NVFP4 reference run, pass the following
   environment to the `rtvi-server` container through a Docker Compose
   override. Host shell or `.env` entries alone do not inject variables that
-  the deployment's Compose file does not map. The legacy and `RTVI_` aliases
-  below intentionally have identical values so an existing alias does not
-  take precedence with a different value.
+  the deployment's Compose file does not map. Use the `RTVI_` variables below;
+  they take precedence over the corresponding legacy `VLLM_` aliases.
 
   ```yaml
   services:
     rtvi-server:
       environment:
         RTVI_QUEUE_DECODED_FRAMES_ON_GPU: "true"
-        VLLM_MM_TENSOR_IPC: "torch_shm"
         RTVI_VLLM_MM_TENSOR_IPC: "torch_shm"
-        VLLM_ATTENTION_BACKEND: "TRITON_ATTN"
         RTVI_VLLM_ATTENTION_BACKEND: "TRITON_ATTN"
-        VLLM_MAX_NUM_BATCHED_TOKENS: "8192"
         RTVI_VLLM_MAX_NUM_BATCHED_TOKENS: "8192"
-        VLLM_GPU_MEMORY_UTILIZATION: "0.35"
         RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
         RTVI_VLM_ADMISSION_MODE: "off"
   ```
