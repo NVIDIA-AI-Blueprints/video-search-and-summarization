@@ -78,6 +78,39 @@ Grounding requirements (these override any conflicting template instruction):
 """.strip()
 
 _RESOURCES_HEADING_RE = re.compile(r"^##\s*Resources\b", re.IGNORECASE | re.MULTILINE)
+# ChatNVIDIA defaults timeout to 60s. Warehouse report synthesis with
+# llm_reasoning=True exceeded that on GB300 (SocketTimeoutError at 60s).
+# Match HAProxy bk_llm_strip (timeout server 600s).
+_MIN_REPORT_LLM_TIMEOUT_S = 600.0
+
+
+def _ensure_min_llm_timeout(llm: Any, min_timeout: float = _MIN_REPORT_LLM_TIMEOUT_S) -> Any:
+    """Raise a ChatNVIDIA-style client timeout so report synthesis is not cut off at 60s.
+
+    ChatNVIDIA pops `timeout` out of model kwargs and stores it on `_client` /
+    `_async_client`. Mutating only `llm.timeout` would leave the 60s transport
+    default in place.
+    """
+    targets = [llm]
+    for attr in ("_client", "_async_client"):
+        nested = getattr(llm, attr, None)
+        if nested is not None and all(nested is not existing for existing in targets):
+            targets.append(nested)
+
+    for target in targets:
+        current = getattr(target, "timeout", None)
+        if isinstance(current, (int, float)) and current >= min_timeout:
+            continue
+        try:
+            target.timeout = min_timeout
+        except Exception:
+            logger.warning(
+                "Could not raise LLM timeout to %ss; report synthesis may hit the client default",
+                min_timeout,
+            )
+    return llm
+
+
 _THINK_OPEN_RE = re.compile(r"<think\b", re.IGNORECASE)
 _THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
 # {identifier} stays ASCII. Python \\w is Unicode, so a character class would change matching.
@@ -1611,6 +1644,7 @@ async def _format_custom_report(
     )
 
     # Bind LLM with reasoning kwargs if applicable
+    llm = _ensure_min_llm_timeout(llm)
     llm_kwargs = get_llm_reasoning_bind_kwargs(llm, options.llm_reasoning)
     bound_llm = llm.bind(**llm_kwargs) if llm_kwargs else llm
 

@@ -27,6 +27,7 @@ import pytest
 import yaml
 
 from vss_agents.tools import template_report_gen as template_report_gen_module
+from vss_agents.tools.template_report_gen import _MIN_REPORT_LLM_TIMEOUT_S
 from vss_agents.tools.template_report_gen import PDF_CONVERSION_AVAILABLE
 from vss_agents.tools.template_report_gen import ReportContentValidationError
 from vss_agents.tools.template_report_gen import TemplateReportGenConfig
@@ -34,6 +35,7 @@ from vss_agents.tools.template_report_gen import TemplateReportGenInput
 from vss_agents.tools.template_report_gen import _build_authoritative_incident_facts
 from vss_agents.tools.template_report_gen import _contains_unfilled_placeholder
 from vss_agents.tools.template_report_gen import _CustomReportOptions
+from vss_agents.tools.template_report_gen import _ensure_min_llm_timeout
 from vss_agents.tools.template_report_gen import _extract_labeled_field_values
 from vss_agents.tools.template_report_gen import _fetch_behavior_data
 from vss_agents.tools.template_report_gen import _format_custom_report
@@ -66,6 +68,31 @@ def _sample_table_report(**field_overrides: str) -> str:
 |-------|-------|
 {rows}
 """
+
+
+class TestEnsureMinLlmTimeout:
+    def test_raises_chatnvidia_default_timeout(self):
+        llm = SimpleNamespace(timeout=60)
+        _ensure_min_llm_timeout(llm)
+        assert llm.timeout == _MIN_REPORT_LLM_TIMEOUT_S
+
+    def test_leaves_a_larger_timeout_alone(self):
+        llm = SimpleNamespace(timeout=900)
+        _ensure_min_llm_timeout(llm)
+        assert llm.timeout == 900
+
+    def test_sets_timeout_when_unset(self):
+        llm = SimpleNamespace()
+        _ensure_min_llm_timeout(llm)
+        assert llm.timeout == _MIN_REPORT_LLM_TIMEOUT_S
+
+    def test_raises_nested_nvidia_client_timeout(self):
+        client = SimpleNamespace(timeout=60)
+        async_client = SimpleNamespace(timeout=60)
+        llm = SimpleNamespace(_client=client, _async_client=async_client)
+        _ensure_min_llm_timeout(llm)
+        assert client.timeout == _MIN_REPORT_LLM_TIMEOUT_S
+        assert async_client.timeout == _MIN_REPORT_LLM_TIMEOUT_S
 
 
 class TestGetObjectStoreUrl:
