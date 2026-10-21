@@ -47,9 +47,9 @@ class LatencyMetrics(BaseModel):
 
 class GPUMetrics(BaseModel):
     vlm_gpu_usage_mean: float = Field(0.0, description="VLM GPU usage mean %")
-    vlm_gpu_memory_mean: float = Field(0.0, description="VLM GPU memory mean %")
+    vlm_gpu_memory_mean: Optional[float] = Field(0.0, description="VLM GPU memory mean %")
     llm_gpu_usage_mean: float = Field(0.0, description="LLM GPU usage mean %")
-    llm_gpu_memory_mean: float = Field(0.0, description="LLM GPU memory mean %")
+    llm_gpu_memory_mean: Optional[float] = Field(0.0, description="LLM GPU memory mean %")
 
 
 class LVSTestCaseMetrics(BaseModel):
@@ -229,14 +229,15 @@ def execution_results_to_test_cases(
             def _mean(values):
                 return sum(values) / len(values) if values else 0.0
 
-            def _mean_gpu(dicts, key):
-                return _mean([d.get(key, 0) for d in dicts])
+            def _mean_gpu(dicts, key, default=0.0):
+                values = [d.get(key, 0) for d in dicts if d.get(key, 0) is not None]
+                return _mean(values) if values else default
 
             avg_gpu = GPUMetrics(
                 vlm_gpu_usage_mean=_mean_gpu(gpu_dicts, "vlm_gpu_usage_mean"),
-                vlm_gpu_memory_mean=_mean_gpu(gpu_dicts, "vlm_gpu_memory_mean"),
+                vlm_gpu_memory_mean=_mean_gpu(gpu_dicts, "vlm_gpu_memory_mean", None),
                 llm_gpu_usage_mean=_mean_gpu(gpu_dicts, "llm_gpu_usage_mean"),
-                llm_gpu_memory_mean=_mean_gpu(gpu_dicts, "llm_gpu_memory_mean"),
+                llm_gpu_memory_mean=_mean_gpu(gpu_dicts, "llm_gpu_memory_mean", None),
             )
 
             video_duration = os.path.splitext(video_basename)[0] if video_basename else ""

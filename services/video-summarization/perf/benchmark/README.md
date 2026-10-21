@@ -52,7 +52,7 @@ Follow the official VSS documentation to deploy locally:
      enabled: true              # Set to false to disable GPU monitoring
      interval_seconds: 1        # Sampling interval (default: 1 second)
    ```
-   **Note**: GPU monitoring must be enabled only when the benchmark tool is being executed locally on the same host as VSS. If running the tool remotely, disable GPU monitoring by setting `enabled: false`. GPU monitoring is also not supported on the Spark platform and should be disabled.
+   **Note**: GPU monitoring must be enabled only when the benchmark tool is being executed locally on the same host as VSS. If running the tool remotely, disable GPU monitoring by setting `enabled: false`. NVML capabilities vary by GPU. On unified-memory platforms such as DGX Spark and AGX Thor, dedicated framebuffer-memory usage is reported as unavailable rather than `0`; supported GPU utilization and NVDEC metrics continue to be collected. Shared RAM usage remains available through the CPU/RAM monitor.
 
 ### EVS++ / Efficient Video Sampling Configuration
 
