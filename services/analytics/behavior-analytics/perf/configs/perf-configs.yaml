@@ -1,0 +1,27 @@
+perf_configs:
+  - id: warehouse_2d-kafka-playback
+    nodeLabel: RTXPRO6000BW-SE
+    imageArch: amd64
+    enabled: true
+    hardwareProfile: playback
+    profile: warehouse_2d
+    broker: kafka
+    # Jenkins runServicePerfSequence exports COMPOSE_FILE from this path. Empty
+    # makes `set -u` fail at `if [ -n "${COMPOSE_FILE}" ]` (Jenkins #60).
+    composePath: tests/integration/docker_compose/infra/compose.yml
+    # Additional repository paths required by the unchanged integration-based
+    # benchmark. The common pipeline adds these to its sparse checkout.
+    checkoutPaths:
+      - services/analytics/behavior-analytics/tests/integration/
+      - deploy/docker/services/
+    # Hydrate only the playback fixture needed by this config; all other LFS
+    # objects remain skipped on the benchmark worker.
+    lfsPaths:
+      - services/analytics/behavior-analytics/tests/integration/docker_compose/apps_data/playback/warehouse_2d_playback_data.txt
+    # Jenkins withEnv omits empty values; the benchmark wrapper then dies on
+    # `set -u` at `if [ -n "${VLM_GPUS}" ]` and the rest of that chain.
+    vlmGpus: "unused"
+    llmGpus: "unused"
+    vlmModel: "unused"
+    llmModel: "unused"
+    vision_input_tokens: "unused"
