@@ -92,6 +92,8 @@ The Auto Calibration service can run the AMC method without VGGT support. To ena
 mkdir -p "${VSS_DATA_DIR}/auto-calib/vggt"
 ```
 
+For the default case, use `vggt_1B_commercial.pt`. To use any other model name, update `VGGT_MODEL_PATH` in `.env` to the new model's full path inside the container: `/tmp/vggt_model/<filename>`.
+
 You must accept the model license before downloading it.
 
 ### 6. Prepare the projects directory
