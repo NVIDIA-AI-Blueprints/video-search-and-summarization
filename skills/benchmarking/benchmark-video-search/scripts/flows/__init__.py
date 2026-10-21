@@ -54,6 +54,7 @@ from .base import (
     resolve_vss_cmd,
     vss_origin_for,
 )
+from .cleanup import clear_all_videos, prune_foreign_videos, require_same_host
 from .dataset import (
     DATASETS,
     DEFAULT_DATA_DIR,
@@ -206,6 +207,7 @@ __all__ = [
     "aggregate_upload_stats",
     "align_ts_to_segment",
     "classify_complete_failure",
+    "clear_all_videos",
     "cli_supports_flag",
     "compare_inventory",
     "configured_base_url",
@@ -239,6 +241,8 @@ __all__ = [
     "post_process_api_results",
     "preflight_vss_cmd",
     "print_upload_summary",
+    "prune_foreign_videos",
+    "require_same_host",
     "resolve_vss_cmd",
     "route",
     "sensor_list_url",

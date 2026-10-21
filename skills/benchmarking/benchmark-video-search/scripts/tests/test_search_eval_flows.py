@@ -1568,7 +1568,7 @@ def test_prune_deletes_only_foreign_sources(tmp_path: Path, monkeypatch: Any) ->
     Both spellings VST uses -- stem and stem.mp4 -- must be recognised as ours,
     or the prune deletes a fixture that ingest then re-uploads.
     """
-    import run_eval_flows as rf
+    from flows import cleanup
 
     deleted: list[str] = []
 
@@ -1579,13 +1579,13 @@ def test_prune_deletes_only_foreign_sources(tmp_path: Path, monkeypatch: Any) ->
         def raise_for_status() -> None:
             return None
 
-    monkeypatch.setattr(rf.flows, "list_sensor_streams", lambda *_a, **_k: _fake_streams())
+    monkeypatch.setattr(cleanup, "list_sensor_streams", lambda *_a, **_k: _fake_streams())
     monkeypatch.setattr(
-        rf.requests, "delete",
+        cleanup.requests, "delete",
         lambda url, **_k: (deleted.append(url.rsplit("/", 1)[-1]), _Resp())[1],
     )
 
-    out = rf.prune_foreign_videos("https://host:8000", "https://host:30888", _dataset_dir(tmp_path))
+    out = flows.prune_foreign_videos("https://host:8000", "https://host:30888", _dataset_dir(tmp_path))
 
     assert sorted(deleted) == ["id-theirs", "id-theirs2"]
     assert out["kept"] == 2
@@ -1599,35 +1599,35 @@ def test_prune_refuses_when_the_dataset_has_no_videos(tmp_path: Path, monkeypatc
     Without this guard --only-dataset silently becomes --clear, which is the
     one thing it exists to avoid.
     """
-    import run_eval_flows as rf
+    from flows import cleanup
 
-    monkeypatch.setattr(rf.flows, "list_sensor_streams", lambda *_a, **_k: _fake_streams())
+    monkeypatch.setattr(cleanup, "list_sensor_streams", lambda *_a, **_k: _fake_streams())
     monkeypatch.setattr(
-        rf.requests, "delete",
+        cleanup.requests, "delete",
         lambda *_a, **_k: pytest.fail("must not delete anything when the dataset is empty"),
     )
 
     empty = tmp_path / "videos"
     empty.mkdir()
     with pytest.raises(SystemExit, match="no video files"):
-        rf.prune_foreign_videos("https://host:8000", "https://host:30888", empty)
+        flows.prune_foreign_videos("https://host:8000", "https://host:30888", empty)
 
 
 def test_prune_is_a_noop_when_every_source_belongs_to_the_dataset(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
-    import run_eval_flows as rf
+    from flows import cleanup
 
     monkeypatch.setattr(
-        rf.flows, "list_sensor_streams",
+        cleanup, "list_sensor_streams",
         lambda *_a, **_k: {"id-ours-1": "1219", "id-ours-2": "video_00570.mp4"},
     )
     monkeypatch.setattr(
-        rf.requests, "delete",
+        cleanup.requests, "delete",
         lambda *_a, **_k: pytest.fail("nothing foreign, so nothing should be deleted"),
     )
 
-    out = rf.prune_foreign_videos("https://host:8000", "https://host:30888", _dataset_dir(tmp_path))
+    out = flows.prune_foreign_videos("https://host:8000", "https://host:30888", _dataset_dir(tmp_path))
     assert out == {"found": 2, "kept": 2, "deleted": 0, "names": []}
 
 
@@ -1644,22 +1644,22 @@ def test_delete_refuses_when_listing_and_deleting_hosts_differ(
     tmp_path: Path, monkeypatch: Any, delete_fn: str, agent_endpoint: str, vst_url: str
 ) -> None:
     """Stream ids listed on one stack must never be deleted through another."""
-    import run_eval_flows as rf
+    from flows import cleanup
 
     monkeypatch.setattr(
-        rf.flows, "list_sensor_streams",
+        cleanup, "list_sensor_streams",
         lambda *_a, **_k: pytest.fail("must abort before listing sources"),
     )
     monkeypatch.setattr(
-        rf.requests, "delete",
+        cleanup.requests, "delete",
         lambda *_a, **_k: pytest.fail("must not delete across hosts"),
     )
 
     with pytest.raises(SystemExit, match="hosts differ"):
         if delete_fn == "clear_all_videos":
-            rf.clear_all_videos(agent_endpoint, vst_url)
+            flows.clear_all_videos(agent_endpoint, vst_url)
         else:
-            rf.prune_foreign_videos(agent_endpoint, vst_url, _dataset_dir(tmp_path))
+            flows.prune_foreign_videos(agent_endpoint, vst_url, _dataset_dir(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1670,9 +1670,7 @@ def test_delete_refuses_when_listing_and_deleting_hosts_differ(
     ],
 )
 def test_same_host_check_allows_matching_hosts(agent_endpoint: str, vst_url: str) -> None:
-    import run_eval_flows as rf
-
-    rf.require_same_host(agent_endpoint, vst_url)
+    flows.require_same_host(agent_endpoint, vst_url)
 
 
 # ---------------------------------------------------------------------------
@@ -2181,7 +2179,7 @@ def test_list_search_indices_parses_cat_rows(monkeypatch: Any, payload: Any, exp
     assert calls[0][1]["params"] == {"format": "json", "h": "index,docs.count"}
 
 
-@pytest.mark.parametrize("origin", ["", "host:7777", "sftp://host:7777", "file:///etc/passwd", "https://"])
+@pytest.mark.parametrize("origin", ["", "host:7777", "sftp://host:7777", "file:///tmp/not-http", "https://"])
 def test_list_search_indices_rejects_non_http_origins(monkeypatch: Any, origin: str) -> None:
     import requests
 
