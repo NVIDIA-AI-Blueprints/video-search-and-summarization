@@ -20,9 +20,9 @@ metadata:
 ## Instructions
 
 Follow the routing table, then the numbered steps. Execute each step in order on
-a first run; for a repeat run against an already-indexed deployment go straight
-to **Step 5**. Reference material is in `references/`, the runner is in
-`scripts/`.
+a first run; for a repeat run against an already-indexed deployment run
+**Step 3**, then go to **Step 5**. Reference material is in `references/`, the
+runner is in `scripts/`.
 
 ## Purpose
 
@@ -189,15 +189,18 @@ quality and is not.
 The runner lists the indices through the same origin it configures the CLI
 with: the `--endpoint` host on port 7777 (`--vss-origin-port`), or
 `--vss-base-url` when the user supplied one. It is read-only, exits 1 when no
-`mdx-*` index holds documents, and warns when `mdx-behavior-*` is empty.
+`mdx-embed-filtered-*` index holds documents, and warns when
+`mdx-behavior-*` is empty.
 
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 --check-indices
 ```
 
-Expect `mdx-embed-filtered-*`, `mdx-behavior-*` and `mdx-raw-*` with non-zero
-counts. `mdx-behavior-*` is what the `attribute` and `fusion` paths read; if it
-is missing, only `embed` can score. If the indices are absent, go to Step 4.
+Expect `mdx-embed-filtered-*`, `mdx-behavior-*` and `mdx-raw-*`.
+`mdx-embed-filtered-*` must have documents because the default and post-ingest
+readiness paths use embed search. `mdx-behavior-*` is what the `attribute` and
+`fusion` paths read; if it is empty, only `embed` can score. If the embed index
+is absent or empty, go to Step 4.
 
 ## Step 4 — Ingest
 
@@ -224,8 +227,9 @@ Expect this to be slow while the webhook pipeline indexes the videos:
 - `--clear --confirm-delete` deletes **every** source including other people's.
   Use it only on explicit request.
 - `--clear` and `--only-dataset` list sources via `--vst-url` but delete through
-  the agent endpoint. The runner aborts before listing if the two hosts differ,
-  so source IDs from one stack are never sent to another.
+  the agent endpoint. The runner aborts before listing if the two hostnames
+  differ. This catches a cross-host mismatch; it does not prove that two URLs
+  on the same host identify the intended deployment.
 
 Then re-run Step 3. Indices are lazy; they appear after webhook processing,
 not immediately after upload. See `references/flags.md` for ingest options.

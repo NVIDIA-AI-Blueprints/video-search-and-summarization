@@ -1364,7 +1364,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "List the Elasticsearch indices behind the configure origin "
             "(--vss-base-url, or --endpoint's host on --vss-origin-port) and exit. "
-            "Read-only; exits 1 when no mdx-* index holds documents and warns "
+            "Read-only; exits 1 when no mdx-embed-filtered-* index holds documents and warns "
             "when mdx-behavior-* is empty."
         ),
     )
@@ -1381,11 +1381,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("--confirm-delete requires --only-dataset or --clear")
     if args.check_indices and (args.only_dataset or args.clear):
         p.error("--check-indices is read-only and cannot be combined with --only-dataset or --clear")
+    if args.check_indices and args.dry_run:
+        p.error("--check-indices performs a read-only request and cannot be combined with --dry-run")
     return args
 
 
 def check_indices(origin: str) -> int:
-    """Print the search indices behind ``origin``; 0 when an mdx-* index has documents."""
+    """Print search indices; return 0 when the embed search index has documents."""
     try:
         indices = flows.list_search_indices(origin)
     except Exception as e:  # noqa: BLE001
@@ -1394,8 +1396,11 @@ def check_indices(origin: str) -> int:
     print(f"Elasticsearch indices at {origin}:")
     for name, count in sorted(indices.items()):
         print(f"  {name:<40} {count}")
-    if not any(name.startswith("mdx-") and count > 0 for name, count in indices.items()):
-        print("No mdx-* index holds documents: ingestion has not completed (run Step 4).", file=sys.stderr)
+    if not any(name.startswith("mdx-embed-filtered-") and count > 0 for name, count in indices.items()):
+        print(
+            "No mdx-embed-filtered-* index holds documents: embed search is not ready (run Step 4).",
+            file=sys.stderr,
+        )
         return 1
     if not any(name.startswith("mdx-behavior") and count > 0 for name, count in indices.items()):
         print("No mdx-behavior-* documents: only the embed path can score.", file=sys.stderr)

@@ -2191,9 +2191,11 @@ def test_list_search_indices_rejects_non_http_origins(monkeypatch: Any, origin: 
 @pytest.mark.parametrize(
     ("indices", "exit_code", "embed_only_warning"),
     [
-        ({"mdx-raw-1": 4, "mdx-behavior-1": 2}, 0, False),
+        ({"mdx-embed-filtered-1": 4, "mdx-behavior-1": 2}, 0, False),
         ({"mdx-raw-1": 4, "mdx-embed-filtered-1": 4}, 0, True),
-        ({"mdx-raw-1": 4, "mdx-behavior-1": 0}, 0, True),
+        ({"mdx-embed-filtered-1": 4, "mdx-behavior-1": 0}, 0, True),
+        ({"mdx-raw-1": 4, "mdx-behavior-1": 2}, 1, False),
+        ({"mdx-behavior-1": 2}, 1, False),
         ({"mdx-raw-1": 0, "mdx-behavior-1": 0}, 1, False),
         ({"other-index": 10}, 1, False),
         ({}, 1, False),
@@ -2202,7 +2204,7 @@ def test_list_search_indices_rejects_non_http_origins(monkeypatch: Any, origin: 
 def test_check_indices_exit_code_tracks_populated_mdx_indices(
     monkeypatch: Any, capsys: Any, indices: dict[str, int], exit_code: int, embed_only_warning: bool
 ) -> None:
-    """Exit 1 when nothing is indexed; warn, but pass, when attribute/fusion have no behavior index."""
+    """Require embed documents; warn, but pass, when attribute/fusion have no behavior documents."""
     import run_eval_flows as rf
 
     monkeypatch.setattr(rf.flows, "list_search_indices", lambda _origin: indices)
@@ -2256,3 +2258,12 @@ def test_check_indices_refuses_destructive_flags(capsys: Any, delete_flag: str) 
         rf.parse_args(["--endpoint", "https://host:8000", "--check-indices", delete_flag, "--confirm-delete"])
     assert exc.value.code == 2
     assert "read-only" in capsys.readouterr().err
+
+
+def test_check_indices_refuses_dry_run(capsys: Any) -> None:
+    import run_eval_flows as rf
+
+    with pytest.raises(SystemExit) as exc:
+        rf.parse_args(["--endpoint", "https://host:8000", "--check-indices", "--dry-run"])
+    assert exc.value.code == 2
+    assert "cannot be combined with --dry-run" in capsys.readouterr().err
