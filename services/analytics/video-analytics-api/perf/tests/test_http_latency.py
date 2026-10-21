@@ -12,7 +12,7 @@ from dump_loader import is_lfs_pointer, load_file
 from http_latency import build_result, percentile, summarize
 from kpis import DEFAULT_KPIS_PATH, evaluate_kpis, load_kpis, resolved_required_endpoints
 from minio_upload import minio_settings
-from openapi_matrix import load_spec, query_params_for, spec_get_endpoints, spec_get_names
+from openapi_matrix import SKIP_PATHS, load_spec, query_params_for, spec_get_endpoints, spec_get_names
 from scenario_config import scenario_settings
 
 PERF = Path(__file__).resolve().parents[1]
@@ -67,8 +67,8 @@ class HttpLatencyTests(unittest.TestCase):
         spec = load_spec()
         rows = spec_get_endpoints(spec)
         names = spec_get_names(spec)
-        self.assertEqual(len(rows), 44)
-        self.assertEqual(len(names), 44)
+        self.assertEqual(len(rows), 39)
+        self.assertEqual(len(names), 39)
         self.assertIn("livez", names)
         self.assertIn("frames", names)
         self.assertIn("events", names)
@@ -78,6 +78,8 @@ class HttpLatencyTests(unittest.TestCase):
         self.assertNotIn("/behavior/pts", paths)
         self.assertNotIn("/metrics/road-network/segment-speed", paths)
         self.assertNotIn("/config/calibration/image", paths)
+        for skipped in SKIP_PATHS:
+            self.assertNotIn(skipped, paths)
         get_count = sum(1 for ops in spec["paths"].values() if "get" in ops)
         self.assertEqual(get_count, 48)
         frames = next(row for row in rows if row["name"] == "frames")

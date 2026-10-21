@@ -3,9 +3,11 @@
 #
 # Video Analytics API query KPI thresholds.
 # required_endpoints: spec_gets expands to every OpenAPI GET this dump-backed
-# job can call (required query params subset of warehouse_2d constants).
-# Skipped: all POST/PUT/PATCH/DELETE, path-parameter routes, and GETs that
-# need IDs we do not have (segmentInfo, view, endFrameId, behaviorTimeInterval).
+# job can HTTP 200 (required query params subset of warehouse_2d constants,
+# plus runtime skips). Skipped: mutating methods, path-parameter routes,
+# IDs we do not have (segmentInfo, view, endFrameId, behaviorTimeInterval),
+# city/corridor travel-time, behavior-locations IDs, nvstreamer PTS,
+# missing road-network and usd-assets.
 #
 # Original five gates are a best estimate from Jenkins benchmark-perf-test/69.
 # New endpoints use default 0.10 / 0.20 s until an owner publishes SLOs.

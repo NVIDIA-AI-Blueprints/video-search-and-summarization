@@ -33,6 +33,21 @@ CONTEXT_KEYS = (
     "y",
 )
 
+# OpenAPI required params are fillable, but warehouse_2d still cannot HTTP 200.
+SKIP_PATHS = frozenset(
+    {
+        # Needs city/corridor; warehouse place is building/room.
+        "/metrics/average-speed-with-travel-time",
+        # Runtime oneOf requires behaviorIds XOR globalId (OpenAPI marks both optional).
+        "/tracker/behavior-locations",
+        # PTS only for calibration source=nvstreamer.
+        "/frames/pts",
+        # Config docs are not in the warehouse dump (404).
+        "/config/road-network",
+        "/config/usd-assets",
+    }
+)
+
 _HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete", "head", "options"})
 
 
@@ -86,14 +101,15 @@ def _query_params(operation: Mapping[str, Any]) -> tuple[set[str], set[str]]:
 def spec_get_endpoints(spec: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     """Return GET operations whose required query params this job can supply.
 
-    Skips POST/PUT/PATCH/DELETE, path-parameter routes, and GETs that need
-    IDs this warehouse snapshot does not provide (segmentInfo, view,
-    endFrameId, behaviorTimeInterval, referenceId).
+    Skips POST/PUT/PATCH/DELETE, path-parameter routes, GETs that need IDs
+    this warehouse snapshot does not provide (segmentInfo, view, endFrameId,
+    behaviorTimeInterval, referenceId), and SKIP_PATHS (travel-time corridor,
+    behavior-locations IDs, nvstreamer PTS, missing road-network/usd-assets).
     """
     document = spec if spec is not None else load_spec()
     rows: list[dict[str, Any]] = []
     for path, operations in (document.get("paths") or {}).items():
-        if "{" in path:
+        if "{" in path or path in SKIP_PATHS:
             continue
         if not isinstance(operations, Mapping):
             continue
