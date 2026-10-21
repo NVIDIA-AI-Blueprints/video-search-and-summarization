@@ -83,7 +83,7 @@ Refer to the requirements table for valid platform and mode combinations compati
 
 **Deploy prompt structure**
 
-```text title="Deploy prompt structure"
+```text title="Paste into your coding agent"
 Deploy the VSS video summarization profile (lvs).
 ```
 
@@ -91,7 +91,7 @@ Name an image tag in the prompt to run a release's images instead of the
 `containers.env` default. See
 [Container image tag](/vision-agent/build-vision-ai-skill#container-image-tag).
 
-```text title="Deploy prompt with a release image tag"
+```text title="Paste into your coding agent"
 Deploy the VSS video summarization profile (lvs) with image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
 ```
 
@@ -109,12 +109,23 @@ What the agent does:
 To operate the video summarization and report generation workflow from your agent, install the `vss-manage-video-io-storage`, `vss-summarize-video`, and `vss-generate-video-report` skills as described in [Agent Skills](/vision-agent/agent-skills).
 Your agent can then upload videos, summarize them, and generate reports through VSS with natural-language prompts, without requiring manual interaction with the UI.
 
-Upload a video through the `vss-manage-video-io-storage` skill.
+Upload a video through the `vss-manage-video-io-storage` skill. Replace
+`<sample-data-dir>` with the absolute extraction location from the Quickstart's
+[Download Sample Data From NGC](/getting-started/quickstart#download-sample-data-from-ngc).
 
 **Upload a video to VIOS**
 
-```text title="Upload a video to VIOS"
-Upload warehouse_sample.mp4 to VIOS.
+```text title="Paste into your coding agent"
+Upload <sample-data-dir>/dev-profile-sample-data/warehouse_sample.mp4 to VIOS.
+```
+
+If you selected NemoClaw, follow the Quickstart's
+[handoff](/getting-started/quickstart#continue-in-nemoclaw), using
+`warehouse_sample.mp4` as the filename in the transfer command. Then use its
+sandbox path:
+
+```text title="Paste into NemoClaw chat"
+Upload /sandbox/warehouse_sample.mp4 to VIOS.
 ```
 
 What the agent does:
@@ -131,7 +142,7 @@ Ask your agent to summarize an uploaded video or generate a structured report fo
 
 **Summarize an uploaded video**
 
-```text title="Summarize an uploaded video"
+```text title="Paste into your coding agent or NemoClaw chat"
 Summarize warehouse_sample with scenario 'warehouse monitoring' and events ['boxes falling', 'forklift stuck', 'person entering restricted area'].
 Summarize warehouse_sample using the default scenario and events.
 ```
@@ -148,7 +159,7 @@ What the agent does:
 
 **Generate a report for an uploaded video**
 
-```text title="Generate a report for an uploaded video"
+```text title="Paste into your coding agent or NemoClaw chat"
 Generate a report for warehouse_sample with scenario 'warehouse monitoring' and events ['boxes falling', 'forklift stuck', 'person entering restricted area'].
 Generate a report for warehouse_sample using the default scenario and events.
 ```
@@ -175,7 +186,7 @@ below.
 
 The VSS CLI can upload media and run the Video Summarization service directly from the deployment host. Configure it once against the public VSS ingress, enable memory for persisted jobs, mint a clip URL for an uploaded video, and start a summary:
 
-```bash
+```bash title="Run in the deployment host terminal"
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
 vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
 
@@ -210,7 +221,7 @@ Replace `HOST_IP`, `VIDEO_NAME`, `SENSOR_ID`, `MEDIA_URL`, and `START_TIME` with
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
-```bash
+```bash title="Run in the deployment host terminal"
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
@@ -227,7 +238,7 @@ template is
 
 From the repository checkout root, enter the Compose deployment directory:
 
-```bash
+```bash title="Run in the deployment host terminal"
 cd deploy/docker
 ```
 
@@ -238,7 +249,7 @@ committed. The commands below use `user-overrides.env` as a concrete example;
 if you choose another name, use it consistently in every `--env-file` argument.
 Repeat the copy only when you want to discard prior layout changes:
 
-```bash
+```bash title="Run in the deployment host terminal"
 PROFILE=lvs
 cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
@@ -269,7 +280,7 @@ HOST_IP=<reachable-host-ip-or-name>
 `VSS_DATA_DIR` with the same absolute path set above, then run this block. The
 guard stops before `mkdir` or `chmod` if the value is absent or is not absolute:
 
-```bash
+```bash title="Run in the deployment host terminal"
 : "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
 case "$VSS_DATA_DIR" in
   /*) ;;
@@ -304,7 +315,7 @@ chmod -R a+rwx \
 Export the tag selected for this documentation branch before choosing a hardware
 layout:
 
-```bash
+```bash title="Run in the deployment host terminal"
 export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
 ```
 
@@ -670,7 +681,7 @@ RTVI_VLM_MODEL_PATH=none
 After replacing every placeholder in the selected layout, from `deploy/docker`
 validate the resolved configuration, then start the profile:
 
-```bash
+```bash title="Run in the deployment host terminal"
 PROFILE=lvs
 docker compose -f compose.yml \
   --env-file containers.env \
@@ -705,7 +716,7 @@ When using a remote VLM of model-type `nim` (not `openai`), see [How does a remo
 
 Once the deployment is complete, check that all the containers are running and healthy:
 
-```bash
+```bash title="Run in the deployment host terminal"
 docker ps
 ```
 
@@ -745,13 +756,13 @@ Ask the agent to generate a report about the uploaded video. Here is an example 
 The screenshots in this step show the in-stack VSS Agent UI. VSS Agent collects the Video Summarization parameters in Human in the Loop (HITL) dialog windows and provides the finished report as a PDF download. With NemoClaw's OpenClaw runtime, HITL happens in the OpenClaw chat: the agent asks for needed parameters inline, you answer in the conversation, and the summary or report appears in the chat UI. The VSS Agent's structured HITL dialogs are not available through an external VSS UI connected to NemoClaw, so the dialog and PDF screenshots do not represent that experience.
 </Note>
 
-```bash
+```text title="Paste into the in-stack VSS Agent chat"
 Can you generate a report for warehouse_sample using video summarization?
 ```
 
 To generate reports across multiple uploaded videos, include the video names in one prompt:
 
-```bash
+```text title="Paste into the in-stack VSS Agent chat"
 Generate reports for warehouse_sample_1 and warehouse_sample_2.
 ```
 
@@ -762,7 +773,7 @@ You can cancel the workflow at any time by typing "/cancel" in the pop-up input 
 **Scenario**
    Describe the monitoring context. For example:
 
-   ```text
+   ```text title="Enter in the Scenario dialog"
    warehouse monitoring
    ```
 
@@ -770,7 +781,7 @@ You can cancel the workflow at any time by typing "/cancel" in the pop-up input 
 
 <img src="./assets/images/agent-workflows/lvs-popup-scenario.png" alt="Pop-up for scenario input" width="410px" />
 
-   ```text
+   ```text title="Enter in the Events dialog"
    box falling, accident, person entering restricted area
    ```
 
@@ -778,7 +789,7 @@ You can cancel the workflow at any time by typing "/cancel" in the pop-up input 
 
 <img src="./assets/images/agent-workflows/lvs-popup-events.png" alt="Pop-up for events input" width="410px" />
 
-   ```text
+   ```text title="Enter in the Objects of Interest dialog"
    forklifts, pallets, workers
    ```
 
@@ -804,7 +815,7 @@ The Video Summarization profile can also analyze live streams. First add a strea
 
 Example prompt:
 
-```bash
+```text title="Paste into the in-stack VSS Agent chat"
 Start generating captions for stream CAM_1.
 ```
 
@@ -846,7 +857,7 @@ Set `default_*` in the `Data view` dropdown. Here you can see the events detecte
 
 To teardown the agent, run the following command:
 
-```bash
+```bash title="Run in the deployment host terminal"
 PROFILE=lvs
 docker compose -f compose.yml \
   --env-file containers.env \
@@ -879,7 +890,7 @@ To swap in **Nemotron-Nano-V3-Omni-GA0420-FP8** for audio-aware
 summarization, export your Hugging Face token in the shell that will run Docker
 Compose:
 
-```bash
+```bash title="Run in the deployment host terminal"
 export HF_TOKEN='<your_hf_token>'
 ```
 
@@ -912,7 +923,7 @@ is the value for this example. Rerun the full Docker Compose command from Step 1
 
 After the deployment is complete, verify with:
 
-```bash
+```bash title="Run in the deployment host terminal"
 curl http://<HOST_IP>:8018/v1/models | jq
 ```
 
