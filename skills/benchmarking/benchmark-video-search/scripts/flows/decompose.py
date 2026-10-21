@@ -116,14 +116,14 @@ def load_prompt(repo_root: Path) -> tuple[str, str]:
             "This skill must run from inside a VSS checkout."
         )
     text = src.read_text()
-    prompt = re.search(r'QUERY_DECOMPOSITION_PROMPT = """(.*?)"""', text, re.DOTALL)
-    few_shot = re.search(r'DEFAULT_FEW_SHOT_EXAMPLES = """(.*?)"""', text, re.DOTALL)
-    if prompt is None or few_shot is None:
+    template_match = re.search(r'QUERY_DECOMPOSITION_PROMPT = """(.*?)"""', text, re.DOTALL)
+    examples_match = re.search(r'DEFAULT_FEW_SHOT_EXAMPLES = """(.*?)"""', text, re.DOTALL)
+    if template_match is None or examples_match is None:
         raise DecompositionError(
             f"QUERY_DECOMPOSITION_PROMPT / DEFAULT_FEW_SHOT_EXAMPLES not found in {src}; "
             "the product source may have been restructured."
         )
-    return prompt.group(1), few_shot.group(1)
+    return template_match.group(1), examples_match.group(1)
 
 
 def _strip_fences(text: str) -> str:
