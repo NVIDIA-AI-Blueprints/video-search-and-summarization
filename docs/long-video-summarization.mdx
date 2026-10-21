@@ -255,9 +255,9 @@ NGC_CLI_API_KEY=<your-ngc-api-key>
 NVIDIA_API_KEY=<your-nvidia-api-key>
 OPENAI_API_KEY=<your-openai-api-key>   # required when RTVI uses openai-compat
 
-# Ports
-BACKEND_PORT=38111
-LVS_MCP_PORT=38112
+# Host REST API port (container port is fixed at 38111)
+LVS_BACKEND_PORT=38111
+# The standalone Compose stack publishes MCP on fixed host/container port 38112.
 
 # Database (in-stack Elasticsearch)
 ES_HOST=elasticsearch
@@ -266,7 +266,9 @@ ES_PORT=9200
 # LLM (external NIM)
 LVS_LLM_HOST=<llm-nim-host-ip>
 LVS_LLM_PORT=8002
-LVS_LLM_MODEL_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
+# Query the configured NIM's /v1/models endpoint and copy its exact id here.
+# Model IDs can differ between NIM versions and serving configurations.
+LVS_LLM_MODEL_NAME=<id-returned-by-llm-nim-v1-models>
 LVS_DATABASE_BACKEND=elasticsearch_db
 
 # RTVI-VLM Integration
@@ -294,6 +296,17 @@ VSS_LOG_LEVEL=DEBUG
 
 **Bring Up the Stack**
 
+Before starting the Video Summarization MS, query the external LLM NIM and
+copy its exact model ID into `LVS_LLM_MODEL_NAME` in `.env`. Replace the URL
+placeholders with the `LVS_LLM_HOST` and `LVS_LLM_PORT` values configured above:
+
+```bash
+curl -fsS "http://<llm-nim-host-ip>:<llm-nim-port>/v1/models" | python3 -m json.tool
+```
+
+The Compose `--env-file` option does not export variables into your shell.
+Restart the Video Summarization MS after changing its configured model ID.
+
 ```bash
 docker compose -f docker/deploy/compose.yaml --profile rtvi --env-file .env up -d
 ```
@@ -302,6 +315,14 @@ docker compose -f docker/deploy/compose.yaml --profile rtvi --env-file .env up -
 
 ```bash
 curl http://localhost:38111/v1/ready
+```
+
+Before submitting a request, retrieve the deployed RTVI-VLM model ID for the
+request's `model` field. Replace the port placeholder with the `RTVI_VLM_PORT`
+value configured in `.env` (8420 in this example):
+
+```bash
+curl -fsS "http://localhost:<rtvi-vlm-host-port>/v1/models" | python3 -m json.tool
 ```
 
 **Test the API**
@@ -313,7 +334,7 @@ curl --location 'http://localhost:38111/v1/summarize' \
   --header 'Content-Type: application/json' \
   --data '{
     "url": "http://<video-server-ip>:<port>/your-video.mp4",
-    "model": "gpt-4o",
+    "model": "<id-returned-by-rtvi-vlm-v1-models>",
     "scenario": "law enforcement",
     "chunk_duration": 15,
     "events": ["pulling over", "arrest", "chasing"]
@@ -358,7 +379,12 @@ KAFKA_ADVERTISED_HOST=localhost
 LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=true
 ```
 
-In addition, set the following in `configmaps/config.yaml` to enable the file path under Kafka mode and to give the Logstash consumer service time to flush the last chunk before the Video Summarization microservice reads events back:
+The checked-in `services/video-summarization/config/config.yaml` already reads
+`KAFKA_ENABLED` from the environment and sets
+`kafka_consumer_settle_secs: 5.0`. Compose mounts that file at
+`/opt/nvidia/via/config/default_config.yaml` in the container, so the `.env`
+settings above are sufficient for the standard Kafka profile. Edit the YAML
+only when you need advanced tuning; for example, the relevant defaults are:
 
 ```yaml
 tools:
@@ -374,12 +400,12 @@ functions:
     type:
       vlm_structured_summarization
     params:
-      kafka_enabled: true
+      kafka_enabled: !ENV ${KAFKA_ENABLED:false}
   summarization_online:
     type:
       vlm_structured_summarization_online
     params:
-      kafka_enabled: true
+      kafka_enabled: !ENV ${KAFKA_ENABLED:false}
 ```
 
 **Bring Up the Stack**
@@ -413,7 +439,7 @@ curl -fsS -X POST http://localhost:38111/v1/generate_captions \
   -H 'Content-Type: application/json' \
   -d "{
     \"id\": \"$ASSET_ID\",
-    \"model\": \"gpt-4o\",
+    \"model\": \"<id-returned-by-rtvi-vlm-v1-models>\",
     \"scenario\": \"warehouse safety monitoring\",
     \"events\": [\"box dropping\", \"unsafe forklift operations\", \"normal activity\"],
     \"chunk_duration\": 10
@@ -427,7 +453,7 @@ curl -fsS -X POST http://localhost:38111/v1/stream_summarize \
   -H 'Content-Type: application/json' \
   -d "{
     \"id\": \"$ASSET_ID\",
-    \"model\": \"gpt-4o\",
+    \"model\": \"<id-returned-by-rtvi-vlm-v1-models>\",
     \"start_time\": 0,
     \"end_time\": 0
   }"
@@ -438,8 +464,17 @@ curl -fsS -X POST http://localhost:38111/v1/stream_summarize \
 **Tear Down the Stack**
 
 ```bash
-docker compose -f docker/deploy/compose.yaml --profile rtvi --profile kafka down -v --remove-orphans
+docker compose -f docker/deploy/compose.yaml --profile rtvi --profile kafka down --remove-orphans
 ```
+
+This preserves existing named cache and plugin volumes. The standalone Compose
+stack does not configure persistent data volumes for Elasticsearch or Kafka;
+removing their containers can lose their data even without `-v`. Configure
+persistent storage and back up any required data before teardown.
+
+Add `-v` only as an optional destructive cleanup step: it also removes the
+Compose-managed named volumes and attached anonymous volumes. Anonymous volumes
+are not automatically reattached when the stack is brought up again.
 
 ### Standalone Container (Advanced)
 
@@ -477,7 +512,9 @@ NVIDIA_API_KEY=<your-nvidia-api-key>
 
 # Port Configuration
 BACKEND_PORT=38111
+BACKEND_HOST_PORT=38111
 LVS_MCP_PORT=38112
+LVS_MCP_HOST_PORT=38112
 
 # CA RAG Configuration
 # This will be set via mount path - do not override here
@@ -510,7 +547,8 @@ VSS_LOG_LEVEL=DEBUG
 
 # LLM Configuration
 # Update these to point to your external LLM NIM services
-LVS_LLM_MODEL_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
+# Query LVS_LLM_BASE_URL/models and use the exact returned id.
+LVS_LLM_MODEL_NAME=<id-returned-by-llm-nim-v1-models>
 LVS_LLM_BASE_URL=http://<llm-nim-host-ip>:8002/v1
 
 # Database Selection
@@ -554,14 +592,22 @@ MODEL_ROOT_DIR=$(grep "^MODEL_ROOT_DIR=" "$ENV_FILE" | cut -d'=' -f2)
 
 # Load port values from env file
 BACKEND_PORT=$(grep "^BACKEND_PORT=" "$ENV_FILE" | cut -d'=' -f2)
+BACKEND_HOST_PORT=$(grep "^BACKEND_HOST_PORT=" "$ENV_FILE" | cut -d'=' -f2)
 LVS_MCP_PORT=$(grep "^LVS_MCP_PORT=" "$ENV_FILE" | cut -d'=' -f2)
+LVS_MCP_HOST_PORT=$(grep "^LVS_MCP_HOST_PORT=" "$ENV_FILE" | cut -d'=' -f2)
 
 # Set defaults if not found
 BACKEND_PORT=${BACKEND_PORT:-38111}
 LVS_MCP_PORT=${LVS_MCP_PORT:-38112}
 
-# Build port mapping arguments
-PORT_ARGS="-p ${BACKEND_PORT}:${BACKEND_PORT} -p ${LVS_MCP_PORT}:${LVS_MCP_PORT}"
+# Build port mapping arguments. Override the host-side ports independently
+# when the defaults are already in use.
+BACKEND_HOST_PORT=${BACKEND_HOST_PORT:-$BACKEND_PORT}
+LVS_MCP_HOST_PORT=${LVS_MCP_HOST_PORT:-$LVS_MCP_PORT}
+PORT_ARGS=(
+    -p "${BACKEND_HOST_PORT}:${BACKEND_PORT}"
+    -p "${LVS_MCP_HOST_PORT}:${LVS_MCP_PORT}"
+)
 
 # Build volume mount for MODEL_ROOT_DIR if set
 MODEL_VOLUME_ARG=""
@@ -579,14 +625,15 @@ else
     echo "MODEL_ROOT_DIR not set in $ENV_FILE, skipping model cache mount"
 fi
 
-# Docker run command
-# Using host network so the container can resolve service names
-# (elasticsearch, rtvi-vlm, LLM NIM) running on the same host.
-# To use bridge network with explicit port mapping instead, remove
-# --network host and add $PORT_ARGS.
+# Docker run command. Use addresses reachable from this container for
+# Elasticsearch, RTVI-VLM, and the LLM NIM. Compose-only service names such as
+# `elasticsearch` and `rtvi-vlm` do not resolve from this standalone container;
+# use a routable host/IP, `host.docker.internal` for host-published services, or
+# attach the container to the dependencies' Docker network explicitly.
 docker run -d \
     --name "$CONTAINER_NAME" \
-    --network host \
+    --add-host host.docker.internal:host-gateway \
+    "${PORT_ARGS[@]}" \
     --env-file "$ENV_FILE" \
     $MODEL_VOLUME_ARG \
     --restart unless-stopped \
@@ -642,7 +689,7 @@ curl --location 'http://localhost:38111/v1/summarize' \
   --data '{
   "id": null,
   "url": "http://<video-server-ip>:<port>/your-video.mp4",
-  "model": "gpt-4o",
+  "model": "<id-returned-by-rtvi-vlm-v1-models>",
   "scenario": "law enforcement",
   "events": ["pulling over", "arrest", "chasing"]
 }' | python3 -m json.tool
@@ -680,7 +727,12 @@ docker stop video-summarization-server && docker rm video-summarization-server
 
 **Network Configuration**
 
-By default, the script uses Docker's host network so the container can resolve service names and reach external services (RTVI-VLM, Elasticsearch, LLM NIM) running on the same host. If you need port isolation, edit the script to use bridge network mode (see comments in the script) and reference services by `host.docker.internal` or the host's IP address in your `.env` file.
+The script runs the container on Docker's default bridge network and publishes
+the REST API and MCP ports. Compose service names such as `elasticsearch` and
+`rtvi-vlm` do not resolve from this container, so set `ES_HOST`, `RTVI_VLM_URL`,
+and `LVS_LLM_BASE_URL` in `.env` to addresses it can reach: a routable host or
+IP, or `host.docker.internal` for services published on this host. To use
+service names instead, attach the container to the dependencies' Docker network.
 
 **Troubleshooting**
 
@@ -694,7 +746,8 @@ Video Summarization uses YAML configuration files to customize behavior. The mai
 
 ### Configuration Structure
 
-The configuration file (`config_update.yml`) defines:
+The configuration file (`services/video-summarization/config/config.yaml`,
+mounted at `/opt/nvidia/via/config/default_config.yaml`) defines:
 
 **1. Tools** - External service connections:
 
@@ -954,7 +1007,11 @@ conflict with an existing Kafka deployment.
 
 **ctx-rag function configuration:**
 
-In addition to the environment variables above, set the following in `configmaps/config.yaml` to fully enable Kafka mode end to end:
+The standard Compose workflow mounts
+`services/video-summarization/config/config.yaml` at
+`/opt/nvidia/via/config/default_config.yaml`. That configuration already reads
+`KAFKA_ENABLED` for both summarization functions, so prefer the `.env` setting
+above. The following YAML is shown only for advanced tuning:
 
 ```yaml
 tools:
@@ -970,13 +1027,24 @@ tools:
 functions:
   summarization:
     params:
-      kafka_enabled: true                # file path uses Kafka end-to-end
+      kafka_enabled: !ENV ${KAFKA_ENABLED:false}
   summarization_online:
     params:
-      kafka_enabled: true                # required for live-stream path
+      kafka_enabled: !ENV ${KAFKA_ENABLED:false}
 ```
 
 ### How Summaries Are Sent to Kafka
+
+Summarization responses do not report Kafka delivery or Elasticsearch indexing
+status. HTTP 200 indicates successful summary generation, not confirmation
+that Kafka accepted the messages or that Logstash indexed them. Kafka producer
+initialization failures can disable publishing, and send or delivery failures
+can be logged without failing the summarization request. A successful SSE
+response likewise does not confirm downstream delivery.
+
+Inspect the Video Summarization MS producer logs, verify the expected messages
+in Kafka, and check Logstash errors and indexed Elasticsearch documents before
+treating the archive workflow as complete.
 
 Under the streaming and message bus profile, the publishing flow depends on the API path:
 
@@ -1224,7 +1292,13 @@ grep "MCP" /var/log/via/via-server.log
 * **422 Unprocessable Entity**: Failed to process request (validation error). `POST /v1/summarize` returns this status when called with `source_type=stream` — use `POST /v1/generate_captions` and `POST /v1/stream_summarize` for live-stream workflows instead. It also returns 422 when the media offsets are reversed (`start` later than `end`) or when `min_tokens` is greater than `max_tokens`.
 * **429 Rate Limit Exceeded**: Too many requests
 * **500 Internal Server Error**: Server-side error
-* **503 Service Unavailable**: Server is busy processing another file
+* **503 Service Unavailable**: Server is busy or a dependency failure is detected, such as RTVI-VLM being unavailable. Not all dependency failures produce this status; Kafka delivery failures can be logged while the request succeeds.
+
+`/v1/ready` checks RTVI-VLM health and returns 503 if the stream handler is
+not initialized or RTVI-VLM is unavailable. It does not check the summarization
+LLM or run inference. The standalone Compose health check uses `/v1/live`,
+which returns 200 without checking dependencies. Run a summarization request
+to verify end-to-end inference; a healthy container alone does not verify it.
 
 ## Appendix
 
@@ -1234,8 +1308,11 @@ Complete list of available environment variables:
 
 **API Configuration**
 
-* `BACKEND_PORT`: REST API port (default: 38111)
-* `LVS_MCP_PORT`: MCP server port (default: 38112)
+* `LVS_BACKEND_PORT`: Host REST API port for the standalone Compose stack (default: 38111); maps to fixed container port 38111.
+* `BACKEND_PORT`: REST API container port for the standalone `docker run` script (default: 38111). The standalone Compose stack fixes this value at 38111.
+* `BACKEND_HOST_PORT`: Host REST API port for the standalone `docker run` script (defaults to `BACKEND_PORT`). Not read by the standalone Compose stack.
+* `LVS_MCP_PORT`: MCP container port for the standalone `docker run` script (default: 38112). The standalone Compose stack fixes this value at 38112.
+* `LVS_MCP_HOST_PORT`: Host MCP port for the standalone `docker run` script (defaults to `LVS_MCP_PORT`). Not read by the standalone Compose stack, which publishes MCP on fixed host port 38112.
 * `VSS_API_ENABLE_VERSIONING`: Enable /v1 prefix
 
 **Client CLI**
