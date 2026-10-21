@@ -1,5 +1,5 @@
 ## Description: <br>
-Adds agent-ready vision capabilities (dense captioning, detection, search, alerting, summarization) to an agent or application by routing, composing, configuring, and deploying a customizable, self-contained vision stack built on the NVIDIA VSS Blueprint, either as a stock base, alerts, LVS, or search developer profile, the warehouse industry profile, or a lean custom combination expressed as a delta overlay. <br>
+Add agent-ready vision capabilities — dense captioning, detection, search, alerting, summarization — to an agent or application through a customizable, self-contained vision stack built on the NVIDIA VSS Blueprint. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and agents who want to give their application vision use this skill to pick capabilities through guided intake or natural language, then compose and deploy the matching VSS Docker Compose stack. It also covers lifecycle changes such as installing an agent harness, resizing, or tearing the build down. <br>
+Developers and engineers use this skill to compose, configure, and deploy a self-contained vision application stack — a stock developer profile (base, alerts, lvs, search), the warehouse industry profile, or a lean custom delta combination — on top of the NVIDIA VSS Blueprint via Docker Compose. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,30 +25,23 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [composition.md](references/composition.md) <br>
-- [deployment.md](references/deployment.md) <br>
-- [agent-harness.md](references/agent-harness.md) <br>
-- [deployment_resolution.md](references/deployment_resolution.md) <br>
-- [teardown.md](references/teardown.md) <br>
-- [prerequisites.md](references/prerequisites.md) <br>
-- [credentials.md](references/credentials.md) <br>
-- [ngc.md](references/ngc.md) <br>
-- [sizing.md](references/sizing.md) <br>
-- [edge.md](references/edge.md) <br>
-- [readiness.md](references/readiness.md) <br>
-- [troubleshooting.md](references/troubleshooting.md) <br>
-- [profiles/](references/profiles/) <br>
-- [services/](references/services/) <br>
-- [NVIDIA VSS documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [VSS Blueprint on GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [VSS Blueprint on build.nvidia.com](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
+- [composition.md — delta-profile rules, Foundation selection, resolution, validation](references/composition.md) <br>
+- [deployment.md — resolved Compose deployment lifecycle](references/deployment.md) <br>
+- [agent-harness.md — in-stack agent and NemoClaw/OpenClaw/Hermes harnesses](references/agent-harness.md) <br>
+- [prerequisites.md — host, GPU runtime, firewall, credential, and NGC checks](references/prerequisites.md) <br>
+- [sizing.md — developer-profile sizing, model placement, stream capacity](references/sizing.md) <br>
+- [profiles/ — current developer profile capabilities and service sets](references/profiles/) <br>
+- [services/ — capability-owner contracts for service keys and knobs](references/services/) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Video Search and Summarization Blueprint](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
+- [video-search-and-summarization (GitHub)](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, Configuration instructions, Files] <br>
-**Output Format:** [Markdown with inline bash code blocks, plus generated build artifacts (Compose overlays, env files, resolved.yml)] <br>
+**Output Type(s):** [Configuration instructions, Shell commands, Files] <br>
+**Output Format:** [Markdown with inline bash code blocks plus generated Compose and env build artifacts] <br>
 **Output Parameters:** [1D] <br>
-**Other Properties Related to Output:** [Build artifacts are written under _builds/<name>/; credential values are never printed] <br>
+**Other Properties Related to Output:** [Writes build artifacts under _builds/<name>/ (override.env, compose.yml, resolved.yml) and presents an architecture diagram before deployment.] <br>
 
 ## Evaluation Agents Used: <br>
 - Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`) <br>
@@ -57,23 +50,23 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-11 evaluation tasks (10 positive, 1 negative), one attempt per task, each run in an isolated k8s-sandbox pod and compared against a no-skill baseline. <br>
+11 evaluation tasks (10 positive, 1 negative), each attempt run in its own isolated sandbox pod in a k8s-sandbox environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
-- Security: Is it safe to use? Scored from the security signal. <br>
-- Correctness: Is the answer correct? Scored from final-answer accuracy. <br>
-- Discoverability: Was the right skill loaded when needed? Scored from skill execution. <br>
-- Effectiveness: Did the skill help complete the task? Equal-weight mean of goal accuracy and behavior check. <br>
-- Efficiency: Did it avoid wasted tool calls and token usage? Equal-weight mean of tool productivity and token efficiency. <br>
+- Security: Whether the skill is safe to use, checking for unsafe operations, secret leakage, and unauthorized access. <br>
+- Correctness: Whether the final answer is correct against the reference answer. <br>
+- Discoverability: Whether the right skill was loaded and activated when needed, avoiding decoys. <br>
+- Effectiveness: Whether the skill helped complete the user's goal and the expected workflow was followed. <br>
+- Efficiency: Whether the skill avoided wasted tool calls and token usage. <br>
 
 Underlying evaluation signals used in this run: <br>
 - `security`: Unsafe operations, secret leakage, and unauthorized access. <br>
 - `skill_execution`: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
-- `skill_efficiency`: Tool-call productivity. <br>
 - `accuracy`: Final-answer correctness against the reference answer. <br>
 - `goal_accuracy`: Whether the user's goal was achieved. <br>
 - `behavior_check`: Whether the expected workflow behavior was followed. <br>
+- `skill_efficiency`: Tool-call productivity (legacy wire id; routing is scored under Discoverability). <br>
 - `token_efficiency`: Actual uncached prompt plus completion usage. <br>
 
 
@@ -81,12 +74,12 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 73.7% — baseline ran, but no comparable score was available; uplift unavailable | 59.4% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 72.7% → 90.9% (+18.2 points) | 40.9% → 50.0% (+9.1 points) |
-| Correctness | 14.6% → 70.9% (+56.3 points) | 38.2% → 70.9% (+32.7 points) |
-| Discoverability | 99.8% — baseline ran, but no comparable score was available; uplift unavailable | 80.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 6.7% → 27.5% (+20.8 points) | 14.7% → 21.0% (+6.3 points) |
-| Efficiency | 79.5% — baseline ran, but no comparable score was available; uplift unavailable | 74.6% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 65.2% (uplift unavailable) | 67.2% (uplift unavailable) |
+| Security | 77.3% → 54.6% (-22.7 points) | 40.9% → 68.2% (+27.3 points) |
+| Correctness | 27.3% → 67.3% (+40.0 points) | 52.7% → 78.2% (+25.5 points) |
+| Discoverability | 98.0% (uplift unavailable) | 76.5% (uplift unavailable) |
+| Effectiveness | 10.8% → 23.7% (+12.9 points) | 17.6% → 33.3% (+15.7 points) |
+| Efficiency | 82.5% (uplift unavailable) | 79.7% (uplift unavailable) |
 
 ## Skill Version(s): <br>
 3.3.0 (source: frontmatter) <br>

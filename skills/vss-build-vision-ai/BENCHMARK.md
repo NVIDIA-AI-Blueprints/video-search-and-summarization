@@ -9,7 +9,7 @@ Recommended for publication based on the completed evaluation evidence in this r
 ## Evaluation Metadata
 
 - Skill: `vss-build-vision-ai`
-- Evaluation date: 2026-10-20
+- Evaluation date: 2026-10-21
 - Evaluator version: `1.5.6`
 - Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
 - Tasks: 11 evaluation tasks (10 positive, 1 negative)
@@ -35,12 +35,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 73.7% — baseline ran, but no comparable score was available; uplift unavailable | 59.4% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 72.7% → 90.9% (+18.2 points) | 40.9% → 50.0% (+9.1 points) |
-| Correctness | 14.6% → 70.9% (+56.3 points) | 38.2% → 70.9% (+32.7 points) |
-| Discoverability | 99.8% — baseline ran, but no comparable score was available; uplift unavailable | 80.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 6.7% → 27.5% (+20.8 points) | 14.7% → 21.0% (+6.3 points) |
-| Efficiency | 79.5% — baseline ran, but no comparable score was available; uplift unavailable | 74.6% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 65.2% — baseline ran, but no comparable score was available; uplift unavailable | 67.2% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 77.3% → 54.6% (-22.7 points) | 40.9% → 68.2% (+27.3 points) |
+| Correctness | 27.3% → 67.3% (+40.0 points) | 52.7% → 78.2% (+25.5 points) |
+| Discoverability | 98.0% — baseline ran, but no comparable score was available; uplift unavailable | 76.5% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 10.8% → 23.7% (+12.9 points) | 17.6% → 33.3% (+15.7 points) |
+| Efficiency | 82.5% — baseline ran, but no comparable score was available; uplift unavailable | 79.7% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -54,31 +54,31 @@ Actual Tier 3 execution usage is reported for every observed agent/case pair and
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 7,570,476 | 7,318,634 | +251,842 | +3.44% | skill 11/11; base 11/11 |
-| claude-code | build-alerts-gb300 | 286,418 | 211,605 | +74,813 | +35.36% | skill 1/1; base 1/1 |
-| claude-code | build-base-default-tag | 656,983 | 246,129 | +410,854 | +166.93% | skill 1/1; base 1/1 |
-| claude-code | build-base-gb300 | 658,733 | 656,783 | +1,950 | +0.30% | skill 1/1; base 1/1 |
-| claude-code | build-base-gb300-release-tag | 411,896 | 563,116 | -151,220 | -26.85% | skill 1/1; base 1/1 |
-| claude-code | build-base-harness-default-ref | 1,281,707 | 151,738 | +1,129,969 | +744.68% | skill 1/1; base 1/1 |
-| claude-code | build-base-harness-ref | 846,147 | 183,929 | +662,218 | +360.04% | skill 1/1; base 1/1 |
-| claude-code | build-base-release-tag | 990,463 | 350,357 | +640,106 | +182.70% | skill 1/1; base 1/1 |
-| claude-code | build-lvs-gb300 | 619,676 | 2,387,667 | -1,767,991 | -74.05% | skill 1/1; base 1/1 |
-| claude-code | build-search-gb300 | 710,129 | 212,853 | +497,276 | +233.62% | skill 1/1; base 1/1 |
-| claude-code | build-search-profile | 835,005 | 2,168,199 | -1,333,194 | -61.49% | skill 1/1; base 1/1 |
-| claude-code | search-running-archive | 273,319 | 186,258 | +87,061 | +46.74% | skill 1/1; base 1/1 |
-| codex | All cases | 6,625,217 | 7,102,896 | -477,679 | -6.73% | skill 11/11; base 11/11 |
-| codex | build-alerts-gb300 | 318,531 | 729,103 | -410,572 | -56.31% | skill 1/1; base 1/1 |
-| codex | build-base-default-tag | 757,339 | 911,801 | -154,462 | -16.94% | skill 1/1; base 1/1 |
-| codex | build-base-gb300 | 1,279,077 | 526,054 | +753,023 | +143.15% | skill 1/1; base 1/1 |
-| codex | build-base-gb300-release-tag | 1,211,034 | 1,439,698 | -228,664 | -15.88% | skill 1/1; base 1/1 |
-| codex | build-base-harness-default-ref | 1,066,438 | 245,016 | +821,422 | +335.25% | skill 1/1; base 1/1 |
-| codex | build-base-harness-ref | 725,129 | 83,110 | +642,019 | +772.49% | skill 1/1; base 1/1 |
-| codex | build-base-release-tag | 95,842 | 1,173,021 | -1,077,179 | -91.83% | skill 1/1; base 1/1 |
-| codex | build-lvs-gb300 | 305,764 | 472,063 | -166,299 | -35.23% | skill 1/1; base 1/1 |
-| codex | build-search-gb300 | 264,325 | 114,901 | +149,424 | +130.05% | skill 1/1; base 1/1 |
-| codex | build-search-profile | 247,534 | 1,316,910 | -1,069,376 | -81.20% | skill 1/1; base 1/1 |
-| codex | search-running-archive | 354,204 | 91,219 | +262,985 | +288.30% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 14,195,693 | 14,421,530 | -225,837 | -1.57% | skill 22/22; base 22/22 |
+| claude-code | All cases | 10,019,554 | 9,463,564 | +555,990 | +5.88% | skill 11/11; base 11/11 |
+| claude-code | build-alerts-gb300 | 219,731 | 216,506 | +3,225 | +1.49% | skill 1/1; base 1/1 |
+| claude-code | build-base-default-tag | 658,323 | 182,143 | +476,180 | +261.43% | skill 1/1; base 1/1 |
+| claude-code | build-base-gb300 | 817,475 | 1,049,947 | -232,472 | -22.14% | skill 1/1; base 1/1 |
+| claude-code | build-base-gb300-release-tag | 590,649 | 2,398,736 | -1,808,087 | -75.38% | skill 1/1; base 1/1 |
+| claude-code | build-base-harness-default-ref | 745,123 | 149,395 | +595,728 | +398.76% | skill 1/1; base 1/1 |
+| claude-code | build-base-harness-ref | 807,429 | 370,231 | +437,198 | +118.09% | skill 1/1; base 1/1 |
+| claude-code | build-base-release-tag | 758,178 | 279,142 | +479,036 | +171.61% | skill 1/1; base 1/1 |
+| claude-code | build-lvs-gb300 | 1,948,696 | 1,692,276 | +256,420 | +15.15% | skill 1/1; base 1/1 |
+| claude-code | build-search-gb300 | 2,256,097 | 183,966 | +2,072,131 | +1126.37% | skill 1/1; base 1/1 |
+| claude-code | build-search-profile | 493,256 | 2,755,797 | -2,262,541 | -82.10% | skill 1/1; base 1/1 |
+| claude-code | search-running-archive | 724,597 | 185,425 | +539,172 | +290.78% | skill 1/1; base 1/1 |
+| codex | All cases | 5,837,280 | 8,239,065 | -2,401,785 | -29.15% | skill 11/11; base 11/11 |
+| codex | build-alerts-gb300 | 230,189 | 634,075 | -403,886 | -63.70% | skill 1/1; base 1/1 |
+| codex | build-base-default-tag | 228,970 | 616,108 | -387,138 | -62.84% | skill 1/1; base 1/1 |
+| codex | build-base-gb300 | 347,362 | 120,936 | +226,426 | +187.23% | skill 1/1; base 1/1 |
+| codex | build-base-gb300-release-tag | 592,785 | 2,042,654 | -1,449,869 | -70.98% | skill 1/1; base 1/1 |
+| codex | build-base-harness-default-ref | 490,228 | 405,865 | +84,363 | +20.79% | skill 1/1; base 1/1 |
+| codex | build-base-harness-ref | 436,005 | 159,815 | +276,190 | +172.82% | skill 1/1; base 1/1 |
+| codex | build-base-release-tag | 190,881 | 904,706 | -713,825 | -78.90% | skill 1/1; base 1/1 |
+| codex | build-lvs-gb300 | 609,308 | 1,459,372 | -850,064 | -58.25% | skill 1/1; base 1/1 |
+| codex | build-search-gb300 | 397,459 | 146,589 | +250,870 | +171.14% | skill 1/1; base 1/1 |
+| codex | build-search-profile | 1,522,438 | 1,679,552 | -157,114 | -9.35% | skill 1/1; base 1/1 |
+| codex | search-running-archive | 791,655 | 69,393 | +722,262 | +1040.83% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 15,856,834 | 17,702,629 | -1,845,795 | -10.43% | skill 22/22; base 22/22 |
 
 Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
 
