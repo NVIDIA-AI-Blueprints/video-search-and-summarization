@@ -2181,7 +2181,7 @@ def test_list_search_indices_parses_cat_rows(monkeypatch: Any, payload: Any, exp
     assert calls[0][1]["params"] == {"format": "json", "h": "index,docs.count"}
 
 
-@pytest.mark.parametrize("origin", ["", "host:7777", "ftp://host:7777", "file:///etc/passwd", "https://"])
+@pytest.mark.parametrize("origin", ["", "host:7777", "sftp://host:7777", "file:///etc/passwd", "https://"])
 def test_list_search_indices_rejects_non_http_origins(monkeypatch: Any, origin: str) -> None:
     import requests
 
