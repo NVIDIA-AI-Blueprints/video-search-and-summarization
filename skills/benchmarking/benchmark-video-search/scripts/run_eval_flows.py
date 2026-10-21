@@ -220,7 +220,7 @@ def build_query_backend(args: argparse.Namespace) -> Any:
         # no adjacent merging. Exact scanning fails on budget overflow;
         # clip-level scorers separately report annotation-gallery coverage.
         full_gallery = getattr(args, "full_gallery", False)
-        top_k = (args.candidate_limit or 100000) if full_gallery else args.top_k
+        top_k = (args.candidate_limit or 100000) if full_gallery else (args.retrieval_pool_size or args.top_k)
         min_cosine_similarity = -1.0 if full_gallery else args.min_cosine_similarity
         merge_adjacent = False if full_gallery else args.merge_adjacent
         if full_gallery:
@@ -248,6 +248,7 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             critic_input_width=args.critic_input_width,
             critic_input_height=args.critic_input_height,
             critic_diagnostic_dir=args.critic_diagnostic_dir,
+            retrieval_pool_size=args.retrieval_pool_size,
             attribute_input=args.attribute_input
             if args.search_path == "attribute" and args.attribute_input_explicit
             else None,
@@ -417,6 +418,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--candidate-limit",
         type=int,
         help="Bound indexed vector documents scanned for exact embed/attribute search (1..100000); overflow fails, never truncates silently.",
+    )
+    flow.add_argument(
+        "--retrieval-pool-size",
+        type=int,
+        help="Cap returned candidates before critic filtering, independently of --candidate-limit and metric --top-k.",
+    )
+    flow.add_argument(
+        "--ingestion-validation-contract",
+        help="JSON embedding contract for complete indexed-content checks after gallery ingestion; requires ffprobe.",
     )
     flow.add_argument(
         "--attribute-min-similarity",
@@ -822,7 +832,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         )
     if (
         args.gallery_gt
-        and args.stage in ("run", "retrieve")
+        and args.stage in ("run", "ingest", "retrieve")
         and not (
             args.fixed_search_path
             or args.full_gallery
@@ -841,6 +851,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error(
             "--scenarios conflicts with legacy fixed-path/full-gallery/decomposition-off options"
         )
+    if args.candidate_limit is not None and not 1 <= args.candidate_limit <= 100000:
+        p.error("--candidate-limit must be between 1 and 100000")
+    if args.retrieval_pool_size is not None:
+        if not 1 <= args.retrieval_pool_size <= 100000:
+            p.error("--retrieval-pool-size must be between 1 and 100000")
+        if args.full_gallery or args.stage not in ("run", "retrieve"):
+            p.error("--retrieval-pool-size requires run/retrieve and conflicts with --full-gallery")
+    if args.ingestion_validation_contract and (
+        not args.gallery_gt or args.stage not in ("run", "ingest") or args.skip_ingest or args.skip_index_probe
+    ):
+        p.error("--ingestion-validation-contract requires gallery ingestion with index probes enabled")
     if "--llm-chat-template-kwargs" in explicit:
         from flows.decompose import validate_chat_template_kwargs
 
@@ -850,8 +871,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             args.llm_chat_template_kwargs = validate_chat_template_kwargs(args.llm_chat_template_kwargs)
         except ValueError as exc:
             p.error(f"invalid --llm-chat-template-kwargs: {exc}")
-    if args.candidate_limit is not None and not 1 <= args.candidate_limit <= 100000:
-        p.error("--candidate-limit must be between 1 and 100000")
     if args.resume_from and args.scenarios and len(args.scenarios) != 1:
         p.error(
             "--resume-from requires selecting the saved scenario with --scenarios <scenario>"

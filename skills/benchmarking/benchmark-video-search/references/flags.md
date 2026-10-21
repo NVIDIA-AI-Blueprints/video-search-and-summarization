@@ -254,3 +254,31 @@ service-returned upload URLs and verify they are reachable from the agent.
 `--clear` validates deletion response bodies and the resulting VST inventory.
 It is video cleanup, not an index/Kafka/analytics reset. Partial deletion, an
 unreadable inventory or remaining registrations abort ingestion.
+
+### Explicit inference controls and returned pools
+
+`--llm-chat-template-kwargs '{"enable_thinking":false}'` passes a strict JSON
+object to fresh decomposition calls and records it in request evidence and
+provenance. Omission preserves the deployed model's defaults; explicit `{}` is
+recorded. Non-object and nonfinite settings are rejected. Replay makes no fresh
+inference call and does not apply new chat-template settings to saved decisions.
+
+`--retrieval-pool-size N` caps the returned candidate pool before critic filtering.
+It applies to run/retrieve and conflicts with `--full-gallery`. It is separate
+from the indexed-document `--candidate-limit`, metric cutoffs and the critic's
+verification count. Explicitly smaller top-K requests inside a decomposition
+remain smaller. Gallery fixed baselines still score the bounded exact indexed
+universe, but return only the requested pool; a limited returned ranking is not
+a full-gallery mAP measurement. Existing offline scoring reports annotation
+coverage separately. Live-routed search keeps the selected path's ordinary
+ranking/fusion semantics and budgets.
+
+`--ingestion-validation-contract contract.json` adds complete bounded model/vector
+and decoded-frame checks after gallery ingestion. It requires local `ffprobe`,
+index probes and an explicit embedding contract. See
+[indexed-content validation](ingestion-content.md) for schema, failure evidence
+and standalone-ingest receipts. No per-clip detection requirement is introduced.
+
+The [archive port assessment](archive-port-assessment.md) records which Round8e
+changes were incorporated and why checkpoint compatibility and clip diversity
+remain separate follow-up work.

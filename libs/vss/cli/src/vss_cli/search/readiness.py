@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import click
@@ -28,9 +29,20 @@ def readiness_command() -> click.Command:
 
         def run() -> Result:
             runtime = _runtime_from(ctx.deployment)
+            content_contract = None
+            if values["content_contract"] is not None:
+                from vss_core.search_core.errors import InvalidInputError
+
+                try:
+                    with open(values["content_contract"], encoding="utf-8") as file:
+                        content_contract = json.load(file)
+                    if not isinstance(content_contract, dict):
+                        raise InvalidInputError("Content contract JSON must be an object")
+                except (OSError, ValueError) as error:
+                    raise InvalidInputError("Could not read content contract JSON") from error
             body = asyncio.run(
                 gallery_readiness(
-                    runtime, list(values["video_source"]), require_attributes=values["require_attributes"]
+                    runtime, list(values["video_source"]), require_attributes=values["require_attributes"], content_contract=content_contract
                 )
             )
             return Result(body=body, exit=Exit.SUCCESS if body["ready"] else Exit.PARTIAL)
@@ -44,6 +56,7 @@ def readiness_command() -> click.Command:
         params=[
             click.Option(["--video-source"], multiple=True, required=True),
             click.Option(["--require-attributes/--no-require-attributes"], default=True),
+            click.Option(["--content-contract"], type=click.Path(exists=True, dir_okay=False), help="Opt-in JSON embedding and decoded-frame content contract."),
             *params_mod.shared_options(),
         ],
     )

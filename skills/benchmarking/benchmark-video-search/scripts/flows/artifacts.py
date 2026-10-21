@@ -111,6 +111,8 @@ class RunConfig:
     pas_frame_supported: bool | None = None
     scenarios: list[str] | None = None
     candidate_limit: int = 100000
+    retrieval_pool_size: int | None = None
+    ingestion_validation_contract: str | None = None
     attribute_input: str = "original"
     query_domain: str | None = None
     decomposition_out: str | None = None
@@ -136,6 +138,8 @@ class RunConfig:
             concurrency=args.concurrency,
             vst_url=vst_url,
             stage=stage,
+            retrieval_pool_size=getattr(args, "retrieval_pool_size", None),
+            ingestion_validation_contract=getattr(args, "ingestion_validation_contract", None),
             resume_from=getattr(args, "resume_from", None),
             tolerate_unanswered_override=getattr(
                 args, "tolerate_unanswered_override", None

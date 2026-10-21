@@ -133,3 +133,90 @@ async def test_embed_only_does_not_require_attribute_permissions(clients):
     assert result["ready"]
     assert result["behavior"]["checked"] is False
     behavior.search.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_vector", [False, True])
+async def test_optional_content_validation_is_a_separate_ready_gate(clients, bad_vector):
+    es, behavior = clients
+    es.search.return_value = response([2])
+    behavior.search.return_value = response([1])
+    contract = {"schema_version": 1, "embedding": {"model": "expected", "dimensions": 2, "unit_normalized": True},
+                "frame_counts": {"clip": 10}, "document_limit": 2000}
+    async def embeddings(**kwargs):
+        for identity in ("chunk-a", "chunk-b"):
+            kwargs["visitor"]({"_index": "embed", "_id": identity, "_source": {"sensor": {"id": "uuid"},
+                "llm": {"info": {"requestedModel": "expected"}, "visionEmbeddings": [{"vector": [2.0 if bad_vector else 1.0, 0.0]}]}}})
+        return {"documents_checked": 2, "exhaustive": True, "document_limit": 2000}
+    async def frames(**kwargs):
+        kwargs["visitor"]({"_index": "raw", "_id": "frame", "_source": {"sensorId": "clip", "id": "9"}})
+        return {"documents_checked": 1, "exhaustive": True, "document_limit": 2000}
+    es.visit_documents.side_effect = embeddings
+    behavior.visit_documents.side_effect = frames
+    result = await readiness.gallery_readiness(SearchRuntime(vst_internal_url="http://h", frames_index=RAW_INDEX_ANCHOR), ["clip"], content_contract=contract)
+    assert result["ready"] is not bad_vector
+    content = result["content_validation"]
+    assert content["embedding"]["documents_checked"] == 2
+    assert content["embedding"]["vectors_checked"] == 2
+    assert content["raw"]["exhaustive"]
+    assert es.visit_documents.call_args.kwargs["filters"] == [{"terms": {"sensor.id.keyword": ["clip", "uuid"]}}]
+
+
+@pytest.mark.asyncio
+async def test_invalid_content_contract_fails_before_backend_access(clients):
+    es, behavior = clients
+    with pytest.raises(InvalidInputError):
+        await readiness.gallery_readiness(SearchRuntime(), ["clip"], content_contract={})
+    es.search.assert_not_awaited()
+    behavior.search.assert_not_awaited()
+
+
+def test_registered_filename_aliases_are_exact_and_supported_only():
+    names = {"clip.mp4": "uuid", "clip-long.MKV": "uuid2", "other.avi": "uuid3"}
+    aliases = readiness._source_aliases(names, list(names))
+    assert aliases == {"clip.mp4": ["clip.mp4", "uuid", "clip"],
+                       "clip-long.MKV": ["clip-long.MKV", "uuid2", "clip-long"],
+                       "other.avi": ["other.avi", "uuid3"]}
+    assert readiness._source_aliases(names, ["clip"])["clip"] == []
+
+
+@pytest.mark.parametrize("foreign", ["clip", "clip.mkv", "uuid"])
+@pytest.mark.asyncio
+async def test_alias_collision_with_outside_cohort_registration_fails_before_search(clients, monkeypatch, foreign):
+    es, behavior = clients
+    monkeypatch.setattr(readiness, "get_name_to_stream_id_map", AsyncMock(return_value={"clip.mp4": "uuid", foreign: "other-uuid"}))
+    with pytest.raises(InvalidInputError, match="Ambiguous registered source alias"):
+        await readiness.gallery_readiness(SearchRuntime(vst_internal_url="http://h"), ["clip.mp4"])
+    es.search.assert_not_awaited()
+    behavior.search.assert_not_awaited()
+
+
+def test_unrelated_catalog_collision_does_not_expand_or_block_scope():
+    names = {"clip.mp4": "uuid", "clip": "uuid2", "other": "uuid3"}
+    assert readiness._source_aliases(names, ["other"]) == {"other": ["other", "uuid3"]}
+
+
+@pytest.mark.asyncio
+async def test_filename_registration_and_raw_stem_share_count_and_content_aliases(clients, monkeypatch):
+    es, behavior = clients
+    monkeypatch.setattr(readiness, "get_name_to_stream_id_map", AsyncMock(return_value={"clip.mp4": "uuid", "clip-long.mp4": "uuid2"}))
+    es.search.return_value = response([1])
+    behavior.search.return_value = response([1])
+    value = {"schema_version": 1, "embedding": {"model": "expected", "dimensions": 2, "unit_normalized": True},
+             "frame_counts": {"clip.mp4": 10}, "document_limit": 2000}
+    async def embeddings(**kwargs):
+        kwargs["visitor"]({"_index": "embed", "_id": "chunk", "_source": {"sensor": {"id": "uuid"}, "llm": {"info": {"requestedModel": "expected"}, "visionEmbeddings": [{"vector": [1.0, 0.0]}]}}})
+        return {"documents_checked": 1, "exhaustive": True}
+    async def frames(**kwargs):
+        kwargs["visitor"]({"_index": "raw", "_id": "frame", "_source": {"sensorId": "clip", "id": "9"}})
+        return {"documents_checked": 1, "exhaustive": True}
+    es.visit_documents.side_effect = embeddings
+    behavior.visit_documents.side_effect = frames
+    result = await readiness.gallery_readiness(SearchRuntime(vst_internal_url="http://h", frames_index=RAW_INDEX_ANCHOR), ["clip.mp4"], content_contract=value)
+    assert result["ready"]
+    assert result["raw"]["counts"] == {"clip.mp4": 1}
+    assert result["content_validation"]["raw"]["per_source"]["clip.mp4"]["documents"] == 1
+    raw_filter = {"terms": {"sensorId.keyword": ["clip.mp4", "uuid", "clip"]}}
+    assert behavior.search.call_args_list[-1].kwargs["body"]["aggs"]["sources"]["filters"]["filters"]["0"] == raw_filter
+    assert behavior.visit_documents.call_args.kwargs["filters"] == [raw_filter]
+    assert result["content_validation"]["contract"]["frame_counts"] == {"clip.mp4": 10}

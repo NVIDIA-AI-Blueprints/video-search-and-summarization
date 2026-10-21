@@ -162,3 +162,37 @@ The local CLI still reports no configured deployment. Building the GPU image,
 performing the isolated reset, validating the running image and a full ingestion,
 and measuring GPU memory/latency/quality remain deployment-side acceptance work.
 No live quality or performance improvement is claimed.
+
+## Selective archive ports (2026-10-21)
+
+The complete reproduction archive passed gzip/CRC and patch-checksum validation.
+All 33 refactor-patch files were reconstructed in memory and matched the package's
+file hashes. The [port assessment](archive-port-assessment.md) records the accepted
+correctness changes, experimental exclusions and checkpoint/diversity follow-ups.
+
+The deployment hardening was committed as `65c186f57`. Decomposition contract,
+prompt and recorded inference-setting fixes were committed as `c4e0a106e`.
+Subsequent changes add explicit returned-pool limits and optional indexed-content
+validation, including exact filename/stem/UUID identity checks with ambiguity
+rejection. Unique contract and validation receipts survive standalone ingestion
+and failed attempts; old successful gallery mappings/receipts remain intact.
+
+Final verification:
+
+- Core search and CLI: 1,284 tests passed.
+- Benchmark runner/scoring/evidence: 338 passed, 4 optional skips.
+- Deployment reset, image verification, real temporary HAProxy and preprocessing:
+  60 passed.
+- Agent Ruff lint and formatting: passed across 298 files.
+- Targeted agent mypy: three existing errors reproduced unchanged on the
+  committed baseline (two `no-any-return` findings and a NAT subclass `name`
+  typing error). Only prompt strings changed in that module; no new type error
+  was introduced.
+- Modified Python lint, documentation links and whitespace checks passed.
+- Independent quality/adversarial reviews passed after receipt persistence and
+  source-alias corrections.
+
+No live deployment or model weights were accessed. No controlled quality,
+GPU memory, throughput or v1.2 numerical-parity result is claimed. The archive's
+reported Round8e improvement belongs to its combined experimental policy; fusion
+redesign, phrase guards, legacy critic limits and fixed time scopes were excluded.

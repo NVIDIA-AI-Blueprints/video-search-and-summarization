@@ -41,6 +41,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import requests
 
@@ -582,6 +583,10 @@ def run_ingest(
     never be scored as a retrieval collapse.
     """
     manifest = IngestManifest(ingest_description=ingest_backend.describe())
+    if cfg.ingestion_validation_contract and (
+        not cfg.gallery_gt or cfg.stage not in ("run", "ingest") or cfg.skip_ingest or cfg.skip_index_probe
+    ):
+        raise SystemExit("ABORTED: indexed-content validation requires gallery ingestion with index probes enabled")
     if cfg.skip_ingest:
         print("Skipping ingest (--skip-ingest)")
         return manifest
@@ -625,6 +630,16 @@ def run_ingest(
                 "ABORTED: gallery clip IDs and source filenames must be unique"
             )
         video_dir = gallery_files[0].parent
+
+    prepared_content = None
+    content_provenance = None
+    if cfg.ingestion_validation_contract:
+        from flows.ingestion_validation import prepare_contract
+
+        try:
+            prepared_content, content_provenance = prepare_contract(cfg.ingestion_validation_contract, gallery_files)
+        except Exception as exc:
+            raise SystemExit(f"ABORTED: content-validation preflight failed before cleanup/ingestion: {exc}") from exc
 
     cleared: dict[str, Any] | None = None
     if cfg.clear:
@@ -864,19 +879,57 @@ def run_ingest(
                 f"ABORTED: cannot resolve readiness identities: {exc}"
             ) from exc
         index_probe["registered_sources"] = resolved_sources
+        readiness_options = {"require_attributes": require_attributes}
+        if prepared_content is not None:
+            decoded = {name.casefold(): count for name, count in prepared_content["frame_counts"].items()}
+            resolved_contract = {
+                **prepared_content,
+                "frame_counts": {registered: decoded[Path(source).stem.casefold()]
+                                 for source, registered in resolved_sources.items()},
+            }
+            # An unsuccessful re-ingest must not invalidate the receipt linked
+            # by the previous successfully published gallery manifest.
+            contract_path = pending_gallery_mapping[0].with_suffix(f".{uuid4().hex}.content-contract.json").resolve()
+            atomic_write_json(contract_path, resolved_contract)
+            readiness_options["content_contract"] = contract_path
+            index_probe["content_contract"] = {
+                "path": str(contract_path), "sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+                **content_provenance,
+            }
+        def save_validation_receipt(body):
+            if prepared_content is None:
+                return
+            receipt_path = contract_path.with_suffix(".validation.json")
+            atomic_write_json(receipt_path, {
+                "schema_version": 1, "contract": resolved_contract,
+                "contract_identity": index_probe["content_contract"],
+                "pipeline_readiness": body,
+            })
+            index_probe["content_validation_receipt"] = {
+                "path": str(receipt_path), "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+            }
+
         pipeline_readiness = None
         for attempt in range(1, cfg.index_probe_attempts + 1):
             try:
                 pipeline_readiness = readiness_probe(
                     list(resolved_sources.values()),
-                    require_attributes=require_attributes,
+                    **readiness_options,
                 )
             except Exception as exc:
+                save_validation_receipt({"ready": False, "error": f"{type(exc).__name__}: {exc}"})
                 raise SystemExit(
                     f"ABORTED: pipeline readiness check failed: {exc}"
                 ) from exc
             pipeline_readiness["attempts"] = attempt
+            save_validation_receipt(pipeline_readiness)
             if pipeline_readiness.get("ready"):
+                break
+            content = pipeline_readiness.get("content_validation", {})
+            if pipeline_readiness.get("error") or any(
+                isinstance(value, dict) and value.get("violation_count", 0)
+                for value in content.values()
+            ):
                 break
             if attempt < cfg.index_probe_attempts:
                 time.sleep(cfg.index_probe_backoff)
@@ -917,6 +970,8 @@ def run_ingest(
 
     if pending_gallery_mapping is not None:
         out_path, mapping = pending_gallery_mapping
+        if manifest.index_probe and manifest.index_probe.get("content_validation_receipt"):
+            mapping["content_validation_receipt"] = manifest.index_probe["content_validation_receipt"]
         atomic_write_json(out_path, mapping)
         print(f"Ingestion manifest saved to: {out_path.absolute()}")
     return manifest
@@ -1768,6 +1823,7 @@ def run_scenarios(cfg, ingest_backend, query_backend, decomposer, fallback):
     last = None
     for scenario in cfg.scenarios:
         backend = copy.copy(query_backend)
+        backend.retrieval_pool_size = cfg.retrieval_pool_size
         backend.decompositions = dict(query_backend.decompositions)
         backend.executed_plans = []
         backend.timings_by_query = {}
@@ -1796,7 +1852,7 @@ def run_scenarios(cfg, ingest_backend, query_backend, decomposer, fallback):
             backend.require_decomposition = True
         else:
             backend.search_path = "embed" if scenario == "embed-only" else "attribute"
-            backend.top_k = cfg.candidate_limit
+            backend.top_k = cfg.retrieval_pool_size or cfg.candidate_limit
             backend.candidate_limit = cfg.candidate_limit
             backend.min_cosine_similarity = -1.0
             backend.attribute_min_similarity = 0.0
@@ -1822,6 +1878,9 @@ def run_scenarios(cfg, ingest_backend, query_backend, decomposer, fallback):
             )
             artifact.described["candidate_limit"] = cfg.candidate_limit
             artifact.described["metric_top_k"] = cfg.top_k
+        artifact.described["returned_pool_limit"] = cfg.retrieval_pool_size
+        if cfg.retrieval_pool_size is not None:
+            artifact.described["returned_ranking"] = "bounded; annotation coverage is reported separately"
         artifact.described["decomposition_mode"] = (
             "fresh"
             if active_decomposer

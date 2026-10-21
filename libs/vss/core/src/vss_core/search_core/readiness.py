@@ -9,6 +9,8 @@ from typing import Any
 from vss_core.vios.client import get_name_to_stream_id_map
 
 from .clients.elastic import ElasticClient
+from .content_validation import ContentInspector
+from .content_validation import validate_content_contract
 from .errors import BackendUnreachableError
 from .errors import IndexNotFoundError
 from .errors import InvalidInputError
@@ -16,11 +18,36 @@ from .runtime import RAW_INDEX_ANCHOR
 from .runtime import SearchRuntime
 
 
+def _source_aliases(names: dict[str, str], sources: list[str]) -> dict[str, list[str]]:
+    """Share exact registered identities and supported filename stems.
+
+    RTVI-CV camera names strip the upload filename extension while VIOS may
+    retain it. Treat that known spelling as an alias only if no other VIOS
+    registration could own it. Check the entire catalog, not just this cohort.
+    """
+    catalog: dict[str, list[str]] = {}
+    owners: dict[str, set[str]] = {}
+    for name, stream_id in names.items():
+        aliases = list(dict.fromkeys([name, stream_id]))
+        if name.lower().endswith((".mp4", ".mkv")) and len(name) > 4:
+            aliases = list(dict.fromkeys([*aliases, name[:-4]]))
+        catalog[name] = aliases
+        for alias in aliases:
+            owners.setdefault(alias, set()).add(name)
+    result = {source: catalog.get(source, []) for source in sources}
+    for aliases in result.values():
+        for alias in aliases:
+            if len(owners[alias]) > 1:
+                raise InvalidInputError(f"Ambiguous registered source alias {alias!r}: {sorted(owners[alias])!r}")
+    return result
+
+
 async def gallery_readiness(
     runtime: SearchRuntime,
     sources: list[str],
     *,
     require_attributes: bool = True,
+    content_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Count exact registered identities, preserving legitimate detection gaps.
 
@@ -29,10 +56,13 @@ async def gallery_readiness(
     """
     if not sources or any(not source.strip() for source in sources) or len(set(sources)) != len(sources):
         raise InvalidInputError("Readiness needs distinct, nonempty source names")
+    if content_contract is not None:
+        content_contract = validate_content_contract(content_contract, sources, require_attributes)
     names = await get_name_to_stream_id_map(runtime.require("vst_internal_url"))
+    identities = _source_aliases(names, sources)
     es = ElasticClient.from_runtime(runtime)
     behavior_es = ElasticClient.from_runtime_behavior(runtime)
-    result: dict[str, Any] = {"require_attributes": require_attributes}
+    result: dict[str, Any] = {"require_attributes": require_attributes, "source_aliases": identities}
     try:
         for kind, index, field, client in (
             ("embedding", runtime.video_embed_index, "sensor.id.keyword", es),
@@ -50,7 +80,7 @@ async def gallery_readiness(
                 }
                 continue
             filters = {
-                str(i): {"terms": {field: list(dict.fromkeys([source, names[source]]))}}
+                str(i): {"terms": {field: identities[source]}}
                 if source in names
                 else {"match_none": {}}
                 for i, source in enumerate(sources)
@@ -103,6 +133,32 @@ async def gallery_readiness(
                 }
             except (KeyError, TypeError, ValueError) as error:
                 raise BackendUnreachableError("elasticsearch", f"Malformed readiness response for {index}") from error
+        if content_contract is not None:
+            content: dict[str, Any] = {"checked": True, "contract": content_contract, "valid": True}
+            for kind, field, client, includes in (
+                ("embedding", "sensor.id.keyword", es, ["sensor.id", "llm.info", "llm.visionEmbeddings"]),
+                ("raw", "sensorId.keyword", behavior_es, ["sensorId", "id"]),
+            ):
+                if kind == "raw" and not require_attributes:
+                    continue
+                if not result[kind]["available"]:
+                    content[kind] = {"checked": False, "exhaustive": False, "reason": "index unavailable"}
+                    content["valid"] = False
+                    continue
+                inspector = ContentInspector(content_contract, identities, kind)
+                scan = await client.visit_documents(
+                    index=result[kind]["index"],
+                    filters=[{"terms": {field: list(dict.fromkeys(alias for aliases in identities.values() for alias in aliases))}}],
+                    source_fields=includes, document_limit=content_contract["document_limit"], visitor=inspector.visit,
+                )
+                content[kind] = {"checked": True, **scan, **inspector.result}
+                if inspector.result["violation_count"]:
+                    content["valid"] = False
+                if kind == "embedding" and any(not row["documents"] for row in inspector.result["per_source"].values()):
+                    content["valid"] = False
+                if kind == "raw" and not inspector.result["documents_checked"]:
+                    content["valid"] = False
+            result["content_validation"] = content
     finally:
         await behavior_es.aclose()
         await es.aclose()
@@ -123,4 +179,6 @@ async def gallery_readiness(
             and all(result[kind]["available"] and result[kind]["gallery_total"] > 0 for kind in ("behavior", "raw"))
         )
     )
+    if "content_validation" in result:
+        result["ready"] = result["ready"] and result["content_validation"]["valid"]
     return result

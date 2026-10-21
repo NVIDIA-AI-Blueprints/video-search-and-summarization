@@ -21,6 +21,7 @@ import json
 import shlex
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 from . import routing
@@ -152,6 +153,7 @@ class CliQueryBackend:
         critic_input_width: int | None = None,
         critic_input_height: int | None = None,
         critic_diagnostic_dir: str | None = None,
+        retrieval_pool_size: int | None = None,
     ) -> None:
         if search_path not in SEARCH_PATHS:
             raise ValueError(
@@ -178,6 +180,11 @@ class CliQueryBackend:
         self.critic_input_width = critic_input_width
         self.critic_input_height = critic_input_height
         self.critic_diagnostic_dir = critic_diagnostic_dir
+        if retrieval_pool_size is not None and (
+            type(retrieval_pool_size) is not int or not 1 <= retrieval_pool_size <= 100000
+        ):
+            raise ValueError("retrieval_pool_size must be an integer in [1, 100000]")
+        self.retrieval_pool_size = retrieval_pool_size
         self.candidate_limit = candidate_limit
         self.attribute_min_similarity = attribute_min_similarity
         #: query text -> decomposition. Empty means fixed-flag behaviour.
@@ -192,11 +199,14 @@ class CliQueryBackend:
         self.timings_by_query: dict[str, dict[str, Any]] = {}
         self.metadata_by_query: dict[str, dict[str, Any]] = {}
 
-    def readiness(self, sources: list[str], require_attributes: bool = True) -> dict[str, Any]:
+    def readiness(self, sources: list[str], require_attributes: bool = True,
+                  content_contract: str | Path | None = None) -> dict[str, Any]:
         argv = [*self.vss_cmd, "search", "readiness", "--raw",
                 "--require-attributes" if require_attributes else "--no-require-attributes"]
         for source in sources:
             argv.extend(["--video-source", source])
+        if content_contract is not None:
+            argv.extend(["--content-contract", str(Path(content_contract).resolve())])
         proc = subprocess.run(argv, capture_output=True, text=True, check=False,
                               cwd=self.cwd, timeout=self.timeout)
         # Exit PARTIAL is an observed, not-yet-ready index; all other errors
@@ -280,6 +290,7 @@ class CliQueryBackend:
             "critic_input_height",
             "critic_diagnostic_dir",
             "decomposition_source",
+            "retrieval_pool_size",
             "deployment_identity",
         ):
             value = getattr(self, name, None)
@@ -390,7 +401,10 @@ class CliQueryBackend:
         ):
             argv += ["--attribute-min-similarity", str(self.attribute_min_similarity)]
         argv += ["--source-type", plan["source_type"]]
-        argv += ["--top-k", str(plan.get("top_k") or self.top_k)]
+        returned = plan.get("top_k") or self.top_k
+        if self.retrieval_pool_size is not None:
+            returned = min(returned, self.retrieval_pool_size)
+        argv += ["--top-k", str(returned)]
         if self.critic_enabled is False:
             argv += ["--no-critic"]
         for flag, value in (

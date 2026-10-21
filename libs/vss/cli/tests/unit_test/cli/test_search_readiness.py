@@ -62,3 +62,34 @@ def test_no_config_is_typed_failure(tmp_path, monkeypatch):
     from vss_cli import main
 
     assert main(["search", "readiness", "--video-source", "clip", "--raw"]) == 4
+
+
+def test_content_contract_file_forwarded_without_model_calls(configured, monkeypatch, tmp_path):
+    value = {"schema_version": 1, "embedding": {"model": "expected", "dimensions": 2, "unit_normalized": True},
+             "frame_counts": {"clip": 12}, "document_limit": 2000}
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(value))
+    probe = AsyncMock(return_value={"ready": False, "content_validation": {"valid": False}})
+    monkeypatch.setattr(readiness, "gallery_readiness", probe)
+    result = CliRunner().invoke(SearchGroup().cli(), ["readiness", "--video-source", "clip", "--content-contract", str(path), "--raw"])
+    assert result.exit_code == 6, result.output
+    assert probe.call_args.kwargs["content_contract"] == value
+
+
+def test_malformed_content_contract_is_typed_input_error(configured, tmp_path):
+    path = tmp_path / "bad.json"
+    path.write_text("{")
+    result = CliRunner().invoke(SearchGroup().cli(), ["readiness", "--video-source", "clip", "--content-contract", str(path), "--raw"])
+    assert result.exit_code == 2, result.output
+    assert "content contract" in result.output
+
+
+@pytest.mark.parametrize("value", [None, [], False, "contract"])
+def test_explicit_nonobject_contract_never_disables_validation(configured, monkeypatch, tmp_path, value):
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(value))
+    probe = AsyncMock(return_value={"ready": True})
+    monkeypatch.setattr(readiness, "gallery_readiness", probe)
+    result = CliRunner().invoke(SearchGroup().cli(), ["readiness", "--video-source", "clip", "--content-contract", str(path), "--raw"])
+    assert result.exit_code == 2, result.output
+    probe.assert_not_awaited()

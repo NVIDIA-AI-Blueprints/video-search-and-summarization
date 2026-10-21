@@ -50,6 +50,7 @@ from ..errors import BackendUnreachableError
 from ..errors import IndexNotFoundError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from collections.abc import Mapping
 
     from ..runtime import SearchRuntime
@@ -324,6 +325,94 @@ class ElasticClient:
             raise IndexNotFoundError(index, e) from e
         except (ESConnectionError, ESApiError, ESTransportError) as e:
             raise BackendUnreachableError("elasticsearch", str(e), e) from e
+
+    async def visit_documents(
+        self,
+        *,
+        index: str,
+        filters: list[dict[str, Any]],
+        source_fields: list[str],
+        document_limit: int,
+        visitor: Callable[[dict[str, Any]], None],
+    ) -> dict[str, Any]:
+        """Visit a complete scoped snapshot without collecting source vectors.
+
+        The limit applies to documents before inspection, independently of any
+        retrieval budget. Truncation or partial responses never count as proof.
+        """
+        from ..errors import InvalidInputError
+
+        if type(document_limit) is not int or not 1 <= document_limit <= 1000000:
+            raise InvalidInputError("document_limit must be between 1 and 1000000")
+        scroll_id = None
+        checked = 0
+        expected_total = None
+        seen: set[tuple[str, str]] = set()
+        try:
+            client = await self._client_for_active_loop()
+            response = await client.search(
+                index=index,
+                body={"query": {"bool": {"filter": filters}} if filters else {"match_all": {}},
+                      "size": min(512, document_limit), "sort": ["_doc"],
+                      "track_total_hits": True, "_source": source_fields},
+                allow_partial_search_results=False,
+                scroll="2m",
+            )
+            while True:
+                next_scroll_id = response.get("_scroll_id")
+                if next_scroll_id is not None:
+                    if not isinstance(next_scroll_id, str) or not next_scroll_id:
+                        raise BackendUnreachableError("elasticsearch", "Content scan returned an invalid scroll identity")
+                    scroll_id = next_scroll_id
+                shards = response.get("_shards")
+                if (response.get("timed_out") is not False or not isinstance(shards, dict)
+                        or any(type(shards.get(key)) is not int or shards[key] < 0 for key in ("total", "successful", "failed"))
+                        or shards["failed"] != 0 or shards["successful"] != shards["total"]):
+                    raise BackendUnreachableError("elasticsearch", "Content scan returned a partial response")
+                total = response.get("hits", {}).get("total")
+                if (not isinstance(total, dict) or total.get("relation") != "eq"
+                        or type(total.get("value")) is not int or total["value"] < 0):
+                    raise BackendUnreachableError("elasticsearch", "Content scan omitted an exact total")
+                if expected_total is None:
+                    expected_total = total["value"]
+                    if expected_total > document_limit:
+                        raise InvalidInputError(f"Content coverage exceeds document_limit={document_limit}; increase the explicit validation budget")
+                elif expected_total != total["value"]:
+                    raise BackendUnreachableError("elasticsearch", "Content scan total changed during pagination")
+                page = response["hits"].get("hits")
+                if not isinstance(page, list):
+                    raise BackendUnreachableError("elasticsearch", "Content scan returned malformed hits")
+                if page and not scroll_id:
+                    raise BackendUnreachableError("elasticsearch", "Content scan omitted scroll identity")
+                if checked + len(page) > expected_total or checked + len(page) > document_limit:
+                    raise BackendUnreachableError("elasticsearch", "Content scan exceeded its exact total or budget")
+                for hit in page:
+                    if (not isinstance(hit, dict) or not isinstance(hit.get("_index"), str)
+                            or not isinstance(hit.get("_id"), str) or not hit["_index"] or not hit["_id"]):
+                        raise BackendUnreachableError("elasticsearch", "Content scan omitted document identity")
+                    identity = (hit["_index"], hit["_id"])
+                    if identity in seen:
+                        raise BackendUnreachableError("elasticsearch", "Content scan returned duplicate documents")
+                    seen.add(identity)
+                    visitor(hit)
+                checked += len(page)
+                if checked == expected_total:
+                    return {"index": index, "documents_checked": checked, "document_limit": document_limit, "exhaustive": True}
+                if not page or not isinstance(scroll_id, str) or not scroll_id:
+                    raise BackendUnreachableError("elasticsearch", "Content scan ended before complete coverage")
+                response = await client.scroll(scroll_id=scroll_id, scroll="2m")
+        except ESNotFoundError as exc:
+            raise IndexNotFoundError(index, exc) from exc
+        except (ESConnectionError, ESApiError, ESTransportError) as exc:
+            raise BackendUnreachableError("elasticsearch", str(exc), exc) from exc
+        except (KeyError, TypeError, AttributeError) as exc:
+            raise BackendUnreachableError("elasticsearch", "Malformed content scan response") from exc
+        finally:
+            if scroll_id:
+                try:
+                    await client.clear_scroll(scroll_id=scroll_id)
+                except Exception:
+                    logger.warning("Could not release content scan scroll", exc_info=True)
 
     async def exhaustive_vector_search(
         self,

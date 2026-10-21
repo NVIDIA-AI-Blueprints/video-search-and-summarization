@@ -264,3 +264,75 @@ def test_gallery_skipped_sources_keep_listed_identities(tmp_path, monkeypatch):
         "c0": "assigned-id-9",
         "c1": "assigned-id-4",
     }
+
+
+def _content_validation_setup(tmp_path, monkeypatch, response):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from flows import ingestion_validation
+
+    root = _gallery_dir(tmp_path)
+    cfg = RunConfig(endpoint="unused", data_dir=tmp_path, dataset="warehouse", subset="", concurrency=1,
+                    vst_url="unused", stage="ingest", gallery_gt=str(root), ingest_out=str(tmp_path / "manifest.json"),
+                    skip_existing=False, skip_readiness_wait=True, index_probe_attempts=3,
+                    ingestion_validation_contract=str(tmp_path / "contract.json"))
+    template = {"schema_version": 1, "embedding": {"model": "model", "dimensions": 768, "unit_normalized": True},
+                "document_limit": 5000, "frame_counts": {"c0": 150, "c1": 120}}
+    monkeypatch.setattr(ingestion_validation, "prepare_contract", lambda *args: (template, {"ffprobe_version": "test"}))
+    monkeypatch.setattr(pipeline, "probe_index_coverage", lambda *args, **kwargs: {"checked": True, "covered": True})
+    monkeypatch.setattr(pipeline.flows, "list_sensor_streams", lambda *args: {"sensor-c0": "c0.mp4", "sensor-c1": "c1.mp4"})
+    readiness = Mock(side_effect=response) if isinstance(response, BaseException) else Mock(return_value=response)
+    query = SimpleNamespace(search_path="embed", readiness=readiness)
+    return cfg, query, readiness
+
+
+def test_standalone_ingest_persists_content_receipt_and_actual_source_counts(tmp_path, monkeypatch):
+    import hashlib
+
+    cfg, query, readiness = _content_validation_setup(tmp_path, monkeypatch, {"ready": True, "content_validation": {"valid": True, "embedding": {"exhaustive": True}}})
+    pipeline.run_pipeline(cfg, _FakeIngest(), query, None, None)
+    mapping = json.loads(Path(cfg.ingest_out).read_text())
+    identity = mapping["content_validation_receipt"]
+    receipt = Path(identity["path"])
+    assert hashlib.sha256(receipt.read_bytes()).hexdigest() == identity["sha256"]
+    body = json.loads(receipt.read_text())
+    assert body["contract"]["frame_counts"] == {"c0.mp4": 150, "c1.mp4": 120}
+    assert body["pipeline_readiness"]["content_validation"]["embedding"]["exhaustive"]
+    assert body["contract_identity"]["ffprobe_version"] == "test"
+    assert readiness.call_args.kwargs["content_contract"].is_file()
+
+
+@pytest.mark.parametrize("response", [
+    {"ready": False, "content_validation": {"valid": False, "embedding": {"violation_count": 1}}},
+    RuntimeError("Content scan budget exceeded"),
+])
+def test_failed_content_validation_preserves_old_mapping_and_saves_failure(tmp_path, monkeypatch, response):
+    cfg, query, readiness = _content_validation_setup(tmp_path, monkeypatch, response)
+    old = {"clips": [{"sensor_id": "previous"}], "content_validation_receipt": {"path": "previous.json", "sha256": "old"}}
+    Path(cfg.ingest_out).write_text(json.dumps(old))
+    with pytest.raises(SystemExit, match="pipeline"):
+        pipeline.run_ingest(cfg, _FakeIngest(), query)
+    assert json.loads(Path(cfg.ingest_out).read_text()) == old
+    readiness.assert_called_once()
+    receipts = list(tmp_path.glob("*.validation.json"))
+    assert len(receipts) == 1
+    assert json.loads(receipts[0].read_text())["pipeline_readiness"]["ready"] is False
+
+
+def test_content_preflight_failure_precedes_cleanup_and_upload(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    from flows import ingestion_validation
+
+    cfg, query, _ = _content_validation_setup(tmp_path, monkeypatch, {"ready": True})
+    cfg.clear = True
+    cleanup = Mock(side_effect=AssertionError("must not delete"))
+    upload = Mock(side_effect=AssertionError("must not upload"))
+    monkeypatch.setattr(pipeline, "clear_all_videos", cleanup)
+    monkeypatch.setattr(pipeline, "ingest_videos", upload)
+    monkeypatch.setattr(ingestion_validation, "prepare_contract", Mock(side_effect=ValueError("invalid contract")))
+    with pytest.raises(SystemExit, match="before cleanup"):
+        pipeline.run_ingest(cfg, _FakeIngest(), query)
+    cleanup.assert_not_called()
+    upload.assert_not_called()
