@@ -246,7 +246,7 @@ include:
 ```
 
 The ordered `path` list merges the patch into the included root model before
-including it in the build. Use Docker Compose 2.20.3 or newer.
+including it in the build. Use Docker Compose v2.39.1 or newer, matching the release prerequisites.
 
 Create a `.yml` patch under `patches/` only when:
 

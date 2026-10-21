@@ -63,7 +63,7 @@ without requiring credentials, probing services, or changing files:
 | `scripts/resolve_service_graph.py` | This file and `references/composition.md`: enforce service ownership and derive analytics readiness targets. |
 | `scripts/render_warehouse_configurator_env.py` | `references/profiles/warehouse.md`: materialize the warehouse configurator environment. |
 | `scripts/validate_warehouse_env.py` | `references/profiles/warehouse.md`: enforce warehouse constraints that Compose cannot express. |
-| `scripts/stage_vss_src.py` | Snapshots a checkout into `.openclaw/` / `.hermes/` so the sandbox image is built from it instead of `develop`. Run only for a [harness source ref](#harness-source-ref), from that ref's worktree; never for a default build. |
+| `scripts/stage_vss_src.py` | Snapshots a checkout into `.openclaw/` / `.hermes/` so the sandbox image is built from it instead of `develop`. Run for the selected [harness source ref](#harness-source-ref), including the release default, from that ref's worktree. |
 | `scripts/sync_skills.py` | Harness runtime utility used by `.openclaw/` and `.hermes/` to activate operation Skills; not part of the build workflow. |
 
 ## Routing
@@ -296,23 +296,18 @@ Two things still supersede the common tag, by design:
 An input of its own, like the container image tag and independent of it: the
 revision of this repo the NemoClaw sandbox image is built from — its skills,
 the `vss` CLI, the OpenClaw/Hermes plugin and workspace docs. The sandbox
-Dockerfiles fetch `develop` by default, so without a ref a harness always gets
-develop's skills and CLI **whatever the checkout or the image tag says**.
+Dockerfiles fetch `develop` unless a snapshot is staged. On `release/3.3.0`,
+this Skill selects and stages `release/3.3.0` by default so the harness uses
+the release's skills and CLI.
 Applies only when Q3 selected NemoClaw.
-
-**Release-safe 3.3.0 deployment:** explicitly select image tag `3.3.0` and
-harness source ref `release/3.3.0` or a reviewed commit on that branch. The
-release image default does not select the harness source. Keep both inputs in
-release deployment prompts; report the resolved harness SHA so a later build
-can pin that exact commit. Explicit nightly/development refs remain supported.
 
 Take the ref from the first source that answers, and do not ask when one does:
 
 1. The request — "harness at `nightly-20260928`", "harness ref `v3.3.0`",
    "deploy base with NemoClaw from `<tag or sha>`".
 2. `VSS_HARNESS_REF` already exported in the environment.
-3. Neither: select nothing. The sandbox builds from `develop`, nothing is
-   staged, and nothing below applies. This is the ordinary case.
+3. Neither: select `release/3.3.0`. Resolve and stage it using the same
+   procedure below as an explicit ref; do not use the Dockerfile's `develop` fallback.
 
 **Never derive it from the container image tag.** `3.3.0` or
 `develop-<sha12>` names images; a harness ref names a git revision. When a user

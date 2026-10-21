@@ -588,7 +588,7 @@ confirms it succeeded.
 
 ## Canonical version matrix
 
-Single source of truth for **every** dependency the deploy assumes. Checked against the [VSS 3.3.0 release prerequisites](https://nvidia-preview-release-3-3-0.docs.buildwithfern.com/vss/getting-started/prerequisites) and this checkout's [`docs/prerequisites.mdx`](../../../docs/prerequisites.mdx). Keep the matrix aligned with this release; the platform-specific checks also record deployment policies such as the Brev driver minimum and Kubernetes support.
+Single source of truth for **every** dependency the deploy assumes. Checked against the [VSS prerequisites](https://docs.nvidia.com/vss/latest/prerequisites.html) and this checkout's [`docs/prerequisites.mdx`](../../../docs/prerequisites.mdx). Keep the matrix aligned with this release; the platform-specific checks also record deployment policies such as the Brev driver minimum and Kubernetes support.
 
 | Component | Required version | Notes |
 |---|---|---|

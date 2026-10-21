@@ -158,8 +158,7 @@ and LVS profiles separately:
 
 ```text title="Paste into your coding agent: Combined deployment prompt"
 Use the vss-build-vision-ai skill to build and deploy one VSS stack that combines
-real-time VLM alerting (2d_vlm) with long-video summarization. Use image tag
-3.3.0 and, if deploying NemoClaw, harness source ref release/3.3.0. Show the resolved
+real-time VLM alerting (2d_vlm) with long-video summarization. Show the resolved
 services, GPU placement, and teardown impact before deploying.
 ```
 
@@ -249,14 +248,14 @@ selected tag, so their images differ from the common tag by that suffix.
 ## Harness source ref
 
 The NemoClaw sandbox image carries the operation Skills, the `vss` CLI and the
-OpenClaw plugin from one revision of this repository. It is built from
-`develop` by default, whatever image tag the stack runs. To build it from a
-nightly or a release instead, name the revision in the request:
+OpenClaw plugin from one revision of this repository. The Skill defaults its
+harness source to `release/3.3.0`, independently of the stack image tag. To
+build it from another revision, name that revision in the request:
 
 1. The request, for example *"deploy base with the NemoClaw harness at
    `nightly-20260928`"*.
 2. `VSS_HARNESS_REF` already exported in your shell.
-3. Neither, in which case the harness builds from `develop`.
+3. Neither, in which case the Skill selects `release/3.3.0` and stages that revision.
 
 The Skill checks out that revision alongside your checkout (under
 `_builds/<name>/harness-src`) and builds the sandbox from it, so the Skills,
@@ -265,27 +264,6 @@ sandbox reports it. The ref is independent of the
 [container image tag](#container-image-tag): name both to pin both. Revisions
 older than staged harness builds are refused rather than silently replaced
 by `develop`.
-
-### Release-safe 3.3.0 workflow
-
-For this release, explicitly select image tag `3.3.0` and harness source ref
-`release/3.3.0` (or a reviewed commit on that branch). The image default alone
-does not pin the harness. The deployment prompts below supply both inputs;
-keep them when adapting a prompt to another capability set.
-
-Alternatively, export both inputs before invoking the Skill:
-
-```bash title="Run in the deployment host terminal"
-export VSS_CONTAINER_TAG=3.3.0
-export VSS_HARNESS_REF=release/3.3.0
-```
-
-The Skill resolves the harness ref to a commit and reports that SHA in the
-pre-deploy review and final summary. Save the resolved SHA and use it as
-`VSS_HARNESS_REF` to reproduce the same harness after the release branch moves.
-An explicitly selected nightly or development harness remains supported, but
-it is a separate source choice from this release workflow. Warehouse and
-host-CLI builds do not provision a NemoClaw harness.
 
 ## Agent harness
 
@@ -336,25 +314,12 @@ readiness checks before returning.
 
 ## Example prompts
 
-```text title="Paste into your coding agent: Deploy the quickstart profile"
-Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine
-with image tag 3.3.0 and harness source ref release/3.3.0 if deploying NemoClaw.
-```
-
 ```text title="Paste into your coding agent: Deploy search"
-Use the vss-build-vision-ai skill to deploy the VSS search profile with remote LLM
-and VLM endpoints, image tag 3.3.0, and harness source ref release/3.3.0 if deploying NemoClaw.
+Use the vss-build-vision-ai skill to deploy the VSS search profile with remote LLM and VLM endpoints.
 ```
 
 ```text title="Paste into your coding agent: Deploy warehouse"
-Use the vss-build-vision-ai skill to deploy a warehouse 3D profile with behavior
-analytics and image tag 3.3.0. Do not deploy a NemoClaw harness for warehouse.
-```
-
-```text title="Paste into your coding agent: Build a custom stack"
-Use the vss-build-vision-ai skill to build a custom VSS stack for streaming object
-detection, video embeddings, and semantic search with image tag 3.3.0 and
-harness source ref release/3.3.0 if deploying NemoClaw.
+Use the vss-build-vision-ai skill to deploy a warehouse 3D profile with behavior analytics.
 ```
 
 ```text title="Paste into your coding agent: Pin images and harness to one release"
