@@ -15,12 +15,26 @@ const backendVariables = [
 type MockResponse = NextApiResponse & {
   body?: unknown;
   statusCode: number;
+  writes: string[];
 };
+
+const mockRequest = (
+  extras: Partial<NextApiRequest> & Record<string, unknown>,
+): NextApiRequest =>
+  ({
+    on: jest.fn(),
+    socket: { setTimeout: jest.fn() },
+    headers: {},
+    ...extras,
+  }) as unknown as NextApiRequest;
 
 const mockResponse = (): MockResponse => {
   const response = {
     statusCode: 200,
     body: undefined,
+    writes: [] as string[],
+    writableEnded: false,
+    socket: { setTimeout: jest.fn() },
   } as unknown as MockResponse;
   response.status = jest.fn((statusCode: number) => {
     response.statusCode = statusCode;
@@ -30,7 +44,17 @@ const mockResponse = (): MockResponse => {
     response.body = body;
     return response;
   });
-  response.end = jest.fn(() => response);
+  response.writeHead = jest.fn();
+  response.write = jest.fn((chunk: Buffer | string) => {
+    response.writes.push(Buffer.isBuffer(chunk) ? chunk.toString() : String(chunk));
+    return true;
+  });
+  (response as unknown as { flush: () => void }).flush = jest.fn();
+  response.on = jest.fn();
+  response.end = jest.fn(() => {
+    (response as { writableEnded: boolean }).writableEnded = true;
+    return response;
+  });
   return response;
 };
 
@@ -54,12 +78,7 @@ describe("chat proxy", () => {
   });
 
   it("returns a clear 503 for POST when no main backend is configured", async () => {
-    const request = {
-      method: "POST",
-      query: {},
-      body: {},
-      on: jest.fn(),
-    } as unknown as NextApiRequest;
+    const request = mockRequest({ method: "POST", query: {}, body: {} });
     const response = mockResponse();
 
     await handler(request, response);
@@ -76,11 +95,10 @@ describe("chat proxy", () => {
     process.env.VSS_CHAT_BACKEND_SIDEBAR = "http://vss-agent:8000/chat/stream";
     const fetchMock = jest.fn();
     global.fetch = fetchMock;
-    const request = {
+    const request = mockRequest({
       method: "GET",
       query: { surface: "sidebar", conversation: "conversation-1" },
-      on: jest.fn(),
-    } as unknown as NextApiRequest;
+    });
     const response = mockResponse();
 
     await handler(request, response);
@@ -96,7 +114,7 @@ describe("chat proxy", () => {
       status: 204,
     } as Response);
     global.fetch = fetchMock;
-    const request = {
+    const request = mockRequest({
       method: "POST",
       query: {
         surface: "main",
@@ -104,8 +122,7 @@ describe("chat proxy", () => {
           "/executions/execution-1/interactions/interaction-1/response",
       },
       body: { response: { type: "text", text: "warehouse" } },
-      on: jest.fn(),
-    } as unknown as NextApiRequest;
+    });
     const response = mockResponse();
 
     await handler(request, response);
@@ -118,5 +135,119 @@ describe("chat proxy", () => {
       }),
     );
     expect(response.statusCode).toBe(204);
+  });
+
+  it("forwards an upstream stream drop as error_data instead of a silent EOF", async () => {
+    process.env.VSS_CHAT_BACKEND_SIDEBAR = "http://vss-agent:8000/chat/stream";
+    let reads = 0;
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (reads++ === 0) {
+              return {
+                done: false,
+                value: Buffer.from(
+                  'intermediate_data: {"id":"1","name":"search"}\n',
+                ),
+              };
+            }
+            throw new Error("body timeout");
+          },
+          releaseLock: () => {},
+        }),
+      },
+    });
+    global.fetch = fetchMock;
+
+    const request = mockRequest({
+      method: "POST",
+      query: { surface: "sidebar" },
+      headers: { "conversation-id": "conversation-1" },
+      body: { messages: [{ role: "user", content: "report" }] },
+    });
+    const response = mockResponse();
+
+    await handler(request, response);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://vss-agent:8000/chat/stream",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const body = response.writes.join("");
+    expect(body).toContain("intermediate_data:");
+    expect(body).toContain("error_data:");
+    expect(body).toContain("body timeout");
+  });
+
+  it("rewrites Node fetch's 'terminated' into a user-facing stream-drop message", async () => {
+    process.env.VSS_CHAT_BACKEND_SIDEBAR = "http://vss-agent:8000/chat/stream";
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            throw new TypeError("terminated");
+          },
+          releaseLock: () => {},
+        }),
+      },
+    });
+
+    const request = mockRequest({
+      method: "POST",
+      query: { surface: "sidebar" },
+      body: { messages: [{ role: "user", content: "report" }] },
+    });
+    const response = mockResponse();
+
+    await handler(request, response);
+
+    expect(response.writes.join("")).toContain(
+      "The agent connection closed before the response completed.",
+    );
+    expect(response.writes.join("")).not.toContain('"terminated"');
+  });
+
+  it("starts error_data on a new line when the last upstream chunk has no trailing newline", async () => {
+    process.env.VSS_CHAT_BACKEND_SIDEBAR = "http://vss-agent:8000/chat/stream";
+    let reads = 0;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (reads++ === 0) {
+              return {
+                done: false,
+                value: Buffer.from(
+                  'data: {"choices":[{"delta":{"content":"par',
+                ),
+              };
+            }
+            throw new Error("body timeout");
+          },
+          releaseLock: () => {},
+        }),
+      },
+    });
+
+    const request = mockRequest({
+      method: "POST",
+      query: { surface: "sidebar" },
+      body: { messages: [{ role: "user", content: "report" }] },
+    });
+    const response = mockResponse();
+
+    await handler(request, response);
+
+    const body = response.writes.join("");
+    expect(body).toContain('data: {"choices":[{"delta":{"content":"par');
+    expect(body).toContain("\nerror_data:");
+    expect(body).not.toMatch(/parerror_data:/);
   });
 });

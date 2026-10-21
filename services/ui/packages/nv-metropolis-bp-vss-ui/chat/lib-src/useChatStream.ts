@@ -423,7 +423,9 @@ export function useChatStream(
           }
           await consume([...parser.feed(decoder.decode()), ...parser.finish()]);
           if (!agentTerminal && !failed) {
-            throw new Error('backend event stream ended before the response completed');
+            throw new Error(
+              'The agent connection closed before the response completed.',
+            );
           }
         }
 

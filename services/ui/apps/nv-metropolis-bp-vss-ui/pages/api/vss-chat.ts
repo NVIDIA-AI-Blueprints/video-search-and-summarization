@@ -34,7 +34,30 @@ const backendFor = (surface: string): string | undefined => {
   return undefined;
 };
 
-export const config = { api: { bodyParser: { sizeLimit: "5mb" } } };
+export const config = {
+  api: {
+    bodyParser: { sizeLimit: "5mb" },
+    // Intermediate-step payloads on a report turn easily exceed the 4MB default,
+    // which aborts the SSE response and looks like a clean stream EOF.
+    responseLimit: false,
+  },
+};
+
+const abortIfClientDropped = (
+  res: NextApiResponse,
+  controller: AbortController,
+) => {
+  if (!res.writableEnded) controller.abort();
+};
+
+/** Node fetch reports a cut socket as the one-word `terminated`. */
+const AGENT_CONNECTION_CLOSED =
+  "The agent connection closed before the response completed.";
+
+const streamDropMessage = (err: unknown): string => {
+  const raw = err instanceof Error ? err.message : String(err);
+  return /^terminated$/i.test(raw.trim()) ? AGENT_CONNECTION_CLOSED : raw;
+};
 
 export default async function handler(
   req: NextApiRequest,
@@ -54,9 +77,15 @@ export default async function handler(
     return;
   }
 
+  req.socket?.setTimeout(0);
+  res.socket?.setTimeout(0);
+
   const controller = new AbortController();
-  // Navigating away or pressing Stop should drop the upstream turn too.
-  req.on("close", () => controller.abort());
+  // Drop the upstream turn only when the browser actually hung up. `req.close`
+  // also fires after the POST body is consumed, which would abort a healthy
+  // stream the moment we start reading it.
+  req.on("aborted", () => abortIfClientDropped(res, controller));
+  res.on("close", () => abortIfClientDropped(res, controller));
 
   const interactionPath = String(req.query.interaction ?? "");
   if (interactionPath) {
@@ -134,10 +163,19 @@ export default async function handler(
       // Next buffers by default; without flushing, SSE arrives all at once.
       (res as unknown as { flush?: () => void }).flush?.();
     }
-  } catch {
-    // Client hung up or upstream died mid-turn.
+  } catch (err) {
+    // Swallowing this used to look like a successful EOF, so the chat UI
+    // reported "backend event stream ended before the response completed"
+    // with no cause. Forward the failure on the same SSE channel.
+    if (!controller.signal.aborted && !res.writableEnded) {
+      // Leading newline so a drop mid-line does not glue `error_data:` onto
+      // the unfinished frame; SseParser would then miss the error.
+      res.write(
+        `\nerror_data: ${JSON.stringify({ message: streamDropMessage(err) })}\n`,
+      );
+    }
   } finally {
     reader.releaseLock();
-    res.end();
+    if (!res.writableEnded) res.end();
   }
 }
