@@ -23,6 +23,21 @@ jest.mock('@nvidia/foundations-react-core', () => {
         onKeyDown: onKeyDown || onKeyPress,
       }),
     ),
+    Select: React.forwardRef(({ items, onValueChange, value, ...rest }: any, ref: any) =>
+      React.createElement(
+        'select',
+        {
+          ...rest,
+          ref,
+          'data-foundation': 'Select',
+          value,
+          onChange: (e: any) => onValueChange?.(e.target.value),
+        },
+        items?.map((item: any) =>
+          React.createElement('option', { key: item.value, value: item.value }, item.children),
+        ),
+      ),
+    ),
   };
 });
 
@@ -100,16 +115,13 @@ describe('AlertsFetchSettings', () => {
 
   it('calls onFetchSizeChange when a preset fetch size is selected', () => {
     render(<AlertsFetchSettings {...defaultProps} />);
-    const selects = screen.getAllByDisplayValue('500');
-    const fetchSizeSelect = selects[0];
-    fireEvent.change(fetchSizeSelect, { target: { value: '1000' } });
+    fireEvent.change(screen.getByTestId('fetch-size-select'), { target: { value: '1000' } });
     expect(defaultProps.onFetchSizeChange).toHaveBeenCalledWith(1000);
   });
 
   it('opens custom fetch size input when "Custom..." is selected', () => {
     render(<AlertsFetchSettings {...defaultProps} />);
-    const selects = screen.getAllByDisplayValue('500');
-    fireEvent.change(selects[0], { target: { value: '-1' } });
+    fireEvent.change(screen.getByTestId('fetch-size-select'), { target: { value: '-1' } });
 
     expect(screen.getByPlaceholderText('10 – 5000')).toBeInTheDocument();
   });
@@ -120,8 +132,7 @@ describe('AlertsFetchSettings', () => {
       <AlertsFetchSettings {...defaultProps} onFetchSizeChange={onFetchSizeChange} />,
     );
 
-    const selects = screen.getAllByDisplayValue('500');
-    fireEvent.change(selects[0], { target: { value: '-1' } });
+    fireEvent.change(screen.getByTestId('fetch-size-select'), { target: { value: '-1' } });
 
     const input = screen.getByPlaceholderText('10 – 5000');
     fireEvent.change(input, { target: { value: '350' } });
@@ -134,8 +145,7 @@ describe('AlertsFetchSettings', () => {
   it('shows error for invalid custom fetch size', () => {
     render(<AlertsFetchSettings {...defaultProps} />);
 
-    const selects = screen.getAllByDisplayValue('500');
-    fireEvent.change(selects[0], { target: { value: '-1' } });
+    fireEvent.change(screen.getByTestId('fetch-size-select'), { target: { value: '-1' } });
 
     const input = screen.getByPlaceholderText('10 – 5000');
     fireEvent.change(input, { target: { value: '5' } });
@@ -157,8 +167,7 @@ describe('AlertsFetchSettings', () => {
       <AlertsFetchSettings {...defaultProps} onFetchSizeChange={onFetchSizeChange} />,
     );
 
-    const selects = screen.getAllByDisplayValue('500');
-    fireEvent.change(selects[0], { target: { value: '-1' } });
+    fireEvent.change(screen.getByTestId('fetch-size-select'), { target: { value: '-1' } });
 
     const input = screen.getByPlaceholderText('10 – 5000');
     fireEvent.change(input, { target: { value: '2500' } });
@@ -169,17 +178,9 @@ describe('AlertsFetchSettings', () => {
 
   // --- Dark mode ---
 
-  it('renders with dark theme styles', () => {
+  it('renders Foundation Select for query range and fetch size', () => {
     render(<AlertsFetchSettings {...defaultProps} isDark={true} />);
-    const periodSelect = screen.getByTestId('period-select');
-    expect(periodSelect).toHaveClass('border-gray-600');
-    expect(periodSelect).toHaveClass('text-white');
-  });
-
-  it('renders with light theme styles', () => {
-    render(<AlertsFetchSettings {...defaultProps} isDark={false} />);
-    const periodSelect = screen.getByTestId('period-select');
-    expect(periodSelect).toHaveClass('border-gray-300');
-    expect(periodSelect).toHaveClass('text-gray-600');
+    expect(screen.getByTestId('period-select')).toHaveAttribute('data-foundation', 'Select');
+    expect(screen.getByTestId('fetch-size-select')).toHaveAttribute('data-foundation', 'Select');
   });
 });

@@ -130,6 +130,27 @@ code, pre, .font-mono {
   color: #e5e5e5;
   border-color: #525252;
 }
+.dark .nv-switch-root .nv-label {
+  color: #d1d5db;
+}
+.dark .nv-switch-track:before {
+  outline-color: #525252;
+}
+.dark .nv-switch-thumb {
+  background-color: #ffffff;
+}
+
+/* Native <select> lists inherit trigger text color but keep a light OS
+   popup, so options vanish in dark theme. Kaizen Select is preferred;
+   these rules cover remaining native selects (e.g. table page size). */
+.dark select {
+  color-scheme: dark;
+  background-color: #171717;
+}
+.dark select option {
+  background-color: #171717;
+  color: #e5e5e5;
+}
 
 /* Info icon: drawn in VSS CSS on an empty span (no SVG in HTML; survives DOMPurify). */
 .vss-caller-info-panel {
