@@ -1535,6 +1535,28 @@ lower the value if model startup reports insufficient free memory or other
 services need more headroom. Changing this value requires restarting RTVI-VLM
 because vLLM reserves memory during engine initialization.
 
+### GB300 Standalone Deployment
+
+For standalone RT-VLM deployment on GB300, set the following environment
+variables on the `rtvi-server` container through a Docker Compose override:
+
+```yaml
+services:
+  rtvi-server:
+    environment:
+      RTVI_QUEUE_DECODED_FRAMES_ON_GPU: "true"
+      RTVI_VLLM_MM_TENSOR_IPC: "torch_shm"
+      RTVI_VLLM_ATTENTION_BACKEND: "TRITON_ATTN"
+      RTVI_VLLM_MAX_NUM_BATCHED_TOKENS: "8192"
+      RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
+      RTVI_VLM_ADMISSION_MODE: "off"
+```
+
+Tune GPU memory utilization and the batched-token budget to the memory
+available to RT-VLM. VSS profiles that share the GPU with other services may
+require different values; use the profile-specific memory utilization
+starting points above.
+
 ### Additional Helm Chart Values
 
 The chart injects `KAFKA_BOOTSTRAP_SERVERS`, `REDIS_HOST`,
