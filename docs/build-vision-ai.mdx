@@ -80,9 +80,13 @@ capabilities and selected harness, so the exact graph can vary.
 | Profile | Best for | Default Skill-generated capabilities |
 | --- | --- | --- |
 | `base` | First run, video Q&A, and report generation on short clips | UI, Redis, VIOS, and RT-VLM. |
-| `alerts` | Real-time alerting and alert verification | Alert Bridge, Video Analytics API, VA-MCP, RT-VLM, and optionally RT-CV with behavior analytics. |
+| `alerts` | Real-time alerting and alert verification | Alert Bridge, Video Analytics API, RT-VLM, and optionally RT-CV with behavior analytics. |
 | `lvs` (Video Summarization) | Long video summarization | LVS server, RT-VLM, ELK/Kafka, VIOS, and the UI. |
 | `search` | Natural-language video search | RT-CV detection and tracking, RT-Embed embeddings, Elasticsearch, Video Analytics API, and search services. |
+
+VA-MCP is conditional: the Skill retains it for an in-stack agent that needs
+its tools or an explicitly requested legacy MCP/SOP capability. NemoClaw and
+host-CLI builds remove unrequested VA-MCP and use the Video Analytics API.
 
 For `alerts`, the Skill asks which mode you want:
 
@@ -224,7 +228,7 @@ proceeding.
 ## Container image tag
 
 `deploy/docker/containers.env` derives every managed first-party image tag from
-one knob, `VSS_CONTAINER_TAG`, defaulting to `${VSS_DOCS_IMAGE_TAG:-develop-latest}`.
+one knob, `VSS_CONTAINER_TAG`, defaulting to `3.3.0` on `release/3.3.0`.
 A build that must run a release's images selects that tag. Do not edit
 `containers.env`; it is checked in and shared by every deployment on the host.
 
@@ -244,14 +248,14 @@ selected tag, so their images differ from the common tag by that suffix.
 ## Harness source ref
 
 The NemoClaw sandbox image carries the operation Skills, the `vss` CLI and the
-OpenClaw plugin from one revision of this repository. It is built from
-`develop` by default, whatever image tag the stack runs. To build it from a
-nightly or a release instead, name the revision in the request:
+OpenClaw plugin from one revision of this repository. The Skill defaults its
+harness source to `release/3.3.0`, independently of the stack image tag. To
+build it from another revision, name that revision in the request:
 
 1. The request, for example *"deploy base with the NemoClaw harness at
    `nightly-20260928`"*.
 2. `VSS_HARNESS_REF` already exported in your shell.
-3. Neither, in which case the harness builds from `develop`.
+3. Neither, in which case the Skill selects `release/3.3.0` and stages that revision.
 
 The Skill checks out that revision alongside your checkout (under
 `_builds/<name>/harness-src`) and builds the sandbox from it, so the Skills,
@@ -310,10 +314,6 @@ readiness checks before returning.
 
 ## Example prompts
 
-```text title="Paste into your coding agent: Deploy the quickstart profile"
-Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
-```
-
 ```text title="Paste into your coding agent: Deploy search"
 Use the vss-build-vision-ai skill to deploy the VSS search profile with remote LLM and VLM endpoints.
 ```
@@ -322,16 +322,8 @@ Use the vss-build-vision-ai skill to deploy the VSS search profile with remote L
 Use the vss-build-vision-ai skill to deploy a warehouse 3D profile with behavior analytics.
 ```
 
-```text title="Paste into your coding agent: Build a custom stack"
-Use the vss-build-vision-ai skill to build a custom VSS stack for streaming object detection, video embeddings, and semantic search.
-```
-
-```text title="Paste into your coding agent: Deploy with a nightly harness"
-Use the vss-build-vision-ai skill to deploy the VSS base profile with the NemoClaw harness at nightly-20260928.
-```
-
 ```text title="Paste into your coding agent: Pin images and harness to one release"
-Use the vss-build-vision-ai skill to deploy the VSS base profile with image tag 3.4.0 and the NemoClaw harness at v3.4.0.
+Use the vss-build-vision-ai skill to deploy the VSS base profile with image tag 3.3.0 and the NemoClaw harness at release/3.3.0.
 ```
 
 ```text title="Paste into your coding agent: Tear down"
