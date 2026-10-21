@@ -1,0 +1,31 @@
+global:
+  # Same internal MinIO compose-base uses. Jenkins MINIO_BUCKET / keys override.
+  minio:
+    endpoint: "10.111.52.248:9000"
+    bucket: "perf-results-dev"
+    service: "video-analytics-api"
+
+scenarios: &scenarios
+  quick_test:
+    duration_seconds: 60
+    warmup_seconds: 2
+    request_count: 20
+    warmup_requests: 2
+    profile: warehouse_2d
+    sensor_id: Camera
+    place: "building=Warehouse/room=Room-1"
+    from_ts: "2026-02-14T10:16:00.000Z"
+    to_ts: "2026-02-14T10:17:00.000Z"
+    endpoints:
+      - livez
+      - frames
+      - behavior
+      - events
+      - incidents
+    percentiles:
+      - 50
+      - 95
+      - 99
+
+# Jenkins compose-base runner reads this key.
+test_scenarios: *scenarios

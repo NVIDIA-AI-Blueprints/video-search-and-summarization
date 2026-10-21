@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Unique container names and host ports so this job can share a GPU node with
+# Behavior Analytics playback without colliding on `elasticsearch` / :9200.
+
+services:
+  elasticsearch:
+    container_name: va-api-perf-elasticsearch
+  elasticsearch-init-container:
+    container_name: va-api-perf-es-init
+  video-analytics-api:
+    container_name: va-api-perf-app

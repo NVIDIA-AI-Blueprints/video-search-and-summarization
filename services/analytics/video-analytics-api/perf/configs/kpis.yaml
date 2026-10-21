@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Video Analytics API query KPI thresholds.
+# No service owner has published p50/p99 SLOs yet (BA used Yun He).
+# This file gates run validity: each required endpoint must return HTTP 200
+# enough times, and /livez p99 must stay under a 1s smoke limit.
+# Query percentiles are recorded in result.json for later baselining.
+
+schema_version: "0.1"
+service: video-analytics-api
+source:
+  setup: warehouse_2d_es_dump
+
+scenarios:
+  quick_test:
+    warehouse-es-dump:
+      required_endpoints:
+        - livez
+        - frames
+        - behavior
+        - events
+        - incidents
+      livez:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p99_s: 1.0
+      frames:
+        min_count: 10
+        min_ok_ratio: 1.0
+      behavior:
+        min_count: 10
+        min_ok_ratio: 1.0
+      events:
+        min_count: 10
+        min_ok_ratio: 1.0
+      incidents:
+        min_count: 10
+        min_ok_ratio: 1.0
