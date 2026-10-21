@@ -15,7 +15,7 @@ import { buildDisplayStepTree, countDisplaySteps } from './sse';
 import type { ChatStep } from './types';
 
 const STATUS_DOT: Record<ChatStep['status'], string> = {
-  in_progress: 'bg-[#76b900] animate-pulse',
+  in_progress: 'bg-[#76b900]',
   complete: 'bg-gray-400 dark:bg-gray-500',
   error: 'bg-red-500',
 };
@@ -64,7 +64,14 @@ const StepNode: React.FC<{
   return (
     <li className="relative" data-status={step.status}>
       <div className="flex items-start gap-2">
-        <span className={`mt-[7px] h-2 w-2 flex-shrink-0 rounded-full ${STATUS_DOT[step.status]}`} />
+        {/* Same trailing-edge rule as the spinner: status alone would
+            keep finished siblings pulsing after work moved on. */}
+        <span
+          data-step-dot
+          className={`mt-[7px] h-2 w-2 flex-shrink-0 rounded-full ${STATUS_DOT[step.status]}${
+            running ? ' animate-pulse' : ''
+          }`}
+        />
         {hasDetail ? (
           <button
             type="button"
