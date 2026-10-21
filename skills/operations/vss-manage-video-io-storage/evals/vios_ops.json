@@ -51,8 +51,7 @@
         "curl -sf -o /dev/null -w '%{http_code}' <videoUrl> returns 200 (use GET, not HEAD \u2014 VST lazy-renders clips and HEAD returns 404 until first GET materializes the file)",
         "curl -sf -o /dev/null -w '%{content_type}' <videoUrl> returns a value starting with video/ (typically video/mp4)",
         "curl -sf -o /dev/null -w '%{size_download}' <videoUrl> returns a value greater than 1000 (rejects empty / error-page responses; a 2s 360p clip can legitimately render at a few KB)",
-        "The response JSON's startTime is within a minute of the chosen in-range start time and expiryISO is in the future",
-        "The final clip response includes one descriptive Markdown link whose target is the media_url returned by the CLI, without a second raw URL, host.openshell.internal explanation, or instructions to substitute a browser-facing host. Do not infer playback failure solely from a sandbox hostname. If the operation actually fails or reports warmed: false, report that observed failure instead of claiming success."
+        "The response JSON's startTime is within a minute of the chosen in-range start time and expiryISO is in the future"
       ]
     },
     {
@@ -68,8 +67,7 @@
         "GET /vst/api/v1/sensor/<sensorId>/info returns a JSON object with non-empty `sensorId` and `name`, and no `state` field",
         "GET /vst/api/v1/sensor/<sensorId>/status returns a JSON object whose `state` is `online`",
         "GET /vst/api/v1/sensor/<sensorId>/streams returns a streams array whose main stream's `url` is a local file path under ${VST_CONTAINER_ROOT}/... (NOT rtsp://)",
-        "GET /vst/api/v1/sensor/<sensorId>/settings returns `null`",
-        "The user-facing sensor response reports the requested sensor metadata without appending a Deployment origin field, host.openshell.internal, or sandbox-routing commentary unless diagnosing an observed failure or explicitly asked about deployment configuration."
+        "GET /vst/api/v1/sensor/<sensorId>/settings returns `null`"
       ]
     },
     {

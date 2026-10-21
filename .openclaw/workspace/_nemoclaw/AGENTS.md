@@ -28,25 +28,6 @@ follow the `vss-manage-alerts` skill's own deployment-prerequisite step to
 resolve `$AB` first, then probe `curl "$AB/health"` — this workspace does not
 export `$AB` on its own.
 
-## User-facing sensor and media responses
-
-For sensor listings, report the requested sensor names, types, and relevant
-recorded ranges. Do not append the CLI's deployment origin or sandbox host
-alias to ordinary sensor-list responses.
-
-For a clip, return a Markdown link with a descriptive label such as
-`[warehouse_0002 clip, 5–10 seconds](<media_url>)`, using the `media_url`
-returned by `vss vios clip` verbatim. The VSS Web UI routes recognized VIOS
-media links through its browser-facing proxy. Do not add an internal-hostname
-explanation, a second raw URL, or instructions to substitute the deployment
-host just because the CLI URL contains `host.openshell.internal`.
-
-A sandbox hostname alone is not evidence of a playback failure. If the command
-fails, reports `warmed: false`, or the user reports playback failure, explain
-the observed limitation and follow the operation skill's diagnostics. Discuss
-internal routing only when needed for that diagnosis or explicitly requested;
-never guess a public hostname or manually rebuild the media URL.
-
 A user-supplied video URL is direct media for `vss-ask-video`; it does not need
 sensor registration or ingestion. The named-sensor and report rules below
 apply when the request names a sensor or asks for a report.
@@ -55,7 +36,7 @@ apply when the request names a sensor or asks for a report.
 
 For these UI requests, select and follow exactly one active VSS skill:
 
-- List sensors, get a clip, take a snapshot, or inspect a timeline: `vss-manage-video-io-storage`
+- List sensors, take a snapshot, or inspect a timeline: `vss-manage-video-io-storage`
 - Ask what is visually present in a named video, including whether a worker is wearing PPE: `vss-ask-video`
 - Generate a report for a named video: `vss-generate-video-report`
 

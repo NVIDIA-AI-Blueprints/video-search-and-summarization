@@ -229,18 +229,6 @@ When the user has a sensor name or IP but needs a clip or snapshot:
 
 ## Responses
 
-For a sensor-list request, report sensor names, types, and relevant recorded
-ranges without appending the configured deployment origin or internal hostnames.
-For a successful clip request, return one descriptive Markdown link using the
-returned `media_url` verbatim, for example
-`[warehouse_0002 clip, 5–10 seconds](<media_url>)`. The VSS Web UI routes
-recognized VIOS media links through its browser-facing proxy. Do not add raw
-internal URLs, sandbox-hostname explanations, or manual host-substitution
-instructions to a successful result. An internal hostname alone does not prove
-a browser playback problem. Report actual command failures, `warmed: false`,
-or user-reported playback failures; diagnose those without inventing a public
-host or rebuilding the URL.
-
 Covered operations return CLI JSON on stdout and a typed exit code. Branch on the exit code ([`AGENTS.md`](../../../AGENTS.md)). An empty sensor list at exit 0 is an answer. Do not retry it.
 
 A direct REST call returns the service's own shapes. **Success with data:** JSON object or array. **Success with no data:** `null` — the call succeeded but there is nothing to return (for example a scan found nothing). It is not an error. **Error:** JSON object with `error_code` and `error_message`:
