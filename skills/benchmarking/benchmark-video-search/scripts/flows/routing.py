@@ -77,6 +77,8 @@ def validate_decomposition(value: Any) -> dict[str, Any]:
         if name not in value:
             continue
         items = value[name]
+        if name == "object_ids" and items is None:
+            continue
         if not isinstance(items, list):
             raise InvalidDecomposition(f"{name} must be a list")
         for item in items:

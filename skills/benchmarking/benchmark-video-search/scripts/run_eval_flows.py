@@ -741,6 +741,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--llm-chat-template-kwargs",
+        type=json.loads,
+        help="Explicit JSON object of chat-template controls, saved with decomposition evidence.",
+    )
+    p.add_argument(
         "--llm-model", help="Decomposition model id (default: ask the endpoint)."
     )
     p.add_argument(
@@ -836,6 +841,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error(
             "--scenarios conflicts with legacy fixed-path/full-gallery/decomposition-off options"
         )
+    if "--llm-chat-template-kwargs" in explicit:
+        from flows.decompose import validate_chat_template_kwargs
+
+        try:
+            if args.llm_chat_template_kwargs is None:
+                raise ValueError("must be a JSON object, not null")
+            args.llm_chat_template_kwargs = validate_chat_template_kwargs(args.llm_chat_template_kwargs)
+        except ValueError as exc:
+            p.error(f"invalid --llm-chat-template-kwargs: {exc}")
     if args.candidate_limit is not None and not 1 <= args.candidate_limit <= 100000:
         p.error("--candidate-limit must be between 1 and 100000")
     if args.resume_from and args.scenarios and len(args.scenarios) != 1:
@@ -954,7 +968,9 @@ def main() -> None:
     elif stage in ("run", "retrieve") and args.llm_url and not args.dry_run:
         try:
             decomposer = flows.LiveDecomposer(
-                args.llm_url, repo_root=flows.REPO_ROOT, model=args.llm_model
+                args.llm_url, repo_root=flows.REPO_ROOT, model=args.llm_model,
+                **({"chat_template_kwargs": args.llm_chat_template_kwargs}
+                   if args.llm_chat_template_kwargs is not None else {}),
             )
             print(f"decomposition: live via {args.llm_url}  model={decomposer.model}")
         except flows.DecompositionError as e:

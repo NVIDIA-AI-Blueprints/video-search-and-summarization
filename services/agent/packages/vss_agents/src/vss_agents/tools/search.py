@@ -65,14 +65,20 @@ Available video sources:
 
 Extract the following parameters from the user query:
 - query: The main search description including actions AND attributes (e.g., "person moving with white pants")
-- video_sources: List of video source names mentioned (from available sources above, empty list if none mentioned)
-- source_type: "rtsp" if referring to live/camera streams, "video_file" if referring to uploaded video files (default: "video_file")
-- timestamp_start: Start time in ISO format (e.g., "2025-01-01T13:00:00Z"). Use 2025-01-01 as the base date.
-- timestamp_end: End time in ISO format (e.g., "2025-01-01T14:00:00Z"). Use 2025-01-01 as the base date.
+- video_sources: Select available source names only when explicitly requested by the user. Empty list if none mentioned.
+  The available-source list is context, not a request to restrict the search. Do not infer a source from a scene,
+  a filename, or words in a filename; preserve an explicitly requested available source.
+- source_type: "rtsp" if the user refers to live/camera streams, "video_file" if the user refers to uploaded video files.
+  Omit if unspecified. Do not infer source_type from filenames or choose a default source filter.
+- timestamp_start: Start time in ISO format, only when explicitly requested (e.g., "2025-01-01T13:00:00Z").
+- timestamp_end: End time in ISO format, only when explicitly requested (e.g., "2025-01-01T14:00:00Z").
+  Do not invent time filters from a video date, filename, example, or available-source metadata. If no time is requested,
+  omit both timestamps or set them to null. Preserve explicit dates; use 2025-01-01 only for an explicit time of day
+  without a date. Do not add an end time or duration that the user did not specify.
 - attributes: List of person appearance descriptors only (clothing, colours, worn or
   carried items). Never include actions or verbs, never other object classes, and never
   bare "person". Empty list if the query describes no appearance details.
-- has_action: REQUIRED boolean. Set to True if the query explicitly mentions an action/event/activity (e.g., running, walking, carrying, pushing, entering, leaving, moving). Set to False if the query only describes visual/physical attributes (what someone/something LOOKS LIKE) without any action. Examples: "person" → false, "person walking" → true, "red car" → false, "person carrying box" → true, "forklift" → false.
+- has_action: REQUIRED boolean. Set to True if the query explicitly mentions an action/event/activity (e.g., running, walking, standing, carrying, pushing, entering, leaving, moving). Set to False if the query only describes visual/physical attributes (what someone/something LOOKS LIKE) without any action. Examples: "person" → false, "person walking" → true, "person standing" → true, "red car" → false, "person carrying box" → true, "forklift" → false.
 - object_ids: List of integer object IDs if explicitly mentioned in the query (e.g., "find object 5" → [5], "search for objects 10, 20" → [10, 20]). null if no object IDs are mentioned.
 - top_k: Number of results to return (integer, only if explicitly mentioned, e.g., "top 5", "first 10")
 
@@ -86,7 +92,7 @@ User query: {user_query}"""
 # Default few-shot examples for query decomposition
 DEFAULT_FEW_SHOT_EXAMPLES = """Example 1:
 User query: "Find a man pushing a cart wearing a beige shirt between 1 pm and 2 pm at Endeavor heart"
-Output: {{"query": "man pushing cart wearing beige shirt", "video_sources": ["Endeavor heart"], "source_type": "rtsp", "timestamp_start": "2025-01-01T13:00:00Z", "timestamp_end": "2025-01-01T14:00:00Z", "attributes": ["person wearing beige shirt"], "has_action": true}}
+Output: {{"query": "man pushing cart wearing beige shirt", "video_sources": ["Endeavor heart"], "timestamp_start": "2025-01-01T13:00:00Z", "timestamp_end": "2025-01-01T14:00:00Z", "attributes": ["person wearing beige shirt"], "has_action": true}}
 
 Example 2:
 User query: "Find people running near Building A camera from 9am to 10am"
@@ -94,23 +100,23 @@ Output: {{"query": "people running", "video_sources": ["Building A"], "source_ty
 
 Example 3:
 User query: "Search for a woman with a blue backpack walking"
-Output: {{"query": "woman walking with blue backpack", "video_sources": [], "source_type": "video_file", "attributes": ["woman with blue backpack"], "has_action": true}}
+Output: {{"query": "woman walking with blue backpack", "video_sources": [], "attributes": ["woman with blue backpack"], "has_action": true}}
 
 Example 4:
 User query: "Find delivery truck at warehouse entrance between 2pm and 4pm"
-Output: {{"query": "delivery truck at warehouse entrance", "video_sources": ["warehouse entrance"], "source_type": "rtsp", "timestamp_start": "2025-01-01T14:00:00Z", "timestamp_end": "2025-01-01T16:00:00Z", "has_action": false}}
+Output: {{"query": "delivery truck at warehouse entrance", "video_sources": ["warehouse entrance"], "timestamp_start": "2025-01-01T14:00:00Z", "timestamp_end": "2025-01-01T16:00:00Z", "has_action": false}}
 
 Example 5:
 User query: "Person wearing red jacket and blue jeans carrying a box"
-Output: {{"query": "person wearing red jacket and blue jeans carrying box", "video_sources": [], "source_type": "video_file", "attributes": ["person wearing red jacket and blue jeans"], "has_action": true}}
+Output: {{"query": "person wearing red jacket and blue jeans carrying box", "video_sources": [], "attributes": ["person wearing red jacket and blue jeans"], "has_action": true}}
 
 Example 7:
 User query: "person with long wavy hair wearing white sneakers"
-Output: {{"query": "person with long wavy hair wearing white sneakers", "video_sources": [], "source_type": "video_file", "attributes": ["person with long wavy hair wearing white sneakers"], "has_action": false}}
+Output: {{"query": "person with long wavy hair wearing white sneakers", "video_sources": [], "attributes": ["person with long wavy hair wearing white sneakers"], "has_action": false}}
 
 Example 8:
 User query: "Person in white t-shirt and black leggings running out of store with stolen items"
-Output: {{"query": "person in white t-shirt and black leggings running out of store with stolen items", "video_sources": [], "source_type": "video_file", "attributes": ["person in white t-shirt and black leggings"], "has_action": true}}
+Output: {{"query": "person in white t-shirt and black leggings running out of store with stolen items", "video_sources": [], "attributes": ["person in white t-shirt and black leggings"], "has_action": true}}
 
 Example 9:
 User query: "search for object ids 5, 6"
@@ -126,7 +132,15 @@ Output: {{"query": "person physically assaulting someone", "attributes": [], "ha
 
 Example 12:
 User query: "people running near a doorway"
-Output: {{"query": "people running near a doorway", "attributes": [], "has_action": true}}"""
+Output: {{"query": "people running near a doorway", "attributes": [], "has_action": true}}
+
+Example 13:
+User query: "person standing in a red shirt"
+Output: {{"query": "person standing in a red shirt", "video_sources": [], "attributes": ["person in a red shirt"], "has_action": true}}
+
+Example 14:
+User query: "red cart near a doorway"
+Output: {{"query": "red cart near a doorway", "video_sources": [], "attributes": [], "has_action": false}}"""
 
 
 class DecomposedQuery(BaseModel):

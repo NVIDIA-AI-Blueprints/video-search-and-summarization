@@ -44,8 +44,10 @@ shift is visible rather than silently changing what was measured.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
+import math
 import re
 import time
 import warnings
@@ -104,6 +106,44 @@ def _strip_fences(text: str) -> str:
     return stripped
 
 
+def validate_chat_template_kwargs(value: Any) -> dict[str, Any] | None:
+    """Validate explicit JSON object settings and detach caller-owned containers."""
+    if value is None:
+        return None
+    if type(value) is not dict:
+        raise ValueError("chat_template_kwargs must be a JSON object")
+
+    def check(item: Any, ancestors: set[int]) -> None:
+        if item is None or type(item) in (str, bool, int):
+            return
+        if type(item) is float and math.isfinite(item):
+            return
+        if type(item) not in (dict, list):
+            raise ValueError(
+                "chat_template_kwargs must contain only finite JSON values"
+            )
+        if id(item) in ancestors:
+            raise ValueError("chat_template_kwargs must not contain cycles")
+        ancestors.add(id(item))
+        try:
+            if type(item) is dict:
+                if any(type(key) is not str for key in item):
+                    raise ValueError("chat_template_kwargs object keys must be strings")
+                values = item.values()
+            else:
+                values = item
+            for child in values:
+                check(child, ancestors)
+        finally:
+            ancestors.remove(id(item))
+
+    try:
+        check(value, set())
+        return copy.deepcopy(value)
+    except RecursionError as exc:
+        raise ValueError("chat_template_kwargs nesting is too deep") from exc
+
+
 class LiveDecomposer:
     """Decomposes each query against the deployment's LLM, and times it."""
 
@@ -114,7 +154,9 @@ class LiveDecomposer:
         repo_root: Path,
         model: str | None = None,
         timeout_s: float = 120.0,
+        chat_template_kwargs: dict[str, Any] | None = None,
     ) -> None:
+        self._chat_template_kwargs = validate_chat_template_kwargs(chat_template_kwargs)
         self._url = llm_url.rstrip("/")
         self._timeout = timeout_s
         self._prompt, self._few_shot = load_prompt(repo_root)
@@ -159,6 +201,11 @@ class LiveDecomposer:
             "prompt_sha256": hashlib.sha256(self._prompt.encode()).hexdigest(),
             "system_prompt_sha256": hashlib.sha256(_SYSTEM.encode()).hexdigest(),
             "few_shot_sha256": hashlib.sha256(self._few_shot.encode()).hexdigest(),
+            **(
+                {"chat_template_kwargs": copy.deepcopy(self._chat_template_kwargs)}
+                if self._chat_template_kwargs is not None
+                else {}
+            ),
         }
 
     def decompose(
@@ -194,6 +241,8 @@ class LiveDecomposer:
                 },
             ],
         }
+        if self._chat_template_kwargs is not None:
+            body["chat_template_kwargs"] = copy.deepcopy(self._chat_template_kwargs)
         evidence = {
             "original_query": query,
             "query_id": query_id,
