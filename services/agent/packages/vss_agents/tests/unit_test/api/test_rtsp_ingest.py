@@ -635,6 +635,51 @@ class TestAddToRtviVlm:
 
     @pytest.mark.asyncio
     @patch("vss_agents.api.rtsp_ingest.create_retry_strategy")
+    async def test_duplicate_stream_is_idempotent_success(self, mock_retry):
+        mock_client = MagicMock()
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_vlm_base_url="http://rtvi-vlm:8018")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"results": [], "errors": [{"error_code": "DuplicateStreamId"}]}'
+        mock_response.json = MagicMock(
+            return_value={"results": [], "errors": [{"error_code": "DuplicateStreamId", "status_code": 409}]}
+        )
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_retry.return_value = _single_attempt_retry()
+
+        success, msg, stream_id = await add_to_rtvi_vlm(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+
+        assert success is True
+        assert msg == "Already registered"
+        assert stream_id == "sensor-123"
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.create_retry_strategy")
+    async def test_non_duplicate_error_still_fails(self, mock_retry):
+        mock_client = MagicMock()
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_vlm_base_url="http://rtvi-vlm:8018")
+
+        error = {"error_code": "InvalidStreamUrl", "status_code": 400}
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"results": [], "errors": [{"error_code": "InvalidStreamUrl"}]}'
+        mock_response.json = MagicMock(return_value={"results": [], "errors": [error]})
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_retry.return_value = _single_attempt_retry()
+
+        success, msg, stream_id = await add_to_rtvi_vlm(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+
+        assert success is False
+        assert "InvalidStreamUrl" in msg
+        assert stream_id is None
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.create_retry_strategy")
     async def test_downstream_url_is_never_rewritten(self, mock_retry):
         """rtvi-vlm gets VST's ``/live/<uuid>`` URL verbatim; audio opt-in happens upstream."""
         mock_client = MagicMock()
