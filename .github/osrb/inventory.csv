@@ -701,7 +701,6 @@ actions/checkout,34e114876b0b11c390a56381ad16ebd13914f8d5,MIT,.github,github-act
 actions/checkout,de0fac2e4500dabe0009e67214ff5f5447ce83dd,MIT,.github,github-action,ci,.github/workflows/fern-docs-ci.yml,ci,no,no,no,ci-tooling,None
 actions/checkout,v4,MIT,.github,github-action,ci,.github/workflows/helm-sync.yml,ci,no,no,no,ci-tooling,None
 actions/download-artifact,d3f86a106a0bac45b974a628896c90dbdf5c8093,MIT,.github,github-action,ci,.github/workflows/build-dev-images.yml,ci,no,no,no,ci-tooling,None
-actions/setup-node,48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e,MIT,.github,github-action,ci,.github/workflows/fern-docs-ci.yml,ci,no,no,no,ci-tooling,None
 actions/setup-node,49933ea5288caeca8642d1e84afbd3f7d6820020,MIT,.github,github-action,ci,.github/workflows/ci.yml,ci,no,no,no,ci-tooling,None
 actions/setup-python,a26af69be951a213d495a4c3e4e4022e16d87065,MIT,.github,github-action,ci,.github/workflows/ci.yml,ci,no,no,no,ci-tooling,None
 actions/setup-python,ece7cb06caefa5fff74198d8649806c4678c61a1,MIT,.github,github-action,ci,.github/workflows/osrb-scan.yml,ci,no,no,no,ci-tooling,None
@@ -2675,6 +2674,7 @@ nvidia-ml-py,12.575.51,BSD License,services/vios,python,lockfile,services/vios/t
 nvidia-ml-py,13.610.43,BSD License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 nvidia-ml-py,13.610.43,BSD License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 nvidia-nat,1.8.0,Apache-2.0,services/agent,python,lockfile;manifest,services/agent/packages/vss_agents/pyproject.toml;services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+nvidia-nat,UNKNOWN,Apache-2.0,deploy,python,usage,deploy/docker/services/agent/search_prompt_policy.py,runtime,no,no,no,imported-only,None
 nvidia-nat-atif,1.8.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 nvidia-nat-core,1.8.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 nvidia-nat-eval,1.8.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3984,6 +3984,7 @@ vllm,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/dock
 vllm_cosmos3,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/models/vllm_compatible/vllm_compatible_model.py,runtime,no,no,no,imported-only,Unknown
 vss-ctx-rag,3.1.0,UNKNOWN,services/video-summarization,python,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
 vss-ctx-rag-arango,3.1.0,UNKNOWN,services/video-summarization,python,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
+vss_agents,UNKNOWN,UNKNOWN,deploy,python,usage,deploy/docker/services/agent/search_prompt_policy.py,runtime,no,no,no,imported-only,Unknown
 vss_core,UNKNOWN,UNKNOWN,.github,python,usage,.github/scripts/stamp_versions.py,runtime,no,no,no,imported-only,Unknown
 vss_core,UNKNOWN,UNKNOWN,services/agent,python,usage,services/agent/packages/vss_agents/src/vss_agents/api/version.py,runtime,no,no,no,imported-only,Unknown
 vss_ctx_rag,UNKNOWN,UNKNOWN,services/video-summarization,python,usage,services/video-summarization/src/via_stream_handler.py,runtime,no,no,no,imported-only,Unknown
