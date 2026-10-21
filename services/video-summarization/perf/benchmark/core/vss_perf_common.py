@@ -111,7 +111,7 @@ class GPUInfo(BaseModel):
     model: str = Field(DEFAULT_GPU_MODEL_UNKNOWN, description="GPU model name (e.g. H100, A100)")
     full_name: str = Field("", description="Full name from driver")
     count: int = Field(0, ge=0, description="Number of GPUs")
-    memory_gb: float = Field(0.0, ge=0, description="GPU memory per device (GB)")
+    memory_gb: Optional[float] = Field(None, ge=0, description="GPU memory per device (GB)")
     driver_version: str = Field("", description="NVIDIA driver version")
     cuda_version: str = Field("", description="CUDA toolkit version")
 

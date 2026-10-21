@@ -21,9 +21,9 @@ from types import SimpleNamespace
 def _monitor(monkeypatch):
     import gpu_monitor
 
-    monkeypatch.setattr(gpu_monitor, "DEVICE_COUNT", 1)
-    monkeypatch.setattr(gpu_monitor, "DEVICE_HANDLES", [object()])
-    monkeypatch.setattr(gpu_monitor, "GPU_NAMES", ["NVIDIA GB10"])
+    monkeypatch.setattr(gpu_monitor, "DEVICE_COUNT", 1, raising=False)
+    monkeypatch.setattr(gpu_monitor, "DEVICE_HANDLES", [object()], raising=False)
+    monkeypatch.setattr(gpu_monitor, "GPU_NAMES", ["NVIDIA GB10"], raising=False)
     return gpu_monitor, gpu_monitor.GPUMonitor([0])
 
 
@@ -70,3 +70,32 @@ def test_unavailable_gpu_memory_is_null_in_standard_result():
     assert metrics["vlm_gpu_memory_mean"] is None
     assert metrics["llm_gpu_usage_mean"] == 18.0
     assert metrics["llm_gpu_memory_mean"] is None
+
+
+def test_unavailable_gpu_memory_can_be_written_to_result(monkeypatch, tmp_path):
+    import json
+
+    import vss_perf_common
+
+    monkeypatch.setattr(
+        vss_perf_common,
+        "get_gpu_info",
+        lambda: {
+            "model": "GB10",
+            "full_name": "NVIDIA GB10",
+            "count": 1,
+            "memory_gb": None,
+            "driver_version": "test",
+        },
+    )
+    output = tmp_path / "result.json"
+    vss_perf_common.build_and_save(
+        output,
+        "LVS",
+        [],
+        platform=vss_perf_common.discover_platform(),
+        run_id="lvs_test",
+    )
+
+    result = json.loads(output.read_text())
+    assert result["metadata"]["platform"]["gpu"]["memory_gb"] is None

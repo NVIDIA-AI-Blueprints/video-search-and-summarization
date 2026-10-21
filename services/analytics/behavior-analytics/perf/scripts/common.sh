@@ -11,10 +11,11 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ba-perf}"
 MONITOR_NAME="${MONITOR_NAME:-ba-perf-latency-monitor}"
 PERF_SCENARIO="${PERF_SCENARIO:-quick_test}"
 PERF_CONFIG_ID="${PERF_CONFIG_ID:-warehouse_2d-kafka-playback}"
-if [[ -f "$PERF_DIR/benchmark/scenario_config.py" && -f "$PERF_DIR/configs/config.yaml" ]]; then
+PERF_CONFIG_FILE="${PERF_CONFIG_FILE:-$PERF_DIR/configs/config.yaml}"
+if [[ -f "$PERF_DIR/benchmark/scenario_config.py" && -f "$PERF_CONFIG_FILE" ]]; then
     # config.yaml is the run matrix. Env vars still win when already set.
     eval "$(python3 "$PERF_DIR/benchmark/scenario_config.py" \
-        --config "$PERF_DIR/configs/config.yaml" \
+        --config "$PERF_CONFIG_FILE" \
         --scenario "$PERF_SCENARIO")"
 fi
 PERF_DURATION_SECONDS="${PERF_DURATION_SECONDS:-${CONFIG_DURATION_SECONDS:-60}}"
@@ -25,7 +26,6 @@ OUTPUT_DIR="${OUTPUT_DIR:-${PERF_OUTPUT_DIR:-$PERF_DIR/results/${PERF_SERVICE:-b
 COMPOSE_DIR="$INTEGRATION_DIR/docker_compose"
 export BA_PERF_DATA_DIR="${BA_PERF_DATA_DIR:-/tmp/ba-perf-${COMPOSE_PROJECT_NAME}-$(id -u)}"
 export BA_PERF_OVERLAY_STAMP="${BA_PERF_OVERLAY_STAMP:-$BA_PERF_DATA_DIR/perf_app_overlay.json}"
-CHECKOUT_DATA_LOG="$INTEGRATION_DIR/docker_compose/apps_data/data_log"
 
 refuse_symlink() {
     local path="$1"
