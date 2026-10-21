@@ -1298,7 +1298,7 @@ describe('ChatPanel', () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText(/backend event stream ended before the response completed/),
+        screen.getByText(/The agent connection closed before the response completed/),
       ).toBeInTheDocument(),
     );
     fireEvent.click(screen.getByText(/Intermediate steps \(1\)/));
