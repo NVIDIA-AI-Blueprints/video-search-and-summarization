@@ -139,7 +139,7 @@ class KnowledgeRetrievalInput(BaseModel):
 
 # Deployment environment for each backend's config, first variable set wins.
 # nvidia_vision_ai.knowledge takes every value as a parameter, so the agent reads
-# what the adapters used to. An explicit backend_config value always wins.
+# what the adapters used to. A key set in backend_config wins (see _setup_backend).
 _BACKEND_ENV: dict[str, dict[str, tuple[str, ...]]] = {
     "frag_api": {
         "rag_url": ("RAG_SERVER_URL",),
@@ -164,12 +164,14 @@ _DEFAULT_CHROMA_DIR = "/tmp/chroma_data"
 def _setup_backend(config: KnowledgeRetrievalConfig, _builder: Builder) -> tuple[str, dict[str, Any]]:
     backend_config = dict(config.backend_config or {})
     for field, names in _BACKEND_ENV.get(config.backend, {}).items():
-        if backend_config.get(field) is not None:
+        # A key set in backend_config wins, even when it is None (e.g. no RAG auth).
+        # embed_api_key alone falls back when empty, as the adapters did before.
+        if field in backend_config and (field != "embed_api_key" or backend_config[field]):
             continue
         value = next((os.environ[name] for name in names if name in os.environ), None)
         if value is not None:
             backend_config[field] = value
-    if config.backend in ("langchain", "llama_index") and backend_config.get("persist_dir") is None:
+    if config.backend in ("langchain", "llama_index") and "persist_dir" not in backend_config:
         backend_config["persist_dir"] = _DEFAULT_CHROMA_DIR
     return config.backend, backend_config
 

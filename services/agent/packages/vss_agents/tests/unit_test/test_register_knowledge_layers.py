@@ -101,6 +101,25 @@ class TestBackendEnvironment:
         _, adapter_cfg = _setup_backend(cfg, MagicMock())
         assert adapter_cfg["rag_url"] == "http://rag:8081/v1"
 
+    def test_explicit_none_beats_env(self, monkeypatch):
+        monkeypatch.setenv("RAG_API_KEY", "env-key-123")  # pragma: allowlist secret
+        cfg = KnowledgeRetrievalConfig(backend="frag_api", backend_config={"api_key": None})
+        _, adapter_cfg = _setup_backend(cfg, MagicMock())
+        assert adapter_cfg["api_key"] is None
+
+    @pytest.mark.parametrize("empty", [None, ""])
+    def test_empty_embed_key_falls_back_to_env(self, empty, monkeypatch):
+        monkeypatch.setenv("NVIDIA_API_KEY", "env-key-123")  # pragma: allowlist secret
+        cfg = KnowledgeRetrievalConfig(backend="langchain", backend_config={"embed_api_key": empty})
+        _, adapter_cfg = _setup_backend(cfg, MagicMock())
+        assert adapter_cfg["embed_api_key"] == "env-key-123"  # pragma: allowlist secret
+
+    def test_explicit_persist_dir_is_not_defaulted(self, monkeypatch):
+        monkeypatch.setenv("VSS_CHROMA_DIR", "/var/lib/chroma")
+        cfg = KnowledgeRetrievalConfig(backend="llama_index", backend_config={"persist_dir": None})
+        _, adapter_cfg = _setup_backend(cfg, MagicMock())
+        assert adapter_cfg["persist_dir"] is None  # the adapter rejects it, as before
+
     def test_first_set_variable_wins(self, monkeypatch):
         monkeypatch.setenv("ARANGO_DB_USERNAME", "fallback_user")
         cfg = KnowledgeRetrievalConfig(backend="arango_graph")
