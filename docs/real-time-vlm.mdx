@@ -24,7 +24,7 @@ interface for live stream processing operations.
 
 * **VLM Caption Generation**: Generate captions and alerts using Vision Language
   Models for live streams
-* **Live Stream Support**: Process RTSP live streams for real-time caption generation and alert detection — see [Supported Inputs](/vss/system-components/vision-microservices/real-time-vlm#supported-inputs)
+* **Live Stream Support**: Process RTSP live streams for real-time caption generation and alert detection — see [Supported Inputs](/system-components/vision-microservices/real-time-vlm#supported-inputs)
 * **Streaming Responses**: Server-Sent Events (SSE) for streaming output or Kafka messages
 * **Asset Management**: Comprehensive stream lifecycle management
 * **Shared RTSP Decode**: Multiple caption requests can subscribe to one RTSP
@@ -38,7 +38,7 @@ interface for live stream processing operations.
 The following diagram illustrates the DeepStream Accelerated Pipeline architecture
 for the Real-Time VLM Microservice:
 
-![DeepStream Accelerated Pipeline Architecture](/assets/images/real-time-vlm/real-time-vlm.png)
+![DeepStream Accelerated Pipeline Architecture](./assets/images/real-time-vlm/real-time-vlm.png)
 
 The pipeline processes camera streams through the following stages:
 
@@ -118,7 +118,7 @@ supporting the following schemes:
 * `s3://` — Amazon S3 object paths
 * `file://` — local filesystem paths (requires `FILE_URL_ALLOWED_DIRS`)
 
-See [URL-Based Processing](/vss/system-components/vision-microservices/real-time-vlm#url-based-processing) for API details and
+See [URL-Based Processing](/system-components/vision-microservices/real-time-vlm#url-based-processing) for API details and
 security constraints.
 
 **Media types**
@@ -145,13 +145,13 @@ security constraints.
 Native audio decoding is available when using Omni models with
 `VLM_MODEL_SUPPORTS_AUDIO=true`. Set `INSTALL_PROPRIETARY_CODECS=true`
 when inputs may contain proprietary audio codecs. See
-[Omni Native Audio Support](/vss/system-components/vision-microservices/real-time-vlm#omni-native-audio-support) for configuration
+[Omni Native Audio Support](/system-components/vision-microservices/real-time-vlm#omni-native-audio-support) for configuration
 details.
 
 ## API Reference
 
 For the endpoint catalog, including methods and summaries, see the
-[Real-Time VLM API Reference](/vss/system-components/vision-microservices/real-time-vlm/api-reference).
+[Real-Time VLM API Reference](/system-components/vision-microservices/real-time-vlm/api-reference).
 
 The API is organized into the following categories:
 
@@ -307,7 +307,7 @@ a custom host port, set `KAFKA_PORT`. To use a different Redis server,
 set `REDIS_HOST` and `REDIS_PORT`. To expose Redis on a custom host
 port, set `REDIS_HOST_PORT`.
 
-If the launch fails due to Out of Memory error, see [Troubleshooting](/vss/system-components/vision-microservices/real-time-vlm#troubleshooting) (adjust `VLLM_GPU_MEMORY_UTILIZATION`,
+If the launch fails due to Out of Memory error, see [Troubleshooting](/system-components/vision-microservices/real-time-vlm#troubleshooting) (adjust `VLLM_GPU_MEMORY_UTILIZATION`,
 reduce `VLM_MAX_MODEL_LEN`, or set `NVIDIA_VISIBLE_DEVICES=<gpuid>`).
 </Note>
 
@@ -800,8 +800,8 @@ a 404 response.
 The following example demonstrates alert/anomaly detection using the VLM.
 Use a prompt that expects a structured Yes/No response for anomaly detection.
 When anomalies are detected, incidents can be published to the Kafka incident
-topic (see [Kafka Integration](/vss/system-components/vision-microservices/real-time-vlm#kafka-integration)). The Incident
-message payload is defined in [Incident Messages](/vss/system-components/vision-microservices/real-time-vlm#incident-messages).
+topic (see [Kafka Integration](/system-components/vision-microservices/real-time-vlm#kafka-integration)). The Incident
+message payload is defined in [Incident Messages](/system-components/vision-microservices/real-time-vlm#incident-messages).
 
 ```python
 import requests
@@ -1205,9 +1205,9 @@ messages to Kafka as each chunk completes VLM inference:
    anomaly is detected. The server detects incidents by checking the VLM
    response for trigger phrases such as `"yes"` or `"true"`
    (case-insensitive). Use prompts that expect structured Yes/No answers (see
-   [Enabling Incidents](/vss/system-components/vision-microservices/real-time-vlm#enabling-incidents)). For the full
+   [Enabling Incidents](/system-components/vision-microservices/real-time-vlm#enabling-incidents)). For the full
    Incident message payload (protobuf schema and example), see
-   [Incident Messages](/vss/system-components/vision-microservices/real-time-vlm#incident-messages).
+   [Incident Messages](/system-components/vision-microservices/real-time-vlm#incident-messages).
    When reasoning is available, it is also added to `Incident.info` as both
    `reasoning` and `reasoningDescription`.
 
@@ -1465,11 +1465,11 @@ standalone Helm override.
 | `VLLM_NUM_SCHEDULER_STEPS` | Number of scheduler steps for vLLM | `8` |
 | `VLLM_ENABLE_PREFIX_CACHING` | Enable vLLM prefix caching | `false` |
 | `VLLM_DISABLE_MM_PREPROCESSOR_CACHE` | Disable vLLM multimodal preprocessor cache | `true` |
-| `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; leave empty to disable it. Configured values must be finite and strictly between `0` and `1`, otherwise RTVI-VLM fails startup. Also required to activate EVS++ pruning when `VIA_EVS_SESSION=true` | Empty |
-| `VIA_EVS_SESSION` | Enable the optional EVS++ video-session path when set to `true` or `1` | Empty (disabled) |
-| `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.4` when EVS++ session mode is enabled |
-| `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced; `1` generates on every clip | `1` |
-| `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `256` |
+| `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; leave empty to disable it. Configured values must be finite and strictly between `0` and `1`, otherwise RTVI-VLM fails startup. Also required to activate Adaptive EVS pruning when `VIA_EVS_SESSION=true` | Empty |
+| `VIA_EVS_SESSION` | Enable the optional Adaptive EVS video-session path when set to `true` or `1` | Empty (disabled) |
+| `VLLM_EVS_SIMILARITY_THRESHOLD` | Adaptive EVS cosine-dissimilarity threshold, from `0` to `2`. A video token whose dissimilarity from the same position in the preceding frame is below this value is pruned, so higher values prune more. Used only when `VIA_EVS_SESSION` is enabled | `0.4` |
+| `VIA_EVS_TOKEN_BUDGET` | Adaptive EVS visual-token budget accumulated across clips before generation is forced. `1` generates on every clip; larger values pack several clips into one generation and produce fewer captions | `1` |
+| `VIA_EVS_MAX_SESSIONS` | Maximum concurrent Adaptive EVS video sessions | `256` |
 | `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
 | `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `0` |
 | `VLLM_MM_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
@@ -1534,6 +1534,28 @@ The VSS deployment scripts expose this setting as
 lower the value if model startup reports insufficient free memory or other
 services need more headroom. Changing this value requires restarting RTVI-VLM
 because vLLM reserves memory during engine initialization.
+
+### GB300 Standalone Deployment
+
+For standalone RT-VLM deployment on GB300, set the following environment
+variables on the `rtvi-server` container through a Docker Compose override:
+
+```yaml
+services:
+  rtvi-server:
+    environment:
+      RTVI_QUEUE_DECODED_FRAMES_ON_GPU: "true"
+      VLLM_MM_TENSOR_IPC: "torch_shm"
+      RTVI_VLLM_ATTENTION_BACKEND: "TRITON_ATTN"
+      RTVI_VLLM_MAX_NUM_BATCHED_TOKENS: "8192"
+      RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
+      RTVI_VLM_ADMISSION_MODE: "off"
+```
+
+Tune GPU memory utilization and the batched-token budget to the memory
+available to RT-VLM. VSS profiles that share the GPU with other services may
+require different values; use the profile-specific memory utilization
+starting points above.
 
 ### Additional Helm Chart Values
 
@@ -1721,46 +1743,89 @@ field in each chunk.
 understanding is available only on Omni models; other VLM models support
 video and text input only.
 
-For Video Summarization MS integration, see [Optional: Use Nemotron-3-Nano-Omni (audio-aware VLM)](/vss/vision-agent/agent-workflows/video-summarization#optional-use-nemotron-3-nano-omni-audio-aware-vlm).
+For Video Summarization MS integration, see [Optional: Use Nemotron-3-Nano-Omni (audio-aware VLM)](/vision-agent/agent-workflows/video-summarization#optional-use-nemotron-nano-v3-omni-audio-aware-vlm).
 
-### Efficient Video Sampling (EVS and EVS++)
+### Efficient Video Sampling (EVS and Adaptive EVS)
 
 EVS is a vLLM-engine feature that prunes redundant video tokens before
 inference to reduce per-chunk compute. RTVI-VLM supports two startup modes:
 
-* **Fixed-rate EVS**: Set `VLM_VIDEO_PRUNING_RATE` to a finite value greater
-  than `0` and less than `1`. For example, `0.5` prunes about half of the
-  redundant video tokens. Leave it unset or empty to disable this mode.
-  Boundary, out-of-range, non-numeric, NaN, and infinite values cause
-  RTVI-VLM startup to fail instead of silently disabling EVS.
-* **EVS++ session mode**: Set both `VIA_EVS_SESSION=true` and
-  `VLM_VIDEO_PRUNING_RATE=0.5`. `VIA_EVS_SESSION` routes requests through
-  the vLLM video-session path, while `VLM_VIDEO_PRUNING_RATE` activates
-  pruning in the engine at startup. The RTVI-VLM build applies the EVS++ vLLM
-  overlay for this session mode. It adds content-dependent similarity pruning,
-  per-stream video sessions, event-gated generation, token-budgeted clip
-  packing, absolute timestamp metadata, and optional Prefill-Decode (PD)
-  server routing.
+* **Fixed-rate EVS** prunes the same fraction of video tokens from every
+  chunk, regardless of content.
+* **Adaptive EVS** decides per token, based on content. Video tokens that
+  barely change from the preceding frame are pruned, and tokens that carry
+  motion or new content are kept. A static scene is pruned heavily and a busy
+  scene is pruned lightly. Adaptive EVS also keeps a video session per stream,
+  so pruning carries across chunk boundaries instead of restarting on every
+  chunk.
 
 EVS settings are read at service startup, so restart the RTVI-VLM service after
 changing them. They are not changed by the runtime Config API.
 
-```bash
-# Fixed-rate EVS
-VLM_VIDEO_PRUNING_RATE=0.5
+#### Fixed-Rate EVS
 
-# EVS++ session mode
-VIA_EVS_SESSION=true
+Set `VLM_VIDEO_PRUNING_RATE` to a finite value greater than `0` and less than
+`1`. For example, `0.5` prunes about half of the redundant video tokens. Leave
+it unset or empty to disable EVS. Boundary, out-of-range, non-numeric, NaN, and
+infinite values cause RTVI-VLM startup to fail instead of silently disabling
+EVS.
+
+```bash
 VLM_VIDEO_PRUNING_RATE=0.5
-VLLM_EVS_SIMILARITY_THRESHOLD=0.4
 ```
 
 Fixed-rate EVS is available on vLLM-compatible local models that use the
 patched video-pruning paths, including Nemotron Nano VL, Qwen 2.5-VL, and
-Qwen3-VL/Cosmos3-style models. EVS++ is supported only for local,
-vLLM-compatible models based on the Qwen3-VL architecture. It is not
-applicable to `openai-compat` remote endpoints and is not supported for
-Omni models, including `NemotronH_Nano_Omni_Reasoning_V3`.
+Qwen3-VL/Cosmos3-style models.
+
+#### Adaptive EVS
+
+Set both `VIA_EVS_SESSION=true` and `VLM_VIDEO_PRUNING_RATE=0.5`.
+`VIA_EVS_SESSION` routes requests through the vLLM video-session path, and
+`VLM_VIDEO_PRUNING_RATE` turns on pruning in the engine at startup.
+`VLLM_EVS_SIMILARITY_THRESHOLD` is optional and defaults to `0.4`.
+
+```bash
+VIA_EVS_SESSION=true
+VLM_VIDEO_PRUNING_RATE=0.5
+VLLM_EVS_SIMILARITY_THRESHOLD=0.4   # optional; 0.4 is the default
+```
+
+<Warning>
+Set `VLM_VIDEO_PRUNING_RATE` whenever `VIA_EVS_SESSION=true`. Without it,
+RTVI-VLM still creates video sessions but the engine never prunes, so requests
+pay the session overhead with no token reduction.
+</Warning>
+
+Adaptive EVS is supported only for local, vLLM-compatible models based on the
+Qwen3-VL architecture. It is not applicable to `openai-compat` remote endpoints.
+It is not supported for Omni models: RTVI-VLM fails startup when
+`VIA_EVS_SESSION=true` is set with `NemotronH_Nano_Omni_Reasoning_V3`.
+
+**Tuning:**
+
+* `VLLM_EVS_SIMILARITY_THRESHOLD` controls how aggressively similar content is
+  pruned. Each video token is compared with the token at the same position in
+  the preceding frame, and it is pruned when their cosine dissimilarity is
+  below the threshold. Raise the value to prune more and run faster; lower it
+  to keep more detail. The valid range is `0` to `2`.
+* `VIA_EVS_TOKEN_BUDGET` sets how many visual tokens a session accumulates
+  before it generates. The default, `1`, generates a caption for every clip,
+  so caption counts match a deployment without Adaptive EVS. Larger values pack
+  several clips into one generation, which reduces the number of model calls
+  and captions.
+* `VIA_EVS_MAX_SESSIONS` caps the number of concurrent video sessions. The
+  default is `256`.
+
+**Behavior changes when enabled:**
+
+* Every request goes through the video-session path, for uploaded files
+  as well as live streams.
+* RTVI-VLM encodes absolute frame timestamps in the video metadata. Unless you
+  configure an `RTVI_TIMESTAMP_PROMPT_*` template, RTVI-VLM appends an
+  instruction to the prompt telling the model that the clip's frames span
+  their absolute timestamps in the source video, so returned timestamps are
+  relative to the start of the video rather than the start of the chunk.
 
 ### Frame Selection Modes
 
@@ -1822,6 +1887,25 @@ Reason: [Brief explanation]"
 * Verify GPU access: Ensure NVIDIA Container Toolkit is installed and
   `nvidia-smi` works
 
+**Low throughput or high latency**
+
+For single-GPU RT-VLM deployments, keep decoded frames on the GPU and use
+`torch_shm` tensor transport to reduce CPU transfers between decoding and
+inference. Set these variables on the `rtvi-server` container through a
+Docker Compose override, then recreate the service:
+
+```yaml
+services:
+  rtvi-server:
+    environment:
+      RTVI_QUEUE_DECODED_FRAMES_ON_GPU: "true"
+      VLLM_MM_TENSOR_IPC: "torch_shm"
+```
+
+Tune concurrency and memory settings to the GPU memory available to the
+deployment. For tensor-parallel deployments across multiple GPUs, retain
+the default tensor transport.
+
 **Out of Memory error**
 
 For example, larger models such as
@@ -1838,7 +1922,7 @@ settings on NVIDIA RTX 4500, L40S, or Thor systems.
 * **Reduce max model length on lower-memory GPUs**: Reduce `VLM_MAX_MODEL_LEN`
 * **Cap generation length**: Lower `VLM_MAX_GENERATION_TOKENS` (default
   `16384`) to bound peak per-request memory.
-* On Jetson Thor or DGX systems, ensure that the [cache cleaner](/vss/getting-started/prerequisites#cache-cleaner-only-on-dgx-spark-igx-thor-and-agx-thor) script is running.
+* On Jetson Thor or DGX systems, ensure that the [cache cleaner](/getting-started/prerequisites#cache-cleaner-only-on-dgx-spark-igx-thor-and-agx-thor) script is running.
 
 If the issue persists, reduce the image preprocessor `max_pixels` value for
 the affected model. Replace `<model-cache-directory>` with the directory
@@ -1878,7 +1962,7 @@ VLM_MAX_MODEL_LEN=2560
 VLLM_GPU_MEMORY_UTILIZATION=0.55
 ```
 
-Also ensure that the [cache cleaner](/vss/getting-started/prerequisites#cache-cleaner-only-on-dgx-spark-igx-thor-and-agx-thor) script is
+Also ensure that the [cache cleaner](/getting-started/prerequisites#cache-cleaner-only-on-dgx-spark-igx-thor-and-agx-thor) script is
 running on Thor.
 
 **System memory grows over time**

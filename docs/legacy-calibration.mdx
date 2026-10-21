@@ -112,7 +112,7 @@ You can import projects exported from previous deployments (version 1.1 or later
   The naming must match to be uploaded. Then we will upload the `Images.zip` which also comes from the export. It may take some time for the images upload to happen. Please wait for the green Zip file uploaded before pressing the `Upload` button.
   If the project already exists, the naming will be changed to reflect that it is unique. Also, if a project named "_" is created as a temporary project and does not auto delete, it will block all new imports. Please ensure no project is named "_", before importing.
 
-![Import Project](/assets/images/calibration/Calibration-Upload_project.png)
+![Import Project](./assets/images/calibration/Calibration-Upload_project.png)
 
 ### Sensor Discovery
 
@@ -133,13 +133,13 @@ The URL templates are shown below:
   * K8s Deployment Non Hosted: `http://<HOST_IP>:31080/nvstreamer/`
   * K8s Deployment Hosted" `http://nvstreamer-nvstreamer-svc:31000/`
 
-![MMS Modal Config](/assets/images/calibration/Calibration-mms_config.png)
+![MMS Modal Config](./assets/images/calibration/Calibration-mms_config.png)
 
 Otherwise, create new sensors in the Setup sensor page.
 
 ### Sensor Configuration
 
-![Camera Modal Config](/assets/images/calibration/Calibration-camera_config_blank.png)
+![Camera Modal Config](./assets/images/calibration/Calibration-camera_config_blank.png)
 
 A sensor consists of the metadata that we will be calibrating. These are the common cameras:
 
@@ -177,7 +177,7 @@ To calibrate, we will draw one polygon in the image view marking static landmark
 
 Intersection is a crossing of two roads. In this, we try to group cameras that cover the same two roads. This grouping allows us to configure "Intersection View" within the UI.
 
-![Create New Intersection](/assets/images/calibration/GIS-Calibration-Create-New-Intersection.jpg)
+![Create New Intersection](./assets/images/calibration/GIS-Calibration-Create-New-Intersection.jpg)
 
 **Properties**
 
@@ -192,7 +192,7 @@ Intersection is a crossing of two roads. In this, we try to group cameras that c
 
 A corridor is a group of cameras that might fall under a large artery, such as a highway. For a broader definition, FRC (federal road class) level 1-3 can be called a corridor. (Total 6 levels - Interstate, Other Freeways & Expressways, Other Principal Arterials, Minor Arterials, Major and Minor Collectors, Local Roads. ([source](https://www.fhwa.dot.gov/planning/processes/statewide/related/highway_functional_classifications/section03.cfm)). This grouping allows us to configure "Corridor View" within the UI.
 
-![Create New Corridor](/assets/images/calibration/GIS-Calibration-Create-New-Corridor.jpg)
+![Create New Corridor](./assets/images/calibration/GIS-Calibration-Create-New-Corridor.jpg)
 
 **Properties**
 
@@ -211,59 +211,59 @@ The features for drawing polygons and polylines are essentially the same, the on
 
 1) The image drawing container has pan and zoom capabilities. When in a drawing mode, left click on the image to draw and add points.
 
-  ![Image Drawing Tutorial 1](/assets/images/calibration/GIS-Calibration-image_drawing_1.png)
+  ![Image Drawing Tutorial 1](./assets/images/calibration/GIS-Calibration-image_drawing_1.png)
 
 2) A polygon can be completed using either option below. A polyline can be completed using the endpoint option only.
 
-  ![Image Drawing Tutorial 3](/assets/images/calibration/GIS-Calibration-image_drawing_3.png)
+  ![Image Drawing Tutorial 3](./assets/images/calibration/GIS-Calibration-image_drawing_3.png)
 
 3) The shape will be saved upon completion. You can then click the shape to enable the edit mode.
 
-  ![Image Drawing Tutorial 5](/assets/images/calibration/GIS-Calibration-image_drawing_5.png)
+  ![Image Drawing Tutorial 5](./assets/images/calibration/GIS-Calibration-image_drawing_5.png)
 
-  ![Image Drawing Tutorial 6](/assets/images/calibration/GIS-Calibration-image_drawing_6.png)
+  ![Image Drawing Tutorial 6](./assets/images/calibration/GIS-Calibration-image_drawing_6.png)
 
-  ![Image Drawing Tutorial 7](/assets/images/calibration/GIS-Calibration-image_drawing_7.png)
+  ![Image Drawing Tutorial 7](./assets/images/calibration/GIS-Calibration-image_drawing_7.png)
 
 #### Satellite Map Drawing Guideline
 
 1) The map drawing container has pan and zoom capabilities. When in drawing mode, left click on the map to draw and add points.
 
-  ![Map Drawing Tutorial 1](/assets/images/calibration/GIS-Calibration-map_drawing_1.png)
+  ![Map Drawing Tutorial 1](./assets/images/calibration/GIS-Calibration-map_drawing_1.png)
 
 2) A polygon can be completed using either option below.A polyline can be completed using the endpoint option only.
 
-  ![Map Drawing Tutorial 3](/assets/images/calibration/GIS-Calibration-map_drawing_3.png)
+  ![Map Drawing Tutorial 3](./assets/images/calibration/GIS-Calibration-map_drawing_3.png)
 
 3) The shape will be saved upon completion. The user can edit at anytime and does not need to click to enter edit mode.
 
-  ![Map Drawing Tutorial 5](/assets/images/calibration/GIS-Calibration-map_drawing_5.png)
+  ![Map Drawing Tutorial 5](./assets/images/calibration/GIS-Calibration-map_drawing_5.png)
 
 4) Polygons and polylines have the same capabilities of adding, moving and deleting points.
 
-  ![Map Drawing Tutorial 6](/assets/images/calibration/GIS-Calibration-map_drawing_6.png)
+  ![Map Drawing Tutorial 6](./assets/images/calibration/GIS-Calibration-map_drawing_6.png)
 
 ### How To Calibrate
 
 1) Load the Camera Calibration Tool
 
-  ![Calibration Step 1](/assets/images/calibration/GIS-Calibration-Calibration_Step_1.png)
+  ![Calibration Step 1](./assets/images/calibration/GIS-Calibration-Calibration_Step_1.png)
 
-  ![Calibration Step 2](/assets/images/calibration/GIS-Calibration-Calibration_Step_2.png)
+  ![Calibration Step 2](./assets/images/calibration/GIS-Calibration-Calibration_Step_2.png)
 
-  ![Calibration Step 3](/assets/images/calibration/GIS-Calibration-Calibration_Step_3.png)
+  ![Calibration Step 3](./assets/images/calibration/GIS-Calibration-Calibration_Step_3.png)
 
-  ![Calibration Step 4](/assets/images/calibration/GIS-Calibration-Calibration_Step_4.png)
+  ![Calibration Step 4](./assets/images/calibration/GIS-Calibration-Calibration_Step_4.png)
 
-  ![Calibration Step 5](/assets/images/calibration/GIS-Calibration-Calibration_Step_5.png)
+  ![Calibration Step 5](./assets/images/calibration/GIS-Calibration-Calibration_Step_5.png)
 
 6) Toggle the visibility of either the calibration or ROI polygons for better visibility if required.
 
-  ![Calibration Step 6](/assets/images/calibration/GIS-Calibration-Calibration_Step_6.png)
+  ![Calibration Step 6](./assets/images/calibration/GIS-Calibration-Calibration_Step_6.png)
 
-  ![Calibration Step 7](/assets/images/calibration/GIS-Calibration-Calibration_Step_7.png)
+  ![Calibration Step 7](./assets/images/calibration/GIS-Calibration-Calibration_Step_7.png)
 
-  ![Calibration Step 8](/assets/images/calibration/GIS-Calibration-Calibration_Step_8.png)
+  ![Calibration Step 8](./assets/images/calibration/GIS-Calibration-Calibration_Step_8.png)
 
 ### Validation
 
@@ -277,9 +277,9 @@ A good validation will test all parts of the Region of Interest as well as all p
 
 1) Load the Validation Tool
 
-  ![Validation Step 1](/assets/images/calibration/GIS-Calibration-Validation_Step_1.png)
+  ![Validation Step 1](./assets/images/calibration/GIS-Calibration-Validation_Step_1.png)
 
-  ![Validation Step 2](/assets/images/calibration/GIS-Calibration-Validation_Step_2.png)
+  ![Validation Step 2](./assets/images/calibration/GIS-Calibration-Validation_Step_2.png)
 
 ### Road Link and Corridor for GIS Calibration
 
@@ -290,21 +290,21 @@ This App allows us to generate the Road Links that will show up in the UI. In es
 - Once we have calibrated all the cameras, and added them to the correct intersection, we are ready to generate the Road Links. In this view, we will be drawing line segments, to generate the links that show up in the UI. It may be helpful to revisit the cameras in the intersection to visualize the roads that the intersection covers.
 - Edit the Intersection and choose to `Edit Road Links`.
 
-  ![Road Link Generation Step 1](/assets/images/calibration/GIS-Calibration-Road_Link_Gen_1.png)
+  ![Road Link Generation Step 1](./assets/images/calibration/GIS-Calibration-Road_Link_Gen_1.png)
 
 * When drawing the line segments, we want to draw them in terms of the whole intersection. For instance, if you have a northbound and southbound camera, then you can draw 2 line segments one SB and one NB.
 
-  ![Road Link Generation Step 2](/assets/images/calibration/GIS-Calibration-Road_Link_Gen_2.png)
+  ![Road Link Generation Step 2](./assets/images/calibration/GIS-Calibration-Road_Link_Gen_2.png)
 
-  ![Road Link Generation Step 3](/assets/images/calibration/GIS-Calibration-Road_Link_Gen_3.png)
+  ![Road Link Generation Step 3](./assets/images/calibration/GIS-Calibration-Road_Link_Gen_3.png)
 
 #### Road Link Validation
 
 After generating the links, this will enable us to load the links that we will see in the application UI, and validate that we have all the links that we need. Notice that the line segment markers go in increasing order in the direction that cars will be moving. For one way roads, make sure there is only one link. It is possible that the links do not match up cleanly. This is an issue with the granularity of the Open Street maps.
 
-  ![Road Link Validation Step 1](/assets/images/calibration/GIS-Calibration-Road_Link_Val_1.png)
+  ![Road Link Validation Step 1](./assets/images/calibration/GIS-Calibration-Road_Link_Val_1.png)
 
-  ![Road Link Validation Step 2](/assets/images/calibration/GIS-Calibration-Road_Link_Val_2.png)
+  ![Road Link Validation Step 2](./assets/images/calibration/GIS-Calibration-Road_Link_Val_2.png)
 
 #### Corridor Data Generation
 
@@ -314,15 +314,15 @@ One main attribute of a corridor is the corridor length. To generate the length,
 
 1) Load the corridor view. In this view you can see all cameras that belong to the chosen corridor.
 
-  ![Corridor Generation Step 1](/assets/images/calibration/GIS-Calibration-Corridor_Gen_1.png)
+  ![Corridor Generation Step 1](./assets/images/calibration/GIS-Calibration-Corridor_Gen_1.png)
 
-  ![Corridor Generation Step 2](/assets/images/calibration/GIS-Calibration-Corridor_Gen_2.png)
+  ![Corridor Generation Step 2](./assets/images/calibration/GIS-Calibration-Corridor_Gen_2.png)
 
-  ![Corridor Generation Step 3](/assets/images/calibration/GIS-Calibration-Corridor_Gen_3.png)
+  ![Corridor Generation Step 3](./assets/images/calibration/GIS-Calibration-Corridor_Gen_3.png)
 
 ### Export
 
-  ![Export Step 1](/assets/images/calibration/GIS-Calibration_Export_Project.png)
+  ![Export Step 1](./assets/images/calibration/GIS-Calibration_Export_Project.png)
 
 #### Export Sensor Calibration
 
@@ -354,9 +354,9 @@ Upload a floor plan of the place being calibrated. This will be used to make sur
 
 1) For each sensor, place a sensor on it's location on the floor plan.
 
-  ![Multi-Camera Tracking Floor Plan Setup Step 1](/assets/images/calibration/FloorPlan-Setup_Step_1.png)
+  ![Multi-Camera Tracking Floor Plan Setup Step 1](./assets/images/calibration/FloorPlan-Setup_Step_1.png)
 
-  ![Multi-Camera Tracking Floor Plan Setup Step 2](/assets/images/calibration/FloorPlan-Setup_Step_2.png)
+  ![Multi-Camera Tracking Floor Plan Setup Step 2](./assets/images/calibration/FloorPlan-Setup_Step_2.png)
 
 <Note>
 The global coordinates in the final calibration output file is suppose to be in "meters" and the scale factor is "pixel/meters". Global coordinates in meters is for providing the analytics-streams ease to calculate distances between objects and other metrics. Scale factor is for UI to scale the "meters" back to floor plan pixel scale for visualization.
@@ -370,13 +370,13 @@ The global coordinates in the final calibration output file is suppose to be in 
 
 1) Draw a polygon of at least 8 landmark features that can be seen in both the image and the floor plan view. The best practice is to start drawing from the bottom left of the image, and to add points in a counter-clockwise fashion.
 
-  ![Multi-Camera Tracking Calibration Step 1](/assets/images/calibration/FloorPlan-Calibration_Step_1.jpg)
+  ![Multi-Camera Tracking Calibration Step 1](./assets/images/calibration/FloorPlan-Calibration_Step_1.jpg)
 
-  ![Multi-Camera Tracking Calibration Step 2](/assets/images/calibration/FloorPlan-Calibration_Step_2.jpg)
+  ![Multi-Camera Tracking Calibration Step 2](./assets/images/calibration/FloorPlan-Calibration_Step_2.jpg)
 
 4) Draw the Region of Interest (ROI), which represents the area for which the calibration is intended to be valid. This does not necessarily have to be the sensor's entire Field of View.
 
-  ![Multi-Camera Tracking Calibration Step 4](/assets/images/calibration/FloorPlan-Calibration_Step_3.jpg)
+  ![Multi-Camera Tracking Calibration Step 4](./assets/images/calibration/FloorPlan-Calibration_Step_3.jpg)
 
 5) Use the toggle markers button for better visibility on the exact location of a point, or to hide the specified polygon or polyline.
 
@@ -394,7 +394,7 @@ Tripwires/Directions are not used by the Multi-Camera Tracking reference app. Fo
 
 ### Validation
 
-The validation step / logic is similar to the [validation step in GIS calibration](/vss/system-components/calibration/legacy-camera-calibration#validation). Instead of projecting the trajectory onto a satellite map, it will project the trajectory onto the floor plan map.
+The validation step / logic is similar to the [validation step in GIS calibration](/system-components/calibration/legacy-camera-calibration#validation). Instead of projecting the trajectory onto a satellite map, it will project the trajectory onto the floor plan map.
 
 #### Validate the Images
 
@@ -402,7 +402,7 @@ The validation step / logic is similar to the [validation step in GIS calibratio
 
 2) Draw a trajectory on the image, and validate that the projected polyline makes sense in the transformed image. Feel free to clear the image and try drawing as many trajectories as desired. Validate the Calibration when satisfied.
 
-  The ROI, Tripwire, and Direction lines will be projected onto the real world image. To adjust these lines, go back to the [Project Type - Multi-Camera Tracking](#project-type-multi-camera-tracking) section.
+  The ROI, Tripwire, and Direction lines will be projected onto the real world image. To adjust these lines, go back to the [Project Type - Multi-Camera Tracking](#project-type---multi-camera-tracking) section.
 
 ## Project Type - Cartesian
 
@@ -420,7 +420,7 @@ Cartesian Calibration allows us to define a linear mapping (perspective transfor
  There is no actual restrictions on the anchor points selection. User may select any anchor points,
  if user has physical access to the monitored environment and has a way to properly measure the real-world coordinates for the selected anchor points.
 
-  ![Approximate Calibration Generation Step 1](/assets/images/calibration/Calibration-Approx_Calib_Gen_1.png)
+  ![Approximate Calibration Generation Step 1](./assets/images/calibration/Calibration-Approx_Calib_Gen_1.png)
 
 <Note>
 The goal here is to find a 2D-to-2D linear mapping (perspective transformation) between the floor plane in the camera view and the floor plane in the target cartesian coordinate system.
@@ -438,13 +438,13 @@ you can use more than 4 anchor points to generate the homography matrix. You can
 
  On the left side, for each point drawn, you'll see two boxes with the `x` and `y` coordinate which defines that point in the coordinate system. Approximate the distance between the points in centimeters, and define your coordinate system based on the (x,y) distance from your origin.
 
-  ![Approximate Calibration Generation Step 2](/assets/images/calibration/Calibration-Approx_Calib_Gen_2.png)
+  ![Approximate Calibration Generation Step 2](./assets/images/calibration/Calibration-Approx_Calib_Gen_2.png)
 
 3) Click the Calibrate button to calculate the homography matrix.
 
 4) Review the reprojection errors of the points. Click edit to go back and adjust points, or Accept Calibration to accept the homography matrix.
 
-  ![Approximate Calibration Generation Step 6](/assets/images/calibration/Calibration-Approx_Calib_Gen_4.png)
+  ![Approximate Calibration Generation Step 6](./assets/images/calibration/Calibration-Approx_Calib_Gen_4.png)
 
   The reprojection error is calculated by finding the Euclidean distance between the point and it's corresponding projected point. The distance (meters) between that point, and the corresponding point projected from image domain, is the reprojection error for that point correspondence. Computation step is as follows:
 
@@ -457,7 +457,7 @@ you can use more than 4 anchor points to generate the homography matrix. You can
 
 </Note>
 
-	 The reprojection error only reflects if the anchor points "agree" with each other and it doesn't reflect right or wrong of the calibration. In this cartesian calibration, if only 4 anchor points are used, the reprojection error will always be small. To actually validate the calibration and have a sense of if the calibration works, user should check if the warped image makes sense, described in the [validation section](/vss/system-components/calibration/legacy-camera-calibration#validation) below.
+	 The reprojection error only reflects if the anchor points "agree" with each other and it doesn't reflect right or wrong of the calibration. In this cartesian calibration, if only 4 anchor points are used, the reprojection error will always be small. To actually validate the calibration and have a sense of if the calibration works, user should check if the warped image makes sense, described in the [validation section](/system-components/calibration/legacy-camera-calibration#validation) below.
 
 #### Add Region of Interest (ROI)
 
@@ -474,7 +474,7 @@ You can draw ROI in any ways but below points are worth considering:
 
 1) Draw the Region of Interest (ROI). This does not necessarily have to be the sensor's entire Field of View.
 
-  ![Approximate Calibration Generation Step 3](/assets/images/calibration/Calibration-Approx_Calib_Gen_3.png)
+  ![Approximate Calibration Generation Step 3](./assets/images/calibration/Calibration-Approx_Calib_Gen_3.png)
 
 2) Use the toggle markers button for better visibility on the exact location of a point, or to hide the specified polygon or polyline.
 
@@ -486,11 +486,11 @@ You can add tripwires depending on your application. Tripwires are used to trigg
 
   Draw a line segment that defines the region where we want to detect if objects have crossed. Make sure that the polyline has only 2 points.
 
-  ![Tripwire Creation](/assets/images/calibration/Calibration-Tripwire_Gen_1.png)
+  ![Tripwire Creation](./assets/images/calibration/Calibration-Tripwire_Gen_1.png)
 
   When we are drawing, we want to draw line segments that correlate to the direction that objects will be entering the tripwire. This line must intersect the tripwire line. From Point 0 to Point 1 is the OUT direction and from Point 1 to Point 0 is the IN direction. Make sure that the polyline has only 2 points. The direction line is used to determine "in" vs "out" when counting objects crossing the tripwire.
 
-  ![Tripwire Direction Creation](/assets/images/calibration/Calibration-Tripwire_Direction_Gen_1.png)
+  ![Tripwire Direction Creation](./assets/images/calibration/Calibration-Tripwire_Direction_Gen_1.png)
 
 ### Validation
 
@@ -502,21 +502,21 @@ The warped image is shown in the validation window.
 
 We can adjust the warped image by padding pixels which moves the center of the crop taken, and adjusting the size of the crop.
 
-  ![Warped Image Generation Step 1](/assets/images/calibration/Calibration-Warped_Image_Gen_1.png)
+  ![Warped Image Generation Step 1](./assets/images/calibration/Calibration-Warped_Image_Gen_1.png)
 
 Below we show two examples of calibration and the corresponding warped image to give users a better understanding.
 
 Example 1:
 
-  ![Warped Image Description Example 1](/assets/images/calibration/Calibration-Warped_Image_Desc_1.png)
+  ![Warped Image Description Example 1](./assets/images/calibration/Calibration-Warped_Image_Desc_1.png)
 
 Example 2:
 
-  ![Warped Image Description Example 2](/assets/images/calibration/Calibration-Warped_Image_Desc_2.png)
+  ![Warped Image Description Example 2](./assets/images/calibration/Calibration-Warped_Image_Desc_2.png)
 
 #### Validate the Images
 
-The functionality of the validation tool is the same as the other calibration type and for the validate steps please refer to the [validation step in GIS calibration](/vss/system-components/calibration/legacy-camera-calibration#validation) or [validation step in Multi-Camera Tracking calibration](/vss/system-components/calibration/legacy-camera-calibration#validation).
+The functionality of the validation tool is the same as the other calibration type and for the validate steps please refer to the [validation step in GIS calibration](/system-components/calibration/legacy-camera-calibration#validation) or [validation step in Multi-Camera Tracking calibration](/system-components/calibration/legacy-camera-calibration#validation).
 
 Validating Cartesian calibration can be challenging due to a fundamental difference in its validation logic compared to GIS and Multi-Camera Tracking calibrations. In the latter two, a world map is available for reference, whereas in Cartesian calibration, the "world map" is the warped image generated from the calibration process itself. Consequently, any point selected from the image view will always correspond to the same location on the warped image. For instance, if you select the corner of a wall in the image view, the projected point on the warped image will also appear at the corner of the wall.
 
@@ -530,7 +530,7 @@ Project Type - Image allows us to define ROIs, and tripwires for a sensor withou
 
 1) Draw the Region of Interest (ROI), which represents the area for which the calibration is intended to be valid. This does not necessarily have to be the sensor's entire Field of View.
 
-  ![Multi-Camera Tracking Calibration Step 4](/assets/images/calibration/ImageCalibration.png)
+  ![Multi-Camera Tracking Calibration Step 4](./assets/images/calibration/ImageCalibration.png)
 
 ### Adding Tripwires/Direction
 
@@ -542,7 +542,7 @@ In calibration, we are able to add tripwires to enable counting.
 
 ## Export Artifacts
 
-  ![Export Step 1](/assets/images/calibration/Cartesian-Calibration_Export.png)
+  ![Export Step 1](./assets/images/calibration/Cartesian-Calibration_Export.png)
 
 ### Camera Calibration
 

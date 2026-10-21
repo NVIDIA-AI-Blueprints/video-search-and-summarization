@@ -18,7 +18,7 @@ Phoenix provides:
 
 ## Enabling Telemetry
 
-To enable Phoenix telemetry in the agent service, configure the telemetry settings in your agent's configuration file. Refer to [Agent Configuration](/vss/vision-agent/vss-agents/agent-configuration) for the full configuration reference.
+To enable Phoenix telemetry in the agent service, configure the telemetry settings in your agent's configuration file. Refer to [Agent Configuration](/vision-agent/vss-agents/agent-configuration) for the full configuration reference.
 
 ## Navigating the Phoenix UI
 
@@ -28,7 +28,7 @@ Once Phoenix telemetry is enabled and your agent is running, access the Phoenix 
 
 The Phoenix UI organizes traces by project. Select a project to view all traces associated with that agent workflow.
 
-![Phoenix Projects View](/assets/images/agent-workflows/phoenix_projects_view.png)
+![Phoenix Projects View](../assets/images/agent-workflows/phoenix_projects_view.png)
 
 In the example above, select the **DEV-vss-agent-26.01.1-5c61bff-prod.220** project to view traces from the VSS Agent workflow.
 
@@ -52,7 +52,7 @@ Each trace in the list shows the following fields:
 
 Click on any trace to view its detailed span breakdown.
 
-![Phoenix Traces List](/assets/images/agent-workflows/phoenix_traces_list.png)
+![Phoenix Traces List](../assets/images/agent-workflows/phoenix_traces_list.png)
 
 ## Sample Query Trace
 
@@ -68,7 +68,7 @@ The following screenshots show the complete trace visualization with all spans e
 
 The trace begins with the **workflow** span, which orchestrates the entire agent execution:
 
-![Sample Phoenix Query Trace - Workflow and LLM Call](/assets/images/agent-workflows/phoenix_sample_query_trace_1.png)
+![Sample Phoenix Query Trace - Workflow and LLM Call](../assets/images/agent-workflows/phoenix_sample_query_trace_1.png)
 
 The workflow includes:
 
@@ -81,7 +81,7 @@ The workflow includes:
 
 After the initial LLM reasoning, the agent executes the appropriate tool:
 
-![Sample Phoenix Query Trace - Tool Call and Final Response](/assets/images/agent-workflows/phoenix_sample_query_trace_2.png)
+![Sample Phoenix Query Trace - Tool Call and Final Response](../assets/images/agent-workflows/phoenix_sample_query_trace_2.png)
 
 2. **Tool Call (vst_video_list)**: The agent calls the `vst_video_list` tool to retrieve available videos. Click on this span to view:
 

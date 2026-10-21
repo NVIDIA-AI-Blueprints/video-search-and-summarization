@@ -17,7 +17,7 @@ reports. All from natural-language requests.
 
 <Note>
 Agent Skills are a developer-side tool for working with the VSS Blueprint. They are
-distinct from the in-product [VSS Agent](/vss/vision-agent/vss-agents), which runs inside a
+distinct from the in-product [VSS Agent](/vision-agent/vss-agents), which runs inside a
 deployed VSS workflow and orchestrates VSS microservices.
 </Note>
 
@@ -111,7 +111,7 @@ the installed path or in the slash command.**
 </thead>
 <tbody>
 <tr>
-<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><a href="/vss/vision-agent/build-vision-ai"><code>vss-build-vision-ai</code></a></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><a href="/vision-agent/build-vision-ai"><code>vss-build-vision-ai</code></a></td>
 <td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Primary build and deployment Skill for VSS. Deploys stock developer profiles, warehouse industry profiles, and custom capability combinations from natural-language requests. Hands off to the operations Skills once a stack is running, and to a single deployment Skill when only one microservice is wanted.</td>
 </tr>
 </tbody>
@@ -134,7 +134,7 @@ the installed path or in the slash command.**
 </thead>
 <tbody>
 <tr>
-<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><a href="/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/helm-deployment"><code>vss-deploy-warehouse-helm</code></a></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><a href="/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/helm-deployment"><code>vss-deploy-warehouse-helm</code></a></td>
 <td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Deploy or upgrade the warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm, with GPU-aware <code>NUM_STREAMS</code> capping so the request never exceeds what the perception pipeline can sustain.</td>
 </tr>
 <tr>
@@ -147,7 +147,7 @@ the installed path or in the slash command.**
 </tr>
 <tr>
 <td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-deploy-detection-tracking-3d</code></td>
-<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Deploy and operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on sample, custom-video, or RTSP inputs. Auto-chains to <code>vss-generate-video-calibration</code> when calibration data is missing. For sample prompts and expected agent steps, see the <a href="/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough">MV3DT Agent Skills walkthrough</a>.</td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Deploy and operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on sample, custom-video, or RTSP inputs. Auto-chains to <code>vss-generate-video-calibration</code> when calibration data is missing. For sample prompts and expected agent steps, see the <a href="/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough">MV3DT Agent Skills walkthrough</a>.</td>
 </tr>
 <tr>
 <td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-deploy-video-embedding</code></td>
@@ -233,7 +233,7 @@ the installed path or in the slash command.**
 <tbody>
 <tr>
 <td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-generate-video-calibration</code></td>
-<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Calibrate a multi-camera dataset with AutoMagicCalib (AMC) from local MP4s, live RTSP streams, or the bundled sample dataset. For the complete seven-step UI workflow and screenshots, see <a href="/vss/system-components/calibration/auto-calibration/workflow-steps">Auto Calibration Workflow Steps</a>.</td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Calibrate a multi-camera dataset with AutoMagicCalib (AMC) from local MP4s, live RTSP streams, or the bundled sample dataset. For the complete seven-step UI workflow and screenshots, see <a href="/system-components/calibration/auto-calibration/workflow-steps">Auto Calibration Workflow Steps</a>.</td>
 </tr>
 </tbody>
 </table>
@@ -275,7 +275,7 @@ the installed path or in the slash command.**
 </div>
 
 > `vss-deploy-profile` was removed in VSS 3.3.0. Use
-> [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) instead — the VSS
+> [`vss-build-vision-ai`](/vision-agent/build-vision-ai) instead — the VSS
 > 3.3.0 Release Notes map its `-p` / `-m` flags to the equivalent workflows.
 
 ## Report Skill Error Handling
@@ -305,7 +305,7 @@ VSS Agent Skills can be loaded by any agent harness that follows the
 - [OpenClaw](https://github.com/openclaw/openclaw)
 - [NemoClaw](https://github.com/NVIDIA/NemoClaw)
 
-For more information on agent harnesses with VSS, see [Agent Harnesses](/vss/vision-agent/agent-harnesses). Each agent harness expects Skills under a standard directory:
+For more information on agent harnesses with VSS, see [Agent Harnesses](/vision-agent/agent-harnesses). Each agent harness expects Skills under a standard directory:
 
 | Host | Skills directory |
 | --- | --- |
@@ -396,11 +396,11 @@ With VSS Agent Skills installed, prompt the coding agent in natural language to 
 profile or operate the deployment. The agent invokes the matching Skill from the
 catalog. After installing Skills, see the following guides to get started:
 
-- [Quickstart: Agent Skills Walkthrough](/vss/getting-started/quickstart#agent-skills-walkthrough) — deploy and operate the base profile using Skills.
-- [Build Vision AI Skill](/vss/vision-agent/build-vision-ai) — primary deployment entry point for stock profiles, warehouse profiles, and custom vision stacks.
-- [Video Summarization](/vss/vision-agent/agent-workflows/video-summarization) — skills-based workflow for video summarization.
-- [Video Search](/vss/vision-agent/agent-workflows/search) — skills-based workflow for natural language video search.
-- [Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts) — skills-based workflow for real-time alert generation.
+- [Quickstart: Agent Skills Walkthrough](/getting-started/quickstart#agent-skills-walkthrough) — deploy and operate the base profile using Skills.
+- [Build Vision AI Skill](/vision-agent/build-vision-ai) — primary deployment entry point for stock profiles, warehouse profiles, and custom vision stacks.
+- [Video Summarization](/vision-agent/agent-workflows/video-summarization) — skills-based workflow for video summarization.
+- [Video Search](/vision-agent/agent-workflows/search) — skills-based workflow for natural language video search.
+- [Real-Time Alerts](/vision-agent/agent-workflows/real-time-alerts) — skills-based workflow for real-time alert generation.
 
 Once the deployment is up and running, Skills can be used to perform workflow tasks or interact with individual
 microservices. Here are some prompt examples which would call the `vss-manage-video-io-storage` Skill for Video IO and Storage (VIOS):
@@ -440,5 +440,5 @@ directory.
 
 ## Related Documentation
 
-- [VSS Agents](/vss/vision-agent/vss-agents) - The in-product agent that runs inside a deployed VSS workflow.
-- [Agent Workflows](/vss/vision-agent/agent-workflows) - End-to-end workflows demonstrated through developer profiles.
+- [VSS Agents](/vision-agent/vss-agents) - The in-product agent that runs inside a deployed VSS workflow.
+- [Agent Workflows](/vision-agent/agent-workflows) - End-to-end workflows demonstrated through developer profiles.

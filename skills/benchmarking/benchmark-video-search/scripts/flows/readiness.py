@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -68,6 +69,31 @@ def list_sensor_streams(vst_url: str, timeout: int = VST_LIST_TIMEOUT) -> dict[s
         if stream_list:
             streams[stream_id] = stream_list[0].get("name", "unknown")
     return streams
+
+
+def list_search_indices(origin: str, timeout: int = VST_LIST_TIMEOUT) -> dict[str, int]:
+    """Return ``{index: docs.count}`` for every Elasticsearch index behind ``origin``.
+
+    ``origin`` is the unified path-prefix ingress (the same one ``vss configure``
+    is pointed at), which routes ``/elasticsearch``. Read-only.
+    """
+    parsed = urlparse(origin)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(f"not an http(s) origin: {origin!r}")
+    resp = requests.get(
+        f"{origin.rstrip('/')}/elasticsearch/_cat/indices",
+        params={"format": "json", "h": "index,docs.count"},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    indices: dict[str, int] = {}
+    for row in resp.json() or []:
+        if isinstance(row, dict) and row.get("index"):
+            try:
+                indices[str(row["index"])] = int(row.get("docs.count") or 0)
+            except (TypeError, ValueError):
+                indices[str(row["index"])] = 0
+    return indices
 
 
 def inventory_snapshot(vst_url: str) -> dict[str, Any]:
@@ -133,10 +159,10 @@ def wait_for_sources(
 ) -> dict[str, Any]:
     """Block until VST lists every expected source, or the budget runs out.
 
-    Only VST registration is checked. The upstream skill also checks the three
-    Elasticsearch indices directly, which this deliberately does not do --
-    reaching past the public origin into ES is what the skill's hard boundaries
-    forbid.
+    Only VST registration is checked here. The separate index check may read
+    Elasticsearch's ``_cat`` API through the unified public ingress, but this
+    wait cannot use that aggregate view to prove that each expected source is
+    registered.
 
     Note VST registration is not a complete readiness signal: an aborted ingest
     can leave embedding documents in Elasticsearch with no VST sensor, which

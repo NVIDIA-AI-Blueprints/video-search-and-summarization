@@ -60,25 +60,27 @@ The following prerequisites are required **only** for Docker Compose deployments
 - NVIDIA Driver 595.58.03 on Ubuntu 24.04
 - Docker Engine 28.3.3 or later and earlier than 29.5.0
 - Docker Compose v2.39.1 or later
+- Docker Buildx 0.23.0 (working version), 0.23.0 or later and earlier than 0.35.0
 - NVIDIA Container Toolkit 1.17.8 or later
 
 These match the platform-wide requirements in
-[Prerequisites](/vss/getting-started/prerequisites); the Smart City Blueprint does not
+[Prerequisites](/getting-started/prerequisites); the Smart City Blueprint does not
 relax or extend them.
 
 <Note>
-For detailed installation instructions, see the [Appendix](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#appendix-software-prerequisites-installation-guide):
+For detailed installation instructions, see the [Appendix](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#appendix-software-prerequisites-installation-guide):
 
 **Docker Compose deployments:**
 
-- [Install NVIDIA Driver](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-nvidia-driver)
-- [Install Docker](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-docker)
-- [Configure Docker](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#configure-docker)
-- [Install NVIDIA Container Toolkit](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-nvidia-container-toolkit)
+- [Install NVIDIA Driver](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-nvidia-driver)
+- [Install Docker](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-docker)
+- [Configure Docker](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#configure-docker)
+- [Install Docker Buildx](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-docker-buildx)
+- [Install NVIDIA Container Toolkit](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-nvidia-container-toolkit)
 
 **Common software (both deployments):**
 
-- [Install NGC CLI](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-ngc-cli)
+- [Install NGC CLI](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-ngc-cli)
 </Note>
 
 ## NGC API Key Access
@@ -227,7 +229,7 @@ ngc --version
 ngc config set
 ```
 
-When prompted, enter your NGC API key. For information on obtaining an NGC API key, see the [NGC API Key Access](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#ngc-api-key-access) section.
+When prompted, enter your NGC API key. For information on obtaining an NGC API key, see the [NGC API Key Access](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#ngc-api-key-access) section.
 
 <Note>
 For the latest version of NGC CLI, visit the NGC CLI downloads page: https://ngc.nvidia.com/setup/installers/cli
@@ -308,6 +310,37 @@ docker compose version
 <Note>
 Docker Compose v2 uses the command `docker compose` (without hyphen) instead of the older `docker-compose` command.
 </Note>
+
+#### Install Docker Buildx
+
+Buildx version 0.23.0 or later and earlier than 0.35.0 is required. Version 0.23.0 is the known working version.
+
+**Check if Docker Buildx is already installed and meets the version range:**
+
+```bash
+docker buildx version
+```
+
+If the version is missing, older than 0.23.0, or 0.35.0 or newer, install working version 0.23.0. The command selects the binary for the host architecture (`x86_64` or `aarch64`):
+
+```bash
+case "$(uname -m)" in
+  x86_64) BUILDX_ARCH=amd64 ;;
+  aarch64|arm64) BUILDX_ARCH=arm64 ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -fSL "https://github.com/docker/buildx/releases/download/v0.23.0/buildx-v0.23.0.linux-${BUILDX_ARCH}" \
+  -o /usr/local/lib/docker/cli-plugins/docker-buildx
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+```
+
+**Verify installation:**
+
+```bash
+docker buildx version
+```
 
 #### Install NVIDIA Container Toolkit
 

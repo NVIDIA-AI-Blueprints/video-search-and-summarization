@@ -14,14 +14,14 @@ Source files:
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
 - `deploy/docker/services/infra/compose.yml`
 
-Key service signals in the current develop branch:
+Key service signals in the VSS 3.3.0 release:
 
 | Item | Value |
 |---|---|
 | Compose profile | `lvs-server` |
 | video summarization service | `lvs-server` |
 | video summarization container | `vss-lvs` |
-| video summarization image | `${VSS_VIDEO_SUMMARIZATION_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization}:${VSS_VIDEO_SUMMARIZATION_TAG:-3.3.0}` (use the `-sbsa` tag variant on SBSA) |
+| video summarization image | `nvcr.io/nvidia/vss-core/vss-video-summarization:3.3.0` (use `3.3.0-sbsa` on SBSA; see image overrides below) |
 | REST API | `http://<HOST_IP>:38111` |
 | Readiness | `GET /v1/ready` |
 | MCP port | `38112`, disabled by default in the developer profile |
@@ -89,14 +89,27 @@ Video summarization service values:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
-| `VSS_VIDEO_SUMMARIZATION_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | video summarization image repository. |
-| `VSS_VIDEO_SUMMARIZATION_TAG` | `3.3.0` on x86/Tegra; use `3.3.0-sbsa` on SBSA. |
+| `VSS_CONTAINER_REGISTRY` | `nvcr.io/nvidia/vss-core` | Shared image registry root used when the service repository is unset. |
+| `VSS_VIDEO_SUMMARIZATION_IMAGE` | `${VSS_CONTAINER_REGISTRY}/vss-video-summarization` | Service image repository override, without a tag. |
+| `VSS_VIDEO_SUMMARIZATION_TAG` | `3.3.0` on x86/Tegra; `3.3.0-sbsa` on SBSA | Service image tag override. |
+| `CONTAINER_IMAGE` | unset | Complete image reference override; takes precedence over the repository and tag variables. |
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Default event database backend. |
 | `KAFKA_ENABLED` | `true` in dev-profile-lvs | Enables RTVI -> Kafka -> Logstash -> ES integration. |
 | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker address from the video summarization container. |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `mdx-structured-events-summary` | Structured summary publish topic. |
 | `LVS_ENABLE_LLM_MERGING` | `true` in dev-profile-lvs | Merge duplicate or overlapping events with the LLM. |
+
+Compose resolves the image using the following expression from
+`deploy/docker/services/video-summarization/compose.yml`:
+
+```text
+${CONTAINER_IMAGE:-${VSS_VIDEO_SUMMARIZATION_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-video-summarization}:${VSS_VIDEO_SUMMARIZATION_TAG:-3.3.0}}
+```
+
+Set service-specific overrides in `generated.env` before resolving Compose.
+`LVS_IMAGE` and `LVS_TAG` are obsolete; use `VSS_VIDEO_SUMMARIZATION_IMAGE`
+and `VSS_VIDEO_SUMMARIZATION_TAG` instead.
 
 ## Database Backend Selection
 
@@ -274,12 +287,14 @@ profile name, or friendly name is also the serving id.
 ## Helm Notes
 
 The Helm service chart lives at `deploy/helm/services/video-summarization`.
-Current image values:
+VSS 3.3.0 release image values:
 
 - `image.repository: nvcr.io/nvidia/vss-core/vss-video-summarization`
 - `image.tag: "3.3.0"` (use `"3.3.0-sbsa"` on SBSA)
 - `global.container_prefix` / `global.container_tag` override the repository
-  root and tag for the whole managed set, LVS included
+  root and tag for the whole managed set, LVS included. When non-empty, they
+  take precedence over `image.repository` and `image.tag`; the repository
+  becomes `<global.container_prefix>/vss-video-summarization`
 - `service.backendPort: 38111`
 - `service.mcpPort: 38112`
 - `KAFKA_ENABLED: "true"`

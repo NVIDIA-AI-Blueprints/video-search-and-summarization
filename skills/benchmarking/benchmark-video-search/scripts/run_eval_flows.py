@@ -71,8 +71,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import requests
-
 #: Stages whose own time is below this are wrappers or noise; the console hides
 #: them so the table reads as "where did the time go" without a nesting caveat.
 _STAGE_FLOOR_S = 0.001
@@ -189,47 +187,6 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             pass_original_query=pass_original_query,
         )
     raise SystemExit(f"Unknown query flow: {args.query_flow}")
-
-
-# =============================================================================
-# Ingest
-# =============================================================================
-
-
-def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
-    """Delete every video registered on the deployment.
-
-    Lists and deletes against the SAME resolved origins the rest of the run
-    uses, so ``--vst-url`` cannot list one host and delete from another.
-    Prints the full inventory first: ``--clear`` is destructive and shared
-    deployments carry other people's fixtures.
-    """
-    try:
-        streams = flows.list_sensor_streams(vst_url)
-    except Exception as e:
-        raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
-
-    if not streams:
-        print("  No videos found to delete.")
-        return {"found": 0, "deleted": 0, "names": []}
-
-    print(f"  Deleting {len(streams)} video(s) from {agent_endpoint}:")
-    for stream_id, name in streams.items():
-        print(f"    - {name}  ({stream_id})")
-
-    deleted, failed = 0, []
-    for stream_id, name in streams.items():
-        try:
-            resp = requests.delete(f"{agent_endpoint.rstrip('/')}/api/v1/videos/{stream_id}", timeout=60)
-            resp.raise_for_status()
-            deleted += 1
-            print(f"    deleted {name} -> {resp.status_code}")
-        except Exception as e:  # noqa: BLE001
-            failed.append(name)
-            print(f"    FAILED {name}: {e}")
-
-    print(f"  Deleted {deleted}/{len(streams)} video(s)")
-    return {"found": len(streams), "deleted": deleted, "failed": failed, "names": list(streams.values())}
 
 
 #: What the probe asks. Any text works -- embedding search returns the nearest
@@ -454,61 +411,6 @@ def describe_query_flow(
     else:
         described["live_decomposition"] = False
     return described
-
-
-def prune_foreign_videos(agent_endpoint: str, vst_url: str, video_dir: Path) -> dict[str, Any]:
-    """Delete every registered source that is NOT one of this dataset's videos.
-
-    The narrow form of ``--clear``. A run is only interpretable if the index
-    holds what the dataset says it holds: a foreign source cannot be retrieved
-    for any query in the dataset, so it contributes nothing but the chance of a
-    false positive and a longer ingest. Removing exactly the foreign ones keeps
-    the deployment reproducible without wiping fixtures the dataset does need.
-
-    Membership uses :func:`flows.name_variants` -- the same normalisation
-    ``--skip-existing`` uses to decide a video is already present. Sharing one
-    matcher is what stops this deleting a video the very next step re-uploads.
-    """
-    try:
-        streams = flows.list_sensor_streams(vst_url)
-    except Exception as e:
-        raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
-
-    ours: set[str] = set()
-    for vf in sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")):
-        ours |= flows.name_variants(vf.name)
-    if not ours:
-        raise SystemExit(
-            f"ABORTED: no video files (.mp4 or .mkv) under {video_dir}, so every source looks foreign. "
-            f"Refusing to delete the whole deployment -- pass --clear if that is what you meant."
-        )
-
-    foreign = {sid: n for sid, n in streams.items() if str(n).lower() not in ours}
-    kept = len(streams) - len(foreign)
-    print(f"  {len(streams)} source(s) registered: {kept} belong to this dataset, {len(foreign)} do not")
-    if not foreign:
-        print("  Nothing to prune.")
-        return {"found": len(streams), "kept": kept, "deleted": 0, "names": []}
-
-    for stream_id, name in foreign.items():
-        print(f"    - {name}  ({stream_id})")
-
-    deleted, failed = 0, []
-    for stream_id, name in foreign.items():
-        try:
-            resp = requests.delete(f"{agent_endpoint.rstrip('/')}/api/v1/videos/{stream_id}", timeout=60)
-            resp.raise_for_status()
-            deleted += 1
-            print(f"    deleted {name} -> {resp.status_code}")
-        except Exception as e:  # noqa: BLE001
-            failed.append(name)
-            print(f"    FAILED {name}: {e}")
-
-    print(f"  Pruned {deleted}/{len(foreign)} foreign video(s); kept {kept}")
-    return {
-        "found": len(streams), "kept": kept, "deleted": deleted,
-        "failed": failed, "names": list(foreign.values()),
-    }
 
 
 def ingest_videos(
@@ -1456,6 +1358,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print the resolved backends and a sample CLI invocation, then exit",
     )
+    p.add_argument(
+        "--check-indices",
+        action="store_true",
+        help=(
+            "List the Elasticsearch indices behind the configure origin "
+            "(--vss-base-url, or --endpoint's host on --vss-origin-port) and exit. "
+            "Read-only; exits 1 when no mdx-embed-filtered-* index holds documents and warns "
+            "when mdx-behavior-* is empty."
+        ),
+    )
     args = p.parse_args(argv)
     if args.fixed_search_path and args.decompositions:
         p.error("--fixed-search-path cannot be combined with --decompositions")
@@ -1467,11 +1379,39 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("destructive cleanup cannot be combined with --skip-ingest")
     if args.confirm_delete and not (args.only_dataset or args.clear):
         p.error("--confirm-delete requires --only-dataset or --clear")
+    if args.check_indices and (args.only_dataset or args.clear):
+        p.error("--check-indices is read-only and cannot be combined with --only-dataset or --clear")
+    if args.check_indices and args.dry_run:
+        p.error("--check-indices performs a read-only request and cannot be combined with --dry-run")
     return args
+
+
+def check_indices(origin: str) -> int:
+    """Print search indices; return 0 when the embed search index has documents."""
+    try:
+        indices = flows.list_search_indices(origin)
+    except Exception as e:  # noqa: BLE001
+        print(f"ABORTED: could not list indices at {origin} ({type(e).__name__}: {e})", file=sys.stderr)
+        return 1
+    print(f"Elasticsearch indices at {origin}:")
+    for name, count in sorted(indices.items()):
+        print(f"  {name:<40} {count}")
+    if not any(name.startswith("mdx-embed-filtered-") and count > 0 for name, count in indices.items()):
+        print(
+            "No mdx-embed-filtered-* index holds documents: embed search is not ready (run Step 4).",
+            file=sys.stderr,
+        )
+        return 1
+    if not any(name.startswith("mdx-behavior") and count > 0 for name, count in indices.items()):
+        print("No mdx-behavior-* documents: only the embed path can score.", file=sys.stderr)
+    return 0
 
 
 def main() -> None:
     args = parse_args()
+
+    if args.check_indices:
+        sys.exit(check_indices(args.vss_base_url or flows.vss_origin_for(args.endpoint, args.vss_origin_port)))
 
     # Decomposition is the default, not an opt-in. The deployed agent decomposes
     # every query and that choice picks the retrieval path, so an eval that
@@ -1592,10 +1532,10 @@ def main() -> None:
     video_dir = args.data_dir / args.dataset / "videos"
     if args.clear:
         print("\nClearing ALL existing videos (--clear)...")
-        cleared = clear_all_videos(args.endpoint, vst_url)
+        cleared = flows.clear_all_videos(args.endpoint, vst_url)
     elif args.only_dataset:
         print("\nPruning sources that are not in this dataset (--only-dataset)...")
-        cleared = prune_foreign_videos(args.endpoint, vst_url, video_dir)
+        cleared = flows.prune_foreign_videos(args.endpoint, vst_url, video_dir)
 
     # A source that would not delete is still searchable, so it still answers
     # queries and still counts as a false positive. Continuing would score a run

@@ -6,7 +6,7 @@ position: 1
 
 This guide explains how to deploy and access the **Auto Calibration microservice and user interface**.
 
-The detailed Auto Calibration workflow, input requirements, rectification, alignment, results, and troubleshooting content is documented in the [Auto Calibration Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps), [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset), and [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) pages.
+The detailed Auto Calibration workflow, input requirements, rectification, alignment, results, and troubleshooting content is documented in the [Auto Calibration Workflow Steps](/system-components/calibration/auto-calibration/workflow-steps), [Custom Dataset](/system-components/calibration/auto-calibration/custom-dataset), and [Troubleshooting](/system-components/calibration/auto-calibration/troubleshooting) pages.
 
 ## Prerequisites
 
@@ -20,7 +20,7 @@ Before using the VSS Auto Calibration service and UI, ensure you have:
 - NVIDIA Container Toolkit
 - An NGC API key with access to the required VSS images
 
-Required calibration inputs and detailed method-specific requirements are documented in [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset).
+Required calibration inputs and detailed method-specific requirements are documented in [Custom Dataset](/system-components/calibration/auto-calibration/custom-dataset).
 
 ## Deployment Steps (Docker Compose)
 
@@ -29,7 +29,7 @@ These steps deploy the Auto Calibration service using the VSS repository. They a
 <Note>
 **Running Auto Calibration as a Warehouse Blueprint profile**
 
-Auto Calibration can also be deployed as part of the Warehouse Blueprint with `MODE=auto-calibration` and `BP_PROFILE=bp_wh_auto_calib`. That profile starts the same `vss-auto-calibration` service and UI from the blueprint's Compose stack, alongside the VIOS/VST services, rather than through the steps below. The blueprint profile deploys no `sdr-controller`, so the SDRC routing keys `VST_USE_SDRC`, `STREAM_PROCESSOR_MODULE_ENDPOINT`, and `VST_NGINX_MODE` must be commented out so the direct VST defaults in `services/vios/vst.env` apply. `blueprint-deploy.sh` comments them for you in the generated env file; with the direct `docker compose` command you must comment them yourself in `industry-profiles/warehouse-operations/overrides.env`. For the exact settings, see [Configure Environment settings](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#configure-environment-settings) in the Warehouse Quickstart.
+Auto Calibration can also be deployed as part of the Warehouse Blueprint with `MODE=auto-calibration` and `BP_PROFILE=bp_wh_auto_calib`. That profile starts the same `vss-auto-calibration` service and UI from the blueprint's Compose stack, alongside the VIOS/VST services, rather than through the steps below. The blueprint profile deploys no `sdr-controller`, so the SDRC routing keys `VST_USE_SDRC`, `STREAM_PROCESSOR_MODULE_ENDPOINT`, and `VST_NGINX_MODE` must be commented out so the direct VST defaults in `services/vios/vst.env` apply. `blueprint-deploy.sh` comments them for you in the generated env file; with the direct `docker compose` command you must comment them yourself in `industry-profiles/warehouse-operations/overrides.env`. For the exact settings, see [Configure Environment settings](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#configure-environment-settings) in the Warehouse Quickstart.
 </Note>
 
 ### 1. Authenticate with NGC
@@ -90,6 +90,8 @@ The Auto Calibration service can run the AMC method without VGGT support. To ena
 mkdir -p "${VSS_DATA_DIR}/auto-calib/vggt"
 ```
 
+For the default case, use `vggt_1B_commercial.pt`. To use any other model name, update `VGGT_MODEL_PATH` in `.env` to the new model's full path inside the container: `/tmp/vggt_model/<filename>`.
+
 You must accept the model license before downloading it.
 
 ### 6. Prepare the projects directory
@@ -140,6 +142,6 @@ docker compose \
 
 ## Next Steps
 
-- Follow the [Auto Calibration Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps) for the complete 7-step UI workflow and screenshots.
-- Follow [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) for input videos, alignment data, lens distortion, and ground-truth requirements.
-- Follow [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) for common deployment and calibration failures.
+- Follow the [Auto Calibration Workflow Steps](/system-components/calibration/auto-calibration/workflow-steps) for the complete 7-step UI workflow and screenshots.
+- Follow [Custom Dataset](/system-components/calibration/auto-calibration/custom-dataset) for input videos, alignment data, lens distortion, and ground-truth requirements.
+- Follow [Troubleshooting](/system-components/calibration/auto-calibration/troubleshooting) for common deployment and calibration failures.

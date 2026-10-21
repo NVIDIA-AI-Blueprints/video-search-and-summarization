@@ -63,12 +63,6 @@ one moves a run further from the baseline everything else is compared against.
 # Use a local dataset instead of DSS
 --data-dir ~/Desktop/vss-eval-datasets --dataset warehouse --skip-download
 
-# Isolate this dataset by deleting foreign sources (explicit and destructive)
---dataset warehouse --only-dataset --confirm-delete
-
-# Fresh index, wipes everyone's data (destructive)
---dataset warehouse --clear --confirm-delete
-
 # Default/shared box — do not touch others' data
 --dataset warehouse --skip-existing
 
@@ -92,6 +86,28 @@ one moves a run further from the baseline everything else is compared against.
 
 # See what would run, touching nothing
 --dry-run
+
+# List the deployment's search indices and exit (read-only)
+--check-indices
+```
+
+### Deleting sources
+
+Not part of a benchmark run. Use these only when the user explicitly asks to
+delete sources. Both require `--confirm-delete` in the same invocation, there
+is no interactive prompt, and both abort if the listing and deleting hosts
+differ. Report the inventory the runner prints as it deletes.
+
+> **WARNING:** These deletions are irreversible. `--clear` removes every source
+> on the target deployment, including other users' data. Confirm the target
+> host and preserve anything needed before running either command.
+
+```bash
+# Delete every source that is not in this dataset
+--dataset warehouse --only-dataset --confirm-delete
+
+# Delete every source on the deployment, including other users' fixtures
+--dataset warehouse --clear --confirm-delete
 ```
 
 `--concurrency` defaults to 1 and should stay there for any run whose latency
