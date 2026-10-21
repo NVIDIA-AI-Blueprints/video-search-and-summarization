@@ -264,7 +264,7 @@ class TestArangoGraphArango:
         assert chunk.metadata["collection_name"] == "example_graph"
         assert chunk.metadata["source_metadata"]["aql_query"] == "FOR n IN node_b RETURN n"
 
-    def test_arango_config_can_override_env_defaults(self, fake_arango):
+    def test_arango_config_reaches_the_client(self, fake_arango):
         from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
         from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
