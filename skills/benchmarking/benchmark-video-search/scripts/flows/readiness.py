@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -68,6 +69,31 @@ def list_sensor_streams(vst_url: str, timeout: int = VST_LIST_TIMEOUT) -> dict[s
         if stream_list:
             streams[stream_id] = stream_list[0].get("name", "unknown")
     return streams
+
+
+def list_search_indices(origin: str, timeout: int = VST_LIST_TIMEOUT) -> dict[str, int]:
+    """Return ``{index: docs.count}`` for every Elasticsearch index behind ``origin``.
+
+    ``origin`` is the unified path-prefix ingress (the same one ``vss configure``
+    is pointed at), which routes ``/elasticsearch``. Read-only.
+    """
+    parsed = urlparse(origin)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(f"not an http(s) origin: {origin!r}")
+    resp = requests.get(
+        f"{origin.rstrip('/')}/elasticsearch/_cat/indices",
+        params={"format": "json", "h": "index,docs.count"},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    indices: dict[str, int] = {}
+    for row in resp.json() or []:
+        if isinstance(row, dict) and row.get("index"):
+            try:
+                indices[str(row["index"])] = int(row.get("docs.count") or 0)
+            except (TypeError, ValueError):
+                indices[str(row["index"])] = 0
+    return indices
 
 
 def inventory_snapshot(vst_url: str) -> dict[str, Any]:

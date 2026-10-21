@@ -1477,6 +1477,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print the resolved backends and a sample CLI invocation, then exit",
     )
+    p.add_argument(
+        "--check-indices",
+        action="store_true",
+        help=(
+            "List the Elasticsearch indices behind the configure origin "
+            "(--vss-base-url, or --endpoint's host on --vss-origin-port) and exit. "
+            "Read-only; exits 1 when no mdx-* index holds documents and warns "
+            "when mdx-behavior-* is empty."
+        ),
+    )
     args = p.parse_args(argv)
     if args.fixed_search_path and args.decompositions:
         p.error("--fixed-search-path cannot be combined with --decompositions")
@@ -1488,11 +1498,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("destructive cleanup cannot be combined with --skip-ingest")
     if args.confirm_delete and not (args.only_dataset or args.clear):
         p.error("--confirm-delete requires --only-dataset or --clear")
+    if args.check_indices and (args.only_dataset or args.clear):
+        p.error("--check-indices is read-only and cannot be combined with --only-dataset or --clear")
     return args
+
+
+def check_indices(origin: str) -> int:
+    """Print the search indices behind ``origin``; 0 when an mdx-* index has documents."""
+    try:
+        indices = flows.list_search_indices(origin)
+    except Exception as e:  # noqa: BLE001
+        print(f"ABORTED: could not list indices at {origin} ({type(e).__name__}: {e})", file=sys.stderr)
+        return 1
+    print(f"Elasticsearch indices at {origin}:")
+    for name, count in sorted(indices.items()):
+        print(f"  {name:<40} {count}")
+    if not any(name.startswith("mdx-") and count > 0 for name, count in indices.items()):
+        print("No mdx-* index holds documents: ingestion has not completed (run Step 4).", file=sys.stderr)
+        return 1
+    if not any(name.startswith("mdx-behavior") and count > 0 for name, count in indices.items()):
+        print("No mdx-behavior-* documents: only the embed path can score.", file=sys.stderr)
+    return 0
 
 
 def main() -> None:
     args = parse_args()
+
+    if args.check_indices:
+        sys.exit(check_indices(args.vss_base_url or flows.vss_origin_for(args.endpoint, args.vss_origin_port)))
 
     # Decomposition is the default, not an opt-in. The deployed agent decomposes
     # every query and that choice picks the retrieval path, so an eval that

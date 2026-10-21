@@ -2130,3 +2130,131 @@ def test_the_absent_sentinel_is_not_mistaken_for_a_real_source() -> None:
     assert _summary(
         {flows.VERIFICATION_ABSENT, "verification"}, {"confirmed": 5}
     )["critic"]["status"] == "ok"
+
+
+# -- Step 3 index check ------------------------------------------------------
+
+
+class _JsonResp:
+    def __init__(self, payload: Any, status_code: int = 200) -> None:
+        self._payload = payload
+        self.status_code = status_code
+        self.ok = status_code < 400
+        self.text = json.dumps(payload)
+
+    def raise_for_status(self) -> None:
+        if not self.ok:
+            import requests
+
+            raise requests.HTTPError(f"{self.status_code}")
+
+    def json(self) -> Any:
+        return self._payload
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            [{"index": "mdx-raw-2025", "docs.count": "12"}, {"index": "mdx-behavior-2025", "docs.count": "0"}],
+            {"mdx-raw-2025": 12, "mdx-behavior-2025": 0},
+        ),
+        ([{"index": "mdx-raw", "docs.count": None}, {"index": "x", "docs.count": "n/a"}], {"mdx-raw": 0, "x": 0}),
+        ([{"docs.count": "5"}, "not-a-row", {"index": ""}], {}),
+        ([], {}),
+        (None, {}),
+    ],
+)
+def test_list_search_indices_parses_cat_rows(monkeypatch: Any, payload: Any, expected: dict[str, int]) -> None:
+    """Counts arrive as strings from _cat; missing or junk counts read as 0, rows without a name are dropped."""
+    import requests
+
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_get(url: str, **kw: Any) -> Any:
+        calls.append((url, kw))
+        return _JsonResp(payload)
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    assert flows.list_search_indices("https://host:7777/") == expected
+    assert calls[0][0] == "https://host:7777/elasticsearch/_cat/indices"
+    assert calls[0][1]["params"] == {"format": "json", "h": "index,docs.count"}
+
+
+@pytest.mark.parametrize("origin", ["", "host:7777", "ftp://host:7777", "file:///etc/passwd", "https://"])
+def test_list_search_indices_rejects_non_http_origins(monkeypatch: Any, origin: str) -> None:
+    import requests
+
+    monkeypatch.setattr(requests, "get", lambda *_a, **_k: pytest.fail("must not issue a request"))
+    with pytest.raises(ValueError, match="not an http"):
+        flows.list_search_indices(origin)
+
+
+@pytest.mark.parametrize(
+    ("indices", "exit_code", "embed_only_warning"),
+    [
+        ({"mdx-raw-1": 4, "mdx-behavior-1": 2}, 0, False),
+        ({"mdx-raw-1": 4, "mdx-embed-filtered-1": 4}, 0, True),
+        ({"mdx-raw-1": 4, "mdx-behavior-1": 0}, 0, True),
+        ({"mdx-raw-1": 0, "mdx-behavior-1": 0}, 1, False),
+        ({"other-index": 10}, 1, False),
+        ({}, 1, False),
+    ],
+)
+def test_check_indices_exit_code_tracks_populated_mdx_indices(
+    monkeypatch: Any, capsys: Any, indices: dict[str, int], exit_code: int, embed_only_warning: bool
+) -> None:
+    """Exit 1 when nothing is indexed; warn, but pass, when attribute/fusion have no behavior index."""
+    import run_eval_flows as rf
+
+    monkeypatch.setattr(rf.flows, "list_search_indices", lambda _origin: indices)
+    assert rf.check_indices("https://host:7777") == exit_code
+    out = capsys.readouterr()
+    for name in indices:
+        assert name in out.out
+    assert ("Step 4" in out.err) is bool(exit_code)
+    assert ("only the embed path" in out.err) is embed_only_warning
+
+
+def test_check_indices_reports_a_transport_failure_as_exit_1(monkeypatch: Any, capsys: Any) -> None:
+    import run_eval_flows as rf
+
+    def boom(_origin: str) -> dict[str, int]:
+        raise ConnectionError("refused")
+
+    monkeypatch.setattr(rf.flows, "list_search_indices", boom)
+    assert rf.check_indices("https://host:7777") == 1
+    assert "ConnectionError: refused" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("extra_argv", "expected_origin"),
+    [
+        ([], "https://host:7777"),
+        (["--vss-origin-port", "9999"], "https://host:9999"),
+        (["--vss-base-url", "https://ingress.example"], "https://ingress.example"),
+    ],
+)
+def test_check_indices_flag_uses_the_configure_origin_and_exits_early(
+    monkeypatch: Any, extra_argv: list[str], expected_origin: str
+) -> None:
+    """--check-indices must resolve the same origin `vss configure` would, and stop before ingest."""
+    import run_eval_flows as rf
+
+    seen: list[str] = []
+    monkeypatch.setattr(rf, "check_indices", lambda origin: seen.append(origin) or 0)
+    monkeypatch.setattr(sys, "argv", ["run_eval_flows.py", "--endpoint", "https://host:8000", "--check-indices", *extra_argv])
+    with pytest.raises(SystemExit) as exc:
+        rf.main()
+    assert exc.value.code == 0
+    assert seen == [expected_origin]
+
+
+@pytest.mark.parametrize("delete_flag", ["--clear", "--only-dataset"])
+def test_check_indices_refuses_destructive_flags(capsys: Any, delete_flag: str) -> None:
+    import run_eval_flows as rf
+
+    with pytest.raises(SystemExit) as exc:
+        rf.parse_args(["--endpoint", "https://host:8000", "--check-indices", delete_flag, "--confirm-delete"])
+    assert exc.value.code == 2
+    assert "read-only" in capsys.readouterr().err
