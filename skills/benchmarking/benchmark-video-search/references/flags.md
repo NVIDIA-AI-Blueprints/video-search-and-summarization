@@ -49,6 +49,14 @@ registered. Sources outside the dataset that `--skip-ingest` leaves in place
 can be returned by search and score as false positives. The run warns about
 them and records them in `flow.reused_index.other_sources`.
 
+> **WARNING:** The wipe is irreversible and has no prompt. Deleting a source
+> through the agent also deletes its VST storage, including other users'
+> uploaded files on a shared deployment. Confirm the target host before any
+> run without `--skip-ingest`, and preserve anything needed first.
+
+`--check-indices` reports the searched indexes' document counts and exits,
+read-only; use it to see what a run would wipe or reuse.
+
 `--source-type rtsp` requires `--skip-ingest`. The fresh ingest indexes every
 upload as a video file, which an `rtsp` search never reads, so a wiped `rtsp`
 run would score only what the live cameras had already indexed.
@@ -116,6 +124,9 @@ one moves a run further from the baseline everything else is compared against.
 
 # Query only: keep what is indexed, delete and upload nothing
 --dataset warehouse --skip-download --skip-ingest
+
+# Count the searched indexes' documents and exit (read-only)
+--check-indices
 
 # Use a local dataset instead of DSS
 --data-dir ~/Desktop/vss-eval-datasets --dataset warehouse --skip-download

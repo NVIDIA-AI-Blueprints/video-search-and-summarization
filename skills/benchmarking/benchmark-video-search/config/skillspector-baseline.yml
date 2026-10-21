@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+version: 2
+
+# Temporary bridge until SkillEvaluator 1.7.0 (SkillSpector 2.12.1) reaches
+# the NV-CARPS gate. Remove this rule after that upgrade.
+rules:
+  - id: "AE1"
+    path: "SKILL.md"
+    message: "*(partial)"
+    reason: >-
+      SkillSpector 2.11.2 marks a referenced file "partial" when it contains
+      ordinary shell parameter expansion or certain quoted forms, and reports
+      each SKILL.md link to it as AE1. Fixed upstream in SkillSpector #634 and
+      #686 (SKILLSPECT-12, SKILLSPECT-135).
+
+fingerprints: []

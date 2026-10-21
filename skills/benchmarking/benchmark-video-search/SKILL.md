@@ -5,6 +5,8 @@ description: >-
   ingesting a labelled dataset and running the vss CLI across retrieval paths.
   Use when the user asks to "benchmark video search", "compare search recall
   between builds", or "profile search latency" on a deployed VSS profile.
+  A default run deletes every uploaded video file on the target deployment
+  before ingesting (RTSP cameras are kept); --skip-ingest deletes nothing.
 license: Apache-2.0
 metadata:
   version: "3.3.0-rc0"
@@ -18,9 +20,9 @@ metadata:
 ## Instructions
 
 Follow the routing table, then the numbered steps. Execute each step in order on
-a first run; for a repeat run against an already-indexed deployment go straight
-to **Step 5**. Reference material is in `references/`, the runner is in
-`scripts/`.
+a first run; for a repeat run against an already-indexed deployment run
+**Step 3**, then go to **Step 5**. Reference material is in `references/`, the
+runner is in `scripts/`.
 
 ## Purpose
 
@@ -82,6 +84,13 @@ Five defaults, each load-bearing:
   deployment may be shared, but nobody else may upload to it while an eval
   runs. For what is checked and the aborts, see "Before ingest: the wipe" in
   `references/troubleshooting.md`.
+
+  > **WARNING:** The wipe is irreversible. Deleting a source through the agent
+  > also deletes its VST storage, including other users' uploaded files on a
+  > shared deployment. There is no prompt. Confirm the target host with the
+  > user before a run that is not `--skip-ingest`. The runner aborts if
+  > `--vst-url`, `--ingress-url` and `--endpoint` are on different hosts; that
+  > catches a host mismatch, not two deployments on one host.
 
   `--skip-ingest` is the only way to keep what is there. It deletes nothing
   and uploads nothing, and it aborts unless every dataset video is already
@@ -174,7 +183,7 @@ eval. Both measure a different flow; the result records the routing mode.
 | Requirement | How to check |
 |---|---|
 | Search profile agent reachable | `curl -sf --connect-timeout 5 --max-time 10 ${ENDPOINT}/health` returns 200 |
-| Unified HAProxy origin routes the services | `curl -sf --connect-timeout 5 --max-time 10 ${ORIGIN}/vst/api/v1/sensor/version` returns 200. ORIGIN is usually the endpoint host on port 7777; use it for `vss configure` and the Step 3 Elasticsearch probe. The runner separately derives VST's direct ingress on port 30888 (`--vst-port` default); do not pass the HAProxy port as `--vst-port` |
+| Unified HAProxy origin routes the services | `curl -sf --connect-timeout 5 --max-time 10 ${ORIGIN}/vst/api/v1/sensor/version` returns 200. ORIGIN is usually the endpoint host on port 7777; use it for `vss configure`; Step 3's `--check-indices` reads the same origin. The runner separately derives VST's direct ingress on port 30888 (`--vst-port` default); do not pass the HAProxy port as `--vst-port` |
 | `vss` CLI runs from this checkout | `vss search run --help` exits 0 |
 | CLI points at the right origin | `vss configure show` reports the ORIGIN above |
 | Dataset present locally | `test -f ${DATA_DIR}/${DATASET}/dataset.json` — layout in `references/dataset-format.md` |
@@ -221,12 +230,20 @@ hits and every metric reads 0.0000 — which looks like catastrophic retrieval
 quality and is not.
 
 ```bash
-curl -s --connect-timeout 5 --max-time 10 "http://HOST:7777/elasticsearch/_cat/indices?h=index,docs.count"
+uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 --check-indices
 ```
 
+It counts the documents in each searched index through the same ingress the
+wipe and the ingest gate read: the `--endpoint` host on port 7777
+(`--vss-origin-port`), or `--ingress-url` when given. It is read-only, contacts
+nothing else, and exits 1 when the embed index is empty or unreachable.
+
 Expect `mdx-embed-filtered-*`, `mdx-behavior-*` and `mdx-raw-*` with non-zero
-counts. `mdx-behavior-*` is what the `attribute` and `fusion` paths read; if it
-is missing, only `embed` can score. If the indices are absent, go to Step 4.
+counts. The embed index must have documents: `embed` is the default
+`--search-path` and the path the post-ingest index probe searches.
+`mdx-behavior-*` is what the `attribute` and `fusion` paths read; if it is
+empty, only `embed` can score, and the runner warns. If the embed index is
+empty, go to Step 4.
 
 ## Step 4 — Ingest
 
