@@ -30,26 +30,52 @@ class HttpLatencyTests(unittest.TestCase):
         self.assertAlmostEqual(percentile(values, 50) or 0, 0.03)
         self.assertGreater(percentile(values, 99) or 0, percentile(values, 50) or 0)
 
-    def test_kpis_yaml_loads_and_gates_result(self) -> None:
-        self.assertTrue(DEFAULT_KPIS_PATH.is_file())
+    def _measured(self, livez, query):
         kpis = load_kpis()
         spec = kpis["scenarios"]["quick_test"]["warehouse-es-dump"]
-        self.assertEqual(spec["livez"]["max_p99_s"], 1.0)
-        self.assertNotIn("max_p99_s", spec["frames"])
         measured = {
             "schema_version": "0.1",
             "service": "video-analytics-api",
             "scenario": "quick_test",
             "config_id": "warehouse-es-dump",
-            "endpoints": {
-                name: summarize([0.01, 0.02, 0.03], 20, 20)
-                for name in spec["required_endpoints"]
-            },
+            "endpoints": {},
         }
+        measured["endpoints"]["livez"] = summarize(livez, 20, 20)
+        measured["endpoints"]["livez"]["present"] = True
         for name in spec["required_endpoints"]:
+            if name == "livez":
+                continue
+            measured["endpoints"][name] = summarize(query, 20, 20)
             measured["endpoints"][name]["present"] = True
+        return kpis, spec, measured
+
+    def test_kpis_yaml_loads_and_gates_result(self) -> None:
+        self.assertTrue(DEFAULT_KPIS_PATH.is_file())
+        kpis, spec, measured = self._measured(
+            [0.0006, 0.0007, 0.0018],
+            [0.018, 0.022, 0.035],
+        )
+        self.assertEqual(spec["livez"]["max_p50_s"], 0.005)
+        self.assertEqual(spec["livez"]["max_p99_s"], 0.02)
+        self.assertEqual(spec["frames"]["max_p50_s"], 0.05)
+        self.assertEqual(spec["frames"]["max_p99_s"], 0.10)
+        self.assertEqual(spec["behavior"]["max_p99_s"], 0.08)
         verdict = evaluate_kpis(measured, kpis)
         self.assertTrue(verdict["passed"], verdict)
+
+    def test_slow_frames_p99_fails(self) -> None:
+        kpis, _, measured = self._measured(
+            [0.0006, 0.0007, 0.0018],
+            [0.018, 0.022, 0.035],
+        )
+        measured["endpoints"]["frames"] = summarize([0.04, 0.045, 0.20], 20, 20)
+        measured["endpoints"]["frames"]["present"] = True
+        verdict = evaluate_kpis(measured, kpis)
+        self.assertFalse(verdict["passed"])
+        self.assertTrue(
+            any("frames.p99_s" in item for item in verdict["violations"]),
+            verdict,
+        )
 
     def test_missing_endpoint_fails(self) -> None:
         kpis = load_kpis()
