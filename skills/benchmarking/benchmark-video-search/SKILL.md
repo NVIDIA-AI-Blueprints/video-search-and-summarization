@@ -13,6 +13,8 @@ metadata:
   tags: "nvidia blueprint search retrieval benchmarking evaluation"
 ---
 
+# Benchmark Video Search
+
 ## Instructions
 
 Follow the routing table, then the numbered steps. Execute each step in order on
