@@ -1,6 +1,6 @@
 /* SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
 /* SPDX-License-Identifier: Apache-2.0 */
-/* Utilities stay unlayered. Kaizen's theme.css is a plain stylesheet, and
+/* Utilities stay unlayered. Kaizen's base.css is a plain stylesheet, and
    layered Tailwind utilities lose to it — including img { height: auto },
    which stretched the header logo over the sidebar. */
 @import "tailwindcss/theme.css" layer(theme);
@@ -25,7 +25,7 @@ code, pre, .font-mono {
 }
 
 /* Dark mode overrides for Kaizen UI Foundations components.
-   Tied to Kaizen/Foundations v0.607.4 — update these rules when
+   Tied to Kaizen/Foundations v1.17.0 — update these rules when
    the CDN version in _document.tsx or the @nvidia/foundations-react-core
    dependency version changes. */
 .dark .nv-button.nv-button--kind-secondary {
