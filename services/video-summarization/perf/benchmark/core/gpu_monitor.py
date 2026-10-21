@@ -19,7 +19,7 @@ import logging
 import os
 import threading
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -81,6 +81,7 @@ class GPUMonitor:
         self.nvdec_data = {f"GPU{i}_AvgNVDEC": [] for i in self.monitor_gpu_ids}
         self.gpu_usage_data = {f"GPU{i}_Usage": [] for i in self.monitor_gpu_ids}
         self.gpu_mem_data = {f"GPU{i}_MemUsage": [] for i in self.monitor_gpu_ids}
+        self.unsupported_gpu_memory = set()
 
         # Separate elapsed times for each monitoring type
         self.nvdec_elapsed_times = []
@@ -156,22 +157,27 @@ class GPUMonitor:
             self.gpu_elapsed_times.append(_round(elapsed_time))
 
             for i in self.monitor_gpu_ids:
+                handle = DEVICE_HANDLES[i]
                 try:
-                    handle = DEVICE_HANDLES[i]
                     utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                    memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
-
-                    volatile_gpu_utilization = utilization.gpu
-                    mem_usage_pct = memory.used / memory.total * 100
-
-                    # Store in memory
-                    self.gpu_usage_data[f"GPU{i}_Usage"].append(_round(volatile_gpu_utilization))
-                    self.gpu_mem_data[f"GPU{i}_MemUsage"].append(_round(mem_usage_pct))
+                    self.gpu_usage_data[f"GPU{i}_Usage"].append(_round(utilization.gpu))
                 except Exception as e:
-                    # Handle errors during monitoring
-                    self.logger.error(f"Error getting GPU stats for GPU{i}: {e}")
+                    self.logger.error(f"Error getting GPU utilization for GPU{i}: {e}")
                     self.gpu_usage_data[f"GPU{i}_Usage"].append(0)
-                    self.gpu_mem_data[f"GPU{i}_MemUsage"].append(0)
+
+                if i not in self.unsupported_gpu_memory:
+                    try:
+                        memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                        mem_usage_pct = memory.used / memory.total * 100
+                        self.gpu_mem_data[f"GPU{i}_MemUsage"].append(_round(mem_usage_pct))
+                    except pynvml.NVMLError_NotSupported:
+                        self.unsupported_gpu_memory.add(i)
+                        self.logger.warning(
+                            f"Dedicated GPU memory metrics are not supported for GPU{i}"
+                        )
+                    except Exception as e:
+                        self.logger.error(f"Error getting GPU memory for GPU{i}: {e}")
+                        self.gpu_mem_data[f"GPU{i}_MemUsage"].append(0)
 
             time.sleep(interval_in_seconds)
 
@@ -355,7 +361,7 @@ class GPUMonitor:
         plt.savefig(filename)
         plt.close()
 
-    def get_gpu_stats(self, gpu_indices: Optional[List[int]] = None) -> Dict[str, Dict[str, float]]:
+    def get_gpu_stats(self, gpu_indices: Optional[List[int]] = None) -> Dict[str, Any]:
         """
         Get statistics for GPU usage and memory usage.
 
@@ -382,6 +388,9 @@ class GPUMonitor:
         # If no valid GPU indices, return empty stats
         if not gpu_indices:
             return stats
+
+        if all(i in self.unsupported_gpu_memory for i in gpu_indices):
+            stats["memory"] = {"mean": None, "std": None, "p90": None}
 
         # Collect all values for the specified GPUs
         all_usage = []
@@ -424,7 +433,7 @@ class GPUMonitor:
         stats = self.get_gpu_stats(gpu_indices)
         return stats["usage"]["mean"]
 
-    def get_gpu_memory_mean(self, gpu_indices: Optional[List[int]] = None) -> float:
+    def get_gpu_memory_mean(self, gpu_indices: Optional[List[int]] = None) -> Optional[float]:
         """Get mean GPU memory usage for specified GPUs"""
         stats = self.get_gpu_stats(gpu_indices)
         return stats["memory"]["mean"]

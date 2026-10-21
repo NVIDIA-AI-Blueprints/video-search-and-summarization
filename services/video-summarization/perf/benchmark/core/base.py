@@ -562,14 +562,18 @@ class BenchmarkBase(ABC):
 
             if vlm_stats:
                 vlm_usage = [stats.get("usage", {}).get("mean", 0) for stats in vlm_stats]
-                vlm_memory = [stats.get("memory", {}).get("mean", 0) for stats in vlm_stats]
+                vlm_memory = [
+                    value
+                    for stats in vlm_stats
+                    if (value := stats.get("memory", {}).get("mean", 0)) is not None
+                ]
                 vlm_usage_p90 = [stats.get("usage", {}).get("p90", 0) for stats in vlm_stats]
 
                 gpu_metrics.update(
                     {
                         "vlm_gpu_usage_mean": sum(vlm_usage) / len(vlm_usage) if vlm_usage else 0,
                         "vlm_gpu_memory_mean": (
-                            sum(vlm_memory) / len(vlm_memory) if vlm_memory else 0
+                            sum(vlm_memory) / len(vlm_memory) if vlm_memory else None
                         ),
                         "vlm_gpu_usage_p90": (
                             sum(vlm_usage_p90) / len(vlm_usage_p90) if vlm_usage_p90 else 0
@@ -586,14 +590,18 @@ class BenchmarkBase(ABC):
 
             if llm_stats:
                 llm_usage = [stats.get("usage", {}).get("mean", 0) for stats in llm_stats]
-                llm_memory = [stats.get("memory", {}).get("mean", 0) for stats in llm_stats]
+                llm_memory = [
+                    value
+                    for stats in llm_stats
+                    if (value := stats.get("memory", {}).get("mean", 0)) is not None
+                ]
                 llm_usage_p90 = [stats.get("usage", {}).get("p90", 0) for stats in llm_stats]
 
                 gpu_metrics.update(
                     {
                         "llm_gpu_usage_mean": sum(llm_usage) / len(llm_usage) if llm_usage else 0,
                         "llm_gpu_memory_mean": (
-                            sum(llm_memory) / len(llm_memory) if llm_memory else 0
+                            sum(llm_memory) / len(llm_memory) if llm_memory else None
                         ),
                         "llm_gpu_usage_p90": (
                             sum(llm_usage_p90) / len(llm_usage_p90) if llm_usage_p90 else 0
