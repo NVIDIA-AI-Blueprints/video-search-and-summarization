@@ -4,7 +4,7 @@ This package measures the promoted Video Analytics API image with the warehouse 
 
 Kafka stays off (`brokers: []`). Behavior Analytics playback is a different job. This result is query latency against a frozen snapshot, not ingest latency.
 
-The measure step times every **OpenAPI GET** whose required query params this warehouse dump can fill (`endpoints: spec_gets`, 44 of 48 GETs in `src/app/specification/openapi.json`). It skips POST/PUT/PATCH/DELETE, path-parameter routes, and GETs that need IDs we do not have (`segmentInfo`, `view`, `endFrameId`, `behaviorTimeInterval`).
+The measure step times every **OpenAPI GET** whose required query params this warehouse dump can fill (`endpoints: spec_gets`, 44 of 48 GETs in `src/app/specification/openapi.json`). It skips POST/PUT/PATCH/DELETE, path-parameter routes, and GETs that need IDs we do not have (`segmentInfo`, `view`, `endFrameId`, `behaviorTimeInterval`). Routes that list both `sensorId` and `place` get **one** of them: Camera `sensorId` when both are optional (same as Jenkins #69); `place` only when the spec requires it. Sending both 400s (`oneOf`).
 
 `perf/configs/kpis.yaml` is the regression gate. Each required endpoint must return enough HTTP 200s. The original five use Jenkins `benchmark-perf-test/69` estimates. New endpoints use a default 100 / 200 ms p50/p99 until an owner publishes SLOs.
 

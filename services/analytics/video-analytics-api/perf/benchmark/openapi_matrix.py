@@ -50,6 +50,24 @@ def endpoint_name(path: str) -> str:
     return path.strip("/").replace("/", "_").replace("-", "_")
 
 
+def _exclusive_location_keys(query_keys: list[str], required: set[str]) -> list[str]:
+    """The service JSON schema is oneOf sensorId/sensorIds XOR place.
+
+    Sending both returns 400 on /behavior, /events, /incidents, alerts, and
+    several metrics/tracker routes. Prefer the warehouse Camera sensorId when
+    both are optional (same as Jenkins #69). Keep place only when it is required.
+    """
+    has_sensor = "sensorId" in query_keys or "sensorIds" in query_keys
+    has_place = "place" in query_keys
+    if not (has_sensor and has_place):
+        return query_keys
+    sensor_required = "sensorId" in required or "sensorIds" in required
+    place_required = "place" in required
+    if place_required and not sensor_required:
+        return [key for key in query_keys if key not in ("sensorId", "sensorIds")]
+    return [key for key in query_keys if key != "place"]
+
+
 def _query_params(operation: Mapping[str, Any]) -> tuple[set[str], set[str]]:
     names: set[str] = set()
     required: set[str] = set()
@@ -97,6 +115,7 @@ def spec_get_endpoints(spec: Mapping[str, Any] | None = None) -> list[dict[str, 
             ):
                 continue
             query_keys.append(key)
+        query_keys = _exclusive_location_keys(query_keys, required)
         rows.append(
             {
                 "name": endpoint_name(path),

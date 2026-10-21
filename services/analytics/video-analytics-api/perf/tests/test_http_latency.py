@@ -84,6 +84,19 @@ class HttpLatencyTests(unittest.TestCase):
         self.assertNotIn("timestamp", frames["query_keys"])
         occupancy = next(row for row in rows if row["name"] == "metrics_occupancy_tripwire")
         self.assertEqual(occupancy["query_keys"], ["place", "timestamp"])
+        for name in ("behavior", "events", "incidents", "alerts"):
+            row = next(item for item in rows if item["name"] == name)
+            self.assertIn("sensorId", row["query_keys"], name)
+            self.assertNotIn("place", row["query_keys"], name)
+        events_amr = next(row for row in rows if row["name"] == "events_amr")
+        self.assertIn("place", events_amr["query_keys"])
+        self.assertNotIn("sensorId", events_amr["query_keys"])
+        for row in rows:
+            has_sensor = "sensorId" in row["query_keys"] or "sensorIds" in row["query_keys"]
+            self.assertFalse(
+                has_sensor and "place" in row["query_keys"],
+                row,
+            )
 
     def test_frames_query_keeps_range_without_timestamp(self) -> None:
         frames = next(row for row in spec_get_endpoints() if row["name"] == "frames")
