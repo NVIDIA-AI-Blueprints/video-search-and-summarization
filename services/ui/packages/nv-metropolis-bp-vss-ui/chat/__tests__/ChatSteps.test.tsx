@@ -101,6 +101,43 @@ describe('ChatSteps running step', () => {
   });
 });
 
+const stepDot = (name: string) => screen.getByText(name).closest('li')!.querySelector('[data-step-dot]');
+
+describe('ChatSteps status bullet', () => {
+  it('pulses only the step still running, not finished siblings', () => {
+    render(
+      <ChatSteps
+        steps={[
+          { ...step('search', 'complete'), index: 0 },
+          { ...step('summarize', 'in_progress'), index: 1 },
+        ]}
+        streaming
+      />,
+    );
+
+    expect(stepDot('search')).not.toHaveClass('animate-pulse');
+    expect(stepDot('summarize')).toHaveClass('animate-pulse');
+  });
+
+  it('does not pulse a step the agent moved past, even if it never settled', () => {
+    render(
+      <ChatSteps
+        steps={[step('Reasoning', 'in_progress'), step('vss-search-archive', 'in_progress')]}
+        streaming
+      />,
+    );
+
+    expect(stepDot('Reasoning')).not.toHaveClass('animate-pulse');
+    expect(stepDot('vss-search-archive')).toHaveClass('animate-pulse');
+  });
+
+  it('stops pulsing once the turn is no longer streaming', () => {
+    render(<ChatSteps steps={[step('search', 'in_progress')]} expandByDefault />);
+
+    expect(stepDot('search')).not.toHaveClass('animate-pulse');
+  });
+});
+
 describe('ChatSteps default expansion', () => {
   const nestedSteps: ChatStep[] = [
     step('search', 'in_progress', { payload: '{"query":"forklift"}' }),
