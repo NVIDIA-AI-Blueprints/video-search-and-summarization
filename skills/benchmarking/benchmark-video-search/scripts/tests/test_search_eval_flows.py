@@ -1635,7 +1635,7 @@ def test_prune_is_a_noop_when_every_source_belongs_to_the_dataset(
     ("agent_endpoint", "vst_url"),
     [
         ("https://agent:8000", "https://vst:30888"),
-        ("http://10.0.0.1:8000", "http://10.0.0.2:30888"),
+        ("https://10.0.0.1:8000", "https://10.0.0.2:30888"),
         ("not-a-url", "https://host:30888"),
     ],
 )
@@ -1666,7 +1666,7 @@ def test_delete_refuses_when_listing_and_deleting_hosts_differ(
     ("agent_endpoint", "vst_url"),
     [
         ("https://host:8000", "https://host:30888"),
-        ("http://HOST:8000", "http://host:30888"),
+        ("https://HOST:8000", "https://host:30888"),
     ],
 )
 def test_same_host_check_allows_matching_hosts(agent_endpoint: str, vst_url: str) -> None:
