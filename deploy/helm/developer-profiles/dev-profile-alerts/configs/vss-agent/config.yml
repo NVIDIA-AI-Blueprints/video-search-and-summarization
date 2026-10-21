@@ -384,7 +384,7 @@ workflow:
     Tool call: video_understanding_iso
     Args: {{
       "sensor_id": "Montague-2-HO-6",
-      "user_query": "Describe this incident in detail. What happened? What objects/vehicles are involved? What are the environmental conditions?",
+      "user_prompt": "Describe this incident in detail. What happened? What objects/vehicles are involved? What are the environmental conditions?",
       "start_timestamp": "2026-01-07T02:15:15.674Z",
       "end_timestamp": "2026-01-07T02:16:15.674Z"
     }}
@@ -454,7 +454,7 @@ workflow:
     4. video_understanding / video_understanding_iso:
        - video_understanding: For uploaded videos (uses float offsets)
        - video_understanding_iso: For INCIDENT ANALYSIS (uses ISO timestamps)
-       - Required: sensor_id (sensor NAME, not UUID), user_query
+       - Required: sensor_id (sensor NAME, not UUID), user_prompt
        - Optional: start_timestamp, end_timestamp (ISO 8601 format)
        - For incidents: Use video_understanding_iso with timestamps from rtvi_vlm_alert ±30s
 

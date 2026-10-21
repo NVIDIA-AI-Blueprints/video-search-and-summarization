@@ -116,6 +116,8 @@ DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE = (
     "This tool failed {attempts} times: {last_error}. Retry limit reached; no successful result is available."
 )
 _TRACE_TOOL_NAME = re.compile(r"^(?:Tool|Calling sub-agent):\s*([^\r\n]+)", re.IGNORECASE)
+_PLAN_CHECKBOX_RE = re.compile(r"(?m)^\s*(?:\d+[\.\)]\s+|[-*]\s+)?\[(?:x| )\]")
+_NUMBERED_PLAN_RE = re.compile(r"(?m)^\s*\d+[\.\)]\s+\S")
 
 
 def trace_step_title(step_number: int, step_type: str, content: str) -> str:
@@ -342,6 +344,50 @@ def _is_duplicate_tool_call_skip(response: Any) -> bool:
     """Return whether a ToolMessage is a retry-cap skip, not a fresh execution."""
     text = _get_content_text(response)
     return text.startswith(DUPLICATE_TOOL_CALL_SKIP_PREFIX) or text.startswith("This tool failed ")
+
+
+def _looks_like_plan(text: str) -> bool:
+    """Return True when LLM output still looks like an execution plan.
+
+    A non-empty rewrite is not enough: a one-line VLM summary such as
+    "VLM analysis output: 3." would replace the structured plan, after which
+    the agent retries the last successful tool until the recursion limit.
+    """
+    if not text or not text.strip():
+        return False
+    return bool(_PLAN_CHECKBOX_RE.search(text) or _NUMBERED_PLAN_RE.search(text))
+
+
+def _has_unrecovered_tool_failure(call_results: list[tuple[str, bool, int]]) -> bool:
+    """Return True when a failed call has no later successful retry of the same tool.
+
+    Parallel mixed batches (same origin index) stay unrecovered so a successful
+    sibling cannot mark a failed call complete. A later AIMessage that retries
+    the same tool and succeeds is treated as recovery.
+    """
+    for name, failed, origin in call_results:
+        if not failed:
+            continue
+        recovered = any(
+            later_name == name and not later_failed and later_origin > origin
+            for later_name, later_failed, later_origin in call_results
+        )
+        if not recovered:
+            return True
+    return False
+
+
+def _plan_completion_note(completed_tools: list[str]) -> str:
+    """Tell the next turn that a preserved plan already has successful results."""
+    if not completed_tools:
+        return ""
+    names = ", ".join(f"`{name}`" for name in dict.fromkeys(completed_tools))
+    return (
+        f"\n\nNOTE: the plan above could not be refreshed this cycle. "
+        f"{names} already completed successfully and the result appears below. "
+        f"Treat those steps as done and continue with the next pending step; "
+        f"do not repeat a call whose result is already present."
+    )
 
 
 def duplicate_tool_call_skip_payload(state: "TopAgentState", name: str, args: dict[str, Any] | None) -> tuple[str, str]:
@@ -601,20 +647,27 @@ class TopAgent(AsyncMixin):
         scratchpad_lines: list[str] = []
         tool_results_lines: list[str] = []
         completed_tools: list[str] = []
-        has_tool_failure = False
-        pending_calls: dict[str, dict[str, Any]] = {}  # tool_call_id -> {name, args}
+        pending_calls: dict[str, dict[str, Any]] = {}  # tool_call_id -> {name, args, origin}
+        call_results: list[tuple[str, bool, int]] = []
+        ai_message_index = 0
         for msg in state.agent_scratchpad:
             if isinstance(msg, AIMessage) and msg.tool_calls:
                 for tc in msg.tool_calls:
                     tc_id = tc["id"] or ""
-                    pending_calls[tc_id] = {"name": tc["name"], "args": tc["args"]}
+                    pending_calls[tc_id] = {
+                        "name": tc["name"],
+                        "args": tc["args"],
+                        "origin": ai_message_index,
+                    }
+                ai_message_index += 1
             elif isinstance(msg, ToolMessage):
                 call_info = pending_calls.pop(msg.tool_call_id, None)
                 tool_name = (call_info["name"] if call_info else None) or getattr(msg, "name", None) or "tool"
                 result_text = _get_content_text(msg)
                 tool_failed = _tool_response_failed(msg) or result_text.lstrip().startswith(_TOOL_FAILURE_PREFIX)
                 skipped_duplicate = _is_duplicate_tool_call_skip(msg)
-                has_tool_failure = has_tool_failure or tool_failed
+                origin = call_info["origin"] if call_info else ai_message_index
+                call_results.append((tool_name, tool_failed, origin))
                 # Full result for programmatic appendix
                 tool_results_lines.append(f"`{tool_name}` result:\n{result_text}")
                 if not tool_failed and not skipped_duplicate:
@@ -629,6 +682,7 @@ class TopAgent(AsyncMixin):
                 text = _get_content_text(msg)
                 if text.strip():
                     scratchpad_lines.append(text)
+        has_tool_failure = _has_unrecovered_tool_failure(call_results)
         scratchpad_summary = "\n".join(scratchpad_lines)
 
         # Strip previous tool results section before sending plan to LLM,
@@ -690,22 +744,9 @@ class TopAgent(AsyncMixin):
             # the same tool call every cycle until it exhausts the recursion limit. Keep the
             # previous plan instead, matching the has_tool_failure branch above.
             updated_plan = (parsed_plan or "").strip()
-            if not updated_plan:
+            if not _looks_like_plan(updated_plan):
                 logger.warning("Plan update produced no usable plan; preserving the current plan")
-                updated_plan = clean_plan
-                if completed_tools:
-                    # The preserved plan still shows the just-run step as `[ ]`, because the
-                    # LLM that marks `[x]` is the one that returned nothing. Say so explicitly
-                    # instead: the scratchpad is cleared below, so the plan is the only state
-                    # carried forward, and a stale `[ ]` next to a fresh result invites the
-                    # agent to repeat the call.
-                    names = ", ".join(f"`{name}`" for name in dict.fromkeys(completed_tools))
-                    updated_plan += (
-                        f"\n\nNOTE: the plan above could not be refreshed this cycle. "
-                        f"{names} already completed successfully and the result appears below. "
-                        f"Treat those steps as done and continue with the next pending step; "
-                        f"do not repeat a call whose result is already present."
-                    )
+                updated_plan = clean_plan + _plan_completion_note(completed_tools)
 
         # Programmatically append exact tool results so the agent has them,
         # combining previous results with new ones from this cycle.

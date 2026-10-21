@@ -44,6 +44,7 @@ from vss_agents.agents.top_agent import TopAgent
 from vss_agents.agents.top_agent import TopAgentRequest
 from vss_agents.agents.top_agent import TopAgentState
 from vss_agents.agents.top_agent import _augment_context_clip_offsets
+from vss_agents.agents.top_agent import _looks_like_plan
 from vss_agents.agents.top_agent import _store_identical_tool_call_outcome
 from vss_agents.agents.top_agent import identical_tool_call_key
 from vss_agents.agents.top_agent import strip_frontend_tags
@@ -604,6 +605,128 @@ class TestRequestOptionsContext:
         assert "A worker climbed a green ladder." in result.plan
         assert "Tool call failed: invalid timestamp" in result.plan
         assert "unsupported incident" not in result.plan
+
+    @pytest.mark.asyncio
+    async def test_plan_update_recovers_after_failed_then_successful_retry(self, monkeypatch):
+        """A later successful retry of the same tool should not freeze the plan.
+
+        Nightly alerts-verification called video_understanding_iso with user_query
+        (schema reject), then retried with user_prompt (VLM succeeded). Treating the
+        recovered validation error as a live failure left the step `[ ]` and the
+        agent retried until the recursion limit.
+        """
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content=(
+                    "1. [x] Call `rtvi_vlm_alert`.\n"
+                    "2. [x] Call `video_understanding_iso`.\n"
+                    "3. [ ] Present the incident metadata and VLM description."
+                )
+            )
+        )
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(
+                content="Generate a report for the last verified alert of sensor vss-sample-warehouse-4min"
+            ),
+            plan="1. [x] Call `rtvi_vlm_alert`.\n2. [ ] Call `video_understanding_iso`.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling with user_query",
+                    tool_calls=[
+                        {
+                            "name": "video_understanding_iso",
+                            "args": {
+                                "sensor_id": "vss-sample-warehouse-4min",
+                                "user_query": "Describe this incident",
+                            },
+                            "id": "call_fail",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    name="video_understanding_iso",
+                    tool_call_id="call_fail",
+                    content=(
+                        "Tool call failed: 2 validation errors for VideoUnderstandingInput\n"
+                        "user_prompt\n  Field required\nuser_query\n  Extra inputs are not permitted"
+                    ),
+                    status="error",
+                ),
+                AIMessage(
+                    content="calling with user_prompt",
+                    tool_calls=[
+                        {
+                            "name": "video_understanding_iso",
+                            "args": {
+                                "sensor_id": "vss-sample-warehouse-4min",
+                                "user_prompt": "Describe this incident",
+                            },
+                            "id": "call_ok",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    name="video_understanding_iso",
+                    tool_call_id="call_ok",
+                    content="3",
+                ),
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        agent.llm.ainvoke.assert_awaited()
+        assert "2. [x] Call `video_understanding_iso`." in result.plan
+        assert "Field required" in result.plan
+        assert "`video_understanding_iso` result:\n3" in result.plan
+
+    @pytest.mark.asyncio
+    async def test_plan_update_rejects_degenerate_non_plan_rewrite(self, monkeypatch):
+        """A non-empty VLM summary must not replace the structured plan.
+
+        After a successful video_understanding_iso call the plan-update LLM
+        returned "VLM analysis output: 3." The empty-plan guard did not fire,
+        the structured steps disappeared, and the agent retried until recursion.
+        """
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="VLM analysis output: 3."))
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate a report for the last verified alert."),
+            plan="1. [x] Call `rtvi_vlm_alert`.\n2. [ ] Call `video_understanding_iso`.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[{"name": "video_understanding_iso", "args": {}, "id": "call_1"}],
+                ),
+                ToolMessage(name="video_understanding_iso", tool_call_id="call_1", content="3"),
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        agent.llm.ainvoke.assert_awaited()
+        plan_body = result.plan.split("### Latest Tool Results", 1)[0]
+        assert "VLM analysis output: 3." not in plan_body
+        assert "1. [x] Call `rtvi_vlm_alert`." in result.plan
+        assert "2. [ ] Call `video_understanding_iso`." in result.plan
+        assert "`video_understanding_iso` already completed successfully" in result.plan
+
+    def test_looks_like_plan_rejects_vlm_summary(self):
+        assert not _looks_like_plan("VLM analysis output: 3.")
+        assert not _looks_like_plan("")
+        assert _looks_like_plan("1. [x] Call `video_understanding_iso`.\n2. [ ] Present the report.")
+        assert _looks_like_plan("1. Call `rtvi_vlm_alert` with action=get_incidents.")
 
     @pytest.mark.asyncio
     async def test_plan_update_keeps_plan_when_model_returns_only_reasoning(self, monkeypatch):
