@@ -1,0 +1,153 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  # Init container: ensure bind-mount dirs exist and are writable by the host
+  # user. sdr-controller / wdm-env-from-config run as root inside the container
+  # and would otherwise leave ./log and ./.wdm-env as root:root 755, which the
+  # host user cannot delete without sudo. We chmod 0777 the *parent* dirs so
+  # `rm -rf log/* .wdm-env/*` works without sudo even though the files inside
+  # are root-owned (rm only needs write+exec on the parent dir).
+  init-dirs:
+    profiles: ["init-dirs"]
+    image: alpine:3.24.1
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    container_name: sdrc-init-dirs
+    command:
+      - |
+        set -e
+        mkdir -p /mnt/log /mnt/wdm-env
+        chmod 0777 /mnt/log /mnt/wdm-env
+    volumes:
+      - ./log:/mnt/log
+      - ./.wdm-env:/mnt/wdm-env
+    restart: "no"
+
+  # Init container: render every *.tmpl file in the configs/ directory by
+  # substituting ${HOST_IP} / ${NUM_STREAMS}. Each template is written to the
+  # same directory under the same name with the `.tmpl` suffix stripped (e.g.
+  # config.yml.tmpl -> config.yml). Drop a new *.tmpl into configs/ and it gets
+  # picked up automatically — no compose changes needed.
+  # Every downstream service that reads these rendered files depends on this
+  # completing successfully.
+  render-config:
+    profiles: ["render-config"]
+    image: alpine:3.24.1
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    # Loop over *.tmpl inside render-config.sh — not here. Nested Compose
+    # includes can interpolate $$tmpl more than once, leaving an empty path.
+    command:
+      - |
+        echo "render-config: NUM_STREAMS is ${NUM_STREAMS}"
+        echo "render-config: NUM_SENSORS is ${NUM_SENSORS}"
+        set -e
+        echo "render-config: HOST_IP=$${HOST_IP} NUM_STREAMS=$${NUM_STREAMS} NUM_SENSORS=$${NUM_SENSORS} BP_PROFILE=$${BP_PROFILE} MODE=$${MODE} STREAM_TYPE=$${STREAM_TYPE} COMPOSE_PROFILES=$${COMPOSE_PROFILES}"
+        /render-config.sh /tmpl
+    environment:
+      HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
+      NUM_STREAMS: ${NUM_STREAMS:-1}
+      NUM_SENSORS: ${NUM_SENSORS:-1}
+      BP_PROFILE: ${BP_PROFILE:-}
+      MODE: ${MODE:-}
+      STREAM_TYPE: ${STREAM_TYPE:-}
+      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+      VST_USE_SDRC: ${VST_USE_SDRC:-false}
+    volumes:
+      - ./render-config.sh:/render-config.sh:ro
+      - ${SDR_CONTROLLER_CONFIG_PATH:-"./configs"}/configs:/tmpl
+    restart: "no"
+    container_name: sdrc-render-config
+
+  wdm-env-from-config:
+    profiles: ["wdm-env-from-config"]
+    image: alpine:3.24.1
+    # yq image runs as non-root; bind-mounted ./.wdm-env is often root-owned — write as root.
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - apk add --no-cache gettext yq >/dev/null && /run.sh
+    environment:
+      HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
+      NUM_STREAMS: ${NUM_STREAMS:-1}
+      NUM_SENSORS: ${NUM_SENSORS:-1}
+    volumes:
+      - ${SDR_CONTROLLER_CONFIG_PATH:-"./configs"}/configs/config.yml:/config.yml:ro
+      - ./wdm-env-from-config.sh:/run.sh:ro
+      - ./.wdm-env:/env
+    depends_on:
+      init-dirs:
+        condition: service_completed_successfully
+      render-config:
+        condition: service_completed_successfully
+    restart: "no"
+    container_name: sdrc-wdm-env-from-config
+
+  wait-for-redis:
+    profiles: ["wait-for-redis"]
+    image: redis:8.10.0-alpine
+    restart: "no"
+    depends_on:
+      wdm-env-from-config:
+        condition: service_completed_successfully
+    environment:
+      WDM_WL_REDIS_SERVER: ${WDM_WL_REDIS_SERVER:-redis}
+      WDM_WL_REDIS_PORT: ${WDM_WL_REDIS_PORT:-6379}
+      REDIS_WAIT_TIMEOUT_SECONDS: "${REDIS_WAIT_TIMEOUT_SECONDS:-120}"
+    volumes:
+      - ./wait-for-redis.sh:/wait-for-redis.sh:ro
+      - ./.wdm-env:/wdm-env:ro
+    entrypoint: ["/bin/sh", "/wait-for-redis.sh"]
+    container_name: sdrc-wait-for-redis
+
+  # sdr-mw-l: host network, Kubernetes API + CA, Docker socket, docker_cluster_config.json (mixed docker/k8s).
+  # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
+  sdr-controller:
+    profiles: ["sdr-controller"]
+    image: ${SDR_MW_L_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/sdr-mw-l:${VSS_CONTAINER_TAG:-develop-latest}}
+    container_name: sdr-controller
+    ports:
+      - ${SDRC_CONTROLLER_HOST_PORT:-5003}:5003
+      - ${SDRC_PROXY_HOST_PORT:-10000}:10000
+      - ${SDRC_DIRECT_HOST_PORT:-8011}:8011
+      - ${SDRC_ENVOY_ADMIN_HOST_PORT:-9902}:9902
+    restart: unless-stopped
+    environment:
+      WDM_WL_REDIS_SERVER: ${WDM_WL_REDIS_SERVER:-redis}
+      WDM_WL_REDIS_PORT: ${WDM_WL_REDIS_PORT:-6379}
+      WDM_WORKLOADS_CONFIG: "/configs/config.yml"
+      OTEL_SDK_DISABLED: "true"
+      WDM_CONTROLLER_PORT: 5003
+      WDM_CONTROLLER_HOST: ${SDRC_CONTROLLER_HOST:-sdr-controller}
+      WDM_SDRC_DIRECT_LISTENER_PORT: 8011
+      ENVOY_ADMIN_PORT: 9902
+      PORT: 5003
+      ROUTER_PORT: 5003
+      WDM_CLUSTER_TYPE: "docker"
+      WDM_XDS_GRPC_ADS_ENABLED: "true"
+    volumes:
+      - ./log:/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Host dir with docker-config.yml (see WDM_WORKLOADS_CONFIG). Same tree as wdm-env-from-config config.yml.
+      - "${SDR_CONTROLLER_CONFIG_PATH:-'./configs'}/configs:/configs/:ro"
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+        required: false
+      init-dirs:
+        condition: service_completed_successfully
+      wdm-env-from-config:
+        condition: service_completed_successfully
