@@ -4,7 +4,7 @@ This package measures the promoted Behavior Analytics image with the warehouse 2
 
 The published Behavior Analytics latency for frames, behavior, events, and incidents is that topic's latency-monitor summary minus the raw-topic summary. The result keeps both values. A negative corrected value fails the run. Percentile correction subtracts the printed percentile columns; it does not recompute percentiles from individual messages.
 
-`perf/configs/kpis.yaml` is the regression gate. After correction, the writer requires raw/frames/behavior/events/incidents and checks min counts plus Yun He's p50/p99 (frames 20/50 ms, incidents 30/60 ms, behavior and events 40/100 ms). A miss sets `success` false and records `kpis.violations` in `result.json`. Deploy overlays `behaviorEmitOnce=false` (product default) so the behavior KPI can be compared to Yun's 40 ms; the integration fixture still has emit-once on.
+`perf/configs/kpis.yaml` is the regression gate. After correction, the writer requires raw/frames/behavior/events/incidents and checks min counts plus Yun He's p50/p99 (frames 20/50 ms, incidents 30/60 ms, behavior and events 60/120 ms). A miss sets `success` false and records `kpis.violations` in `result.json`. Deploy overlays `behaviorEmitOnce=false` (product default) so the behavior KPI measures live updates; the integration fixture still has emit-once on.
 
 Playback does not use a GPU. The result is the Behavior Analytics overhead on recorded frames, not warehouse blueprint end-to-end latency.
 
