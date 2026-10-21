@@ -505,6 +505,21 @@ describe('ChatPanel', () => {
     );
   });
 
+  it('paints the Chat History switch NVIDIA green when on, in both themes', () => {
+    const { rerender } = render(
+      <ChatPanel endpoint={endpoint} features={{ ...noHeader, headerMenu: true }} theme="light" />,
+    );
+    const toggle = screen.getByRole('switch', { name: 'Chat History' });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(toggle).toHaveClass('bg-[#76b900]');
+    expect(toggle.className.split(/\s+/)).not.toContain('bg-black');
+
+    rerender(
+      <ChatPanel endpoint={endpoint} features={{ ...noHeader, headerMenu: true }} theme="dark" />,
+    );
+    expect(screen.getByRole('switch', { name: 'Chat History' })).toHaveClass('bg-[#76b900]');
+  });
+
   it('sends the whole thread when chat history is on, and one turn when off', async () => {
     const fetchMock = jest.fn().mockResolvedValue(sseResponse(['data: [DONE]\n\n']));
     global.fetch = fetchMock as any;
