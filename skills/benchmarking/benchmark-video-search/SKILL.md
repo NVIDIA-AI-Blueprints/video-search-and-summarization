@@ -5,6 +5,8 @@ description: >-
   ingesting a labelled dataset and running the vss CLI across retrieval paths.
   Use when the user asks to "benchmark video search", "compare search recall
   between builds", or "profile search latency" on a deployed VSS profile.
+  Deleting existing sources is opt-in only (--clear / --only-dataset with
+  --confirm-delete) and only when the user explicitly asks for it.
 license: Apache-2.0
 metadata:
   version: "3.3.0"
@@ -138,7 +140,7 @@ eval. Both measure a different flow; the result records the routing mode.
 | Requirement | How to check |
 |---|---|
 | Search profile agent reachable | `curl -sf --connect-timeout 5 --max-time 10 ${ENDPOINT}/health` returns 200 |
-| Unified HAProxy origin routes the services | `curl -sf --connect-timeout 5 --max-time 10 ${ORIGIN}/vst/api/v1/sensor/version` returns 200. ORIGIN is usually the endpoint host on port 7777; use it for `vss configure` and the Step 3 Elasticsearch probe. The runner separately derives VST's direct ingress on port 30888 (`--vst-port` default); do not pass the HAProxy port as `--vst-port` |
+| Unified HAProxy origin routes the services | `curl -sf --connect-timeout 5 --max-time 10 ${ORIGIN}/vst/api/v1/sensor/version` returns 200. ORIGIN is usually the endpoint host on port 7777; use it for `vss configure`; Step 3's `--check-indices` resolves the same origin. The runner separately derives VST's direct ingress on port 30888 (`--vst-port` default); do not pass the HAProxy port as `--vst-port` |
 | `vss` CLI runs from this checkout | `vss search run --help` exits 0 |
 | CLI points at the right origin | `vss configure show` reports the ORIGIN above |
 | Dataset present locally | `test -f ${DATA_DIR}/${DATASET}/dataset.json` — layout in `references/dataset-format.md` |
@@ -184,13 +186,13 @@ and still have an empty Elasticsearch, in which case every query returns zero
 hits and every metric reads 0.0000 — which looks like catastrophic retrieval
 quality and is not.
 
-Use the `ORIGIN` confirmed in the prerequisites above: the `--endpoint` host
-on port 7777 (`--vss-origin-port`) by default, or the `--vss-base-url` the
-user supplied. Do not substitute any other host. The request is read-only and
-fails loudly on an HTTP error.
+The runner lists the indices through the same origin it configures the CLI
+with: the `--endpoint` host on port 7777 (`--vss-origin-port`), or
+`--vss-base-url` when the user supplied one. It is read-only, exits 1 when no
+`mdx-*` index holds documents, and warns when `mdx-behavior-*` is empty.
 
 ```bash
-curl -sS --fail --connect-timeout 5 --max-time 10 "${ORIGIN}/elasticsearch/_cat/indices?h=index,docs.count"
+uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 --check-indices
 ```
 
 Expect `mdx-embed-filtered-*`, `mdx-behavior-*` and `mdx-raw-*` with non-zero
@@ -218,7 +220,7 @@ Expect this to be slow while the webhook pipeline indexes the videos:
   flow calls `/complete`, which can return a transient 502 and is retried.
 - `--skip-existing` is the default: ingest what is missing and delete nothing.
 - `--only-dataset` deletes foreign sources only when explicitly requested with
-  `--confirm-delete`; report its candidate inventory before it runs.
+  `--confirm-delete`. There is no prompt; report the inventory it prints.
 - `--clear --confirm-delete` deletes **every** source including other people's.
   Use it only on explicit request.
 - `--clear` and `--only-dataset` list sources via `--vst-url` but delete through
