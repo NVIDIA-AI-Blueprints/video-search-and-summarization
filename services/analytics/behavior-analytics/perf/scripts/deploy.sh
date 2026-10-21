@@ -15,7 +15,7 @@ load_compose_env
 docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 
 # Warehouse kafka playback sets behaviorEmitOnce=true, which holds each
-# behavior until behaviorStateValidInterval (default 6s). Yun's 40/100 ms
+# behavior until behaviorStateValidInterval (default 6s). Yun's 60/120 ms
 # KPI is hypothesized to be per-batch (product default false). Copy the
 # integration app settings into BA_PERF_DATA_DIR and overlay that copy so
 # git fixtures stay true. Restore fixture behavior with

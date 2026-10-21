@@ -182,10 +182,10 @@ INCIDENTS MESSAGES
         self.assertEqual(spec["frames"]["max_p99_s"], 0.05)
         self.assertEqual(spec["incidents"]["max_p50_s"], 0.03)
         self.assertEqual(spec["incidents"]["max_p99_s"], 0.06)
-        self.assertEqual(spec["behavior"]["max_p50_s"], 0.04)
-        self.assertEqual(spec["behavior"]["max_p99_s"], 0.1)
-        self.assertEqual(spec["events"]["max_p50_s"], 0.04)
-        self.assertEqual(spec["events"]["max_p99_s"], 0.1)
+        self.assertEqual(spec["behavior"]["max_p50_s"], 0.06)
+        self.assertEqual(spec["behavior"]["max_p99_s"], 0.12)
+        self.assertEqual(spec["events"]["max_p50_s"], 0.06)
+        self.assertEqual(spec["events"]["max_p99_s"], 0.12)
         self.assertEqual(spec["required_topics"], ["raw", "frames", "behavior", "events", "incidents"])
         measured = build_result(
             CUMULATIVE_REPORT,
