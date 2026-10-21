@@ -184,12 +184,13 @@ and still have an empty Elasticsearch, in which case every query returns zero
 hits and every metric reads 0.0000 — which looks like catastrophic retrieval
 quality and is not.
 
-`HOST` must be the host of the `--endpoint` the user gave you; do not
-substitute any other host. The request is read-only and fails loudly on an
-HTTP error.
+Use the `ORIGIN` confirmed in the prerequisites above: the `--endpoint` host
+on port 7777 (`--vss-origin-port`) by default, or the `--vss-base-url` the
+user supplied. Do not substitute any other host. The request is read-only and
+fails loudly on an HTTP error.
 
 ```bash
-curl -sS --fail --connect-timeout 5 --max-time 10 "http://HOST:7777/elasticsearch/_cat/indices?h=index,docs.count"
+curl -sS --fail --connect-timeout 5 --max-time 10 "${ORIGIN}/elasticsearch/_cat/indices?h=index,docs.count"
 ```
 
 Expect `mdx-embed-filtered-*`, `mdx-behavior-*` and `mdx-raw-*` with non-zero
