@@ -152,7 +152,7 @@ The Apache License, Version 2.0 is a permissive license that also provides an ex
 Packages under the Apache License, Version 2.0:
   - @datadog/browser-rum           @ 5.35.1
   - @mozilla/readability           @ 0.6.0
-  - @nvidia/foundations-react-core @ 0.607.4
+  - @nvidia/foundations-react-core @ 1.17.0
   - typescript                     @ 5.9.3
 
   Note: The dompurify package (transitive via isomorphic-dompurify) is dual-licensed under

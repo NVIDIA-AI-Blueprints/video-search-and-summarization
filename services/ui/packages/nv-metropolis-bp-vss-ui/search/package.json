@@ -28,7 +28,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@nvidia/foundations-react-core": "0.607.4",
+    "@nvidia/foundations-react-core": "1.17.0",
     "@tabler/icons-react": "^3.46.0",
     "common": "*",
     "konva": "^9.3.22",
