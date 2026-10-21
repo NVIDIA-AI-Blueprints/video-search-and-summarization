@@ -184,8 +184,12 @@ and still have an empty Elasticsearch, in which case every query returns zero
 hits and every metric reads 0.0000 — which looks like catastrophic retrieval
 quality and is not.
 
+`HOST` must be the host of the `--endpoint` the user gave you; do not
+substitute any other host. The request is read-only and fails loudly on an
+HTTP error.
+
 ```bash
-curl -s --connect-timeout 5 --max-time 10 "http://HOST:7777/elasticsearch/_cat/indices?h=index,docs.count"
+curl -sS --fail --connect-timeout 5 --max-time 10 "http://HOST:7777/elasticsearch/_cat/indices?h=index,docs.count"
 ```
 
 Expect `mdx-embed-filtered-*`, `mdx-behavior-*` and `mdx-raw-*` with non-zero
@@ -217,9 +221,8 @@ Expect this to be slow while the webhook pipeline indexes the videos:
 - `--clear --confirm-delete` deletes **every** source including other people's.
   Use it only on explicit request.
 - `--clear` and `--only-dataset` list sources via `--vst-url` but delete through
-  the agent endpoint. If those URLs have different hosts, verify they belong
-  to the **same deployment** before deletion; otherwise source IDs from one
-  stack could be sent to another.
+  the agent endpoint. The runner aborts before listing if the two hosts differ,
+  so source IDs from one stack are never sent to another.
 
 Then re-run Step 3. Indices are lazy; they appear after webhook processing,
 not immediately after upload. See `references/flags.md` for ingest options.

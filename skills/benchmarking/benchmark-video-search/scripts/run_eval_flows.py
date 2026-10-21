@@ -70,6 +70,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -196,14 +197,33 @@ def build_query_backend(args: argparse.Namespace) -> Any:
 # =============================================================================
 
 
+def require_same_host(agent_endpoint: str, vst_url: str) -> None:
+    """Abort a delete whose listing and deleting origins are on different hosts.
+
+    Sources are listed from VST and deleted through the agent, by stream id.
+    ``--vst-url`` can point anywhere, so without this check a listing from one
+    stack could be replayed as deletes against another.
+    """
+    agent_host = (urlparse(agent_endpoint).hostname or "").lower()
+    vst_host = (urlparse(vst_url).hostname or "").lower()
+    if not agent_host or agent_host != vst_host:
+        raise SystemExit(
+            f"ABORTED: refusing to delete -- sources are listed from {vst_url} but "
+            f"deleted through {agent_endpoint}, and the hosts differ "
+            f"({vst_host or '?'} vs {agent_host or '?'}).\n"
+            "  Point --vst-url at the same host as --endpoint, or delete by hand."
+        )
+
+
 def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
     """Delete every video registered on the deployment.
 
-    Lists and deletes against the SAME resolved origins the rest of the run
-    uses, so ``--vst-url`` cannot list one host and delete from another.
+    Lists from ``vst_url`` and deletes through ``agent_endpoint``; aborts
+    before listing if their hosts differ (:func:`require_same_host`).
     Prints the full inventory first: ``--clear`` is destructive and shared
     deployments carry other people's fixtures.
     """
+    require_same_host(agent_endpoint, vst_url)
     try:
         streams = flows.list_sensor_streams(vst_url)
     except Exception as e:
@@ -469,6 +489,7 @@ def prune_foreign_videos(agent_endpoint: str, vst_url: str, video_dir: Path) -> 
     ``--skip-existing`` uses to decide a video is already present. Sharing one
     matcher is what stops this deleting a video the very next step re-uploads.
     """
+    require_same_host(agent_endpoint, vst_url)
     try:
         streams = flows.list_sensor_streams(vst_url)
     except Exception as e:
