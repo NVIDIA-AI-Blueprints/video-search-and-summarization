@@ -473,16 +473,20 @@ def get_gpu_info() -> Dict[str, Any]:
         full_name = pynvml.nvmlDeviceGetName(handle0)
         if isinstance(full_name, bytes):
             full_name = full_name.decode("utf-8", errors="replace")
-        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle0)
         driver_version = pynvml.nvmlSystemGetDriverVersion()
         if isinstance(driver_version, bytes):
             driver_version = driver_version.decode("utf-8", errors="replace")
         model = (full_name.split()[1] if full_name else "").upper()
+        try:
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle0)
+            memory_gb = round(mem_info.total / (1024**3), 2)
+        except pynvml.NVMLError_NotSupported:
+            memory_gb = None
         return {
             "model": model,
             "full_name": full_name,
             "count": count,
-            "memory_gb": round(mem_info.total / (1024**3), 2),
+            "memory_gb": memory_gb,
             "driver_version": driver_version,
         }
     except Exception:
