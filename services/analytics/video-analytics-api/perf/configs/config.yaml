@@ -16,12 +16,9 @@ scenarios: &scenarios
     place: "building=Warehouse/room=Room-1"
     from_ts: "2026-02-14T10:16:00.000Z"
     to_ts: "2026-02-14T10:17:00.000Z"
+    # spec_gets = every OpenAPI GET whose required query params this dump job can fill.
     endpoints:
-      - livez
-      - frames
-      - behavior
-      - events
-      - incidents
+      - spec_gets
     percentiles:
       - 50
       - 95

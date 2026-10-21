@@ -15,15 +15,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from kpis import evaluate_kpis, load_kpis
+from openapi_matrix import query_params_for, spec_get_endpoints
 from safe_fs import safe_write_text
 
-ENDPOINT_PATHS = {
-    "livez": "/livez",
-    "frames": "/frames",
-    "behavior": "/behavior",
-    "events": "/events/tripwire",
-    "incidents": "/incidents",
-}
+SPEC_GETS_TOKEN = "spec_gets"
 
 
 def percentile(values: list[float], pct: int) -> float | None:
@@ -76,25 +71,58 @@ def request_once(url: str, timeout: float = 30.0) -> tuple[int, float]:
     return status, elapsed
 
 
-def endpoint_url(base: str, name: str, params: Mapping[str, str]) -> str:
-    path = ENDPOINT_PATHS[name]
-    if name == "livez":
-        return urllib.parse.urljoin(base.rstrip("/") + "/", path.lstrip("/"))
-    query = urllib.parse.urlencode(params)
-    return f"{base.rstrip('/')}{path}?{query}"
+def warehouse_context(
+    *,
+    sensor_id: str,
+    place: str,
+    from_ts: str,
+    to_ts: str,
+    lookup_x: str = "0",
+    lookup_y: str = "0",
+) -> dict[str, str]:
+    return {
+        "sensorId": sensor_id,
+        "sensorIds": sensor_id,
+        "place": place,
+        "fromTimestamp": from_ts,
+        "toTimestamp": to_ts,
+        "timestamp": to_ts,
+        "emptyIfNotFound": "true",
+        "x": lookup_x,
+        "y": lookup_y,
+    }
+
+
+def resolve_endpoint_rows(names: list[str]) -> list[dict[str, Any]]:
+    catalog = spec_get_endpoints()
+    if names == [SPEC_GETS_TOKEN]:
+        return catalog
+    by_name = {row["name"]: row for row in catalog}
+    missing = [name for name in names if name not in by_name]
+    if missing:
+        raise ValueError(f"unknown endpoint names: {', '.join(missing)}")
+    return [by_name[name] for name in names]
+
+
+def endpoint_url(base: str, path: str, params: Mapping[str, str]) -> str:
+    joined = urllib.parse.urljoin(base.rstrip("/") + "/", path.lstrip("/"))
+    if not params:
+        return joined
+    return f"{joined}?{urllib.parse.urlencode(params)}"
 
 
 def measure_endpoints(
     base_url: str,
     names: list[str],
-    params: Mapping[str, str],
+    context: Mapping[str, str],
     *,
     request_count: int,
     warmup_requests: int,
 ) -> dict[str, Any]:
     results: dict[str, Any] = {}
-    for name in names:
-        url = endpoint_url(base_url, name, params)
+    for row in resolve_endpoint_rows(names):
+        params = query_params_for(row, context)
+        url = endpoint_url(base_url, str(row["path"]), params)
         latencies: list[float] = []
         ok_count = 0
         total = 0
@@ -107,8 +135,9 @@ def measure_endpoints(
             if status == 200:
                 ok_count += 1
                 latencies.append(elapsed)
-        results[name] = summarize(latencies, ok_count, total)
-        results[name]["url"] = url
+        results[row["name"]] = summarize(latencies, ok_count, total)
+        results[row["name"]]["url"] = url
+        results[row["name"]]["path"] = row["path"]
     return results
 
 
@@ -159,23 +188,32 @@ def main() -> int:
     parser.add_argument("--request-count", type=int, default=int(os.environ.get("PERF_REQUEST_COUNT", "20")))
     parser.add_argument("--warmup-requests", type=int, default=int(os.environ.get("PERF_WARMUP_REQUESTS", "2")))
     parser.add_argument("--sensor-id", default=os.environ.get("PERF_SENSOR_ID", "Camera"))
+    parser.add_argument(
+        "--place",
+        default=os.environ.get("PERF_PLACE", "building=Warehouse/room=Room-1"),
+    )
     parser.add_argument("--from-ts", default=os.environ.get("PERF_FROM_TS", "2026-02-14T10:16:00.000Z"))
     parser.add_argument("--to-ts", default=os.environ.get("PERF_TO_TS", "2026-02-14T10:17:00.000Z"))
+    parser.add_argument("--lookup-x", default=os.environ.get("PERF_LOOKUP_X", "0"))
+    parser.add_argument("--lookup-y", default=os.environ.get("PERF_LOOKUP_Y", "0"))
     parser.add_argument(
         "--endpoints",
-        default=os.environ.get("PERF_ENDPOINTS", "livez frames behavior events incidents"),
+        default=os.environ.get("PERF_ENDPOINTS", SPEC_GETS_TOKEN),
     )
     args = parser.parse_args()
     names = [item for item in args.endpoints.split() if item]
-    params = {
-        "sensorId": args.sensor_id,
-        "fromTimestamp": args.from_ts,
-        "toTimestamp": args.to_ts,
-    }
+    context = warehouse_context(
+        sensor_id=args.sensor_id,
+        place=args.place,
+        from_ts=args.from_ts,
+        to_ts=args.to_ts,
+        lookup_x=args.lookup_x,
+        lookup_y=args.lookup_y,
+    )
     measured = measure_endpoints(
         args.base_url,
         names,
-        params,
+        context,
         request_count=args.request_count,
         warmup_requests=args.warmup_requests,
     )

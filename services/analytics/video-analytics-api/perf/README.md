@@ -4,13 +4,16 @@ This package measures the promoted Video Analytics API image with the warehouse 
 
 Kafka stays off (`brokers: []`). Behavior Analytics playback is a different job. This result is query latency against a frozen snapshot, not ingest latency.
 
-`perf/configs/kpis.yaml` is the regression gate. Each required endpoint must return enough HTTP 200s, and HTTP p50/p99 must stay under the table below. Those limits are a best estimate from Jenkins `benchmark-perf-test/69` (~2x measured p50, ~3x measured p99, extra slack on `/livez`). They are not an owner SLO; replace them when an API owner publishes one.
+The measure step times every **OpenAPI GET** whose required query params this warehouse dump can fill (`endpoints: spec_gets`, 44 of 48 GETs in `src/app/specification/openapi.json`). It skips POST/PUT/PATCH/DELETE, path-parameter routes, and GETs that need IDs we do not have (`segmentInfo`, `view`, `endFrameId`, `behaviorTimeInterval`).
+
+`perf/configs/kpis.yaml` is the regression gate. Each required endpoint must return enough HTTP 200s. The original five use Jenkins `benchmark-perf-test/69` estimates. New endpoints use a default 100 / 200 ms p50/p99 until an owner publishes SLOs.
 
 | Endpoint | max p50 | max p99 |
 | --- | ---: | ---: |
 | `/livez` | 5 ms | 20 ms |
 | `/frames` | 50 ms | 100 ms |
 | `/behavior`, `/events/tripwire`, `/incidents` | 40 ms | 80 ms |
+| Other spec GETs (default) | 100 ms | 200 ms |
 
 Playback does not use a GPU. The Jenkins node label matches the shared pool.
 

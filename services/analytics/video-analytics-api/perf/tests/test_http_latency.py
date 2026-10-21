@@ -10,8 +10,9 @@ from unittest.mock import patch
 
 from dump_loader import is_lfs_pointer, load_file
 from http_latency import build_result, percentile, summarize
-from kpis import DEFAULT_KPIS_PATH, evaluate_kpis, load_kpis
+from kpis import DEFAULT_KPIS_PATH, evaluate_kpis, load_kpis, resolved_required_endpoints
 from minio_upload import minio_settings
+from openapi_matrix import load_spec, query_params_for, spec_get_endpoints, spec_get_names
 from scenario_config import scenario_settings
 
 PERF = Path(__file__).resolve().parents[1]
@@ -40,12 +41,9 @@ class HttpLatencyTests(unittest.TestCase):
             "config_id": "warehouse-es-dump",
             "endpoints": {},
         }
-        measured["endpoints"]["livez"] = summarize(livez, 20, 20)
-        measured["endpoints"]["livez"]["present"] = True
-        for name in spec["required_endpoints"]:
-            if name == "livez":
-                continue
-            measured["endpoints"][name] = summarize(query, 20, 20)
+        for name in resolved_required_endpoints(spec):
+            samples = livez if name == "livez" else query
+            measured["endpoints"][name] = summarize(samples, 20, 20)
             measured["endpoints"][name]["present"] = True
         return kpis, spec, measured
 
@@ -55,13 +53,57 @@ class HttpLatencyTests(unittest.TestCase):
             [0.0006, 0.0007, 0.0018],
             [0.018, 0.022, 0.035],
         )
+        self.assertEqual(spec["required_endpoints"], ["spec_gets"])
         self.assertEqual(spec["livez"]["max_p50_s"], 0.005)
         self.assertEqual(spec["livez"]["max_p99_s"], 0.02)
         self.assertEqual(spec["frames"]["max_p50_s"], 0.05)
         self.assertEqual(spec["frames"]["max_p99_s"], 0.10)
         self.assertEqual(spec["behavior"]["max_p99_s"], 0.08)
+        self.assertEqual(spec["default"]["max_p99_s"], 0.20)
         verdict = evaluate_kpis(measured, kpis)
         self.assertTrue(verdict["passed"], verdict)
+
+    def test_openapi_matrix_covers_dump_backed_gets(self) -> None:
+        spec = load_spec()
+        rows = spec_get_endpoints(spec)
+        names = spec_get_names(spec)
+        self.assertEqual(len(rows), 44)
+        self.assertEqual(len(names), 44)
+        self.assertIn("livez", names)
+        self.assertIn("frames", names)
+        self.assertIn("events", names)
+        self.assertIn("metrics_occupancy_fov", names)
+        self.assertIn("sensor_lookup", names)
+        paths = {row["path"] for row in rows}
+        self.assertNotIn("/behavior/pts", paths)
+        self.assertNotIn("/metrics/road-network/segment-speed", paths)
+        self.assertNotIn("/config/calibration/image", paths)
+        get_count = sum(1 for ops in spec["paths"].values() if "get" in ops)
+        self.assertEqual(get_count, 48)
+        frames = next(row for row in rows if row["name"] == "frames")
+        self.assertNotIn("timestamp", frames["query_keys"])
+        occupancy = next(row for row in rows if row["name"] == "metrics_occupancy_tripwire")
+        self.assertEqual(occupancy["query_keys"], ["place", "timestamp"])
+
+    def test_frames_query_keeps_range_without_timestamp(self) -> None:
+        frames = next(row for row in spec_get_endpoints() if row["name"] == "frames")
+        params = query_params_for(
+            frames,
+            {
+                "sensorId": "Camera",
+                "fromTimestamp": "2026-02-14T10:16:00.000Z",
+                "toTimestamp": "2026-02-14T10:17:00.000Z",
+                "timestamp": "2026-02-14T10:17:00.000Z",
+            },
+        )
+        self.assertEqual(
+            params,
+            {
+                "sensorId": "Camera",
+                "fromTimestamp": "2026-02-14T10:16:00.000Z",
+                "toTimestamp": "2026-02-14T10:17:00.000Z",
+            },
+        )
 
     def test_slow_frames_p99_fails(self) -> None:
         kpis, _, measured = self._measured(
@@ -104,6 +146,8 @@ class HttpLatencyTests(unittest.TestCase):
         settings = scenario_settings(PERF / "configs" / "config.yaml", "quick_test")
         self.assertEqual(settings["request_count"], 20)
         self.assertEqual(settings["sensor_id"], "Camera")
+        self.assertEqual(settings["place"], "building=Warehouse/room=Room-1")
+        self.assertEqual(settings["endpoints"], ["spec_gets"])
 
     def test_pre_flight_does_not_chmod_0777(self) -> None:
         text = PRE_FLIGHT.read_text()

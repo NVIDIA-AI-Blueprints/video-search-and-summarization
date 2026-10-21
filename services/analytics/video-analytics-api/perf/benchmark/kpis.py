@@ -33,6 +33,24 @@ def load_kpis(path: Path | None = None) -> dict[str, Any]:
     return data
 
 
+def resolved_required_endpoints(spec: Mapping[str, Any]) -> list[str]:
+    """Expand required_endpoints. `spec_gets` means the OpenAPI dump-backed GET matrix."""
+    required = [str(item) for item in (spec.get("required_endpoints") or [])]
+    if required == ["spec_gets"]:
+        from openapi_matrix import spec_get_names
+
+        return spec_get_names()
+    return required
+
+
+def _limits_for(spec: Mapping[str, Any], name: str) -> dict[str, Any]:
+    default = spec.get("default") if isinstance(spec.get("default"), Mapping) else {}
+    dedicated = spec.get(name) if isinstance(spec.get(name), Mapping) else {}
+    merged = dict(default)
+    merged.update(dedicated)
+    return merged
+
+
 def evaluate_kpis(result: Mapping[str, Any], kpis: Mapping[str, Any]) -> dict[str, Any]:
     """Return pass/fail plus violation strings for one API result."""
     scenario = str(result.get("scenario") or "")
@@ -44,21 +62,13 @@ def evaluate_kpis(result: Mapping[str, Any], kpis: Mapping[str, Any]) -> dict[st
 
     violations: list[str] = []
     endpoints = result.get("endpoints") or {}
-    required = list(spec.get("required_endpoints") or [])
+    required = resolved_required_endpoints(spec)
     for name in required:
-        entry = endpoints.get(name) or {}
-        if not entry.get("present"):
-            violations.append(f"{name} missing")
-
-    for name, limits in spec.items():
-        if name == "required_endpoints" or not isinstance(limits, Mapping):
-            continue
         measured = endpoints.get(name)
         if not isinstance(measured, Mapping) or not measured.get("present"):
-            if name in required:
-                continue
             violations.append(f"{name} missing")
             continue
+        limits = _limits_for(spec, name)
         min_count = limits.get("min_count")
         ok_count = float(measured.get("ok_count") or 0)
         if min_count is not None and ok_count < float(min_count):

@@ -2,38 +2,31 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Video Analytics API query KPI thresholds.
-# No service owner has published p50/p99 SLOs (BA used Yun He).
-# These HTTP gates are a best estimate from Jenkins benchmark-perf-test/69
-# (warehouse-es-dump, n=20 measured + 2 warmup, image nightly-20261020):
+# required_endpoints: spec_gets expands to every OpenAPI GET this dump-backed
+# job can call (required query params subset of warehouse_2d constants).
+# Skipped: all POST/PUT/PATCH/DELETE, path-parameter routes, and GETs that
+# need IDs we do not have (segmentInfo, view, endFrameId, behaviorTimeInterval).
 #
-# Endpoint            | measured p50 / p99 | gate p50 / p99
-# /livez              | 0.7 / 1.7 ms       | 0.005 / 0.02 s
-# /frames             | 23 / 35 ms         | 0.05 / 0.10 s
-# /behavior           | 20 / 24 ms         | 0.04 / 0.08 s
-# /events/tripwire    | 22 / 24 ms         | 0.04 / 0.08 s
-# /incidents          | 17 / 18 ms         | 0.04 / 0.08 s
-#
-# Query slack is about 2x measured p50 and 3x measured p99, rounded.
-# /livez is a health check (~2 ms max on that node); 5 / 20 ms still
-# fails a slow probe without using the old 1 s smoke limit.
-# n=20 makes p99 sit near max, so do not set gates at the measured p99.
-# Replace this table when an API owner publishes SLOs.
+# Original five gates are a best estimate from Jenkins benchmark-perf-test/69.
+# New endpoints use default 0.10 / 0.20 s until an owner publishes SLOs.
 
 schema_version: "0.1"
 service: video-analytics-api
 source:
   setup: warehouse_2d_es_dump
   estimate: jenkins-benchmark-perf-test-69
+  spec: src/app/specification/openapi.json
 
 scenarios:
   quick_test:
     warehouse-es-dump:
       required_endpoints:
-        - livez
-        - frames
-        - behavior
-        - events
-        - incidents
+        - spec_gets
+      default:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.10
+        max_p99_s: 0.20
       livez:
         min_count: 10
         min_ok_ratio: 1.0
