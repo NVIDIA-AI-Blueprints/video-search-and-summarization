@@ -24,6 +24,6 @@ The shared job requires `{checkout}/perf/{configs,scripts,benchmark/core}` and a
 
 GPU nodes sparse-checkout `perf/`, `services/`, `ci/`, `compose/`, and `VERSION` — not `deploy/`. `common.sh` therefore uses `deploy/docker` when it is present and `compose/docker` (an infra mirror) otherwise.
 
-`deploy.sh` pulls the promoted API image, starts Elasticsearch with unique container names (`va-api-perf-*`) and host ports (19200 / 18081) so a Behavior Analytics playback job on the same node does not collide, loads the LFS dumps with `dump_loader.py`, and waits for `/livez`. `--build` is required for the local Elasticsearch image.
+`deploy.sh` pulls the promoted API image, starts Elasticsearch alone (bind-mounted data/logs under `/tmp/va-api-perf-*`, mmap disabled), waits until `:19200` answers, then runs the init container and the API. Unique container names (`va-api-perf-*`) and host ports (19200 / 18081) keep a Behavior Analytics playback job on the same node from colliding. `dump_loader.py` and `/livez` wait happen in `post_deploy.sh`. `--build` is required for the local Elasticsearch image.
 
 `perf-configs.yaml` sets `composePath` so Jenkins exports a non-empty `COMPOSE_FILE`. Dummy `vlmGpus` / `llmGpus` values keep the LVS wrapper from dying on `set -u`.

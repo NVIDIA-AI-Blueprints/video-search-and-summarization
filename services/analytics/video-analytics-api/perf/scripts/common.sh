@@ -106,28 +106,35 @@ write_compose_env() {
     infra_dir="$apps_dir/services/infra"
     image="$(resolve_image)"
     ensure_host_dir "$VA_API_PERF_DATA_DIR/data_log/video-analytics-api-app/files"
+    ensure_host_dir "$VA_API_PERF_DATA_DIR/elastic/data"
+    ensure_host_dir "$VA_API_PERF_DATA_DIR/elastic/logs"
+    chmod a+rwX "$VA_API_PERF_DATA_DIR" "$VA_API_PERF_DATA_DIR/elastic" \
+        "$VA_API_PERF_DATA_DIR/elastic/data" "$VA_API_PERF_DATA_DIR/elastic/logs" \
+        "$VA_API_PERF_DATA_DIR/data_log/video-analytics-api-app/files" 2>/dev/null || true
     ensure_host_dir "$(dirname "$ENV_FILE")"
+    # Docker Compose --env-file does not accept `export KEY=`. KEY=VALUE only.
     cat > "$ENV_FILE" << EOF
-export INTEGRATION_TEST_DIR=$INTEGRATION_DIR
-export VIDEO_ANALYTICS_API_ROOT=$SERVICE_DIR
-export DATA_DIR=$VA_API_PERF_DATA_DIR
-export HOST_IP=localhost
-export INFRA_DIR=$infra_dir
-export VSS_APPS_DIR=$apps_dir
-export VSS_DATA_DIR=$VA_API_PERF_DATA_DIR
-export COMPOSE_PROFILES=elasticsearch,elasticsearch-init-container
-export COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME
-export STREAM_TYPE=
-export VSS_PUBLIC_HOST=
-export VSS_PUBLIC_PORT=
-export EXTERNAL_IP=
-export NUM_STREAMS=
-export NUM_SENSORS=
-export ELASTICSEARCH_HOST_PORT=$ELASTICSEARCH_HOST_PORT
-export VIDEO_ANALYTICS_API_HOST_PORT=$VIDEO_ANALYTICS_API_HOST_PORT
-export VIDEO_ANALYTICS_API_IMAGE=$image
-export CURRENT_VIDEO_ANALYTICS_API_IMAGE=$image
-export BUILD_SERVICE_IMAGE=false
+INTEGRATION_TEST_DIR=$INTEGRATION_DIR
+VIDEO_ANALYTICS_API_ROOT=$SERVICE_DIR
+DATA_DIR=$VA_API_PERF_DATA_DIR
+HOST_IP=localhost
+INFRA_DIR=$infra_dir
+VSS_APPS_DIR=$apps_dir
+VSS_DATA_DIR=$VA_API_PERF_DATA_DIR
+VSS_VERSION=
+COMPOSE_PROFILES=elasticsearch,elasticsearch-init-container
+COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME
+STREAM_TYPE=
+VSS_PUBLIC_HOST=
+VSS_PUBLIC_PORT=
+EXTERNAL_IP=
+NUM_STREAMS=
+NUM_SENSORS=
+ELASTICSEARCH_HOST_PORT=$ELASTICSEARCH_HOST_PORT
+VIDEO_ANALYTICS_API_HOST_PORT=$VIDEO_ANALYTICS_API_HOST_PORT
+VIDEO_ANALYTICS_API_IMAGE=$image
+CURRENT_VIDEO_ANALYTICS_API_IMAGE=$image
+BUILD_SERVICE_IMAGE=false
 EOF
     export INTEGRATION_TEST_DIR SERVICE_DIR
     export DATA_DIR="$VA_API_PERF_DATA_DIR"
@@ -136,6 +143,7 @@ EOF
     export VSS_DATA_DIR="$VA_API_PERF_DATA_DIR"
     export COMPOSE_PROFILES="elasticsearch,elasticsearch-init-container"
     export COMPOSE_PROJECT_NAME
+    export ELASTICSEARCH_HOST_PORT VIDEO_ANALYTICS_API_HOST_PORT VSS_VERSION
     export VIDEO_ANALYTICS_API_IMAGE="$image"
     export CURRENT_VIDEO_ANALYTICS_API_IMAGE="$image"
     export BUILD_SERVICE_IMAGE=false
@@ -162,5 +170,41 @@ compose() {
         -f "$INTEGRATION_DIR/docker_compose/infra/video-analytics-api-infra.yml" \
         -f "$INTEGRATION_DIR/docker_compose/apps/video-analytics-api-app.yml" \
         -f "$PERF_DIR/setup/compose-names.yml" \
+        -f "$PERF_DIR/setup/compose-es.yml" \
         "$@"
+}
+
+dump_es_debug() {
+    echo "--- elasticsearch inspect ---" >&2
+    docker inspect "$ES_CONTAINER" --format \
+        'status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' \
+        >&2 || true
+    echo "--- elasticsearch logs ---" >&2
+    docker logs "$ES_CONTAINER" >&2 || true
+    echo "--- vm.max_map_count ---" >&2
+    cat /proc/sys/vm/max_map_count >&2 || true
+    echo "--- ss :9200/:19200 ---" >&2
+    ss -tlnp 2>/dev/null | grep -E ':9200|:19200' >&2 || true
+}
+
+wait_for_elasticsearch() {
+    local deadline=$((SECONDS + 180))
+    local health status
+    while (( SECONDS < deadline )); do
+        status="$(docker inspect -f '{{.State.Status}}' "$ES_CONTAINER" 2>/dev/null || echo missing)"
+        health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$ES_CONTAINER" 2>/dev/null || echo none)"
+        if [[ "$status" == "exited" || "$status" == "dead" || "$status" == "missing" ]]; then
+            echo "Elasticsearch container $status" >&2
+            dump_es_debug
+            return 1
+        fi
+        if curl -sf "http://127.0.0.1:${ELASTICSEARCH_HOST_PORT}/_cluster/health" >/dev/null 2>&1; then
+            echo "Elasticsearch is reachable on :${ELASTICSEARCH_HOST_PORT} (docker health=${health})"
+            return 0
+        fi
+        sleep 5
+    done
+    echo "Timed out waiting for Elasticsearch on :${ELASTICSEARCH_HOST_PORT}" >&2
+    dump_es_debug
+    return 1
 }

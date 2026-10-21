@@ -18,7 +18,10 @@ PERF = Path(__file__).resolve().parents[1]
 REPO = Path(__file__).resolve().parents[5]
 ROOT_RUN = REPO / "perf" / "run_benchmark.sh"
 PRE_FLIGHT = PERF / "scripts" / "pre_flight.sh"
+DEPLOY = PERF / "scripts" / "deploy.sh"
+COMMON = PERF / "scripts" / "common.sh"
 TEARDOWN = PERF / "scripts" / "teardown.sh"
+ES_OVERLAY = PERF / "setup" / "compose-es.yml"
 
 
 class HttpLatencyTests(unittest.TestCase):
@@ -80,6 +83,28 @@ class HttpLatencyTests(unittest.TestCase):
         text = PRE_FLIGHT.read_text()
         self.assertNotIn("0777", text)
         self.assertNotIn("chmod 777", text)
+
+    def test_env_file_is_compose_key_value(self) -> None:
+        text = COMMON.read_text()
+        self.assertIn("Docker Compose --env-file does not accept", text)
+        self.assertIn("ELASTICSEARCH_HOST_PORT=$ELASTICSEARCH_HOST_PORT", text)
+        self.assertNotIn("export ELASTICSEARCH_HOST_PORT=", text)
+
+    def test_deploy_starts_elasticsearch_first_and_dumps_logs(self) -> None:
+        text = DEPLOY.read_text()
+        self.assertIn("--no-deps --force-recreate elasticsearch", text)
+        self.assertIn("wait_for_elasticsearch", text)
+        self.assertIn("dump_es_debug", text)
+        self.assertNotIn(
+            "compose up -d --build --force-recreate elasticsearch elasticsearch-init-container video-analytics-api",
+            text,
+        )
+
+    def test_es_overlay_bind_mounts_and_disables_mmap(self) -> None:
+        text = ES_OVERLAY.read_text()
+        self.assertIn("elastic/data:/tmp/elastic/data", text)
+        self.assertIn("node.store.allow_mmap", text)
+        self.assertIn("tmpfs: !override []", text)
 
     def test_teardown_is_project_scoped(self) -> None:
         text = TEARDOWN.read_text()
