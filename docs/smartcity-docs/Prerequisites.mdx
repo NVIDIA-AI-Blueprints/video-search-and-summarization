@@ -75,6 +75,7 @@ For detailed installation instructions, see the [Appendix](/vision-agent/agent-w
 - [Install NVIDIA Driver](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-nvidia-driver)
 - [Install Docker](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-docker)
 - [Configure Docker](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#configure-docker)
+- [Install Docker Compose](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-docker-compose)
 - [Install Docker Buildx](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-docker-buildx)
 - [Install NVIDIA Container Toolkit](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#install-nvidia-container-toolkit)
 
@@ -288,17 +289,20 @@ Restarting Docker will temporarily stop all running containers. Plan accordingly
 
 Docker Compose v2.39.1 or later is required. Docker Compose v2 is typically installed as a plugin with modern Docker installations.
 
-**Verify if Docker Compose is already installed:**
+**Check if Docker Compose is already installed and meets the minimum version:**
 
 ```bash
 docker compose version
 ```
 
-**If not installed, install Docker Compose plugin:**
+The default `docker-compose-plugin` package in Ubuntu repositories may provide a version older than v2.39.1.
+If the version is missing or too old, install the required version manually. The command selects the binary for the host architecture (`x86_64` or `aarch64`):
 
 ```bash
-sudo apt update
-sudo apt install docker-compose-plugin
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -fSL "https://github.com/docker/compose/releases/download/v2.39.1/docker-compose-linux-$(uname -m)" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 ```
 
 **Verify installation:**
