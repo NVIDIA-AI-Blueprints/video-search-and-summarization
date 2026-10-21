@@ -98,6 +98,10 @@ delete sources. Both require `--confirm-delete` in the same invocation, there
 is no interactive prompt, and both abort if the listing and deleting hosts
 differ. Report the inventory the runner prints as it deletes.
 
+> **WARNING:** These deletions are irreversible. `--clear` removes every source
+> on the target deployment, including other users' data. Confirm the target
+> host and preserve anything needed before running either command.
+
 ```bash
 # Delete every source that is not in this dataset
 --dataset warehouse --only-dataset --confirm-delete
