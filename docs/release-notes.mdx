@@ -9,13 +9,13 @@ These Release Notes describe the key features, software enhancements and improve
 
 ### Key Features and Enhancements
 
-- Removed the `vss-deploy-profile` Agent Skill and replaced it with
-  **`vss-build-vision-ai`**, which deploys the same `base`, `search`, `lvs` and
-  `alerts` developer profiles plus the `warehouse` industry profile, and can
-  additionally extend a running deployment with a delta overlay.
+- Released **`vss-build-vision-ai`**, a unified Agent Skill for composing and
+  deploying custom vision stacks. It deploys the `base`, `search`, `lvs`, and `alerts`
+  developer profiles plus the `warehouse` industry profile, and can extend a
+  running deployment with a delta overlay.
 
-  `vss-build-vision-ai` takes no `-p` / `-m` flags — describe the profile in the
-  request instead:
+  `vss-build-vision-ai` replaces the removed `vss-deploy-profile` Agent Skill
+  and takes no `-p` / `-m` flags — describe the profile in the request instead:
 
   | `vss-deploy-profile` | `vss-build-vision-ai` |
   |---|---|
@@ -52,6 +52,10 @@ These Release Notes describe the key features, software enhancements and improve
   three grounded VLM follow-ups. `vss-ask-video` checks hot conversation
   context, Markdown memory, structured memory, and introspection before it
   runs `vss vlm run` on an exact window.
+
+- Moved VSS documentation releases to GitHub Actions and Fern. Documentation
+  is authored alongside the source in this repository and built and published
+  with Fern.
 
 ### Agent Workflows
 
