@@ -5,7 +5,7 @@
  *
  * Validates that:
  * 1. Native HTML buttons/inputs/selects are replaced with Foundation components
- *    (Button, TextInput, Select).
+ *    (Button, TextInput, Select, Switch).
  * 2. Dark mode backgrounds migrate to true black / neutral-900.
  * 3. Accent colors shift from blue/cyan to NVIDIA green (#76b900).
  * 4. Filter tag sensor colors switch from cyan/blue to green.
@@ -44,12 +44,13 @@ jest.mock('@nvidia/foundations-react-core', () => {
         ),
       ),
     ),
-    Switch: React.forwardRef(({ checked, onCheckedChange, ...rest }: any, ref: any) =>
+    Switch: React.forwardRef(({ checked, onCheckedChange, slotLabel, labelSide, ...rest }: any, ref: any) =>
       React.createElement('input', {
         ...rest,
         ref,
         type: 'checkbox',
         checked,
+        'aria-label': slotLabel,
         'data-foundation': 'Switch',
         onChange: (e: any) => onCheckedChange?.(e.target.checked),
       }),
@@ -462,5 +463,63 @@ describe('Kaizen color palette – sensor filter colors', () => {
     expect(style).toContain('rgb(34, 197, 94)');
     expect(style).toContain('rgb(74, 222, 128)');
     expect(style).not.toContain('rgb(34, 211, 238)');
+  });
+});
+
+describe('Foundation component migration – View Alerts controls', () => {
+  const defaultProps = {
+    isDark: true,
+    vlmVerified: true,
+    vlmVerdict: VLM_VERDICT.ALL,
+    uniqueValues: {
+      sensors: ['Camera-1'],
+      alertTypes: ['Tailgating'],
+      alertTriggered: ['Motion'],
+    },
+    onVlmVerifiedChange: jest.fn(),
+    onVlmVerdictChange: jest.fn(),
+    onAddFilter: jest.fn(),
+    activeFilters: {
+      sensors: new Set<string>(),
+      alertTypes: new Set<string>(),
+      alertTriggered: new Set<string>(),
+    },
+    onRemoveFilter: jest.fn(),
+    onClearAllFilters: jest.fn(),
+    timeWindow: 10,
+    showCustomTimeInput: false,
+    customTimeValue: '',
+    customTimeError: '',
+    onTimeWindowChange: jest.fn(),
+    onCustomTimeValueChange: jest.fn(),
+    onCustomTimeApply: jest.fn(),
+    onCustomTimeCancel: jest.fn(),
+    onOpenCustomTime: jest.fn(),
+    fetchSize: 100,
+    onFetchSizeChange: jest.fn(),
+    loading: false,
+    autoRefreshEnabled: false,
+    autoRefreshInterval: 5000,
+    onRefresh: jest.fn(),
+    onAutoRefreshToggle: jest.fn(),
+    onAutoRefreshIntervalChange: jest.fn(),
+  };
+
+  it('uses Foundation Switch for VLM Verified', () => {
+    render(<AlertsViewFilterControls {...defaultProps} />);
+    expect(screen.getByTestId('vlm-verified-toggle')).toHaveAttribute('data-foundation', 'Switch');
+  });
+
+  it('uses Foundation Select for Fetch Settings dropdowns', () => {
+    render(<AlertsViewFilterControls {...defaultProps} />);
+    fireEvent.click(screen.getByTestId('alerts-settings-toggle'));
+    expect(screen.getByTestId('period-select')).toHaveAttribute('data-foundation', 'Select');
+    expect(screen.getByTestId('fetch-size-select')).toHaveAttribute('data-foundation', 'Select');
+  });
+
+  it('uses Foundation Select for filter dropdowns', () => {
+    render(<AlertsViewFilterControls {...defaultProps} />);
+    expect(screen.getByTestId('sensor-select')).toHaveAttribute('data-foundation', 'Select');
+    expect(screen.getByTestId('alert-type-select')).toHaveAttribute('data-foundation', 'Select');
   });
 });

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import React, { useRef, useEffect, useState } from 'react';
-import { Button, TextInput } from '@nvidia/foundations-react-core';
+import { Button, Select, TextInput } from '@nvidia/foundations-react-core';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { TIME_WINDOW_OPTIONS, getCurrentTimeWindowLabel } from '../utils/timeUtils';
 import { CustomTimeInput } from './CustomTimeInput';
@@ -121,11 +121,27 @@ export function AlertsFetchSettings({
   if (!isOpen) return null;
 
   const label = `text-sm font-medium whitespace-nowrap ${isDark ? 'text-gray-300' : 'text-gray-700'}`;
-  const selectCls = `rounded-lg pl-3 pr-8 py-1.5 text-sm focus:outline-none transition-all cursor-pointer ${
-    isDark
-      ? 'border border-gray-600 text-white hover:border-gray-500 focus:border-[#76b900] focus:ring-1 focus:ring-[#76b900]/40'
-      : 'border border-gray-300 text-gray-600 focus:ring-green-400 hover:border-gray-400'
-  }`;
+  const periodIsPreset = TIME_WINDOW_OPTIONS.some((opt) => opt.value === timeWindow);
+  const periodItems = [
+    ...TIME_WINDOW_OPTIONS.map((option) => ({
+      value: String(option.value),
+      children: option.label,
+    })),
+    ...(!periodIsPreset
+      ? [{ value: String(timeWindow), children: getCurrentTimeWindowLabel(timeWindow) }]
+      : []),
+  ];
+  const fetchSizeIsPreset = FETCH_SIZE_PRESETS.includes(fetchSize);
+  const fetchSizeItems = [
+    ...FETCH_SIZE_PRESETS.map((preset) => ({
+      value: String(preset),
+      children: String(preset),
+    })),
+    {
+      value: CUSTOM_SELECT_VALUE,
+      children: fetchSizeIsPreset ? 'Custom' : `${fetchSize} (custom)`,
+    },
+  ];
 
   return (
     <>
@@ -140,31 +156,21 @@ export function AlertsFetchSettings({
             <IconInfoCircle size={14} />
           </span>
         </div>
-        <select
+        <Select
           id="settings-period-select"
           data-testid="period-select"
+          className="w-full"
           value={String(timeWindow)}
-          className={selectCls}
-          onChange={(e) => {
-            const value = Number.parseInt(e.target.value, 10);
-            if (value === -1) {
+          onValueChange={(value) => {
+            const parsed = Number.parseInt(value, 10);
+            if (parsed === -1) {
               onOpenCustomTime();
-            } else {
-              onTimeWindowChange(value);
+              return;
             }
+            onTimeWindowChange(parsed);
           }}
-        >
-          {TIME_WINDOW_OPTIONS.map((option) => (
-            <option key={option.value} value={String(option.value)}>
-              {option.label}
-            </option>
-          ))}
-          {!TIME_WINDOW_OPTIONS.some((opt) => opt.value === timeWindow) && (
-            <option value={String(timeWindow)}>
-              {getCurrentTimeWindowLabel(timeWindow)}
-            </option>
-          )}
-        </select>
+          items={periodItems}
+        />
       </div>
       <CustomTimeInput
         isOpen={showCustomTimeInput}
@@ -189,29 +195,22 @@ export function AlertsFetchSettings({
             <IconInfoCircle size={14} />
           </span>
         </div>
-        <select
-          value={FETCH_SIZE_PRESETS.includes(fetchSize) ? String(fetchSize) : CUSTOM_SELECT_VALUE}
-          className={selectCls}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === CUSTOM_SELECT_VALUE) {
+        <Select
+          id="settings-fetch-size-select"
+          data-testid="fetch-size-select"
+          className="w-full"
+          value={fetchSizeIsPreset ? String(fetchSize) : CUSTOM_SELECT_VALUE}
+          onValueChange={(value) => {
+            if (value === CUSTOM_SELECT_VALUE) {
               setShowCustomFetch(true);
               setCustomFetchValue(String(fetchSize));
               setCustomFetchError('');
-            } else {
-              onFetchSizeChange(Number(v));
+              return;
             }
+            onFetchSizeChange(Number(value));
           }}
-        >
-          {FETCH_SIZE_PRESETS.map((p) => (
-            <option key={p} value={String(p)}>{p}</option>
-          ))}
-          {FETCH_SIZE_PRESETS.includes(fetchSize) ? (
-            <option value={CUSTOM_SELECT_VALUE}>Custom</option>
-          ) : (
-            <option value={CUSTOM_SELECT_VALUE}>{fetchSize} (custom)</option>
-          )}
-        </select>
+          items={fetchSizeItems}
+        />
       </div>
       {showCustomFetch && (
         <CustomNumericField

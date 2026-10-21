@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { Button } from 'rsuite';
-import { Tag as KaizenTag, Select } from '@nvidia/foundations-react-core';
+import { Tag as KaizenTag, Select, Switch } from '@nvidia/foundations-react-core';
 import { IconChevronDown, IconChevronUp, IconEye, IconFilter, IconPencilPlus, IconPlus, IconRefresh, IconRotateClockwise2, IconSettings } from '@tabler/icons-react';
 import { IconX } from '@tabler/icons-react';
 import { AlertRulesType, AlertsView, FilterState, FilterType, VlmVerdict, VLM_VERDICT } from '../types';
@@ -163,40 +163,22 @@ export const AlertsViewFilterControls: React.FC<AlertsViewFilterControlsProps> =
   const alertTypeOptions = uniqueValues.byVlmVerified
     ? uniqueValues.byVlmVerified[vlmVerified ? 'enabled' : 'disabled'].alertTypes
     : uniqueValues.alertTypes;
-  const selectClass = `rounded-lg pl-3 pr-8 py-2 text-sm focus:outline-none transition-all cursor-pointer ${
-    isDark
-      ? 'border border-gray-600 text-white hover:border-gray-500 focus:border-[#76b900] focus:ring-1 focus:ring-[#76b900]/40'
-      : 'border border-gray-300 text-gray-600 focus:ring-green-400 hover:border-gray-400'
-  }`;
+  const sensorItems = uniqueValues.sensors
+    .filter((sensor) => sensor && sensor.trim() !== '')
+    .map((sensor) => ({ value: sensor, children: sensor }));
+  const alertTypeItems = alertTypeOptions
+    .filter((type) => type && type.trim() !== '')
+    .map((type) => ({ value: type, children: type }));
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <label htmlFor="vlm-verified-toggle" className={`text-sm font-medium whitespace-nowrap ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-          VLM Verified
-        </label>
-        <button
-          id="vlm-verified-toggle"
-          type="button"
-          role="switch"
-          aria-checked={vlmVerified}
-          onClick={() => onVlmVerifiedChange(!vlmVerified)}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            (() => {
-              if (vlmVerified) return 'bg-[#76b900]';
-              if (isDark) return 'bg-slate-600';
-              return 'bg-gray-300';
-            })()
-          }`}
-          data-testid="vlm-verified-toggle"
-        >
-          <span
-            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
-              vlmVerified ? 'translate-x-5' : 'translate-x-0.5'
-            }`}
-          />
-        </button>
-      </div>
+      <Switch
+        slotLabel="VLM Verified"
+        labelSide="left"
+        checked={vlmVerified}
+        onCheckedChange={onVlmVerifiedChange}
+        data-testid="vlm-verified-toggle"
+      />
 
       {vlmVerified && (
         <div className="relative flex flex-col gap-1.5 w-full">
@@ -237,43 +219,27 @@ export const AlertsViewFilterControls: React.FC<AlertsViewFilterControlsProps> =
 
         {isFilterOpen && (
           <div className={`flex flex-col gap-2 px-3.5 pb-3 pt-2 ${isDark ? 'border-t border-gray-700' : 'border-t border-gray-200'}`}>
-            <select
+            <Select
               data-testid="sensor-select"
-              className={`${selectClass} min-w-[180px]`}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value) {
-                  onAddFilter('sensors', value);
-                }
-                e.target.value = '';
+              className="w-full"
+              placeholder="Sensor..."
+              value=""
+              onValueChange={(value) => {
+                if (value) onAddFilter('sensors', value);
               }}
-            >
-              <option value="">Sensor...</option>
-              {uniqueValues.sensors
-                .filter(sensor => sensor && sensor.trim() !== '')
-                .map(sensor => (
-                  <option key={sensor} value={sensor}>{sensor}</option>
-                ))}
-            </select>
+              items={sensorItems}
+            />
 
-            <select
+            <Select
               data-testid="alert-type-select"
-              className={`${selectClass} min-w-[180px]`}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value) {
-                  onAddFilter('alertTypes', value);
-                }
-                e.target.value = '';
+              className="w-full"
+              placeholder="Alert Type..."
+              value=""
+              onValueChange={(value) => {
+                if (value) onAddFilter('alertTypes', value);
               }}
-            >
-              <option value="">Alert Type...</option>
-              {alertTypeOptions
-                .filter(type => type && type.trim() !== '')
-                .map(type => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-            </select>
+              items={alertTypeItems}
+            />
           </div>
         )}
       </div>
