@@ -80,9 +80,13 @@ capabilities and selected harness, so the exact graph can vary.
 | Profile | Best for | Default Skill-generated capabilities |
 | --- | --- | --- |
 | `base` | First run, video Q&A, and report generation on short clips | UI, Redis, VIOS, and RT-VLM. |
-| `alerts` | Real-time alerting and alert verification | Alert Bridge, Video Analytics API, VA-MCP, RT-VLM, and optionally RT-CV with behavior analytics. |
+| `alerts` | Real-time alerting and alert verification | Alert Bridge, Video Analytics API, RT-VLM, and optionally RT-CV with behavior analytics. |
 | `lvs` (Video Summarization) | Long video summarization | LVS server, RT-VLM, ELK/Kafka, VIOS, and the UI. |
 | `search` | Natural-language video search | RT-CV detection and tracking, RT-Embed embeddings, Elasticsearch, Video Analytics API, and search services. |
+
+VA-MCP is conditional: the Skill retains it for an in-stack agent that needs
+its tools or an explicitly requested legacy MCP/SOP capability. NemoClaw and
+host-CLI builds remove unrequested VA-MCP and use the Video Analytics API.
 
 For `alerts`, the Skill asks which mode you want:
 
@@ -154,7 +158,8 @@ and LVS profiles separately:
 
 ```text title="Paste into your coding agent: Combined deployment prompt"
 Use the vss-build-vision-ai skill to build and deploy one VSS stack that combines
-real-time VLM alerting (2d_vlm) with long-video summarization. Show the resolved
+real-time VLM alerting (2d_vlm) with long-video summarization. Use image tag
+3.3.0 and, if deploying NemoClaw, harness source ref release/3.3.0. Show the resolved
 services, GPU placement, and teardown impact before deploying.
 ```
 
@@ -224,7 +229,7 @@ proceeding.
 ## Container image tag
 
 `deploy/docker/containers.env` derives every managed first-party image tag from
-one knob, `VSS_CONTAINER_TAG`, defaulting to `${VSS_DOCS_IMAGE_TAG:-develop-latest}`.
+one knob, `VSS_CONTAINER_TAG`, defaulting to `3.3.0` on `release/3.3.0`.
 A build that must run a release's images selects that tag. Do not edit
 `containers.env`; it is checked in and shared by every deployment on the host.
 
@@ -260,6 +265,27 @@ sandbox reports it. The ref is independent of the
 [container image tag](#container-image-tag): name both to pin both. Revisions
 older than staged harness builds are refused rather than silently replaced
 by `develop`.
+
+### Release-safe 3.3.0 workflow
+
+For this release, explicitly select image tag `3.3.0` and harness source ref
+`release/3.3.0` (or a reviewed commit on that branch). The image default alone
+does not pin the harness. The deployment prompts below supply both inputs;
+keep them when adapting a prompt to another capability set.
+
+Alternatively, export both inputs before invoking the Skill:
+
+```bash title="Run in the deployment host terminal"
+export VSS_CONTAINER_TAG=3.3.0
+export VSS_HARNESS_REF=release/3.3.0
+```
+
+The Skill resolves the harness ref to a commit and reports that SHA in the
+pre-deploy review and final summary. Save the resolved SHA and use it as
+`VSS_HARNESS_REF` to reproduce the same harness after the release branch moves.
+An explicitly selected nightly or development harness remains supported, but
+it is a separate source choice from this release workflow. Warehouse and
+host-CLI builds do not provision a NemoClaw harness.
 
 ## Agent harness
 
@@ -311,27 +337,28 @@ readiness checks before returning.
 ## Example prompts
 
 ```text title="Paste into your coding agent: Deploy the quickstart profile"
-Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
+Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine
+with image tag 3.3.0 and harness source ref release/3.3.0 if deploying NemoClaw.
 ```
 
 ```text title="Paste into your coding agent: Deploy search"
-Use the vss-build-vision-ai skill to deploy the VSS search profile with remote LLM and VLM endpoints.
+Use the vss-build-vision-ai skill to deploy the VSS search profile with remote LLM
+and VLM endpoints, image tag 3.3.0, and harness source ref release/3.3.0 if deploying NemoClaw.
 ```
 
 ```text title="Paste into your coding agent: Deploy warehouse"
-Use the vss-build-vision-ai skill to deploy a warehouse 3D profile with behavior analytics.
+Use the vss-build-vision-ai skill to deploy a warehouse 3D profile with behavior
+analytics and image tag 3.3.0. Do not deploy a NemoClaw harness for warehouse.
 ```
 
 ```text title="Paste into your coding agent: Build a custom stack"
-Use the vss-build-vision-ai skill to build a custom VSS stack for streaming object detection, video embeddings, and semantic search.
-```
-
-```text title="Paste into your coding agent: Deploy with a nightly harness"
-Use the vss-build-vision-ai skill to deploy the VSS base profile with the NemoClaw harness at nightly-20260928.
+Use the vss-build-vision-ai skill to build a custom VSS stack for streaming object
+detection, video embeddings, and semantic search with image tag 3.3.0 and
+harness source ref release/3.3.0 if deploying NemoClaw.
 ```
 
 ```text title="Paste into your coding agent: Pin images and harness to one release"
-Use the vss-build-vision-ai skill to deploy the VSS base profile with image tag 3.4.0 and the NemoClaw harness at v3.4.0.
+Use the vss-build-vision-ai skill to deploy the VSS base profile with image tag 3.3.0 and the NemoClaw harness at release/3.3.0.
 ```
 
 ```text title="Paste into your coding agent: Tear down"
