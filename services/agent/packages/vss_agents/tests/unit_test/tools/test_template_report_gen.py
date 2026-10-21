@@ -14,6 +14,7 @@
 # limitations under the License.
 """Unit tests for template_report_gen module."""
 
+import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +24,7 @@ from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
+from langchain_nvidia_ai_endpoints import ChatNVIDIA
 import pytest
 import yaml
 
@@ -93,6 +95,81 @@ class TestEnsureMinLlmTimeout:
         _ensure_min_llm_timeout(llm)
         assert client.timeout == _MIN_REPORT_LLM_TIMEOUT_S
         assert async_client.timeout == _MIN_REPORT_LLM_TIMEOUT_S
+
+    @pytest.mark.asyncio
+    async def test_report_request_uses_raised_timeout_after_chatnvidia_bind(self, tmp_path):
+        """ChatNVIDIA stores timeout on nested clients; bind() must not keep 60s.
+
+        Warehouse reports call `_ensure_min_llm_timeout` then `llm.bind(...)`.
+        Assigning a SimpleNamespace attribute does not prove the HTTP client
+        used after bind() actually receives 600s.
+        """
+        captured: dict[str, object] = {}
+
+        class FakeResponse:
+            status = 200
+            reason = "OK"
+
+            async def text(self) -> str:
+                return json.dumps(
+                    {
+                        "id": "chatcmpl-1",
+                        "object": "chat.completion",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": "# Incident\n\nN/A"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                    }
+                )
+
+        class FakeSession:
+            def __init__(self, *args, **kwargs):
+                captured["timeout"] = kwargs.get("timeout")
+
+            async def post(self, **kwargs):
+                captured["post"] = kwargs
+                return FakeResponse()
+
+            async def close(self):
+                return None
+
+        llm = ChatNVIDIA(
+            model="nvidia/nemotron-3.5-lightning-30b-a3b",
+            base_url="http://vss-llm.example:8000/v1",
+            api_key="unused",
+            timeout=60,
+        )
+        assert llm._async_client.timeout == 60
+
+        template_name = "incident.md"
+        (tmp_path / template_name).write_text("# Incident\n\n{detailed_description}", encoding="utf-8")
+
+        with patch("langchain_nvidia_ai_endpoints._common.aiohttp.ClientSession", FakeSession):
+            content = await _format_custom_report(
+                vlm_results=["A person walked through the aisle."],
+                alert_metadata={"Id": "inc-123", "sensorId": "Camera_01"},
+                alert_sensor_id="Camera_01",
+                alert_from_timestamp="t0",
+                alert_to_timestamp="t1",
+                llm=llm,
+                options=_CustomReportOptions(
+                    template_path=str(tmp_path),
+                    template_name=template_name,
+                    report_prompt="Populate this template:\n{template}\nVersion: {agent_version}",
+                    llm_reasoning=True,
+                ),
+            )
+
+        assert content == "# Incident\n\nN/A"
+        timeout = captured["timeout"]
+        assert timeout.connect == _MIN_REPORT_LLM_TIMEOUT_S
+        assert timeout.sock_connect == _MIN_REPORT_LLM_TIMEOUT_S
+        assert timeout.sock_read == _MIN_REPORT_LLM_TIMEOUT_S
+        payload = captured["post"]["json"]
+        assert payload["chat_template_kwargs"] == {"enable_thinking": True}
 
 
 class TestGetObjectStoreUrl:
