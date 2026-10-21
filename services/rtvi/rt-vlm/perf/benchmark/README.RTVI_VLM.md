@@ -457,6 +457,49 @@ file_burst_test:
       prompt: "Describe the condition of the bridge infrastructure."
 ```
 
+#### Advisory Live-Stream Estimate
+
+For a file fixture representing exactly one live chunk, opt in per video:
+
+```yaml
+file_duration_seconds: 10
+live_chunk_duration_seconds: 10
+chunk_sizes: [0]  # Entire file in one request; [10] also works for this fixture.
+concurrency_levels: [1, 16, 32, 64, 128]
+steady_state_duration_seconds: 300
+target_latency_seconds: 0  # Optional: disable extra file-concurrency probes.
+```
+
+The declared file duration must match the actual fixture and live chunk duration;
+both must be positive and equal. Multi-chunk files and embedding benchmarks are
+not eligible. No duration is inferred from filenames. Existing configurations
+remain unchanged unless `live_chunk_duration_seconds` is supplied.
+
+Within each iteration, select the highest measured requests/s among sustained
+concurrency levels with completed files, zero failed files, and request p95 no
+greater than the live chunk duration. One-shot tests are excluded. Compute:
+
+- Estimated live streams: `floor(requests_per_second * live_chunk_duration_seconds)`.
+- Suggested initial count: `max(1, estimated_live_streams - 5)`.
+- Suggested increment: one stream per passing live-validation count.
+
+For example, 7.7 files/s at p95 8.25 seconds yields an estimate of 77 streams
+for a 10-second cadence, with a suggested starting count of 72. JSON iteration
+results contain `live_stream_estimate`; Excel reports add `Live_Stream_Estimates`
+with per-iteration values and the selected source metrics. If no level is eligible,
+the result is explicitly `unavailable`, not a zero-capacity claim. Estimates
+remain visible even if another concurrency level in the same iteration failed.
+
+**These are search seeds, not validated maximum live-stream capacities or proof
+of saturation.** Keep model, GPU, sampled frames, token budgets, prompts, sampling,
+and chunk overlap identical between file and live tests (this formula assumes
+non-overlapping chunks). Preuploaded-file throughput excludes upload; RTSP decode,
+transport, scheduling, and live timestamp latency may differ. Repeated iterations
+are reported separately, not pooled into a best-of-runs capacity. Nothing changes
+the live benchmark configuration automatically: validate candidate counts with
+full fresh-stream coverage, latency and continuity/drop guardrails before claiming
+capacity. Actual media duration is caller-declared, not probed by the benchmark.
+
 ### 3. Max Live Streams Mode (`max_live_streams`)
 
 This mode determines the maximum number of concurrent live streams the system can sustain without performance degradation or dropped chunks. The benchmark starts with a configured number of initial streams and gradually adds more streams while continuously monitoring caption generation latencies via streaming SSE responses from the configured VLM API (`/generate_captions` or `/chat/completions`). When the P95 latency exceeds the configured threshold, fresh stream coverage is too low, or chunk IDs skip, the system detects degradation and enters a stability verification phase where it systematically reduces streams to find the stable operating point. For RTVI VLM, latency tracking uses `media_info.end_timestamp` (last frame NTP timestamp) to caption SSE receive time by default.
@@ -576,6 +619,7 @@ The YAML configuration file has two main sections:
 - `generate_captions_params`: Parameters for `/v1/generate_captions` API (temperature, max_tokens, enable_audio, etc.)
 - `prompt`: Default prompt for caption generation
 - `require_no_dropped_chunks`: Optional max-live-streams stability requirement; default `true`. Any chunk-ID gap in a stability window marks that window unstable.
+- Explicit top-level or per-chunk SSE errors during validation always invalidate the current max-live load/probe, even when chunk IDs are contiguous or `require_no_dropped_chunks` is disabled. Failed responses do not supply latency or freshness samples. The error stays latched for that load/probe; JSON results and the Excel summary report `total_response_errors` across all tested loads, including overloaded search points. Fixed-load plateaus report `response_errors` and are invalid if nonzero.
 - `latency_measurement_source`: Optional latency source; default `ntp_timestamp` for BCD. Set `processing_latency` only for server-processing diagnostics.
 - `binary_search_linear_extension`: Optional max-live-streams Phase 2 refinement toggle. When enabled, the benchmark probes upward one stream at a time after binary search; if the cap stays stable, `phase2_unstable_ceiling` is reported as `null`.
 

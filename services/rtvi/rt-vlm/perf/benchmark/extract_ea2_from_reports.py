@@ -106,7 +106,7 @@ def extract_max_streams(report_dir: Path) -> Dict[str, Dict]:
             continue
 
         data = load_json(results_files[0])
-        if not data:
+        if not data or data.get("capacity_censored", False):
             continue
 
         max_streams = data.get("last_stable_stream_count", data.get("max_sustainable_streams", 0))

@@ -45,6 +45,7 @@ class PlatformConfigTest(unittest.TestCase):
             "rtx_pro_6000_se": ("super", "nvfp4"),
             "rtx_pro_4500": ("nano", "nvfp4"),
             "b200_sxm": ("super", "nvfp4"),
+            "gb300": ("super", "nvfp4"),
             "l40s": ("nano", "fp8"),
             "agx_thor_t5000": ("nano", "nvfp4"),
             "dgx_spark": ("nano", "nvfp4"),
@@ -168,7 +169,7 @@ class PlatformConfigTest(unittest.TestCase):
     def test_platform_profiles(self):
         base = yaml.safe_load(SOURCE.read_text())
         self.assertEqual(len(base["test_scenarios"]), 24)
-        self.assertEqual(len(PROFILES), 9)
+        self.assertEqual(len(PROFILES), 10)
         self.assertEqual(PROFILES["agx_orin"][0], "cosmos3-edge-bf16")
         self.assertRegex(
             (HERE.parent / "setup_perf_env.sh").read_text(),
@@ -201,6 +202,14 @@ class PlatformConfigTest(unittest.TestCase):
                             self.assertEqual(initial, 1)
                             self.assertEqual(video["latency_plateau_counts"], levels)
                             self.assertEqual(video["latency_plateau_duration_seconds"], 300)
+                            self.assertEqual(video["required_stable_windows"], 5)
+                            self.assertEqual(video["required_unstable_windows"], 2)
+                            self.assertEqual(video["unstable_window_size"], 5)
+                            self.assertEqual(video["max_windows_per_level"], 20)
+                            if platform in {"b200_sxm", "gb300"}:
+                                self.assertEqual(video["max_stream_count"], 512)
+                            else:
+                                self.assertNotIn("max_stream_count", video)
                         elif name.startswith("concurrency_test_"):
                             self.assertEqual(video["stream_count"], levels)
                         elif name.startswith("file_burst_"):

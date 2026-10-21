@@ -506,6 +506,10 @@ MAX_STREAMS_HEADERS = [
     "ISL - Text",
     "OSL",
     "Max Concurrent Streams",
+    "Confirmed Stable Lower Bound",
+    "Search Stop Reason",
+    "Capacity Censored",
+    "Unresolved Stream Count",
     "Chunk E2E Latency Min (s)",
     "Chunk E2E Latency Avg (s)",
     "Chunk E2E Latency Max (s)",
@@ -544,7 +548,7 @@ def extract_max_streams_data(
 
         for tc_dir in find_test_case_dirs(scenario_dir):
             data = load_json(tc_dir / "max_live_streams_results.json")
-            if not data or not data.get("success", False):
+            if not data or not (data.get("success", False) or data.get("capacity_censored", False)):
                 continue
 
             rows.append(
@@ -561,7 +565,13 @@ def extract_max_streams_data(
                     "Vision Tokens": vtokens,
                     "ISL - Text": defaults["isl_text"],
                     "OSL": osl,
-                    "Max Concurrent Streams": data.get("max_sustainable_streams", 0),
+                    "Max Concurrent Streams": (
+                        None if data.get("capacity_censored") else data.get("max_sustainable_streams", 0)
+                    ),
+                    "Confirmed Stable Lower Bound": data.get("max_sustainable_streams", 0),
+                    "Search Stop Reason": data.get("search_stop_reason", ""),
+                    "Capacity Censored": data.get("capacity_censored", False),
+                    "Unresolved Stream Count": data.get("unresolved_stream_count"),
                     "Chunk E2E Latency Min (s)": round(
                         non_negative_latency(data.get("min_latency", 0)), 2
                     ),
@@ -1333,6 +1343,12 @@ def write_summary_tab(
                 rkey = f"VT={r['Vision Tokens']} / OSL={r['OSL']} / {res}"
                 if rkey == key:
                     val = r["Max Concurrent Streams"]
+                    if r["Capacity Censored"]:
+                        ws.cell(row=row, column=i, value=(
+                            f"Lower bound {r['Confirmed Stable Lower Bound']} "
+                            f"({r['Search Stop Reason']})"
+                        ))
+                        break
                     lat = r["Chunk E2E Latency Avg (s)"]
                     p99 = r["Chunk E2E Latency p99 (s)"]
                     drops = r["Dropped Chunks"]
