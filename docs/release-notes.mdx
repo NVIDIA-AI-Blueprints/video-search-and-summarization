@@ -178,6 +178,47 @@ See [Warehouse Known Limitations](/vision-agent/agent-workflows/industry-specifi
   fail to parse RT-VLM output that does not match the expected event schema,
   leaving empty event results even when captions are generated and stored
   and the summarize API reports success.
+- **GB300 live-stream benchmark settings:** For comparisons with the
+  single-GB300 Cosmos Reason 3 Nano NVFP4 reference run, pass the following
+  environment to the `rtvi-server` container through a Docker Compose
+  override. Host shell or `.env` entries alone do not inject variables that
+  the deployment's Compose file does not map. The legacy and `RTVI_` aliases
+  below intentionally have identical values so an existing alias does not
+  take precedence with a different value.
+
+  ```yaml
+  services:
+    rtvi-server:
+      environment:
+        RTVI_QUEUE_DECODED_FRAMES_ON_GPU: "true"
+        VLLM_MM_TENSOR_IPC: "torch_shm"
+        RTVI_VLLM_MM_TENSOR_IPC: "torch_shm"
+        VLLM_ATTENTION_BACKEND: "TRITON_ATTN"
+        RTVI_VLLM_ATTENTION_BACKEND: "TRITON_ATTN"
+        VLLM_MAX_NUM_BATCHED_TOKENS: "8192"
+        RTVI_VLLM_MAX_NUM_BATCHED_TOKENS: "8192"
+        VLLM_GPU_MEMORY_UTILIZATION: "0.35"
+        RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
+        RTVI_VLM_ADMISSION_MODE: "off"
+  ```
+
+  These are tested comparison settings, not universal production defaults
+  or a confirmed fix for low stream counts on another image. Record the
+  exact runtime image digest and model revision, and verify the effective
+  configuration inside the container before comparing results. The reference
+  workload used 10-second chunks, 640x640 model inputs, 20/40 sampled frames
+  for approximately 4K/8K input tokens, 1/100 output tokens, and temperature
+  0.5. The logical streams reused one source; they were not independent
+  cameras.
+
+  Admission was disabled for the benchmark, not as a general deployment
+  recommendation. This does not disable bounded decoder queues or the
+  separate live-stream GPU-memory guard. Validate latency and fresh responses
+  at the intended load, and inspect decoder-backlog errors and chunk drops
+  separately. A passing measurement window does not establish a drop-free
+  full run or a long-term capacity guarantee. See the
+  [RT-VLM configuration reference](/system-components/vision-microservices/real-time-vlm#docker-compose-and-helm-variables)
+  for deployment variables.
 - **Live RTSP caption gaps under overload:** When RT-VLM inference cannot
   keep up with incoming video chunks, including at high stream concurrency,
   the bounded decoder-to-VLM queues drop decoded chunks to limit queued-frame
