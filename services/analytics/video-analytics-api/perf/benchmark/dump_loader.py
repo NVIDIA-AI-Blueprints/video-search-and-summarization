@@ -21,7 +21,7 @@ def is_lfs_pointer(path: Path) -> bool:
     return head.startswith(LFS_PREFIX.encode("utf-8"))
 
 
-def _request(url: str, method: str, body: bytes | None = None, content_type: str = "application/json") -> None:
+def _request(url: str, method: str, body: bytes | None = None, content_type: str = "application/json") -> bytes:
     headers = {}
     if body is not None:
         headers["Content-Type"] = content_type
@@ -29,7 +29,7 @@ def _request(url: str, method: str, body: bytes | None = None, content_type: str
     req = urllib.request.Request(url, data=body, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
-            resp.read()
+            return resp.read()
     except urllib.error.HTTPError as error:
         detail = error.read()[:300]
         raise RuntimeError(f"{method} {url} -> {error.code}: {detail!r}") from error
@@ -37,7 +37,29 @@ def _request(url: str, method: str, body: bytes | None = None, content_type: str
 
 def post_bulk(es_url: str, lines: list[str]) -> None:
     payload = ("\n".join(lines) + "\n").encode("utf-8")
-    _request(f"{es_url.rstrip('/')}/_bulk", "POST", payload, "application/x-ndjson")
+    raw = _request(f"{es_url.rstrip('/')}/_bulk", "POST", payload, "application/x-ndjson")
+    try:
+        decoded = json.loads(raw.decode("utf-8") or "{}")
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Elasticsearch _bulk did not return JSON") from error
+    if not isinstance(decoded, dict) or not decoded.get("errors"):
+        return
+    reasons: list[str] = []
+    for item in decoded.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        action = next(iter(item.values()), {})
+        if not isinstance(action, dict):
+            continue
+        status = int(action.get("status") or 0)
+        if action.get("error") or status >= 400:
+            reasons.append(str(action.get("error") or status))
+        if len(reasons) >= 3:
+            break
+    raise RuntimeError(
+        "Elasticsearch _bulk rejected documents: "
+        + ("; ".join(reasons) if reasons else "errors=true")
+    )
 
 
 def load_file(es_url: str, path: Path) -> int:

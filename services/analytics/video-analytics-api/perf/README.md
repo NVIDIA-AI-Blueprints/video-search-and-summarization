@@ -32,7 +32,7 @@ The result is written to `perf/results/video-analytics-api_<scenario>_<config-id
 
 The shared job requires `{checkout}/perf/{configs,scripts,benchmark/core}` and archives `{checkout}/perf/results/...`. A trampoline at the VSS repo root `perf/` exposes that layout and delegates to this package (`SCM_FOLDER` empty, `PERF_FOLDER=perf`, `PERF_SERVICE=va-api`).
 
-GPU nodes sparse-checkout `perf/`, `services/`, `ci/`, `compose/`, and `VERSION` — not `deploy/`. `common.sh` therefore uses `deploy/docker` when it is present and `compose/docker` (an infra mirror) otherwise.
+GPU nodes sparse-checkout `perf/`, `services/`, `ci/`, `compose/`, and `VERSION` — not `deploy/`. `common.sh` therefore uses `deploy/docker` when it is present and `compose/docker` (an infra mirror) otherwise. The mirror ships empty `agent.env` / `alert.env` / `vst.env` so Compose can parse the unused HAProxy include; `write_compose_env` also creates those files if they are missing.
 
 `deploy.sh` pulls the promoted API image, starts Elasticsearch alone (bind-mounted data/logs under `/tmp/va-api-perf-*`, mmap disabled), waits until `:19200` answers, then runs the init container and the API. Unique container names (`va-api-perf-*`) and host ports (19200 / 18081) keep a Behavior Analytics playback job on the same node from colliding. `dump_loader.py` and `/livez` wait happen in `post_deploy.sh`. `--build` is required for the local Elasticsearch image.
 

@@ -12,9 +12,10 @@ APP_CONTAINER="${APP_CONTAINER:-va-api-perf-app}"
 ES_CONTAINER="${ES_CONTAINER:-va-api-perf-elasticsearch}"
 PERF_SCENARIO="${PERF_SCENARIO:-quick_test}"
 PERF_CONFIG_ID="${PERF_CONFIG_ID:-warehouse-es-dump}"
-if [[ -f "$PERF_DIR/benchmark/scenario_config.py" && -f "$PERF_DIR/configs/config.yaml" ]]; then
+PERF_CONFIG_PATH="${PERF_CONFIG_PATH:-$PERF_DIR/configs/config.yaml}"
+if [[ -f "$PERF_DIR/benchmark/scenario_config.py" && -f "$PERF_CONFIG_PATH" ]]; then
     eval "$(python3 "$PERF_DIR/benchmark/scenario_config.py" \
-        --config "$PERF_DIR/configs/config.yaml" \
+        --config "$PERF_CONFIG_PATH" \
         --scenario "$PERF_SCENARIO")"
 fi
 PERF_REQUEST_COUNT="${PERF_REQUEST_COUNT:-${CONFIG_REQUEST_COUNT:-20}}"
@@ -87,6 +88,21 @@ resolve_apps_dir() {
     fi
 }
 
+# infra/compose.yml includes HAProxy with these env files. Compose parses the
+# include even when the HAProxy profile is off. The sparse compose/docker tree
+# does not ship agent/alert/vios, so create empty files if they are missing.
+ensure_compose_include_env_files() {
+    local apps_dir="$1"
+    local rel path
+    for rel in services/agent/agent.env services/alert/alert.env services/vios/vst.env; do
+        path="$apps_dir/$rel"
+        if [[ ! -f "$path" ]]; then
+            ensure_host_dir "$(dirname "$path")"
+            : > "$path"
+        fi
+    done
+}
+
 resolve_image() {
     if [[ -n "${ARTIFACT_REF:-}" ]]; then
         printf '%s\n' "$ARTIFACT_REF"
@@ -106,6 +122,7 @@ write_compose_env() {
     local repo_root apps_dir infra_dir image
     repo_root="$(resolve_repo_root)"
     apps_dir="$(resolve_apps_dir "$repo_root")"
+    ensure_compose_include_env_files "$apps_dir"
     infra_dir="$apps_dir/services/infra"
     image="$(resolve_image)"
     ensure_host_dir "$VA_API_PERF_DATA_DIR/data_log/video-analytics-api-app/files"

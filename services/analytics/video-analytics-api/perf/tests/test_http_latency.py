@@ -3,6 +3,7 @@
 
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -191,6 +192,44 @@ class HttpLatencyTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 load_file("http://127.0.0.1:19200", path)
 
+    def test_dump_loader_fails_on_bulk_item_errors(self) -> None:
+        class _Resp:
+            def __init__(self, body: bytes) -> None:
+                self._body = body
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self) -> "_Resp":
+                return self
+
+            def __exit__(self, *args: object) -> bool:
+                return False
+
+        body = json.dumps(
+            {
+                "errors": True,
+                "items": [
+                    {
+                        "index": {
+                            "status": 429,
+                            "error": "es_rejected_execution_exception",
+                        }
+                    }
+                ],
+            }
+        ).encode()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mdx-frames.json"
+            path.write_text(
+                json.dumps({"_index": "mdx-frames", "_id": "1", "_source": {"a": 1}})
+                + "\n"
+            )
+            with patch("dump_loader.urllib.request.urlopen", return_value=_Resp(body)):
+                with self.assertRaises(RuntimeError) as ctx:
+                    load_file("http://127.0.0.1:19200", path)
+            self.assertIn("rejected", str(ctx.exception).lower())
+
     def test_scenario_config_reads_request_count(self) -> None:
         settings = scenario_settings(PERF / "configs" / "config.yaml", "quick_test")
         self.assertEqual(settings["request_count"], 20)
@@ -208,6 +247,13 @@ class HttpLatencyTests(unittest.TestCase):
         self.assertIn("Docker Compose --env-file does not accept", text)
         self.assertIn("ELASTICSEARCH_HOST_PORT=$ELASTICSEARCH_HOST_PORT", text)
         self.assertNotIn("export ELASTICSEARCH_HOST_PORT=", text)
+        self.assertIn("PERF_CONFIG_PATH", text)
+        self.assertIn("ensure_compose_include_env_files", text)
+
+    def test_compose_mirror_has_haproxy_include_env_files(self) -> None:
+        compose_root = REPO / "compose" / "docker" / "services"
+        for rel in ("agent/agent.env", "alert/alert.env", "vios/vst.env"):
+            self.assertTrue((compose_root / rel).is_file(), rel)
 
     def test_deploy_starts_elasticsearch_first_and_dumps_logs(self) -> None:
         text = DEPLOY.read_text()
@@ -271,6 +317,40 @@ class HttpLatencyTests(unittest.TestCase):
                 payload = json.loads(dest.read_text())
                 self.assertFalse(payload["success"])
                 self.assertEqual(payload["service"], "video-analytics-api")
+
+    def test_failed_run_does_not_upload_stale_result(self) -> None:
+        core = PERF / "benchmark" / "core" / "vss_perf_benchmark.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "result.json"
+            dest.write_text(json.dumps({"success": True, "artifact_ref": "old-image"}))
+            captured: dict[str, str] = {}
+
+            def fake_run(cmd, env=None, check=False):  # noqa: ANN001
+                captured["config"] = (env or {}).get("PERF_CONFIG_PATH", "")
+                return subprocess.CompletedProcess(cmd, 1)
+
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location("va_core_stale", core)
+            self.assertIsNotNone(spec)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)  # type: ignore[union-attr]
+            with patch.object(module, "_upload", return_value={"uri": "s3://bucket/obj"}):
+                with patch.object(module.subprocess, "run", side_effect=fake_run):
+                    rc = module.main(
+                        [
+                            "--output-json",
+                            str(dest),
+                            "--config",
+                            str(PERF / "configs" / "config.yaml"),
+                            "--upload",
+                        ]
+                    )
+            self.assertEqual(rc, 1)
+            payload = json.loads(dest.read_text())
+            self.assertFalse(payload["success"])
+            self.assertNotEqual(payload.get("artifact_ref"), "old-image")
+            self.assertTrue(captured["config"].endswith("configs/config.yaml"))
 
 
 if __name__ == "__main__":

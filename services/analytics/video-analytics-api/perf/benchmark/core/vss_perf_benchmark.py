@@ -70,6 +70,11 @@ def write_result(dest: Path, payload: dict[str, object]) -> Path:
     return safe_write_text(dest, json.dumps(payload, indent=2) + "\n")
 
 
+def _clear_previous_result(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     output_file = result_file(args)
@@ -79,7 +84,11 @@ def main(argv: list[str] | None = None) -> int:
     env = os.environ.copy()
     env["PERF_SCENARIO"] = args.scenario
     env["PERF_CONFIG_ID"] = args.config_id
+    env["PERF_CONFIG_PATH"] = str(Path(args.config).resolve())
     env["OUTPUT_DIR"] = str(output.resolve())
+    _clear_previous_result(output_file)
+    if (output / "result.json").resolve() != output_file.resolve():
+        _clear_previous_result(output / "result.json")
     if args.release:
         env["RELEASE"] = args.release
     if args.triggered_by:
