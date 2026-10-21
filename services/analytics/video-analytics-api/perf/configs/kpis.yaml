@@ -2,15 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Video Analytics API query KPI thresholds.
-# required_endpoints: spec_gets expands to every OpenAPI GET this dump-backed
-# job can HTTP 200 (required query params subset of warehouse_2d constants,
-# plus runtime skips). Skipped: mutating methods, path-parameter routes,
-# IDs we do not have (segmentInfo, view, endFrameId, behaviorTimeInterval),
-# city/corridor travel-time, behavior-locations IDs, nvstreamer PTS,
-# missing road-network and usd-assets.
+# required_endpoints: spec_gets expands to dump-backed OpenAPI GETs plus the
+# Kartikay P0 writes this Kafka-off stack can HTTP 201 (calibration file and
+# calibration images). Skipped: POST /config/update and GET update/status
+# (need Kafka + Behavior Analytics), path-parameter GETs, IDs we do not have
+# (segmentInfo, endFrameId, behaviorTimeInterval, referenceId), city/corridor
+# travel-time, behavior-locations IDs, nvstreamer PTS, missing road-network
+# and usd-assets.
 #
 # Original five gates are a best estimate from Jenkins benchmark-perf-test/69.
-# New endpoints use default 0.10 / 0.20 s until an owner publishes SLOs.
+# New GET endpoints use default 0.10 / 0.20 s. P0 POSTs use a looser write
+# budget until an owner publishes SLOs.
 
 schema_version: "0.1"
 service: video-analytics-api
@@ -54,3 +56,13 @@ scenarios:
         min_ok_ratio: 1.0
         max_p50_s: 0.04
         max_p99_s: 0.08
+      config_upload_file_calibration:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+      config_calibration_images:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00

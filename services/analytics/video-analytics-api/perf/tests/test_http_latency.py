@@ -9,10 +9,19 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dump_loader import is_lfs_pointer, load_file
-from http_latency import build_result, percentile, summarize
+from http_latency import build_result, encode_multipart, percentile, summarize
 from kpis import DEFAULT_KPIS_PATH, evaluate_kpis, load_kpis, resolved_required_endpoints
 from minio_upload import minio_settings
-from openapi_matrix import SKIP_PATHS, load_spec, query_params_for, spec_get_endpoints, spec_get_names
+from openapi_matrix import (
+    SKIP_PATHS,
+    dump_backed_endpoints,
+    dump_backed_names,
+    load_spec,
+    p0_post_endpoints,
+    query_params_for,
+    spec_get_endpoints,
+    spec_get_names,
+)
 from scenario_config import scenario_settings
 
 PERF = Path(__file__).resolve().parents[1]
@@ -60,6 +69,7 @@ class HttpLatencyTests(unittest.TestCase):
         self.assertEqual(spec["frames"]["max_p99_s"], 0.10)
         self.assertEqual(spec["behavior"]["max_p99_s"], 0.08)
         self.assertEqual(spec["default"]["max_p99_s"], 0.20)
+        self.assertEqual(spec["config_calibration_images"]["max_p99_s"], 1.00)
         verdict = evaluate_kpis(measured, kpis)
         self.assertTrue(verdict["passed"], verdict)
 
@@ -67,17 +77,18 @@ class HttpLatencyTests(unittest.TestCase):
         spec = load_spec()
         rows = spec_get_endpoints(spec)
         names = spec_get_names(spec)
-        self.assertEqual(len(rows), 39)
-        self.assertEqual(len(names), 39)
+        self.assertEqual(len(rows), 40)
+        self.assertEqual(len(names), 40)
         self.assertIn("livez", names)
         self.assertIn("frames", names)
         self.assertIn("events", names)
         self.assertIn("metrics_occupancy_fov", names)
         self.assertIn("sensor_lookup", names)
+        self.assertIn("config_calibration_image", names)
         paths = {row["path"] for row in rows}
         self.assertNotIn("/behavior/pts", paths)
         self.assertNotIn("/metrics/road-network/segment-speed", paths)
-        self.assertNotIn("/config/calibration/image", paths)
+        self.assertIn("/config/calibration/image", paths)
         for skipped in SKIP_PATHS:
             self.assertNotIn(skipped, paths)
         get_count = sum(1 for ops in spec["paths"].values() if "get" in ops)
@@ -86,6 +97,8 @@ class HttpLatencyTests(unittest.TestCase):
         self.assertNotIn("timestamp", frames["query_keys"])
         occupancy = next(row for row in rows if row["name"] == "metrics_occupancy_tripwire")
         self.assertEqual(occupancy["query_keys"], ["place", "timestamp"])
+        image = next(row for row in rows if row["name"] == "config_calibration_image")
+        self.assertEqual(image["query_keys"], ["place", "view"])
         for name in ("behavior", "events", "incidents", "alerts"):
             row = next(item for item in rows if item["name"] == name)
             self.assertIn("sensorId", row["query_keys"], name)
@@ -99,6 +112,27 @@ class HttpLatencyTests(unittest.TestCase):
                 has_sensor and "place" in row["query_keys"],
                 row,
             )
+
+    def test_p0_posts_seed_calibration_image(self) -> None:
+        posts = p0_post_endpoints()
+        self.assertEqual(
+            [row["name"] for row in posts],
+            ["config_upload_file_calibration", "config_calibration_images"],
+        )
+        for row in posts:
+            self.assertEqual(row["method"], "POST")
+            self.assertEqual(row["ok_statuses"], (201,))
+            self.assertTrue(row["multipart"])
+            for _, path in row["multipart"]:
+                self.assertTrue(Path(path).is_file(), path)
+        names = dump_backed_names()
+        self.assertEqual(names[:2], [row["name"] for row in posts])
+        self.assertIn("config_calibration_image", names)
+        self.assertEqual(len(dump_backed_endpoints()), 42)
+        body, content_type = encode_multipart(posts[1]["multipart"])
+        self.assertIn("multipart/form-data; boundary=", content_type)
+        self.assertIn(b'filename="Top.png"', body)
+        self.assertIn(b'filename="calibration_image_metadata.json"', body)
 
     def test_frames_query_keeps_range_without_timestamp(self) -> None:
         frames = next(row for row in spec_get_endpoints() if row["name"] == "frames")

@@ -34,12 +34,12 @@ def load_kpis(path: Path | None = None) -> dict[str, Any]:
 
 
 def resolved_required_endpoints(spec: Mapping[str, Any]) -> list[str]:
-    """Expand required_endpoints. `spec_gets` means the OpenAPI dump-backed GET matrix."""
+    """Expand required_endpoints. `spec_gets` is the dump-backed OpenAPI matrix."""
     required = [str(item) for item in (spec.get("required_endpoints") or [])]
     if required == ["spec_gets"]:
-        from openapi_matrix import spec_get_names
+        from openapi_matrix import dump_backed_names
 
-        return spec_get_names()
+        return dump_backed_names()
     return required
 
 

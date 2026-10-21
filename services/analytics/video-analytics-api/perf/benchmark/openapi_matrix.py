@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Warehouse-dump GET matrix derived from the Video Analytics API OpenAPI spec."""
+"""Warehouse-dump HTTP matrix derived from the Video Analytics API OpenAPI spec."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 SERVICE_DIR = Path(__file__).resolve().parents[2]
 SPEC_PATH = SERVICE_DIR / "src" / "app" / "specification" / "openapi.json"
+FIXTURES_DIR = SERVICE_DIR / "test" / "integration-test" / "fixtures"
 
 # Stable names for the original five KPI rows.
 SPECIAL_NAMES = {
@@ -25,6 +26,7 @@ CONTEXT_KEYS = (
     "sensorId",
     "sensorIds",
     "place",
+    "view",
     "fromTimestamp",
     "toTimestamp",
     "timestamp",
@@ -32,6 +34,9 @@ CONTEXT_KEYS = (
     "x",
     "y",
 )
+
+# Fixture metadata is place-keyed (building=Warehouse/room=Room-1, plan-view).
+PLACE_PREFERRED_PATHS = frozenset({"/config/calibration/image"})
 
 # OpenAPI required params are fillable, but warehouse_2d still cannot HTTP 200.
 SKIP_PATHS = frozenset(
@@ -65,12 +70,15 @@ def endpoint_name(path: str) -> str:
     return path.strip("/").replace("/", "_").replace("-", "_")
 
 
-def _exclusive_location_keys(query_keys: list[str], required: set[str]) -> list[str]:
+def _exclusive_location_keys(
+    path: str, query_keys: list[str], required: set[str]
+) -> list[str]:
     """The service JSON schema is oneOf sensorId/sensorIds XOR place.
 
     Sending both returns 400 on /behavior, /events, /incidents, alerts, and
     several metrics/tracker routes. Prefer the warehouse Camera sensorId when
-    both are optional (same as Jenkins #69). Keep place only when it is required.
+    both are optional (same as Jenkins #69). Keep place when the spec requires
+    it, or when the fixture is place-keyed (calibration image).
     """
     has_sensor = "sensorId" in query_keys or "sensorIds" in query_keys
     has_place = "place" in query_keys
@@ -78,7 +86,7 @@ def _exclusive_location_keys(query_keys: list[str], required: set[str]) -> list[
         return query_keys
     sensor_required = "sensorId" in required or "sensorIds" in required
     place_required = "place" in required
-    if place_required and not sensor_required:
+    if path in PLACE_PREFERRED_PATHS or (place_required and not sensor_required):
         return [key for key in query_keys if key not in ("sensorId", "sensorIds")]
     return [key for key in query_keys if key != "place"]
 
@@ -102,9 +110,11 @@ def spec_get_endpoints(spec: Mapping[str, Any] | None = None) -> list[dict[str, 
     """Return GET operations whose required query params this job can supply.
 
     Skips POST/PUT/PATCH/DELETE, path-parameter routes, GETs that need IDs
-    this warehouse snapshot does not provide (segmentInfo, view, endFrameId,
+    this warehouse snapshot does not provide (segmentInfo, endFrameId,
     behaviorTimeInterval, referenceId), and SKIP_PATHS (travel-time corridor,
     behavior-locations IDs, nvstreamer PTS, missing road-network/usd-assets).
+    GET /config/calibration/image is included (view=plan-view, place from the
+    warehouse fixture). POST setup for that image lives in p0_post_endpoints.
     """
     document = spec if spec is not None else load_spec()
     rows: list[dict[str, Any]] = []
@@ -131,7 +141,7 @@ def spec_get_endpoints(spec: Mapping[str, Any] | None = None) -> list[dict[str, 
             ):
                 continue
             query_keys.append(key)
-        query_keys = _exclusive_location_keys(query_keys, required)
+        query_keys = _exclusive_location_keys(path, query_keys, required)
         rows.append(
             {
                 "name": endpoint_name(path),
@@ -145,6 +155,56 @@ def spec_get_endpoints(spec: Mapping[str, Any] | None = None) -> list[dict[str, 
 
 def spec_get_names(spec: Mapping[str, Any] | None = None) -> list[str]:
     return [row["name"] for row in spec_get_endpoints(spec)]
+
+
+def _require_fixture(name: str) -> Path:
+    path = FIXTURES_DIR / name
+    if not path.is_file():
+        raise FileNotFoundError(f"missing P0 fixture {path}")
+    return path
+
+
+def p0_post_endpoints() -> list[dict[str, Any]]:
+    """Kartikay P0 writes this dump + Kafka-off stack can HTTP 201.
+
+    POST /config/update/{docType} and GET /config/update/status/{docType}/{referenceId}
+    need Kafka plus a Behavior Analytics ack. kafka.js stays null when
+    brokers: [], so those two stay out of this job.
+    """
+    return [
+        {
+            "name": "config_upload_file_calibration",
+            "path": "/config/upload-file/calibration",
+            "method": "POST",
+            "ok_statuses": (201,),
+            "query_keys": [],
+            "multipart": [
+                ("configFiles", _require_fixture("calibration.json")),
+            ],
+            "tags": ["config"],
+        },
+        {
+            "name": "config_calibration_images",
+            "path": "/config/calibration/images",
+            "method": "POST",
+            "ok_statuses": (201,),
+            "query_keys": [],
+            "multipart": [
+                ("images", _require_fixture("Top.png")),
+                ("imageMetadata", _require_fixture("calibration_image_metadata.json")),
+            ],
+            "tags": ["config"],
+        },
+    ]
+
+
+def dump_backed_endpoints(spec: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
+    """P0 fixture POSTs first so GET /config/calibration/image can HTTP 200."""
+    return p0_post_endpoints() + spec_get_endpoints(spec)
+
+
+def dump_backed_names(spec: Mapping[str, Any] | None = None) -> list[str]:
+    return [row["name"] for row in dump_backed_endpoints(spec)]
 
 
 def query_params_for(row: Mapping[str, Any], context: Mapping[str, str]) -> dict[str, str]:

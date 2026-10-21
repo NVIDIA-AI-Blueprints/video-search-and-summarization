@@ -5,17 +5,19 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import statistics
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from kpis import evaluate_kpis, load_kpis
-from openapi_matrix import query_params_for, spec_get_endpoints
+from openapi_matrix import dump_backed_endpoints, query_params_for
 from safe_fs import safe_write_text
 
 SPEC_GETS_TOKEN = "spec_gets"
@@ -56,9 +58,39 @@ def summarize(latencies: list[float], ok_count: int, total: int) -> dict[str, An
     return payload
 
 
-def request_once(url: str, timeout: float = 30.0) -> tuple[int, float]:
+def encode_multipart(fields: Sequence[tuple[str, Path]]) -> tuple[bytes, str]:
+    """Build a multipart/form-data body for P0 file uploads."""
+    boundary = "----VaApiPerf" + uuid.uuid4().hex
+    chunks: list[bytes] = []
+    for name, path in fields:
+        payload = path.read_bytes()
+        ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        chunks.append(f"--{boundary}\r\n".encode("ascii"))
+        chunks.append(
+            (
+                f'Content-Disposition: form-data; name="{name}"; '
+                f'filename="{path.name}"\r\n'
+            ).encode("ascii")
+        )
+        chunks.append(f"Content-Type: {ctype}\r\n\r\n".encode("ascii"))
+        chunks.append(payload)
+        chunks.append(b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode("ascii"))
+    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
+def request_once(
+    url: str,
+    timeout: float = 30.0,
+    *,
+    method: str = "GET",
+    body: bytes | None = None,
+    content_type: str | None = None,
+) -> tuple[int, float]:
     started = time.perf_counter()
-    req = urllib.request.Request(url, method="GET")
+    req = urllib.request.Request(url, data=body, method=method)
+    if content_type:
+        req.add_header("Content-Type", content_type)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             resp.read()
@@ -88,13 +120,14 @@ def warehouse_context(
         "toTimestamp": to_ts,
         "timestamp": to_ts,
         "emptyIfNotFound": "true",
+        "view": "plan-view",
         "x": lookup_x,
         "y": lookup_y,
     }
 
 
 def resolve_endpoint_rows(names: list[str]) -> list[dict[str, Any]]:
-    catalog = spec_get_endpoints()
+    catalog = dump_backed_endpoints()
     if names == [SPEC_GETS_TOKEN]:
         return catalog
     by_name = {row["name"]: row for row in catalog}
@@ -123,21 +156,35 @@ def measure_endpoints(
     for row in resolve_endpoint_rows(names):
         params = query_params_for(row, context)
         url = endpoint_url(base_url, str(row["path"]), params)
+        method = str(row.get("method") or "GET")
+        ok_statuses = tuple(row.get("ok_statuses") or (200,))
+        body: bytes | None = None
+        content_type: str | None = None
+        multipart = row.get("multipart")
+        if multipart:
+            fields = [(str(name), Path(path)) for name, path in multipart]
+            body, content_type = encode_multipart(fields)
         latencies: list[float] = []
         ok_count = 0
         total = 0
         rounds = max(request_count, 1) + max(warmup_requests, 0)
         for index in range(rounds):
-            status, elapsed = request_once(url)
+            status, elapsed = request_once(
+                url,
+                method=method,
+                body=body,
+                content_type=content_type,
+            )
             if index < warmup_requests:
                 continue
             total += 1
-            if status == 200:
+            if status in ok_statuses:
                 ok_count += 1
                 latencies.append(elapsed)
         results[row["name"]] = summarize(latencies, ok_count, total)
         results[row["name"]]["url"] = url
         results[row["name"]]["path"] = row["path"]
+        results[row["name"]]["method"] = method
     return results
 
 
