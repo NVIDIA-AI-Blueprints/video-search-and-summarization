@@ -192,6 +192,25 @@ class CliQueryBackend:
         self.timings_by_query: dict[str, dict[str, Any]] = {}
         self.metadata_by_query: dict[str, dict[str, Any]] = {}
 
+    def readiness(self, sources: list[str], require_attributes: bool = True) -> dict[str, Any]:
+        argv = [*self.vss_cmd, "search", "readiness", "--raw",
+                "--require-attributes" if require_attributes else "--no-require-attributes"]
+        for source in sources:
+            argv.extend(["--video-source", source])
+        proc = subprocess.run(argv, capture_output=True, text=True, check=False,
+                              cwd=self.cwd, timeout=self.timeout)
+        # Exit PARTIAL is an observed, not-yet-ready index; all other errors
+        # retain the CLI failure rather than being parsed as an empty result.
+        if proc.returncode not in (0, 6):
+            raise CliExitError(f"Readiness exited {proc.returncode}: {(proc.stderr or proc.stdout)[:500]}",
+                               returncode=proc.returncode)
+        body = json.loads(proc.stdout)
+        if not isinstance(body, dict) or type(body.get("ready")) is not bool:
+            raise ValueError("Malformed CLI readiness result")
+        if (proc.returncode == 0) != body["ready"]:
+            raise ValueError("CLI readiness exit disagrees with response")
+        return body
+
     def capture_deployment_provenance(self) -> None:
         """Read recorded deployment models via the CLI without probing inference."""
         self.deployment_identity = {"status": "unavailable"}

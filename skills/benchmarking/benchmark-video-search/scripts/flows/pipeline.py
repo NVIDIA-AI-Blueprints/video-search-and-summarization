@@ -77,6 +77,30 @@ PROBE_QUERY = "a person"
 # =============================================================================
 
 
+def _delete_video(agent_endpoint: str, stream_id: str) -> None:
+    """HTTP success alone does not establish that every deletion leg succeeded."""
+    resp = requests.delete(
+        f"{agent_endpoint.rstrip('/')}/api/v1/videos/{stream_id}", timeout=60
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    if not isinstance(payload, dict) or payload.get("status") != "success":
+        raise RuntimeError(f"video cleanup did not succeed: {payload!r}")
+
+
+def _verify_deleted(
+    vst_url: str, targets: dict[str, str], *, require_empty: bool = False
+) -> list[str]:
+    """Verify targeted registrations disappeared; index reset is a separate operation."""
+    remaining = flows.list_sensor_streams(vst_url)
+    target_names = set(targets.values())
+    return [
+        name
+        for sid, name in remaining.items()
+        if require_empty or sid in targets or name in target_names
+    ]
+
+
 def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
     """Delete every video registered on the deployment.
 
@@ -103,17 +127,20 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
     deleted, failed = 0, []
     for stream_id, name in streams.items():
         try:
-            resp = requests.delete(
-                f"{agent_endpoint.rstrip('/')}/api/v1/videos/{stream_id}", timeout=60
-            )
-            resp.raise_for_status()
+            _delete_video(agent_endpoint, stream_id)
             deleted += 1
-            print(f"    deleted {name} -> {resp.status_code}")
+            print(f"    deleted {name}")
         except Exception as e:  # noqa: BLE001
             failed.append(name)
             print(f"    FAILED {name}: {e}")
 
-    print(f"  Deleted {deleted}/{len(streams)} video(s)")
+    try:
+        remaining = _verify_deleted(vst_url, streams, require_empty=True)
+    except Exception as exc:
+        raise SystemExit(f"ABORTED: could not verify cleanup inventory: {exc}") from exc
+    failed = list(dict.fromkeys([*failed, *remaining]))
+    deleted = sum(name not in failed for name in streams.values())
+    print(f"  Deleted and verified {deleted}/{len(streams)} video(s)")
     return {
         "found": len(streams),
         "deleted": deleted,
@@ -156,13 +183,10 @@ def probe_index_coverage(
 ) -> dict[str, Any]:
     """Confirm every ingested video is searchable before scoring a whole run.
 
-    The three-step ingest flow proves this for free: ``/complete`` runs the
-    embedding leg synchronously per video and returns ``chunks_processed``, so a
-    zero fails that upload. ``vst-direct`` has no such step -- VIOS fans out to
-    the perception services by webhook and never reports the outcome -- and the
-    readiness poll does not close the gap, because it asks VST which sources are
-    *registered*. VST registers at upload time, synchronously, so that poll
-    returns in 0.0s against an index that has not been built yet.
+    Every ingest strategy is probed, including synchronous completion: its
+    chunk count cannot prove coverage for skipped-existing uploads or a
+    duplicate-camera response. VST registration alone does not establish
+    searchability.
 
     Two stages, because one broad query is cheap but not conclusive:
 
@@ -309,6 +333,28 @@ def probe_index_coverage(
     return result
 
 
+def resolve_probe_sources(vst_url: str, expected: list[str]) -> dict[str, str]:
+    """Resolve complete dataset identities to VST's case-sensitive source names."""
+    registered = flows.list_sensor_streams(vst_url)
+    resolved = {}
+    for source in expected:
+        matches = [
+            name
+            for name in registered.values()
+            if flows.video_name_matches(name.casefold(), source.casefold())
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"Expected one registered source for {source!r}, found {matches!r}"
+            )
+        resolved[source] = matches[0]
+    if len(set(resolved.values())) != len(expected):
+        raise ValueError(
+            "Expected sources do not resolve to distinct registered identities"
+        )
+    return resolved
+
+
 def expected_sources_from_upload(upload_stats: dict[str, Any]) -> list[str]:
     """Sources post-ingest probes cover even when the VST wait is skipped."""
     return [
@@ -411,17 +457,22 @@ def prune_foreign_videos(
     deleted, failed = 0, []
     for stream_id, name in foreign.items():
         try:
-            resp = requests.delete(
-                f"{agent_endpoint.rstrip('/')}/api/v1/videos/{stream_id}", timeout=60
-            )
-            resp.raise_for_status()
+            _delete_video(agent_endpoint, stream_id)
             deleted += 1
-            print(f"    deleted {name} -> {resp.status_code}")
+            print(f"    deleted {name}")
         except Exception as e:  # noqa: BLE001
             failed.append(name)
             print(f"    FAILED {name}: {e}")
 
-    print(f"  Pruned {deleted}/{len(foreign)} foreign video(s); kept {kept}")
+    try:
+        remaining = _verify_deleted(vst_url, foreign)
+    except Exception as exc:
+        raise SystemExit(f"ABORTED: could not verify pruned inventory: {exc}") from exc
+    failed = list(dict.fromkeys([*failed, *remaining]))
+    deleted = sum(name not in failed for name in foreign.values())
+    print(
+        f"  Pruned and verified {deleted}/{len(foreign)} foreign video(s); kept {kept}"
+    )
     return {
         "found": len(streams),
         "kept": kept,
@@ -534,6 +585,14 @@ def run_ingest(
     if cfg.skip_ingest:
         print("Skipping ingest (--skip-ingest)")
         return manifest
+    if (
+        getattr(ingest_backend, "name", None) == "vst-direct"
+        and not cfg.webhooks_confirmed
+    ):
+        raise SystemExit(
+            "ABORTED: vst-direct requires --webhooks-confirmed after checking deployed "
+            "VIOS add webhooks/model settings; otherwise use --ingest-flow agent-3step"
+        )
     video_dir = cfg.data_dir / cfg.dataset / "videos"
     gallery_gt = load_gallery_gt(cfg.gallery_gt) if cfg.gallery_gt else None
     gallery_files = None
@@ -683,6 +742,14 @@ def run_ingest(
             "Scoring against a partial index would misreport retrieval quality."
         )
 
+    if cfg.skip_index_probe and any(
+        row.get("complete_outcome") == flows.COMPLETE_ALREADY_REGISTERED
+        for row in upload_stats.get("per_file", [])
+    ):
+        raise SystemExit(
+            "ABORTED: duplicate-camera completions require index readiness verification"
+        )
+
     # Needed by both the optional VST wait and the mandatory index probe.
     # Defining it inside the wait made --skip-readiness-wait crash later.
     if not cfg.skip_readiness_wait:
@@ -703,9 +770,8 @@ def run_ingest(
             )
         manifest.readiness = readiness
 
-    # Registered in VST is not the same as indexed in Elasticsearch. The
-    # three-step flow already proved the difference with a chunk count; a
-    # flow that reports no proof has to be asked.
+    # Registered in VST is not the same as indexed in Elasticsearch. Even a
+    # synchronous ingest needs verification for skipped and duplicate uploads.
     # The anchor is the other half of "is this searchable": ground truth is
     # matched by absolute-timestamp overlap against 2025-01-01, so media
     # indexed at any other instant scores every query zero while looking
@@ -738,7 +804,7 @@ def run_ingest(
         else:
             print(f"  (anchor unverified: {anchor})")
 
-    if not ingest_backend.proves_indexing and not cfg.skip_index_probe:
+    if not cfg.skip_index_probe:
         print(f"\nProbing index coverage for {len(expected)} source(s)...")
         index_probe = probe_index_coverage(
             query_backend,
@@ -772,6 +838,82 @@ def run_ingest(
                 "inference=false."
             )
         manifest.index_probe = index_probe
+        require_attributes = (
+            (
+                bool(cfg.scenarios)
+                and any(scenario != "embed-only" for scenario in cfg.scenarios)
+            )
+            or getattr(query_backend, "search_path", "embed") in ("attribute", "fusion")
+            or any(
+                isinstance(decomposition, dict)
+                and bool(decomposition.get("attributes"))
+                for decomposition in getattr(
+                    query_backend, "decompositions", {}
+                ).values()
+            )
+        )
+        readiness_probe = getattr(query_backend, "readiness", None)
+        if readiness_probe is None:
+            raise SystemExit(
+                "ABORTED: query backend cannot verify pipeline readiness; update the benchmark CLI"
+            )
+        try:
+            resolved_sources = resolve_probe_sources(cfg.vst_url, expected)
+        except Exception as exc:
+            raise SystemExit(
+                f"ABORTED: cannot resolve readiness identities: {exc}"
+            ) from exc
+        index_probe["registered_sources"] = resolved_sources
+        pipeline_readiness = None
+        for attempt in range(1, cfg.index_probe_attempts + 1):
+            try:
+                pipeline_readiness = readiness_probe(
+                    list(resolved_sources.values()),
+                    require_attributes=require_attributes,
+                )
+            except Exception as exc:
+                raise SystemExit(
+                    f"ABORTED: pipeline readiness check failed: {exc}"
+                ) from exc
+            pipeline_readiness["attempts"] = attempt
+            if pipeline_readiness.get("ready"):
+                break
+            if attempt < cfg.index_probe_attempts:
+                time.sleep(cfg.index_probe_backoff)
+        index_probe["pipeline_readiness"] = pipeline_readiness
+        if not pipeline_readiness or not pipeline_readiness.get("ready"):
+            raise SystemExit(
+                f"ABORTED: embedding/attribute pipeline not ready: {pipeline_readiness}"
+            )
+        if require_attributes:
+            attribute_probe = flows.CliQueryBackend(
+                vss_cmd=query_backend.vss_cmd,
+                cwd=query_backend.cwd,
+                search_path="attribute",
+                attributes=[PROBE_QUERY],
+                decompositions={
+                    PROBE_QUERY: {
+                        "attributes": [PROBE_QUERY],
+                        "has_action": False,
+                        "video_sources": list(resolved_sources.values()),
+                    }
+                },
+                top_k=1,
+                attribute_min_similarity=0.0,
+                critic_enabled=False,
+                pass_original_query=False,
+            )
+            try:
+                hits, _ = attribute_probe.search(PROBE_QUERY)
+            except Exception as exc:
+                raise SystemExit(
+                    f"ABORTED: attribute search readiness check failed: {exc}"
+                ) from exc
+            index_probe["attribute_search"] = {"checked": True, "hits": len(hits)}
+            if not hits:
+                raise SystemExit(
+                    "ABORTED: attribute indices contain data but attribute search returned no hits at score floor 0"
+                )
 
     if pending_gallery_mapping is not None:
         out_path, mapping = pending_gallery_mapping

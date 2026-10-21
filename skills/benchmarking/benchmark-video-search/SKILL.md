@@ -104,18 +104,17 @@ Five defaults, each load-bearing:
   A `vss` older than the flag is detected by one `--help` probe at startup and
   the run continues without it, with a warning. Do not quote critic-filtered
   metrics from a run that printed that warning.
-- **Ingest is `vst-direct`**: upload to VIOS, let its webhooks drive
+- **Ingest defaults to `vst-direct` and requires `--webhooks-confirmed`**: upload to VIOS, let its webhooks drive
   perception. That is what the UI does — it stopped calling the agent's ingest
   API — and it is the only flow that also triggers RT-VLM tagging. The
   timestamp anchor rides in the upload metadata, not in anything `/complete`
   does, so scores stay comparable with `agent-3step` baselines.
 
-  What `agent-3step` gave for free was proof: `/complete` returns
-  `chunks_processed`, and a zero failed the upload. `vst-direct` has no such
-  step, so a **post-ingest index probe** replaces it — one embed query, retried,
-  before the real run starts. Registered in VST is not the same as indexed in
-  Elasticsearch, and without this check an unindexed deployment scores 0.0
-  across the board and reads as a retrieval collapse.
+  `/complete` returns `chunks_processed`, and a zero fails the upload. Every
+  strategy now receives a post-ingest embedding coverage probe and live index
+  readiness checks; the attribute scenarios also perform an attribute search.
+  Registered in VST is not the same as searchable, and a duplicate-camera
+  completion or skipped-existing source cannot replace those checks.
 
   If the probe aborts a run, check the deployed VIOS notification config and
   that `RTVI_EMBED_MODEL` matches the webhook's model string — RT-Embed answers
@@ -211,15 +210,17 @@ is missing, only `embed` can score. If the indices are absent, go to Step 4.
 
 ## Step 4 — Ingest
 
-The default `vst-direct` flow uploads to VIOS and lets its webhooks trigger
+Before using the default `vst-direct` flow, verify deployed VIOS add webhooks and
+model names and pass `--webhooks-confirmed`. This flow uploads to VIOS and lets its webhooks trigger
 perception. It does not call the agent's `/complete` endpoint or receive a
 `chunks_processed` count. The runner waits for VST registration, then probes
-the search index before scoring. Use `--ingest-flow agent-3step` only when the
+the search index before scoring. Use `--ingest-flow agent-3step` when the
 deployment cannot run the webhook flow; see `references/troubleshooting.md`.
 
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
-    --data-dir /path/to/datasets --dataset DATASET --skip-download --skip-existing
+    --data-dir /path/to/datasets --dataset DATASET --skip-download --skip-existing \
+    --webhooks-confirmed
 ```
 
 Expect this to be slow while the webhook pipeline indexes the videos:
@@ -319,3 +320,28 @@ Critic-filtered `NA` means verification was not available, not zero quality. Use
   critic-filtered ones move a few points between runs. Gate on raw.
 - Live decomposition is not deterministic either. The same query can route
   differently between runs, so compare `Routed to:` before comparing scores.
+
+### Campaign readiness and cleanup
+
+`--clear` removes registered videos; it does not recreate Elasticsearch indices
+or establish an empty Kafka/analytics state. Use the [isolated evaluation reset
+procedure](../../../deploy/docker/developer-profiles/dev-profile-search/EVALUATION_RESET.md)
+for a clean campaign. Cleanup now requires `status: success` in each
+agent deletion response and re-lists the inventory before ingestion. Any partial,
+malformed or unverifiable deletion aborts the run.
+
+All ingestion strategies verify embedding coverage, including skipped-existing
+and duplicate-camera completions. Attribute scenarios additionally require live
+behavior/raw index readiness and an actual attribute search at shifted-score floor
+0. Per-source detection gaps are recorded; a clip without a detection is not
+individually rejected. Never use `--skip-index-probe` for reportable campaign runs.
+A duplicate completion cannot be accepted with that override.
+
+For remote hosts such as Brev, `agent-3step` upload URLs must be reachable by the
+agent service itself. A URL that resolves only on the CLI host does not establish
+successful upload transfer. Keep URLs returned by the service unchanged.
+
+After an index reset, run `vss configure --base-url <the recorded origin>` again
+when ingestion has created the lazy indices. If readiness reports that raw-frame
+lookup was disabled by the old configuration snapshot, reconfigure and rerun
+ingestion with `--skip-existing`, without `--clear`, to verify the existing data.

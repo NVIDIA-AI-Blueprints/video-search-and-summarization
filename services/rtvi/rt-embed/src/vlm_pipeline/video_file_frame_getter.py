@@ -990,8 +990,24 @@ class VideoFileFrameGetter:
                         self._err_msg = "Cosmos file retained-frame budget exceeded; shorten the ingestion chunk"
                     self._quit_loop_after_error()
                     return False
-                # Native-resolution tensors vary by orders of magnitude in size.
-                # Count their backing allocations, including padding/view storage.
+                if self._file_resize_active:
+                    # Resize before retaining all decoded frames. Index selection
+                    # commutes with this independent per-frame transform, including
+                    # repeated indices for short clips. Keeping native RGB until
+                    # selection requires ~890 MiB for 150 1080p frames alone.
+                    if image_tensor.is_cuda:
+                        # Native copies are allocated on the dedicated copy
+                        # stream. Keep their storage alive until this stream has
+                        # finished reading it during the asynchronous resize.
+                        image_tensor.record_stream(
+                            torch.cuda.current_stream(image_tensor.device)
+                        )
+                    image_tensor = resize_file_frames(
+                        [image_tensor], self._file_resize_size
+                    )[0]
+                # Count actual backing allocations, including padding/view storage.
+                # The limit is per decoder; decoder/model/transient allocations
+                # need additional headroom outside this retained-cache budget.
                 frame_bytes = image_tensor.untyped_storage().nbytes()
                 if self._cached_frame_bytes + frame_bytes > self._cosmos_file_max_retained_bytes:
                     with self._err_msg_lock:
@@ -2145,7 +2161,11 @@ class VideoFileFrameGetter:
                                 fs_data.cached_frames.append(image_tensor)
                         self._process_finished_chunks(buffer.pts)
                 else:
-                    return self._append_file_frame_to_cache(image_tensor, buffer.pts / 1000000000.0)
+                    try:
+                        return self._append_file_frame_to_cache(image_tensor, buffer.pts / 1000000000.0)
+                    except torch.OutOfMemoryError as exc:
+                        self._handle_cuda_oom(exc, "resizing decoded file frame before retention")
+                        return False
             finally:
                 buffer.unmap(mapinfo)
             return True

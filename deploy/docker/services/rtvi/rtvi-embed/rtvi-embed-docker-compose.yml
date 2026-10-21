@@ -38,6 +38,11 @@ services:
       - "${RTVI_EMBED_PORT?}:8000"
 
     environment:
+      # Opt-in file preprocessing. Changing these requires re-ingestion.
+      COSMOS_FILE_INDEX_SAMPLING: "${COSMOS_FILE_INDEX_SAMPLING:-false}"
+      COSMOS_FILE_TORCHVISION_RESIZE: "${COSMOS_FILE_TORCHVISION_RESIZE:-false}"
+      COSMOS_FILE_MAX_RETAINED_FRAMES: "${COSMOS_FILE_MAX_RETAINED_FRAMES:-1024}"
+      COSMOS_FILE_MAX_RETAINED_BYTES: "${COSMOS_FILE_MAX_RETAINED_BYTES:-536870912}"
       MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
       MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1}"
       MODEL_REPOSITORY_SCRIPT_PATH: "${MODEL_REPOSITORY_SCRIPT_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py}"

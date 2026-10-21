@@ -56,7 +56,7 @@ GALLERY_GT = {
 class _FakeIngest:
     """Uploads each clip and records the sensor_id the manifest will carry."""
 
-    name = "vst-direct"
+    name = "fake-ingest"
     proves_indexing = False
 
     def describe(self) -> dict[str, Any]:

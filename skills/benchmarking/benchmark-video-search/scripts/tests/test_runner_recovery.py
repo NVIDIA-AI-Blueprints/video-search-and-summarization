@@ -140,13 +140,13 @@ def test_cleanup_retains_gallery_instead_of_default_dataset(tmp_path, monkeypatc
     monkeypatch.setattr(
         flows,
         "list_sensor_streams",
-        lambda *args: {"s0": "c0.mp4", "s1": "c1.mp4", "foreign": "warehouse.mp4"},
+        lambda *args: {"s0": "c0.mp4", "s1": "c1.mp4", **({"foreign": "warehouse.mp4"} if not deleted else {})},
     )
     deleted = []
     monkeypatch.setattr(
         pipeline.requests,
         "delete",
-        lambda url, **kwargs: deleted.append(url) or Mock(status_code=200),
+        lambda url, **kwargs: deleted.append(url) or Mock(status_code=200, json=lambda: {"status": "success"}),
     )
     pipeline.run_ingest(cfg, FakeIngest(), RecordingBackend())
     assert deleted == ["unused/api/v1/videos/foreign"]

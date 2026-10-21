@@ -241,3 +241,16 @@ Preprocessing and run identity are recorded in artifact provenance. Supply effec
 ingestion preprocessing/model settings using `--preprocessing-provenance settings.json`.
 Changes to preprocessing require re-ingestion. See [validation limits](focused-validation.md)
 for the opt-in Cosmos file controls and remaining deployment checks.
+
+### Explicit ingestion trigger strategy
+
+The default `--ingest-flow vst-direct` requires `--webhooks-confirmed` before
+any cleanup or upload. Set it only after checking the deployed VIOS add webhooks,
+RTVI model names and required perception services. Otherwise select
+`--ingest-flow agent-3step`; it triggers processing explicitly. Both strategies
+run post-ingestion embedding and attribute readiness checks. On Brev, preserve
+service-returned upload URLs and verify they are reachable from the agent.
+
+`--clear` validates deletion response bodies and the resulting VST inventory.
+It is video cleanup, not an index/Kafka/analytics reset. Partial deletion, an
+unreadable inventory or remaining registrations abort ingestion.

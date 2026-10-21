@@ -202,7 +202,7 @@ class AgentThreeStepIngest:
             if verdict == COMPLETE_ALREADY_REGISTERED:
                 # A previous attempt already registered the stream, so the
                 # pipeline ran. chunks_processed is unknowable from here --
-                # readiness and the first query are what confirm it.
+                # mandatory post-ingest embedding and attribute readiness probes confirm it.
                 print(f"    /complete attempt {attempt}: already registered (RTVI-CV duplicate); treating as done")
                 return {}, attempt, COMPLETE_ALREADY_REGISTERED
 
@@ -285,8 +285,8 @@ class AgentThreeStepIngest:
             # The upstream skill validates exactly this before treating an
             # upload as real; a 200 with zero chunks means nothing was indexed.
             # The duplicate-camera path is exempt: the work landed on an
-            # earlier attempt, so no chunk count comes back and readiness plus
-            # the first query are what actually confirm it.
+            # earlier attempt, so no chunk count comes back and mandatory
+            # post-ingest index coverage probes are what actually confirm it.
             if outcome != COMPLETE_ALREADY_REGISTERED:
                 chunks = completion.get("chunks_processed")
                 if not isinstance(chunks, int) or chunks <= 0:

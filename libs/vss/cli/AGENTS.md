@@ -132,6 +132,17 @@ Elasticsearch, the embedding service, or the agent API directly — a hand-built
 that returns *something* is worse than a clean failure, because nothing
 downstream can tell it was improvised.
 
+### Ingestion readiness for evaluation
+
+`vss search readiness --video-source NAME [--video-source NAME ...]` reads live
+upload-anchor counts through the configured deployment. It reports embedding
+coverage, behavior/raw coverage gaps and cached frame-lookup availability, with
+exit 6 while the requested pipeline is not ready. It makes no model call and
+creates no job. Use `--no-require-attributes` for an embedding-only campaign.
+Counts establish indexed coverage; the benchmark also executes an attribute
+search before scoring. A clip with no detections is a reported gap, not an
+individual readiness failure.
+
 ## `vss memory` — recall
 
 ```bash

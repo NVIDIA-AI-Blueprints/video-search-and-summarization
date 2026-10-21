@@ -1578,10 +1578,17 @@ def test_prune_deletes_only_foreign_sources(tmp_path: Path, monkeypatch: Any) ->
         status_code = 200
 
         @staticmethod
+        def json() -> dict[str, Any]:
+            return {"status": "success"}
+
+        @staticmethod
         def raise_for_status() -> None:
             return None
 
-    monkeypatch.setattr(rf.flows, "list_sensor_streams", lambda *_a, **_k: _fake_streams())
+    monkeypatch.setattr(
+        rf.flows, "list_sensor_streams",
+        lambda *_a, **_k: {sid: name for sid, name in _fake_streams().items() if sid not in deleted},
+    )
     monkeypatch.setattr(
         rf.requests, "delete",
         lambda url, **_k: (deleted.append(url.rsplit("/", 1)[-1]), _Resp())[1],

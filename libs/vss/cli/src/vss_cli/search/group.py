@@ -499,6 +499,10 @@ class SearchGroup(CommandGroup):
             requires=frozenset({"elasticsearch", "rtvi_cv"}),
         ),
     )
+    from .readiness import readiness_command
+
+    primitives = (readiness_command(),)
+
     extra_params: ClassVar[Sequence[click.Parameter]] = (
         *params_mod.options_from_model(SearchTuning),
         *params_mod.options_from_model(SearchPersistOptions),

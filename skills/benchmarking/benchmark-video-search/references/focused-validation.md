@@ -119,3 +119,46 @@ Detector/tracker crops and clustered PAS embeddings remain differences from the
 released representative-crop protocol. The fixed annotation gallery also differs
 from the reference PAS eligible-track candidate gallery; neither is silently
 changed using annotation information during retrieval.
+
+## Campaign readiness fixes (2026-10-20)
+
+The subsequent deployment review found gaps not established by the earlier
+unit/reference checks. Cleanup now checks the agent's response body and verifies
+registration removal. All ingestion strategies verify embedding coverage;
+attribute scenarios additionally check live behavior/raw counts and execute a
+scoped attribute search. Counts report individual detection gaps without requiring
+detections in every clip. Explicit legacy embedding-only runs remain usable
+without attribute-index access. Webhook-driven ingestion requires an explicit
+acknowledgment of deployed notification settings.
+
+The opt-in Cosmos resize now occurs before frame retention. The subset MP4
+sample tables confirm 16 clips with 150 samples at 1920×1080 or 1080×1920,
+approximately 889.89 MiB native RGB per clip. Retaining 448×448 RGB instead is
+approximately 86.13 MiB. These are arithmetic cache estimates, not GPU peak
+measurements. CUDA storage ownership is retained across the asynchronous resize;
+streaming and the 512 MiB per-decoder safety bound remain in place.
+
+[Evaluation image instructions](../../../../deploy/docker/developer-profiles/dev-profile-search/EVALUATION_IMAGE.md)
+provide a local-source Compose build override and running-image/settings/startup
+verification receipt. The [isolated reset workflow](../../../../deploy/docker/developer-profiles/dev-profile-search/EVALUATION_RESET.md)
+rejects shared storage, clears retained pipeline state while processing is stopped,
+sets explicit retention (default 336 hours), creates upload anchors before CLI
+discovery, and verifies zero search documents before and after application startup.
+HAProxy now admits the exact clear-scroll DELETE endpoint while retaining other
+method/path restrictions.
+
+Verification completed:
+
+- Core search and CLI regression suite: 1,221 passed.
+- Runner, deployment, and preprocessing suite: 323 passed, 4 optional skips.
+- Final readiness checks after stricter shard/embedding-only handling: 19 passed.
+- Final reset/image checks after additional shared-volume safeguards: 34 passed.
+- Temporary real HAProxy container: 12 ingress cases passed, including scroll
+  release, query-string handling, and refusal of index/document deletion.
+- Modified Python lint checks and `git diff --check` passed. Actual search-profile
+  Compose rendering passed; no running evaluation deployment was modified.
+
+The local CLI still reports no configured deployment. Building the GPU image,
+performing the isolated reset, validating the running image and a full ingestion,
+and measuring GPU memory/latency/quality remain deployment-side acceptance work.
+No live quality or performance improvement is claimed.

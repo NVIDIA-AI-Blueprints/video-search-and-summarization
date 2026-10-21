@@ -378,9 +378,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "How fixtures are uploaded (default: vst-direct, what the UI does "
             "-- upload to VIOS and let its webhooks drive perception). "
-            "'agent-3step' is the older agent-mediated flow; it returns a chunk "
-            "count, which vst-direct replaces with a post-ingest index probe."
+            "Requires --webhooks-confirmed. 'agent-3step' triggers perception explicitly. "
+            "Every strategy receives embedding and attribute readiness checks."
         ),
+    )
+    flow.add_argument(
+        "--webhooks-confirmed",
+        action="store_true",
+        help="Confirm deployed VIOS add webhooks and model names were checked before vst-direct ingestion. Otherwise select --ingest-flow agent-3step.",
     )
     flow.add_argument(
         "--query-flow",
@@ -636,10 +641,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--skip-index-probe",
         action="store_true",
         help=(
-            "Do not check that anything is searchable before scoring. Only the "
-            "ingest flows that report no chunk count are probed at all, and "
-            "skipping it means an unindexed deployment scores 0.0 across the "
-            "board and reads as a retrieval collapse."
+            "Skip embedding coverage and attribute pipeline readiness checks for every "
+            "ingest strategy. Unsafe for evaluation campaigns; duplicate completions "
+            "cannot be accepted with this option."
         ),
     )
     ingest.add_argument("--index-probe-attempts", type=int, default=10)

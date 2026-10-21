@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Explicit campaign override; add AFTER the regular search-profile files.
+# Export VSS_EVAL_REPO_ROOT=$(git rev-parse --show-toplevel) and
+# VSS_EVAL_REVISION=$(git rev-parse HEAD) from a clean checkout, then compose build.
+services:
+  rtvi-embed:
+    image: vss-rt-embed-eval:${VSS_EVAL_REVISION:?set the source revision being built}
+    pull_policy: never
+    build:
+      context: ${VSS_EVAL_REPO_ROOT:?set absolute checkout root}/services/rtvi/rt-embed
+      dockerfile: docker/Dockerfile
+      args:
+        ARM_PLATFORM: ${ARM_PLATFORM:-igpu}
+      labels:
+        org.opencontainers.image.revision: ${VSS_EVAL_REVISION:?set source revision}
+    environment:
+      COSMOS_FILE_INDEX_SAMPLING: "true"
+      COSMOS_FILE_TORCHVISION_RESIZE: "true"
+      COSMOS_FILE_MAX_RETAINED_FRAMES: "${COSMOS_FILE_MAX_RETAINED_FRAMES:-1024}"
+      # Per decoder, after resize; this is not a whole-process memory limit.
+      COSMOS_FILE_MAX_RETAINED_BYTES: "${COSMOS_FILE_MAX_RETAINED_BYTES:-536870912}"
+      NUM_VLM_PROCS: "1"
+      VLM_BATCH_SIZE: "1"

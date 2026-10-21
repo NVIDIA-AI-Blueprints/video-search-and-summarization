@@ -292,7 +292,7 @@ class DecoderProcess(ProcessBase):
         cosmos_file_torchvision_resize = is_cosmos and os.getenv("COSMOS_FILE_TORCHVISION_RESIZE", "false").lower() in ("true", "1", "yes")
         cosmos_file_max_retained_frames = int(os.getenv("COSMOS_FILE_MAX_RETAINED_FRAMES", "1024"))
         cosmos_file_max_retained_bytes = int(os.getenv("COSMOS_FILE_MAX_RETAINED_BYTES", str(512 * 1024 * 1024)))
-        logger.info("Cosmos file preprocessing version=index-linspace-round-aa-v1 index_sampling=%s antialias_resize=%s retained_frames=%d retained_bytes=%d; changes require re-ingestion", cosmos_file_index_sampling, cosmos_file_torchvision_resize, cosmos_file_max_retained_frames, cosmos_file_max_retained_bytes)
+        logger.info("Cosmos file preprocessing version=index-linspace-round-aa-v1 index_sampling=%s antialias_resize=%s cache_resize_before_retention=%s retained_frames=%d retained_bytes=%d per_decoder=true; decoder/model/transient allocations require additional memory; changes require re-ingestion", cosmos_file_index_sampling, cosmos_file_torchvision_resize, cosmos_file_torchvision_resize, cosmos_file_max_retained_frames, cosmos_file_max_retained_bytes)
 
         # Initialize multiple frame getters (decoders)
         self._fgetters = [
