@@ -61,6 +61,7 @@ Setup rejects explicit `MODEL_PATH` / `VLM_MODEL_TO_USE` overrides or a conflict
 | RTX Pro 6000 SE | `rtvi_vlm_bcd_3_3_rtx_pro_6000_se_config.yaml` | CR3 Super NVFP4 | `cr3-super-reasoner-nvfp4` | [NGC Super NVFP4](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/versions/modelopt-nvfp4-full-quantize-final_format_fix) |
 | RTX Pro 4500 | `rtvi_vlm_bcd_3_3_rtx_pro_4500_config.yaml` | CR3 Nano NVFP4 | `cr3-nano-reasoner-nvfp4` | [NGC Nano NVFP4](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/versions/modelopt-nvfp4-full-quantize-final_format_fix) |
 | B200 SXM | `rtvi_vlm_bcd_3_3_b200_sxm_config.yaml` | CR3 Super NVFP4 | `cr3-super-reasoner-nvfp4` | [NGC Super NVFP4](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/versions/modelopt-nvfp4-full-quantize-final_format_fix) |
+| GB300 | `rtvi_vlm_bcd_3_3_gb300_config.yaml` | CR3 Super NVFP4 | `cr3-super-reasoner-nvfp4` | [NGC Super NVFP4](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/versions/modelopt-nvfp4-full-quantize-final_format_fix) |
 | AGX Orin | `rtvi_vlm_bcd_3_3_agx_orin_config.yaml` | CR3 Edge BF16 | `cosmos3-edge-bf16` | [Hugging Face Cosmos3-Edge](https://huggingface.co/nvidia/Cosmos3-Edge/tree/344d602b128d1bbdacb43b08d0a3626f46343e29) |
 
 NGC paths use `ngc:nim/nvidia/<model>:<version>` with the exact model and version
@@ -98,10 +99,11 @@ validated capacity. This selection does not change the scientific workload.
 
 Each max-live video accepts `max_stream_count` (default 300). The harness sizes
 its SSE executor and HTTP pool from this bound, clamps ramp additions and linear
-refinement to it, and validates the capped load before stopping. B200 SXM profiles
-set it to 512. Configure the server admission limit separately to accommodate the
-intended load (for example `--max-live-streams 512` via `RTVI_EXTRA_ARGS`) and verify
-the actual server command line. A harness limit does not override server admission
+refinement to it, and validates the capped load before stopping. B200 SXM and
+GB300 profiles set it to 512 for each max-live workload, including 2K/1-token.
+Configure the server admission limit separately to accommodate the intended load
+(for example `--max-live-streams 512` via `RTVI_EXTRA_ARGS`) and verify the
+actual server command line. A harness limit does not override server admission
 or prove available GPU capacity.
 
 `required_stable_windows` still requires consecutive passing windows. Optional
