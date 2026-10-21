@@ -38,7 +38,7 @@ navbar-links:
 versions:
   - display-name: "3.3.0"
     slug: "3.3.0"
-    ref: v3.3.0
+    ref: release/3.3.0
   - display-name: Dev
     slug: dev
     path: ../docs/index.yml
