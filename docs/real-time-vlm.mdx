@@ -1844,6 +1844,25 @@ Reason: [Brief explanation]"
 * Verify GPU access: Ensure NVIDIA Container Toolkit is installed and
   `nvidia-smi` works
 
+**Low throughput or high latency**
+
+For single-GPU RT-VLM deployments, keep decoded frames on the GPU and use
+`torch_shm` tensor transport to reduce CPU transfers between decoding and
+inference. Set these variables on the `rtvi-server` container through a
+Docker Compose override, then recreate the service:
+
+```yaml
+services:
+  rtvi-server:
+    environment:
+      RTVI_QUEUE_DECODED_FRAMES_ON_GPU: "true"
+      RTVI_VLLM_MM_TENSOR_IPC: "torch_shm"
+```
+
+Tune concurrency and memory settings to the GPU memory available to the
+deployment. For tensor-parallel deployments across multiple GPUs, retain
+the default tensor transport.
+
 **Out of Memory error**
 
 For example, larger models such as
