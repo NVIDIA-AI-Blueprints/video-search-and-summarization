@@ -1,6 +1,6 @@
 # Video Summarization Environment Variables
 
-This is the 3.3.0 `lvs` profile env reference. For
+This is the VSS 3.3.0 release `lvs` profile env reference. For
 full deployment decisions, use `vss-build-vision-ai`; this file is for quick
 video summarization debugging and request construction.
 
@@ -74,8 +74,10 @@ Video summarization service:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
-| `VSS_VIDEO_SUMMARIZATION_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Image repository. |
-| `VSS_VIDEO_SUMMARIZATION_TAG` | `3.3.0` on x86/Tegra; use `3.3.0-sbsa` on SBSA. |
+| `VSS_CONTAINER_REGISTRY` | `nvcr.io/nvidia/vss-core` | Shared image registry root used when the service repository is unset. |
+| `VSS_VIDEO_SUMMARIZATION_IMAGE` | `${VSS_CONTAINER_REGISTRY}/vss-video-summarization` | Service image repository override, without a tag. |
+| `VSS_VIDEO_SUMMARIZATION_TAG` | `3.3.0` on x86/Tegra; `3.3.0-sbsa` on SBSA | Service image tag override. |
+| `CONTAINER_IMAGE` | unset | Complete image reference override; takes precedence over the repository and tag variables. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Active CA-RAG database backend. Use `graph_db` for Neo4j or `graph_db_arango` for ArangoDB only with an embedding endpoint configured. |
 | `LVS_EMB_ENABLE` | `false` | Required as `true` for Neo4j or ArangoDB graph backends. |
@@ -85,6 +87,16 @@ Video summarization service:
 | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker URL from the video summarization service. |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `mdx-structured-events-summary` | Structured summary topic. |
 | `LVS_ENABLE_LLM_MERGING` | `true` | Merge duplicate/overlapping events. |
+
+With no image overrides, Compose uses the public release image
+`nvcr.io/nvidia/vss-core/vss-video-summarization:3.3.0`. Set
+`VSS_VIDEO_SUMMARIZATION_TAG=3.3.0-sbsa` on SBSA. A non-empty
+`VSS_VIDEO_SUMMARIZATION_IMAGE` takes precedence over `VSS_CONTAINER_REGISTRY`;
+a non-empty `CONTAINER_IMAGE` overrides the entire repository and tag.
+`LVS_IMAGE` and `LVS_TAG` are obsolete; use `VSS_VIDEO_SUMMARIZATION_IMAGE`
+and `VSS_VIDEO_SUMMARIZATION_TAG` instead. See the
+[deployment reference](video-summarization-deployment.md#required-inputs) for
+the exact Compose expression.
 
 ## Service Compose Env
 
@@ -194,7 +206,7 @@ Compose network.
   `/models`; do not use RT-VLM `/v1/models` for `LVS_EMB_MODEL_NAME`.
 - Use `LVS_BACKEND_URL` for video summarization API calls and strip trailing `/v1` from VLM
   base URLs before appending `/v1/chat/completions`.
-- For 3.2 GA examples, prefer `/v1/summarize` and omit frame sampling fields
+- For VSS 3.3.0 release examples, prefer `/v1/summarize` and omit frame sampling fields
   so RT-VLM applies the model-specific deployment default.
 - Do not add development-only API switches to GA instructions.
 - Do not switch to `graph_db` or `graph_db_arango` unless `LVS_EMB_ENABLE=true`
