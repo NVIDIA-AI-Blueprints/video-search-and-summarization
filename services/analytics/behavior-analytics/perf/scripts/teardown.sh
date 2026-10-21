@@ -13,6 +13,3 @@ if [[ -f "$INTEGRATION_DIR/docker_compose/infra/.env" ]]; then
 fi
 
 remove_root_tree "$BA_PERF_DATA_DIR"
-# Older runs wrote kafka/ES into the git checkout. Jenkins deleteDir on the
-# next GPU job cannot remove those uid-1000 files (Jenkins #62).
-remove_root_tree "$CHECKOUT_DATA_LOG"

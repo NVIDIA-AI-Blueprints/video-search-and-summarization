@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from kpis import DEFAULT_KPIS_PATH, _load_simple_yaml, evaluate_kpis, load_kpis
 from latency import build_result, correct_topics, parse_latency_report
@@ -407,6 +407,72 @@ INCIDENTS MESSAGES
             finally:
                 os.environ.pop("OUTPUT_DIR", None)
 
+    def test_entrypoint_replaces_stale_result_and_uploads_failure(self) -> None:
+        spec = importlib.util.spec_from_file_location("ba_core_entrypoint", CORE)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "result.json"
+            output.write_text('{"success": true, "stale": true}\n')
+            completed = subprocess.CompletedProcess([], 1)
+            with patch.object(module.subprocess, "run", return_value=completed):
+                with patch.object(
+                    module, "_upload", return_value={"uri": "s3://failure"}
+                ) as upload:
+                    code = module.main(["--output-json", str(output), "--upload"])
+            payload = json.loads(output.read_text())
+            self.assertEqual(code, 1)
+            self.assertFalse(payload["success"])
+            self.assertNotIn("stale", payload)
+            upload.assert_called_once_with(output, ANY)
+
+    def test_entrypoint_uploads_explicit_stage_failure(self) -> None:
+        spec = importlib.util.spec_from_file_location("ba_core_entrypoint", CORE)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "result.json"
+            with patch.object(
+                module, "_upload", return_value={"uri": "s3://failure"}
+            ) as upload:
+                code = module.main(
+                    [
+                        "--output-json",
+                        str(output),
+                        "--stage-failure",
+                        "deploy",
+                        "--failure-message",
+                        "boom",
+                        "--upload",
+                    ]
+                )
+            self.assertEqual(code, 1)
+            self.assertIn("deploy: boom", json.loads(output.read_text())["error"])
+            upload.assert_called_once_with(output, ANY)
+
+    def test_entrypoint_passes_selected_config_to_runner(self) -> None:
+        spec = importlib.util.spec_from_file_location("ba_core_entrypoint", CORE)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "custom.yaml"
+            config.write_text("test_scenarios: {}\n")
+            output = Path(directory) / "result.json"
+
+            def fake_run(_cmd, *, env, check):
+                self.assertEqual(env["PERF_CONFIG_FILE"], str(config.resolve()))
+                output.write_text('{"success": true}\n')
+                return subprocess.CompletedProcess([], 0)
+
+            with patch.object(module.subprocess, "run", side_effect=fake_run):
+                code = module.main(
+                    ["--config", str(config), "--output-json", str(output)]
+                )
+            self.assertEqual(code, 0)
+
     def test_safe_write_replaces_symlink_instead_of_following_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "outside.txt"
@@ -529,6 +595,7 @@ INCIDENTS MESSAGES
         ).read_text()
         self.assertIn("compose down --remove-orphans -v", teardown)
         self.assertIn("remove_root_tree", teardown)
+        self.assertNotIn("CHECKOUT_DATA_LOG", teardown)
         self.assertNotIn("docker rm -f elasticsearch", teardown)
         self.assertNotIn("docker rm -f kafka", teardown)
         self.assertNotIn("docker rm -f mdx-analytics", teardown)
@@ -542,6 +609,7 @@ INCIDENTS MESSAGES
             / "common.sh"
         ).read_text()
         self.assertIn("scenario_config.py", common)
+        self.assertIn("PERF_CONFIG_FILE", common)
         self.assertIn("Refusing to delete symlink", common)
         service_run = (
             REPO_ROOT

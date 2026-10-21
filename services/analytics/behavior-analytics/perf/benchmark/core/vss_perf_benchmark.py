@@ -71,6 +71,21 @@ def write_result(dest: Path, payload: dict[str, object]) -> Path:
     return safe_write_text(dest, json.dumps(payload, indent=2) + "\n")
 
 
+def finish_result(
+    dest: Path,
+    *,
+    success: bool,
+    should_upload: bool,
+    args: argparse.Namespace,
+) -> int:
+    extra: dict[str, object] = {}
+    if should_upload:
+        extra["minio"] = _upload(dest, args)
+    status = "PASS" if success else "FAIL"
+    print(json.dumps({"result_file": str(dest), "status": status, **extra}))
+    return 0 if success else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     output_file = result_file(args)
@@ -80,6 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     env = os.environ.copy()
     env["PERF_SCENARIO"] = args.scenario
     env["PERF_CONFIG_ID"] = args.config_id
+    env["PERF_CONFIG_FILE"] = str(args.config.resolve())
     env["OUTPUT_DIR"] = str(output.resolve())
     if args.release:
         env["RELEASE"] = args.release
@@ -88,6 +104,10 @@ def main(argv: list[str] | None = None) -> int:
     should_upload = bool(args.upload or env.get("UPLOAD_TO_MINIO") == "true")
     if should_upload:
         env["UPLOAD_TO_MINIO"] = "true"
+
+    measured = output / "result.json"
+    for stale in {output_file, measured}:
+        stale.unlink(missing_ok=True)
 
     if args.stage_failure:
         dest = write_result(
@@ -101,8 +121,12 @@ def main(argv: list[str] | None = None) -> int:
                 "error": f"{args.stage_failure}: {args.failure_message}",
             },
         )
-        print(json.dumps({"result_file": str(dest), "status": "FAIL"}))
-        return 1
+        return finish_result(
+            dest,
+            success=False,
+            should_upload=should_upload,
+            args=args,
+        )
 
     if args.report:
         payload = build_result(
@@ -114,12 +138,12 @@ def main(argv: list[str] | None = None) -> int:
             warmup_seconds=int(env.get("PERF_WARMUP_SECONDS", "10")),
         )
         dest = write_result(output_file, payload)
-        extra: dict[str, object] = {}
-        if should_upload:
-            extra["minio"] = _upload(dest, args)
-        status = "PASS" if payload["success"] else "FAIL"
-        print(json.dumps({"result_file": str(dest), "status": status, **extra}))
-        return 0 if payload["success"] else 1
+        return finish_result(
+            dest,
+            success=bool(payload["success"]),
+            should_upload=should_upload,
+            args=args,
+        )
 
     # Jenkins already ran perf/scripts/{pre_flight,deploy,post_deploy}.sh.
     # Only measure here so run_benchmark.sh does not deploy twice or tear down
@@ -129,18 +153,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         cmd = ["bash", str(PERF_ROOT / "run_benchmark.sh")]
     completed = subprocess.run(cmd, env=env, check=False)
-    measured = output / "result.json"
     dest = output_file
     if measured.is_file() and measured.resolve() != dest.resolve():
         safe_write_text(dest, measured.read_text())
     elif measured.is_file():
         dest = measured
-    extra: dict[str, object] = {}
-    if dest.is_file() and should_upload:
-        extra["minio"] = _upload(dest, args)
-    if completed.returncode == 0 and dest.is_file():
-        print(json.dumps({"result_file": str(dest), "status": "PASS", **extra}))
-        return 0
+    success = completed.returncode == 0 and dest.is_file()
     if not dest.is_file():
         dest = write_result(
             output_file,
@@ -153,8 +171,12 @@ def main(argv: list[str] | None = None) -> int:
                 "error": f"run_benchmark.sh exited {completed.returncode}",
             },
         )
-    print(json.dumps({"result_file": str(dest), "status": "FAIL", **extra}))
-    return 1
+    return finish_result(
+        dest,
+        success=success,
+        should_upload=should_upload,
+        args=args,
+    )
 
 
 def _upload(dest: Path, args: argparse.Namespace) -> dict[str, str]:
