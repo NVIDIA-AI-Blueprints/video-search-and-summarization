@@ -75,29 +75,47 @@ This blueprint is designed for ease of setup with extensive configuration option
 
 ## Repository Structure Overview
 
-| Directory | Description |
-|-----------|-------------|
-| `services/agent/` | Video search and summarization agent (Python). Contains `packages/vss_agents/` (tools, agents, APIs, embeddings, evaluators, video analytics), `scripts/`, `docker/`, and `3rdparty/`. See [services/agent/README.md](services/agent/README.md). |
-| `services/ui/` | Frontend monorepo (Next.js, Turbo): `apps/` (nv-metropolis-bp-vss-ui, vss-chat) and shared `packages/`. See [services/ui/README.md](services/ui/README.md). |
-| `services/rtvi/` | Real-time video intelligence microservices: `rt-vlm/` (dense captioning and incidents from live streams), `rt-embed/` (video, image, and text embeddings), `rt-cv/` (2D detection and tracking), and `rt-cv-3d/` (RT-DETR plus Multi-View 3D Tracking for fused BEV output). |
-| `services/vios/` | Video I/O Service: the ingest and storage layer. Connects to RTSP/ONVIF/Milestone cameras, VMS systems, and NVStreamer sources, manages sensor registration and recording, and serves live and recorded video plus a dashboard. See [services/vios/README.md](services/vios/README.md). |
-| `services/alert/` | Configuration-driven alerts microservice: VLM-based alert verification, realtime alert generation, and on-demand clip verification. See [services/alert/README.md](services/alert/README.md). |
-| `services/video-summarization/` | Long video summarization (LVS) microservice. Processes video with VLMs and returns timestamped captions, structured event detections, and aggregated summaries over a REST API. See [services/video-summarization/README.md](services/video-summarization/README.md). |
-| `services/sdrc/` | Sensor Distribution and Routing Controller: the stream-placement and traffic-routing layer that assigns live streams to backend workers and keeps that routing stable and recoverable. See [services/sdrc/README.md](services/sdrc/README.md). |
-| `services/configurators/` | Configuration services: `vss-configurator/` (unified sensor and hardware-profile configuration) and `vss-rt-config-adaptor/` (writes DeepStream runtime configs from posted metadata). |
-| `services/analytics/` | Downstream analytics services for processing real-time video intelligence metadata. Contains behavior analytics stream processing and REST APIs for querying analytics results. |
-| `services/analytics/behavior-analytics/` | Python streaming pipeline for spatial AI analytics, incident detection, Smart City, warehouse, playback, and other behavior analytics applications. Includes app entry points, configs, Docker support, tests, and detailed guides. See [services/analytics/behavior-analytics/README.md](services/analytics/behavior-analytics/README.md). |
-| `services/analytics/video-analytics-api/` | Node.js and Express REST API service for VSS Video Analytics data. Exposes metrics, tracker, frames, behavior, clustering, events, sensor, config, alerts, and incidents endpoints backed by Elasticsearch. See [services/analytics/video-analytics-api/README.md](services/analytics/video-analytics-api/README.md). |
-| `deploy/` | Deployment configs, Docker Compose, and Helm charts: NIM model configs, developer profiles (dev-profile-base, dev-profile-search, dev-profile-alerts, dev-profile-lvs), foundational services, LVS, RTVI, VLM-as-verifier, VST, and root `compose.yml`. Also contains `deploy/docker/scripts/` — the Brev launchable notebooks (base, warehouse, smart cities) and dev-profile / patch scripts. |
-| `tools/message-broker-consumers/` | Multiprocessing Redis and Kafka consumers that decode VSS protobuf messages from streams/topics and export them as JSON Lines files for inspection, debugging, or offline processing. See [tools/message-broker-consumers/README.md](tools/message-broker-consumers/README.md). |
-| `tools/sdg-postprocessing/` | Dataset post-processing utilities for synthetic data generation workflows: semantic labeling helpers, raw data sanity checks, RGB/depth/video conversion, and ground-truth conversion for MTMC-compatible datasets. See [tools/sdg-postprocessing/README.md](tools/sdg-postprocessing/README.md). |
-| `tools/rtvi-cv-mv3dt-utils/` | Offline utilities for generating MV3DT RTVI-CV configuration artifacts, including per-camera `camInfo` projection configs and MQTT publish/subscribe topology files for warehouse MV3DT deployments. See [tools/rtvi-cv-mv3dt-utils/README.md](tools/rtvi-cv-mv3dt-utils/README.md). |
-| `tools/logstash-plugins/` | Custom Logstash plugins for the ELK ingest pipeline. Includes `input/redis-stream/` (`logstash-input-redis_stream`), a Java input plugin that reads from Redis Streams via consumer groups (`XREADGROUP`) with optional Protocol Buffer decoding. See [tools/logstash-plugins/input/redis-stream/README.md](tools/logstash-plugins/input/redis-stream/README.md). |
-| `skills/` | [agentskills.io](https://agentskills.io/specification)-compatible agent skills for VSS: self-contained skill directories with `SKILL.md` frontmatter, grouped by category (`deployment/`, `operations/`, `tools/`, `benchmarking/`) plus the top-level `vss-build-vision-ai`. Covers deploy and usage of search, summarization, alerts, VIOS, RT-VLM, LVS, and other related workflows—see the catalog and install notes in [skills/README.md](skills/README.md). |
-| `libs/analytics/spatialai-data-utils/` | Spatial AI Data Utils (SDU): NVSchema / ground-truth / calibration / Sparse4D loaders, camera calibration + grouping (BEV group-origin / per-group fan-out), 3D&#x2194;2D geometry, multi-cam 3D-bbox visualization, detection (mAP) + tracking (HOTA, CLEAR, identity, count) evaluators, NVSchema result converters, and video&#x2194;frame utilities. See [libs/analytics/spatialai-data-utils/README.md](libs/analytics/spatialai-data-utils/README.md). |
-| `libs/vss/` | The `vss` command-line interface (`cli/`) and its shared core (`core/`) — the host-side entry point to a deployed stack, used by the skills above. See [libs/vss/cli/README.md](libs/vss/cli/README.md). |
-| `libs/nvschema/` | Protobuf schema shared by the services that publish and consume VSS metadata. See [libs/nvschema/README.md](libs/nvschema/README.md). |
-| `.openclaw/`, `.hermes/` | Self-contained agent harnesses that package the harness-neutral `skills/` tree for OpenClaw and Hermes. See [.openclaw/README.md](.openclaw/README.md) and [.hermes/README.md](.hermes/README.md). |
+VSS is a monorepo organized by responsibility. Deployment definitions assemble
+the stack from implementations in `services/`; shared packages and the VSS CLI
+live in `libs/`; and `skills/`, `docs/`, and `tools/` support operating,
+documenting, and developing the blueprint.
+
+> **Start here:** Developers should read [CONTRIBUTING.md](CONTRIBUTING.md).
+> Coding agents should read [AGENTS.md](AGENTS.md), then the nearest nested
+> `AGENTS.md` for the area they modify.
+
+### Find Your Starting Point
+
+| Goal | Start here | What you will find |
+|------|------------|--------------------|
+| Deploy or configure a VSS stack | [`deploy/docker/`](deploy/docker/) or [`deploy/helm/`](deploy/helm/) | Docker Compose and Helm definitions, reusable service fragments, developer and industry profiles, configuration, and deployment tests. |
+| Change a product component | [`services/`](services/) | Deployable backends, real-time video intelligence, analytics, agents, storage, and user interfaces. Begin with the component's README and local `AGENTS.md`, when present. |
+| Use or extend the VSS CLI and shared code | [`libs/vss/`](libs/vss/), [`libs/nvschema/`](libs/nvschema/), or [`libs/analytics/`](libs/analytics/) | The deployment-facing `vss` CLI, shared schemas, and reusable spatial AI data utilities. |
+| Automate a deployed VSS workflow with an agent | [`skills/README.md`](skills/README.md) | Skills for building and deploying stacks, searching video, summarizing recordings, managing alerts, running benchmarks, and other operational tasks. |
+| Edit the documentation | [`docs/README.md`](docs/README.md) and [`fern/docs.yml`](fern/docs.yml) | Authored MDX and assets under `docs/`, with Fern navigation and site configuration under `fern/`. |
+| Debug, inspect, or prepare data | [`tools/`](tools/) | Focused utilities for message-broker inspection, synthetic-data post-processing, MV3DT configuration, and Logstash integration. |
+| Understand CI and repository automation | [`.github/workflows/`](.github/workflows/) | Build, test, documentation, compliance, and release automation used by pull requests and maintained branches. |
+
+### Top-Level Map
+
+| Path | Responsibility |
+|------|----------------|
+| `deploy/` | Runnable Docker Compose and Helm deployments. Profiles here select and configure components from `services/`. |
+| `services/` | Product and microservice implementations: agent, alerting, analytics, configurators, real-time video intelligence, service discovery and routing, UI, video summarization, and video I/O and storage. |
+| `libs/` | Shared libraries, schemas, analytics utilities, and the `vss` CLI used by skills and developers to interact with a deployed stack. |
+| `skills/` | Agent-readable workflows for building, deploying, operating, and benchmarking VSS. |
+| `docs/` | Documentation source pages, designs, model information, and site assets. |
+| `fern/` | Documentation navigation, redirects, and Fern site configuration; it does not contain the authored pages. |
+| `tools/` | Standalone development, debugging, data-conversion, and integration utilities. |
+| `assets/` | Images and other assets used by the repository README and project-level material. |
+| `.github/` | CI workflows, issue templates, validation scripts, and repository automation. |
+| `.openclaw/` and `.hermes/` | Integrations and workspace configuration for supported agent harnesses. |
+
+The typical dependency direction is `deploy/` &rarr; `services/` &rarr;
+`libs/`. Agent skills drive a running deployment through the `vss` CLI rather
+than calling service endpoints directly. Documentation under `docs/` describes
+those workflows and components, while `fern/` determines how that content is
+published and navigated.
 
 ## Documentation
 
