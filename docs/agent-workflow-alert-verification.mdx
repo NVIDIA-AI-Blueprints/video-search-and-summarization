@@ -786,7 +786,7 @@ Once all the containers are running, you can access the [Agent UI](/system-compo
 
 As an alternative to running the deployment command manually, you can use VSS
 Agent Skills from a coding agent such as Claude Code, Codex, or NemoClaw.
-First, install the [`vss-build-vision-ai`](/vision-agent/build-vision-ai) skill as described in [Agent Skills](/vision-agent/agent-skills) and make it
+First, install the [`vss-build-vision-ai`](/vision-agent/build-vision-ai-skill) skill as described in [Agent Skills](/vision-agent/agent-skills) and make it
 accessible to your coding agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/getting-started/prerequisites).
 
@@ -804,7 +804,7 @@ Deploy the VSS alerts verification profile with the in-stack VSS Agent so I can 
 
 Name an image tag in the prompt to run a release's images instead of the
 `containers.env` default. See
-[Container image tag](/vision-agent/build-vision-ai#container-image-tag).
+[Container image tag](/vision-agent/build-vision-ai-skill#container-image-tag).
 
 ```text title="Deploy prompt with a release image tag"
 Deploy the VSS alerts verification profile with the in-stack VSS Agent and image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
@@ -896,7 +896,7 @@ For pipeline modes, startup validation, throughput monitoring, and rollback, see
 
 ### Step 2: Add a video stream
 
-Add an RTSP stream by clicking the **+ Add RTSP** button on the **Video Management** tab in the agent UI. If you do not have an RTSP stream, you can use [NVStreamer](/system-components/middleware/video-io-storage-vios/nvstreamer) at `http://<HOST_IP>:31000` to upload a video file and create an RTSP stream.
+Add an RTSP stream by clicking the **+ Add RTSP** button on the **Video Management** tab in the agent UI. If you do not have an RTSP stream, you can use [NVStreamer](/system-components/middleware/video-io-storage-vios/nv-streamer) at `http://<HOST_IP>:31000` to upload a video file and create an RTSP stream.
 
 For this profile, use the `sample-warehouse-ladder.mp4` stream.
 

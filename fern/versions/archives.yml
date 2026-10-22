@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Navigation for the "Archives" entry in the version selector (fern/docs.yml).
+# It is site-wide, not part of any release: it is always built from develop
+# and served at /vss/archives. fern/versions/ holds static versions, following
+# Fern's layout; release tags are built into fern/releases/ instead.
+navigation:
+  - page: "Archived Documentation"
+    path: ./archives.mdx
+    slug: /

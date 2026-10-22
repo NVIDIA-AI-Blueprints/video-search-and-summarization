@@ -4,15 +4,19 @@
 """Build the Fern input tree for every published docs version.
 
 The committed ``fern/docs.yml`` lists the published versions: one ``ref:``
-entry per release tag (``vX.Y.Z``) and exactly one ``path:`` entry, the
-checkout being built (Dev). Fern never sees those refs. This script writes a
+entry per release tag (``vX.Y.Z``, or a docs refresh of that release,
+``docs-vX.Y.Z-N``), exactly one ``path: ../docs/index.yml`` entry, the
+checkout being built (Dev), and optionally static ``path:`` entries under
+``fern/`` (for example Archives), which are built as-is from the checkout's
+``fern/`` and never stamped. Fern never sees the refs. This script writes a
 temporary, repository-shaped tree in which every version is a ``path:``
 version:
 
 * the checkout's ``docs/``, ``fern/`` and OpenAPI spec are copied to the
   output root;
 * each listed tag's ``docs/`` and OpenAPI spec are extracted with
-  ``git archive`` into ``fern/versions/<tag>/``;
+  ``git archive`` into ``fern/releases/<tag>/`` (``fern/versions/`` holds the
+  committed navigation of static versions, following Fern's layout);
 * in each version, the ``${VSS_DOCS_*:-default}`` markers are replaced with
   that version's checkout ref and image tags. Links and images need no
   rewriting: page links omit the site base and version so Fern scopes them to
@@ -44,7 +48,10 @@ OPENAPI_PATH = Path(
     "services/analytics/video-analytics-api/src/app/specification/openapi.json"
 )
 DOCS_YML = Path("fern/docs.yml")
-VERSIONS_DIR = Path("fern/versions")
+RELEASES_DIR = Path("fern/releases")  # build output only: one tree per listed tag
+# The checkout's navigation, as its `path:` is written in fern/docs.yml. Any
+# other `path:` version is static: a navigation file under fern/.
+CHECKOUT_NAV = "../docs/index.yml"
 MARKDOWN_SUFFIXES = frozenset({".md", ".mdx"})
 
 GIT_REF = "VSS_DOCS_GIT_REF"
@@ -57,7 +64,11 @@ DEV_VALUES = {
 }
 
 RELEASE_PATTERN = re.compile(r"\d+\.\d+\.\d+")
-RELEASE_TAG_PATTERN = re.compile(r"v\d+\.\d+\.\d+")
+# A release tag, or a docs refresh of a release (a later commit on its release
+# branch). Docs tags are not `v*` tags, so no version tooling ever reads them.
+RELEASE_TAG_PATTERN = re.compile(
+    r"v(?P<release>\d+\.\d+\.\d+)|docs-v(?P<docs_release>\d+\.\d+\.\d+)-[1-9]\d*"
+)
 MARKER_PATTERN = re.compile(r"\$\{(?P<name>VSS_DOCS_\w*)(?P<rest>[^}\n]*)\}")
 FERN_ESCAPE_PATTERN = re.compile(r"\\\$\\\{")
 VERSION_KEYS = ("display-name", "slug", "path", "ref", "availability")
@@ -74,6 +85,12 @@ class Version:
     path: str | None = None
     ref: str | None = None
     availability: str | None = None
+
+
+def release_of(ref: str) -> str | None:
+    """``X.Y.Z`` of a release tag or docs tag, or ``None`` for anything else."""
+    match = RELEASE_TAG_PATTERN.fullmatch(ref)
+    return None if match is None else match["release"] or match["docs_release"]
 
 
 def release_values(release: str) -> dict[str, str]:
@@ -167,15 +184,32 @@ def validate_versions(versions: list[Version]) -> None:
             raise BuildError(f"{DOCS_YML}: version {label!r} needs display-name and slug")
         if (version.path is None) == (version.ref is None):
             raise BuildError(f"{DOCS_YML}: version {label!r} must set exactly one of path or ref")
-        if version.ref is not None and not RELEASE_TAG_PATTERN.fullmatch(version.ref):
+        if version.ref is not None and release_of(version.ref) is None:
             raise BuildError(
-                f"{DOCS_YML}: version {label!r} ref {version.ref!r} is not a release tag (vX.Y.Z)"
+                f"{DOCS_YML}: version {label!r} ref {version.ref!r} is not a release tag "
+                "(vX.Y.Z or docs-vX.Y.Z-N)"
             )
+        if is_static(version):
+            parts = Path(version.path).parts
+            if Path(version.path).is_absolute() or ".." in parts or parts[0] == RELEASES_DIR.name:
+                raise BuildError(
+                    f"{DOCS_YML}: static version {label!r} path {version.path!r} must be a "
+                    f"navigation file under fern/ (not {RELEASES_DIR}/), or {CHECKOUT_NAV}"
+                )
         if version.slug in slugs:
             raise BuildError(f"{DOCS_YML}: duplicate version slug {version.slug!r}")
         slugs.add(version.slug)
-    if sum(version.path is not None for version in versions) != 1:
-        raise BuildError(f"{DOCS_YML}: exactly one version must be a path: entry (the checkout)")
+    if sum(version.path == CHECKOUT_NAV for version in versions) != 1:
+        raise BuildError(
+            f"{DOCS_YML}: exactly one version must be `path: {CHECKOUT_NAV}` (the checkout)"
+        )
+    if is_static(versions[0]):
+        raise BuildError(f"{DOCS_YML}: the first (default) version cannot be a static version")
+
+
+def is_static(version: Version) -> bool:
+    """A ``path:`` version other than the checkout: built as-is from ``fern/``."""
+    return version.path is not None and version.path != CHECKOUT_NAV
 
 
 def render_versions(versions: list[Version]) -> str:
@@ -354,7 +388,7 @@ def copy_checkout(source: Path, output: Path) -> None:
     ignored = shutil.ignore_patterns(".fern", "node_modules")
     for relative in (Path("docs"), Path("fern")):
         shutil.copytree(source / relative, output / relative, symlinks=True, ignore=ignored)
-    shutil.rmtree(output / VERSIONS_DIR, ignore_errors=True)
+    shutil.rmtree(output / RELEASES_DIR, ignore_errors=True)
     (output / OPENAPI_PATH).parent.mkdir(parents=True)
     shutil.copy2(source / OPENAPI_PATH, output / OPENAPI_PATH)
 
@@ -368,13 +402,15 @@ def plan_versions(
     """The versions to build, in order; the first is the default."""
     planned: list[Version] = []
     for version in listed:
-        if version.path is not None:
+        if is_static(version):
+            planned.append(version)
+        elif version.path is not None:
             if release is not None:
                 preview = replace(version, display_name=f"{release} (preview)", slug=release)
                 planned.insert(0, preview)
             else:
                 planned.append(version)
-        elif version.ref in available and (release is None or version.ref != f"v{release}"):
+        elif version.ref in available and (release is None or release_of(version.ref) != release):
             planned.append(version)
     return planned
 
@@ -397,6 +433,8 @@ def build(
         raise BuildError("output path must be outside the source repository")
     if release is not None and not RELEASE_PATTERN.fullmatch(release):
         raise BuildError(f"--release {release!r} is not X.Y.Z")
+    if require_tag is not None and release_of(require_tag) is None:
+        raise BuildError(f"--require-tag {require_tag!r} is not vX.Y.Z or docs-vX.Y.Z-N")
 
     docs_yml = (source / DOCS_YML).read_text(encoding="utf-8")
     listed = parse_versions(docs_yml)
@@ -429,16 +467,27 @@ def build(
     copy_checkout(source, output)
     rendered: list[Version] = []
     for index, version in enumerate(planned):
+        if is_static(version):
+            nav = Path("fern", version.path)
+            if not (output / nav).is_file():
+                raise BuildError(
+                    f"{DOCS_YML}: static version {version.display_name!r}: {nav} does not exist"
+                )
+            rendered.append(version)
+            summary.append(f"{version.display_name} (/{version.slug}): static, {nav}")
+            continue
         if version.ref is None:
             root = output
             values = release_values(release) if release is not None else DEV_VALUES
             rendered.append(version)
         else:
-            root = output / VERSIONS_DIR / version.ref
+            root = output / RELEASES_DIR / version.ref
             extract_tag(source, version.ref, root)
-            values = release_values(version.ref.removeprefix("v"))
+            values = release_values(release_of(version.ref))
             rendered.append(
-                replace(version, ref=None, path=f"./versions/{version.ref}/docs/index.yml")
+                replace(
+                    version, ref=None, path=f"./{RELEASES_DIR.name}/{version.ref}/docs/index.yml"
+                )
             )
         # The checkout and a release being published must be self-contained;
         # older immutable tags are reported but still built.
@@ -485,7 +534,9 @@ def main() -> int:
         "--no-releases", action="store_true", help="build only the checkout (fast local preview)"
     )
     parser.add_argument(
-        "--require-tag", help="fail unless this listed release tag is built (release publish)"
+        "--require-tag",
+        help="fail unless this listed release or docs tag is built, with strict link checks "
+        "(release publish, docs refresh gate)",
     )
     args = parser.parse_args()
 

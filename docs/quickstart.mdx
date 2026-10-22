@@ -61,8 +61,8 @@ supported options.
 
 | Harness | What it is | Pros | Cons |
 | --- | --- | --- | --- |
-| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that can drive VSS through the [VSS Orchestrator MCP server](/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Build Vision AI can provision it as part of the Skill-driven deployment. The [NemoClaw setup](/vision-agent/agent-harnesses/nemoclaw) provides a separate, notebook-driven route for a guided Brev/host installation. | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; deployment status and log inspection; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents. The orchestrator MCP server is required when deploying or managing VSS from NemoClaw chat, but not when using installed operation Skills against an existing deployment. |
-| **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP](/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP](/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
+| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that can drive VSS through the [VSS Orchestrator MCP server](/vision-agent/agent-harnesses/nemo-claw/vss-orchestrator-mcp) (port `9988`). Build Vision AI can provision it as part of the Skill-driven deployment. The [NemoClaw setup](/vision-agent/agent-harnesses/nemo-claw) provides a separate, notebook-driven route for a guided Brev/host installation. | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; deployment status and log inspection; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents. The orchestrator MCP server is required when deploying or managing VSS from NemoClaw chat, but not when using installed operation Skills against an existing deployment. |
+| **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP](/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP](/vision-agent/agent-harnesses/nemo-claw/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
 | **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API](/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
 
 <Note>
@@ -233,7 +233,7 @@ credentials so the session both discovers the Skills and inherits those values.
 
 ## Deploy the base profile
 
-Use a coding agent with the [Build Vision AI Skill](/vision-agent/build-vision-ai) to deploy
+Use a coding agent with the [Build Vision AI Skill](/vision-agent/build-vision-ai-skill) to deploy
 the validated `base` developer profile. This is the default quickstart path.
 
 ```text title="Example prompt"
@@ -302,7 +302,7 @@ in-stack Agent check on port `8000` for the default Skill-generated stack.
 
 If the VSS containers are healthy but the NemoClaw dashboard, sandbox, or MCP
 tools are unavailable, follow
-[NemoClaw Troubleshooting](/vision-agent/agent-harnesses/nemoclaw/troubleshooting).
+[NemoClaw Troubleshooting](/vision-agent/agent-harnesses/nemo-claw/troubleshooting).
 
 ## Agent Skills walkthrough
 
@@ -346,7 +346,7 @@ Deploy a vision agent with a remote LLM at https://integrate.api.nvidia.com.
 
 Name an image tag in the prompt to run a release's images instead of the
 `containers.env` default. See
-[Container image tag](/vision-agent/build-vision-ai#container-image-tag).
+[Container image tag](/vision-agent/build-vision-ai-skill#container-image-tag).
 
 ```text title="Example prompt with a release image tag"
 Deploy the VSS base profile with image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
