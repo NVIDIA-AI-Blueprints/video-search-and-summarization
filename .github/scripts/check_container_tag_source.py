@@ -94,8 +94,8 @@ IMAGE_CONFIGS = {
         source_path=Path("services/agent"),
         # services/agent/docker/Dockerfile installs the CLI library workspace
         # (nvidia-vss-core, nvidia-vss-cli) from libs/vss, and nvidia-vision-ai
-        # (knowledge retrieval) from libs/vision-ai/libs/vision-ai.
-        extra_source_paths=(Path("libs/vss"), Path("libs/vision-ai/libs/vision-ai")),
+        # (knowledge retrieval) from libs/vision-ai.
+        extra_source_paths=(Path("libs/vss"), Path("libs/vision-ai")),
     ),
     "vss-agent-ui": ImageConfig(
         image_name="vss-agent-ui",

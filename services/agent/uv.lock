@@ -3960,7 +3960,7 @@ wheels = [
 [[package]]
 name = "nvidia-vision-ai"
 version = "0.1.0"
-source = { editable = "../../libs/vision-ai/libs/vision-ai" }
+source = { editable = "../../libs/vision-ai" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
@@ -4014,6 +4014,16 @@ requires-dist = [
     { name = "tenacity", specifier = "~=9.0" },
 ]
 provides-extras = ["frag-api", "es-caption", "frag-lib", "llama-index", "langchain", "arango-graph"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "aiohttp", specifier = "~=3.14" },
+    { name = "nvidia-vision-ai-cli", editable = "../../libs/vision-ai/packages/cli" },
+    { name = "pyright", specifier = ">=1.1.400" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-asyncio", specifier = ">=0.25" },
+    { name = "ruff", specifier = ">=0.11" },
+]
 
 [[package]]
 name = "nvidia-vss"
@@ -4081,10 +4091,10 @@ eval = [
 
 [package.metadata]
 requires-dist = [
-    { name = "nvidia-vision-ai", extras = ["arango-graph"], marker = "extra == 'arango-graph'", editable = "../../libs/vision-ai/libs/vision-ai" },
-    { name = "nvidia-vision-ai", extras = ["frag-lib"], marker = "extra == 'frag-lib'", editable = "../../libs/vision-ai/libs/vision-ai" },
-    { name = "nvidia-vision-ai", extras = ["langchain"], marker = "extra == 'langchain'", editable = "../../libs/vision-ai/libs/vision-ai" },
-    { name = "nvidia-vision-ai", extras = ["llama-index"], marker = "extra == 'llama-index'", editable = "../../libs/vision-ai/libs/vision-ai" },
+    { name = "nvidia-vision-ai", extras = ["arango-graph"], marker = "extra == 'arango-graph'", editable = "../../libs/vision-ai" },
+    { name = "nvidia-vision-ai", extras = ["frag-lib"], marker = "extra == 'frag-lib'", editable = "../../libs/vision-ai" },
+    { name = "nvidia-vision-ai", extras = ["langchain"], marker = "extra == 'langchain'", editable = "../../libs/vision-ai" },
+    { name = "nvidia-vision-ai", extras = ["llama-index"], marker = "extra == 'llama-index'", editable = "../../libs/vision-ai" },
     { name = "nvidia-vss-agents", marker = "extra == 'agent'", editable = "packages/vss_agents" },
     { name = "nvidia-vss-agents", marker = "extra == 'all'", editable = "packages/vss_agents" },
     { name = "nvidia-vss-cli", marker = "extra == 'agent'", editable = "../../libs/vss/cli" },
@@ -4164,7 +4174,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.8.0" },
     { name = "mcp", specifier = ">=1.28.1" },
     { name = "nvidia-nat", extras = ["async-endpoints", "langchain", "mcp", "opentelemetry", "phoenix", "profiler", "s3"], specifier = "==1.8.0" },
-    { name = "nvidia-vision-ai", extras = ["es-caption", "frag-api"], editable = "../../libs/vision-ai/libs/vision-ai" },
+    { name = "nvidia-vision-ai", extras = ["es-caption", "frag-api"], editable = "../../libs/vision-ai" },
     { name = "nvidia-vss-core", editable = "../../libs/vss/core" },
     { name = "protobuf", specifier = ">=6.33.5" },
     { name = "pydantic-settings", specifier = "~=2.13" },

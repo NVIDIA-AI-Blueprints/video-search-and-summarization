@@ -1,6 +1,6 @@
 # nvidia-vision-ai-cli
 
-The `vision-ai` command: tools over [`nvidia-vision-ai`](../../libs/vision-ai), each with its own config
+The `vision-ai` command: tools over [`nvidia-vision-ai`](../..), each with its own config
 in `~/.vision-ai/<tool>/config.json`. Every call is recorded in `~/.vision-ai/memory/main.db`.
 
 ```bash

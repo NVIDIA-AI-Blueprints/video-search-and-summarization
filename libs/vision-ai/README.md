@@ -1,11 +1,11 @@
 # vision-ai
 
-Tools for agent harnesses over NVIDIA Cosmos and VSS models. This workspace has two packages:
+Tools for agent harnesses over NVIDIA Cosmos and VSS models. This directory is the library and the root of its uv workspace:
 
 | Path | Distribution | Import | What it is |
 |------|--------------|--------|------------|
-| `libs/vision-ai` | `nvidia-vision-ai` | `nvidia_vision_ai` | Library: pydantic in, pydantic out. No config files, no default paths. |
-| `apps/cli` | `nvidia-vision-ai-cli` | `nvidia_vision_ai_cli` | The `vision-ai` command: per-tool config, plugins, and a local job store. |
+| `.` (`src/`) | `nvidia-vision-ai` | `nvidia_vision_ai` | Library: pydantic in, pydantic out. No config files, no default paths. |
+| `packages/cli` | `nvidia-vision-ai-cli` | `nvidia_vision_ai_cli` | The `vision-ai` command: per-tool config, plugins, and a local job store. |
 
 The first tool is `vlm`. It sends one question about one video to an OpenAI-compatible VLM
 (RT-VLM, vLLM, Cosmos Reason NIM or a plain OpenAI endpoint).
@@ -47,6 +47,20 @@ vision-ai memory get vlm-01K7...
   5 not found · 6 backend error.
 
 ## Library
+
+Every entry point takes a pydantic model and returns one.
+
+- `nvidia_vision_ai.vlm`: `async analyze(VlmRequest) -> VlmResponse` and `async list_models(Endpoint) -> ModelsResponse`.
+  Supports the RT-VLM, vLLM, Cosmos Reason NIM and plain OpenAI request dialects.
+- `nvidia_vision_ai.memory`: `JobRecord` and the `JobStore` protocol (the CLI ships the SQLite store).
+- `nvidia_vision_ai.knowledge`: `async get_retriever(backend, config) -> BackendAdapter`, with adapters for
+  `frag_api`, `es_caption`, `frag_lib`, `llama_index`, `langchain` and `arango_graph`; each backend's
+  dependencies are an extra of the same name. `langchain` and `llama_index` require `persist_dir`.
+  This code reads no environment variables, but some backend SDKs do when a value is unset:
+  `NVIDIA_API_KEY` (`langchain`, `llama_index`) and `NVIDIA_RAG_*` (`frag_lib`).
+
+Errors: `ConfigurationError`, `BackendUnreachableError` (transport, timeout, 429/5xx after
+retries) and `BackendResponseError` (4xx, malformed or empty response).
 
 ```python
 import asyncio
