@@ -21,14 +21,14 @@ Helm chart for deploying **VSS Base Developer Profile** on Kubernetes.
 
 ## GPU requirements
 
-With default **`values.yaml`** and typical overrides (LLM NIM + RT-VLM + **`vss-vios-streamprocessing`**), the stack requests **3 GPUs** (`nvidia.com/gpu: 1` each). Pod names include the Helm release name and a replica hash; the table lists the **workload** substring from `kubectl get pods`.
+Local defaults request **3 GPUs** (`nvidia.com/gpu: 1` each): the LLM NIM, RT-VLM, and **`vss-vios-streamprocessing`**. The [remote LLM/VLM](#remote-llm-and-vlm) example sets **`nims.enabled=false`** and still requests **2 local GPUs** (RT-VLM and streamprocessing). Counts below are the chart defaults; validated **`resources`** overrides and hardware or model compatibility can change them. Pod names include the Helm release name and a replica hash; the table lists the **workload** substring from `kubectl get pods`.
 
-| Workload | GPU |
-|----------|-----|
-| `vss-rtvi-vlm` (RT-VLM) | 1 |
-| `nemotron-35-lightning-30b-a3b` (NIM) | 1 |
-| `vss-vios-streamprocessing` | 1 |
-| **Total** | **3** |
+| Workload | Local default | Remote example |
+|----------|---------------|----------------|
+| `vss-rtvi-vlm` (RT-VLM) | 1 | 1 |
+| `nemotron-35-lightning-30b-a3b` (NIM) | 1 | 0 (`nims.enabled=false`) |
+| `vss-vios-streamprocessing` | 1 | 1 |
+| **Total** | **3** | **2** |
 
 
 ## RT-VLM frame cap
@@ -97,7 +97,7 @@ this server limit.
 - **Helm** 3.x
 - **Kubectl**
 - **Curl** and **jq** (to discover model IDs from remote endpoints)
-- **GPUs**: see [GPU requirements](#gpu-requirements) (3 with defaults).
+- **GPUs**: see [GPU requirements](#gpu-requirements) (3 with local defaults, 2 on the documented remote path).
 - **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
 - **StorageClass**: a StorageClass must exist on the cluster for PVC creation.
@@ -171,7 +171,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vios.vss-vios-streamprocessing.persistence`** | **`vstData`**, **`vstVideo`**, **`streamerVideos`**: same idea as sensor | **Streamprocessing** mounts up to **three** shared folders: VST **data**, VST **video**, and **streamer** uploads. Use blank **`existingClaim`** to use the shared PVCs from **`vios`** (when **`vios.vstStorage.createSharedPvcs`** is **`true`**), or set **`existingClaim`** / **`enabled`** per volume the same way as for **sensor**. |
 | **`vios.vss-vios-ingress.enabled`** | `true` | Deploys the in-cluster **VST ingress** (nginx). |
 | **`vios.vss-vios-ingress.externallyAccessibleIp`** | `""` | Hostname or IP address advertised to VST/nginx for external access. If unset, the subchart uses **`global.externalHost`**; if that is unset, it defaults to **`127.0.0.1`**. Override this value only when the VST ingress must use a hostname or IP that differs from **`global.externalHost`**. |
-| **`vssIngress.enabled`** | `false` in chart **`values.yaml`**; **`true`** in sample **`values-base.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: one **`Ingress`** whose mounts come from the [canonical route table](../../services/common/README.md) — **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, and **`/api/proxy`** to **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** (and **`/docs`**, **`/redoc`**, **`/generate`**, **`/openapi.json`**) to **vss-agent**; **`/vst`** and **`/storage`** to **vss-vios-ingress**; **`/rtvi-vlm`** to RT-VLM; **`/phoenix`** to Phoenix; plus an optional **`phoenix.<host>/`** rule. A service this profile does not deploy is not mounted. No effect if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
+| **`vssIngress.enabled`** | `false` in chart **`values.yaml`**; **`true`** in sample **`values-base.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: one **`Ingress`** named **`vss-ingress`** unless **`vssIngress.resourceName`** is set. Mounts come from the [canonical route table](../../services/common/README.md) — **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, and **`/api/proxy`** to **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** (and **`/docs`**, **`/redoc`**, **`/generate`**, **`/openapi.json`**) to **vss-agent**; **`/vst`** and **`/storage`** to **vss-vios-ingress**; **`/rtvi-vlm`** to RT-VLM; **`/phoenix`** to Phoenix on the main host. A second Phoenix hostname is created only when **`vssIngress.phoenixHost`** is set. A service this profile does not deploy is not mounted. No effect if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
 | **`vssIngress.ingressClassName`** | `haproxy` | **`spec.ingressClassName`** on the **`Ingress`**. Must match an **`IngressClass`** that already exists (for example the class created by **HAProxy Kubernetes Ingress**). Use another name (e.g. **`nginx`**) if your controller uses a different class. |
 | **`vssIngress.host`** | `""` | Ingress hostname rule. If empty, **`global.externalHost`** is used. Set only when the Ingress hostname must differ from **`global.externalHost`**. |
 | **`vssIngress.annotations`** | `{}` | Extra annotations for the generated **`Ingress`**, for example a Traefik or NGINX rewrite middleware. Merged with the rewrite annotation the template generates. Supplying **`haproxy.org/path-rewrite`** here **replaces** the generated rewrite table for every backend rather than merging into it. See [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress). |
@@ -182,7 +182,8 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vssIngress.rtviVlmPort`** | `8000` | Backend **`Service`** port for RT-VLM. The OpenAI-compatible root is **`<host>/rtvi-vlm/v1`**, **not** **`<host>/v1`**. |
 | **`vssIngress.vaMcpPort`** | `9901` | Backend **`Service`** port for **vss-va-mcp** (**`/va-mcp`**), mounted when **`agent.vss-va-mcp.enabled`**. |
 | **`vssIngress.elasticsearchPort`** | `9200` | Backend **`Service`** port for **`/elasticsearch`**, mounted when **`infra.elasticsearch.enabled`** (off in this profile). |
-| **`vssIngress.phoenixHost`** | `""` | Second rule host for Phoenix. If empty, defaults to **`phoenix.<global.externalHost or vssIngress.host>`**. |
+| **`vssIngress.resourceName`** | `""` | **`Ingress`** **`metadata.name`**. Empty uses **`vss-ingress`** (not prefixed with the release name). Set this to override the name. |
+| **`vssIngress.phoenixHost`** | `""` | Dedicated Phoenix hostname. Empty keeps Phoenix at **`/phoenix`** on the main host and creates no second host rule. Set it (for example **`phoenix.example.com`**) only when you want that extra host. |
 | **`vssIngress.phoenixPort`** | `6006` | Backend **`Service`** port for Phoenix when the Phoenix subchart is enabled. |
 | **`agent.enabled`** | `true` | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**). |
 | **`agent.vss-agent.enabled`** | `true` | Set **`false`** to disable the **vss-agent** deployment only. |
@@ -241,7 +242,7 @@ render and names the missing value. The same applies to `sdrc`
 
 When LLM and VLM run **outside** this release, disable bundled NIM workloads and configure the external service roots and model names:
 
-- **`nims.enabled`**: **`false`** — skips **NIM** workloads and related **NIMOperator** objects.
+- **`nims.enabled`**: **`false`** — skips **NIM** workloads and related **NIMOperator** objects. This does not remove every local GPU request. The documented remote path still requests one GPU for RT-VLM and one for **`vss-vios-streamprocessing`** (**2** local GPUs). See [GPU requirements](#gpu-requirements).
 - **`global.llmBaseUrl`** / **`global.vlmBaseUrl`**: service-root URLs reachable from pods, without a trailing `/v1`.
 - **`global.llmName`** / **`global.vlmName`**: identifiers for those models (e.g. **`nvidia/nemotron-3.5-lightning-30b-a3b`**, **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`**), aligned with the remote service.
 - **`rtvi.vss-rtvi-vlm.useSharedNim`**: **`true`** — keeps RT-VLM in the request path and makes it proxy the external VLM instead of loading the integrated checkpoint.
@@ -284,6 +285,7 @@ helm upgrade --install vss-base ./dev-profile-base \
   --set global.storageClass="$STORAGE_CLASS"
 
 # OR — base with remote LLM/VLM. RT-VLM remains deployed and proxies the external VLM.
+# This path still requests 2 local GPUs (RT-VLM and vss-vios-streamprocessing).
 # (reuse NGC_CLI_API_KEY, STORAGE_CLASS, EXTERNAL_HOST exports from the example above).
 export LLM_BASE_URL='<REMOTE LLM SERVICE ROOT, no trailing /v1>'
 export VLM_BASE_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
@@ -324,9 +326,9 @@ The chart can create a single Kubernetes **`Ingress`** (**`templates/vss-ingress
 
 **What gets created**
 
-- **`Ingress`** name **`<release>-vss-ingress`** in the release namespace.
+- **`Ingress`** name **`vss-ingress`** in the release namespace. Override with **`vssIngress.resourceName`**.
 - **`spec.ingressClassName`**: from **`vssIngress.ingressClassName`** (default **`haproxy`**).
-- Path rules from the [canonical route table](../../services/common/README.md): **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, **`/api/proxy`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`**, **`/docs`**, **`/redoc`**, **`/generate`**, **`/openapi.json`** → **vss-agent**; **`/vst`** and **`/storage`** → **vss-vios-ingress**; **`/rtvi-vlm`** → RT-VLM; **`/phoenix`** → Phoenix; optional second host **`phoenix.<main-host>`** → Phoenix.
+- Path rules from the [canonical route table](../../services/common/README.md): **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, **`/api/proxy`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`**, **`/docs`**, **`/redoc`**, **`/generate`**, **`/openapi.json`** → **vss-agent**; **`/vst`** and **`/storage`** → **vss-vios-ingress**; **`/rtvi-vlm`** → RT-VLM; **`/phoenix`** → Phoenix on the main host. A second host is added only when **`vssIngress.phoenixHost`** is set.
 - RT-VLM is reached at **`<host>/rtvi-vlm/v1`**. It is no longer published at the origin root (**`<host>/v1`**), so a client no longer has to know which profile answered to find it.
 
 After install, confirm the **`Ingress`** exists (replace **`<NAMESPACE>`** with your release namespace):
@@ -335,7 +337,7 @@ After install, confirm the **`Ingress`** exists (replace **`<NAMESPACE>`** with 
 kubectl get ingress -n <NAMESPACE>
 ```
 
-Expect **`NAME`** **`<RELEASE_NAME>-vss-ingress`** when **`vssIngress.enabled`** is **`true`**.
+Expect **`NAME`** **`vss-ingress`** when **`vssIngress.enabled`** is **`true`** and **`vssIngress.resourceName`** is empty.
 
 **Minimal values example** (HAProxy controller already on the cluster)
 
