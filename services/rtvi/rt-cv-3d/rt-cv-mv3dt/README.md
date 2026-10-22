@@ -128,7 +128,7 @@ INPUT_MODE=file SAVE_VIDEO=1 ./scripts/stage-configs.sh   # recorded files + sav
 TRACKER_CONFIG=/path/to/tracker.yml ./scripts/stage-configs.sh   # use your own tuned tracker config (see §2.4)
 ```
 
-**Recorded-file input (`INPUT_MODE=file`):** put one `.mp4` file per camera under `VIDEO_DIR` (set in `.env`), each named `<sensor_id>.mp4` to match its sensor id in `calibration.json`. The clips **play once and the container exits** at end of stream, so there is no stream registration; skip [§4](#4-add-streams-dynamically-rtsp). Everything downstream (Kafka, BEV fusion, visualizers) is identical to live mode.
+**Recorded-file input (`INPUT_MODE=file`):** put one `.mp4` file per camera under `VIDEO_DIR` (set in `.env`), each named `<sensor_id>.mp4` to match its sensor id in `calibration.json`. Staging refuses a `VIDEO_DIR` whose clips do not match the camera set exactly (a missing clip, an extra `.mp4`, or a name that differs only by case) and names each one. To stage before the clips are copied in, set `SKIP_VIDEO_CHECK=1`. The clips **play once and the container exits** at end of stream, so there is no stream registration; skip [§4](#4-add-streams-dynamically-rtsp). Everything downstream (Kafka, BEV fusion, visualizers) is identical to live mode.
 
 ### 2.4 Optional: use your own DeepStream / tracker configs
 

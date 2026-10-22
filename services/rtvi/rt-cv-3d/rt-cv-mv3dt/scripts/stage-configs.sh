@@ -33,7 +33,9 @@
 #   - REID_ENABLED=1: enable the 1280-D tracker extractor + ReID service client;
 #     disabled runs force both ReID switches off
 #   - INPUT_MODE=file: static [source-list] of file:///videos/<cam>.mp4 + SEI/sync
-#     off (plays local clips once; no add-streams.sh registration)
+#     off (plays local clips once; no add-streams.sh registration). Refuses to stage
+#     unless VIDEO_DIR holds exactly one <cam>.mp4 per camera in camInfo, so a
+#     misnamed or missing clip fails here (SKIP_VIDEO_CHECK=1 bypasses)
 #   - SAVE_VIDEO=1: enable the [sink2] tiled grid file sink -> video-output/grid-view.mkv
 #     (the whole annotated camera grid; see README). File input is finite; stream input
 #     requires ALLOW_UNBOUNDED_RECORDING=1 because the DeepStream file sink does not
@@ -235,6 +237,64 @@ print(" ".join(sorted(str(i) for i in ids if i)))
   exit 1
 }
 check_camera_consistency
+
+# INPUT_MODE=file opens file:///videos/<camera>.mp4 for every camera in camInfo,
+# but that path is only a name built from camInfo. Nothing looks at what VIDEO_DIR
+# really holds, so a misnamed, missing or extra clip stages cleanly and only shows
+# up later as a source that never opens (bug 6786802). Compare the clips with the
+# camera set here, before anything is staged. Perception opens the exact name on
+# a case-sensitive filesystem, so a clip counts for a camera only when it is
+# called exactly <camera>.mp4. Other file types are ignored.
+#
+# An unset or missing VIDEO_DIR only warns: there is nothing to compare, and
+# staging before the clips are copied in is a legitimate order.
+# SKIP_VIDEO_CHECK=1 bypasses the check.
+check_video_files() {
+  [ "$INPUT_MODE" = "file" ] || return 0
+  [ "${SKIP_VIDEO_CHECK:-0}" = "1" ] && return 0
+  (( ${#CAMS[@]} )) || return 0          # no camInfo: reported where the source list is built
+  [ -n "${VIDEO_DIR:-}" ] || return 0    # unset: reported where the source list is built
+
+  local dir="$VIDEO_DIR" problems=() clips=() cam clip fold expected
+  local -A byfold=()
+  case "$dir" in /*) ;; *) dir="$ROOT/docker/$dir" ;; esac   # compose resolves a relative path from docker/
+  if [ ! -d "$dir" ]; then
+    echo "   ⚠ VIDEO_DIR=$VIDEO_DIR is not a directory, so its clips cannot be checked against the camera set" >&2
+    return 0
+  fi
+
+  while IFS= read -r clip; do
+    [ -f "$dir/$clip" ] && clips+=("$clip")
+  done < <(find "$dir" -maxdepth 1 -iname '*.mp4' -printf '%f\n' | LC_ALL=C sort)
+  for clip in "${clips[@]}"; do
+    fold="${clip,,}"
+    byfold["$fold"]+="${byfold[$fold]:+ }$clip"
+  done
+
+  for cam in "${CAMS[@]}"; do
+    [ -f "$dir/$cam.mp4" ] && continue
+    expected="${cam,,}.mp4"
+    problems+=("Missing video for calibration sensor: $cam${byfold[$expected]:+ (found ${byfold[$expected]}, which differs only by case)}")
+  done
+  for clip in "${clips[@]}"; do
+    for cam in "${CAMS[@]}"; do
+      [ "${clip,,}" = "${cam,,}.mp4" ] && continue 2    # exact match, or a case variant reported above
+    done
+    problems+=("Unexpected video not present in calibration: ${clip%.*}")
+  done
+  for fold in "${!byfold[@]}"; do
+    [ "${byfold[$fold]}" = "${byfold[$fold]%% *}" ] || problems+=("Ambiguous videos for one sensor: ${byfold[$fold]}")
+  done
+
+  (( ${#problems[@]} )) || return 0
+  { echo "ERROR: the videos in VIDEO_DIR do not match the camera set in generated/camInfo, nothing was staged."
+    printf '       %s\n' "${problems[@]}"
+    echo "       INPUT_MODE=file reads file:///videos/<sensor_id>.mp4, so $dir"
+    echo "       must hold exactly one <sensor_id>.mp4 per camera. Rename the clips to match,"
+    echo "       or re-run with SKIP_VIDEO_CHECK=1 to stage before they are copied in."; } >&2
+  exit 1
+}
+check_video_files
 
 # The perception tag has to match the machine's architecture. The SBSA / DGX
 # Spark build ships as a separate -sbsa tag. The default tag's arm64 variant
