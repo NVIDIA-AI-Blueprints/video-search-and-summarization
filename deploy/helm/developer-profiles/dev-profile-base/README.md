@@ -72,20 +72,20 @@ this server limit.
 - **Kubernetes cluster**
   - Running cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
   - **Server version** recorded for this profile: **1.34**. **Driver (x86 Ubuntu 24.04)** recorded for this profile: **595.58.03**.
-  - This README does **not** record a tested GPU Operator, NIM Operator, or local-path-provisioner version. Those products use their own version numbers. Do not replace an upstream version with VSS **3.3.0**. Links that say `latest`, `master`, or `main` move on their own and do not prove they were validated with Kubernetes 1.34 and driver 595.58.03. Install the versions you have validated, and open that version’s documentation.
+  - Use a GPU Operator release that supports driver **595.58.03**, the latest NIM Operator, and the latest local-path-provisioner. Those products use their own version numbers. Do not replace an upstream version with VSS **3.3.0**.
 
 - **NVIDIA GPU Operator**
-  - Install the GPU Operator on the cluster so nodes advertise `nvidia.com/gpu`. Getting started: [GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html). Platform support for the version you install: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html). Replace `latest` in those URLs with the operator version you install.
+  - Install a GPU Operator release that supports driver **595.58.03** so nodes advertise `nvidia.com/gpu`. Getting started: [GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html). Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html).
   - Pin driver **595.58.03** through the GPU Operator driver settings for x86 Ubuntu 24.04.
 
 - **NVIDIA NIM Operator**
   - Required when **`nims`** subcharts are enabled (`NIMCache` / `NIMService`).
-  - Install **after** the GPU Operator. Installation for the version you install: [NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html). Replace `latest` with that operator version.
+  - Install the latest NIM Operator **after** the GPU Operator. Installation: [NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html).
 
 - **Volume provisioner**
   - A **StorageClass** must exist. Set **`global.storageClass`** to that class’s **`metadata.name`**. The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile. Change the default only for other workloads that omit `storageClassName`.
   - **Node-local storage (for example local-path):** the shared VST claims are `ReadWriteOnce`. **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** both mount `vst-data` and `vst-video`, so on a multi-node cluster they must run on a node that can mount those volumes — for local-path, the same node. The chart does not set that affinity. Set **`nodeSelector`** or **`affinity`** on **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`**, and confirm the node has capacity for the claims. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage).
-  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner). The `master` branch link is not a release pin; use the provisioner version you have validated.
+  - **Bare-metal clusters** with no provisioner yet can install the latest [local-path-provisioner](https://github.com/rancher/local-path-provisioner).
 
 ### Chart / tooling
 
