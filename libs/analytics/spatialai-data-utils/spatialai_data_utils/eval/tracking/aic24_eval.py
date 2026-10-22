@@ -59,6 +59,7 @@ except ModuleNotFoundError as exc:
         raise nuscenes_import_error(__name__) from exc
     raise
 
+from spatialai_data_utils.eval.common.box_conventions import nusc_boxes_to_box_dims
 from spatialai_data_utils.eval.common.loaders import load_gt
 from spatialai_data_utils.eval.tracking.algo import TrackingEvaluation
 from spatialai_data_utils.eval.tracking.data_classes import (
@@ -139,6 +140,7 @@ class AIC24TrackEval(TrackingEval):
             TrackingBox,
             verbose=verbose,
         )
+        nusc_boxes_to_box_dims(pred_boxes)  # nuScenes wlh -> gt_boxes order
         gt_boxes = load_gt(self.data_infos, TrackingBox, verbose=verbose)
 
         assert set(pred_boxes.sample_tokens) == set(gt_boxes.sample_tokens), (

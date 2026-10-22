@@ -41,6 +41,7 @@ except ModuleNotFoundError as exc:
         raise nuscenes_import_error(__name__) from exc
     raise
 
+from spatialai_data_utils.eval.common.box_conventions import nusc_size_to_box_dims
 from spatialai_data_utils.eval.tracking.hota.evaluate import Evaluator as HOTAEvaluator
 from spatialai_data_utils.eval.tracking.hota.datasets.mtmc_challenge_3d_bbox import MTMCChallenge3DBBox
 from spatialai_data_utils.eval.tracking.hota.datasets.mtmc_challenge_3d_location import MTMCChallenge3DLocation
@@ -131,11 +132,13 @@ def evaluate_hota(
     :param data_infos: List of sample info dicts from the dataset, each containing:
         - "scene_name": str
         - "token": str
-        - "gt_boxes": array of shape (N, 7+) with [x, y, z, w, l, h, yaw, ...]
+        - "gt_boxes": array of shape (N, 7+) with [x, y, z, w, l, h, yaw, ...]; ``w`` lies
+          along the box x axis and ``yaw`` is counter-clockwise (see ``box_conventions``)
         - "gt_names": list of class name strings
         - "instance_inds": list of track IDs
         - "valid_flag": (optional) list of booleans
-    :param result_path: Path to the tracking results JSON file.
+    :param result_path: Path to the tracking results JSON file (nuScenes format; ``size`` is
+        ``wlh`` and is converted back to the ``gt_boxes`` order).
     :param output_dir: Directory to write HOTA eval artifacts (text files, results).
     :param class_names: List of class names to evaluate (e.g., ["person", "forklift"]).
     :param tracker_name: Name for the tracker in HOTA output. Defaults to "sparse4d".
@@ -201,7 +204,7 @@ def evaluate_hota(
                 track_id = instance_inds[anno_id]
                 x, y, z = box[0], box[1], box[2]
                 w, l, h = box[3], box[4], box[5]
-                yaw = -box[6]  # negate to match the convention used in loaders.py
+                yaw = box[6]  # counter-clockwise, as the predictions (see box_conventions)
                 line = f"{frame_id},{track_id},-1,{x},{y},{z},{w},{l},{h},0,0,{yaw}"
                 gt_by_class[name][scene].append(line)
 
@@ -215,7 +218,7 @@ def evaluate_hota(
             if track_name not in class_names:
                 continue
             tx, ty, tz = anno["translation"]
-            sw, sl, sh = anno["size"]
+            sw, sl, sh = nusc_size_to_box_dims(anno["size"])
             q = anno["rotation"]
             yaw = quaternion_yaw(Quaternion(q))
             track_id = anno.get("tracking_id", "0")
