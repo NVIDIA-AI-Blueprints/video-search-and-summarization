@@ -1863,6 +1863,17 @@ def test_every_loopback_spelling_is_one_host_to_the_wipe() -> None:
         cleanup.check_cleanup_hosts("https://localhost:8000", "https://127.0.0.1:30888", "https://other:7777")
 
 
+@pytest.mark.parametrize("endpoint", ["localhost:8000", "h:8000", "https:///api", ""])
+def test_wipe_refuses_an_endpoint_with_no_hostname(endpoint: str) -> None:
+    """Host-less URLs all parse to hostname None, so None == None would pass the host check."""
+    from flows import cleanup
+
+    with pytest.raises(SystemExit, match="no hostname"):
+        cleanup.check_cleanup_hosts(endpoint, "other:30888", "other:7777")
+    with pytest.raises(SystemExit, match="no hostname"):
+        cleanup.check_cleanup_hosts(endpoint, endpoint, endpoint)
+
+
 def test_skip_ingest_aborts_when_a_dataset_video_is_not_registered(monkeypatch: Any) -> None:
     """Its queries would score zero, read as "nothing found" not "never indexed"."""
     import run_eval_flows as rf
