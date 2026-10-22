@@ -77,7 +77,8 @@ Extract the following parameters from the user query:
   without a date. Do not add an end time or duration that the user did not specify.
 - attributes: List of person appearance descriptors only (clothing, colours, worn or
   carried items). Never include actions or verbs, never other object classes, and never
-  bare "person". Empty list if the query describes no appearance details.
+  generic person nouns such as "person", "pedestrian", or "people". Colors of vehicles, traffic lights, or scenery
+  are not person appearance. Empty list if the query describes no person appearance details.
 - has_action: REQUIRED boolean. Set to True if the query explicitly mentions an action/event/activity (e.g., running, walking, standing, carrying, pushing, entering, leaving, moving). Set to False if the query only describes visual/physical attributes (what someone/something LOOKS LIKE) without any action. Examples: "person" → false, "person walking" → true, "person standing" → true, "red car" → false, "person carrying box" → true, "forklift" → false.
 - object_ids: List of integer object IDs if explicitly mentioned in the query (e.g., "find object 5" → [5], "search for objects 10, 20" → [10, 20]). null if no object IDs are mentioned.
 - top_k: Number of results to return (integer, only if explicitly mentioned, e.g., "top 5", "first 10")
@@ -85,7 +86,9 @@ Extract the following parameters from the user query:
 Examples:
 {few_shot_examples}
 
-Return ONLY a valid JSON object with the extracted parameters. If a parameter cannot be determined, omit it or use null.
+Return ONLY a valid JSON object with the extracted parameters. Always provide query, video_sources, attributes, and has_action
+with the types specified above. Use empty lists for absent attributes or source names. Optional source_type, timestamp_start,
+timestamp_end, object_ids, and top_k may be omitted or null when not requested. Do not invent optional values.
 
 User query: {user_query}"""
 
@@ -96,7 +99,7 @@ Output: {{"query": "man pushing cart wearing beige shirt", "video_sources": ["En
 
 Example 2:
 User query: "Find people running near Building A camera from 9am to 10am"
-Output: {{"query": "people running", "video_sources": ["Building A"], "source_type": "rtsp", "timestamp_start": "2025-01-01T09:00:00Z", "timestamp_end": "2025-01-01T10:00:00Z", "has_action": true}}
+Output: {{"query": "people running", "video_sources": ["Building A"], "source_type": "rtsp", "timestamp_start": "2025-01-01T09:00:00Z", "timestamp_end": "2025-01-01T10:00:00Z", "has_action": true, "attributes": []}}
 
 Example 3:
 User query: "Search for a woman with a blue backpack walking"
@@ -104,7 +107,7 @@ Output: {{"query": "woman walking with blue backpack", "video_sources": [], "att
 
 Example 4:
 User query: "Find delivery truck at warehouse entrance between 2pm and 4pm"
-Output: {{"query": "delivery truck at warehouse entrance", "video_sources": ["warehouse entrance"], "timestamp_start": "2025-01-01T14:00:00Z", "timestamp_end": "2025-01-01T16:00:00Z", "has_action": false}}
+Output: {{"query": "delivery truck at warehouse entrance", "video_sources": ["warehouse entrance"], "timestamp_start": "2025-01-01T14:00:00Z", "timestamp_end": "2025-01-01T16:00:00Z", "has_action": false, "attributes": []}}
 
 Example 5:
 User query: "Person wearing red jacket and blue jeans carrying a box"
@@ -120,19 +123,19 @@ Output: {{"query": "person in white t-shirt and black leggings running out of st
 
 Example 9:
 User query: "search for object ids 5, 6"
-Output: {{"query": "object ids 5, 6", "object_ids": [5, 6], "has_action": false}}
+Output: {{"query": "object ids 5, 6", "object_ids": [5, 6], "has_action": false, "video_sources": [], "attributes": []}}
 
 Example 10:
 User query: "find more objects like object 42 near warehouse entrance"
-Output: {{"query": "objects like object 42 near warehouse entrance", "object_ids": [42], "video_sources": ["warehouse entrance"], "has_action": false}}
+Output: {{"query": "objects like object 42 near warehouse entrance", "object_ids": [42], "video_sources": ["warehouse entrance"], "has_action": false, "attributes": []}}
 
 Example 11:
 User query: "person physically assaulting someone"
-Output: {{"query": "person physically assaulting someone", "attributes": [], "has_action": true}}
+Output: {{"query": "person physically assaulting someone", "attributes": [], "has_action": true, "video_sources": []}}
 
 Example 12:
 User query: "people running near a doorway"
-Output: {{"query": "people running near a doorway", "attributes": [], "has_action": true}}
+Output: {{"query": "people running near a doorway", "attributes": [], "has_action": true, "video_sources": []}}
 
 Example 13:
 User query: "person standing in a red shirt"
