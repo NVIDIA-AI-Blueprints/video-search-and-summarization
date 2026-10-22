@@ -1,0 +1,4587 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DEFT",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "tags": [
+          "service"
+        ],
+        "summary": "Get Health",
+        "operationId": "get_health_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/info": {
+      "get": {
+        "tags": [
+          "service"
+        ],
+        "summary": "Get Info",
+        "operationId": "get_info_v1_info_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InfoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/v1/workflows": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Workflows",
+        "operationId": "list_workflows_v1_workflows_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowInfo"
+                  },
+                  "type": "array",
+                  "title": "Response List Workflows V1 Workflows Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/v1/workflows/{name}": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Get Workflow",
+        "operationId": "get_workflow_v1_workflows__name__get",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            },
+            "description": "Workflow name.",
+            "examples": {
+              "generic": {
+                "summary": "Generic workflow",
+                "value": "tmm_only"
+              },
+              "aoi": {
+                "summary": "AOI workflow",
+                "value": "aoi_active_learning"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Workflow not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "workflow_not_found": {
+                    "summary": "Workflow not found",
+                    "value": {
+                      "error": "workflow_not_found",
+                      "message": "Workflow aoi_active_learning was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        }
+      }
+    },
+    "/v1/profiles": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "summary": "List Profiles",
+        "operationId": "list_profiles_v1_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProfileInfo"
+                  },
+                  "type": "array",
+                  "title": "Response List Profiles V1 Profiles Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/v1/profiles/{name}": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "summary": "Get Profile",
+        "operationId": "get_profile_v1_profiles__name__get",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            },
+            "description": "Profile name.",
+            "examples": {
+              "generic": {
+                "summary": "Generic profile",
+                "value": "santomas_gdino"
+              },
+              "aoi": {
+                "summary": "AOI profile",
+                "value": "aoi_default"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Profile not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "profile_not_found": {
+                    "summary": "Profile not found",
+                    "value": {
+                      "error": "profile_not_found",
+                      "message": "Profile aoi_default was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        }
+      }
+    },
+    "/v1/fine-tune": {
+      "post": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Create Fine Tune",
+        "operationId": "create_fine_tune_v1_fine_tune_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FineTuneRequest"
+              },
+              "examples": {
+                "workflow_config": {
+                  "summary": "Workflow with full config",
+                  "value": {
+                    "workflow": "tmm_only",
+                    "config": {
+                      "model": {
+                        "name": "grounding_dino",
+                        "checkpoint": "s3://deft-models/models/gdino_swin_tiny.pth",
+                        "checkpoint_filename": "weights.pt"
+                      },
+                      "data_pool": {
+                        "path": "file:///data/deft/raw_frames/santomas/",
+                        "annotations_dir": "file:///data/deft/odvg/santomas/",
+                        "detection_file": "s3://deft-data/detections/pool.coco.json",
+                        "embeddings_path": "file:///data/deft/embeddings/pool.parquet"
+                      },
+                      "kpi": {
+                        "path": "s3://deft-data/kpi/santomas/images/",
+                        "ground_truth_dir": "s3://deft-data/kpi/santomas/labels/",
+                        "inference_spec_path": "s3://deft-data/kpi/specs/infer.yaml",
+                        "analyze_spec_path": "s3://deft-data/kpi/specs/analyze.yaml",
+                        "detection_file": "s3://deft-data/detections/kpi.coco.json"
+                      },
+                      "classes": {
+                        "vehicle": 0.99,
+                        "pedestrian": 0.7
+                      },
+                      "pipeline": {
+                        "iterations": 5,
+                        "convergence_epsilon": 0.005,
+                        "convergence_window": 2
+                      },
+                      "training": {
+                        "batch_size": 4,
+                        "epochs": 5,
+                        "initial_spec_path": "lustre://deft-fs/training/specs/train_grounding_dino.yaml",
+                        "learning_rate": 2e-05,
+                        "num_gpus": 8,
+                        "freeze_backbone": true
+                      }
+                    }
+                  }
+                },
+                "profile_overrides": {
+                  "summary": "Profile with overrides",
+                  "value": {
+                    "profile": "santomas_gdino",
+                    "overrides": {
+                      "model": {
+                        "checkpoint": "file:///mnt/deft/models/gdino_swin_tiny.pth"
+                      },
+                      "data_pool": {
+                        "path": "file:///data/deft/raw_frames/santomas/"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FineTuneResponse"
+                }
+              }
+            },
+            "description": "Idempotent replay: Idempotency-Key matched a prior identical request. The original run is returned unchanged; no new run was launched."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FineTuneResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "409": {
+            "description": "Idempotency-Key was already used with a different request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "idempotency_key_conflict": {
+                    "summary": "Idempotency key conflict",
+                    "value": {
+                      "error": "idempotency_key_conflict",
+                      "message": "Idempotency-Key 'a1b2c3' was already used with a different request body. Use a new key for a different request."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "title": "Idempotency Key"
+            },
+            "description": "Client-generated key. A retried request with the same key and an identical body returns the original run (200, not 201) instead of launching a duplicate GPU job. The same key replayed with a different body is a conflict \u2014 see 409."
+          }
+        ]
+      },
+      "get": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "List Fine Tunes",
+        "operationId": "list_fine_tunes_v1_fine_tune_get",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "running",
+                    "completed",
+                    "failed",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Maximum number of items to return (pagination)."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of items to skip from the start (pagination)."
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner"
+            },
+            "description": "Restrict results to runs created by this identity. Omitted: defaults to the caller's own identity. Only callers with the `deft:admin` scope may query a different identity or pass `owner=*` for all runs."
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FineTuneListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Bulk Delete Fine Tune",
+        "operationId": "bulk_delete_fine_tune_v1_fine_tune_delete",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "running",
+                    "completed",
+                    "failed",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "older_than",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Older Than"
+            }
+          },
+          {
+            "name": "keep_artifacts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Keep"
+            },
+            "description": "If true, delete the run record but preserve its on-disk artifacts (checkpoints, logs, reports). Defaults to false: artifacts are deleted along with the record."
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "boolean",
+              "const": true,
+              "title": "Confirm"
+            },
+            "description": "Must be explicitly set to true. Guards against deleting every run when no state/older_than filter is supplied."
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Bulk Delete Fine Tune V1 Fine Tune Delete"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        }
+      }
+    },
+    "/v1/fine-tune/{id}/resume": {
+      "post": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Resume Fine Tune",
+        "operationId": "resume_fine_tune_v1_fine_tune__id__resume_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id",
+              "format": "uuid"
+            },
+            "description": "Fine-tune run UUID.",
+            "examples": {
+              "run": {
+                "summary": "Fine-tune run UUID",
+                "value": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FineTuneResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "Resume a stopped or failed run from its last completed stage using its on-disk deft_state.json / loop_log.jsonl (disk is canonical). Reuses the same run id and history \u2014 it does not create a new run."
+      }
+    },
+    "/v1/fine-tune/{id}": {
+      "get": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Get Fine Tune Details",
+        "operationId": "get_fine_tune_details_v1_fine_tune__id__get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id",
+              "format": "uuid"
+            },
+            "description": "Fine-tune run UUID.",
+            "examples": {
+              "run": {
+                "summary": "Fine-tune run UUID",
+                "value": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetailsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Delete Fine Tune",
+        "operationId": "delete_fine_tune_v1_fine_tune__id__delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id",
+              "format": "uuid"
+            },
+            "description": "Fine-tune run UUID.",
+            "examples": {
+              "run": {
+                "summary": "Fine-tune run UUID",
+                "value": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+              }
+            }
+          },
+          {
+            "name": "keep_artifacts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Keep"
+            },
+            "description": "If true, delete the run record but preserve its on-disk artifacts (checkpoints, logs, reports). Defaults to false: artifacts are deleted along with the record."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fine-tune/{id}/status": {
+      "get": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Get Fine Tune Status",
+        "operationId": "get_fine_tune_status_v1_fine_tune__id__status_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id",
+              "format": "uuid"
+            },
+            "description": "Fine-tune run UUID.",
+            "examples": {
+              "run": {
+                "summary": "Fine-tune run UUID",
+                "value": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fine-tune/{id}/results": {
+      "get": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Get Fine Tune Results",
+        "operationId": "get_fine_tune_results_v1_fine_tune__id__results_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id",
+              "format": "uuid"
+            },
+            "description": "Fine-tune run UUID.",
+            "examples": {
+              "run": {
+                "summary": "Fine-tune run UUID",
+                "value": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Run has not completed yet (no results available).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_completed": {
+                    "summary": "Run not completed",
+                    "value": {
+                      "error": "run_not_completed",
+                      "message": "Results are not available until the run reaches state 'completed' (current state: running)."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fine-tune/{id}/logs": {
+      "get": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Get Fine Tune Logs",
+        "operationId": "get_fine_tune_logs_v1_fine_tune__id__logs_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id",
+              "format": "uuid"
+            },
+            "description": "Fine-tune run UUID.",
+            "examples": {
+              "run": {
+                "summary": "Fine-tune run UUID",
+                "value": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+              }
+            }
+          },
+          {
+            "name": "iteration",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Iteration"
+            }
+          },
+          {
+            "name": "step",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Step"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "Maximum number of items to return (pagination)."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of items to skip from the start (pagination)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fine-tune/{id}/events": {
+      "get": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Get Fine Tune Stage Events",
+        "description": "Structured, append-only stage events (mirrors loop_log.jsonl). Cursor-paginated on `seq` rather than offset \u2014 safe to poll against a log that's still growing: every call with the same after_seq returns a strict superset-free, gap-free continuation, unlike offset paging against a moving log.",
+        "operationId": "get_fine_tune_events_v1_fine_tune__id__events_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id",
+              "format": "uuid"
+            },
+            "description": "Fine-tune run UUID.",
+            "examples": {
+              "run": {
+                "summary": "Fine-tune run UUID",
+                "value": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+              }
+            }
+          },
+          {
+            "name": "after_seq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After Seq"
+            },
+            "description": "Return only events with seq > after_seq."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "Maximum number of events to return."
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fine-tune/{id}/events/stream": {
+      "get": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Stream Fine Tune Stage Events",
+        "description": "Server-Sent Events stream of StageEvent objects, one per completed pipeline stage, for live-tailing a multi-hour run. The stream replays events after `after_seq` (default: from the start) and then pushes new events as they land; it closes once the run reaches a terminal state (completed/failed/cancelled).",
+        "operationId": "stream_fine_tune_events_v1_fine_tune__id__events_stream_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id",
+              "format": "uuid"
+            },
+            "description": "Fine-tune run UUID.",
+            "examples": {
+              "run": {
+                "summary": "Fine-tune run UUID",
+                "value": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+              }
+            }
+          },
+          {
+            "name": "after_seq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After Seq"
+            },
+            "description": "Resume the stream after this seq (e.g. after a dropped connection)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream. Each `data:` frame is one JSON-encoded StageEvent; a final `event: done` frame carries the terminal RunStatus.state.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Newline-delimited SSE frames."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fine-tune/{id}/logs/stream": {
+      "get": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Stream Fine Tune Raw Logs",
+        "description": "Server-Sent Events stream of raw per-step stdout/stderr (StepLog), for live-tailing container output during a running stage. Prefer GET .../events/stream for stage-level progress; use this when raw container output is needed.",
+        "operationId": "stream_fine_tune_logs_v1_fine_tune__id__logs_stream_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id",
+              "format": "uuid"
+            },
+            "description": "Fine-tune run UUID.",
+            "examples": {
+              "run": {
+                "summary": "Fine-tune run UUID",
+                "value": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+              }
+            }
+          },
+          {
+            "name": "iteration",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Iteration"
+            }
+          },
+          {
+            "name": "step",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Step"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream. Each `data:` frame is one JSON-encoded StepLog.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Newline-delimited SSE frames."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fine-tune/{id}/artifacts": {
+      "get": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "List Fine Tune Artifacts",
+        "description": "Storage pointers for the run's on-disk artifacts (state snapshot, event log, HTML report, and \u2014 once available \u2014 the best-checkpoint inference handoff). The API returns URIs into the backend's own storage (see InfoResponse.storage_root); it does not proxy file contents.",
+        "operationId": "list_fine_tune_artifacts_v1_fine_tune__id__artifacts_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id",
+              "format": "uuid"
+            },
+            "description": "Fine-tune run UUID.",
+            "examples": {
+              "run": {
+                "summary": "Fine-tune run UUID",
+                "value": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fine-tune/{id}/cancel": {
+      "post": {
+        "tags": [
+          "fine-tune"
+        ],
+        "summary": "Cancel a fine-tune run",
+        "description": "Request cancellation of a pending or running fine-tune run. Idempotent for already-terminal runs. Cancellation is cooperative: the current stage is allowed to reach its next checkpointable boundary (the same boundary an unattended crash would leave behind) before the run is marked `cancelled`, so `deft_state.json` is left in the same resumable state a stage-`error` would produce. A cancelled run may be resumed via POST .../resume like any other stopped run; resuming re-enters at the last completed stage, not partway through the cancelled one.",
+        "operationId": "cancel_fine_tune_v1_fine_tune__id__cancel_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancellation accepted; current run state returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FineTuneResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Run not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "Run not found",
+                    "value": {
+                      "error": "run_not_found",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 was not found."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Run belongs to a different identity and the caller lacks admin scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Forbidden",
+                    "value": {
+                      "error": "forbidden",
+                      "message": "Fine-tune run 3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234 belongs to a different identity."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BackendInfo": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "docker",
+              "kfp",
+              "slurm",
+              "brev"
+            ],
+            "title": "Type",
+            "examples": [
+              "docker"
+            ]
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id",
+            "examples": [
+              "container://train-iter-2"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "BackendInfo"
+      },
+      "PresignedFile": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Object location relative to the workspace/snapshot root (e.g. kpi/images/a.jpg)."
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "Presigned http(s) GET URL for this object."
+          }
+        },
+        "required": [
+          "path",
+          "url"
+        ],
+        "additionalProperties": false,
+        "title": "PresignedFile"
+      },
+      "DataPoolConfig": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "examples": [
+              "s3://deft-data/raw_frames/santomas/"
+            ],
+            "description": "URI to the raw-frame data pool. `s3://` requires `storage_access` on the request; `file://`/`lustre://` must already be mounted on the runner host."
+          },
+          "files": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PresignedFile"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Files",
+            "description": "Presigned per-object snapshot manifest \u2014 an alternative to an s3:// 'path' prefix. Every object is downloaded to workspace/<path>. When set it wins over 'path' for materialization ('path' may then be the snapshot's logical s3:// URI for reference).",
+            "default": null
+          },
+          "annotations_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotations Dir",
+            "examples": [
+              "s3://deft-data/odvg/santomas/"
+            ]
+          },
+          "detection_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection File",
+            "examples": [
+              "s3://deft-data/detections/pool.coco.json"
+            ]
+          },
+          "embeddings_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embeddings Path",
+            "examples": [
+              "s3://deft-data/embeddings/santomas.parquet"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "DataPoolConfig"
+      },
+      "EmbeddingConfig": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "SigLIP",
+              "CLIP"
+            ],
+            "title": "Model",
+            "default": "SigLIP",
+            "examples": [
+              "SigLIP"
+            ],
+            "description": "Embedding model. SigLIP/CLIP, or a TAO checkpoint via model_path (+ model_config_path)."
+          },
+          "num_gpus": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Num Gpus",
+            "default": 8,
+            "examples": [
+              8
+            ],
+            "maximum": 64,
+            "description": "Bounded by cluster GPU capacity; requests above the configured ceiling are rejected with 422."
+          },
+          "model_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Path",
+            "examples": [
+              "file:///mnt/deft/sda_required_data/siglip-base-patch16-224"
+            ]
+          },
+          "model_config_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Config Path",
+            "examples": [
+              "file:///mnt/deft/specs/embed_tao.yaml"
+            ],
+            "description": "Path to the matching TAO train-spec YAML. Required only when model_path is a TAO .pth/.ckpt checkpoint (needed to reconstruct the encoder); omit for SigLIP/CLIP."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "EmbeddingConfig"
+      },
+      "ExperimentConfig": {
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/ModelConfig",
+            "examples": [
+              {
+                "checkpoint": "s3://deft-models/models/gdino_swin_tiny.pth",
+                "name": "grounding_dino"
+              }
+            ]
+          },
+          "data_pool": {
+            "$ref": "#/components/schemas/DataPoolConfig",
+            "examples": [
+              {
+                "path": "s3://deft-data/raw_frames/santomas/"
+              }
+            ]
+          },
+          "kpi": {
+            "$ref": "#/components/schemas/KpiConfig",
+            "examples": [
+              {
+                "ground_truth_dir": "s3://deft-data/kpi/santomas/labels/",
+                "path": "s3://deft-data/kpi/santomas/images/"
+              }
+            ]
+          },
+          "classes": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number",
+                  "maximum": 1,
+                  "minimum": 0
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classes",
+            "examples": [
+              {
+                "pedestrian": 0.7,
+                "vehicle": 0.99
+              }
+            ],
+            "description": "Per-class confidence threshold, used only by object-detection workflows (e.g. tmm_only / grounding_dino). VisualChangeNet-classify workflows (e.g. aoi_active_learning) are a binary PASS/defect classifier and ignore this field \u2014 leave it unset for those workflows."
+          },
+          "pipeline": {
+            "$ref": "#/components/schemas/PipelineConfig",
+            "examples": [
+              {
+                "iterations": 5
+              }
+            ]
+          },
+          "training": {
+            "$ref": "#/components/schemas/TrainingConfig",
+            "examples": [
+              {
+                "epochs": 5,
+                "num_gpus": 8
+              }
+            ]
+          },
+          "embedding": {
+            "$ref": "#/components/schemas/EmbeddingConfig",
+            "examples": [
+              {
+                "model": "SigLIP"
+              }
+            ]
+          },
+          "mining": {
+            "$ref": "#/components/schemas/MiningConfig",
+            "examples": [
+              {
+                "metric": "cosine"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model",
+          "data_pool"
+        ],
+        "title": "ExperimentConfig"
+      },
+      "FineTuneRequest": {
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile",
+            "examples": [
+              "santomas_gdino"
+            ]
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow",
+            "examples": [
+              "tmm_only"
+            ]
+          },
+          "overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExperimentConfigOverrides"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overrides",
+            "description": "Typed partial ExperimentConfig merged over the selected profile/workflow defaults.",
+            "examples": [
+              {
+                "model": {
+                  "checkpoint": "file:///mnt/deft/models/gdino_swin_tiny.pth"
+                },
+                "data_pool": {
+                  "path": "file:///data/deft/raw_frames/santomas/"
+                }
+              }
+            ]
+          },
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExperimentConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "classes": {
+                  "pedestrian": 0.7,
+                  "vehicle": 0.99
+                },
+                "data_pool": {
+                  "path": "s3://deft-data/raw_frames/santomas/"
+                },
+                "embedding": {
+                  "model": "SigLIP",
+                  "model_path": "file:///mnt/deft/sda_required_data/siglip-base-patch16-224"
+                },
+                "kpi": {
+                  "ground_truth_dir": "s3://deft-data/kpi/santomas/labels/",
+                  "path": "s3://deft-data/kpi/santomas/images/"
+                },
+                "mining": {
+                  "metric": "cosine",
+                  "desired_unique_count": 5000,
+                  "multiplier": 10
+                },
+                "model": {
+                  "checkpoint": "s3://deft-models/models/gdino_swin_tiny.pth",
+                  "name": "grounding_dino"
+                },
+                "pipeline": {
+                  "convergence_epsilon": 0.005,
+                  "convergence_window": 2,
+                  "iterations": 5
+                },
+                "training": {
+                  "batch_size": 4,
+                  "epochs": 5,
+                  "initial_spec_path": "lustre://deft-fs/training/specs/train_grounding_dino.yaml",
+                  "learning_rate": 2e-05,
+                  "num_gpus": 8,
+                  "freeze_backbone": true
+                }
+              }
+            ]
+          },
+          "step_overrides": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Overrides",
+            "examples": [
+              {
+                "train": {
+                  "warmup_epochs": 1
+                },
+                "data_mining": {
+                  "desired_unique_count": 5000
+                }
+              }
+            ]
+          },
+          "storage_access": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporaryCredentialsStorageAccess"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Temporary, scoped credentials DEFT uses to read/write S3-compatible storage directly for the duration of the run. Only required for `s3://` paths in `data_pool`/`kpi`/`training` config. `file://` and `lustre://` paths are assumed to already be mounted on the runner host (the same filesystem the DEFT service and its worker containers share) and need no credential here. Never logged or echoed back in any response.",
+            "examples": [
+              {
+                "type": "temporary_credentials",
+                "endpoint_url": "https://s3.amazonaws.com",
+                "region": "us-west-2",
+                "expires_at": "2026-06-10T18:00:00Z",
+                "credentials": {
+                  "access_key_id": "<temporary-access-key-id>",
+                  "secret_access_key": "<temporary-secret-access-key>",
+                  "session_token": "<temporary-session-token>"
+                }
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FineTuneRequest",
+        "examples": [
+          {
+            "workflow": "tmm_only",
+            "config": {
+              "model": {
+                "name": "grounding_dino",
+                "checkpoint": "s3://deft-models/models/gdino_swin_tiny.pth",
+                "checkpoint_filename": "weights.pt"
+              },
+              "data_pool": {
+                "path": "file:///data/deft/raw_frames/santomas/",
+                "annotations_dir": "file:///data/deft/odvg/santomas/",
+                "detection_file": "s3://deft-data/detections/pool.coco.json",
+                "embeddings_path": "file:///data/deft/embeddings/pool.parquet"
+              },
+              "kpi": {
+                "path": "s3://deft-data/kpi/santomas/images/",
+                "ground_truth_dir": "s3://deft-data/kpi/santomas/labels/",
+                "inference_spec_path": "s3://deft-data/kpi/specs/infer.yaml",
+                "analyze_spec_path": "s3://deft-data/kpi/specs/analyze.yaml",
+                "detection_file": "s3://deft-data/detections/kpi.coco.json"
+              },
+              "classes": {
+                "vehicle": 0.99,
+                "pedestrian": 0.7
+              },
+              "pipeline": {
+                "iterations": 5,
+                "convergence_epsilon": 0.005,
+                "convergence_window": 2
+              },
+              "training": {
+                "batch_size": 4,
+                "epochs": 5,
+                "initial_spec_path": "lustre://deft-fs/training/specs/train_grounding_dino.yaml",
+                "learning_rate": 2e-05,
+                "num_gpus": 8,
+                "freeze_backbone": true
+              }
+            }
+          },
+          {
+            "profile": "santomas_gdino",
+            "overrides": {
+              "model": {
+                "checkpoint": "file:///mnt/deft/models/gdino_swin_tiny.pth"
+              },
+              "data_pool": {
+                "path": "file:///data/deft/raw_frames/santomas/"
+              }
+            }
+          },
+          {
+            "workflow": "aoi_active_learning",
+            "config": {
+              "model": {
+                "name": "aoi-secondary-inspection",
+                "checkpoint": "s3://aoi-models/baseline/1.0.0/model.pt",
+                "checkpoint_filename": "model.pt"
+              },
+              "data_pool": {
+                "path": "s3://aoi-training/snapshots/aoi-train-snapshot-123/",
+                "annotations_dir": "s3://aoi-training/snapshots/aoi-train-snapshot-123/labels/"
+              },
+              "kpi": {
+                "path": "s3://aoi-kpi/snapshots/aoi-kpi-snapshot-001/images/",
+                "ground_truth_dir": "s3://aoi-kpi/snapshots/aoi-kpi-snapshot-001/labels/"
+              },
+              "pipeline": {
+                "iterations": 3,
+                "convergence_epsilon": 0.005,
+                "convergence_window": 2
+              },
+              "training": {
+                "batch_size": 8,
+                "epochs": 5,
+                "num_gpus": 8
+              }
+            },
+            "storage_access": {
+              "type": "temporary_credentials",
+              "endpoint_url": "https://s3.amazonaws.com",
+              "region": "us-west-2",
+              "expires_at": "2026-06-10T18:00:00Z",
+              "credentials": {
+                "access_key_id": "<temporary-access-key-id>",
+                "secret_access_key": "<temporary-secret-access-key>",
+                "session_token": "<temporary-session-token>"
+              }
+            }
+          }
+        ]
+      },
+      "FineTuneResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id",
+            "examples": [
+              "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+            ],
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "examples": [
+              "pending"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "state"
+        ],
+        "title": "FineTuneResponse",
+        "examples": [
+          {
+            "id": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234",
+            "state": "pending"
+          }
+        ]
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status",
+            "default": "ok",
+            "examples": [
+              "ok"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "HealthResponse",
+        "examples": [
+          {
+            "status": "ok"
+          }
+        ]
+      },
+      "InfoResponse": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Version",
+            "examples": [
+              "0.1.dev183"
+            ]
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "docker",
+              "kfp",
+              "slurm",
+              "brev"
+            ],
+            "title": "Backend",
+            "examples": [
+              "docker"
+            ]
+          },
+          "storage_root": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Storage Root",
+            "examples": [
+              "file:///data/deft"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "backend",
+          "storage_root"
+        ],
+        "title": "InfoResponse",
+        "examples": [
+          {
+            "backend": "docker",
+            "storage_root": "file:///data/deft",
+            "version": "0.1.dev183"
+          }
+        ]
+      },
+      "IterationMetrics": {
+        "properties": {
+          "iteration": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Iteration",
+            "examples": [
+              1
+            ]
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics",
+            "examples": [
+              {
+                "mAP50": 0.745,
+                "pedestrian": 0.67,
+                "vehicle": 0.82
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "iteration"
+        ],
+        "title": "IterationMetrics"
+      },
+      "KpiConfig": {
+        "properties": {
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path",
+            "examples": [
+              "s3://deft-data/kpi/santomas/images/"
+            ],
+            "description": "URI to the KPI test images. `s3://` requires `storage_access` on the request; `file://`/`lustre://` must already be mounted on the runner host."
+          },
+          "ground_truth_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ground Truth Dir",
+            "examples": [
+              "s3://deft-data/kpi/santomas/labels/"
+            ]
+          },
+          "inference_spec_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inference Spec Path",
+            "examples": [
+              "s3://deft-data/kpi/specs/infer.yaml"
+            ]
+          },
+          "analyze_spec_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyze Spec Path",
+            "examples": [
+              "s3://deft-data/kpi/specs/analyze.yaml"
+            ]
+          },
+          "detection_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection File",
+            "examples": [
+              "s3://deft-data/detections/kpi.coco.json"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "KpiConfig"
+      },
+      "LogsResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id",
+            "examples": [
+              "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+            ],
+            "format": "uuid"
+          },
+          "logs": {
+            "items": {
+              "$ref": "#/components/schemas/StepLog"
+            },
+            "type": "array",
+            "title": "Logs",
+            "examples": [
+              [
+                {
+                  "iteration": 1,
+                  "stderr": "",
+                  "stdout": "epoch 1/5\n",
+                  "step": "train"
+                }
+              ]
+            ]
+          },
+          "runner_crash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runner Crash",
+            "examples": [
+              "Traceback (most recent call last): ..."
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "logs"
+        ],
+        "title": "LogsResponse",
+        "examples": [
+          {
+            "id": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234",
+            "logs": [
+              {
+                "iteration": 1,
+                "stderr": "",
+                "stdout": "epoch 1/5\n",
+                "step": "train"
+              }
+            ]
+          }
+        ]
+      },
+      "MiningConfig": {
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": [
+              "euclidean",
+              "cosine",
+              "manhattan"
+            ],
+            "title": "Metric",
+            "default": "cosine",
+            "examples": [
+              "cosine"
+            ],
+            "description": "k-NN distance metric (knn_metric). cosine for SigLIP/CLIP embeddings; euclidean/manhattan otherwise."
+          },
+          "rare_classes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rare Classes",
+            "examples": [
+              [
+                "pedestrian",
+                "bicycle"
+              ]
+            ]
+          },
+          "topn": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Topn",
+            "default": 5,
+            "examples": [
+              5
+            ],
+            "description": "Top-N nearest pool images retained per weak target (the AOI mining-count param; the grounding-dino workflow uses desired_unique_count + multiplier instead)."
+          },
+          "min_similarity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Similarity",
+            "default": 0.9,
+            "examples": [
+              0.9
+            ],
+            "description": "Cosine-similarity retention gate for real images (config.mining_filter.min_similarity). Defaults to 0.9 when unset."
+          },
+          "filter_by_label": {
+            "type": "boolean",
+            "title": "Filter By Label",
+            "default": false,
+            "examples": [
+              false
+            ],
+            "description": "Label-aware mining: only mine within the same label. Requires a `label` column in both embedding parquets (silent no-op otherwise)."
+          },
+          "desired_unique_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Desired Unique Count",
+            "examples": [
+              5000
+            ],
+            "description": "Target number of unique mined images (mining-count control used by the grounding-dino / object-detection workflow)."
+          },
+          "multiplier": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Multiplier",
+            "default": 10,
+            "examples": [
+              10
+            ],
+            "description": "Over-fetch multiplier applied to desired_unique_count before dedup (grounding-dino / object-detection workflow)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MiningConfig",
+        "not": {
+          "required": [
+            "topn",
+            "desired_unique_count"
+          ]
+        },
+        "description": "`topn` (AOI k-NN retention) and `desired_unique_count`+`multiplier` (grounding-dino / object-detection over-fetch) are mutually exclusive parameterizations for two different workflow families \u2014 set one or the other, never both."
+      },
+      "ModelConfig": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "grounding_dino"
+            ]
+          },
+          "checkpoint": {
+            "type": "string",
+            "title": "Checkpoint",
+            "examples": [
+              "s3://deft-models/models/gdino_swin_tiny.pth"
+            ]
+          },
+          "checkpoint_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Filename",
+            "examples": [
+              "weights.pt"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "checkpoint"
+        ],
+        "title": "ModelConfig"
+      },
+      "PipelineConfig": {
+        "properties": {
+          "iterations": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Iterations",
+            "default": 5,
+            "examples": [
+              5
+            ]
+          },
+          "convergence_epsilon": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Convergence Epsilon",
+            "examples": [
+              0.005
+            ]
+          },
+          "convergence_window": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Convergence Window",
+            "default": 2,
+            "examples": [
+              2
+            ]
+          },
+          "kpi_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kpi Target",
+            "examples": [
+              "FAR < 0.1% at recall=100%"
+            ],
+            "description": "KPI stop condition (the primary AOI convergence gate). The loop stops when this target is met. Stored as deft_state.kpi_target."
+          },
+          "num_sdg": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Num Sdg",
+            "examples": [
+              200
+            ],
+            "description": "Per-iteration AnomalyGen sample budget for the on-fly AnomalyGen (routing) path. Unused by the pre-generated EA variant, where synthetic volume is emergent (topn x num_weak_targets)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PipelineConfig"
+      },
+      "ProfileInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "santomas_gdino",
+              "aoi_default"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "examples": [
+              "Grounding DINO profile tuned for the Santomas dataset.",
+              "Default AOI secondary-inspection fine-tuning profile."
+            ]
+          },
+          "workflow": {
+            "type": "string",
+            "title": "Workflow",
+            "examples": [
+              "tmm_only",
+              "aoi_active_learning"
+            ]
+          },
+          "config": {
+            "$ref": "#/components/schemas/ExperimentConfig",
+            "examples": [
+              {
+                "classes": {
+                  "pedestrian": 0.7,
+                  "vehicle": 0.99
+                },
+                "data_pool": {
+                  "path": "s3://deft-data/raw_frames/santomas/"
+                },
+                "embedding": {
+                  "model": "SigLIP",
+                  "model_path": "file:///mnt/deft/sda_required_data/siglip-base-patch16-224"
+                },
+                "kpi": {
+                  "ground_truth_dir": "s3://deft-data/kpi/santomas/labels/",
+                  "path": "s3://deft-data/kpi/santomas/images/"
+                },
+                "mining": {
+                  "metric": "cosine",
+                  "topn": 5
+                },
+                "model": {
+                  "checkpoint": "s3://deft-models/models/gdino_swin_tiny.pth",
+                  "name": "grounding_dino"
+                },
+                "pipeline": {
+                  "convergence_epsilon": 0.005,
+                  "convergence_window": 2,
+                  "iterations": 5
+                },
+                "training": {
+                  "batch_size": 4,
+                  "epochs": 5,
+                  "initial_spec_path": "lustre://deft-fs/training/specs/train_grounding_dino.yaml",
+                  "learning_rate": 2e-05,
+                  "num_gpus": 8,
+                  "freeze_backbone": true
+                }
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "workflow",
+          "config"
+        ],
+        "title": "ProfileInfo",
+        "examples": [
+          {
+            "config": {
+              "classes": {
+                "pedestrian": 0.7,
+                "vehicle": 0.99
+              },
+              "data_pool": {
+                "path": "s3://deft-data/raw_frames/santomas/"
+              },
+              "embedding": {
+                "model": "SigLIP",
+                "model_path": "file:///mnt/deft/sda_required_data/siglip-base-patch16-224"
+              },
+              "kpi": {
+                "ground_truth_dir": "s3://deft-data/kpi/santomas/labels/",
+                "path": "s3://deft-data/kpi/santomas/images/"
+              },
+              "mining": {
+                "metric": "cosine",
+                "topn": 5
+              },
+              "model": {
+                "checkpoint": "s3://deft-models/models/gdino_swin_tiny.pth",
+                "name": "grounding_dino"
+              },
+              "pipeline": {
+                "convergence_epsilon": 0.005,
+                "convergence_window": 2,
+                "iterations": 5
+              },
+              "training": {
+                "batch_size": 4,
+                "epochs": 5,
+                "initial_spec_path": "lustre://deft-fs/training/specs/train_grounding_dino.yaml",
+                "learning_rate": 2e-05,
+                "num_gpus": 8,
+                "freeze_backbone": true
+              }
+            },
+            "name": "santomas_gdino",
+            "description": "Grounding DINO profile tuned for the Santomas dataset.",
+            "workflow": "tmm_only"
+          },
+          {
+            "name": "aoi_default",
+            "description": "Default AOI secondary-inspection fine-tuning profile.",
+            "workflow": "aoi_active_learning",
+            "config": {
+              "model": {
+                "name": "aoi-secondary-inspection",
+                "checkpoint": "s3://aoi-models/baseline/1.0.0/model.pt",
+                "checkpoint_filename": "model.pt"
+              },
+              "data_pool": {
+                "path": "s3://aoi-training/snapshots/aoi-train-snapshot-123/",
+                "annotations_dir": "s3://aoi-training/snapshots/aoi-train-snapshot-123/labels/"
+              },
+              "kpi": {
+                "path": "s3://aoi-kpi/snapshots/aoi-kpi-snapshot-001/images/",
+                "ground_truth_dir": "s3://aoi-kpi/snapshots/aoi-kpi-snapshot-001/labels/"
+              },
+              "pipeline": {
+                "iterations": 3,
+                "convergence_epsilon": 0.005,
+                "convergence_window": 2
+              },
+              "training": {
+                "batch_size": 8,
+                "epochs": 5,
+                "num_gpus": 8
+              }
+            }
+          }
+        ]
+      },
+      "Progress": {
+        "properties": {
+          "current_iteration": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Current Iteration",
+            "examples": [
+              2
+            ]
+          },
+          "total_iterations": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Total Iterations",
+            "examples": [
+              5
+            ]
+          },
+          "current_step": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Step",
+            "examples": [
+              "train"
+            ]
+          },
+          "steps_completed": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "title": "Steps Completed",
+            "examples": [
+              [
+                "rca",
+                "routing",
+                "anomalygen",
+                "data_mining"
+              ]
+            ]
+          },
+          "completed_steps": {
+            "type": "integer",
+            "minimum": 0,
+            "title": "Completed Steps",
+            "examples": [
+              4
+            ],
+            "description": "Number of workflow steps completed in the current iteration."
+          },
+          "total_steps": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Total Steps",
+            "examples": [
+              6
+            ],
+            "description": "Total workflow steps expected in the current iteration: rca, routing, anomalygen, data_mining, train, evaluate."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "current_iteration",
+          "total_iterations",
+          "steps_completed"
+        ],
+        "title": "Progress"
+      },
+      "ResultsResponse": {
+        "properties": {
+          "best_checkpoint": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Best Checkpoint",
+            "examples": [
+              "lustre://deft-fs/deft_experiments/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/iter_3/train/train/weights.pt"
+            ]
+          },
+          "best_iteration": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Best Iteration",
+            "examples": [
+              3
+            ]
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold",
+            "examples": [
+              0.237481
+            ],
+            "description": "Decision threshold at recall=100% on the KPI set. Always use this value, never a spec/model default \u2014 it is the operating point the reported far_pct was measured at."
+          },
+          "far_pct": {
+            "type": "number",
+            "title": "Far Pct",
+            "examples": [
+              43.747
+            ],
+            "description": "False-accept rate achieved at `threshold`. Surface to operators alongside scores."
+          },
+          "backbone": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Backbone",
+            "examples": [
+              "lustre://deft-fs/backbones/c_radio_v2_b.ckpt"
+            ],
+            "description": "Path to the backbone checkpoint required to load best_checkpoint."
+          },
+          "images_dir": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Images Dir",
+            "examples": [
+              "lustre://deft-fs/kpi/images"
+            ],
+            "description": "Image root the model was evaluated against; a useful default for re-running on KPI data."
+          },
+          "training_spec": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Training Spec",
+            "examples": [
+              "lustre://deft-fs/deft_experiments/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/specs/baseline_spec.yaml"
+            ],
+            "description": "Training spec YAML used to produce best_checkpoint; read this for fields not exposed elsewhere in this response."
+          },
+          "best_checkpoint_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Checkpoint Sha256",
+            "description": "SHA-256 content digest (hex) of the best checkpoint file. Consumers that stage the artifact (e.g. the Model Manager pull, which requires a sha256 and rejects the download with 409 checksum_mismatch otherwise) verify the bytes against it. Optional: simulate-mode runs and older services may omit it or return null. Single-file only; multi-file model directories are not covered by one digest."
+          },
+          "metrics": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Metrics",
+            "examples": [
+              {
+                "mAP50": 0.775,
+                "pedestrian": 0.71,
+                "vehicle": 0.84
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "best_checkpoint",
+          "best_iteration",
+          "threshold",
+          "far_pct",
+          "backbone",
+          "images_dir",
+          "metrics"
+        ],
+        "title": "ResultsResponse",
+        "examples": [
+          {
+            "best_checkpoint": "lustre://deft-fs/deft_experiments/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/iter_3/train/train/weights.pt",
+            "best_iteration": 3,
+            "threshold": 0.237481,
+            "far_pct": 43.747,
+            "backbone": "lustre://deft-fs/backbones/c_radio_v2_b.ckpt",
+            "images_dir": "lustre://deft-fs/kpi/images",
+            "training_spec": "lustre://deft-fs/deft_experiments/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/specs/baseline_spec.yaml",
+            "metrics": {
+              "mAP50": 0.775,
+              "pedestrian": 0.71,
+              "vehicle": 0.84
+            }
+          }
+        ]
+      },
+      "RunDetailsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "per_iteration_metrics": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/IterationMetrics"
+                },
+                "title": "Per Iteration Metrics"
+              },
+              "resolved_config": {
+                "$ref": "#/components/schemas/ExperimentConfig",
+                "description": "The fully-merged ExperimentConfig actually used for this run \u2014 profile/workflow defaults with overrides (or the inline config) applied, resolved at creation time and frozen thereafter. Read this instead of re-resolving `profile` by name, since the profile definition may have changed since the run was created."
+              }
+            },
+            "required": [
+              "per_iteration_metrics",
+              "resolved_config"
+            ]
+          }
+        ],
+        "title": "RunDetailsResponse",
+        "description": "Full run record: the shared RunStatus plus per-iteration metrics."
+      },
+      "RunError": {
+        "properties": {
+          "step": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Step",
+            "examples": [
+              "train"
+            ]
+          },
+          "exit_code": {
+            "type": "integer",
+            "title": "Exit Code",
+            "examples": [
+              1
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Message",
+            "examples": [
+              "container exited with code 1"
+            ]
+          },
+          "logs": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Logs",
+            "examples": [
+              "lustre://deft-fs/runs/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/iter_1/train"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "step",
+          "exit_code",
+          "message",
+          "logs"
+        ],
+        "title": "RunError"
+      },
+      "RunStatus": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id",
+            "examples": [
+              "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+            ],
+            "format": "uuid"
+          },
+          "created_by": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Created By",
+            "examples": [
+              "alice@example.com"
+            ],
+            "description": "Identity (bearer-token subject) that created this run. Set server-side at creation time; never client-supplied."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "examples": [
+              "running"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "examples": [
+              "2026-04-29T12:34:56Z"
+            ]
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress",
+            "examples": [
+              {
+                "current_iteration": 2,
+                "total_iterations": 5,
+                "current_step": "train",
+                "steps_completed": [
+                  "rca",
+                  "routing",
+                  "anomalygen",
+                  "data_mining"
+                ],
+                "completed_steps": 4,
+                "total_steps": 6
+              }
+            ]
+          },
+          "backend": {
+            "$ref": "#/components/schemas/BackendInfo",
+            "examples": [
+              {
+                "run_id": "local",
+                "type": "docker"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "exit_code": 1,
+                "logs": "lustre://deft-fs/runs/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/iter_2/train",
+                "message": "container exited with code 1",
+                "step": "train"
+              }
+            ]
+          },
+          "convergence_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "kpi_met",
+                  "max_iterations_reached",
+                  "delta_below_epsilon",
+                  "hard_stop"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Convergence Reason",
+            "examples": [
+              "kpi_met"
+            ],
+            "description": "Why the loop stopped (set once terminal): kpi_met (KPI target reached), max_iterations_reached, delta_below_epsilon (mAP delta < convergence_epsilon), hard_stop (gate/error)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "created_by",
+          "state",
+          "created_at",
+          "progress",
+          "backend"
+        ],
+        "title": "RunStatus"
+      },
+      "StepLog": {
+        "properties": {
+          "iteration": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Iteration",
+            "examples": [
+              1
+            ]
+          },
+          "step": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Step",
+            "examples": [
+              "train"
+            ]
+          },
+          "stdout": {
+            "type": "string",
+            "title": "Stdout",
+            "examples": [
+              "training epoch 1/5\ntraining epoch 2/5\n"
+            ]
+          },
+          "stderr": {
+            "type": "string",
+            "title": "Stderr",
+            "examples": [
+              ""
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "iteration",
+          "step",
+          "stdout",
+          "stderr"
+        ],
+        "title": "StepLog"
+      },
+      "WorkflowInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "tmm_only",
+              "aoi_active_learning"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "examples": [
+              "Iterative mine-train-evaluate pipeline for object detection",
+              "AOI active-learning workflow with anomaly generation, fine-tuning, and evaluation."
+            ]
+          },
+          "pre_loop": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Pre Loop",
+            "examples": [
+              [
+                "initial_eval"
+              ]
+            ]
+          },
+          "loop": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Loop",
+            "examples": [
+              [
+                "rca",
+                "routing",
+                "anomalygen",
+                "data_mining",
+                "train",
+                "evaluate"
+              ]
+            ]
+          },
+          "post_loop": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Post Loop",
+            "examples": [
+              [
+                "results"
+              ]
+            ]
+          },
+          "relevant_config": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Relevant Config",
+            "examples": [
+              [
+                "model",
+                "data_pool",
+                "kpi",
+                "training",
+                "mining"
+              ]
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "pre_loop",
+          "loop",
+          "post_loop",
+          "relevant_config"
+        ],
+        "title": "WorkflowInfo",
+        "examples": [
+          {
+            "loop": [
+              "data_mining",
+              "train",
+              "evaluate"
+            ],
+            "name": "tmm_only",
+            "description": "Iterative mine-train-evaluate pipeline for object detection",
+            "post_loop": [
+              "results"
+            ],
+            "pre_loop": [
+              "initial_eval"
+            ],
+            "relevant_config": [
+              "model",
+              "data_pool",
+              "kpi",
+              "training",
+              "mining"
+            ]
+          },
+          {
+            "name": "aoi_active_learning",
+            "description": "AOI active-learning workflow with anomaly generation, fine-tuning, and evaluation.",
+            "pre_loop": [
+              "validate_training_pool",
+              "baseline_eval"
+            ],
+            "loop": [
+              "rca",
+              "routing",
+              "anomalygen",
+              "data_mining",
+              "train",
+              "evaluate"
+            ],
+            "post_loop": [
+              "register_candidate_model",
+              "publish_results"
+            ],
+            "relevant_config": [
+              "model",
+              "data_pool",
+              "kpi",
+              "training",
+              "pipeline"
+            ]
+          }
+        ]
+      },
+      "TrainingConfig": {
+        "properties": {
+          "epochs": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Epochs",
+            "default": 5,
+            "examples": [
+              5
+            ]
+          },
+          "learning_rate": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "title": "Learning Rate",
+            "default": 2e-05,
+            "examples": [
+              2e-05
+            ]
+          },
+          "num_gpus": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Num Gpus",
+            "default": 8,
+            "examples": [
+              8
+            ],
+            "maximum": 64,
+            "description": "Bounded by cluster GPU capacity; requests above the configured ceiling are rejected with 422."
+          },
+          "batch_size": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Size",
+            "examples": [
+              4
+            ]
+          },
+          "initial_spec_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Spec Path",
+            "examples": [
+              "lustre://deft-fs/training/specs/train_grounding_dino.yaml"
+            ]
+          },
+          "freeze_backbone": {
+            "type": "boolean",
+            "title": "Freeze Backbone",
+            "default": false,
+            "examples": [
+              false
+            ],
+            "description": "Freeze the model backbone during fine-tuning (the real spec flag; replaces the free-form freeze_strategy). Only binary true/false is supported."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "TrainingConfig"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "examples": [
+              "workflow_not_found"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "examples": [
+              "Workflow aoi_active_learning was not found."
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error",
+          "message"
+        ],
+        "title": "ErrorResponse"
+      },
+      "S3TemporaryCredentials": {
+        "properties": {
+          "access_key_id": {
+            "type": "string",
+            "title": "Access Key Id",
+            "examples": [
+              "<temporary-access-key-id>"
+            ]
+          },
+          "secret_access_key": {
+            "type": "string",
+            "title": "Secret Access Key",
+            "writeOnly": true,
+            "examples": [
+              "<temporary-secret-access-key>"
+            ]
+          },
+          "session_token": {
+            "type": "string",
+            "title": "Session Token",
+            "writeOnly": true,
+            "examples": [
+              "<temporary-session-token>"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "access_key_id",
+          "secret_access_key",
+          "session_token"
+        ],
+        "title": "S3TemporaryCredentials"
+      },
+      "TemporaryCredentialsStorageAccess": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "temporary_credentials"
+            ],
+            "title": "Type"
+          },
+          "endpoint_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint Url",
+            "examples": [
+              "https://s3.amazonaws.com"
+            ]
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region",
+            "examples": [
+              "us-west-2"
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At",
+            "examples": [
+              "2026-06-10T18:00:00Z"
+            ]
+          },
+          "credentials": {
+            "$ref": "#/components/schemas/S3TemporaryCredentials"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "expires_at",
+          "credentials"
+        ],
+        "title": "TemporaryCredentialsStorageAccess"
+      },
+      "PartialModelConfig": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "grounding_dino"
+            ]
+          },
+          "checkpoint": {
+            "type": "string",
+            "title": "Checkpoint",
+            "examples": [
+              "s3://deft-models/models/gdino_swin_tiny.pth"
+            ]
+          },
+          "checkpoint_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Filename",
+            "examples": [
+              "weights.pt"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PartialModelConfig",
+        "description": "Partial ModelConfig for overrides \u2014 same fields, none required."
+      },
+      "PartialDataPoolConfig": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "examples": [
+              "s3://deft-data/raw_frames/santomas/"
+            ]
+          },
+          "annotations_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotations Dir",
+            "examples": [
+              "s3://deft-data/odvg/santomas/"
+            ]
+          },
+          "detection_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection File",
+            "examples": [
+              "s3://deft-data/detections/pool.coco.json"
+            ]
+          },
+          "embeddings_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embeddings Path",
+            "examples": [
+              "s3://deft-data/embeddings/santomas.parquet"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PartialDataPoolConfig",
+        "description": "Partial DataPoolConfig for overrides \u2014 same fields, none required."
+      },
+      "PartialKpiConfig": {
+        "properties": {
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path",
+            "examples": [
+              "s3://deft-data/kpi/santomas/images/"
+            ]
+          },
+          "ground_truth_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ground Truth Dir",
+            "examples": [
+              "s3://deft-data/kpi/santomas/labels/"
+            ]
+          },
+          "inference_spec_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inference Spec Path",
+            "examples": [
+              "s3://deft-data/kpi/specs/infer.yaml"
+            ]
+          },
+          "analyze_spec_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyze Spec Path",
+            "examples": [
+              "s3://deft-data/kpi/specs/analyze.yaml"
+            ]
+          },
+          "detection_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection File",
+            "examples": [
+              "s3://deft-data/detections/kpi.coco.json"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PartialKpiConfig",
+        "description": "Partial KpiConfig for overrides \u2014 same fields, none required."
+      },
+      "PartialPipelineConfig": {
+        "properties": {
+          "iterations": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Iterations",
+            "default": 5,
+            "examples": [
+              5
+            ]
+          },
+          "convergence_epsilon": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Convergence Epsilon",
+            "examples": [
+              0.005
+            ]
+          },
+          "convergence_window": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Convergence Window",
+            "default": 2,
+            "examples": [
+              2
+            ]
+          },
+          "kpi_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kpi Target",
+            "examples": [
+              "FAR < 0.1% at recall=100%"
+            ],
+            "description": "KPI stop condition (the primary AOI convergence gate). The loop stops when this target is met. Stored as deft_state.kpi_target."
+          },
+          "num_sdg": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Num Sdg",
+            "examples": [
+              200
+            ],
+            "description": "Per-iteration AnomalyGen sample budget for the on-fly AnomalyGen (routing) path. Unused by the pre-generated EA variant, where synthetic volume is emergent (topn x num_weak_targets)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PartialPipelineConfig",
+        "description": "Partial PipelineConfig for overrides \u2014 same fields, none required."
+      },
+      "PartialTrainingConfig": {
+        "properties": {
+          "epochs": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Epochs",
+            "default": 5,
+            "examples": [
+              5
+            ]
+          },
+          "learning_rate": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "title": "Learning Rate",
+            "default": 2e-05,
+            "examples": [
+              2e-05
+            ]
+          },
+          "num_gpus": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Num Gpus",
+            "default": 8,
+            "examples": [
+              8
+            ],
+            "maximum": 64,
+            "description": "Bounded by cluster GPU capacity; requests above the configured ceiling are rejected with 422."
+          },
+          "batch_size": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Size",
+            "examples": [
+              4
+            ]
+          },
+          "initial_spec_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Spec Path",
+            "examples": [
+              "lustre://deft-fs/training/specs/train_grounding_dino.yaml"
+            ]
+          },
+          "freeze_backbone": {
+            "type": "boolean",
+            "title": "Freeze Backbone",
+            "default": false,
+            "examples": [
+              false
+            ],
+            "description": "Freeze the model backbone during fine-tuning (the real spec flag; replaces the free-form freeze_strategy). Only binary true/false is supported."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PartialTrainingConfig",
+        "description": "Partial TrainingConfig for overrides \u2014 same fields, none required."
+      },
+      "PartialEmbeddingConfig": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "SigLIP",
+              "CLIP"
+            ],
+            "title": "Model",
+            "default": "SigLIP",
+            "examples": [
+              "SigLIP"
+            ],
+            "description": "Embedding model. SigLIP/CLIP, or a TAO checkpoint via model_path (+ model_config_path)."
+          },
+          "num_gpus": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Num Gpus",
+            "default": 8,
+            "examples": [
+              8
+            ],
+            "maximum": 64,
+            "description": "Bounded by cluster GPU capacity; requests above the configured ceiling are rejected with 422."
+          },
+          "model_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Path",
+            "examples": [
+              "file:///mnt/deft/sda_required_data/siglip-base-patch16-224"
+            ]
+          },
+          "model_config_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Config Path",
+            "examples": [
+              "file:///mnt/deft/specs/embed_tao.yaml"
+            ],
+            "description": "Path to the matching TAO train-spec YAML. Required only when model_path is a TAO .pth/.ckpt checkpoint (needed to reconstruct the encoder); omit for SigLIP/CLIP."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PartialEmbeddingConfig",
+        "description": "Partial EmbeddingConfig for overrides \u2014 same fields, none required."
+      },
+      "PartialMiningConfig": {
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": [
+              "euclidean",
+              "cosine",
+              "manhattan"
+            ],
+            "title": "Metric",
+            "default": "cosine",
+            "examples": [
+              "cosine"
+            ],
+            "description": "k-NN distance metric (knn_metric). cosine for SigLIP/CLIP embeddings; euclidean/manhattan otherwise."
+          },
+          "rare_classes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rare Classes",
+            "examples": [
+              [
+                "pedestrian",
+                "bicycle"
+              ]
+            ]
+          },
+          "topn": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Topn",
+            "default": 5,
+            "examples": [
+              5
+            ],
+            "description": "Top-N nearest pool images retained per weak target (the AOI mining-count param; the grounding-dino workflow uses desired_unique_count + multiplier instead)."
+          },
+          "min_similarity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Similarity",
+            "default": 0.9,
+            "examples": [
+              0.9
+            ],
+            "description": "Cosine-similarity retention gate for real images (config.mining_filter.min_similarity). Defaults to 0.9 when unset."
+          },
+          "filter_by_label": {
+            "type": "boolean",
+            "title": "Filter By Label",
+            "default": false,
+            "examples": [
+              false
+            ],
+            "description": "Label-aware mining: only mine within the same label. Requires a `label` column in both embedding parquets (silent no-op otherwise)."
+          },
+          "desired_unique_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Desired Unique Count",
+            "examples": [
+              5000
+            ],
+            "description": "Target number of unique mined images (mining-count control used by the grounding-dino / object-detection workflow)."
+          },
+          "multiplier": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Multiplier",
+            "default": 10,
+            "examples": [
+              10
+            ],
+            "description": "Over-fetch multiplier applied to desired_unique_count before dedup (grounding-dino / object-detection workflow)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PartialMiningConfig",
+        "description": "`topn` (AOI k-NN retention) and `desired_unique_count`+`multiplier` (grounding-dino / object-detection over-fetch) are mutually exclusive parameterizations for two different workflow families \u2014 set one or the other, never both.",
+        "not": {
+          "required": [
+            "topn",
+            "desired_unique_count"
+          ]
+        }
+      },
+      "ExperimentConfigOverrides": {
+        "type": "object",
+        "additionalProperties": false,
+        "title": "ExperimentConfigOverrides",
+        "description": "Typed partial ExperimentConfig applied on top of a profile/workflow. Every section is optional; provided sections are deep-merged.",
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/PartialModelConfig"
+          },
+          "data_pool": {
+            "$ref": "#/components/schemas/PartialDataPoolConfig"
+          },
+          "kpi": {
+            "$ref": "#/components/schemas/PartialKpiConfig"
+          },
+          "classes": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number",
+                  "maximum": 1,
+                  "minimum": 0
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classes",
+            "examples": [
+              {
+                "pedestrian": 0.7,
+                "vehicle": 0.99
+              }
+            ]
+          },
+          "pipeline": {
+            "$ref": "#/components/schemas/PartialPipelineConfig"
+          },
+          "training": {
+            "$ref": "#/components/schemas/PartialTrainingConfig"
+          },
+          "embedding": {
+            "$ref": "#/components/schemas/PartialEmbeddingConfig"
+          },
+          "mining": {
+            "$ref": "#/components/schemas/PartialMiningConfig"
+          }
+        }
+      },
+      "FineTuneListResponse": {
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunStatus"
+            },
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "title": "Total",
+            "description": "Total number of runs matching the filter, independent of limit/offset."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "title": "Offset"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "FineTuneListResponse"
+      },
+      "StageEvent": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Seq",
+            "examples": [
+              7
+            ]
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ts",
+            "examples": [
+              "2026-05-04T07:12:31Z"
+            ]
+          },
+          "iter": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Iter",
+            "examples": [
+              "iter2"
+            ]
+          },
+          "stage": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Stage",
+            "examples": [
+              "train"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "title": "Status",
+            "examples": [
+              "ok"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "examples": [
+              "FAR 6.34% -> 3.11% (target <0.5%)"
+            ]
+          },
+          "duration_sec": {
+            "type": "integer",
+            "minimum": 0,
+            "title": "Duration Sec",
+            "examples": [
+              660
+            ]
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens",
+            "description": "Per-stage token usage (input, output, cache_read, cache_create, n_messages, models). Null until the run reaches a terminal state \u2014 backfilled once, at loop end, from the orchestration transcript.",
+            "examples": [
+              {
+                "input": 12000,
+                "output": 800,
+                "cache_read": 40000,
+                "cache_create": 2000,
+                "n_messages": 14,
+                "models": [
+                  "claude-sonnet-5"
+                ]
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "seq",
+          "ts",
+          "iter",
+          "stage",
+          "status",
+          "summary",
+          "duration_sec"
+        ],
+        "title": "StageEvent",
+        "description": "One entry per completed pipeline stage. Mirrors the on-disk loop_log.jsonl event \u2014 the pipeline's single source of truth for progress and outcomes."
+      },
+      "EventsResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "format": "uuid",
+            "title": "Id",
+            "examples": [
+              "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+            ]
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StageEvent"
+            },
+            "title": "Events"
+          },
+          "next_seq": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Seq",
+            "description": "Pass as `after_seq` to fetch events written since this page. Null if no further events exist yet."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "events",
+          "next_seq"
+        ],
+        "title": "EventsResponse"
+      },
+      "Artifact": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "state_snapshot",
+              "event_log",
+              "report_html",
+              "best_model_metadata",
+              "best_model_inference_spec"
+            ],
+            "title": "Name",
+            "examples": [
+              "report_html"
+            ]
+          },
+          "uri": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Uri",
+            "examples": [
+              "lustre://deft-fs/deft_experiments/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/DEFT_Loop_Report.html"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "examples": [
+              "2026-05-04T08:03:12Z"
+            ]
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "uri",
+          "updated_at"
+        ],
+        "title": "Artifact",
+        "description": "A pointer into the run's own storage backend (see InfoResponse.storage_root \u2014 lustre/S3/local). The API returns the URI; it does not proxy file contents."
+      },
+      "ArtifactsResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "format": "uuid",
+            "title": "Id",
+            "examples": [
+              "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234"
+            ]
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Artifact"
+            },
+            "title": "Artifacts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "artifacts"
+        ],
+        "title": "ArtifactsResponse",
+        "examples": [
+          {
+            "id": "3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234",
+            "artifacts": [
+              {
+                "name": "state_snapshot",
+                "uri": "lustre://deft-fs/deft_experiments/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/deft_state.json",
+                "updated_at": "2026-05-04T08:03:12Z",
+                "size_bytes": 4213
+              },
+              {
+                "name": "event_log",
+                "uri": "lustre://deft-fs/deft_experiments/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/loop_log.jsonl",
+                "updated_at": "2026-05-04T08:03:12Z",
+                "size_bytes": 15980
+              },
+              {
+                "name": "report_html",
+                "uri": "lustre://deft-fs/deft_experiments/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/DEFT_Loop_Report.html",
+                "updated_at": "2026-05-04T08:03:12Z",
+                "size_bytes": 88210
+              },
+              {
+                "name": "best_model_metadata",
+                "uri": "lustre://deft-fs/deft_experiments/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/best_model.json",
+                "updated_at": "2026-05-04T08:03:12Z",
+                "size_bytes": 512
+              },
+              {
+                "name": "best_model_inference_spec",
+                "uri": "lustre://deft-fs/deft_experiments/3f2a8b6e-7c4d-4e9a-8f1b-2c6d9e0a1234/best_model_inference_spec.yaml",
+                "updated_at": "2026-05-04T08:03:12Z",
+                "size_bytes": 2048
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Service access token. Required on every /v1/* endpoint except /v1/health. The token's subject becomes RunStatus.created_by on any run it creates. Tokens carrying the `deft:admin` scope may act on runs created by other identities; tokens without it are restricted to their own runs (403 otherwise)."
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
+}

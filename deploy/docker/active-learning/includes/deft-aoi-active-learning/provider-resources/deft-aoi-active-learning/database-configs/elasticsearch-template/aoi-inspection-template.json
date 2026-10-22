@@ -1,0 +1,132 @@
+{
+  "index_patterns": ["aoi_*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "text": {
+          "type": "text"
+        },
+        "vector": {
+          "type": "dense_vector",
+          "dims": 1024,
+          "index": true,
+          "similarity": "cosine"
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "source": { "type": "keyword" },
+            "content_metadata": {
+              "type": "object",
+              "properties": {
+                "doc_type":     { "type": "keyword" },
+                "uuid":         { "type": "keyword" },
+                "doc_i":        { "type": "integer" },
+                "chunkIdx":     { "type": "integer" },
+                "version":      { "type": "keyword" },
+                "description":  { "type": "text" },
+                "timestamp":    { "type": "date" },
+                "tag":          { "type": "keyword" },
+                "goldenRef":    { "type": "keyword" },
+                "machineId":    { "type": "keyword" },
+                "location":     { "type": "keyword" },
+                "jobType":      { "type": "keyword" },
+                "defectCount":  { "type": "integer" },
+                "objStorePath": { "type": "keyword" },
+                "imageType":    { "type": "keyword" },
+                "imageSize":    { "type": "long" },
+                "inferenceSummary": {
+                  "type": "object",
+                  "properties": {
+                    "status":          { "type": "keyword" },
+                    "cropCount":       { "type": "integer" },
+                    "completedCount":  { "type": "integer" },
+                    "failedCount":     { "type": "integer" },
+                    "deployment_type": { "type": "keyword" },
+                    "model_name":      { "type": "keyword" },
+                    "updatedAt":       { "type": "date" }
+                  }
+                },
+                "cropInfo": {
+                  "type": "nested",
+                  "properties": {
+                    "id":              { "type": "keyword" },
+                    "label":           { "type": "keyword" },
+                    "confirmed_label": { "type": "keyword" },
+                    "packageType": { "type": "keyword" },
+                    "partNumber":  { "type": "keyword" },
+                    "rotationAngle": { "type": "float" },
+                    "referenceLabels": { "type": "keyword" },
+                    "customInfo": {
+                      "type": "object",
+                      "properties": {
+                        "key":   { "type": "keyword" },
+                        "value": { "type": "keyword" }
+                      }
+                    },
+                    "crop": {
+                      "type": "object",
+                      "properties": {
+                        "cropType":   { "type": "keyword" },
+                        "image":      { "type": "keyword" },
+                        "crop_ratio": { "type": "float" },
+                        "coordinates": {
+                          "type": "object",
+                          "properties": {
+                            "top":    { "type": "integer" },
+                            "left":   { "type": "integer" },
+                            "width":  { "type": "integer" },
+                            "height": { "type": "integer" }
+                          }
+                        }
+                      }
+                    },
+                    "aoiDefectInfo": {
+                      "type": "object",
+                      "properties": {
+                        "defectType": { "type": "keyword" }
+                      }
+                    },
+                    "inference": {
+                      "type": "object",
+                      "properties": {
+                        "inspectionId": { "type": "keyword" },
+                        "status":    { "type": "keyword" },
+                        "score":     { "type": "float" },
+                        "verdict":   { "type": "keyword" },
+                        "threshold": { "type": "float" },
+                        "old_model": {
+                          "type": "object",
+                          "properties": {
+                            "model_name": { "type": "keyword" },
+                            "version":    { "type": "keyword" },
+                            "score":      { "type": "float" },
+                            "verdict":    { "type": "keyword" }
+                          }
+                        },
+                        "new_model": {
+                          "type": "object",
+                          "properties": {
+                            "model_name": { "type": "keyword" },
+                            "version":    { "type": "keyword" },
+                            "score":      { "type": "float" },
+                            "verdict":    { "type": "keyword" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

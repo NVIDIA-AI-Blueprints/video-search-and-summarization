@@ -1,0 +1,36 @@
+---
+{{- if not .Values.profile.production.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.kibana.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.kibana.fullnameOverride }}-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.kibana.fullnameOverride }}-deployment
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.kibana.fullnameOverride }}-deployment
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: kibana
+          image: "{{ .Values.kibana.image.repository }}:{{ .Values.kibana.image.tag }}"
+          imagePullPolicy: {{ .Values.kibana.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.kibana.resources | nindent 12 }}
+          env:
+            {{- range $key, $val := .Values.kibana.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          ports:
+            - containerPort: {{ .Values.kibana.service.port }}
+              name: http
+          resources:
+            {{- toYaml .Values.kibana.resources | nindent 12 }}
+{{- end }}

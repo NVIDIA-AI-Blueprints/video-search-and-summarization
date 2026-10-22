@@ -1,0 +1,27 @@
+[project]
+name = "deft-aoi-client"
+version = "0.1.0"
+description = "AOI Client — orchestrates AOI #2 second-inspection and publishes results to Kafka"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "aiokafka>=0.14.0",
+    "fastapi[standard]>=0.136.3",
+    "httpx>=0.28.0",
+    "pillow>=11.0.0",
+    "pydantic-settings>=2.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.setuptools]
+package-dir = {"client" = "."}
+packages = ["client", "client.api", "client.core", "client.shared"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["..", "."]

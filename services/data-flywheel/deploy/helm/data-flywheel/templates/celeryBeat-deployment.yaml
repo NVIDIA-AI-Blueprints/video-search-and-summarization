@@ -1,0 +1,88 @@
+---
+{{- if .Values.foundationalFlywheelServer.deployments.celeryBeat.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.foundationalFlywheelServer.deployments.celeryBeat.fullnameOverride }}-deployment
+spec:
+  replicas: 1  # Must be exactly 1 to prevent duplicate scheduled tasks
+  strategy:
+    type: Recreate  # Ensure old pod terminates before new one starts
+  selector:
+    matchLabels:
+      app: {{ .Values.foundationalFlywheelServer.deployments.celeryBeat.fullnameOverride }}-deployment
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.foundationalFlywheelServer.deployments.celeryBeat.fullnameOverride }}-deployment
+    spec:
+      {{- with .Values.foundationalFlywheelServer.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      containers:
+        - name: celery-beat
+          image: "{{ .Values.foundationalFlywheelServer.image.repository }}:{{ .Values.foundationalFlywheelServer.image.tag }}"
+          imagePullPolicy: Always
+          resources:
+            {{- toYaml .Values.foundationalFlywheelServer.deployments.celeryBeat.resources | nindent 12 }}
+          env:
+            - name: ELASTICSEARCH_URL
+              value: {{ .Values.foundationalFlywheelServer.deployments.celeryBeat.env.ELASTICSEARCH_URL | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.foundationalFlywheelServer.deployments.celeryBeat.env.REDIS_URL | quote }}
+            - name: MONGODB_URL
+              value: {{ .Values.foundationalFlywheelServer.deployments.celeryBeat.env.MONGODB_URL | quote }}
+            - name: MONGODB_DB
+              value: {{ .Values.foundationalFlywheelServer.deployments.celeryBeat.env.MONGODB_DB | quote }}
+            - name: COMPOSE_PROFILES
+              value: {{ .Values.profile.mlflow.COMPOSE_PROFILES | quote }}
+            - name: ES_COLLECTION_NAME
+              value: {{ .Values.foundationalFlywheelServer.deployments.celeryBeat.env.ES_COLLECTION_NAME | quote }}
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.nvidiaApiSecret.name | default "nvidia-api" }}
+                  key: {{ .Values.nvidiaApiSecret.key | default "NVIDIA_API_KEY" }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.hfSecret.name | default "hf-secret" }}
+                  key: {{ .Values.hfSecret.key | default "HF_TOKEN" }}
+            - name: LLM_JUDGE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  {{ if .Values.secrets.llmJudgeApiKey }}
+                  name: {{ .Values.llmJudgeSecret.name | default "llm-judge-api" }}
+                  key: {{ .Values.llmJudgeSecret.key | default "LLM_JUDGE_API_KEY" }}
+                  {{ else }}
+                  name: {{ .Values.nvidiaApiSecret.name | default "nvidia-api" }}
+                  key: {{ .Values.nvidiaApiSecret.key | default "NVIDIA_API_KEY" }}
+                  {{ end }}
+            - name: EMB_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  {{ if .Values.secrets.embApiKey }}
+                  name: {{ .Values.embSecret.name | default "emb-api" }}
+                  key: {{ .Values.embSecret.key | default "EMB_API_KEY" }}
+                  {{ else }}
+                  name: {{ .Values.nvidiaApiSecret.name | default "nvidia-api" }}
+                  key: {{ .Values.nvidiaApiSecret.key | default "NVIDIA_API_KEY" }}
+                  {{ end }}
+          command:
+            {{- toYaml .Values.foundationalFlywheelServer.deployments.celeryBeat.command | nindent 12 }}
+          volumeMounts:
+            - name: config-volume
+              mountPath: /legal/source/config/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: celery-beat-schedule
+              mountPath: /app/celerybeat-schedule
+      volumes:
+        - name: config-volume
+          configMap:
+            name: df-config
+        - name: celery-beat-schedule
+          emptyDir: {}  # Ephemeral storage for beat schedule - resets on pod restart
+{{- end }}
