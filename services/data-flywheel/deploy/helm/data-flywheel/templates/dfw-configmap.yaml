@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: df-config
+  namespace: {{ .Release.Namespace }}
+data:
+  config.yaml: |
+    {{- .Values.foundationalFlywheelServer.config | toYaml | nindent 4 }}

@@ -1,0 +1,15 @@
+---
+{{- if not .Values.profile.production.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.kibana.fullnameOverride }}-service
+spec:
+  selector:
+    app: {{ .Values.kibana.fullnameOverride }}-deployment
+  type: {{ .Values.kibana.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.kibana.service.port }}
+      targetPort: http
+{{- end }}

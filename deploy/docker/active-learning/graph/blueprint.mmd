@@ -1,0 +1,128 @@
+flowchart LR
+    n0["elasticsearch-aoi-template-bootstrap"]
+    n1["kafka-aoi-topic-bootstrap"]
+    n2["seaweedfs-bucket-bootstrap"]
+    n3["al-archiver"]
+    n4["aoi-client"]
+    n5["backend-api"]
+    n6["elasticsearch"]
+    n7["eval-slice-consumer"]
+    n8["eval-summary-consumer"]
+    n9["kafka"]
+    n10["kibana"]
+    n11["kpi-finalizer"]
+    n12["kpi-slice-consumer"]
+    n13["logstash"]
+    n14["seaweedfs-filer"]
+    n15["seaweedfs-master1"]
+    n16["seaweedfs-master2"]
+    n17["seaweedfs-master3"]
+    n18["seaweedfs-s3"]
+    n19["seaweedfs-volume1"]
+    n20["seaweedfs-volume2"]
+    n21["seaweedfs-volume3"]
+    n22["snapshot-finalizer"]
+    n23["snapshot-slice-consumer"]
+    n24["aoi-inference"]
+    n25["aoi-inference-api"]
+    n26["aoi-inference-triton"]
+    n27["data-flywheel-api"]
+    n28["data-flywheel-beat"]
+    n29["data-flywheel-model-manager"]
+    n30["data-flywheel-parent-worker"]
+    n31["data-flywheel-worker"]
+    n32["mlflow"]
+    n33["mongodb"]
+    n34["redis"]
+    n35["deft-service"]
+    n36[("aoi-inference-job-data")]
+    n37[("aoi-inference-model-repository")]
+    n38[("aoi-inference-references")]
+    n39[("aoi-inference-service-state")]
+    n3 -- backend -&gt; http --> n5
+    n3 -- kafka -&gt; broker --> n9
+    n4 -- kafka -&gt; broker --> n9
+    n4 -- aoi-inference -&gt; http --> n24
+    n5 -- aoi-client -&gt; http --> n4
+    n5 -- elasticsearch -&gt; http-api --> n6
+    n5 -- kafka -&gt; broker --> n9
+    n5 -- s3 -&gt; s3-api --> n18
+    n0 -- elasticsearch -&gt; http-api --> n6
+    n7 -- elasticsearch -&gt; http-api --> n6
+    n7 -- kafka -&gt; broker --> n9
+    n7 -- s3 -&gt; s3-api --> n18
+    n8 -- elasticsearch -&gt; http-api --> n6
+    n8 -- kafka -&gt; broker --> n9
+    n8 -- s3 -&gt; s3-api --> n18
+    n1 -- kafka -&gt; broker --> n9
+    n10 -- elasticsearch -&gt; http-api --> n6
+    n11 -- elasticsearch -&gt; http-api --> n6
+    n11 -- kafka -&gt; broker --> n9
+    n11 -- s3 -&gt; s3-api --> n18
+    n12 -- elasticsearch -&gt; http-api --> n6
+    n12 -- kafka -&gt; broker --> n9
+    n12 -- s3 -&gt; s3-api --> n18
+    n13 -- elasticsearch -&gt; http-api --> n6
+    n13 -- kafka -&gt; broker --> n9
+    n2 -- s3 -&gt; s3-api --> n18
+    n22 -- elasticsearch -&gt; http-api --> n6
+    n22 -- kafka -&gt; broker --> n9
+    n22 -- s3 -&gt; s3-api --> n18
+    n23 -- elasticsearch -&gt; http-api --> n6
+    n23 -- kafka -&gt; broker --> n9
+    n23 -- s3 -&gt; s3-api --> n18
+    n25 -- triton -&gt; triton-grpc --> n26
+    n27 -- storage-backend -&gt; http --> n5
+    n27 -- model-manager -&gt; http --> n29
+    n27 -- mlflow -&gt; http --> n32
+    n27 -- mongodb -&gt; mongodb --> n33
+    n27 -- redis -&gt; redis --> n34
+    n27 -- deft -&gt; http --> n35
+    n28 -- storage-backend -&gt; http --> n5
+    n28 -- model-manager -&gt; http --> n29
+    n28 -- mlflow -&gt; http --> n32
+    n28 -- mongodb -&gt; mongodb --> n33
+    n28 -- redis -&gt; redis --> n34
+    n28 -- deft -&gt; http --> n35
+    n29 -- aoi-inference -&gt; http --> n24
+    n30 -- storage-backend -&gt; http --> n5
+    n30 -- model-manager -&gt; http --> n29
+    n30 -- mlflow -&gt; http --> n32
+    n30 -- mongodb -&gt; mongodb --> n33
+    n30 -- redis -&gt; redis --> n34
+    n30 -- deft -&gt; http --> n35
+    n31 -- storage-backend -&gt; http --> n5
+    n31 -- model-manager -&gt; http --> n29
+    n31 -- mlflow -&gt; http --> n32
+    n31 -- mongodb -&gt; mongodb --> n33
+    n31 -- redis -&gt; redis --> n34
+    n31 -- deft -&gt; http --> n35
+    n35 -- storage-backend -&gt; http --> n5
+    n14 -. depends on .-> n15
+    n14 -. depends on .-> n16
+    n14 -. depends on .-> n17
+    n14 -. depends on .-> n19
+    n14 -. depends on .-> n20
+    n14 -. depends on .-> n21
+    n18 -. depends on .-> n14
+    n19 -. depends on .-> n15
+    n19 -. depends on .-> n16
+    n19 -. depends on .-> n17
+    n20 -. depends on .-> n15
+    n20 -. depends on .-> n16
+    n20 -. depends on .-> n17
+    n21 -. depends on .-> n15
+    n21 -. depends on .-> n16
+    n21 -. depends on .-> n17
+    n24 -. depends on .-> n25
+    n24 -. depends on .-> n26
+    n24 == Prefix / -&gt; 5000 ==> n25
+    n24 == Prefix /api/v1/model -&gt; 5000 ==> n26
+    n24 == Prefix /v1/model-routing -&gt; 5000 ==> n26
+    n24 == Prefix /v1/models -&gt; 5000 ==> n26
+    n36 -. job-data .- n25
+    n37 -. model-repository .- n25
+    n37 -. model-repository .- n26
+    n38 -. references .- n25
+    n39 -. service-state .- n25
+    n39 -. service-state .- n26

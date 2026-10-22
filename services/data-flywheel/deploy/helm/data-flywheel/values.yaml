@@ -1,0 +1,852 @@
+# Default values for data-flywheel.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+namespace: "nv-nvidia-blueprint-data-flywheel"
+
+# Deployment profile settings
+# - For production profile, kibana and Data Flywheel flower server are disabled
+#   For non-production profiles, kibana and Data Flywheel flower server are enabled
+# - For mlflow profile (default), COMPOSE_PROFILES is "mlflow"
+# - For non-mlflow profile, COMPOSE_PROFILES is "" (leave blank)
+profile:
+  production:
+    enabled: true
+  mlflow:
+    COMPOSE_PROFILES: "mlflow"
+
+# imagePullSecrets used for pulling candidate NIMs
+imagePullSecrets:
+  - name: nvcrimagepullsecret
+    registry: nvcr.io
+    username: $oauthtoken
+    password: <your_ngc_api_key>
+# ngcApiSecret used for pulling nemo customizer and model access
+ngcApiSecret:
+  name: "ngc-api"
+  key: "NGC_API_KEY"
+# nvidiaApiSecret used for accessing remote LLM judge
+nvidiaApiSecret:
+  name: "nvidia-api"
+  key: "NVIDIA_API_KEY"
+# hfSecret used in data-flywheel server
+hfSecret:
+  name: "hf-secret"
+  key: "HF_TOKEN"
+llmJudgeSecret:
+  name: "llm-judge-api"
+  key: "LLM_JUDGE_API_KEY"
+embSecret:
+  name: "emb-api"
+  key: "EMB_API_KEY"
+nvbugsSecret:
+  name: "nvbugs-db"
+# customNimSecret used for Custom NIM build & push credentials
+customNimSecret:
+  name: "custom-nim"
+
+# Secrets values - set these during deployment
+# (for example: helm install data-flywheel . \
+#   --set secrets.ngcApiKey=$NGC_API_KEY \
+#   --set secrets.hfToken=$HF_TOKEN)
+# Note: if you want not to set those via command line during helm install like above, you must create those Kubernetes secrets manually first
+secrets:
+  ngcApiKey: ""  # Set this to your NGC API key
+  nvidiaApiKey: "" # Set this to your NVIDIA API key
+  hfToken: "" # Set this to your HF Token
+  llmJudgeApiKey: "" # Set this to your LLM Judge API key
+  embApiKey: "" # Set this to your Embedding API key
+  # Custom NIM build credentials (required when crane.enabled=true)
+  customNimDockerUsername: ""  # Defaults to "$oauthtoken" (NGC standard)
+  customNimDockerPassword: ""  # Defaults to secrets.ngcApiKey if empty
+  # NVBugs database credentials (required when ingestion plugins use the bugnemo plugin)
+  nvbugsDbServer: ""
+  nvbugsDbUser: ""
+  nvbugsDbPassword: ""
+  nvbugsDbName: ""
+
+# Crane — build customized NIM images via Kubernetes Jobs (truly rootless)
+# Uses Google's crane (go-containerregistry) to append model layers and push
+# via pure HTTP registry API calls.  No Docker daemon, no user namespaces, no root required.
+# Set crane.enabled=true to provision RBAC, PVC, and wire up the celery worker.
+crane:
+  enabled: false
+  # Crane container image (debug variant includes a BusyBox shell)
+  image: "gcr.io/go-containerregistry/crane:debug"
+  # ServiceAccount created for the celery worker and Crane Jobs
+  serviceAccount: "dfw-crane-builder"
+  # Mount path inside the celery worker pod
+  buildContextDir: "/crane-workspace"
+  # PVC shared between celery worker and Crane pods
+  pvc:
+    name: "crane-build-context"
+    accessMode: "ReadWriteMany"
+    size: "50Gi"
+    storageClassName: ""  # leave empty for cluster default
+  # Pre-existing K8s secret (type: kubernetes.io/dockerconfigjson) for crane to pull/push.
+  # If set, the adapter uses this secret directly (must already exist in the namespace).
+  # If empty, Helm creates a "custom-nim" secret from imagePullSecrets and the adapter
+  # may also create temporary secrets from CUSTOM_NIM_DOCKER_USERNAME/PASSWORD.
+  registrySecret: "nvstaging-image-pull"
+
+# volcano version which is used in the nemo-microservices-helm-chart
+volcano:
+  enabled: true
+  version: "1.9.0"
+
+# Elasticsearch configuration
+elasticsearch:
+  enabled: true
+  image:
+    repository: docker.elastic.co/elasticsearch/elasticsearch
+    tag: 8.19.7
+  fullnameOverride: df-elasticsearch
+  service:
+    type: NodePort
+    port: 9200
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 1
+      ephemeral-storage: "5Gi"
+    limits:
+      memory: 4Gi
+      cpu: 2
+      ephemeral-storage: "10Gi"
+  env:
+    "ES_JAVA_OPTS": "-Xms2g -Xmx2g"
+    "network.host": "0.0.0.0"
+    "xpack.security.enabled": "false"
+    "discovery.type": "single-node"
+    "cluster.routing.allocation.disk.watermark.low": "99%"
+    "cluster.routing.allocation.disk.watermark.high": "99%"
+    "cluster.routing.allocation.disk.watermark.flood_stage": "99%"
+    "logger.org.elasticsearch": "ERROR"
+    "logger.org.elasticsearch.cluster": "ERROR"
+    "logger.org.elasticsearch.discovery": "ERROR"
+    "logger.org.elasticsearch.gateway": "ERROR"
+    "logger.org.elasticsearch.indices": "ERROR"
+    "logger.org.elasticsearch.node": "ERROR"
+    "logger.org.elasticsearch.transport": "ERROR"
+    "action.destructive_requires_name": "false"
+
+# Kibana configuration
+# (Kibana is enabled when current profile is not production)
+kibana:
+  fullnameOverride: df-kibana
+  image:
+    repository: docker.elastic.co/kibana/kibana
+    tag: 8.19.7
+  service:
+    type: NodePort
+    port: 5601
+  env:
+    ELASTICSEARCH_HOSTS: http://df-elasticsearch-service:9200
+    ELASTICSEARCH_REQUEST_TIMEOUT: 120000
+    ELASTICSEARCH_STARTUP_TIMEOUT: 120000
+    logging.root.level: off
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "1"
+      ephemeral-storage: "2Gi"
+    limits:
+      memory: "2Gi"
+      cpu: "2"
+      ephemeral-storage: "5Gi"
+
+# MongoDB configuration
+mongodb:
+  enabled: true
+  fullnameOverride: "df-mongodb"
+  image:
+    repository: mongo
+    tag: 7.0.25
+  service:
+    type: NodePort
+    port: 27017
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+      ephemeral-storage: "2Gi"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+      ephemeral-storage: "5Gi"
+
+# Redis configuration
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 7.4.7-alpine
+  fullnameOverride: "df-redis"
+  service:
+    type: NodePort
+    port: 6379
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+      ephemeral-storage: "2Gi"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+      ephemeral-storage: "5Gi"
+
+# Data Flywheel server configuration
+foundationalFlywheelServer:
+  image:
+    # Backend-specific image (nmp and deft are separate builds — see deploy/Dockerfile
+    # ARG BACKEND). Default values target the NMP backend; the DEFT deployment overrides
+    # this with the `-deft` image via deploy/helm/data-flywheel/values-deft.yaml.
+    repository: nvcr.io/nvstaging/blueprint/foundational-flywheel-server-nmp
+    tag: "26.08"
+  imagePullSecrets:
+    - name: nvcrimagepullsecret
+  # Deployments of the foundational flywheel server
+  deployments:
+    # api is the main service that handles the requests and returns the responses
+    api:
+      # api is enabled by default and must be enabled to use the flywheel server
+      enabled: true
+      fullnameOverride: "df-api"
+      service:
+        type: NodePort
+        port: 8000
+      env:
+        ELASTICSEARCH_URL: "http://df-elasticsearch-service:9200"
+        REDIS_URL: "redis://df-redis-service:6379/0"
+        MONGODB_URL: "mongodb://df-mongodb-service:27017"
+        MONGODB_DB: "flywheel"
+        ES_COLLECTION_NAME: "flywheel"
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "1"
+          ephemeral-storage: "10Gi"
+        limits:
+          memory: "2Gi"
+          cpu: "2"
+          ephemeral-storage: "20Gi"
+      command:
+        - "uv"
+        - "run"
+        - "uvicorn"
+        - "src.app:app"
+        - "--host"
+        - "0.0.0.0"
+        - "--port"
+        - "8000"
+    # celeryWorker is the worker that handles the tasks
+    celeryWorker:
+      # celeryWorker is enabled by default and must be enabled to use the flywheel server
+      enabled: true
+      fullnameOverride: "df-celery-worker"
+      env:
+        ELASTICSEARCH_URL: "http://df-elasticsearch-service:9200"
+        REDIS_URL: "redis://df-redis-service:6379/0"
+        MONGODB_URL: "mongodb://df-mongodb-service:27017"
+        MONGODB_DB: "flywheel"
+        ES_COLLECTION_NAME: "flywheel"
+        PLUGIN_SERVICE_URL: "http://df-ingestion-api-service:8001"
+      resources:
+        requests:
+          memory: "10Gi"
+          cpu: "4"
+          ephemeral-storage: "10Gi"
+        limits:
+          memory: "20Gi"
+          cpu: "8"
+          ephemeral-storage: "20Gi"
+      command:
+        - "uv"
+        - "run"
+        - "celery"
+        - "-A"
+        - "src.tasks.cli:celery_app"
+        - "worker"
+        - "--loglevel=info"
+        - "--concurrency=50"
+        - "--queues=celery"
+        - "-n"
+        - "main_worker@%h"
+        - "--purge"
+    # celeryParentWorker is the parent worker that orchestrates the tasks to celeryWorker
+    celeryParentWorker:
+      # celeryParentWorker is enabled by default and must be enabled to use the flywheel server
+      enabled: true
+      fullnameOverride: "df-celery-parent-worker"
+      env:
+        ELASTICSEARCH_URL: "http://df-elasticsearch-service:9200"
+        REDIS_URL: "redis://df-redis-service:6379/0"
+        MONGODB_URL: "mongodb://df-mongodb-service:27017"
+        MONGODB_DB: "flywheel"
+        ES_COLLECTION_NAME: "flywheel"
+        PLUGIN_SERVICE_URL: "http://df-ingestion-api-service:8001"
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "1"
+          ephemeral-storage: "10Gi"
+        limits:
+          memory: "2Gi"
+          cpu: "2"
+          ephemeral-storage: "20Gi"
+      command:
+        - "uv"
+        - "run"
+        - "celery"
+        - "-A"
+        - "src.tasks.cli:celery_app"
+        - "worker"
+        - "--loglevel=info"
+        - "--concurrency=1"
+        - "--queues=parent_queue"
+        - "-n"
+        - "parent_worker@%h"
+        - "--purge"
+    # celeryBeat is the scheduler that triggers retraining jobs based on cron schedules
+    celeryBeat:
+      # celeryBeat is enabled by default for automatic trigger execution
+      enabled: true
+      fullnameOverride: "df-celery-beat"
+      env:
+        ELASTICSEARCH_URL: "http://df-elasticsearch-service:9200"
+        REDIS_URL: "redis://df-redis-service:6379/0"
+        MONGODB_URL: "mongodb://df-mongodb-service:27017"
+        MONGODB_DB: "flywheel"
+        ES_COLLECTION_NAME: "flywheel"
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "1"
+          ephemeral-storage: "10Gi"
+        limits:
+          memory: "2Gi"
+          cpu: "2"
+          ephemeral-storage: "20Gi"
+      command:
+        - "uv"
+        - "run"
+        - "celery"
+        - "-A"
+        - "src.celery_app"
+        - "beat"
+        - "--loglevel=info"
+    # mlflowServer is the server that handles the mlflow server
+    # (Check if mlflow is enabled in the section `profile.mlflow.COMPOSE_PROFILES`)
+    mlflow:
+      fullnameOverride: "df-mlflow"
+      image: ghcr.io/mlflow/mlflow:v3.6.0
+      service:
+        type: NodePort
+        port: 5000
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "500m"
+          ephemeral-storage: "2Gi"
+        limits:
+          memory: "2Gi"
+          cpu: "2"
+          ephemeral-storage: "5Gi"
+      command:
+        - "mlflow"
+        - "server"
+        - "--host"
+        - "0.0.0.0"
+        - "--port"
+        - "5000"
+        - "--allowed-hosts"
+        - "df-mlflow-service:5000,localhost,localhost:5000"
+        - "--default-artifact-root"
+        - "./mlruns"
+        - "--serve-artifacts"
+    # flower is the celery flower server that shows the celery tasks
+    # (flower is enabled when current profile is not production)
+    flower:
+      fullnameOverride: "df-flower"
+      service:
+        type: NodePort
+        port: 5555
+      env:
+        ELASTICSEARCH_URL: "http://df-elasticsearch-service:9200"
+        REDIS_URL: "redis://df-redis-service:6379/0"
+        MONGODB_URL: "mongodb://df-mongodb-service:27017"
+        MONGODB_DB: "flywheel"
+        ES_COLLECTION_NAME: "flywheel"
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "1"
+          ephemeral-storage: "2Gi"
+        limits:
+          memory: "2Gi"
+          cpu: "2"
+          ephemeral-storage: "5Gi"
+      command:
+        - "uv"
+        - "run"
+        - "celery"
+        - "-A"
+        - "src.tasks.tasks"
+        - "flower"
+        - "--port=5555"
+  # Configuration file content of Data Flywheel to override the one in the Docker image
+  # (optionally change values according to your demand)
+  config:
+    nmp_config:
+      nemo_base_url: "http://nemo.test"
+      nim_base_url: "http://nim.test"
+      datastore_base_url: "http://data-store.test"
+
+      # All resources created in NeMo Microservices Platform (NMP) will be namespaced to this value
+      nmp_namespace: "dfwbp"
+
+    # Logging configuration
+    logging_config:
+      level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+    # MLflow configuration
+    # Note: MLflow is controlled by COMPOSE_PROFILES environment variable
+    # Set COMPOSE_PROFILES=mlflow to enable both the MLflow service and configuration
+    mlflow_config:
+      tracking_uri: "http://df-mlflow-service:5000"
+      experiment_name_prefix: "data-flywheel"
+      artifact_location: "./mlruns"
+
+    llm_judge_config:
+      # deployment_type: "remote"
+      # url: "http://0.0.0.0:9022/v1/chat/completions"
+      # model_name: "meta/llama-3.3-70b-instruct"
+      # To spin up a dedicated NIM in your cluster, comment the above uncomment and fill these:
+      deployment_type: "local"
+      model_name: "meta/llama-3.3-70b-instruct"
+      context_length: 32768
+      gpus: 4
+      pvc_size: 25Gi
+      tag: "1.8.5"
+
+    llm_job_config:
+      nims:
+        - model_name: "meta/llama-3.2-1b-instruct"
+          model_type: "llm"
+          context_length: 8192
+          gpus: 1
+          pvc_size: 25Gi
+          tag: "1.8.3"
+          customization_enabled: true
+          customizer_configs:
+            gpus: 1
+            max_seq_length: 8192
+            target: "meta/llama-3.2-1b-instruct@2.0"
+            # pod_spec:  # Optional: Kubernetes pod specification for customization jobs
+            #   tolerations:  # Tolerations for GPU nodes
+            #     - key: nvidia.com/gpu
+            #       operator: Equal
+            #       value: "true"
+            #       effect: NoSchedule
+            #     - key: astra.nvidia.com/reserved
+            #       operator: Equal
+            #       value: nemo
+            #       effect: NoSchedule
+            #   node_selectors:  # Target specific GPU types
+            #     nvidia.com/gpu.product: "NVIDIA-A100-80GB"
+            #   annotations:  # Pod annotations
+            #     sidecar.istio.io/inject: "false"
+
+        # - model_name: "meta/llama-3.2-3b-instruct"
+        #   model_type: "llm"
+        #   context_length: 32768
+        #   gpus: 1
+        #   pvc_size: 25Gi
+        #   tag: "1.8.3"
+        #   customization_enabled: true
+        #   customizer_configs:
+        #     gpus: 1
+        #     max_seq_length: 8192
+        #     target:
+        #       name: "meta/llama-3.2-3b-instruct@2.0"
+        #       target_type: "nemo"
+        #       description: "Customization target for Meta Llama 3.2 3B"
+        #       base_model: "meta/llama-3.2-3b-instruct"
+        #       model_uri: "ngc://nvidia/nemo/llama-3_2-3b-instruct:2.0"
+        #       hf_endpoint: ""
+        #       tokenizer: {}
+        #       num_parameters: 3000000000
+        #       precision: "bf16-mixed"
+        #     pod_spec:  # Optional: Kubernetes pod specification for customization jobs
+        #       tolerations:  # Tolerations for GPU nodes
+        #         - key: nvidia.com/gpu
+        #           operator: Equal
+        #           value: "true"
+        #           effect: NoSchedule
+        #         - key: astra.nvidia.com/reserved
+        #           operator: Equal
+        #           value: nemo
+        #           effect: NoSchedule
+        #       node_selectors:  # Target specific GPU types
+        #         nvidia.com/gpu.product: "NVIDIA-A100-80GB"
+        #       annotations:  # Pod annotations
+        #         sidecar.istio.io/inject: "false"
+
+        # - model_name: "meta/llama-3.1-8b-instruct"
+        #   model_type: "llm"
+        #   context_length: 32768
+        #   gpus: 1
+        #   pvc_size: 25Gi
+        #   tag: "1.8.3"
+        #   customization_enabled: true
+        #   customizer_configs:
+        #     gpus: 1
+        #     max_seq_length: 8192
+        #     target:
+        #       name: "meta/llama-3.1-8b-instruct@2.0"
+        #       target_type: "nemo"
+        #       description: "Customization target for Meta Llama 3.1 8B"
+        #       base_model: "meta/llama-3.1-8b-instruct"
+        #       model_path: "llama-3_1-8b-instruct_2_0"
+        #       model_uri: "ngc://nvidia/nemo/llama-3_1-8b-instruct-nemo:2.0"
+        #       hf_endpoint: ""
+        #       tokenizer: {}
+        #       num_parameters: 8000000000
+        #       precision: "bf16-mixed"
+        #     pod_spec:  # Optional: Kubernetes pod specification for customization jobs
+        #       tolerations:  # Tolerations for GPU nodes
+        #         - key: nvidia.com/gpu
+        #           operator: Equal
+        #           value: "true"
+        #           effect: NoSchedule
+        #         - key: astra.nvidia.com/reserved
+        #           operator: Equal
+        #           value: nemo
+        #           effect: NoSchedule
+        #       node_selectors:  # Target specific GPU types
+        #         nvidia.com/gpu.product: "NVIDIA-A100-80GB"
+        #       annotations:  # Pod annotations
+        #         sidecar.istio.io/inject: "false"
+
+        # - model_name: "meta/llama-3.3-70b-instruct"
+        #   model_type: "llm"
+        #   context_length: 32768
+        #   gpus: 4
+        #   pvc_size: 25Gi
+        #   tag: "1.8.5"
+
+      # Data split config:
+      # train, val, eval split sizes and ratios
+      data_split_config:
+        eval_size: 100
+        val_ratio: 0.1
+        min_total_records: 50
+        random_seed: null
+        limit: 1000 # Maximum number of records to process (null means no limit)
+        parse_function_arguments: true # parse function arguments to JSON objects for tool calling records
+
+      # ICL config:
+      # max context length, reserved tokens, max examples, min examples
+      # example_selection: "uniform_distribution" or "semantic_similarity"
+      icl_config:
+        max_context_length: 8192
+        reserved_tokens: 4096
+        max_examples: 3
+        min_examples: 1
+        example_selection: "semantic_similarity"
+        similarity_config:
+          relevance_ratio: 0.7
+          embedding_nim_config:
+            # deployment_type: "remote"
+            # url: "https://integrate.api.nvidia.com/v1/embeddings"
+            # model_name: "nvidia/llama-3.2-nv-embedqa-1b-v2"
+            deployment_type: "local"
+            model_name: "nvidia/llama-3.2-nv-embedqa-1b-v2"
+            context_length: 32768
+            gpus: 1
+            pvc_size: 25Gi
+            tag: "1.9.0"
+
+      # Training config:
+      # Customization config with default values
+      training_config:
+        training_type: "sft"
+        finetuning_type: "lora"
+        epochs: 2
+        batch_size: 16
+        learning_rate: 0.0001
+        # LoRA config:
+        # adapter dimension, adapter dropout
+        lora:
+          adapter_dim: 32
+          adapter_dropout: 0.1
+
+      # Evaluation config:
+      # Custom evaluation datasets (optional)
+      evaluation_config:
+        custom_evaluations: []
+        # custom_evaluations:
+        #   - name: "val-set-1"
+        #     workload_id: "val-set-1"
+        #     client_id: "client_456"
+
+      # DPO Training config example (uncomment and modify to use DPO):
+      # For DPO (Direct Preference Optimization), use this training_config instead:
+      # training_config:
+      #   training_type: "dpo"  # Set to "dpo" for preference optimization
+      #   finetuning_type: "all_weights"  # DPO typically uses all weights fine-tuning
+      #   epochs: 3
+      #   batch_size: 64
+      #   learning_rate: 0.00005
+      #   micro_batch_size: 1
+      #   tensor_parallel_size: 1
+      #   pipeline_parallel_size: 1
+      #   data_parallel_size: 1
+      #   training_precision: "bf16-mixed"
+      #   # DPO-specific hyperparameters:
+      #   dpo:
+      #     ref_policy_kl_penalty: 0.1
+      #     preference_loss_weight: 1.0
+      #     preference_average_log_probs: false
+      #     sft_loss_weight: 0.0
+      #     sft_average_log_probs: false
+
+    embedding_job_config:
+      nims:
+        - model_name: "nvidia/llama-3.2-nv-embedqa-1b-v2"
+          model_type: "embedding"
+          context_length: 32768
+          gpus: 1
+          pvc_size: 25Gi
+          tag: "1.9.0"
+          customization_enabled: true
+          customizer_configs:
+            gpus: 1
+            max_seq_length: 8192
+            target: "nvidia/llama-3.2-nv-embedqa-1b@v2"
+            # Optional parameters for creating a new target
+            # target:
+            #   name: "nvidia/llama-3.2-nv-embedqa-1b-v2@v2"
+            #   target_type: "nemo"
+            #   description: "Customization target for Nvidia Llama 3.2 NV EmbedQA 1B"
+            #   base_model: "nvidia/llama-3.2-nv-embedqa-1b-v2"
+            #   model_uri: "ngc://nvidia/nemo/llama-3_2-1b-embedding-base:0.0.1"
+            #   model_path: "llama32_1b-embedding"
+            #   num_parameters: 1000000000
+            #   precision: "bf16-mixed"
+            # pod_spec:  # Optional: Kubernetes pod specification for customization jobs
+            #   tolerations:  # Tolerations for GPU nodes
+            #     - key: nvidia.com/gpu
+            #       operator: Equal
+            #       value: "true"
+            #       effect: NoSchedule
+            #     - key: astra.nvidia.com/reserved
+            #       operator: Equal
+            #       value: nemo
+            #       effect: NoSchedule
+            #   node_selectors:  # Target specific GPU types
+            #     nvidia.com/gpu.product: "NVIDIA-A100-80GB"
+            #   annotations:  # Pod annotations
+            #     sidecar.istio.io/inject: "false"
+
+      evaluation_config:
+        # Embedding-specific evaluation metrics
+        embedding_eval_metrics:
+          metrics:
+            - "recall_5"
+            - "map"
+            - "P_5"
+            - "P_10"
+        # Custom evaluation datasets (optional)
+        # custom_evaluations:
+        #   - name: "custom-eval-dataset"
+        #     workload_id: "val-set-1"
+        #     client_id: "mozillacorebugs"
+
+      # Data split config for embeddings:
+      data_split_config:
+        val_ratio: 0.09
+        eval_size: 100
+        min_total_records: 50
+        random_seed: 42
+        # from_date: "2021-01-01"
+        # to_date: "2021-10-31"
+
+      # Training config for SFT embeddings finetuning:
+      # training_config:
+      #   training_type: "sft"
+      #   finetuning_type: "all_weights"
+      #   epochs: 1
+      #   batch_size: 64
+      #   learning_rate: 0.000005
+      #   micro_batch_size: 1
+      #   tensor_parallel_size: 1
+      #   pipeline_parallel_size: 1
+      #   use_sequence_parallel: false
+      #   training_precision: "bf16-mixed"
+
+
+      # Training config for embeddings:
+      training_config:
+        training_type: "sft"
+        finetuning_type: "lora_merged"
+        epochs: 1
+        batch_size: 64
+        learning_rate: 0.000025
+        min_learning_rate: 0.0000005
+        dataset_parameters:
+          in_batch_negatives: true
+          num_hard_negatives: 1
+        micro_batch_size: 1
+        weight_decay: 0.01
+        warmup_steps: 100
+        tensor_parallel_size: 1
+        pipeline_parallel_size: 1
+        data_parallel_size: 1
+        use_sequence_parallel: false
+        training_precision: "bf16-mixed"
+        lora:
+          adapter_dim: 32
+          alpha: 64
+          adapter_dropout: 0.01
+
+# Ingestion Plugins configuration
+# The ingestion plugins service handles data ingestion from external sources
+# (e.g., NVBugs database) into Elasticsearch before flywheel jobs run.
+ingestionPlugins:
+  enabled: true
+  image:
+    repository: nvcr.io/nvstaging/blueprint/dfw-ingestion-plugins
+    tag: "26.08"
+  imagePullSecrets:
+    - name: nvcrimagepullsecret
+  deployments:
+    # API gateway - FastAPI service that accepts ingestion requests
+    api:
+      enabled: true
+      fullnameOverride: "df-ingestion-api"
+      service:
+        type: ClusterIP
+        port: 8001
+      env:
+        ELASTICSEARCH_URL: "http://df-elasticsearch-service:9200"
+        REDIS_URL: "redis://df-redis-service:6379/0"
+        MONGODB_URL: "mongodb://df-mongodb-service:27017"
+        MONGODB_DB: "ingestion_plugins"
+      resources:
+        requests:
+          memory: "512Mi"
+          cpu: "500m"
+          ephemeral-storage: "2Gi"
+        limits:
+          memory: "1Gi"
+          cpu: "1"
+          ephemeral-storage: "5Gi"
+      command:
+        - "uv"
+        - "run"
+        - "uvicorn"
+        - "main:app"
+        - "--host"
+        - "0.0.0.0"
+        - "--port"
+        - "8001"
+    # Celery worker - executes plugin ingestion tasks
+    worker:
+      enabled: true
+      fullnameOverride: "df-ingestion-worker"
+      env:
+        ELASTICSEARCH_URL: "http://df-elasticsearch-service:9200"
+        REDIS_URL: "redis://df-redis-service:6379/0"
+        MONGODB_URL: "mongodb://df-mongodb-service:27017"
+        MONGODB_DB: "ingestion_plugins"
+        ES_COLLECTION_NAME: "flywheel"
+        LOG_LEVEL: "INFO"
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "1"
+          ephemeral-storage: "2Gi"
+        limits:
+          memory: "2Gi"
+          cpu: "2"
+          ephemeral-storage: "5Gi"
+      command:
+        - "uv"
+        - "run"
+        - "celery"
+        - "-A"
+        - "src.celery_app:celery_app"
+        - "worker"
+        - "--loglevel=info"
+        - "--concurrency=4"
+        - "--queues=ingestion_plugins"
+        - "-n"
+        - "plugin_worker@%h"
+
+# Nemo Microservices configuration
+nemo-microservices-helm-chart:
+  enabled: true
+
+  existingSecret: ngc-api
+  existingImagePullSecret: nvcrimagepullsecret
+
+  # kube-rbac-proxy sidecar: gcr.io/kubebuilder/ images were deprecated/removed; use Brancz image.
+  # v0.18.1 addresses CVE-2023-45288 (HTTP/2 DoS, fixed in v0.16.0) and
+  # CVE-2024-28180 (go-jose decompression bomb, fixed in v0.18.1).
+  nemo-operator:
+    controllerManager:
+      kubeRbacProxy:
+        image:
+          repository: quay.io/brancz/kube-rbac-proxy
+          tag: v0.18.1
+
+  data-store:
+    external:
+      rootUrl: http://data-store.test
+      domain: data-store.test
+    persistence:
+      size: 50Gi  # Increased from 2Gi to support large model fine-tuning uploads (2-8GB models)
+
+  guardrails:
+    env:
+      FETCH_NIM_APP_MODELS: "True"
+
+  ingress:
+    enabled: true
+
+  customizer:
+    enabled: true
+    modelsStorage:
+      storageClassName: standard
+    customizationTargets:
+      overrideExistingTargets: true
+      targets:
+        meta/llama-3.2-1b-instruct@2.0:
+          enabled: true
+        meta/llama-3.2-3b-instruct@2.0:
+          enabled: true
+        meta/llama-3.1-8b-instruct@2.0:
+          enabled: true
+        nvidia/llama-3.2-nv-embedqa-1b@v2:
+          enabled: true
+    customizerConfig:
+      training:
+        pvc:
+          storageClass: "standard"
+          size: "100Gi"
+          volumeAccessMode: "ReadWriteMany"
+    # Environment variables for the customizer service
+    # MAX_PENDING_JOB_MINUTES: Set to a high value to prevent premature job cancellation
+    # during multi-stage customization pipelines where elapsed time is calculated from
+    # the initial job creation (not per-stage)
+    #
+    # IMPORTANT: Adjust this value based on your dataset size and expected training time.
+    env:
+      MAX_PENDING_JOB_MINUTES: "180"  # 3 hours - adjust based on your dataset and training time
+    opentelemetry-collector:
+      enabled: false
+
+  deployment-management:
+    deployments:
+      defaultStorageClass: standard

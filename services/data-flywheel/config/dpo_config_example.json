@@ -1,0 +1,57 @@
+{
+  "name": "dpo_training_config",
+  "description": "Example DPO (Direct Preference Optimization) training configuration for the Data Flywheel Blueprint",
+  "config_type": "llm_job",
+  "config_data": {
+    "nims": [
+      {
+        "model_name": "meta/llama-3.2-1b-instruct",
+        "model_type": "llm",
+        "context_length": 8192,
+        "gpus": 1,
+        "pvc_size": "25Gi",
+        "tag": "1.8.3",
+        "customization_enabled": true,
+        "customizer_configs": {
+          "target": "meta/llama-3.2-1b-instruct@2.0",
+          "gpus": 1,
+          "max_seq_length": 4096
+        }
+      }
+    ],
+    "data_split_config": {
+      "eval_size": 100,
+      "val_ratio": 0.1,
+      "min_total_records": 50,
+      "random_seed": null,
+      "limit": 1000,
+      "parse_function_arguments": true
+    },
+    "icl_config": {
+      "max_context_length": 8192,
+      "reserved_tokens": 2048,
+      "max_examples": 2,
+      "min_examples": 1,
+      "example_selection": "uniform_distribution"
+    },
+    "training_config": {
+      "training_type": "dpo",
+      "finetuning_type": "all_weights",
+      "epochs": 3,
+      "batch_size": 64,
+      "learning_rate": 0.00005,
+      "micro_batch_size": 1,
+      "tensor_parallel_size": 1,
+      "pipeline_parallel_size": 1,
+      "data_parallel_size": 1,
+      "training_precision": "bf16-mixed",
+      "dpo": {
+        "ref_policy_kl_penalty": 0.1,
+        "preference_loss_weight": 1.0,
+        "preference_average_log_probs": false,
+        "sft_loss_weight": 0.0,
+        "sft_average_log_probs": false
+      }
+    }
+  }
+}

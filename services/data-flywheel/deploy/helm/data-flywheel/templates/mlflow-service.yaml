@@ -1,0 +1,13 @@
+---
+{{- if .Values.profile.mlflow.COMPOSE_PROFILES | eq "mlflow" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.foundationalFlywheelServer.deployments.mlflow.fullnameOverride }}-service
+spec:
+  selector:
+    app: {{ .Values.foundationalFlywheelServer.deployments.mlflow.fullnameOverride }}-deployment
+  type: {{ .Values.foundationalFlywheelServer.deployments.mlflow.service.type }}
+  ports:
+    - port: {{ .Values.foundationalFlywheelServer.deployments.mlflow.service.port }}
+{{- end }}

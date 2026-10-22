@@ -1,0 +1,6 @@
+# Lab Elasticsearch settings (single-node, security disabled).
+discovery.type: single-node
+network.host: 0.0.0.0
+http.port: 9200
+xpack.security.enabled: false
+xpack.security.http.ssl.enabled: false

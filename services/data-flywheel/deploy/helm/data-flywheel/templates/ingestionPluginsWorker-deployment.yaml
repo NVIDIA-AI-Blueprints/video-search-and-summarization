@@ -1,0 +1,67 @@
+---
+{{- if and .Values.ingestionPlugins.enabled .Values.ingestionPlugins.deployments.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.ingestionPlugins.deployments.worker.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.ingestionPlugins.deployments.worker.fullnameOverride }}-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.ingestionPlugins.deployments.worker.fullnameOverride }}-deployment
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.ingestionPlugins.deployments.worker.fullnameOverride }}-deployment
+    spec:
+      {{- with .Values.ingestionPlugins.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      containers:
+        - name: ingestion-worker
+          image: "{{ .Values.ingestionPlugins.image.repository }}:{{ .Values.ingestionPlugins.image.tag }}"
+          imagePullPolicy: Always
+          resources:
+            {{- toYaml .Values.ingestionPlugins.deployments.worker.resources | nindent 12 }}
+          env:
+            - name: ELASTICSEARCH_URL
+              value: {{ .Values.ingestionPlugins.deployments.worker.env.ELASTICSEARCH_URL | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.ingestionPlugins.deployments.worker.env.REDIS_URL | quote }}
+            - name: MONGODB_URL
+              value: {{ .Values.ingestionPlugins.deployments.worker.env.MONGODB_URL | quote }}
+            - name: MONGODB_DB
+              value: {{ .Values.ingestionPlugins.deployments.worker.env.MONGODB_DB | quote }}
+            - name: ES_COLLECTION_NAME
+              value: {{ .Values.ingestionPlugins.deployments.worker.env.ES_COLLECTION_NAME | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.ingestionPlugins.deployments.worker.env.LOG_LEVEL | quote }}
+            {{- if .Values.secrets.nvbugsDbServer }}
+            - name: NVBUGS_DBSERVER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.nvbugsSecret.name | default "nvbugs-db" }}
+                  key: NVBUGS_DBSERVER
+            - name: NVBUGS_DBUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.nvbugsSecret.name | default "nvbugs-db" }}
+                  key: NVBUGS_DBUSER
+            - name: NVBUGS_DBPWD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.nvbugsSecret.name | default "nvbugs-db" }}
+                  key: NVBUGS_DBPWD
+            - name: NVBUGS_DBNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.nvbugsSecret.name | default "nvbugs-db" }}
+                  key: NVBUGS_DBNAME
+            {{- end }}
+          command:
+            {{- toYaml .Values.ingestionPlugins.deployments.worker.command | nindent 12 }}
+{{- end }}

@@ -1,0 +1,5 @@
+aiokafka>=0.14.0
+fastapi[standard]>=0.136.3
+httpx>=0.28.0
+pillow>=11.0.0
+pydantic-settings>=2.0.0

@@ -1,0 +1,10 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+httpx>=0.27
+pytest>=8.0
+pytest-asyncio>=0.23
+# real-mode execution: build_pool.py crops component images
+pillow>=11.0.0
+# real-mode execution: materialize.py object-store fallback when no presign URL
+boto3>=1.34

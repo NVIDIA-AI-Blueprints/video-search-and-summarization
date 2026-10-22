@@ -1,0 +1,88 @@
+{
+  "name": "embedding_training_config",
+  "description": "Example embedding model training configuration for the Data Flywheel Blueprint",
+  "config_type": "embedding_job",
+  "config_data": {
+    "nims": [
+      {
+        "model_name": "nvidia/llama-nemotron-embed-1b-v2",
+        "model_type": "embedding",
+        "context_length": 32768,
+        "gpus": 1,
+        "pvc_size": "25Gi",
+        "tag": "1.13.0",
+        "customization_enabled": true,
+        "customizer_configs": {
+          "target": {
+            "name": "nvidia/llama-nemotron-embed-1b-v2",
+            "base_model": "nvidia-llama-nemotron-embed-1b-v2",
+            "model_uri": "hf://nvidia/llama-nemotron-embed-1b-v2",
+            "num_parameters": 1235814400,
+            "precision": "bf16",
+            "trust_remote_code": true,
+            "description": "NVIDIA Llama-Nemotron Embed 1B v2 (with custom LlamaBidirectionalModel code)"
+          },
+          "gpus": 1,
+          "max_seq_length": 8192
+        }
+      }
+    ],
+    "data_split_config": {
+      "val_ratio": 0.09,
+      "eval_size": 100,
+      "min_total_records": 50,
+      "random_seed": 42,
+      "limit": 2000
+    },
+    "training_config": {
+      "training_type": "sft",
+      "finetuning_type": "lora_merged",
+      "epochs": 3,
+      "batch_size": 16,
+      "learning_rate": 2.5e-05,
+      "min_learning_rate": 5e-07,
+      "dataset_parameters": {
+        "in_batch_negatives": true,
+        "num_hard_negatives": 1
+      },
+      "micro_batch_size": 1,
+      "weight_decay": 0.01,
+      "warmup_steps": 10,
+      "tensor_parallel_size": 1,
+      "pipeline_parallel_size": 1,
+      "data_parallel_size": 1,
+      "use_sequence_parallel": false,
+      "training_precision": "bf16-mixed",
+      "lora": {
+        "adapter_dim": 32,
+        "alpha": 64,
+        "adapter_dropout": 0.01
+      }
+    },
+    "evaluation_config": {
+      "embedding_eval_metrics": {
+        "metrics": [
+          "recall_5",
+          "map",
+          "P_5",
+          "P_10"
+        ]
+      },
+      "custom_evaluations": [
+        {
+          "name": "custom-eval-dataset",
+          "workload_id": "val-set-1",
+          "client_id": "mozillacorebugs"
+        }
+      ]
+    },
+    "ingestion_config": {
+      "plugin_name": "bugnemo",
+      "dataset_type": "bug_pairs",
+      "batch_size": 1000,
+      "config": {
+        "max_pairs": 2000
+      }
+    }
+  }
+}

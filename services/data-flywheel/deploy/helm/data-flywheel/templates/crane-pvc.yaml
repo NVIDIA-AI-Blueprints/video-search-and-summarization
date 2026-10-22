@@ -1,0 +1,20 @@
+{{- if .Values.crane.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.crane.pvc.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-flywheel-blueprint-helm-chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crane-build
+spec:
+  accessModes:
+    - {{ .Values.crane.pvc.accessMode | default "ReadWriteMany" }}
+  {{- if .Values.crane.pvc.storageClassName }}
+  storageClassName: {{ .Values.crane.pvc.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.crane.pvc.size | default "50Gi" }}
+{{- end }}

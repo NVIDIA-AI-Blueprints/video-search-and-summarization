@@ -1,0 +1,13 @@
+---
+{{- if .Values.mongodb.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.mongodb.fullnameOverride }}-service
+spec:
+  selector:
+    app: {{ .Values.mongodb.fullnameOverride }}-deployment
+  type: {{ .Values.mongodb.service.type }}
+  ports:
+    - port: {{ .Values.mongodb.service.port }}
+{{- end }}

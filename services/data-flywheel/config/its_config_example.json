@@ -1,0 +1,68 @@
+{
+  "name": "its_default",
+  "description": "ITS (Smart City) flywheel: POST this body to /api/configs to create at runtime the same config the its_job_config: block in config/config.deft.yaml declares at startup. Read that block first -- it carries the rationale for every value below, plus two caveats this payload cannot carry: ITS storage endpoints can only come from deft_config.use_case_endpoints in the YAML, and the eval.kpi_target metric key is an unconfirmed placeholder.",
+  "config_type": "its_job",
+  "config_data": {
+    "use_case": "its",
+    "model_name": "GDINO",
+    "model_format": "pth",
+    "selection": {
+      "mode": "query",
+      "filters": {
+        "created_after": "1970-01-01T00:00:00Z"
+      }
+    },
+    "kpi": {
+      "pull_from_storage": false,
+      "uri": null
+    },
+    "deft": {
+      "profile": "smart-city-object-detection",
+      "overrides": {
+        "classes": {
+          "road_sign": 0.22,
+          "car": 0.65,
+          "person": 0.05,
+          "bicycle": 0.5
+        },
+        "mining": {
+          "multiplier": 3
+        },
+        "model": {
+          "checkpoint": "s3://its-samples/models/baseline/grounding_dino.pth"
+        },
+        "training": {
+          "epochs": 5
+        }
+      }
+    },
+    "eval": {
+      "kpi_target": [
+        {
+          "metric": "macro_ap",
+          "op": ">=",
+          "threshold": 0.55
+        }
+      ]
+    },
+    "promotion_policy": {
+      "hitl": {
+        "pull": false,
+        "deploy": false,
+        "canary": true,
+        "full": true
+      },
+      "deployment_stages": {
+        "shadow": false,
+        "canary": false
+      },
+      "eval_harness": {
+        "enabled": false
+      },
+      "poll_interval_s": 10.0,
+      "poll_max_attempts": 90,
+      "auto_rollback_on_regression": false
+    },
+    "snapshot_poll_max_attempts": 120
+  }
+}

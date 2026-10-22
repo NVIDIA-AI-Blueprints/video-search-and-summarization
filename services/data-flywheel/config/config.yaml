@@ -1,0 +1,354 @@
+# ============================================================================
+# SYSTEM CONFIGURATION (Never changes - managed by system)
+# ============================================================================
+
+# Execution backend selection. `kind` chooses the backend provider
+# (currently "nmp"; "deft" reserved for a future implementation).
+# The BACKEND environment variable overrides this at runtime.
+backend:
+  kind: nmp
+
+nmp_config:
+  nemo_base_url: "http://nemo.test"
+  nim_base_url: "http://nim.test"
+  datastore_base_url: "http://data-store.test"
+  # All resources created in NeMo Microservices Platform (NMP) will be namespaced to this value
+  nmp_namespace: "dfwbp"
+
+# Logging configuration
+logging_config:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# MLflow configuration
+# Note: MLflow is controlled by COMPOSE_PROFILES environment variable
+# Set COMPOSE_PROFILES=mlflow to enable both the MLflow service and configuration
+mlflow_config:
+  # enabled: automatically set based on COMPOSE_PROFILES environment variable
+  tracking_uri: "http://0.0.0.0:5000"
+  experiment_name_prefix: "data-flywheel"
+  artifact_location: "./mlruns"
+
+llm_judge_config:
+  # deployment_type: "remote"
+  # url: "https://integrate.api.nvidia.com/v1/chat/completions"
+  # model_name: "meta/llama-3.3-70b-instruct"
+
+  # To spin up a dedicated NIM in your cluster, comment the above uncomment and fill these:
+  deployment_type: "local"
+  model_name: "meta/llama-3.3-70b-instruct"
+  context_length: 32768
+  gpus: 4
+  pvc_size: 25Gi
+  tag: "1.8.5"
+
+# ============================================================================
+# JOB-LEVEL CONFIGURATION (Can be changed by the user using the Configuration APIs)
+# ============================================================================
+
+llm_job_config:
+  nims:
+    - model_name: "meta/llama-3.2-1b-instruct"
+      model_type: "llm"
+      context_length: 8192
+      gpus: 1
+      pvc_size: 25Gi
+      tag: "1.8.3"
+      customization_enabled: true
+      customizer_configs:
+        gpus: 1
+        max_seq_length: 8192
+        # NMP 26.03: a bare string target resolves to the storage-less system/
+        # entity, so the customizer pod loads an empty /var/run/scratch/job/model
+        # and training crashes ("Repo id must be in the form ..."). Provide a
+        # CustomizerTarget with model_uri so create_target provisions an
+        # HF-backed weights fileset (via the dfwbp/hf-token secret) at
+        # dfwbp/meta-llama-3-2-1b-instruct — the same name the base NIM serves,
+        # so the trained LoRA adapter attaches to the running NIM.
+        target:
+          name: "meta/llama-3.2-1b-instruct@2.0"
+          base_model: "meta/llama-3.2-1b-instruct"
+          model_uri: "hf://meta-llama/Llama-3.2-1B-Instruct"
+          precision: "bf16"
+          description: "Meta Llama 3.2 1B Instruct base for LoRA customization"
+        # pod_spec:  # Optional: Kubernetes pod specification for customization jobs
+        #   tolerations:  # Tolerations for GPU nodes
+        #     - key: nvidia.com/gpu
+        #       operator: Equal
+        #       value: "true"
+        #       effect: NoSchedule
+        #     - key: astra.nvidia.com/reserved
+        #       operator: Equal
+        #       value: nemo
+        #       effect: NoSchedule
+        #   node_selectors:  # Target specific GPU types
+        #     nvidia.com/gpu.product: "NVIDIA-A100-80GB"
+        #   annotations:  # Pod annotations
+        #     sidecar.istio.io/inject: "false"
+
+    # - model_name: "meta/llama-3.2-3b-instruct"
+    #   model_type: "llm"
+    #   context_length: 32768
+    #   gpus: 1
+    #   pvc_size: 25Gi
+    #   tag: "1.8.3"
+    #   customization_enabled: true
+    #   customizer_configs:
+    #     gpus: 1
+    #     max_seq_length: 8192
+    #     target:
+    #       name: "meta/llama-3.2-3b-instruct@2.0"
+    #       target_type: "nemo"
+    #       description: "Customization target for Meta Llama 3.2 3B"
+    #       base_model: "meta/llama-3.2-3b-instruct"
+    #       model_uri: "ngc://nvidia/nemo/llama-3_2-3b-instruct:2.0"
+    #       hf_endpoint: ""
+    #       tokenizer: {}
+    #       num_parameters: 3000000000
+    #       precision: "bf16-mixed"
+    #     pod_spec:  # Optional: Kubernetes pod specification for customization jobs
+    #       tolerations:  # Tolerations for GPU nodes
+    #         - key: nvidia.com/gpu
+    #           operator: Equal
+    #           value: "true"
+    #           effect: NoSchedule
+    #         - key: astra.nvidia.com/reserved
+    #           operator: Equal
+    #           value: nemo
+    #           effect: NoSchedule
+    #       node_selectors:  # Target specific GPU types
+    #         nvidia.com/gpu.product: "NVIDIA-A100-80GB"
+    #       annotations:  # Pod annotations
+    #         sidecar.istio.io/inject: "false"
+
+    # - model_name: "meta/llama-3.1-8b-instruct"
+    #   model_type: "llm"
+    #   context_length: 32768
+    #   gpus: 1
+    #   pvc_size: 25Gi
+    #   tag: "1.8.3"
+    #   customization_enabled: true
+    #   customizer_configs:
+    #     gpus: 1
+    #     max_seq_length: 8192
+    #     target:
+    #       name: "meta/llama-3.1-8b-instruct@2.0"
+    #       target_type: "nemo"
+    #       description: "Customization target for Meta Llama 3.1 8B"
+    #       base_model: "meta/llama-3.1-8b-instruct"
+    #       model_path: "llama-3_1-8b-instruct_2_0"
+    #       model_uri: "ngc://nvidia/nemo/llama-3_1-8b-instruct-nemo:2.0"
+    #       hf_endpoint: ""
+    #       tokenizer: {}
+    #       num_parameters: 8000000000
+    #       precision: "bf16-mixed"
+    #     pod_spec:  # Optional: Kubernetes pod specification for customization jobs
+    #       tolerations:  # Tolerations for GPU nodes
+    #         - key: nvidia.com/gpu
+    #           operator: Equal
+    #           value: "true"
+    #           effect: NoSchedule
+    #         - key: astra.nvidia.com/reserved
+    #           operator: Equal
+    #           value: nemo
+    #           effect: NoSchedule
+    #       node_selectors:  # Target specific GPU types
+    #         nvidia.com/gpu.product: "NVIDIA-A100-80GB"
+    #       annotations:  # Pod annotations
+    #         sidecar.istio.io/inject: "false"
+
+    # - model_name: "meta/llama-3.3-70b-instruct"
+    #   model_type: "llm"
+    #   context_length: 32768
+    #   gpus: 4
+    #   pvc_size: 25Gi
+    #   tag: "1.8.5"
+
+  # Data split config:
+  # train, val, eval split sizes and ratios
+  data_split_config:
+    eval_size: 100
+    val_ratio: 0.1
+    min_total_records: 50
+    random_seed: null
+    limit: 1000 # Maximum number of records to process (null means no limit)
+    parse_function_arguments: true # parse function arguments to JSON objects for tool calling records
+
+  # ICL config:
+  # max context length, reserved tokens, max examples, min examples
+  # example_selection: "uniform_distribution" or "semantic_similarity"
+  icl_config:
+    max_context_length: 8192
+    reserved_tokens: 4096
+    max_examples: 3
+    min_examples: 1
+    example_selection: "semantic_similarity"
+    similarity_config:
+      relevance_ratio: 0.7
+      embedding_nim_config:
+        # deployment_type: "remote"
+        # url: "https://integrate.api.nvidia.com/v1/embeddings"
+        # model_name: "nvidia/llama-3.2-nv-embedqa-1b-v2"
+        deployment_type: "local"
+        model_name: "nvidia/llama-3.2-nv-embedqa-1b-v2"
+        context_length: 32768
+        gpus: 1
+        pvc_size: 25Gi
+        tag: "1.9.0"
+
+  # Training config:
+  # Customization config with default values
+  training_config:
+    training_type: "sft"
+    finetuning_type: "lora"
+    epochs: 2
+    batch_size: 16
+    learning_rate: 0.0001
+    # NMP 26.03 defaults warmup_steps to 100 when unset; that exceeds the
+    # total optimizer steps for small-dataset / short-epoch runs and the
+    # automodel config compiler aborts with
+    # ``ValueError: warmup_steps must be less than lr_decay_steps``. Set a
+    # small value that fits both small demo runs and longer real ones.
+    warmup_steps: 10
+    # LoRA config:
+    # adapter dimension, adapter dropout
+    lora:
+      adapter_dim: 32
+      adapter_dropout: 0.1
+
+  # DPO Training config example (uncomment and modify to use DPO):
+  # For DPO (Direct Preference Optimization), use this training_config instead:
+  # For DPO, use minimum 2 GPUS in the customizer_configs for 1b models if OOM issues are encountered.
+  # training_config:
+  #   training_type: "dpo"  # Set to "dpo" for preference optimization
+  #   finetuning_type: "all_weights"  # DPO typically uses all weights fine-tuning
+  #   epochs: 3
+  #   batch_size: 64
+  #   learning_rate: 0.00005
+  #   micro_batch_size: 1
+  #   tensor_parallel_size: 1
+  #   pipeline_parallel_size: 1
+  #   data_parallel_size: 1
+  #   training_precision: "bf16-mixed"
+  #   # DPO-specific hyperparameters:
+  #   dpo:
+  #     ref_policy_kl_penalty: 0.1
+  #     preference_loss_weight: 1.0
+  #     preference_average_log_probs: false
+  #     sft_loss_weight: 0.0
+  #     sft_average_log_probs: false
+
+  # Evaluation config:
+  # Custom evaluation datasets (optional)
+  evaluation_config:
+    custom_evaluations: []
+    # custom_evaluations:
+    #   - name: "val-set-1"
+    #     workload_id: "val-set-1"
+    #     client_id: "client_456"
+
+embedding_job_config:
+  nims:
+    - model_name: "nvidia/llama-nemotron-embed-1b-v2"
+      model_type: "embedding"
+      context_length: 32768
+      gpus: 1
+      pvc_size: 25Gi
+      tag: "1.13.0"
+      customization_enabled: true
+      customizer_configs:
+        gpus: 1
+        max_seq_length: 8192
+        target:
+          name: "nvidia/llama-nemotron-embed-1b-v2"
+          base_model: "nvidia-llama-nemotron-embed-1b-v2"
+          model_uri: "hf://nvidia/llama-nemotron-embed-1b-v2"
+          num_parameters: 1235814400
+          precision: "bf16"
+          trust_remote_code: true
+          description: "NVIDIA Llama-Nemotron Embed 1B v2 (with custom LlamaBidirectionalModel code)"
+        # # pod_spec:  # Optional: Kubernetes pod specification for customization jobs
+        #   tolerations:  # Tolerations for GPU nodes
+        #     - key: nvidia.com/gpu
+        #       operator: Equal
+        #       value: "true"
+        #       effect: NoSchedule
+        #     - key: astra.nvidia.com/reserved
+        #       operator: Equal
+        #       value: nemo
+        #       effect: NoSchedule
+        #   node_selectors:  # Target specific GPU types
+        #     nvidia.com/gpu.product: "NVIDIA-A100-80GB"
+        #   annotations:  # Pod annotations
+        #     sidecar.istio.io/inject: "false"
+
+  evaluation_config:
+    # Embedding-specific evaluation metrics
+    embedding_eval_metrics:
+      metrics:
+        - "recall_5"
+        - "map"
+        - "P_5"
+        - "P_10"
+    # Custom evaluation datasets (optional)
+    # custom_evaluations:
+    #   - name: "custom-eval-dataset"
+    #     workload_id: "val-set-1"
+    #     client_id: "mozillacorebugs"
+
+
+  # Data split config for embeddings:
+  data_split_config:
+    val_ratio: 0.09
+    eval_size: 100
+    min_total_records: 50
+    random_seed: 42
+    from_date: "2021-01-01"
+    to_date: "2023-10-31"
+
+  ingestion_config:
+    enabled: true
+    plugin_name: "bugnemo"
+    dataset_type: "bug_pairs"
+    config:
+      max_pairs: 1000
+
+  # Training config for SFT embeddings finetuning:
+  # training_config:
+  #   training_type: "sft"
+  #   finetuning_type: "all_weights"
+  #   epochs: 1
+  #   batch_size: 64
+  #   learning_rate: 0.000005
+  #   micro_batch_size: 1
+  #   tensor_parallel_size: 1
+  #   pipeline_parallel_size: 1
+  #   use_sequence_parallel: false
+  #   training_precision: "bf16-mixed"
+
+
+  # Training config for embeddings:
+  training_config:
+    training_type: "sft"
+    finetuning_type: "lora_merged"
+    epochs: 1
+    batch_size: 64
+    learning_rate: 0.000025
+    min_learning_rate: 0.0000005
+    dataset_parameters:
+      in_batch_negatives: true
+      num_hard_negatives: 1
+    micro_batch_size: 1
+    weight_decay: 0.01
+    warmup_steps: 100
+    tensor_parallel_size: 1
+    pipeline_parallel_size: 1
+    data_parallel_size: 1
+    use_sequence_parallel: false
+    training_precision: "bf16-mixed"
+    lora:
+      adapter_dim: 32
+      alpha: 64
+      adapter_dropout: 0.01
+
+# NOTE: DEFT (VSS-AOI) config lives in config.deft.yaml (loaded when BACKEND=deft).
+# This file is the NMP backend config.

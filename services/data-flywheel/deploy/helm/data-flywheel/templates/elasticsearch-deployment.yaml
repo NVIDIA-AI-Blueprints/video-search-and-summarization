@@ -1,0 +1,33 @@
+---
+{{- if .Values.elasticsearch.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.elasticsearch.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.elasticsearch.fullnameOverride }}-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.elasticsearch.fullnameOverride }}-deployment
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.elasticsearch.fullnameOverride }}-deployment
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: elasticsearch
+          image: "{{ .Values.elasticsearch.image.repository }}:{{ .Values.elasticsearch.image.tag }}"
+          imagePullPolicy: Always
+          resources:
+            {{- toYaml .Values.elasticsearch.resources | nindent 12 }}
+          ports:
+            - containerPort: {{ .Values.elasticsearch.service.port }}
+          env:
+            {{- range $key, $val := .Values.elasticsearch.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+{{- end }}

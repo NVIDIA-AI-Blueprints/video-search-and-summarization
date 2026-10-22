@@ -1,0 +1,45 @@
+{{- if .Values.crane.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.crane.serviceAccount }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-flywheel-blueprint-helm-chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crane-build
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.crane.serviceAccount }}-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-flywheel-blueprint-helm-chart.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.crane.serviceAccount }}-binding
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-flywheel-blueprint-helm-chart.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.crane.serviceAccount }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Values.crane.serviceAccount }}-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
