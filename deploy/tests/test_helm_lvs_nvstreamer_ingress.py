@@ -81,6 +81,28 @@ class LvsNvstreamerIngress(unittest.TestCase):
         self.assertTrue(any(d["kind"] == "Service" and d["metadata"]["name"] == name
                             for d in documents))
 
+    def test_component_naming_overrides_match_the_deployed_service(self):
+        cases = (
+            (("vios.vss-vios-nvstreamer.fullnameOverride=media",), "media"),
+            (("vios.vss-vios-nvstreamer.nameOverride=media",), "media"),
+            (("vios.vss-vios-nvstreamer.useReleaseNamePrefix=true",), "review-vss-vios-nvstreamer"),
+            (("global.useReleaseNamePrefix=true",
+              "vios.vss-vios-nvstreamer.fullnameOverride=media"), "media"),
+            (("global.useReleaseNamePrefix=true",
+              "vios.vss-vios-nvstreamer.nameOverride=media"), "review-media"),
+        )
+        for overrides, expected in cases:
+            with self.subTest(overrides=overrides):
+                documents = _render(*overrides)
+                service = next(d for d in documents if d["kind"] == "Service"
+                               and d["metadata"].get("labels", {}).get("app.kubernetes.io/name")
+                               == "vss-vios-nvstreamer")
+                rule = next(rule for d in documents if d["kind"] == "Ingress"
+                            for rule in d["spec"]["rules"]
+                            if rule.get("host") == "streamer.vss.example.com")
+                self.assertEqual(service["metadata"]["name"], expected)
+                self.assertEqual(rule["http"]["paths"][0]["backend"]["service"]["name"], expected)
+
     def test_disabled_components_do_not_publish_a_route(self):
         for override in ("vios.enabled=false", "vios.vss-vios-nvstreamer.enabled=false",
                          "vssIngress.enabled=false", "global.externalHost="):

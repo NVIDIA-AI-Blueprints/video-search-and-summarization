@@ -162,7 +162,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-vios-nvstreamer") }}
+                name: {{ include "vss.vios.objectName" (dict "root" . "chart" "vss-vios-nvstreamer") }}
                 port:
                   number: {{ ($nvstreamer.service | default dict).port | default 31000 }}
 {{- end }}
