@@ -11,6 +11,9 @@ from typing import Mapping
 OUTPUT_TOPICS = ("frames", "behavior", "events", "incidents")
 COMPLETE_TOPICS = ("raw",) + OUTPUT_TOPICS
 CORRECTED_FIELDS = ("min_s", "max_s", "avg_s", "p50_s", "p95_s", "p99_s")
+# min/max minus raw is not a percentile. A 60 s events/incidents sample
+# (n≈20) vs ~9k raw can go negative; KPIs only gate p50/p99.
+CLAMP_FIELDS = frozenset(("min_s", "max_s"))
 TOPIC_TITLES = {
     "RAW MESSAGES": "raw",
     "FRAMES MESSAGES": "frames",
@@ -75,12 +78,14 @@ def correct_topics(topics: Mapping[str, Mapping[str, float]]) -> dict[str, objec
         return {
             "success": False,
             "error": "raw topic has no messages",
+            "warning": None,
             "raw": dict(raw) if raw else None,
             "topics": {},
         }
 
     corrected: dict[str, dict[str, object]] = {}
     negatives: list[str] = []
+    clamped: list[str] = []
     for name in OUTPUT_TOPICS:
         measured = topics.get(name)
         if not measured or measured.get("count", 0) <= 0:
@@ -93,6 +98,10 @@ def correct_topics(topics: Mapping[str, Mapping[str, float]]) -> dict[str, objec
                 values[field] = None
                 continue
             value = round(float(measured[field]) - float(raw[field]), 6)
+            if value < 0 and field in CLAMP_FIELDS:
+                values[field] = 0.0
+                clamped.append(f"{name}.{field}")
+                continue
             values[field] = value
             if value < 0:
                 negatives.append(f"{name}.{field}")
@@ -102,6 +111,9 @@ def correct_topics(topics: Mapping[str, Mapping[str, float]]) -> dict[str, objec
     return {
         "success": not negatives and any(item.get("present") for item in corrected.values()),
         "error": f"negative corrected latency: {', '.join(negatives)}" if negatives else None,
+        "warning": (
+            f"clamped negative extrema to 0: {', '.join(clamped)}" if clamped else None
+        ),
         "raw": dict(raw),
         "topics": corrected,
     }

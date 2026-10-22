@@ -41,6 +41,7 @@ def build_result(
         "correction": "topic_summary_minus_raw",
         "success": correction["success"],
         "error": correction["error"],
+        "warning": correction.get("warning"),
         "raw": correction["raw"],
         "topics": correction["topics"],
     }

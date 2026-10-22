@@ -81,6 +81,26 @@ class LatencyTests(unittest.TestCase):
         self.assertAlmostEqual(frames["p50_s"], 0.01)
         self.assertGreaterEqual(frames["min_s"], 0.0)
 
+    def test_negative_extrema_are_clamped(self) -> None:
+        topics = parse_latency_report(SAMPLE_REPORT)
+        topics["events"]["max_s"] = topics["raw"]["max_s"] - 0.01
+        topics["incidents"]["min_s"] = topics["raw"]["min_s"] - 0.01
+        correction = correct_topics(topics)
+        self.assertTrue(correction["success"], correction)
+        self.assertIsNone(correction["error"])
+        self.assertIn("events.max_s", correction["warning"] or "")
+        self.assertIn("incidents.min_s", correction["warning"] or "")
+        self.assertEqual(correction["topics"]["events"]["corrected"]["max_s"], 0.0)
+        self.assertEqual(correction["topics"]["incidents"]["corrected"]["min_s"], 0.0)
+        self.assertGreater(correction["topics"]["events"]["corrected"]["p50_s"], 0.0)
+
+    def test_negative_p50_still_fails(self) -> None:
+        topics = parse_latency_report(SAMPLE_REPORT)
+        topics["frames"]["p50_s"] = topics["raw"]["p50_s"] - 0.01
+        correction = correct_topics(topics)
+        self.assertFalse(correction["success"])
+        self.assertIn("frames.p50_s", correction["error"] or "")
+
 
 class HttpTests(unittest.TestCase):
     def test_percentile_and_summarize(self) -> None:
