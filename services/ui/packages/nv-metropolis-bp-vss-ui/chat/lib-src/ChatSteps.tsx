@@ -9,9 +9,11 @@
  * half-written HTML tag.
  */
 import { IconChevronDown, IconChevronRight, IconLoader } from '@tabler/icons-react';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
+import { CodeBlock } from './markdown/CodeBlock';
 import { buildDisplayStepTree, countDisplaySteps } from './sse';
+import { parseStepPayload, type StepPayloadBlock } from './stepPayload';
 import type { ChatStep } from './types';
 
 const STATUS_DOT: Record<ChatStep['status'], string> = {
@@ -50,6 +52,34 @@ function isStepRunning(step: ChatStep, isLastSibling: boolean): boolean {
   if (!children.length) return true;
   return children.some((child, i) => isStepRunning(child, i === children.length - 1));
 }
+
+const StepPayload: React.FC<{ payload: string }> = ({ payload }) => {
+  const blocks = useMemo(() => parseStepPayload(payload), [payload]);
+  return (
+    <div className="my-1 flex flex-col gap-1" data-testid="step-payload">
+      {blocks.map((block, index) => (
+        <StepPayloadBlockView key={`${block.kind}-${block.label ?? ''}-${index}`} block={block} />
+      ))}
+    </div>
+  );
+};
+
+const StepPayloadBlockView: React.FC<{ block: StepPayloadBlock }> = ({ block }) => (
+  <div>
+    {block.label ? (
+      <div className="mb-1 text-xs font-semibold text-gray-600 dark:text-gray-300">{block.label}</div>
+    ) : null}
+    {block.kind === 'code' ? (
+      <div className="max-h-64 overflow-auto">
+        <CodeBlock language={block.language} value={block.value} />
+      </div>
+    ) : (
+      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-100 p-2 text-xs text-gray-800 dark:bg-neutral-800 dark:text-gray-200">
+        {block.value}
+      </pre>
+    )}
+  </div>
+);
 
 const StepNode: React.FC<{
   step: ChatStep;
@@ -94,11 +124,7 @@ const StepNode: React.FC<{
 
       {open && (
         <div className="ml-[5px] border-l border-gray-300 pl-3 dark:border-gray-600">
-          {step.payload ? (
-            <pre className="my-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-100 p-2 text-xs text-gray-800 dark:bg-neutral-800 dark:text-gray-200">
-              {step.payload}
-            </pre>
-          ) : null}
+          {step.payload ? <StepPayload payload={step.payload} /> : null}
           {step.children?.length ? (
             <ul className="flex flex-col gap-1">
               {step.children.map((child, i) => (

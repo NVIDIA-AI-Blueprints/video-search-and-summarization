@@ -6,6 +6,11 @@ import React from 'react';
 import { ChatSteps } from '../lib-src/ChatSteps';
 import type { ChatStep } from '../lib-src/types';
 
+jest.mock('common', () => ({
+  ...jest.requireActual('common'),
+  copyToClipboard: jest.fn().mockResolvedValue(true),
+}));
+
 const step = (
   id: string,
   status: ChatStep['status'] = 'complete',
@@ -149,7 +154,7 @@ describe('ChatSteps default expansion', () => {
 
     expect(screen.getByText('search')).toBeInTheDocument();
     expect(screen.queryByText('fetch-clip')).not.toBeInTheDocument();
-    expect(screen.queryByText('{"query":"forklift"}')).not.toBeInTheDocument();
+    expect(screen.queryByText(/"query": "forklift"/)).not.toBeInTheDocument();
   });
 
   it('opens a first-level step only after an explicit click', () => {
@@ -157,6 +162,46 @@ describe('ChatSteps default expansion', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /search/ }));
     expect(screen.getByText('fetch-clip')).toBeInTheDocument();
-    expect(screen.getByText('{"query":"forklift"}')).toBeInTheDocument();
+    expect(screen.getByTestId('step-payload')).toHaveTextContent('"query": "forklift"');
+  });
+
+  it('renders tool Input/Output as labeled pretty-printed code blocks', () => {
+    render(
+      <ChatSteps
+        steps={[
+          step('Tool: template_report_gen', 'complete', {
+            payload: [
+              '**Input:**',
+              '```python',
+              "{'incident_id': 'abc', 'info': {'objectTimeLine': '{\"280345\":[{\"start\":\"t\"}]}'}}",
+              '```',
+            ].join('\n'),
+          }),
+        ]}
+        expandByDefault
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Tool: template_report_gen/ }));
+
+    expect(screen.getByText('Input')).toBeInTheDocument();
+    expect(screen.queryByText('**Input:**')).not.toBeInTheDocument();
+    expect(screen.queryByText(/```python/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Copy code')).toBeInTheDocument();
+    expect(screen.getByTestId('step-payload')).toHaveTextContent('"incident_id": "abc"');
+    expect(screen.getByTestId('step-payload')).toHaveTextContent('"start": "t"');
+  });
+
+  it('keeps status prose out of a code block', () => {
+    render(
+      <ChatSteps
+        steps={[step('Agent run', 'in_progress', { payload: 'Waiting for the agent backend...' })]}
+        expandByDefault
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Agent run/ }));
+    expect(screen.getByText('Waiting for the agent backend...')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Copy code')).not.toBeInTheDocument();
   });
 });

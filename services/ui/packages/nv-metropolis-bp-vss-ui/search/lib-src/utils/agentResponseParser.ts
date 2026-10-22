@@ -22,24 +22,44 @@ function stripAgentThinkBlocks(text: string): string {
   return text.replace(AGENT_THINK_BLOCK, '');
 }
 
-function findMatchingBrace(text: string, startIndex: number): number {
-  let depth = 0;
+/**
+ * Complete `{ ... }` ranges from one left-to-right pass. Restarting a
+ * depth scan at every unmatched `{` is quadratic on a long malformed answer
+ * and Search runs this on the UI thread.
+ *
+ * Quotes are only string delimiters inside an object. An unmatched `"` in
+ * surrounding prose must not hide a later `{"data":[...]}` payload.
+ */
+function completeBraceObjects(text: string): { start: number; end: number }[] {
+  const objects: { start: number; end: number }[] = [];
+  const stack: number[] = [];
   let inString = false;
-  for (let i = startIndex; i < text.length; i++) {
-    const ch = text[i];
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charAt(i);
+    if (stack.length === 0) {
+      if (ch === '{') stack.push(i);
+      continue;
+    }
     if (inString) {
-      if (ch === '\\') i++;
-      else if (ch === '"') inString = false;
-    } else if (ch === '"') {
+      if (ch === '\\') {
+        i += 1;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
       inString = true;
-    } else if (ch === '{') {
-      depth++;
-    } else if (ch === '}') {
-      depth--;
-      if (depth === 0) return i;
+      continue;
+    }
+    if (ch === '{') stack.push(i);
+    else if (ch === '}') {
+      const start = stack.pop();
+      if (start !== undefined) objects.push({ start, end: i });
+      if (stack.length === 0) inString = false;
     }
   }
-  return -1;
+  return objects;
 }
 
 function asSearchApiShape(value: unknown): SearchApiShape | null {
@@ -79,27 +99,76 @@ function extractJsonFromCodeBlocks(text: string): SearchApiShape | null {
   return null;
 }
 
-function extractJsonFromText(text: string): SearchApiShape | null {
+function extractJsonFromCompleteObjects(text: string): SearchApiShape | null {
+  const objects = completeBraceObjects(text);
+  objects.sort((a, b) => a.start - b.start);
+  let skipUntil = 0;
+  for (const { start, end } of objects) {
+    if (start < skipUntil) continue;
+    try {
+      const parsed = asSearchApiShape(JSON.parse(text.slice(start, end + 1)));
+      if (parsed) return parsed;
+      // Well-formed object that is not the payload: skip it whole so a nested
+      // `data` array is not mistaken for the top-level result.
+      skipUntil = end + 1;
+    } catch {
+      // Malformed: inner complete objects may still be the real payload.
+      skipUntil = start + 1;
+    }
+  }
+  return null;
+}
+
+/**
+ * Independent match from each `{`, the way the original scanner recovered a
+ * payload after quoted prose such as `"{". Results: {"data":[...]}`.
+ * Bounded so a long unmatched-brace prefix cannot go quadratic.
+ */
+const MAX_INDEPENDENT_BRACE_STARTS = 128;
+
+function findMatchingBrace(text: string, startIndex: number): number {
+  let depth = 0;
+  let inString = false;
+  for (let i = startIndex; i < text.length; i += 1) {
+    const ch = text.charAt(i);
+    if (inString) {
+      if (ch === '\\') i += 1;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function extractJsonFromIndependentBraces(text: string): SearchApiShape | null {
   let brace = text.indexOf('{');
-  while (brace !== -1) {
+  let starts = 0;
+  while (brace !== -1 && starts < MAX_INDEPENDENT_BRACE_STARTS) {
+    starts += 1;
     const end = findMatchingBrace(text, brace);
     if (end === -1) {
       brace = text.indexOf('{', brace + 1);
       continue;
     }
-    let isValidJson = true;
     try {
       const parsed = asSearchApiShape(JSON.parse(text.slice(brace, end + 1)));
       if (parsed) return parsed;
+      brace = text.indexOf('{', end + 1);
     } catch {
-      isValidJson = false;
+      brace = text.indexOf('{', brace + 1);
     }
-    // A well-formed object that is not the payload is skipped whole so a nested
-    // `data` array is not mistaken for the top-level result; a malformed one
-    // may still enclose the real payload.
-    brace = text.indexOf('{', isValidJson ? end + 1 : brace + 1);
   }
   return null;
+}
+
+function extractJsonFromText(text: string): SearchApiShape | null {
+  return extractJsonFromCompleteObjects(text) ?? extractJsonFromIndependentBraces(text);
 }
 
 function transformToSearchData(data: unknown[]): SearchData[] {
