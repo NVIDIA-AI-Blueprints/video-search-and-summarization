@@ -1,0 +1,28 @@
+[importlinter]
+root_package = vss
+
+[importlinter:contract:capability-layers]
+name = VSS capability dependency direction
+type = layers
+layers =
+    vss.summarization
+    vss.ingestion
+    vss.video_processing
+
+[importlinter:contract:storage-independence]
+name = Storage has no capability or transport dependencies
+type = forbidden
+source_modules =
+    vss.storage
+forbidden_modules =
+    vss.ingestion
+    vss.summarization
+    vss.video_processing
+
+[importlinter:contract:processing-storage-independence]
+name = Processing has no storage orchestration dependency
+type = forbidden
+source_modules =
+    vss.video_processing
+forbidden_modules =
+    vss.storage

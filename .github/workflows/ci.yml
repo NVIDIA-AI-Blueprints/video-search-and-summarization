@@ -578,11 +578,24 @@ jobs:
             cli/src/vss_cli
           uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
             --cov=core/src --cov=cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+          uv run --no-sync pytest tests packages/vision-ai/tests -m "not functional"
+          uv run --no-sync pyright
+          uv run --no-sync ruff check \
+            src packages/ingestion/src packages/summarization/src \
+            packages/vision-ai/src packages/vision-ai/tests tests
+          uv run --no-sync ruff format --check \
+            src packages/ingestion/src packages/summarization/src \
+            packages/vision-ai/src packages/vision-ai/tests tests
+          uv run --no-sync lint-imports
           uv run --no-sync python ../../.github/osrb/test_osrb_scan.py
           uv run --no-sync python ../../.github/osrb/test_osrb_summary.py
           rm -rf dist
           uv build --package nvidia-vss-core
           uv build --package nvidia-vss-cli
+          uv build --package vss
+          uv build --package vss-ingestion
+          uv build --package vss-summarization
+          uv build --package nvidia-vss-vision-ai
 
       - name: Smoke-test built wheel in a clean environment
         run: |
