@@ -119,4 +119,47 @@ describe("chat proxy", () => {
     );
     expect(response.statusCode).toBe(204);
   });
+
+  it.each(["main", "sidebar"])(
+    "uses the server-only %s backend when public URLs are also configured",
+    async (surface) => {
+      process.env.NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL =
+        "http://public-host:8000/v1/chat/stream";
+      process.env.NEXT_PUBLIC_SIDEBAR_CHAT_HTTP_CHAT_COMPLETION_URL =
+        "http://public-host:8000/v1/chat/stream";
+      process.env.VSS_CHAT_BACKEND_MAIN =
+        "http://main-agent:8000/v1/chat/stream";
+      process.env.VSS_CHAT_BACKEND_SIDEBAR =
+        "http://sidebar-agent:8000/v1/chat/stream";
+      const fetchMock = jest.fn().mockResolvedValue({ ok: false, status: 503 });
+      global.fetch = fetchMock;
+      const request = {
+        method: "POST",
+        query: { surface },
+        headers: { "conversation-id": "conversation-1" },
+        body: { messages: [{ role: "user", content: "What happened?" }] },
+        on: jest.fn(),
+      } as unknown as NextApiRequest;
+      const response = mockResponse();
+
+      await handler(request, response);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        `http://${surface}-agent:8000/v1/chat/stream`,
+        expect.objectContaining({
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Conversation-Id": "conversation-1",
+          },
+          body: JSON.stringify(request.body),
+        }),
+      );
+      expect(response.statusCode).toBe(502);
+      expect(response.body).toEqual({
+        error: "agent backend returned HTTP 503",
+      });
+    },
+  );
 });

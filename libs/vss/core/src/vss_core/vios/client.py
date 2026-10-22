@@ -1035,10 +1035,10 @@ def normalise_media_url(media_url: str, origin: str) -> str:
     """Re-anchor a VIOS-issued URL on the origin the caller can actually reach.
 
     VIOS 3.2.0 can answer with a doubled scheme (``http://http://host/...``), a
-    bare ``/storage/...`` path, or a ``localhost`` host that does not resolve
-    from inside the VLM's container. Reduce whatever came back to its path and
-    re-attach the configured origin, so the handle works for whoever we give it
-    to rather than only for VIOS itself.
+    bare ``/storage/...`` path, or a host that does not resolve from the CLI.
+    Reduce whatever came back to its path and re-attach the configured origin
+    for client-side media requests. This says nothing about reachability from
+    a VLM container: retain the VIOS-issued service URL for server-side fetches.
 
     Unconditional on purpose. Re-anchoring a host that was already right is a
     no-op, and the case it would harm -- VIOS answering with a legitimately
