@@ -238,22 +238,25 @@ async def test_ingest_rejects_invalid_backend_lists(backends: list[str]) -> None
 
 
 @pytest.mark.parametrize(
-    ("alias", "canonical"),
-    [("rt_embed", "rtvi_embed"), ("rtvi-embed", "rtvi_embed")],
+    "alias",
+    ["rt_embed", "rtvi-embed"],
 )
-def test_persistent_ingestion_canonicalizes_alias_before_spec_resolution(
+def test_persistent_ingestion_rejects_embedding_aliases_before_spec_resolution(
     monkeypatch: pytest.MonkeyPatch,
     alias: str,
-    canonical: str,
 ) -> None:
     import vss.ingestion._persistent as persistent
+    from vss.storage import StorageConfigurationError
 
-    def capture(pipeline: str, **_: object) -> None:
-        assert pipeline == canonical
-        raise RuntimeError("spec captured")
-
-    monkeypatch.setattr(persistent, "capture_spec", capture)
-    with pytest.raises(RuntimeError, match="spec captured"):
+    monkeypatch.setattr(
+        persistent,
+        "capture_spec",
+        lambda *_args, **_kwargs: pytest.fail("unsupported backend reached execution"),
+    )
+    with pytest.raises(
+        StorageConfigurationError,
+        match="supports caption backends only",
+    ):
         ingest(RequestSource(), backends=[alias], storage=object())  # type: ignore[arg-type]
 
 

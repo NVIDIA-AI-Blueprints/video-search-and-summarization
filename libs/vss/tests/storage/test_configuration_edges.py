@@ -121,56 +121,30 @@ async def test_builtin_rtvi_freezes_absent_credentials_and_discovery_model(
     assert captured == [({}, None)]
 
 
-async def test_builtin_rtvi_embed_uses_submission_time_settings(tmp_path, monkeypatch):
-    from vss.ingestion import IngestionQueue, RTEmbedBackend
-    from vss.ingestion.contracts import VlmChunkResponse
-    from vss.storage import FileStorageAdapter
+@pytest.mark.parametrize("backend", ["rt_embed", "rtvi_embed", "rtvi-cv"])
+async def test_persistent_ingestion_rejects_non_caption_backends(
+    tmp_path, monkeypatch, backend
+):
+    from vss.ingestion import RTEmbedBackend, RTVICvBackend
+    from vss.storage import FileStorageAdapter, StorageConfigurationError
 
-    captured = []
+    called = False
 
-    async def finish(backend, source, **kwargs):
-        del source, kwargs
-        captured.append(
-            (
-                str(backend._transport._client.base_url).rstrip("/"),
-                backend._transport._headers,
-                backend._transport._model,
-            )
-        )
-        return [VlmChunkResponse(vlm_response="completed")]
+    async def fail_if_called(*args, **kwargs):
+        nonlocal called
+        called = True
 
-    monkeypatch.setattr(RTEmbedBackend, "ingest", finish)
-    monkeypatch.setenv("RTVI_EMBED_BASE_URL", "https://captured.example/v1")
-    monkeypatch.setenv("RTVI_EMBED_API_KEY", "captured-secret")
-    monkeypatch.setenv("RTVI_EMBED_MODEL", "captured-model")
-    queue = IngestionQueue(max_concurrency=1)
-    entered, release = asyncio.Event(), asyncio.Event()
-
-    async def blocker():
-        entered.set()
-        await release.wait()
-
-    head = queue.submit(blocker)
-    await entered.wait()
+    monkeypatch.setattr(RTEmbedBackend, "ingest", fail_if_called)
+    monkeypatch.setattr(RTVICvBackend, "ingest", fail_if_called)
     async with FileStorageAdapter(root=tmp_path) as storage:
-        job = ingest(
-            RequestSource(url="video.mp4"),
-            backends=["rtvi_embed"],
-            storage=storage,
-            queue=queue,
-        )
-        monkeypatch.setenv("RTVI_EMBED_BASE_URL", "https://later.example/v1")
-        monkeypatch.setenv("RTVI_EMBED_API_KEY", "later-secret")
-        monkeypatch.setenv("RTVI_EMBED_MODEL", "later-model")
-        release.set()
-        await head
-        await job
-        await job.wait_closed()
+        with pytest.raises(
+            StorageConfigurationError,
+            match="supports caption backends only",
+        ):
+            ingest(
+                RequestSource(url="video.mp4"),
+                backends=[backend],
+                storage=storage,
+            )
 
-    assert captured == [
-        (
-            "https://captured.example/v1",
-            {"Authorization": "Bearer captured-secret"},
-            "captured-model",
-        )
-    ]
+    assert not called

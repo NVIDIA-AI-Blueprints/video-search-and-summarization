@@ -175,6 +175,7 @@ class OpenAISummaryGenerator(SummaryGenerator):
                 },
                 {"role": "user", "content": user_input},
             ],
+            max_tokens=self._config.max_output_tokens,
         )
         choice = response.choices[0]
         usage = response.usage

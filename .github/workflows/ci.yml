@@ -569,7 +569,7 @@ jobs:
 
       - name: Build and test NAT-free base distribution
         run: |
-          uv sync --frozen
+          uv sync --frozen --all-packages
           uv run --no-sync mypy \
             core/src/vss_core/_foundation \
             core/src/vss_core/search_core \
@@ -578,13 +578,15 @@ jobs:
             cli/src/vss_cli
           uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
             --cov=core/src --cov=cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
-          # Unit tests only: live RTVI/Embed/VLM, native Elasticsearch, and
-          # end-to-end integration suites run in their service-owning lanes.
+          # Connection-free unit and pipeline tests only. Live RTVI/Embed/VLM,
+          # native Elasticsearch, and end-to-end suites run in owning lanes.
           uv run --no-sync pytest \
             packages/vision-ai/tests \
             tests/storage \
             tests/video_processing \
             tests/test_*.py \
+            tests/integration/test_ingestion_summarization.py \
+            tests/integration/test_vlm_decode_pipeline.py \
             --ignore=tests/storage/test_elasticsearch_native.py \
             --ignore=tests/storage/test_native_pipeline.py \
             -m "not functional and not integration"
@@ -605,6 +607,7 @@ jobs:
           uv build --package vss-ingestion
           uv build --package vss-summarization
           uv build --package nvidia-vss-vision-ai
+          uv build --project ../vision-ai --package nvidia-vision-ai --wheel --out-dir dist
 
       - name: Smoke-test built wheel in a clean environment
         run: |
@@ -643,6 +646,42 @@ jobs:
           assert vss_core.vlm is not None and vss_core.vios is not None
           PY
           .wheel-smoke/bin/vss --help >/dev/null
+
+      - name: Smoke-test public library and adapter wheels
+        run: |
+          set -- dist/vss-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          vss_whl="$1"
+          set -- dist/vss_ingestion-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          ingestion_whl="$1"
+          set -- dist/vss_summarization-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          summarization_whl="$1"
+          set -- dist/nvidia_vss_vision_ai-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          adapter_whl="$1"
+          set -- dist/nvidia_vision_ai-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          vision_ai_whl="$1"
+          uv pip install --python .wheel-smoke/bin/python --no-cache \
+            "$vss_whl" "$ingestion_whl" "$summarization_whl" "$adapter_whl" "$vision_ai_whl"
+          uv pip check --python .wheel-smoke/bin/python
+          .wheel-smoke/bin/python -I - <<'PY'
+          from importlib.metadata import entry_points
+
+          import vss.ingestion
+          import vss.storage
+          import vss.summarization
+          import vss.video_processing
+          from nvidia_vision_ai import Tool
+
+          matches = [ep for ep in entry_points(group="vision_ai.tools") if ep.name == "vss"]
+          assert len(matches) == 1, matches
+          tool = matches[0].load()
+          assert isinstance(tool, Tool)
+          assert tool.name == "vss"
+          PY
 
       - name: Upload lib coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2

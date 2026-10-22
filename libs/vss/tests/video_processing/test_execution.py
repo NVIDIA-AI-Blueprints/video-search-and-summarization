@@ -61,6 +61,18 @@ async def test_sequential_decode_preserves_frames_and_closes(
     assert len({frame.source_id for frame in frames}) == 1
 
 
+async def test_decode_to_eof_does_not_trust_underestimated_duration(
+    processing: Any,
+    register: Any,
+    video_path: Any,
+) -> None:
+    backend = register(duration_s=0.5)
+
+    frames = await collect(processing, video_path, decoder="memory")
+
+    assert [frame.timestamp_ns for frame in frames] == list(backend.timestamps_ns)
+
+
 async def test_decode_window_is_half_open(
     processing: Any,
     register: Any,

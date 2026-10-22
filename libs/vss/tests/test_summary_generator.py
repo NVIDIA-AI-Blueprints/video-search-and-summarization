@@ -47,6 +47,7 @@ async def test_openai_compatible_generator_adapter() -> None:
         client=client,
         model="configured-model",
         api_type="chat_completions",
+        max_output_tokens=321,
     )
 
     result = await generator.generate(
@@ -59,6 +60,7 @@ async def test_openai_compatible_generator_adapter() -> None:
     assert result.prompt_tokens == 12
     assert result.completion_tokens == 4
     assert completions.kwargs["model"] == "configured-model"
+    assert completions.kwargs["max_tokens"] == 321
     assert completions.kwargs["messages"][0]["content"] == ("Summarize accurately.")
     payload = json.loads(completions.kwargs["messages"][1]["content"])
     assert payload["events"][0]["description"] == "A person enters."

@@ -226,13 +226,18 @@ def ingest(
             raise StorageConfigurationError(
                 "Persistent ingestion requires exactly one backend"
             )
+        selected_backend = _canonical_backend(selected_backends[0])
+        if selected_backend in {"rtvi_embed", "rtvi_cv"}:
+            raise StorageConfigurationError(
+                "Persistent ingestion supports caption backends only"
+            )
         # Freeze only the new persistence path; legacy adapters still receive
         # the exact caller-owned RequestSource object as their contract promises.
         source = source.model_copy(deep=True)
         from ._persistent import capture_spec, validate_checkpoint_options
 
         spec = capture_spec(
-            _canonical_backend(selected_backends[0]),
+            selected_backend,
             prompt=prompt,
             model=model,
             decoder=decoder,
@@ -640,6 +645,7 @@ async def _run_cuda_ipc_ingestion(
     readiness = asyncio.create_task(wait_until_ready())
     primary_error: BaseException | None = None
     decode_task: asyncio.Task[None] | None = None
+    joined: asyncio.Future[Any] | None = None
     try:
         done, _ = await asyncio.wait(
             [readiness, *consumer_tasks],
@@ -653,7 +659,11 @@ async def _run_cuda_ipc_ingestion(
             )
         await readiness
         decode_task = asyncio.create_task(session.run())
-        await asyncio.gather(decode_task, *consumer_tasks)
+        joined = asyncio.gather(decode_task, *consumer_tasks)
+        # Shield the join so cancellation reaches this task immediately. The
+        # exception handler can then stop the broker before waiting for a
+        # native publication blocked on a free slot.
+        await asyncio.shield(joined)
         return dict(task.result() for task in consumer_tasks)
     except BaseException as error:
         primary_error = error
@@ -662,6 +672,8 @@ async def _run_cuda_ipc_ingestion(
             [*consumer_tasks, readiness]
             + ([] if decode_task is None else [decode_task])
         )
+        if joined is not None:
+            await asyncio.gather(joined, return_exceptions=True)
         raise
     finally:
         try:

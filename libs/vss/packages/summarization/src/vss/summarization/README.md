@@ -33,11 +33,11 @@ from vss.summarization import summarize_video
 
 
 async def main() -> None:
-    chunks = await ingest(
+    results = await ingest(
         RequestSource.for_file("/path/to/video.mp4"),
-        pipeline="cpu_vlm",
+        backends=["cpu_vlm"],
     )
-    completion = await summarize_video(chunks)
+    completion = await summarize_video(results["cpu_vlm"])
     result = json.loads(completion.choices[0].message.content)
     print(json.dumps(result, indent=2))
 

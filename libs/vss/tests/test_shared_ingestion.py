@@ -272,6 +272,80 @@ async def test_owned_cpu_consumer_honors_requested_decoder(
     assert observed_decoder == "opencv"
 
 
+async def test_cuda_ipc_cancellation_stops_broker_before_joining_decode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vss.video_processing.cuda_ipc as cuda_ipc
+
+    running = asyncio.Event()
+    stopped = asyncio.Event()
+
+    class FakeSession:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self.closed = False
+
+        async def prepare(self) -> None:
+            return None
+
+        def frame_source(self, consumer_id: str) -> str:
+            return consumer_id
+
+        async def run(self) -> None:
+            running.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                # Model a native publication that cannot settle until stop()
+                # releases its blocked broker slot.
+                await stopped.wait()
+
+        def stop(self) -> None:
+            stopped.set()
+
+        async def aclose(self, *, failed: bool) -> None:
+            assert failed
+            self.closed = True
+
+    class FakeBackend:
+        async def ingest_cuda_ipc(
+            self,
+            _source: RequestSource,
+            _frame_source: object,
+            ready: asyncio.Event,
+            **_kwargs: object,
+        ) -> list[VlmChunkResponse]:
+            ready.set()
+            await asyncio.Future()
+
+    monkeypatch.setattr(cuda_ipc, "CudaIpcDecodeSession", FakeSession)
+    task = asyncio.create_task(
+        ingestion_service._run_cuda_ipc_ingestion(
+            RequestSource(source_id="cancel-source"),
+            ["rtvi"],
+            [FakeBackend()],
+            SharedFrameCapability(
+                decoder="pynv",
+                transport="cuda_ipc",
+                pixel_format="nv12",
+                device_id=0,
+            ),
+            prompt="Describe.",
+            model=None,
+            chunk_duration=60,
+            chunk_overlap_duration=0,
+            generation_config=None,
+            buffer_depth=2,
+        )
+    )
+    await asyncio.wait_for(running.wait(), timeout=1)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1)
+
+    assert stopped.is_set()
+
+
 async def test_shared_consumer_failure_cancels_decode_and_sibling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

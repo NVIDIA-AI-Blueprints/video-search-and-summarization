@@ -403,18 +403,11 @@ async def _decode_stream(
             facts_callback(facts)
         origin = facts.timestamp_origin_ns or 0
         window = plan.window
-        duration_end = (
-            round(facts.duration_s * 1_000_000_000)
-            if facts.duration_s is not None
-            else None
-        )
+        # Reported duration is metadata, not a reliable EOF boundary. In
+        # particular, OpenCV derives it from frame count / FPS, which can
+        # underestimate variable-rate media. Only an explicit caller window
+        # may stop continuous decoding before the decoder reports native EOF.
         effective_end = window.end_ns
-        if duration_end is not None:
-            effective_end = (
-                min(effective_end, duration_end)
-                if effective_end is not None
-                else duration_end
-            )
         targets = plan.sample_timestamps_ns
         if targets is not None and facts.duration_s is not None:
             duration_ns = round(facts.duration_s * 1_000_000_000)

@@ -8,6 +8,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/vss"]
 
+[tool.hatch.build.targets.sdist]
+include = ["/src/vss", "/README.md"]
+
 [project]
 name = "vss"
 version = "0.1.0"
