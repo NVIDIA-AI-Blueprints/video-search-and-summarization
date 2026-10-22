@@ -11,13 +11,13 @@ import click
 
 from nvidia_vision_ai.memory import JobQuery
 from nvidia_vision_ai.memory import JobStatus
-from nvidia_vision_ai.memory import SqliteJobStore
 
 from .exits import Exit
 from .output import emit
 from .output import fail
 from .runtime import ConfigError
 from .runtime import Runtime
+from .store import SqliteJobStore
 
 
 def _store() -> SqliteJobStore:

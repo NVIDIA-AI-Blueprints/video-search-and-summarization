@@ -23,8 +23,7 @@ from pydantic import BaseModel
 from pydantic import SecretStr
 from pydantic import ValidationError
 
-from nvidia_vision_ai.memory import SqliteJobStore
-
+from .store import SqliteJobStore
 from .tool import secret_fields
 
 if TYPE_CHECKING:

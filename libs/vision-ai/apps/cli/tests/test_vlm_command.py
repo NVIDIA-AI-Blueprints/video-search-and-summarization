@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from nvidia_vision_ai.memory import JobQuery
-from nvidia_vision_ai.memory import SqliteJobStore
+from nvidia_vision_ai_cli.store import SqliteJobStore
 
 MEDIA = "https://example.com/clip.mp4"
 

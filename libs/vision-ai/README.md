@@ -51,7 +51,6 @@ vision-ai memory get vlm-01K7...
 ```python
 import asyncio
 from nvidia_vision_ai.vlm import Endpoint, VlmRequest, analyze
-from nvidia_vision_ai.memory import SqliteJobStore, JobQuery
 
 answer = asyncio.run(
     analyze(
