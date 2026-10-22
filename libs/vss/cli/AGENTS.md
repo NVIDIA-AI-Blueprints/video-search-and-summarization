@@ -197,3 +197,15 @@ vss search frame-capabilities --source-type video_file --raw
 The profile records concrete index identities, scoring version, selected modes,
 and a reproducibility fingerprint. Search output may include `frame_refinement`
 diagnostics; `no_match` and skipped refinement differ from failed refinement.
+
+
+### Optional source diversity
+
+`vss search run attribute --max-hits-per-source N` requires `video_file` sources
+and an explicit `--candidate-limit`. It selects from the complete eligible
+attribute ranking before applying `--top-k` and optional critic verification.
+Other modes and standalone primitives do not support it. The default is off.
+The `source_selection` envelope retains the original pool and selected positions;
+`data` contains the selected results. Truncation, conversion loss, or inconsistent
+attribute snapshots fail explicitly. Selection never retrieves or backfills
+after rejection. See the [benchmark protocol](../../../skills/benchmarking/benchmark-video-search/references/source-diversity.md).

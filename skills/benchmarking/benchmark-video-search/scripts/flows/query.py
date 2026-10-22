@@ -154,6 +154,7 @@ class CliQueryBackend:
         critic_input_height: int | None = None,
         critic_diagnostic_dir: str | None = None,
         retrieval_pool_size: int | None = None,
+        max_hits_per_source: int | None = None,
         frame_scoring: str = "auto",
         frame_lookup_transport: str = "auto",
     ) -> None:
@@ -167,6 +168,9 @@ class CliQueryBackend:
             raise ValueError("invalid frame_scoring")
         if frame_lookup_transport not in ("auto", "single", "msearch"):
             raise ValueError("invalid frame_lookup_transport")
+        if max_hits_per_source is not None and (type(max_hits_per_source) is not int or not 1 <= max_hits_per_source <= 100000):
+            raise ValueError("max_hits_per_source must be an integer in [1, 100000]")
+        self.max_hits_per_source = max_hits_per_source
         self.frame_scoring = frame_scoring
         self.frame_lookup_transport = frame_lookup_transport
         self.frame_profiles: dict[str, dict[str, Any]] = {}
@@ -330,10 +334,15 @@ class CliQueryBackend:
             "frame_scoring",
             "frame_lookup_transport",
             "frame_profiles",
+            "max_hits_per_source",
         ):
             value = getattr(self, name, None)
             if value is not None:
                 description[name] = value
+        if self.max_hits_per_source is not None:
+            from .source_selection import POLICY_VERSION
+            description["source_selection_policy"] = POLICY_VERSION
+            description["original_return_limit"] = self.retrieval_pool_size or self.candidate_limit
         return description
 
     def decomposition_for_query(self, query: str, query_id: str | None = None):
@@ -456,6 +465,11 @@ class CliQueryBackend:
         returned = plan.get("top_k") or self.top_k
         if self.retrieval_pool_size is not None:
             returned = min(returned, self.retrieval_pool_size)
+        if self.max_hits_per_source is not None:
+            if path != "attribute" or plan["source_type"] != "video_file" or self.candidate_limit is None:
+                raise QueryUnanswerableError("Source diversity requires exact attribute file search")
+            returned = self.retrieval_pool_size or self.candidate_limit
+            argv += ["--max-hits-per-source", str(self.max_hits_per_source)]
         argv += ["--top-k", str(returned)]
         if self.critic_enabled is False:
             argv += ["--no-critic"]
@@ -529,6 +543,37 @@ class CliQueryBackend:
             self.metadata_by_query[query_id or query] = metadata
         if timings:
             self.timings_by_query[query_id or query] = timings
+        envelope = metadata.pop("source_selection", None)
+        def selection_failure(reason):
+            metadata["source_selection_error"] = reason
+            if envelope is not None:
+                metadata["received_source_selection"] = envelope
+                metadata["received_selected_hits"] = hits
+            else:
+                metadata["candidate_pool"] = hits
+            self.metadata_by_query[query_id or query] = metadata
+            raise QueryUnanswerableError(reason)
+
+        if envelope is not None:
+            from .source_selection import validate_selection
+            try:
+                original = envelope.get("original_pool") if isinstance(envelope, dict) else None
+                selection = validate_selection(original, hits, envelope,
+                    cap=self.max_hits_per_source, requested=self.retrieval_pool_size or self.candidate_limit,
+                    candidate_limit=self.candidate_limit)
+                if selection["completeness"]["expected_scans"] != len(plan["attributes"]):
+                    raise ValueError("source selection scan count disagrees with requested attributes")
+            except (ValueError, TypeError, AttributeError) as exc:
+                selection_failure(f"Invalid source selection envelope: {exc}")
+            if self.max_hits_per_source is None:
+                selection_failure("Unexpected source selection envelope")
+            metadata["selection"] = selection
+            metadata["_selected_results"] = hits
+            hits = original
+        elif self.max_hits_per_source is not None:
+            selection_failure("Requested source selection envelope is missing")
+        if metadata:
+            self.metadata_by_query[query_id or query] = metadata
         diagnostics = metadata.get("frame_refinement") or []
         expected = self.frame_profiles.get(plan["source_type"])
         failure = any(row.get("status") == "failed" for row in diagnostics)
@@ -612,6 +657,8 @@ def parse_cli_output(
         if "event" in payload and "data" not in payload:
             continue
         if "data" in payload:
+            if metadata is not None and "source_selection" in payload and payload["source_selection"] is not None:
+                metadata["source_selection"] = payload["source_selection"]
             if metadata is not None and "candidate_coverage" in payload:
                 metadata["candidate_coverage"] = payload["candidate_coverage"]
             if "frame_refinement" in payload and payload["frame_refinement"] is not None:

@@ -1,0 +1,54 @@
+{
+  "scope": "Local synthetic scale checks; actual Elasticsearch correctness is tested separately. No deployment or model inference.",
+  "patch_sha256": "f6af5f49e03f615d213a7f3560e6c1af0066f3566406e22dc476d8d3f34af06c",
+  "baseline_revision": "1993b942d",
+  "snapshot_scale": {
+    "eligible": 100000,
+    "returned": 100000,
+    "json_bytes": 12078406,
+    "elapsed_seconds": 0.7789950137957931,
+    "rss_baseline_kib": 70624,
+    "rss_peak_kib": 193060,
+    "rss_delta_kib": 122436,
+    "snapshot": {
+      "index": "gallery-*",
+      "field": "embeddings.vector",
+      "indexed": 100000,
+      "exhaustive": true,
+      "budget": 100000,
+      "snapshot_verified": true,
+      "snapshot_digest": "320bbf0f2b583785d41474e401618d00930ad5b7acedebfd607792105d428511",
+      "snapshot_indices": [
+        {
+          "name": "gallery-1",
+          "uuid": "uuid-one"
+        }
+      ],
+      "snapshot_scope_digest": "4c10e894e2746c9a4a35a4996e5da24492f2adc956a9a24a85835bfda994fe56",
+      "eligible_documents": 100000,
+      "scored_documents": 100000,
+      "retained_documents": 100000,
+      "score_filtered_documents": 0,
+      "min_score": 0.0,
+      "scoped_documents": null,
+      "missing_vector_documents": null
+    }
+  },
+  "artifact_scale": {
+    "scope": "synthetic complete-pool model -> CLI parser -> artifact; no deployed inference",
+    "candidates": 100000,
+    "selected": 10,
+    "cli_json_bytes": 23892197,
+    "artifact_json_bytes": 35693611,
+    "elapsed_s": 3.252337667159736,
+    "rss_baseline": 57696,
+    "rss_peak": 610908,
+    "rss_units": "KiB on Linux; bytes on macOS",
+    "platform": "linux"
+  },
+  "limitations": [
+    "Synthetic fixtures, not dataset-quality or end-to-end latency measurements.",
+    "RSS includes Python, serialization, and parser buffers; sizes depend on result payload.",
+    "Independent behavior snapshots do not make frame lookups or VST metadata atomic."
+  ]
+}

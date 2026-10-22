@@ -105,6 +105,7 @@ class DriveScoring:
         eligible_set = set(eligible)
 
         rows: list[dict[str, Any]] = []
+        selected_records = []
         unanswered = 0
         eligible_failures = []
         excluded_failures = []
@@ -145,6 +146,8 @@ class DriveScoring:
                 ground_truth, qi, record.hits, record.search_latency_s or 0.0
             )
             rows.append(row)
+            if record.selected_hits is not None:
+                selected_records.append(record)
             print(
                 f"  [{len(rows)}/{len(eligible)}] AP={row['ap']:.4f} rank={row['rank']}"
             )
@@ -172,6 +175,20 @@ class DriveScoring:
             **agg["overall"],
             "slices": agg["metrics"]["slices"],
         }
+        if selected_records:
+            from .clip_scoring import verdict
+            summary["source_selected"] = {
+                "queries": len(selected_records),
+                "candidate_hits": sum(len(record.selected_hits) for record in selected_records),
+                "attempted": sum(verdict(hit) not in {"missing", "null"}
+                                 for record in selected_records for hit in record.selected_hits),
+                "decided": sum(verdict(hit) in {"confirmed", "rejected"}
+                               for record in selected_records for hit in record.selected_hits),
+                "unverified": sum(verdict(hit) == "unverified"
+                                  for record in selected_records for hit in record.selected_hits),
+                "metrics_supported": False,
+                "reason": "Drive verification backend requires complete gallery rankings; selected partial pools are not scored. Use explicit clip-relevance offline scoring for selected-pool metrics.",
+            }
         _print_drive_summary(summary)
 
         config = {

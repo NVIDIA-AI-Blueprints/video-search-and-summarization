@@ -316,3 +316,15 @@ run. Missing time bounds skip frame refinement rather than inventing a scope.
 Attempted failures preserve candidates and diagnostics as unanswered-query
 evidence. See [frame refinement](frame-refinement.md) for compatibility rules,
 automatic batching, scoring corrections, and local measurement limits.
+
+
+## Attribute gallery source diversity
+
+`--max-hits-per-source N` is an opt-in file-gallery policy for the `attribute-only`
+scenario. It requires exact scanning and `clip-relevance` or `drive` scoring;
+other selected scenarios retain their normal behavior. The original complete
+ranking is saved independently of the selected return/critic pool. Invalid
+configurations fail before ingestion. Do not pass this retrieval option for
+`--stage score`; saved policy evidence drives offline views. See
+[source diversity](source-diversity.md) for complete-ranking requirements,
+budgets, coverage, scorer compatibility, and interpretation.

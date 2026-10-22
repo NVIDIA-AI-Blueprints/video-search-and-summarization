@@ -28,17 +28,15 @@ source. Its direct REST, container polling, index write blocks and ILM removal
 were not imported. Current validation supports complete explicitly bounded scans,
 arbitrary cohort sizes, and multiple chunks/vectors.
 
-## Clip diversity: assessed separately
+## Clip diversity: focused follow-up
 
-Selecting distinct source clips before spending the critic budget is promising
-for clip-level attribute benchmarks. The archive implements heuristic retrieval
-headroom (typically 200 hits, capped at 1,000); that cannot guarantee enough
-unique clips under heavy object duplication. A follow-up must select from the
-existing complete ranking after aggregation/deduplication, preserve its order,
-report coverage and handle budget exhaustion. Start with an explicit opt-in
-attribute-only file-gallery policy. Production object/segment search and fusion
-must retain their existing semantics. No clip-diversity or fusion policy is
-introduced by these correctness ports.
+The post-8e consolidation supplies an opt-in source-cap policy. The current
+follow-up selects from a verified complete attribute ranking, preserving the
+original pool, rather than importing heuristic retrieval headroom capped at
+1,000. It applies only to file-based attribute gallery evaluation. See
+[source diversity](source-diversity.md) for budgets, strict coverage, snapshot
+identity, artifact views, and verification limits. Production defaults and
+fusion semantics remain unchanged.
 
 ## Cosmos v1.2: compatibility assessment
 

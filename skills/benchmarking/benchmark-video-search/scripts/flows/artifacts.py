@@ -115,6 +115,7 @@ class RunConfig:
     frame_lookup_transport: str = "auto"
     candidate_limit: int = 100000
     retrieval_pool_size: int | None = None
+    max_hits_per_source: int | None = None
     ingestion_validation_contract: str | None = None
     attribute_input: str = "original"
     query_domain: str | None = None
@@ -142,6 +143,7 @@ class RunConfig:
             vst_url=vst_url,
             stage=stage,
             retrieval_pool_size=getattr(args, "retrieval_pool_size", None),
+            max_hits_per_source=getattr(args, "max_hits_per_source", None),
             ingestion_validation_contract=getattr(args, "ingestion_validation_contract", None),
             resume_from=getattr(args, "resume_from", None),
             tolerate_unanswered_override=getattr(
@@ -244,6 +246,8 @@ class QueryRecord:
     search_latency_s: float | None = None
     timings: dict[str, Any] | None = None
     hits: list[dict[str, Any]] = field(default_factory=list)
+    selected_hits: list[dict[str, Any]] | None = None
+    selection: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -258,6 +262,13 @@ class QueryRecord:
             "timings": self.timings,
             "hits": self.hits,
         }
+        if self.selected_hits is not None:
+            from .source_selection import validate_selection
+            validate_selection(self.hits, self.selected_hits, self.selection)
+            result["selected_hits"] = self.selected_hits
+            result["selection"] = self.selection
+        elif self.selection is not None:
+            raise ValueError("selection metadata requires selected_hits")
         if self.query_id is not None:
             result["query_id"] = self.query_id
         if self.evidence is not None:
@@ -271,6 +282,11 @@ class QueryRecord:
             ["index", "query", "status"],
             "retrieval artifact query record",
         )
+        if d.get("selected_hits") is not None:
+            from .source_selection import validate_selection
+            validate_selection(d.get("hits", []), d["selected_hits"], d.get("selection"))
+        elif d.get("selection") is not None:
+            raise ValueError("selection metadata requires selected_hits")
         return cls(
             index=d["index"],
             query_id=d.get("query_id"),
@@ -284,6 +300,8 @@ class QueryRecord:
             search_latency_s=d.get("search_latency_s"),
             timings=d.get("timings"),
             hits=d.get("hits") or [],
+            selected_hits=d.get("selected_hits"),
+            selection=d.get("selection"),
         )
 
 

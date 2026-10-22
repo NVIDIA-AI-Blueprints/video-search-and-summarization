@@ -112,6 +112,11 @@ class ClipRelevanceScoring:
                 )
                 continue
             pair = scorer.pair(q, record.hits, record.search_latency_s or 0.0)
+            if record.selected_hits is not None:
+                selected = scorer.pair(q, record.selected_hits, record.search_latency_s or 0.0)
+                pair["raw_returned"] = scorer.score(q, record.hits[:record.selection["requested_top_k"]], record.search_latency_s or 0.0)
+                pair["source_selected"] = selected
+                pair["selection"] = record.selection
             pairs.append(pair)
             raw = pair["raw"]
             print(
@@ -206,6 +211,55 @@ class ClipRelevanceScoring:
                     p["critic_effect"]["irrelevant_clips_removed"] for p in pairs
                 ),
             }
+        selections = [pair for pair in pairs if "source_selected" in pair]
+        if selections:
+            # Raw retrieval remains the complete original pool. The critic saw
+            # only selected candidates, so do not label raw-pool metrics filtered.
+            for key in ("critic_filtered", "critic_filtered_groups", "critic_effect"):
+                summary.pop(key, None)
+            summary["candidate_pool"] = "raw is the complete original ranking; source_selected is the separately declared verification pool; no retrieval or backfill after rejection"
+            summary["raw_returned"] = aggregate([pair["raw_returned"] for pair in selections])
+            def selection_groups(rows):
+                return {
+                    "domain": grouped("query_domain", rows),
+                    "event_slice": grouped("slice", [row for row in rows if row["query_domain"] == "event"]),
+                    "pas_difficulty": grouped("difficulty", [row for row in rows if row["query_domain"] == "pas"]),
+                }
+            summary["raw_returned_groups"] = selection_groups([pair["raw_returned"] for pair in selections])
+            selected_pairs = [pair["source_selected"] for pair in selections]
+            selected_summary = {
+                "queries_scored": len(selections),
+                "raw": aggregate([pair["raw"] for pair in selected_pairs]),
+                "groups": selection_groups([pair["raw"] for pair in selected_pairs]),
+                "verification_coverage": {
+                    key: sum(pair["verification_coverage"][key] for pair in selected_pairs)
+                    for key in ("candidate_hits", "attempted", "decided", "unverified")
+                },
+                "comparison_note": "Raw first-R and diverse first-R share one original ranking; only the diverse pool is verified. No matched-budget critic-effect claim.",
+            }
+            if any(pair["verification_coverage"]["attempted"] for pair in selected_pairs):
+                selected_summary["critic_filtered"] = aggregate([pair["critic_filtered"] for pair in selected_pairs])
+                selected_summary["critic_filtered_groups"] = selection_groups([pair["critic_filtered"] for pair in selected_pairs])
+                selected_summary["critic_effect"] = {
+                    "mAP_delta": selected_summary["critic_filtered"]["mAP"] - selected_summary["raw"]["mAP"],
+                    "mAP@10_delta": selected_summary["critic_filtered"]["mAP@10"] - selected_summary["raw"]["mAP@10"],
+                    "relevant_clips_removed": sum(pair["critic_effect"]["relevant_clips_removed"] for pair in selected_pairs),
+                    "irrelevant_clips_removed": sum(pair["critic_effect"]["irrelevant_clips_removed"] for pair in selected_pairs),
+                }
+            summary["source_selected"] = selected_summary
+            for pair in selections:
+                pair["verification_coverage"] = pair["source_selected"]["verification_coverage"]
+                pair["verification_pool"] = "source_selected"
+                for key in ("critic_filtered", "critic_effect", "critic"):
+                    pair.pop(key, None)
+                if not pair["source_selected"]["verification_coverage"]["attempted"]:
+                    pair["source_selected"].pop("critic_filtered", None)
+                    pair["source_selected"].pop("critic_effect", None)
+            summary["verification_coverage"] = {
+                key: sum(pair["verification_coverage"][key] for pair in pairs)
+                for key in ("candidate_hits", "attempted", "decided", "unverified")
+            }
+            summary["verification_pool"] = "source_selected" if len(selections) == len(pairs) else "per-query selected or original"
         _print_clip_summary(summary)
 
         config = {

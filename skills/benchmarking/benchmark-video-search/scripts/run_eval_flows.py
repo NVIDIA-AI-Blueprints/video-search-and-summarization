@@ -246,6 +246,10 @@ def build_query_backend(args: argparse.Namespace) -> Any:
                 "retrieval depth:  bounded exact gallery scan (cosine floor -1, no merge; overflow fails)"
             )
 
+        if (getattr(args, "max_hits_per_source", None) is not None and not args.dry_run
+                and not flows.cli_supports_flag(vss_cmd, "--max-hits-per-source", path="attribute")):
+            raise SystemExit("ERROR: configured CLI does not support --max-hits-per-source; update it before ingestion")
+
         backend = flows.CliQueryBackend(
             vss_cmd=vss_cmd,
             search_path=args.search_path,
@@ -434,6 +438,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     flow.add_argument("--critic-input-width", type=int)
     flow.add_argument("--critic-input-height", type=int)
     flow.add_argument("--critic-diagnostic-dir")
+    flow.add_argument("--max-hits-per-source", type=int, help="Opt-in exact attribute-only gallery source cap before the return/critic pool cap.")
     flow.add_argument("--frame-scoring", choices=("auto", "source", "indexed"), default="auto",
                       help="Frame cosine kernel; effective compatibility profile is recorded before retrieval.")
     flow.add_argument("--frame-lookup-transport", choices=("auto", "single", "msearch"), default="auto",
@@ -875,6 +880,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error(
             "--scenarios conflicts with legacy fixed-path/full-gallery/decomposition-off options"
         )
+    if args.max_hits_per_source is not None:
+        if not 1 <= args.max_hits_per_source <= 100000:
+            p.error("--max-hits-per-source must be between 1 and 100000")
+        if (args.stage not in ("run", "retrieve") or not args.gallery_gt
+                or not args.scenarios or "attribute-only" not in args.scenarios
+                or args.source_type != "video_file" or args.scoring not in ("clip-relevance", "drive")):
+            p.error("--max-hits-per-source requires a file gallery attribute-only scenario with clip-relevance or drive scoring")
     if args.candidate_limit is not None and not 1 <= args.candidate_limit <= 100000:
         p.error("--candidate-limit must be between 1 and 100000")
     if args.retrieval_pool_size is not None:

@@ -1378,9 +1378,9 @@ def run_retrieve(
     for qi, record in enumerate(records):
         if record is not None:
             checkpoint(qi)
-            normalized = record.hits
-            sources_seen.update(flows.verification_sources(normalized))
-            for verdict, count in flows.verdict_counts(normalized).items():
+            verification_pool = record.selected_hits if record.selected_hits is not None else record.hits
+            sources_seen.update(flows.verification_sources(verification_pool))
+            for verdict, count in flows.verdict_counts(verification_pool).items():
                 verdicts[verdict] = verdicts.get(verdict, 0) + count
     completed[0] = sum(record is not None for record in records)
     resumed_plans = [
@@ -1562,7 +1562,9 @@ def run_retrieve(
             if metadata:
                 records[qi] = replace(records[qi], evidence={**(query_evidence or {}), **metadata})
             raise
-        metadata = getattr(query_backend, "metadata_by_query", {}).get(identity)
+        metadata = dict(getattr(query_backend, "metadata_by_query", {}).get(identity) or {})
+        selected_wire = metadata.pop("_selected_results", None)
+        selection = metadata.pop("selection", None)
         if metadata:
             query_evidence = {
                 **(query_evidence or {}),
@@ -1570,14 +1572,30 @@ def run_retrieve(
                 "post_aggregation_hit_count": len(raw_results),
             }
         normalized = flows.normalize_results(raw_results)
+        selected_normalized = None
+        if selected_wire is not None:
+            selected_normalized = []
+            for index, wire in zip(selection["selected_indices"], selected_wire, strict=True):
+                hit = dict(normalized[index])
+                raw_verification = wire.get("verification", wire.get("critic_result"))
+                verification = raw_verification if isinstance(raw_verification, dict) else {}
+                hit.update(
+                    critic_result=wire.get("critic_result"),
+                    verification={**verification, "result": verification.get("result", "unverified"),
+                                  "criteria_met": verification.get("criteria_met") or {}},
+                    _verification_source=("verification" if "verification" in wire else "critic_result")
+                        if isinstance(raw_verification, dict) else "absent",
+                )
+                selected_normalized.append(hit)
+        verification_pool = selected_normalized if selected_normalized is not None else normalized
         # Both are read-modify-write on state shared across the pool, and the
         # verdict tally is what the no-opinion check reads at the end: lose
         # increments here and a healthy critic is reported as having formed no
         # opinion. `print_lock` already serialises the per-query output, and
         # this is the same few microseconds.
         with print_lock:
-            sources_seen.update(flows.verification_sources(normalized))
-            for verdict, count in flows.verdict_counts(normalized).items():
+            sources_seen.update(flows.verification_sources(verification_pool))
+            for verdict, count in flows.verdict_counts(verification_pool).items():
                 verdicts[verdict] = verdicts.get(verdict, 0) + count
 
         # Present only when the deployment carries the search_core timings
@@ -1603,6 +1621,9 @@ def run_retrieve(
             # roughly doubles the artifact; scoring never reads it (for_scoring
             # strips all _-prefixed keys), so keep only the normalized form.
             hits=[{k: v for k, v in hit.items() if k != "_raw"} for hit in normalized],
+            selected_hits=[{k: v for k, v in hit.items() if k != "_raw"} for hit in selected_normalized]
+                if selected_normalized is not None else None,
+            selection=selection,
         )
 
         checkpoint(qi)
@@ -1876,6 +1897,13 @@ def run_pipeline(
         retrieve  -> read ``--ingest-in`` (optional), write the retrieval artifact
         score     -> read ``--retrieval-in`` (required), write the scored result
     """
+    if cfg.max_hits_per_source is not None and (
+        type(cfg.max_hits_per_source) is not int or not 1 <= cfg.max_hits_per_source <= 100000
+        or not cfg.gallery_gt or not cfg.scenarios or "attribute-only" not in cfg.scenarios
+        or cfg.source_type != "video_file" or cfg.scoring not in ("clip-relevance", "drive")
+        or cfg.stage not in ("run", "retrieve")
+    ):
+        raise SystemExit("Source diversity requires an attribute-only file gallery scenario and clip scoring")
     stage = cfg.stage
     if cfg.resume_from and (
         cfg.clear or cfg.only_dataset or (stage == "run" and not cfg.skip_ingest)
@@ -1977,6 +2005,7 @@ def run_scenarios(cfg, ingest_backend, query_backend, decomposer, fallback):
     for scenario in cfg.scenarios:
         backend = copy.copy(query_backend)
         backend.retrieval_pool_size = cfg.retrieval_pool_size
+        backend.max_hits_per_source = cfg.max_hits_per_source if scenario == "attribute-only" else None
         backend.decompositions = dict(query_backend.decompositions)
         backend.executed_plans = []
         backend.timings_by_query = {}
