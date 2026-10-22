@@ -174,7 +174,7 @@ export const AlertsViewFilterControls: React.FC<AlertsViewFilterControlsProps> =
     <div className="flex flex-col gap-3">
       <Switch
         slotLabel="VLM Verified"
-        labelSide="left"
+        labelSide="start"
         checked={vlmVerified}
         onCheckedChange={onVlmVerifiedChange}
         data-testid="vlm-verified-toggle"
