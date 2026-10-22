@@ -44,6 +44,7 @@ from vss_core._foundation.time import iso8601_to_datetime
 from vss_core._foundation.time import safe_iso8601_to_datetime
 from vss_core.vios import VSTError
 from vss_core.vios import build_screenshot_url
+from vss_core.vios import get_name_to_stream_id_map
 from vss_core.vios import get_stream_id
 from vss_core.vios import get_timeline
 from vss_core.vios import get_timelines_map
@@ -51,6 +52,10 @@ from vss_core.vios import map_timestamp_to_timeline
 
 from .._internal.coerce import _coerce_str
 from .._internal.es_filters import build_video_sources_filter
+from .._internal.frame_refinement import FrameRefinementContext
+from .._internal.frame_refinement import frame_refinement_context
+from .._internal.frame_refinement import record_diagnostic
+from .._internal.frame_refinement import refine_frames
 from .._internal.time_measure import TimeMeasure
 from ..errors import IndexNotFoundError
 from ..models.attribute_search import AttributeSearchInput
@@ -466,116 +471,23 @@ async def _get_frame_from_behavior(
     query_embedding: list[float],
     es: ElasticIndex,
 ) -> FrameLookupResult:
-    """Best-effort per-object best-frame lookup via a Painless cosine score.
-
-    Frame lookup is an enhancement: any failure returns an empty result so the
-    parent search still yields behavior-level matches.
-
-    Score space: the Painless script shifts raw cosine ``[-1, 1]`` into
-    ``(1 + cosine) / 2`` (``[0, 1]``) BEFORE returning it as ``_score``. This is
-    required because Elasticsearch ``script_score`` rejects negative scores, so a
-    negative cosine would otherwise throw and silently lose the frame. Because the
-    script already normalizes, Python reports ``_score`` verbatim (no second
-    transform) — the returned ``frame_score`` is in ``(1 + cosine) / 2`` space,
-    matching the behavior-index score (see :func:`build_behavior_knn_body`).
-    """
+    """Compatibility wrapper around the shared exact frame refinement engine."""
+    active_context = frame_refinement_context.get()
+    context = active_context or FrameRefinementContext(scoring="source", transport="single")
     try:
-        search_frames_index_str = frames_index if isinstance(frames_index, str) else ",".join(frames_index)
-        painless_script = (
-            "double maxScore = -2.0; "
-            "if (params._source.containsKey('objects')) { "
-            "  for (int i = 0; i < params._source.objects.size(); i++) { "
-            "    def obj = params._source.objects[i]; "
-            "    if (obj.id == params.target_id && obj.containsKey('embedding') && obj.embedding.containsKey('vector')) { "
-            "      def vec = obj.embedding.vector; "
-            "      double dotProduct = 0.0; "
-            "      double normA = 0.0; "
-            "      double normB = 0.0; "
-            "      for (int j = 0; j < Math.min(params.query_vector.size(), vec.size()); j++) { "
-            "        dotProduct += params.query_vector[j] * vec[j]; "
-            "        normA += params.query_vector[j] * params.query_vector[j]; "
-            "        normB += vec[j] * vec[j]; "
-            "      } "
-            "      if (normA > 0 && normB > 0) { "
-            "        double similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB)); "
-            "        maxScore = Math.max(maxScore, similarity); "
-            "      } "
-            "      break; "
-            "    } "
-            "  } "
-            "} "
-            # Shift cosine [-1, 1] into [0, 1]: script_score rejects negative
-            # scores, so a negative cosine would throw and lose the frame.
-            "return maxScore > -2.0 ? (maxScore + 1.0) / 2.0 : 0.0;"
+        outcomes = await refine_frames(
+            es=es,
+            frames_index=frames_index,
+            keys=[(sensor_id, object_id)],
+            start_time=start_time,
+            end_time=end_time,
+            query_embedding=query_embedding,
+            context=context,
         )
-        search_query = {
-            "query": {
-                "function_score": {
-                    "query": {
-                        "bool": {
-                            "filter": [
-                                {"term": {"sensorId.keyword": sensor_id}},
-                                {
-                                    "range": {
-                                        "timestamp": (
-                                            {"gte": start_time, "lte": end_time} if end_time else {"gte": start_time}
-                                        )
-                                    }
-                                },
-                            ],
-                            "must": [
-                                {
-                                    "nested": {
-                                        "path": "objects",
-                                        "query": {"term": {"objects.id.keyword": object_id}},
-                                    }
-                                }
-                            ],
-                        }
-                    },
-                    "script_score": {
-                        "script": {
-                            "source": painless_script,
-                            "params": {"query_vector": query_embedding, "target_id": object_id},
-                        }
-                    },
-                    "boost_mode": "replace",
-                }
-            },
-            "size": 1,
-            "_source": ["id", "timestamp", "sensorId", "objects"],
-        }
-
-        response = await es.search(index=search_frames_index_str, body=search_query)
-        hits = response.get("hits", {}).get("hits", [])
-        if not hits:
-            return None, None, None, None
-
-        best_hit = hits[0]
-        frame_source = best_hit["_source"]
-        # The script already normalized cosine to (1 + cosine) / 2 in [0, 1];
-        # report it verbatim rather than transforming a second time.
-        best_score = float(best_hit["_score"])
-        best_frame_id = frame_source.get("id")
-        best_timestamp = frame_source.get("timestamp", "")
-
-        best_bbox = None
-        for obj in frame_source.get("objects", []):
-            if obj.get("id") == object_id:
-                bbox_data = obj.get("bbox", {})
-                if bbox_data and bbox_data.get("leftX") is not None:
-                    best_bbox = {
-                        "leftX": bbox_data.get("leftX", 0),
-                        "rightX": bbox_data.get("rightX", 0),
-                        "topY": bbox_data.get("topY", 0),
-                        "bottomY": bbox_data.get("bottomY", 0),
-                    }
-                break
-
-        return best_frame_id, best_bbox, best_score, best_timestamp
-    except Exception as e:
-        logger.warning(f"Frame lookup failed for object={object_id}: {e}", exc_info=True)
-        return None, None, None, None
+        return outcomes[0] or (None, None, None, None)
+    finally:
+        if active_context is None:
+            await context.aclose()
 
 
 FRAME_LOOKUP_CONCURRENCY = 16
@@ -595,15 +507,11 @@ async def _perform_frame_lookups(
     is the frame result for ``candidates[i]`` (``None`` when that candidate had no
     id, missed, or raised), so the caller can zip results back to hits by index.
     """
+    active_context = frame_refinement_context.get()
+    context = active_context or FrameRefinementContext()
     if not timestamp_start or not timestamp_end:
-        logger.warning("Frame lookup requires timestamp_start and timestamp_end - skipping frame lookups")
+        record_diagnostic(context, {"status": "skipped", "reason": "no_bounds", "candidates": len(candidates)})
         return [None] * len(candidates)
-
-    start_time = timestamp_start.isoformat().replace("+00:00", "Z")
-    end_time = timestamp_end.isoformat().replace("+00:00", "Z")
-
-    # Identical (sensor, object, interval) lookups share one result. Dispatch
-    # bounded batches rather than creating one task for every indexed behavior.
     keys: list[tuple[str, str] | None] = []
     for candidate in candidates:
         source = candidate.get("_source") or {}
@@ -613,29 +521,21 @@ async def _perform_frame_lookups(
             (str(sensor_id), str(object_id)) if object_id not in (None, "") and sensor_id not in (None, "") else None
         )
     unique_keys = list(dict.fromkeys(key for key in keys if key is not None))
-    by_key: dict[tuple[str, str], FrameLookupResult | None] = {}
-    for offset in range(0, len(unique_keys), FRAME_LOOKUP_CONCURRENCY):
-        batch = unique_keys[offset : offset + FRAME_LOOKUP_CONCURRENCY]
-        outcomes = await asyncio.gather(
-            *(
-                _get_frame_from_behavior(
-                    frames_index=frames_index,
-                    sensor_id=sensor_id,
-                    object_id=object_id,
-                    start_time=start_time,
-                    end_time=end_time,
-                    query_embedding=query_embedding,
-                    es=es,
-                )
-                for sensor_id, object_id in batch
-            ),
-            return_exceptions=True,
+    try:
+        outcomes = await refine_frames(
+            es=es,
+            frames_index=frames_index,
+            keys=unique_keys,
+            start_time=timestamp_start.isoformat().replace("+00:00", "Z"),
+            end_time=timestamp_end.isoformat().replace("+00:00", "Z"),
+            query_embedding=query_embedding,
+            context=context,
         )
-        for key, outcome in zip(batch, outcomes, strict=True):
-            if isinstance(outcome, BaseException) and not isinstance(outcome, Exception):
-                raise outcome
-            by_key[key] = outcome if isinstance(outcome, tuple) else None
-    return [by_key.get(key) if key is not None else None for key in keys]
+        by_key = dict(zip(unique_keys, outcomes, strict=True))
+        return [by_key.get(key) if key is not None else None for key in keys]
+    finally:
+        if active_context is None:
+            await context.aclose()
 
 
 async def _fetch_object_embedding(
@@ -814,10 +714,56 @@ def _map_to_timeline(ts: str, stream_id: str, timelines: dict[str, tuple[str, st
     return ts
 
 
+class _AttributeMetadataContext:
+    """Successful VST metadata reads shared only within one append invocation.
+
+    Keep clip timelines separate from screenshot envelopes: the existing VST
+    helpers intentionally interpret multi-segment recordings differently.
+    """
+
+    def __init__(self) -> None:
+        self._catalogues: dict[str, dict[str, str]] = {}
+        self._clip_timelines: dict[tuple[str, str], tuple[str, str]] = {}
+        self._screenshot_timelines: dict[str, dict[str, tuple[str, str]]] = {}
+
+    async def resolve_stream(self, sensor_id: str, origin: str) -> str:
+        if origin not in self._catalogues:
+            self._catalogues[origin] = await get_name_to_stream_id_map(origin)
+        catalogue = self._catalogues[origin]
+        stream_id = catalogue.get(sensor_id)
+        if not stream_id:
+            if sensor_id in catalogue.values():
+                stream_id = sensor_id
+            else:
+                raise VSTError(
+                    f"streamId not found for '{sensor_id}'. Available: {sorted(catalogue.keys())}"
+                    if catalogue
+                    else "streamId not found"
+                )
+        return stream_id
+
+    async def screenshot_timelines(self, origin: str) -> dict[str, tuple[str, str]]:
+        if origin not in self._screenshot_timelines:
+            try:
+                self._screenshot_timelines[origin] = await get_timelines_map(origin, timeout_seconds=5, retries=1)
+            except VSTError as exc:
+                logger.warning("Could not fetch VST timelines: %s", exc)
+                return {}
+        return self._screenshot_timelines[origin]
+
+    async def clip_timeline(self, stream_id: str, origin: str) -> tuple[str, str]:
+        key = (origin, stream_id)
+        if key not in self._clip_timelines:
+            self._clip_timelines[key] = await get_timeline(stream_id, origin)
+        return self._clip_timelines[key]
+
+
 async def _extend_clip_to_one_second(
     result: AttributeSearchResult,
     vst_internal_url: str | None,
     vst_external_url: str,
+    *,
+    _metadata: _AttributeMetadataContext | None = None,
 ) -> None:
     """Widen sub-second clips to ``MIN_CLIP_DURATION_SECONDS`` around the midpoint."""
     if not result.metadata or not result.metadata.start_time or not result.metadata.end_time:
@@ -832,12 +778,20 @@ async def _extend_clip_to_one_second(
             return
 
         vst_internal_for_resolution = vst_internal_url if vst_internal_url else vst_external_url
-        stream_id = await get_stream_id(result.metadata.sensor_id, vst_internal_for_resolution)
+        stream_id = (
+            await _metadata.resolve_stream(result.metadata.sensor_id, vst_internal_for_resolution)
+            if _metadata is not None
+            else await get_stream_id(result.metadata.sensor_id, vst_internal_for_resolution)
+        )
         if not stream_id:
             logger.warning(f"Could not resolve stream_id for sensor_id={result.metadata.sensor_id}")
             return
 
-        timeline_start_iso, timeline_end_iso = await get_timeline(stream_id, vst_internal_for_resolution)
+        timeline_start_iso, timeline_end_iso = (
+            await _metadata.clip_timeline(stream_id, vst_internal_for_resolution)
+            if _metadata is not None
+            else await get_timeline(stream_id, vst_internal_for_resolution)
+        )
         timeline_start = iso8601_to_datetime(timeline_start_iso)
         timeline_end = iso8601_to_datetime(timeline_end_iso)
 
@@ -939,6 +893,16 @@ async def search_by_attributes(
                 results.append(item)
                 aligned_candidates.append(hit)
     else:
+        context = frame_refinement_context.get()
+        if context is not None:
+            record_diagnostic(
+                context,
+                {
+                    "status": "skipped",
+                    "reason": "disabled" if not enable_frame_lookup else "no_index",
+                    "candidates": len(candidates),
+                },
+            )
         for hit in candidates:
             item = _safe_hit_to_result(hit, None)
             if item is not None:
@@ -1170,6 +1134,7 @@ async def _append_multi_attribute(
 ) -> list[AttributeSearchResult]:
     """Append mode: independent top_k per attribute, then dedup across all."""
     per_attr = search_input.model_copy(update={"fuse_multi_attribute": False})
+    metadata = _AttributeMetadataContext()
 
     all_results: list[AttributeSearchResult] = []
     for idx, attr_query in enumerate(queries):
@@ -1186,7 +1151,9 @@ async def _append_multi_attribute(
             )
 
             all_results.extend(
-                await _enrich_append_results(attr_results, vst_internal_url, vst_external_url, attr_query)
+                await _enrich_append_results(
+                    attr_results, vst_internal_url, vst_external_url, attr_query, _metadata=metadata
+                )
             )
             logger.info(f"Attribute '{scrub_log(attr_query)}': found {len(attr_results)} result(s)")
         except LibraryError:
@@ -1219,13 +1186,16 @@ async def _enrich_append_results(
     vst_internal_url: str | None,
     vst_external_url: str,
     attr_query: str,
+    *,
+    _metadata: _AttributeMetadataContext | None = None,
 ) -> list[AttributeSearchResult]:
     """Extend clips and attach screenshots before collecting append-mode results."""
+    context_kwargs = {"_metadata": _metadata} if _metadata is not None else {}
     if attr_results and vst_internal_url:
         for result in attr_results:
-            await _extend_clip_to_one_second(result, vst_internal_url, vst_external_url)
+            await _extend_clip_to_one_second(result, vst_internal_url, vst_external_url, **context_kwargs)
     if attr_results and vst_external_url:
-        return await _attach_screenshots(attr_results, vst_internal_url, vst_external_url, attr_query)
+        return await _attach_screenshots(attr_results, vst_internal_url, vst_external_url, attr_query, **context_kwargs)
     return attr_results
 
 
@@ -1240,6 +1210,8 @@ async def _attach_screenshots(
     vst_internal_url: str | None,
     vst_external_url: str,
     attr_query: str,
+    *,
+    _metadata: _AttributeMetadataContext | None = None,
 ) -> list[AttributeSearchResult]:
     """Resolve stream ids and screenshot URLs for append-mode results (best-effort).
 
@@ -1253,7 +1225,13 @@ async def _attach_screenshots(
         r.metadata and r.metadata.sensor_id and r.metadata.frame_timestamp and not r.screenshot_url
         for r in attr_results
     )
-    timelines = await _get_timelines_best_effort(vst_internal_for_resolution) if needs_screenshots else {}
+    timelines = {}
+    if needs_screenshots:
+        timelines = (
+            await _metadata.screenshot_timelines(vst_internal_for_resolution)
+            if _metadata is not None
+            else await _get_timelines_best_effort(vst_internal_for_resolution)
+        )
 
     for result in attr_results:
         if not (result.metadata and result.metadata.sensor_id):
@@ -1268,7 +1246,11 @@ async def _attach_screenshots(
             )
             continue
         try:
-            stream_id = await get_stream_id(result.metadata.sensor_id, vst_internal_for_resolution)
+            stream_id = (
+                await _metadata.resolve_stream(result.metadata.sensor_id, vst_internal_for_resolution)
+                if _metadata is not None
+                else await get_stream_id(result.metadata.sensor_id, vst_internal_for_resolution)
+            )
             if stream_id:
                 result.metadata.sensor_id = stream_id
                 if not result.screenshot_url:

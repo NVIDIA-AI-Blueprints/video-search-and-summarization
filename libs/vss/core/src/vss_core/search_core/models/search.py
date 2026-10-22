@@ -184,6 +184,7 @@ class SearchOutput(BaseModel):
     data: list[SearchResult] = Field(default_factory=list)
     search_messages: list[str] = Field(default_factory=list)
     candidate_coverage: list[dict] = Field(default_factory=list)
+    frame_refinement: list[dict] = Field(default_factory=list)
     #: Optional so every existing producer and consumer is unaffected: absent
     #: means nobody collected, not "the search took no time".
     timings: SearchTimings | None = None

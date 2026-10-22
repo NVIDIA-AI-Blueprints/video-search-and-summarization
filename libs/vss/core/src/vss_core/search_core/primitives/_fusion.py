@@ -29,6 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field
 import logging
+import math
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -98,15 +99,15 @@ def _validate_attribute_results(attribute_results: Any) -> list[AttributeSearchR
 
 
 def _attribute_score(result: AttributeSearchResult) -> float:
-    """Pick a per-result attribute score: frame score when positive, else behavior.
+    """Prefer a finite nonnegative frame score, including cosine's zero endpoint.
 
-    Both reads are coerced so a null / odd-typed stored score degrades to ``0.0``
-    instead of raising.
+    Missing or malformed frame evidence falls back to the behavior score.
+    Shifted cosine zero means raw cosine -1; it is not missing evidence.
     """
     frame_score = result.metadata.frame_score
     if frame_score is not None:
-        frame = _coerce_float(frame_score)
-        if frame > 0.0:
+        frame = _coerce_float(frame_score, default=math.nan)
+        if math.isfinite(frame) and frame >= 0.0:
             return frame
     return _coerce_float(result.metadata.behavior_score)
 

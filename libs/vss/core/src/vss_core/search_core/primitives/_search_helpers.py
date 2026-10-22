@@ -210,11 +210,7 @@ def attribute_result_to_search_result(
     )
 
     metadata = validated_result.metadata
-    frame_score = metadata.frame_score
-    if frame_score is not None and _coerce_float(frame_score) > 0.0:
-        similarity = _coerce_float(frame_score)
-    else:
-        similarity = _coerce_float(metadata.behavior_score)
+    similarity = _fusion._attribute_score(validated_result)
     # frame_timestamp is nullable; fall back to "" (the "no timestamp" convention
     # used by embed results) so SearchResult's required str fields stay typed and
     # merge_consecutive_results routes them to its no-timestamp bucket.
@@ -420,15 +416,24 @@ async def fusion_search_rerank(
         logger.warning(
             "Fusion attribute precomputation failed; using per-candidate lookup: %s", scrub_log(str(e)), exc_info=True
         )
-    # No return_exceptions: a systemic LibraryError from any video propagates.
-    results_list = await asyncio.gather(
-        *(
+    # gather propagates the first systemic failure without cancelling siblings.
+    # Own and drain them before the request releases clients or request-local
+    # frame budgets; no backend work may outlive a failed rerank.
+    lookup_tasks = [
+        asyncio.create_task(
             _lookup_fusion_attributes(
                 result, attributes, attribute_search_fn, attribute_embeddings, vst_internal_url, source_type
             )
-            for result in embed_results
         )
-    )
+        for result in embed_results
+    ]
+    try:
+        results_list = await asyncio.gather(*lookup_tasks)
+    except BaseException:
+        for task in lookup_tasks:
+            task.cancel()
+        await asyncio.gather(*lookup_tasks, return_exceptions=True)
+        raise
 
     # Timed separately from the enclosing rerank stage: that one wraps the
     # concurrent per-video attribute lookups, so its own self time is zero and

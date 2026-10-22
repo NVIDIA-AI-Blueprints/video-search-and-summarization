@@ -25,6 +25,9 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from .._internal.frame_refinement import FrameRefinementContext
+from .._internal.frame_refinement import frame_diagnostic_sink
+from .._internal.frame_refinement import frame_refinement_context
 from ..models.attribute_search import AttributeSearchInput
 from ..models.attribute_search import AttributeSearchOutput
 from . import _attribute_helpers
@@ -51,6 +54,8 @@ class AttributeSearch:
         frames_index_wildcard: str = "mdx-raw-*",
         enable_frame_lookup: bool = True,
         default_max_results: int = 10,
+        frame_scoring: str = "auto",
+        frame_lookup_transport: str = "auto",
         vst_external_url: str = "",
         vst_internal_url: str | None = None,
         owns_es: bool = False,
@@ -64,6 +69,8 @@ class AttributeSearch:
         self._frames_index_wildcard = frames_index_wildcard
         self._enable_frame_lookup = enable_frame_lookup
         self._default_k = default_max_results
+        self._frame_scoring = frame_scoring
+        self._frame_lookup_transport = frame_lookup_transport
         self._vst_external_url = vst_external_url
         self._vst_internal_url = vst_internal_url
         self._owns_es = owns_es
@@ -84,20 +91,35 @@ class AttributeSearch:
         if inp.top_k is None:
             inp = inp.model_copy(update={"top_k": self._default_k})
         assert inp.top_k is not None
-        results = await _attribute_helpers.search_attributes(
-            search_input=inp,
-            embed_client=self._embed,
-            index=self._behavior_index,
-            vst_external_url=self._vst_external_url,
-            es=self._es,
-            vst_internal_url=self._vst_internal_url,
-            frames_index=self._frames_index,
-            enable_frame_lookup=self._enable_frame_lookup,
-            behavior_index_wildcard=self._behavior_index_wildcard,
-            frames_index_wildcard=self._frames_index_wildcard,
-        )
-        logger.info(f"AttributeSearch returned {len(results)} result(s)")
-        return AttributeSearchOutput(results=results)
+        context = frame_refinement_context.get()
+        token = None
+        if context is None:
+            context = FrameRefinementContext(scoring=self._frame_scoring, transport=self._frame_lookup_transport)
+            token = frame_refinement_context.set(context)
+        own_diagnostics: list[dict] = []
+        sink_token = frame_diagnostic_sink.set(own_diagnostics)
+        try:
+            results = await _attribute_helpers.search_attributes(
+                search_input=inp,
+                embed_client=self._embed,
+                index=self._behavior_index,
+                vst_external_url=self._vst_external_url,
+                es=self._es,
+                vst_internal_url=self._vst_internal_url,
+                frames_index=self._frames_index,
+                enable_frame_lookup=self._enable_frame_lookup,
+                behavior_index_wildcard=self._behavior_index_wildcard,
+                frames_index_wildcard=self._frames_index_wildcard,
+            )
+            logger.info(f"AttributeSearch returned {len(results)} result(s)")
+            return AttributeSearchOutput(results=results, frame_refinement=own_diagnostics)
+        finally:
+            frame_diagnostic_sink.reset(sink_token)
+            if token is not None:
+                try:
+                    await context.aclose()
+                finally:
+                    frame_refinement_context.reset(token)
 
     @classmethod
     def from_runtime(
@@ -125,6 +147,8 @@ class AttributeSearch:
             frames_index_wildcard=rt.frames_index_wildcard,
             enable_frame_lookup=rt.enable_frame_lookup,
             default_max_results=rt.default_max_results,
+            frame_scoring=rt.frame_scoring,
+            frame_lookup_transport=rt.frame_lookup_transport,
             # VST only mints screenshot URLs; a deployment without it still
             # serves attribute search and returns hits with empty
             # `screenshot_url` (enrich_attribute_results no-ops on empty bases).

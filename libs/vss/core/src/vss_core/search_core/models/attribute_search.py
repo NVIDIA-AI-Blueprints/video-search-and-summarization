@@ -155,6 +155,7 @@ class AttributeSearchOutput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     results: list[AttributeSearchResult] = Field(default_factory=list)
+    frame_refinement: list[dict] = Field(default_factory=list)
 
     @property
     def data(self) -> list[AttributeSearchResult]:

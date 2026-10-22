@@ -24,7 +24,6 @@ consumes prepared ``SearchInput`` fields only.
 from __future__ import annotations
 
 import asyncio
-from contextlib import aclosing
 import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -37,6 +36,8 @@ from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.errors import LibraryError
 
 from .._internal.embed_translation import params_to_embed_input
+from .._internal.frame_refinement import FrameRefinementContext
+from .._internal.frame_refinement import frame_refinement_context
 from ..errors import InvalidInputError
 from ..events import ErrorEvent
 from ..events import FinalResultEvent
@@ -215,7 +216,19 @@ def _wrap_embed(primitive: EmbedSearch | _EmbedSearchUnavailable) -> _PrimitiveA
 
 def _wrap_attribute(primitive: AttributeSearch | _AttributeSearchUnavailable) -> _PrimitiveAdapter:
     # Orchestrator expects a bare list of AttributeSearchResult, not the envelope.
-    return _PrimitiveAdapter(primitive, _coerce_attribute_payload, unwrap_output=lambda out: out.results)
+    def unwrap(out: Any) -> Any:
+        context = frame_refinement_context.get()
+        # Native AttributeSearch already emits into this shared context. Only
+        # independently injected primitives need their output envelope copied.
+        if context is not None and type(primitive) is not AttributeSearch:
+            existing_ids = {id(row) for row in context.diagnostics}
+            for row in getattr(out, "frame_refinement", []):
+                if id(row) not in existing_ids:
+                    context.diagnostics.append(row)
+                    existing_ids.add(id(row))
+        return out.results
+
+    return _PrimitiveAdapter(primitive, _coerce_attribute_payload, unwrap_output=unwrap)
 
 
 def _coerce_tag_payload(payload: Any) -> TagSearchInput:
@@ -287,6 +300,8 @@ class Search:
         embed_confidence_threshold: float = 0.1,
         merge_adjacent: bool = True,
         default_max_results: int = 10,
+        frame_scoring: str = "auto",
+        frame_lookup_transport: str = "auto",
         # VST URLs are needed by execute_core_search via its config object
         vst_internal_url: str = "",
         vst_external_url: str = "",
@@ -295,6 +310,8 @@ class Search:
         owns_tag: bool = False,
         owns_behavior_es: bool = False,
     ) -> None:
+        self._frame_scoring = frame_scoring
+        self._frame_lookup_transport = frame_lookup_transport
         self._embed = embed
         self._attribute = attribute
         self._tag = tag
@@ -337,19 +354,31 @@ class Search:
     async def run(self, inp: SearchInput) -> SearchOutput:
         """Single-shot: collect chunks, return final SearchOutput."""
         inp.validate_semantics()
-        return await _search_helpers.execute_core_search_wrapper(
-            search_input=inp,
-            embed_search=self._embed_adapter,
-            config=self._config,
-            attribute_search_fn=self._attr_adapter,
-            tag_search=self._tag_adapter,
-            behavior_es=self._behavior_es,
-        )
+        context = FrameRefinementContext(scoring=self._frame_scoring, transport=self._frame_lookup_transport)
+        token = frame_refinement_context.set(context)
+        try:
+            output = await _search_helpers.execute_core_search_wrapper(
+                search_input=inp,
+                embed_search=self._embed_adapter,
+                config=self._config,
+                attribute_search_fn=self._attr_adapter,
+                tag_search=self._tag_adapter,
+                behavior_es=self._behavior_es,
+            )
+            output.frame_refinement = list(context.diagnostics)
+            return output
+        finally:
+            try:
+                await context.aclose()
+            finally:
+                frame_refinement_context.reset(token)
 
     async def stream(self, inp: SearchInput) -> AsyncIterator[SearchEvent]:
         """Streaming: translate AgentMessageChunk → SearchEvent. Exactly one
         terminal event (FinalResultEvent or ErrorEvent) is emitted.
         """
+        context = FrameRefinementContext(scoring=self._frame_scoring, transport=self._frame_lookup_transport)
+        core_updates = None
         try:
             inp.validate_semantics()
             core_updates = _search_helpers.execute_core_search(
@@ -360,23 +389,39 @@ class Search:
                 tag_search=self._tag_adapter,
                 behavior_es=self._behavior_es,
             )
-            async with aclosing(core_updates):
-                async for chunk in core_updates:
-                    if isinstance(chunk, SearchOutput):
-                        yield FinalResultEvent(output=chunk)
-                        return
-                    # The other arm of the union is AgentMessageChunk.
-                    yield StatusEvent(stage=chunk.type.value, message=chunk.content)
+            while True:
+                # Do not expose request-local state to a consumer while the
+                # generator is suspended at yield. Each advance/close may be
+                # driven by a different task, so reset its token in that task.
+                token = frame_refinement_context.set(context)
+                try:
+                    chunk = await anext(core_updates)
+                except StopAsyncIteration:
+                    break
+                finally:
+                    frame_refinement_context.reset(token)
+                if isinstance(chunk, SearchOutput):
+                    chunk.frame_refinement = list(context.diagnostics)
+                    yield FinalResultEvent(output=chunk)
+                    return
+                yield StatusEvent(stage=chunk.type.value, message=chunk.content)
         except LibraryError as e:
             yield ErrorEvent(error_code=type(e).__name__, message=str(e))
             return
         except Exception as e:
             yield ErrorEvent(error_code="UnexpectedError", message=str(e))
             return
+        finally:
+            token = frame_refinement_context.set(context)
+            try:
+                if core_updates is not None:
+                    await core_updates.aclose()
+            finally:
+                try:
+                    await context.aclose()
+                finally:
+                    frame_refinement_context.reset(token)
 
-        # The generator exited without yielding SearchOutput, which violates the
-        # streaming contract. Emit a terminal ErrorEvent so callers still see
-        # exactly one terminator.
         yield ErrorEvent(
             error_code="NoFinalResult",
             message="execute_core_search exited without yielding SearchOutput",
@@ -423,6 +468,8 @@ class Search:
             embed_confidence_threshold=rt.embed_confidence_threshold,
             merge_adjacent=rt.merge_adjacent,
             default_max_results=rt.default_max_results,
+            frame_scoring=rt.frame_scoring,
+            frame_lookup_transport=rt.frame_lookup_transport,
             # VST only mints media links; a deployment without it still
             # searches and returns segments with empty `screenshot_url`.
             vst_internal_url=rt.vst_internal_url or "",

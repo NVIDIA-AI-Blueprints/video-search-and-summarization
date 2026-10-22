@@ -549,7 +549,8 @@ async def test_get_frame_script_shifts_cosine_into_non_negative_range():
         es=es,
     )
     script = es.bodies[0]["query"]["function_score"]["script_score"]["script"]["source"]
-    assert "(maxScore + 1.0) / 2.0" in script
+    assert "(best+1.0)/2.0" in script
+    assert "Math.min" not in script
 
 
 @pytest.mark.asyncio
@@ -603,7 +604,14 @@ async def test_perform_frame_lookups_skips_without_window():
 async def test_perform_frame_lookups_aligns_results_to_candidates():
     # A candidate missing an id maps to None in place; ids are looked up around it,
     # keeping the returned list positionally aligned with candidates.
-    es = _MockFramesEs(score=0.8)
+    class MatchingFramesEs(_MockFramesEs):
+        async def search(self, *, index, body, **kwargs):
+            response = await super().search(index=index, body=body, **kwargs)
+            target = body["query"]["function_score"]["script_score"]["script"]["params"]["target_id"]
+            response["hits"]["hits"][0]["_source"]["objects"][0]["id"] = target
+            return response
+
+    es = MatchingFramesEs(score=0.8)
     candidates = [_candidate(1), _candidate(None), _candidate(3)]
     out = await ah._perform_frame_lookups(
         candidates=candidates,
@@ -884,20 +892,33 @@ async def test_frame_lookups_bound_concurrency_deduplicate_and_preserve_alignmen
 
     active = peak = calls = 0
 
-    async def lookup(**kwargs):
-        nonlocal active, peak, calls
-        calls += 1
-        active += 1
-        peak = max(peak, active)
-        try:
-            await asyncio.sleep(0)
-            if kwargs["object_id"] == "3":
-                raise RuntimeError("one frame lookup failed")
-            return (kwargs["object_id"], None, 0.8, None)
-        finally:
-            active -= 1
+    class CountingFramesEs(_MockFramesEs):
+        async def search(self, *, index, body, **kwargs):
+            nonlocal active, peak, calls
+            target = body["query"]["function_score"]["script_score"]["script"]["params"]["target_id"]
+            calls += 1
+            active += 1
+            peak = max(peak, active)
+            try:
+                await asyncio.sleep(0)
+                if target == "3":
+                    raise RuntimeError("one frame lookup failed")
+                return {
+                    "hits": {
+                        "hits": [
+                            {
+                                "_score": 0.8,
+                                "_source": {
+                                    "id": target,
+                                    "objects": [{"id": target}],
+                                },
+                            }
+                        ]
+                    }
+                }
+            finally:
+                active -= 1
 
-    monkeypatch.setattr(ah, "_get_frame_from_behavior", lookup)
     candidates = [_candidate(i) for i in range(50)] + [_candidate(None), _candidate(1), _candidate(3)]
     results = await ah._perform_frame_lookups(
         candidates=candidates,
@@ -905,11 +926,11 @@ async def test_frame_lookups_bound_concurrency_deduplicate_and_preserve_alignmen
         frames_index="frames",
         timestamp_start=datetime(2025, 1, 1, tzinfo=UTC),
         timestamp_end=datetime(2025, 1, 2, tzinfo=UTC),
-        es=_MockFramesEs(),
+        es=CountingFramesEs(),
     )
     assert calls == 50
     assert 1 < peak <= ah.FRAME_LOOKUP_CONCURRENCY
     assert len(results) == len(candidates)
     assert results[-3] is None
-    assert results[-2] == results[1] == ("1", None, 0.8, None)
+    assert results[-2] == results[1] == ("1", None, 0.8, "")
     assert results[-1] is results[3] is None

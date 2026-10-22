@@ -548,3 +548,11 @@ async def test_cancelled_rerank_drains_all_precompute_tasks() -> None:
     assert set(drained) == {"red hat", "blue car"}
     assert all(task.done() for task in tasks)
     assert attr.calls == []
+
+
+@pytest.mark.parametrize(
+    "frame_score,expected", [(0.0, 0.0), (None, 0.7), (-0.1, 0.7), (float("nan"), 0.7), (float("inf"), 0.7)]
+)
+def test_attribute_result_frame_endpoint_and_invalid_scores(frame_score, expected):
+    result = sh.attribute_result_to_search_result(_attr_result(frame_score=frame_score, behavior_score=0.7))
+    assert result.similarity == pytest.approx(expected)

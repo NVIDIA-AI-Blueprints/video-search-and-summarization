@@ -84,7 +84,7 @@ def test_build_candidates_dedups_object_ids_and_preserves_zero():
 
 
 def test_build_candidates_frame_score_preferred_when_positive():
-    # frame_score positive wins; a None/zero frame_score falls back to behavior.
+    # A finite frame score wins; only missing/invalid frame evidence falls back.
     attrs = [_attr_result(frame_score=0.8, behavior_score=0.2), _attr_result(frame_score=None, behavior_score=0.5)]
     candidates = _fusion.build_fusion_candidates([(_embed_result(), attrs)], attribute_count=2)
     assert candidates[0].normalised_attribute_score == pytest.approx((0.8 + 0.5) / 2)
@@ -478,3 +478,12 @@ def test_fusion_evidence_does_not_cross_sensors_or_subjects():
         {"embed": [subject], "attribute": [incoming]}, weights={"embed": 1, "attribute": 1}, rrf_k=60
     )
     assert fused[0].attribute_evidence == [{"object_id": "7", "sensor_id": "cam1"}]
+
+
+@pytest.mark.parametrize(
+    "frame_score,expected", [(0.0, 0.0), (None, 0.7), (-0.1, 0.7), (float("nan"), 0.7), (float("inf"), 0.7)]
+)
+def test_frame_endpoint_and_invalid_scores(frame_score, expected):
+    attrs = [_attr_result(frame_score=frame_score, behavior_score=0.7)]
+    candidates = _fusion.build_fusion_candidates([(_embed_result(), attrs)], attribute_count=1)
+    assert candidates[0].normalised_attribute_score == pytest.approx(expected)
