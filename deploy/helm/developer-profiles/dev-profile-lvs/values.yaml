@@ -551,6 +551,8 @@ vssIngress:
   phoenixHost: ""
   kibanaPort: 5601
   phoenixPort: 6006
+  # Optional; default streamer.<global.externalHost or vssIngress.host>.
+  streamerHost: ""
 
 # RTVI umbrella: LVS always-on rtvi-vlm. By default, rtvi-vlm loads the integrated
 # Cosmos checkpoint in-pod. LVS deploys Kafka so

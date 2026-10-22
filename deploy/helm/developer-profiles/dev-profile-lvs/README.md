@@ -243,7 +243,7 @@ Edit **`values-lvs.yaml`** and set at least:
 | **`nims`** | **`nims.enabled`**: umbrella for all NIM subcharts. Use **`nims.gpuType`** to select model settings and **`nims.<model>.enabled`** to choose models. Default LVS enables **`nims.nemotron35`** and disables the other bundled NIMs because RT-VLM loads the integrated VLM checkpoint. Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
 | **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) service-root base URLs when LLM/VLM are **not** deployed by this chart, for example **`http://host:31081`** without a trailing **`/v1`**. Use with **`nims.enabled: false`**. Shared by **vss-agent** and **vss-summarization**; must be reachable from those pods. Leave **`""`** for in-cluster **NIM** services. |
 | **`global.llmName`** / **`global.vlmName`** (remote) | NGC-style model ids for **both** **vss-agent** and **vss-summarization**; must match remote endpoints. Defaults in **`values-lvs.yaml`** match common NGC models. |
-| **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, and (when enabled) **Kibana** and **Phoenix** on **`kibana.<host>`** / **`phoenix.<host>`**. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Sample **`values-lvs.yaml`** enables this by default. |
+| **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, and (when enabled) **Kibana**, **Phoenix**, and **NVStreamer** on **`kibana.<host>`** / **`phoenix.<host>`** / **`streamer.<host>`**. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Sample **`values-lvs.yaml`** enables this by default. |
 
 #### `values-lvs.yaml` vs chart `values.yaml`
 
@@ -291,7 +291,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vios.vss-vios-streamprocessing.persistence`** | **`vstData`**, **`vstVideo`**, **`streamerVideos`**: same idea as sensor | **Streamprocessing** mounts up to **three** shared folders: VST **data**, VST **video**, and **streamer** uploads. Use blank **`existingClaim`** to use the shared PVCs from **`vios`** when **`vios.vstStorage.createSharedPvcs`** is **`true`**, or set **`existingClaim`** / **`enabled`** per volume the same way as for **sensor**. |
 | **`vios.vss-vios-ingress.enabled`** | **`true`** | Deploys the in-cluster **VST ingress** (nginx). |
 | **`vios.vss-vios-ingress.externallyAccessibleIp`** | **`""`** | Hostname or IP address advertised to VST/nginx for external access. If unset, the subchart uses **`global.externalHost`**; if that is unset, it defaults to **`127.0.0.1`**. Override this value only when the VST ingress must use a hostname or IP that differs from **`global.externalHost`**. |
-| **`vssIngress.enabled`** | **`false`** in chart **`values.yaml`**; **`true`** in sample **`values-lvs.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: paths on the main host from the [canonical route table](../../services/common/README.md), including **vss-agent-ui** at **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, and **`/api/proxy`**; **vss-agent**; **vss-vios-ingress** (**`/vst`**, **`/storage`**); **`/lvs`** to the summarization API; **`/rtvi-vlm`** to RT-VLM; **`/elasticsearch`**; and **`/phoenix`**. LVS readiness and summarize are **`/lvs/v1/live`** and **`/lvs/v1/summarize`**; RT-VLM is **`/rtvi-vlm/v1/models`** and **`/rtvi-vlm/v1/chat/completions`**. Neither owns the origin root any more, so **`/v1/*`** no longer resolves. Optional hosts **`kibana.<host>`** and **`phoenix.<host>`** are added when those subcharts are enabled. No **`Ingress`** if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
+| **`vssIngress.enabled`** | **`false`** in chart **`values.yaml`**; **`true`** in sample **`values-lvs.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: paths on the main host from the [canonical route table](../../services/common/README.md), including **vss-agent-ui** at **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, and **`/api/proxy`**; **vss-agent**; **vss-vios-ingress** (**`/vst`**, **`/storage`**); **`/lvs`** to the summarization API; **`/rtvi-vlm`** to RT-VLM; **`/elasticsearch`**; and **`/phoenix`**. LVS readiness and summarize are **`/lvs/v1/live`** and **`/lvs/v1/summarize`**; RT-VLM is **`/rtvi-vlm/v1/models`** and **`/rtvi-vlm/v1/chat/completions`**. Neither owns the origin root any more, so **`/v1/*`** no longer resolves. Optional hosts **`kibana.<host>`**, **`phoenix.<host>`**, and **`streamer.<host>`** are added when those subcharts are enabled. No **`Ingress`** if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
 | **`vssIngress.ingressClassName`** | **`haproxy`** | **`spec.ingressClassName`** on the **`Ingress`**. Must match an **`IngressClass`** on the cluster (e.g. from **HAProxy Kubernetes Ingress**). |
 | **`vssIngress.host`** | **`""`** | Ingress hostname for the main rules; if empty, **`global.externalHost`** is used. |
 | **`vssIngress.vssUiPort`** | **`3000`** | Backend port for **vss-agent-ui** paths. |
@@ -305,6 +305,8 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vssIngress.phoenixHost`** | **`""`** | Host rule for Phoenix; default **`phoenix.<global.externalHost or vssIngress.host>`**. |
 | **`vssIngress.kibanaPort`** | **`5601`** | Kibana **Service** port when Kibana is enabled. |
 | **`vssIngress.phoenixPort`** | **`6006`** | Phoenix **Service** port when Phoenix is enabled. |
+| **`vssIngress.streamerHost`** | **`""`** | NVStreamer HTTP hostname; defaults to **`streamer.<main-host>`**, where **`<main-host>`** is **`vssIngress.host`**, falling back to **`global.externalHost`**. |
+| **`vios.vss-vios-nvstreamer.service.port`** | **`31000`** | NVStreamer HTTP **Service** port; the NVStreamer ingress backend uses this same value. |
 | **`vss-summarization.enabled`** | **`true`** | Set **`false`** to disable the **LVS** summarization service. |
 | **`vss-summarization.elasticsearchHost`** | **`""`** | Elasticsearch hostname for **vss-summarization** **`ES_HOST`**. When empty, defaults to **`<release>-elasticsearch`**. |
 | **`vss-summarization.elasticsearchPort`** | **`9200`** | Elasticsearch HTTP port (**`ES_PORT`**). |
@@ -456,7 +458,7 @@ Set **`global.externalHost`**, **`global.kibanaPublicUrl`** (and scheme/port as 
 
 ### VSS Ingress (`vssIngress`)
 
-The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`**) so one main hostname serves UI, API, and VST, with optional hostnames for **Kibana** and **Phoenix** when those subcharts are enabled.
+The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`**) so one main hostname serves UI, API, and VST, with optional hostnames for **Kibana**, **Phoenix**, and **NVStreamer** when those subcharts are enabled.
 
 **Prerequisites**
 
@@ -471,6 +473,23 @@ The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`*
 - Main host: **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, **`/api/proxy`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** → **vss-agent**; **`/vst`** → **vss-vios-ingress**.
 - If **Kibana** is enabled: host **`kibana.<main-host>`** (or **`vssIngress.kibanaHost`**) → **Kibana** (**`vssIngress.kibanaPort`**).
 - If **Phoenix** is enabled: host **`phoenix.<main-host>`** (or **`vssIngress.phoenixHost`**) → **Phoenix**.
+- If **VIOS** and **NVStreamer** are enabled: host **`streamer.<main-host>`** (or **`vssIngress.streamerHost`**) → **NVStreamer** HTTP (**`vios.vss-vios-nvstreamer.service.port`**, default **`31000`**).
+
+The NVStreamer hostname must resolve to the ingress controller's externally reachable address. For example, with `global.externalHost: vss.YOUR_IP.nip.io`, open `http://streamer.vss.YOUR_IP.nip.io/`. The NVStreamer Service stays **ClusterIP**; ingress provides HTTP access. To verify access, open the URL from your workstation, confirm that the UI and its API requests load, and upload a test video.
+
+From your workstation, verify the NVStreamer HTTP endpoint after startup. Replace `<NVSTREAMER_HOST>` with the streamer hostname listed by `kubectl get ingress -n <NAMESPACE>` (including any `vssIngress.streamerHost` override):
+
+```bash
+NVSTREAMER_URL='http://<NVSTREAMER_HOST>'
+curl --fail --silent --show-error --output /dev/null \
+  --write-out 'NVStreamer UI: HTTP %{http_code}\n' "${NVSTREAMER_URL}/"
+curl --fail --silent --show-error --output /dev/null \
+  --write-out 'NVStreamer readiness: HTTP %{http_code}\n' "${NVSTREAMER_URL}/v1/ready"
+```
+
+Both checks should report **HTTP 200**. A nonzero curl exit status indicates a failed check. NVStreamer can still be installing runtime media packages after its pod appears Running; wait for the HTTP readiness check before using the UI. Use `https://` in `NVSTREAMER_URL` if TLS is configured on your ingress.
+
+This route exposes **HTTP only**. External RTSP playback requires separate TCP port exposure and a reachable advertised address; it is not provided by this HTTP ingress rule.
 
 After install, confirm the **`Ingress`** exists (replace **`<NAMESPACE>`** with your release namespace):
 
