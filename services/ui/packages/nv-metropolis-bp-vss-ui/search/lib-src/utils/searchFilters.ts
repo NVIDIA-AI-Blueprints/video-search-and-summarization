@@ -1,6 +1,19 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
+import { DEFAULT_TOP_K } from '../hooks/useFilter';
 import type { SearchData, SearchParams, StreamInfo } from '../types';
+
+export const SIMILARITY_TAG_TOOLTIP =
+  'Minimum cosine similarity. Results scoring below this value are hidden. 0.00 shows every result.';
+
+export function isDefaultSearchFilters(params: SearchParams): boolean {
+  const sources = params.videoSources ?? [];
+  const similarity = Number(params.similarity);
+  const topK = Number(params.topK ?? DEFAULT_TOP_K);
+  const similarityIsDefault = !Number.isFinite(similarity) || similarity === 0;
+  const topKIsDefault = !Number.isFinite(topK) || topK === DEFAULT_TOP_K;
+  return sources.length === 0 && similarityIsDefault && topKIsDefault;
+}
 
 /**
  * Apply Search-tab filter controls to Chat-derived result cards so the

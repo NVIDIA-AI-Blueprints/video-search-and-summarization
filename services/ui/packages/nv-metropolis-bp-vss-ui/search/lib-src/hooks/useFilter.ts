@@ -28,12 +28,12 @@ function setStoredTopK(value: number): void {
   }
 }
 
-/** A numeric threshold, including 0, is a real filter. Blank means the tag was cleared. */
-function similarityFilterTag(similarity: unknown): { key: string; title: string; value: string } | null {
-  if (similarity === '' || similarity == null) return null;
-  const similarityNumber = Number(similarity);
-  if (!Number.isFinite(similarityNumber)) return null;
-  return { key: 'similarity', title: 'Similarity', value: similarityNumber.toFixed(2) };
+/** Similarity is always shown. Blank or invalid values display as the default 0.00. */
+function similarityFilterTag(similarity: unknown): { key: string; title: string; value: string } {
+  const similarityNumber =
+    similarity === '' || similarity == null ? 0 : Number(similarity);
+  const value = Number.isFinite(similarityNumber) ? similarityNumber : 0;
+  return { key: 'similarity', title: 'Similarity', value: value.toFixed(2) };
 }
 
 export const useFilter = ({vstApiUrl}: FilterProps) => {
@@ -98,10 +98,7 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
     if (videoSources && videoSources.length > 0) {
       tags.push({key: 'videoSources', title: 'Video sources', value: videoSources.join(', ')});
     }
-    const similarityTag = similarityFilterTag(similarity);
-    if (similarityTag) {
-      tags.push(similarityTag);
-    }
+    tags.push(similarityFilterTag(similarity));
     // Always include topK tag (robust to numeric 0 or other non-truthy but valid numbers)
     if (topK !== undefined && topK !== null) {
       tags.push({key: 'topK', title: 'Show top K Results', value: topK.toString()});

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-import { applySearchResultFilters } from '../../lib-src/utils/searchFilters';
+import { applySearchResultFilters, isDefaultSearchFilters } from '../../lib-src/utils/searchFilters';
+import { DEFAULT_TOP_K } from '../../lib-src/hooks/useFilter';
 import type { SearchData, StreamInfo } from '../../lib-src/types';
 
 const clip = (overrides: Partial<SearchData> = {}): SearchData => ({
@@ -45,5 +46,17 @@ describe('applySearchResultFilters', () => {
     ];
     const filtered = applySearchResultFilters(results, { topK: 2 }, streams);
     expect(filtered).toHaveLength(2);
+  });
+});
+
+describe('isDefaultSearchFilters', () => {
+  it('is true for empty sources, zero similarity, and default top K', () => {
+    expect(isDefaultSearchFilters({ videoSources: [], similarity: 0, topK: DEFAULT_TOP_K })).toBe(true);
+  });
+
+  it('is false when similarity, sources, or top K differ from defaults', () => {
+    expect(isDefaultSearchFilters({ videoSources: [], similarity: 0.75, topK: DEFAULT_TOP_K })).toBe(false);
+    expect(isDefaultSearchFilters({ videoSources: ['cam-1'], similarity: 0, topK: DEFAULT_TOP_K })).toBe(false);
+    expect(isDefaultSearchFilters({ videoSources: [], similarity: 0, topK: 20 })).toBe(false);
   });
 });
