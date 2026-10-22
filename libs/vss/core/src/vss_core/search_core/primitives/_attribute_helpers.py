@@ -56,8 +56,11 @@ from .._internal.frame_refinement import FrameRefinementContext
 from .._internal.frame_refinement import frame_refinement_context
 from .._internal.frame_refinement import record_diagnostic
 from .._internal.frame_refinement import refine_frames
+from .._internal.source_selection import record_stage
+from .._internal.source_selection import source_selection_context
 from .._internal.time_measure import TimeMeasure
 from ..errors import IndexNotFoundError
+from ..errors import InvalidInputError
 from ..models.attribute_search import AttributeSearchInput
 from ..models.attribute_search import AttributeSearchMetadata
 from ..models.attribute_search import AttributeSearchResult
@@ -259,6 +262,7 @@ def hit_to_result(
 
     metadata = AttributeSearchMetadata(
         sensor_id=sensor_id,
+        indexed_source_id=sensor_id if source_selection_context.get() is not None else None,
         object_id=object_id,
         object_type=object_type,
         frame_timestamp=final_timestamp,
@@ -453,6 +457,21 @@ async def _search_behavior(
                 f"Uploads anchor index '{index}' does not exist (no files ingested); "
                 f"returning no {source_type} candidates."
             )
+            selection = source_selection_context.get()
+            if selection is not None:
+                selection.scans.append(
+                    {
+                        "index": index,
+                        "field": "embeddings.vector",
+                        "exhaustive": True,
+                        "absent_uploads_anchor": True,
+                        "snapshot_verified": False,
+                        "eligible_documents": 0,
+                        "scored_documents": 0,
+                        "retained_documents": 0,
+                        "budget": candidate_limit,
+                    }
+                )
             return []
         logger.error(f"Elasticsearch index '{index}' not found: {e}")
         raise
@@ -825,7 +844,9 @@ def _safe_hit_to_result(
     """Map a hit to a result, skipping (and logging) any single unprocessable hit."""
     try:
         return hit_to_result(hit, frame_result)
-    except Exception:
+    except Exception as exc:
+        if source_selection_context.get() is not None:
+            raise InvalidInputError("Source diversity cannot discard a malformed indexed behavior hit") from exc
         hit_id = hit.get("_id", "unknown") if isinstance(hit, dict) else "unknown"
         logger.warning(f"Skipping unprocessable behavior hit {scrub_log(hit_id)}", exc_info=True)
         return None
@@ -909,12 +930,16 @@ async def search_by_attributes(
                 results.append(item)
                 aligned_candidates.append(hit)
 
+    record_stage("behavior_conversion", len(candidates), len(results), kind="conversion")
     with TimeMeasure("attribute_search: deduplication"):
+        before = len(results)
         results = deduplicate_by_object(results, aligned_candidates)
+        record_stage("behavior_deduplication", before, len(results), kind="aggregation")
 
     # Stream-id resolution happens later at the enrichment layer, so only the raw
     # behavior ``sensor.id`` is available here; the helper still matches when the
     # exclude entry uses that raw id and normalizes timestamps either way.
+    before = len(results)
     results = [
         r
         for r in results
@@ -928,8 +953,11 @@ async def search_by_attributes(
         )
     ]
 
+    record_stage("explicit_exclusions", before, len(results), kind="filter")
+    before = len(results)
     if 0 < top_k < len(results):
         results = results[:top_k]
+    record_stage("single_attribute_top_k", before, len(results), kind="truncation")
     return results
 
 
@@ -1155,12 +1183,24 @@ async def _append_multi_attribute(
                     attr_results, vst_internal_url, vst_external_url, attr_query, _metadata=metadata
                 )
             )
+            if source_selection_context.get() is not None:
+                before = len(all_results)
+                all_results = deduplicate_by_object(all_results)
+                record_stage("attribute_union_deduplication", before, len(all_results), kind="aggregation")
+                if search_input.candidate_limit is not None and len(all_results) > search_input.candidate_limit:
+                    raise InvalidInputError(
+                        "Complete aggregated attribute ranking exceeds candidate_limit; increase the explicit budget"
+                    )
             logger.info(f"Attribute '{scrub_log(attr_query)}': found {len(attr_results)} result(s)")
         except LibraryError:
             # Systemic failures (missing index, backend unreachable, invalid input)
             # affect every attribute equally — fail fast rather than retrying.
             raise
         except Exception as e:
+            if source_selection_context.get() is not None:
+                raise InvalidInputError(
+                    f"Source diversity requires all attributes to succeed: {scrub_log(attr_query)}"
+                ) from e
             # An unexpected error for a single attribute should not sink the whole
             # multi-attribute request; skip it and continue with the rest.
             logger.warning(f"Attribute search failed for '{scrub_log(attr_query)}': {e}", exc_info=True)
@@ -1168,7 +1208,9 @@ async def _append_multi_attribute(
 
     logger.info(f"Append mode: {len(all_results)} total result(s) from {len(queries)} attribute(s)")
 
+    before = len(all_results)
     all_results = deduplicate_by_object(all_results)
+    record_stage("final_attribute_deduplication", before, len(all_results), kind="aggregation")
     # Results are concatenated in query order; rank globally by behavior_score
     # before the top_k slice so a higher-scoring later-attribute match is not
     # truncated in favor of a lower-scoring earlier one. Tiebreak deterministically
@@ -1176,8 +1218,10 @@ async def _append_multi_attribute(
     all_results.sort(key=_append_rank_key)
     top_k = search_input.top_k
     assert top_k is not None
+    before = len(all_results)
     if top_k > 0 and len(all_results) > top_k:
         all_results = all_results[:top_k]
+    record_stage("attribute_union_top_k", before, len(all_results), kind="truncation")
     return all_results
 
 

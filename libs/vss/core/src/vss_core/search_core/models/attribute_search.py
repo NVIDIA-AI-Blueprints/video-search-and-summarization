@@ -126,6 +126,7 @@ class AttributeSearchMetadata(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     sensor_id: str
+    indexed_source_id: str | None = Field(default=None, exclude=True)
     object_id: str | None = None
     object_type: str
     frame_timestamp: str | None = None

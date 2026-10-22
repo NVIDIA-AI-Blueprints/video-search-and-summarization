@@ -125,6 +125,7 @@ class SearchRuntime:
     # for the RTSP frames-index wildcard. Extracted for the same reason.
     frames_index_wildcard: str = "mdx-raw-*"
     enable_frame_lookup: bool = True  # mirrors attribute_search.py:190
+    max_hits_per_source: int | None = None
     frame_scoring: str = "auto"
     frame_lookup_transport: str = "auto"
 
@@ -160,6 +161,10 @@ class SearchRuntime:
 
     def __post_init__(self) -> None:
         """Reject invalid behavior knobs before they reach backend code."""
+        if self.max_hits_per_source is not None and (
+            type(self.max_hits_per_source) is not int or not 1 <= self.max_hits_per_source <= 100000
+        ):
+            raise ConfigurationError("max_hits_per_source must be a positive integer")
         if self.frame_scoring not in {"auto", "source", "indexed"}:
             raise ConfigurationError("frame_scoring must be auto, source, or indexed")
         if self.frame_lookup_transport not in {"auto", "single", "msearch"}:

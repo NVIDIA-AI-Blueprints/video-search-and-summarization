@@ -31,6 +31,7 @@ import time
 from typing import TYPE_CHECKING
 from typing import Any
 
+from ._internal.source_selection import validate_selection_request
 from ._internal.time_measure import collect_timings
 from .models.attribute_search import AttributeSearchInput
 from .models.attribute_search import AttributeSearchOutput
@@ -134,9 +135,11 @@ class VSSSearch:
         return Search.from_runtime(self._rt)
 
     async def search(self, **kw: Any) -> SearchOutput:
+        inp = SearchInput(**kw)
+        inp.validate_semantics()
+        validate_selection_request(inp, getattr(self._rt, "max_hits_per_source", None))
         if self._search is None:
             self._search = self._build_search()
-        inp = SearchInput(**kw)
 
         # Collect around retrieval AND verification: the critic is often the
         # larger share of a search, so timing only retrieval would explain the
@@ -310,9 +313,12 @@ class VSSSearch:
         return candidate_indices, videos
 
     def search_stream(self, **kw: Any) -> AsyncIterator[SearchEvent]:
+        inp = SearchInput(**kw)
+        inp.validate_semantics()
+        validate_selection_request(inp, getattr(self._rt, "max_hits_per_source", None))
         if self._search is None:
             self._search = self._build_search()
-        return self._verified_search_stream(SearchInput(**kw))
+        return self._verified_search_stream(inp)
 
     async def _verified_search_stream(self, inp: SearchInput) -> AsyncIterator[SearchEvent]:
         """Preserve streaming progress and verify only the terminal output."""

@@ -38,6 +38,9 @@ from vss_core._foundation.errors import LibraryError
 from .._internal.embed_translation import params_to_embed_input
 from .._internal.frame_refinement import FrameRefinementContext
 from .._internal.frame_refinement import frame_refinement_context
+from .._internal.source_selection import SourceSelectionContext
+from .._internal.source_selection import source_selection_context
+from .._internal.source_selection import validate_selection_request
 from ..errors import InvalidInputError
 from ..events import ErrorEvent
 from ..events import FinalResultEvent
@@ -300,6 +303,7 @@ class Search:
         embed_confidence_threshold: float = 0.1,
         merge_adjacent: bool = True,
         default_max_results: int = 10,
+        max_hits_per_source: int | None = None,
         frame_scoring: str = "auto",
         frame_lookup_transport: str = "auto",
         # VST URLs are needed by execute_core_search via its config object
@@ -310,6 +314,7 @@ class Search:
         owns_tag: bool = False,
         owns_behavior_es: bool = False,
     ) -> None:
+        self._max_hits_per_source = max_hits_per_source
         self._frame_scoring = frame_scoring
         self._frame_lookup_transport = frame_lookup_transport
         self._embed = embed
@@ -334,6 +339,7 @@ class Search:
 
         self._config = SimpleNamespace(
             attribute_search_tool="attribute_search",
+            max_hits_per_source=max_hits_per_source,
             embed_confidence_threshold=embed_confidence_threshold,
             merge_adjacent=merge_adjacent,
             default_max_results=default_max_results,
@@ -354,6 +360,13 @@ class Search:
     async def run(self, inp: SearchInput) -> SearchOutput:
         """Single-shot: collect chunks, return final SearchOutput."""
         inp.validate_semantics()
+        validate_selection_request(inp, self._max_hits_per_source)
+        selection_context = None
+        if self._max_hits_per_source is not None:
+            selection_context = SourceSelectionContext(
+                max_candidates=inp.candidate_limit, expected_scans=sum(bool(a.strip()) for a in inp.attributes)
+            )
+        selection_token = source_selection_context.set(selection_context)
         context = FrameRefinementContext(scoring=self._frame_scoring, transport=self._frame_lookup_transport)
         token = frame_refinement_context.set(context)
         try:
@@ -372,15 +385,24 @@ class Search:
                 await context.aclose()
             finally:
                 frame_refinement_context.reset(token)
+                source_selection_context.reset(selection_token)
 
     async def stream(self, inp: SearchInput) -> AsyncIterator[SearchEvent]:
         """Streaming: translate AgentMessageChunk → SearchEvent. Exactly one
         terminal event (FinalResultEvent or ErrorEvent) is emitted.
         """
         context = FrameRefinementContext(scoring=self._frame_scoring, transport=self._frame_lookup_transport)
+        selection_context = (
+            SourceSelectionContext(
+                max_candidates=inp.candidate_limit, expected_scans=sum(bool(a.strip()) for a in inp.attributes)
+            )
+            if self._max_hits_per_source is not None
+            else None
+        )
         core_updates = None
         try:
             inp.validate_semantics()
+            validate_selection_request(inp, self._max_hits_per_source)
             core_updates = _search_helpers.execute_core_search(
                 search_input=inp,
                 embed_search=self._embed_adapter,
@@ -393,6 +415,7 @@ class Search:
                 # Do not expose request-local state to a consumer while the
                 # generator is suspended at yield. Each advance/close may be
                 # driven by a different task, so reset its token in that task.
+                selection_token = source_selection_context.set(selection_context)
                 token = frame_refinement_context.set(context)
                 try:
                     chunk = await anext(core_updates)
@@ -400,6 +423,7 @@ class Search:
                     break
                 finally:
                     frame_refinement_context.reset(token)
+                    source_selection_context.reset(selection_token)
                 if isinstance(chunk, SearchOutput):
                     chunk.frame_refinement = list(context.diagnostics)
                     yield FinalResultEvent(output=chunk)
@@ -412,6 +436,7 @@ class Search:
             yield ErrorEvent(error_code="UnexpectedError", message=str(e))
             return
         finally:
+            selection_token = source_selection_context.set(selection_context)
             token = frame_refinement_context.set(context)
             try:
                 if core_updates is not None:
@@ -421,6 +446,7 @@ class Search:
                     await context.aclose()
                 finally:
                     frame_refinement_context.reset(token)
+                    source_selection_context.reset(selection_token)
 
         yield ErrorEvent(
             error_code="NoFinalResult",
@@ -468,6 +494,7 @@ class Search:
             embed_confidence_threshold=rt.embed_confidence_threshold,
             merge_adjacent=rt.merge_adjacent,
             default_max_results=rt.default_max_results,
+            max_hits_per_source=rt.max_hits_per_source,
             frame_scoring=rt.frame_scoring,
             frame_lookup_transport=rt.frame_lookup_transport,
             # VST only mints media links; a deployment without it still

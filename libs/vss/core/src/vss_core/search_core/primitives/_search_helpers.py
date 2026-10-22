@@ -48,6 +48,10 @@ from vss_core.vios import get_sensor_id_from_stream_id
 from .._internal.coerce import _coerce_float
 from .._internal.coerce import _coerce_str
 from .._internal.coverage import candidate_coverage
+from .._internal.source_selection import record_stage
+from .._internal.source_selection import select_sources
+from .._internal.source_selection import source_selection_context
+from .._internal.source_selection import validate_selection_request
 from .._internal.time_measure import TimeMeasure
 from ..agent_chunks import AgentMessageChunk
 from ..agent_chunks import AgentMessageChunkType
@@ -164,6 +168,8 @@ async def _run_attribute_only_search(
             if search_input.candidate_limit is not None:
                 attr_params["candidate_limit"] = search_input.candidate_limit
         attribute_results = await attribute_search_fn.ainvoke(attr_params)
+        if source_selection_context.get() is not None and not isinstance(attribute_results, list):
+            raise InvalidInputError("Source diversity requires an attribute results list and verified scan evidence")
 
         search_results: list[SearchResult] = []
         if attribute_results and isinstance(attribute_results, list):
@@ -175,10 +181,13 @@ async def _run_attribute_only_search(
                 try:
                     search_results.append(attribute_result_to_search_result(result))
                 except Exception as e:
+                    if source_selection_context.get() is not None:
+                        raise InvalidInputError("Source diversity cannot discard an invalid attribute result") from e
                     logger.warning(f"Failed to convert attribute result: {e}")
                     continue
             search_results.sort(key=lambda x: x.similarity, reverse=True)
 
+        record_stage("attribute_to_search", len(attribute_results or []), len(search_results), kind="conversion")
         return search_results
     except LibraryError:
         # Surface real failures (missing index, backend unreachable, invalid
@@ -186,6 +195,8 @@ async def _run_attribute_only_search(
         # errors/exit codes instead of a misleading empty result.
         raise
     except Exception as e:
+        if source_selection_context.get() is not None:
+            raise InvalidInputError("Source diversity requires every attribute query to succeed") from e
         logger.error(f"Attribute-only search failed: {e}", exc_info=True)
         if search_messages is not None:
             search_messages.append("Attribute search degraded; returning partial/empty results.")
@@ -227,6 +238,9 @@ def attribute_result_to_search_result(
         start_time=start_time,
         end_time=end_time,
         sensor_id=_coerce_str(metadata.sensor_id),
+        source_id=(metadata.indexed_source_id or metadata.video_name or metadata.sensor_id)
+        if source_selection_context.get() is not None
+        else None,
         screenshot_url=_coerce_str(validated_result.screenshot_url),
         similarity=similarity,
         # A missing object id is meaningful: attribute-only hits need not be
@@ -493,6 +507,8 @@ async def execute_core_search(
     Elasticsearch surface used only by the object_id path. All are supplied by
     the caller; this generator only wires them to the pure helpers.
     """
+    selection_cap = getattr(config, "max_hits_per_source", None)
+    validate_selection_request(search_input, selection_cap)
     # ----- OBJECT_ID PATH: Direct behavior KNN -----
     if search_input.search_mode == "object":
         assert search_input.object_ids is not None
@@ -591,7 +607,9 @@ async def execute_core_search(
     # adjacent pairs come back as five results. Fetch headroom so the count
     # survives the collapse. The agent's own search tool doubles here for the
     # same reason; matching it keeps the two implementations comparable.
-    if getattr(config, "merge_adjacent", True):
+    if selection_cap is not None:
+        top_k = search_input.candidate_limit
+    elif getattr(config, "merge_adjacent", True):
         top_k = top_k * 2
     top_k = min(top_k, downstream_max_top_k)
 
@@ -871,7 +889,9 @@ async def execute_core_search(
                     attribute_list=attribute_list,
                     search_input=search_input,
                     attribute_search_fn=attribute_search_fn,
-                    top_k=min(original_top_k, downstream_max_top_k),
+                    top_k=search_input.candidate_limit
+                    if selection_cap is not None
+                    else min(original_top_k, downstream_max_top_k),
                     min_similarity=0.0,
                     exclude_videos=[],
                     search_messages=search_messages,
@@ -927,11 +947,15 @@ async def execute_core_search(
                 content=f"Found {len(search_results)} results from embed search",
             )
 
-        # Percentage-based filtering
+        # Intentional filters and aggregation remain part of the baseline.
+        before = len(search_results)
         search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
+        record_stage("top_percent", before, len(search_results), kind="filter")
 
         if getattr(config, "merge_adjacent", True):
+            before = len(search_results)
             search_results = _fusion.merge_consecutive_results(search_results)
+            record_stage("merge_adjacent", before, len(search_results), kind="aggregation")
 
     result_count = len(search_results)
     yield AgentMessageChunk(
@@ -939,9 +963,21 @@ async def execute_core_search(
         content=f"Found {result_count} result{'s' if result_count != 1 else ''}",
     )
 
-    search_results = search_results[:original_top_k]
+    selection = None
+    if selection_cap is not None:
+        selection = select_sources(
+            search_results,
+            cap=selection_cap,
+            requested_top_k=original_top_k,
+            candidate_limit=search_input.candidate_limit,
+        )
+        search_results = [selection.original_pool[index] for index in selection.selected_indices]
+    else:
+        search_results = search_results[:original_top_k]
 
-    yield SearchOutput(data=search_results, search_messages=search_messages, candidate_coverage=coverage)
+    yield SearchOutput(
+        data=search_results, search_messages=search_messages, candidate_coverage=coverage, source_selection=selection
+    )
 
 
 async def execute_core_search_wrapper(

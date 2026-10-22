@@ -386,6 +386,7 @@ def merge_consecutive_results(results: list[SearchResult]) -> list[SearchResult]
                     start_time=first.start_time,
                     end_time=datetime_to_iso8601(end_dt),
                     sensor_id=sensor_id,
+                    source_id=first.source_id,
                     screenshot_url=first.screenshot_url,
                     similarity=similarity,
                     object_ids=merged_object_ids,

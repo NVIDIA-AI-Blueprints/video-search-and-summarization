@@ -30,7 +30,10 @@ from ``aclose()``. The transport closes when the last wrapper releases it.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
+import math
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
@@ -463,6 +466,23 @@ class ElasticClient:
                 except Exception:
                     logger.warning("Could not release content scan scroll", exc_info=True)
 
+    @staticmethod
+    async def _snapshot_index_identities(client: Any, index: str | list[str]) -> list[dict[str, str]]:
+        """Resolve concrete UUIDs for opt-in snapshot evidence, without data reads."""
+        response = await client.indices.get(index=index)
+        if not hasattr(response, "items") or not response:
+            raise BackendUnreachableError("elasticsearch", "Snapshot scan resolved no concrete indices")
+        identities = []
+        for name, metadata in sorted(response.items()):
+            if (not isinstance(metadata, dict) or not isinstance(metadata.get("settings"), dict)
+                    or not isinstance(metadata["settings"].get("index"), dict)):
+                raise BackendUnreachableError("elasticsearch", "Snapshot scan omitted index settings")
+            uuid = metadata["settings"]["index"].get("uuid")
+            if not isinstance(name, str) or not name or not isinstance(uuid, str) or not uuid:
+                raise BackendUnreachableError("elasticsearch", "Snapshot scan omitted concrete index UUID")
+            identities.append({"name": name, "uuid": uuid})
+        return identities
+
     async def exhaustive_vector_search(
         self,
         *,
@@ -480,8 +500,14 @@ class ElasticClient:
         Crossing it is an error: no partial ranking is advertised as exhaustive.
         Scroll state is always released, including when scoring or paging fails.
         """
+        from .._internal.source_selection import source_selection_context
         from ..errors import InvalidInputError
 
+        selection_context = source_selection_context.get()
+        snapshot_enabled = selection_context is not None
+        snapshot_identities = []
+        concrete_indices = None
+        index_uuids = {}
         if not 1 <= candidate_limit <= 100000:
             raise InvalidInputError("candidate_limit must be between 1 and 100000")
         base_query = {"bool": {"filter": filters}} if filters else {"match_all": {}}
@@ -503,14 +529,18 @@ class ElasticClient:
         seen_documents: set[tuple[str, str]] = set()
         try:
             client = await self._client_for_active_loop()
+            if snapshot_enabled:
+                concrete_indices = await self._snapshot_index_identities(client, index)
+                index_uuids = {entry["name"]: entry["uuid"] for entry in concrete_indices}
             response = await client.search(
-                index=index,
+                index=list(index_uuids) if snapshot_enabled else index,
                 body={
                     "query": query,
                     "size": min(512, candidate_limit + 1),
                     "sort": ["_doc"],
                     "track_scores": True,
                     "track_total_hits": True,
+                    **({"seq_no_primary_term": True} if snapshot_enabled else {}),
                     "_source": {
                         "excludes": sorted(
                             {
@@ -529,6 +559,11 @@ class ElasticClient:
             expected_total = None
             while True:
                 scroll_id = response.get("_scroll_id", scroll_id)
+                shards = response.get("_shards")
+                if snapshot_enabled and (response.get("timed_out") is not False or not isinstance(shards, dict)
+                        or any(type(shards.get(key)) is not int or shards[key] < 0 for key in ("total", "successful", "failed"))
+                        or shards["failed"] != 0 or shards["successful"] != shards["total"]):
+                    raise BackendUnreachableError("elasticsearch", "Snapshot scan omitted complete shard evidence")
                 if response.get("timed_out") or response.get("_shards", {}).get("failed", 0):
                     raise BackendUnreachableError("elasticsearch", "Exact scan returned a partial search response")
                 total = response.get("hits", {}).get("total")
@@ -551,6 +586,16 @@ class ElasticClient:
                 if not page:
                     break
                 for hit in page:
+                    if snapshot_enabled:
+                        if (not isinstance(hit, dict) or not isinstance(hit.get("_index"), str)
+                                or hit["_index"] not in index_uuids or not isinstance(hit.get("_id"), str)
+                                or not hit["_id"] or type(hit.get("_seq_no")) is not int or hit["_seq_no"] < 0
+                                or type(hit.get("_primary_term")) is not int or hit["_primary_term"] <= 0
+                                or not isinstance(hit.get("_score"), (int, float)) or isinstance(hit["_score"], bool)
+                                or not math.isfinite(hit["_score"])):
+                            raise BackendUnreachableError("elasticsearch", "Snapshot scan omitted valid versioned document identity or score")
+                        snapshot_identities.append((index_uuids[hit["_index"]], hit["_index"], hit["_id"],
+                                                    hit["_seq_no"], hit["_primary_term"]))
                     identity = (str(hit.get("_index", "")), str(hit["_id"]))
                     if identity in seen_documents:
                         raise BackendUnreachableError("elasticsearch", "Exact scan returned a duplicate document")
@@ -571,13 +616,29 @@ class ElasticClient:
             from .._internal.coverage import candidate_coverage
 
             coverage = {"index": index, "field": field, "indexed": count, "exhaustive": True, "budget": candidate_limit}
+            if snapshot_enabled:
+                after_indices = await self._snapshot_index_identities(client, index)
+                if concrete_indices != after_indices:
+                    raise BackendUnreachableError("elasticsearch", "Snapshot index identities changed during scan")
+                digest = hashlib.sha256()
+                for identity in sorted(snapshot_identities):
+                    digest.update(json.dumps(identity, separators=(",", ":")).encode())
+                    digest.update(b"\n")
+                scope = {"indices": concrete_indices, "field": field, "filters": filters, "nested_path": nested_path}
+                coverage.update({"snapshot_verified": True, "snapshot_digest": digest.hexdigest(),
+                                 "snapshot_indices": concrete_indices,
+                                 "snapshot_scope_digest": hashlib.sha256(json.dumps(scope, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+                                 "eligible_documents": count, "scored_documents": count,
+                                 "retained_documents": len(hits), "score_filtered_documents": count-len(hits),
+                                 "min_score": min_score, "scoped_documents": None, "missing_vector_documents": None})
+                selection_context.scans.append(coverage)
             diagnostics = candidate_coverage.get()
             if diagnostics is not None:
                 diagnostics.append(coverage)
             hits.sort(key=lambda hit: (-hit["_score"], str(hit.get("_index", "")), str(hit.get("_id", ""))))
             return {
                 "hits": {"hits": hits, "total": {"value": count, "relation": "eq"}},
-                "candidate_coverage": {"indexed": count, "exhaustive": True, "budget": candidate_limit},
+                "candidate_coverage": coverage if snapshot_enabled else {"indexed": count, "exhaustive": True, "budget": candidate_limit},
             }
         except ESNotFoundError as exc:
             raise IndexNotFoundError(index, exc) from exc

@@ -219,6 +219,10 @@ class SearchTuning(BaseModel):
     an omitted flag never silently overrides configuration.
     """
 
+    max_hits_per_source: int | None = Field(
+        None, strict=True, ge=1, le=100000,
+        description="Opt-in source cap for exact attribute searches over uploaded files."
+    )
     frame_scoring: Literal["auto", "source", "indexed"] | None = Field(
         None, description="Frame cosine implementation; auto checks indexed-vector compatibility."
     )
@@ -559,6 +563,13 @@ class SearchGroup(CommandGroup):
         # The library still selects a path by `search_mode`; the CLI just no
         # longer asks the caller to name it. The sub-action is the mode.
         payload["search_mode"] = action
+        if tuning.get("max_hits_per_source") is not None:
+            from vss_core.search_core._internal.source_selection import validate_source_selection
+
+            validate_source_selection(
+                action, payload.get("source_type", "video_file"), payload.get("candidate_limit"),
+                tuning["max_hits_per_source"],
+            )
         runtime = _runtime_from(deployment, tuning)
 
         # Validate the complete library request before probing optional

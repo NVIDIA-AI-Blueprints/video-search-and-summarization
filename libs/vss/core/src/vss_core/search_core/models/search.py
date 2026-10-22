@@ -22,12 +22,15 @@ orchestrator config-time flag, not a user-routable field on the request.
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003  Pydantic field annotation; resolved at runtime
+import math
 from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import StrictInt
+from pydantic import model_serializer
 from pydantic import model_validator
 
 from ..errors import InvalidInputError
@@ -135,6 +138,7 @@ class SearchResult(BaseModel):
     start_time: str
     end_time: str
     sensor_id: str
+    source_id: str | None = None
     screenshot_url: str
     similarity: float
     object_ids: list[str] = Field(default_factory=list)
@@ -147,6 +151,13 @@ class SearchResult(BaseModel):
     # Internal routing hint: excluded from serialization so client-facing result
     # payloads (and exact-equality E2E assertions) are unchanged.
     sensor_id_raw: str = Field(default="", exclude=True)
+
+    @model_serializer(mode="wrap")
+    def serialize_source_identity(self, handler):
+        payload = handler(self)
+        if self.source_id is None:
+            payload.pop("source_id", None)
+        return payload
 
 
 class SearchTimings(BaseModel):
@@ -177,6 +188,128 @@ class SearchTimings(BaseModel):
     total_s: float = 0.0
 
 
+class SourceSelection(BaseModel):
+    """Selected positions in an unchanged, complete attribute ranking."""
+
+    model_config = ConfigDict(extra="forbid")
+    original_pool: list[SearchResult]
+    selected_indices: list[StrictInt]
+    policy_version: Literal["source-cap-v1"] = "source-cap-v1"
+    max_hits_per_source: StrictInt = Field(ge=1, le=100000)
+    requested_top_k: StrictInt = Field(ge=1, le=100000)
+    candidate_limit: StrictInt = Field(ge=1, le=100000)
+    counts: dict[str, StrictInt]
+    stages: list[dict[str, Any]]
+    completeness: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_selection(self):
+        if self.selected_indices != sorted(set(self.selected_indices)) or any(
+            index < 0 or index >= len(self.original_pool) for index in self.selected_indices
+        ):
+            raise ValueError("selected_indices must be unique, increasing positions in original_pool")
+        if len(self.selected_indices) > self.requested_top_k or len(self.original_pool) > self.candidate_limit:
+            raise ValueError("source selection exceeds its requested bounds")
+        if self.completeness.get("complete") is not True:
+            raise ValueError("source selection requires complete ranking evidence")
+        from .._internal.source_selection import selection_positions
+
+        expected_indices, expected_counts = selection_positions(
+            self.original_pool, cap=self.max_hits_per_source, requested_top_k=self.requested_top_k
+        )
+        if self.selected_indices != expected_indices or self.counts != expected_counts:
+            raise ValueError("source selection positions or counts do not match the declared policy")
+        if any(not math.isfinite(row.similarity) for row in self.original_pool):
+            raise ValueError("source selection requires finite ranking scores")
+        scans = self.completeness.get("scans")
+        expected_scans = self.completeness.get("expected_scans")
+        if (
+            not isinstance(scans, list)
+            or not scans
+            or type(expected_scans) is not int
+            or any(not isinstance(scan, dict) for scan in scans)
+            or len(scans) != expected_scans
+        ):
+            raise ValueError("source selection lacks scan evidence for every attribute")
+        absent = self.completeness.get("absent_uploads_anchor") is True
+        if absent:
+            from ..runtime import BEHAVIOR_INDEX_ANCHOR
+
+            if (
+                self.original_pool
+                or self.completeness.get("snapshot_verified") is not False
+                or any(
+                    scan.get("absent_uploads_anchor") is not True
+                    or scan.get("index") != BEHAVIOR_INDEX_ANCHOR
+                    or scan.get("eligible_documents") != 0
+                    for scan in scans
+                )
+            ):
+                raise ValueError("source selection has invalid absent-uploads evidence")
+        else:
+            if self.completeness.get("snapshot_verified") is not True:
+                raise ValueError("source selection requires verified indexed snapshots")
+            identities = set()
+            for scan in scans:
+                if (
+                    scan.get("exhaustive") is not True
+                    or scan.get("snapshot_verified") is not True
+                    or type(scan.get("budget")) is not int
+                    or scan.get("budget") != self.candidate_limit
+                    or type(scan.get("eligible_documents")) is not int
+                    or not 0 <= scan["eligible_documents"] <= self.candidate_limit
+                    or type(scan.get("scored_documents")) is not int
+                    or scan.get("scored_documents") != scan["eligible_documents"]
+                    or not isinstance(scan.get("snapshot_digest"), str)
+                    or len(scan["snapshot_digest"]) != 64
+                    or any(character not in "0123456789abcdef" for character in scan["snapshot_digest"])
+                    or not isinstance(scan.get("snapshot_scope_digest"), str)
+                    or len(scan["snapshot_scope_digest"]) != 64
+                    or any(character not in "0123456789abcdef" for character in scan["snapshot_scope_digest"])
+                    or not scan.get("snapshot_indices")
+                    or scan.get("absent_uploads_anchor")
+                ):
+                    raise ValueError("source selection scan evidence is incomplete")
+                indices = scan["snapshot_indices"]
+                if (
+                    not isinstance(indices, list)
+                    or any(
+                        not isinstance(index, dict)
+                        or not isinstance(index.get("name"), str)
+                        or not index["name"]
+                        or not isinstance(index.get("uuid"), str)
+                        or not index["uuid"]
+                        for index in indices
+                    )
+                    or len({index["name"] for index in indices}) != len(indices)
+                ):
+                    raise ValueError("source selection lacks concrete index identities")
+                identities.add(
+                    (
+                        scan["snapshot_digest"],
+                        scan["snapshot_scope_digest"],
+                        tuple(sorted((index["name"], index["uuid"]) for index in indices)),
+                    )
+                )
+            if len(identities) != 1:
+                raise ValueError("source selection combines inconsistent attribute snapshots")
+        for stage in self.stages:
+            before, after = stage.get("before"), stage.get("after")
+            if (
+                not isinstance(stage.get("stage"), str)
+                or not stage["stage"]
+                or stage.get("kind") not in {"truncation", "conversion", "filter", "aggregation"}
+                or type(stage.get("removed")) is not int
+                or type(before) is not int
+                or type(after) is not int
+                or not 0 <= after <= before
+                or stage.get("removed") != before - after
+                or (stage.get("kind") in {"truncation", "conversion"} and after != before)
+            ):
+                raise ValueError("source selection stage evidence reports unexpected candidate loss")
+        return self
+
+
 class SearchOutput(BaseModel):
     """Output envelope from Search.run()."""
 
@@ -184,10 +317,30 @@ class SearchOutput(BaseModel):
     data: list[SearchResult] = Field(default_factory=list)
     search_messages: list[str] = Field(default_factory=list)
     candidate_coverage: list[dict] = Field(default_factory=list)
+    source_selection: SourceSelection | None = None
     frame_refinement: list[dict] = Field(default_factory=list)
     #: Optional so every existing producer and consumer is unaffected: absent
     #: means nobody collected, not "the search took no time".
     timings: SearchTimings | None = None
+
+    @model_validator(mode="after")
+    def validate_source_selected_data(self):
+        if self.source_selection is not None:
+            selected = self.source_selection
+            expected = [selected.original_pool[index] for index in selected.selected_indices]
+            if len(self.data) != len(expected) or any(
+                actual.model_dump(exclude={"critic_result"}) != original.model_dump(exclude={"critic_result"})
+                for actual, original in zip(self.data, expected, strict=True)
+            ):
+                raise ValueError("search data does not match source-selected pool positions")
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize_selection(self, handler):
+        payload = handler(self)
+        if self.source_selection is None:
+            payload.pop("source_selection", None)
+        return payload
 
     @property
     def results(self) -> list[SearchResult]:
