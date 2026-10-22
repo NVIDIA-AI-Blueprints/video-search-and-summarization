@@ -1,0 +1,28 @@
+[project]
+name = "vss-ingestion"
+version = "0.1.0"
+description = "Video ingestion backends and orchestration for VSS"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.27",
+    "httpx-sse",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp",
+    "vss==0.1.0",
+]
+
+[project.optional-dependencies]
+rtvi-cv = [
+    "confluent-kafka>=2.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vss"]
+
+[tool.uv.sources]
+vss = { workspace = true }

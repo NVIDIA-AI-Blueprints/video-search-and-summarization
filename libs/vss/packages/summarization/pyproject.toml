@@ -1,0 +1,25 @@
+[project]
+name = "vss-summarization"
+version = "0.1.0"
+description = "Video summarization and aggregation for VSS"
+requires-python = ">=3.13"
+dependencies = [
+    "vss==0.1.0",
+    "vss-ingestion==0.1.0",
+]
+
+[project.optional-dependencies]
+openai = [
+    "openai>=1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vss"]
+
+[tool.uv.sources]
+vss = { workspace = true }
+vss-ingestion = { workspace = true }

@@ -89,15 +89,20 @@ constraint-dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/cli"]
+members = ["packages/cli", "packages/vss"]
 
 [tool.uv.sources]
+nvidia-vss-vision-ai = { workspace = true }
 nvidia-vision-ai = { workspace = true }
 nvidia-vision-ai-cli = { workspace = true }
+vss = { path = "../vss", editable = true }
+vss-ingestion = { path = "../vss/packages/ingestion", editable = true }
+vss-summarization = { path = "../vss/packages/summarization", editable = true }
 
 [dependency-groups]
 dev = [
   "nvidia-vision-ai-cli",
+    "nvidia-vss-vision-ai",
   "pyright>=1.1.400",
   "pytest>=8.3",
   "pytest-asyncio>=0.25",
@@ -109,7 +114,7 @@ dev = [
 [tool.ruff]
 line-length = 120
 target-version = "py313"
-src = ["src", "packages/cli/src"]
+src = ["src", "packages/cli/src", "packages/vss/src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "ARG", "SIM", "RUF", "PL", "S"]
@@ -118,6 +123,7 @@ ignore = ["PLR0911", "PLR0913", "PLR2004", "S101"]
 [tool.ruff.lint.isort]
 force-single-line = true
 force-sort-within-sections = true
+known-first-party = ["nvidia_vision_ai", "nvidia_vision_ai_cli", "vss", "vss_vision_ai"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["ARG", "PLC0415", "S"]
@@ -130,7 +136,12 @@ force-sort-within-sections = true
 "src/nvidia_vision_ai/knowledge/adapters/llama_index.py" = ["PLC0415"]
 
 [tool.pyright]
-include = ["src", "packages/cli/src"]
+include = ["src", "packages/cli/src", "packages/vss/src"]
+extraPaths = [
+    "../vss/src",
+    "../vss/packages/ingestion/src",
+    "../vss/packages/summarization/src",
+]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
 # Moved from vss_core.knowledge, which was never type-checked: these adapters import
@@ -144,7 +155,7 @@ ignore = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "packages/cli/tests"]
+testpaths = ["tests", "packages/cli/tests", "packages/vss/tests"]
 pythonpath = ["packages/cli/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
