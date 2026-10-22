@@ -80,7 +80,7 @@ spec:
               mountPath: {{ .Values.models.mountPath }}
       containers:
         - name: stage-reid-models
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "vss-reid-embed.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           workingDir: {{ $reidDir | quote }}
           env:

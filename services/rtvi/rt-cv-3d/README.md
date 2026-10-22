@@ -19,7 +19,7 @@ It consists of three components, shipped as container images. ReID Embed is opti
 |---|---|---|
 | `nvcr.io/nvidia/vss-core/vss-rt-cv` | `3.2.0` (x86 default), `3.2.0-sbsa` (DGX Spark / SBSA) | Same image as the RT-CV microservice. To build locally, follow the **"Build Docker images"** section of the [RT-CV README](../rt-cv/README.md#build-docker-images-sbsa-arm-x86) (SBSA / ARM / x86 Dockerfiles under `rt-cv/docker/`). |
 | `nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion` | `3.2.0` | Source lives in [rt-cv-bev-fusion/](rt-cv-bev-fusion); build per its [README](rt-cv-bev-fusion/README.md). |
-| `reid-embed` | built locally | Source lives in [reid-embed/](reid-embed); build per its [README](reid-embed/README.md). |
+| `ghcr.io/nvidia-ai-blueprints/vss/reid-embed` | `develop-latest` | Source lives in [reid-embed/](reid-embed); build per its [README](reid-embed/README.md). |
 
 To pull from NGC: `docker login nvcr.io`.
 
