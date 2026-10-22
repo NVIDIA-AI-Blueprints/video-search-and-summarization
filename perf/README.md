@@ -31,9 +31,8 @@ Needs a GPU host, Docker Compose v2, NGC CLI, and
 
 ```bash
 export NGC_CLI_API_KEY="<ngc-key>"
-# Optional NGC image pin (Jenkins GPU cannot pull GHCR by default):
-export VSS_CONTAINER_REGISTRY=nvcr.io/nvstaging/vss-core
-export VSS_CONTAINER_TAG=develop-latest
+# Defaults match product compose (ghcr.io/nvidia-ai-blueprints/vss:develop-latest).
+# nvstaging/vss-core:develop-latest 404s for vss-behavior-analytics and vss-rt-cv.
 
 ./perf/run_benchmark.sh
 ```
@@ -58,7 +57,11 @@ playback or dump job on the node does not bind-conflict.
 `COMPOSE_PROJECT_NAME=warehouse-bp-perf`. Elastic/Kafka bind mounts live under
 `/tmp/warehouse-bp-perf-*` so uid-1000 Lucene files do not block `deleteDir`.
 The extracted warehouse app data and model cache are kept across teardowns on
-the same node.
+the same node. NGC app-data is flattened from the inner
+`vss-warehouse-app-data/` wrapper, chmod `a+rX` for uid 1000, and
+`BP_CONFIGURATOR_ENV_FILE` is pointed at `generated.env` so HOST_IP is not
+baked as `<HOST_IP>`. `post_deploy.sh` waits for `mdx-raw` traffic (first GPU
+run compiles the RT-DETR engine; livez alone is not enough).
 
 ## Not in this package
 

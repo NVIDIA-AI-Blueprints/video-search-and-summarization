@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -171,6 +173,69 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("need_file \"$WAREHOUSE_DIR/compose.yml\"", text)
         self.assertIn("materialize_warehouse_compose", text)
         self.assertIn("materializing deploy/docker from git", text)
+
+    def test_deploy_handles_local_bringup_holes(self) -> None:
+        common = (PERF / "scripts" / "common.sh").read_text()
+        post = (PERF / "scripts" / "post_deploy.sh").read_text()
+        self.assertIn("ghcr.io/nvidia-ai-blueprints/vss", common)
+        self.assertNotIn("nvcr.io/nvstaging/vss-core", common)
+        self.assertIn("BP_CONFIGURATOR_ENV_FILE=$GENERATED_ENV", common)
+        self.assertIn("normalize_warehouse_app_data", common)
+        self.assertIn("chmod -R a+rX", common)
+        self.assertIn("wait_kafka_raw", post)
+        self.assertIn("mdx-raw", post)
+
+    def test_flatten_nested_app_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "app-data"
+            inner = root / "vss-warehouse-app-data"
+            (inner / "videos").mkdir(parents=True)
+            video = inner / "videos" / "cam.mp4"
+            video.write_bytes(b"x")
+            os.chmod(inner, 0o750)
+            os.chmod(video, 0o640)
+            completed = subprocess.run(
+                ["bash", str(PERF / "scripts" / "common.sh"), "normalize-app-data", str(root)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            flattened = root / "videos" / "cam.mp4"
+            self.assertTrue(flattened.is_file())
+            self.assertFalse((root / "vss-warehouse-app-data").exists())
+            self.assertTrue(flattened.stat().st_mode & stat.S_IROTH)
+
+    def test_flatten_tarball_wrapper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "app-data"
+            staging = Path(tmp) / "src" / "vss-warehouse-app-data" / "videos"
+            staging.mkdir(parents=True)
+            (staging / "cam.mp4").write_bytes(b"x")
+            root.mkdir()
+            archive = root / "vss-warehouse-app-data.tar.gz"
+            packed = subprocess.run(
+                [
+                    "tar",
+                    "-czf",
+                    str(archive),
+                    "-C",
+                    str(Path(tmp) / "src"),
+                    "vss-warehouse-app-data",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(packed.returncode, 0, packed.stderr)
+            completed = subprocess.run(
+                ["bash", str(PERF / "scripts" / "common.sh"), "normalize-app-data", str(root)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            self.assertTrue((root / "videos" / "cam.mp4").is_file())
 
     def test_overlay_cli(self) -> None:
         overlay = PERF / "scripts" / "overlay_env.py"

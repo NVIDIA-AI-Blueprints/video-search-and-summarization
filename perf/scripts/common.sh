@@ -37,7 +37,18 @@ ELASTICSEARCH_HOST_PORT="${ELASTICSEARCH_HOST_PORT:-29200}"
 KAFKA_HOST_PORT="${KAFKA_HOST_PORT:-19092}"
 HAPROXY_HOST_PORT="${HAPROXY_HOST_PORT:-17777}"
 export COMPOSE_PROJECT_NAME VSS_APPS_DIR VSS_DATA_DIR OUTPUT_DIR
-export VSS_CONTAINER_REGISTRY="${VSS_CONTAINER_REGISTRY:-nvcr.io/nvstaging/vss-core}"
+# Product compose defaults to GHCR. nvstaging/vss-core:develop-latest 404s for
+# vss-behavior-analytics and vss-rt-cv. Jenkins ARTIFACT_REF is the warehouse
+# compose NGC path, not a container tag — ignore it if the wrapper exported it.
+if [[ "${VSS_CONTAINER_TAG:-}" == *vss-blueprints-compose* ]]; then
+    echo "Ignoring compose ARTIFACT_REF as VSS_CONTAINER_TAG: $VSS_CONTAINER_TAG"
+    unset VSS_CONTAINER_TAG
+fi
+if [[ "${VSS_CONTAINER_REGISTRY:-}" == *vss-developer* ]]; then
+    echo "Ignoring compose ARTIFACT_REF as VSS_CONTAINER_REGISTRY: $VSS_CONTAINER_REGISTRY"
+    unset VSS_CONTAINER_REGISTRY
+fi
+export VSS_CONTAINER_REGISTRY="${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}"
 export VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"
 
 refuse_symlink() {
@@ -107,13 +118,92 @@ resolve_ba_image() {
     printf '%s:%s\n' "$image" "$tag"
 }
 
+warehouse_data_ready_at() {
+    local root="$1"
+    [[ -d "$root/videos" || -d "$root/playback" || -d "$root/models" ]]
+}
+
 warehouse_data_ready() {
-    [[ -d "$VSS_DATA_DIR/videos" || -d "$VSS_DATA_DIR/playback" || -d "$VSS_DATA_DIR/models" ]]
+    warehouse_data_ready_at "$VSS_DATA_DIR"
+}
+
+extract_one_archive() {
+    local archive="$1"
+    local dest="$2"
+    echo "Extracting $(basename "$archive") into $dest"
+    case "$archive" in
+        *.zip)
+            if command -v unzip >/dev/null; then
+                unzip -o -q "$archive" -d "$dest"
+            else
+                python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
+                    "$archive" "$dest"
+            fi
+            ;;
+        *)
+            tar -xf "$archive" -C "$dest"
+            ;;
+    esac
+}
+
+promote_nested_dir() {
+    local nested="$1"
+    local dest="$2"
+    local item
+    echo "Flattening nested app-data $(basename "$nested") into $dest"
+    shopt -s dotglob nullglob
+    for item in "$nested"/*; do
+        mv "$item" "$dest/"
+    done
+    shopt -u dotglob nullglob
+    rmdir "$nested" 2>/dev/null || true
+}
+
+# NGC ships vss-warehouse-app-data.tar.gz whose top directory is
+# vss-warehouse-app-data/{videos,playback,models}. Jenkins #81 extracted that
+# wrapper into VSS_DATA_DIR and then failed looking for $VSS_DATA_DIR/videos.
+normalize_warehouse_app_data() {
+    local depth=0
+    local archive nested
+    ensure_host_dir "$VSS_DATA_DIR"
+    while (( depth < 4 )); do
+        if warehouse_data_ready; then
+            return 0
+        fi
+        archive="$(find "$VSS_DATA_DIR" -maxdepth 3 -type f \
+            \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.tar' -o -name '*.zip' \) \
+            | head -n 1 || true)"
+        if [[ -n "$archive" ]]; then
+            extract_one_archive "$archive" "$VSS_DATA_DIR"
+            rm -f "$archive"
+            depth=$((depth + 1))
+            continue
+        fi
+        nested=""
+        if warehouse_data_ready_at "$VSS_DATA_DIR/vss-warehouse-app-data"; then
+            nested="$VSS_DATA_DIR/vss-warehouse-app-data"
+        else
+            nested="$(find "$VSS_DATA_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1 || true)"
+            if [[ -z "$nested" ]] || ! warehouse_data_ready_at "$nested"; then
+                break
+            fi
+        fi
+        promote_nested_dir "$nested" "$VSS_DATA_DIR"
+        depth=$((depth + 1))
+    done
+}
+
+chmod_warehouse_app_data() {
+    # NGC extract is mode 750 uid 2524; warehouse containers run as uid 1000.
+    chmod -R a+rX "$VSS_DATA_DIR" || true
 }
 
 download_warehouse_app_data() {
+    ensure_host_dir "$VSS_DATA_DIR"
+    normalize_warehouse_app_data
     if warehouse_data_ready; then
         echo "Warehouse app data already present at $VSS_DATA_DIR"
+        chmod_warehouse_app_data
         return 0
     fi
     if ! command -v ngc >/dev/null; then
@@ -130,10 +220,10 @@ download_warehouse_app_data() {
     echo "Downloading $WAREHOUSE_APP_DATA_REF"
     ngc registry resource download-version "$WAREHOUSE_APP_DATA_REF" --dest "$staging"
     local archive
-    archive="$(find "$staging" -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.tar' \) | head -n 1 || true)"
+    archive="$(find "$staging" -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.tar' -o -name '*.zip' \) | head -n 1 || true)"
     ensure_host_dir "$VSS_DATA_DIR"
     if [[ -n "$archive" ]]; then
-        tar -xf "$archive" -C "$VSS_DATA_DIR"
+        extract_one_archive "$archive" "$VSS_DATA_DIR"
     else
         local downloaded
         downloaded="$(find "$staging" -mindepth 1 -maxdepth 1 -type d | head -n 1 || true)"
@@ -143,9 +233,12 @@ download_warehouse_app_data() {
         fi
         cp -a "$downloaded"/. "$VSS_DATA_DIR"/
     fi
+    normalize_warehouse_app_data
+    chmod_warehouse_app_data
     if ! warehouse_data_ready; then
         echo "Warehouse app data extract did not contain videos/ or playback/: $VSS_DATA_DIR" >&2
         ls -la "$VSS_DATA_DIR" >&2 || true
+        ls -la "$VSS_DATA_DIR/vss-warehouse-app-data" >&2 || true
         return 1
     fi
 }
@@ -170,6 +263,9 @@ write_generated_env() {
         "HARDWARE_PROFILE=$HARDWARE_PROFILE" \
         "VSS_APPS_DIR=$VSS_APPS_DIR" \
         "VSS_DATA_DIR=$VSS_DATA_DIR" \
+        "BP_CONFIGURATOR_ENV_FILE=$GENERATED_ENV" \
+        "VSS_CONTAINER_REGISTRY=$VSS_CONTAINER_REGISTRY" \
+        "VSS_CONTAINER_TAG=$VSS_CONTAINER_TAG" \
         "HOST_IP=$host_ip" \
         "EXTERNAL_IP=$host_ip" \
         "VSS_PUBLIC_HOST=$host_ip" \
@@ -215,3 +311,20 @@ prepare_data_logs() {
     ensure_host_dir "$VSS_DATA_DIR/models"
     chmod -R a+rwX "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/models" || true
 }
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    case "${1:-}" in
+        normalize-app-data)
+            export VSS_DATA_DIR="${2:?normalize-app-data requires a directory}"
+            normalize_warehouse_app_data
+            chmod_warehouse_app_data
+            if warehouse_data_ready; then
+                echo "ready $VSS_DATA_DIR"
+                exit 0
+            fi
+            echo "not ready $VSS_DATA_DIR" >&2
+            ls -la "$VSS_DATA_DIR" >&2 || true
+            exit 1
+            ;;
+    esac
+fi

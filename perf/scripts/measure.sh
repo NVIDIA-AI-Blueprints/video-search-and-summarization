@@ -39,7 +39,8 @@ if [[ -z "$network" ]]; then
 fi
 
 image="$(resolve_ba_image)"
-sleep "${PERF_SETTLE_SECONDS:-20}"
+# post_deploy already waited for mdx-raw; keep a short extra settle for BA.
+sleep "${PERF_SETTLE_SECONDS:-30}"
 
 docker rm -f "$MONITOR_NAME" >/dev/null 2>&1 || true
 read -r -a monitor_topics <<< "$PERF_TOPICS"
