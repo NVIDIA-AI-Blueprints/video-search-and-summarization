@@ -13,8 +13,8 @@ from typing import get_origin
 import click
 from pydantic import BaseModel
 
-from .tool import secret_fields
-from .tool import unwrap
+from nvidia_vision_ai.tool import secret_fields
+from nvidia_vision_ai.tool import unwrap
 
 #: ``json_schema_extra`` key naming a boolean field's off-switch, e.g.
 #: ``{NEGATIVE_FLAG: "--disable-reasoning"}``. Default: ``--no-<field>``.

@@ -23,11 +23,12 @@ from pydantic import BaseModel
 from pydantic import SecretStr
 from pydantic import ValidationError
 
+from nvidia_vision_ai.tool import secret_fields
+
 from .store import SqliteJobStore
-from .tool import secret_fields
 
 if TYPE_CHECKING:
-    from .tool import Tool
+    from nvidia_vision_ai.tool import Tool
 
 HOME_ENV = "VISION_AI_HOME"
 

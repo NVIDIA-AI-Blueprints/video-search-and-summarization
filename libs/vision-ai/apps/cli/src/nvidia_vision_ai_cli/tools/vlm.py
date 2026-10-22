@@ -22,6 +22,7 @@ from pydantic import Field
 from pydantic import model_validator
 
 from nvidia_vision_ai import ConfigurationError
+from nvidia_vision_ai.tool import Tool
 from nvidia_vision_ai.vlm import Endpoint
 from nvidia_vision_ai.vlm import VlmBackend
 from nvidia_vision_ai.vlm import VlmRequest
@@ -40,7 +41,6 @@ from nvidia_vision_ai.vlm.models import Temperature
 from nvidia_vision_ai.vlm.models import Timeout
 from nvidia_vision_ai.vlm.models import TotalPixels
 from nvidia_vision_ai_cli.options import NEGATIVE_FLAG
-from nvidia_vision_ai_cli.tool import Tool
 
 #: Backends that take a frame rate or a frame count, never both (HTTP 400).
 _ONE_OF_FPS_OR_FRAMES = frozenset({"rt_vlm", "cosmos_reason_nim"})

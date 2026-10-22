@@ -12,6 +12,10 @@ from typing import Any
 import click
 from pydantic import ValidationError
 
+from nvidia_vision_ai.tool import Tool
+from nvidia_vision_ai.tool import public_settings
+from nvidia_vision_ai.tool import secret_fields
+
 from . import plugins
 from .exits import Exit
 from .jobs import exit_for
@@ -24,9 +28,6 @@ from .runtime import Runtime
 from .runtime import env_name
 from .runtime import storable
 from .runtime import validation_message
-from .tool import Tool
-from .tool import public_settings
-from .tool import secret_fields
 
 if TYPE_CHECKING:
     from pathlib import Path

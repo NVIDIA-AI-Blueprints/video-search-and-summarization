@@ -11,8 +11,8 @@ The repository-wide rules in the root `AGENTS.md` apply as well.
   NVIDIA embeddings SDKs (`langchain`, `llama_index`) read `NVIDIA_API_KEY` and nvidia-rag
   (`frag_lib`) reads `NVIDIA_RAG_*`. Callers that need full control pass every value.
 - `apps/cli/` — `nvidia-vision-ai-cli` (`nvidia_vision_ai_cli`). The `vision-ai` command, the Runtime
-  (settings precedence, `~/.vision-ai` layout), the job store wiring and the plugin contract (`tool.py`).
-- New tools implement `nvidia_vision_ai_cli.Tool` and register under the `vision_ai.tools` entry point.
+  (settings precedence, `~/.vision-ai` layout), and the job store wiring.
+- New tools implement `nvidia_vision_ai.Tool` (the plugin contract, `nvidia_vision_ai/tool.py`) and register under the `vision_ai.tools` entry point.
   First-party tools follow the same path.
 
 ## Commands

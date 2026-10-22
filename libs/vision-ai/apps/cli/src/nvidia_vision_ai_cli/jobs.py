@@ -51,8 +51,7 @@ if TYPE_CHECKING:
     from types import FrameType
 
     from nvidia_vision_ai.memory import JobStore
-
-    from .tool import Tool
+    from nvidia_vision_ai.tool import Tool
 
 
 class Terminated(BaseException):

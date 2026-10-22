@@ -10,9 +10,9 @@ from typing import Any
 from click.testing import CliRunner
 import pytest
 
+from nvidia_vision_ai.tool import Tool
 from nvidia_vision_ai_cli import plugins
 from nvidia_vision_ai_cli.app import cli
-from nvidia_vision_ai_cli.tool import Tool
 
 
 class Boom(Tool):

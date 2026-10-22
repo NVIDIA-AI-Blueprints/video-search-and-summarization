@@ -69,7 +69,7 @@ print(answer.answer)
 
 ## Writing a tool
 
-A tool is a subclass of `nvidia_vision_ai_cli.Tool` that declares a `Settings` model, an `Input`
+A tool is a subclass of `nvidia_vision_ai.Tool` that declares a `Settings` model, an `Input`
 model and `async execute(inputs, settings)`. Register it under an entry point:
 
 ```toml

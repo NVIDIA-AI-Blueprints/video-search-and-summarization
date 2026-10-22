@@ -14,8 +14,8 @@ import os
 
 from pydantic import BaseModel
 
-from .tool import API_VERSION
-from .tool import Tool
+from nvidia_vision_ai.tool import API_VERSION
+from nvidia_vision_ai.tool import Tool
 
 TOOLS_GROUP = "vision_ai.tools"
 DISABLE_ENV = "VISION_AI_DISABLE_PLUGINS"
@@ -55,7 +55,7 @@ def load(name: str) -> Tool:
     except Exception as exc:
         raise PluginLoadError(f"tool {name!r} failed to load: {type(exc).__name__}: {exc}") from exc
     if not isinstance(tool, Tool):
-        raise PluginLoadError(f"tool {name!r} is not a nvidia_vision_ai_cli.tool.Tool ({type(obj).__name__})")
+        raise PluginLoadError(f"tool {name!r} is not a nvidia_vision_ai.Tool ({type(obj).__name__})")
     if getattr(tool, "api_version", None) != API_VERSION:
         raise PluginLoadError(f"tool {name!r} does not declare contract v{API_VERSION}")
     for attr in ("Settings", "Input"):
