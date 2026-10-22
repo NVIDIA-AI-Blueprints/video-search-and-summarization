@@ -33,7 +33,7 @@ These Release Notes describe the key features, software enhancements and improve
 - Reorganized the Agent Skills into `deployment/`, `operations/`, `tools/`, and
   `benchmarking/` folders, with `vss-build-vision-ai` at the top level.
   Symlinks from a 3.2.x install no longer resolve for moved Skills; see
-  [Updating Skills](/vss/vision-agent/agent-skills#updating-skills).
+  [Updating Skills](/vision-agent/agent-skills#updating-skills).
 
 - Added the `vss` CLI as the supported way to operate a running deployment
   from a coding agent or the host. Configure it once with
@@ -74,7 +74,7 @@ These Release Notes describe the key features, software enhancements and improve
 - **Empty structured-event results during file summarization.** CA-RAG may fail to parse RT-VLM output that does not match the expected event schema, leaving empty event results even when captions are generated and stored and the summarize API reports success.
 - **Memory pressure under concurrent summarization on DGX Spark and Jetson Thor.** RT-VLM memory usage with Cosmos Reason 3 Super NVFP4 varies with request concurrency. Concurrent file-summarization workloads may exceed available system memory, causing stalls, RT-VLM service termination, and HTTP 503 errors.
 
-See [Migrating from 3.2.x to 3.3.0](/vss/system-components/vision-microservices/video-summarization) for the environment-variable and API changes.
+See [Migrating from 3.2.x to 3.3.0](/system-components/vision-microservices/video-summarization) for the environment-variable and API changes.
 </Tab>
 <Tab title="Base">
 - Moved the Base profile VLM path to RTVI-VLM. The default model is `nvidia/cosmos3-nano-reasoner`, served by the `vss-rtvi-vlm` container.
@@ -83,7 +83,7 @@ See [Migrating from 3.2.x to 3.3.0](/vss/system-components/vision-microservices/
 - Q&A, report generation, and video I/O for the Base workflow are driven by `vss-build-vision-ai`, `vss-ask-video`, `vss-generate-video-report`, and `vss-manage-video-io-storage`.
 - `vss-ask-video` answers from hot conversation context, agent Markdown memory, structured VSS memory, and bounded introspection before a new `vss vlm run`. Enable the store with `vss configure memory --enable`.
 
-See [Q&A and Report Generation](/vss/getting-started/quickstart) for the Base workflow.
+See [Q&A and Report Generation](/getting-started/quickstart) for the Base workflow.
 </Tab>
 <Tab title="Search">
 - Added RTVI-VLM tag ingestion and BM25 tag search. Stock Search deployments tag each newly registered source. Fusion ranking includes those tags only when `--w-tag` is set on `vss search run fusion`.
@@ -98,7 +98,7 @@ See [Q&A and Report Generation](/vss/getting-started/quickstart) for the Base wo
 - A `vss-build-vision-ai` build with neither the in-stack VSS Agent nor an agent harness disables the Web UI chat and Search tab. Search runs from the host with `vss search`.
 - Added the `benchmark-video-search` Agent Skill to measure retrieval quality and latency of a deployed Search profile with the `vss` CLI.
 
-See [Video Search](/vss/vision-agent/agent-workflows/search) for deployment layouts and the critic.
+See [Video Search](/vision-agent/agent-workflows/search) for deployment layouts and the critic.
 </Tab>
 <Tab title="Alerts">
 * **Redis is no longer a dependency of the Alerts microservice.** Deduplication
