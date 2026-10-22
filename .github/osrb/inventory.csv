@@ -1133,6 +1133,7 @@ concurrently,9.2.4,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/pack
 config,UNKNOWN,UNKNOWN,deploy,python,usage,deploy/docker/services/rtvi/reid-embed/convert_clipreid_to_onnx.py,runtime,no,no,no,imported-only,Unknown
 confluent-kafka,2.14.0,Apache-2.0,services/analytics/behavior-analytics,python,container;lockfile,services/analytics/behavior-analytics/Pipfile.lock;services/analytics/behavior-analytics/tests/integration/docker_compose/infra/Dockerfiles/Dockerfile.mqttbridge,runtime,no,no,no,container-pip;declared-manifest,None
 confluent-kafka,2.14.2,Apache-2.0,services/rtvi/rt-cv-3d/rt-cv-mv3dt,python,manifest,services/rtvi/rt-cv-3d/rt-cv-mv3dt/utils/requirements.txt,runtime,no,no,no,declared-manifest,None
+confluent-kafka,2.16.0,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 confluent-kafka,2.6.1,Apache Software License,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 confluent-kafka,2.6.1,Apache-2.0,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,python,lockfile;manifest,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Pipfile.lock;services/rtvi/rt-cv-3d/rt-cv-bev-fusion/tests/requirements.txt,runtime,no,no,no,declared-manifest,None
 confluent-kafka,2.6.1,Apache-2.0,tools/message-broker-consumers,python,manifest,tools/message-broker-consumers/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -1708,6 +1709,7 @@ googleapis-common-protos,1.70.0,Apache Software License,services/rtvi/rt-embed,p
 googleapis-common-protos,1.75.0,Apache 2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 googleapis-common-protos,1.75.1,Apache Software License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 googleapis-common-protos,1.75.3,Apache-2.0,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,None
+googleapis-common-protos,1.75.5,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 gopd,1.2.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 gopd,1.2.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 gopd,1.2.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1735,6 +1737,7 @@ grpcio,1.78.0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/
 grpcio,1.81.0rc1,Apache-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 grpcio,1.83.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 grpcio,1.83.1,Apache-2.0,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,None
+grpcio,1.84.1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 grpcio-reflection,1.78.0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 grpcio-reflection,1.78.0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 grpcio-tools,1.48.2,Apache-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -1831,6 +1834,7 @@ httpcore,1.0.9,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile;manifest,serv
 httpcore,1.0.9,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 httpcore,1.0.9,BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 httpcore2,2.12.0,UNKNOWN,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,Unknown
+httpcore2,2.16.0,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 https-proxy-agent,5.0.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 https-proxy-agent,7.0.6,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 https-proxy-agent,7.0.6,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1847,10 +1851,13 @@ httpx,UNKNOWN,BSD License,services/alert,python,manifest,services/alert/requirem
 httpx,UNKNOWN,BSD License,services/video-summarization,python,usage,services/video-summarization/src/lvs_mcp.py,runtime,no,no,no,imported-only,None
 httpx,UNKNOWN,BSD License,skills/operations,python,manifest,skills/operations/vss-manage-alerts/scripts/alert-notify/requirements.txt,runtime,no,no,no,declared-manifest,None
 httpx-sse,0.4.3,MIT,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,None
+httpx-sse,0.4.3,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 httpx-sse,0.4.3,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 httpx-sse,0.4.3,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 httpx2,2.12.0,UNKNOWN,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,Unknown
+httpx2,2.16.0,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 httpx2-jsfetch,1.0,UNKNOWN,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,Unknown
+httpx2-jsfetch,1.0,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 huggingface-hub,0.36.2,Apache Software License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 huggingface-hub,1.24.0,Apache Software License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 huggingface-hub,1.28.0,Apache Software License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -2040,6 +2047,7 @@ jinja2,3.1.6,BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_t
 jiter,0.10.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 jiter,0.16.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 jiter,0.16.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+jiter,0.17.0,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 jiti,2.7.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 jiti,2.7.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 jiti,2.7.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2709,6 +2717,7 @@ nvidia-rag,2.6.0,Apache-2.0,libs/vision-ai,python,lockfile,libs/vision-ai/uv.loc
 nvidia-rag,2.6.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 nvidia-riva-client,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/vlm_pipeline/video_file_frame_getter.py,runtime,no,no,no,imported-only,Unknown
 nvidia-riva-client,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/vlm_pipeline/video_file_frame_getter.py,runtime,no,no,no,imported-only,Unknown
+nvidia-vision-ai,0.1.0,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 nvidia-vision-ai,UNKNOWN,UNKNOWN,libs/vision-ai,python,manifest,libs/vision-ai/packages/cli/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
 nvidia-vision-ai,UNKNOWN,UNKNOWN,services/agent,python,manifest,services/agent/packages/vss_agents/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
 nvidia-vss-core,UNKNOWN,UNKNOWN,libs/vss,python,manifest,libs/vss/cli/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
@@ -2764,6 +2773,7 @@ open-clip-torch,UNKNOWN,MIT License,services/rtvi/rt-cv,python,container,service
 openai,1.109.1,Apache Software License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 openai,1.109.1,Apache Software License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 openai,2.48.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+openai,3.37.0,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 openai,6.45.0,Apache-2.0,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 openai,UNKNOWN,Apache-2.0,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 opencensus,0.11.4,Apache Software License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -2771,6 +2781,7 @@ opencensus-context,0.2.dev0,Apache Software License,services/rtvi/rt-vlm,python,
 openclaw,2026.7.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 opencv-python,4.10.0.84,Apache Software License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 opencv-python,UNKNOWN,Apache Software License,libs/analytics/spatialai-data-utils,python,usage,libs/analytics/spatialai-data-utils/spatialai_data_utils/utils/optional_dependencies.py,runtime,no,no,no,imported-only,None
+opencv-python,UNKNOWN,Apache Software License,libs/vss,python,usage,libs/vss/packages/ingestion/src/vss/ingestion/rtvi.py,runtime,no,no,no,imported-only,None
 opencv-python,UNKNOWN,Apache Software License,services/agent,python,usage,services/agent/packages/vss_agents/src/vss_agents/tools/s3_picture_url.py,runtime,no,no,no,imported-only,None
 opencv-python,UNKNOWN,Apache Software License,services/analytics/behavior-analytics,python,usage,services/analytics/behavior-analytics/src/mdx/analytics/core/tools/space_utilization.py,runtime,no,no,no,imported-only,None
 opencv-python,UNKNOWN,Apache Software License,services/rtvi/rt-cv-3d/rt-cv-mv3dt,python,manifest,services/rtvi/rt-cv-3d/rt-cv-mv3dt/utils/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -2796,23 +2807,30 @@ opentelemetry-api,1.44.0,Apache-2.0,libs/vision-ai,python,lockfile,libs/vision-a
 opentelemetry-api,1.44.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-api,1.44.0,Apache-2.0,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-api,1.44.0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+opentelemetry-api,1.45.1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
+opentelemetry-exporter-http-transport,0.66b1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp,1.27.0,Apache-2.0,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp,1.44.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+opentelemetry-exporter-otlp,1.45.1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
+opentelemetry-exporter-otlp-common,0.66b1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-common,1.27.0,Apache-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-common,1.36.0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-common,1.44.0,Apache-2.0,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-common,1.44.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-common,1.44.0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+opentelemetry-exporter-otlp-proto-common,1.45.1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-grpc,1.27.0,Apache-2.0,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-grpc,1.36.0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-grpc,1.44.0,Apache-2.0,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-grpc,1.44.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-grpc,1.44.0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+opentelemetry-exporter-otlp-proto-grpc,1.45.1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-http,1.27.0,Apache-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-http,1.36.0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-http,1.44.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-http,1.44.0,Apache-2.0,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-otlp-proto-http,1.44.0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+opentelemetry-exporter-otlp-proto-http,1.45.1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-prometheus,0.57b0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-exporter-prometheus,0.65b0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-instrumentation,0.57b0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -2832,17 +2850,20 @@ opentelemetry-proto,1.36.0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;man
 opentelemetry-proto,1.44.0,Apache-2.0,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-proto,1.44.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-proto,1.44.0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+opentelemetry-proto,1.45.1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-sdk,1.27.0,Apache-2.0,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-sdk,1.36.0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-sdk,1.44.0,Apache-2.0,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-sdk,1.44.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-sdk,1.44.0,Apache-2.0,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-sdk,1.44.0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+opentelemetry-sdk,1.45.1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-semantic-conventions,0.48b0,Apache-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-semantic-conventions,0.57b0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-semantic-conventions,0.65b0,Apache-2.0,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-semantic-conventions,0.65b0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-semantic-conventions,0.65b0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+opentelemetry-semantic-conventions,0.66b1,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 opentelemetry-util-http,0.57b0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 opentelemetry-util-http,0.65b0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 optionator,0.9.4,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3059,6 +3080,7 @@ protobuf,6.33.6,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,servi
 protobuf,7.35.1,BSD-3-Clause,services/rtvi/rt-cv-3d/rt-cv-mv3dt,python,manifest,services/rtvi/rt-cv-3d/rt-cv-mv3dt/utils/requirements.txt,runtime,no,no,no,declared-manifest,None
 protobuf,7.36.0rc1,3-Clause BSD License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 protobuf,7.36.1,UNKNOWN,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,Unknown
+protobuf,7.36.2,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 protobuf,UNKNOWN,UNKNOWN,services/video-summarization,python,usage,services/video-summarization/src/protos/nv_pb2.py,runtime,no,no,no,imported-only,Unknown
 protobuf-compiler-grpc,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files/aarch64/devel/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 protobufjs,7.6.3,BSD-3-Clause,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3605,6 +3627,7 @@ slash,3.0.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-loc
 smart-open,8.0.1,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 smopy,0.0.8,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 sniffio,1.3.1,MIT OR Apache-2.0,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,None
+sniffio,1.3.1,MIT OR Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 sniffio,1.3.1,MIT OR Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 sniffio,1.3.1,MIT OR Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 sniffio,1.3.1,MIT OR Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -3841,6 +3864,7 @@ trough,2.2.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime
 trufflesecurity/trufflehog,v3.94.2,UNKNOWN,<root>,pre-commit,ci,.pre-commit-config.yaml,ci,no,no,no,ci-tooling,Unknown
 truncate-utf8-bytes,1.0.2,WTFPL,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
 truststore,0.10.4,MIT,libs/vision-ai,python,lockfile,libs/vision-ai/uv.lock,runtime,no,no,no,declared-manifest,None
+truststore,0.10.5,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 ts-algebra,2.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 ts-api-utils,1.4.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 ts-api-utils,2.5.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -4002,8 +4026,11 @@ vite-plugin-compression2,2.5.3,MIT,services/vios,node,lockfile,services/vios/ui/
 vllm,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/models/vllm_compatible/vllm_compatible_model.py,runtime,no,no,no,imported-only,Unknown
 vllm,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/docker/rtvi_vlm/patches/evs_vllm_public_files/config/ec_transfer.py,runtime,no,no,no,imported-only,Unknown
 vllm_cosmos3,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/models/vllm_compatible/vllm_compatible_model.py,runtime,no,no,no,imported-only,Unknown
+vss,0.1.0,UNKNOWN,libs/vss,python,manifest,libs/vss/packages/ingestion/pyproject.toml;libs/vss/packages/summarization/pyproject.toml;libs/vss/packages/vision-ai/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
 vss-ctx-rag,3.1.0,UNKNOWN,services/video-summarization,python,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
 vss-ctx-rag-arango,3.1.0,UNKNOWN,services/video-summarization,python,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
+vss-ingestion,0.1.0,UNKNOWN,libs/vss,python,manifest,libs/vss/packages/summarization/pyproject.toml;libs/vss/packages/vision-ai/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
+vss-summarization,0.1.0,UNKNOWN,libs/vss,python,manifest,libs/vss/packages/vision-ai/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
 vss_agents,UNKNOWN,UNKNOWN,deploy,python,usage,deploy/docker/services/agent/search_prompt_policy.py,runtime,no,no,no,imported-only,Unknown
 vss_core,UNKNOWN,UNKNOWN,.github,python,usage,.github/scripts/stamp_versions.py,runtime,no,no,no,imported-only,Unknown
 vss_core,UNKNOWN,UNKNOWN,services/agent,python,usage,services/agent/packages/vss_agents/src/vss_agents/api/version.py,runtime,no,no,no,imported-only,Unknown
