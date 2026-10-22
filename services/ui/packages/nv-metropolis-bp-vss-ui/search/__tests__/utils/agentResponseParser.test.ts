@@ -151,6 +151,20 @@ describe('extractSearchResultsFromAgentResponse', () => {
       expect(extractSearchResultsFromAgentResponse(text)).toHaveLength(1);
     });
 
+    it('finds the payload after an unmatched quote in prose', () => {
+      const text = `Draft "unfinished ${JSON.stringify(validData)}`;
+      const result = extractSearchResultsFromAgentResponse(text);
+      expect(result).toHaveLength(1);
+      expect(result![0].video_name).toBe('clip1.mp4');
+    });
+
+    it('finds the payload after a quoted brace in prose', () => {
+      const text = `The query contains "{". Results: ${JSON.stringify(validData)}`;
+      const result = extractSearchResultsFromAgentResponse(text);
+      expect(result).toHaveLength(1);
+      expect(result![0].video_name).toBe('clip1.mp4');
+    });
+
     it('does not treat a nested data array as the top-level payload', () => {
       const text = JSON.stringify({ wrapper: validData });
       expect(extractSearchResultsFromAgentResponse(text)).toBeNull();
@@ -211,6 +225,13 @@ describe('extractSearchResultsFromAgentResponse', () => {
 
     it('returns null when no closing brace found', () => {
       expect(extractSearchResultsFromAgentResponse('prefix { unclosed')).toBeNull();
+    });
+
+    it('still finds the payload after a long unmatched-brace prefix', () => {
+      const text = `${'{'.repeat(20_000)} ${JSON.stringify(validData)}`;
+      const result = extractSearchResultsFromAgentResponse(text);
+      expect(result).toHaveLength(1);
+      expect(result![0].video_name).toBe('clip1.mp4');
     });
   });
 
