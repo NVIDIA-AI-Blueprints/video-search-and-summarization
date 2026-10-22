@@ -21,8 +21,10 @@ Behavior Analytics, Elasticsearch, Logstash, and Video Analytics API.
 
 `perf/configs/kpis.yaml` gates both. BA p50/p99 numbers are Yun's playback
 table applied to **corrected** live latency; counts are lowered for a 60 s
-window. API p50/p99 numbers are the dump-job estimates until an owner publishes
-live-stack SLOs.
+window. API p50/p99 numbers are live-stack estimates on RTXPRO6000BW-SE
+(2× p50 / 3× p99 of the slowest of dump Jenkins #69, dump #77, and live
+warehouse `warehouse-bp_warehouse-2d-kafka_20261022T062125Z.json`, rounded
+up to 10 ms). They are not owner SLOs. 2× A4500 is not the gate.
 
 ## Run
 

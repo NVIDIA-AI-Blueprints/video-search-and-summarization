@@ -123,6 +123,28 @@ class KpiTests(unittest.TestCase):
         verdict = evaluate_kpis(measured, kpis)
         self.assertTrue(verdict["passed"], verdict)
 
+    def test_http_gates_are_rtxpro_estimates(self) -> None:
+        spec = load_kpis()["scenarios"]["quick_test"]["warehouse-2d-kafka"][
+            "video_analytics_api"
+        ]
+        self.assertEqual(spec["frames"]["max_p50_s"], 0.05)
+        self.assertEqual(spec["frames"]["max_p99_s"], 0.10)
+        self.assertEqual(spec["behavior"]["max_p50_s"], 0.05)
+        self.assertEqual(spec["behavior"]["max_p99_s"], 0.08)
+        self.assertEqual(spec["events"]["max_p50_s"], 0.05)
+        self.assertEqual(spec["events"]["max_p99_s"], 0.08)
+        self.assertEqual(spec["incidents"]["max_p50_s"], 0.04)
+        self.assertEqual(spec["incidents"]["max_p99_s"], 0.08)
+        live_rtxpro = {
+            "frames": (0.018424, 0.025791),
+            "behavior": (0.011840, 0.013616),
+            "events": (0.013755, 0.017181),
+            "incidents": (0.012068, 0.014573),
+        }
+        for name, (p50, p99) in live_rtxpro.items():
+            self.assertGreaterEqual(spec[name]["max_p50_s"], 2 * p50)
+            self.assertGreaterEqual(spec[name]["max_p99_s"], 3 * p99)
+
     def test_missing_ba_raw_fails(self) -> None:
         kpis = load_kpis()
         measured = {
