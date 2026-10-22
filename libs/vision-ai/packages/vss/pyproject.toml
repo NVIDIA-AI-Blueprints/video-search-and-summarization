@@ -27,7 +27,7 @@ dependencies = [
 vss = "vss_vision_ai:TOOL"
 
 [tool.uv.sources]
-nvidia-vision-ai = { path = "../../../vision-ai" }
-vss = { workspace = true }
-vss-ingestion = { workspace = true }
-vss-summarization = { workspace = true }
+nvidia-vision-ai = { workspace = true }
+vss = { path = "../../../vss", editable = true }
+vss-ingestion = { path = "../../../vss/packages/ingestion", editable = true }
+vss-summarization = { path = "../../../vss/packages/summarization", editable = true }

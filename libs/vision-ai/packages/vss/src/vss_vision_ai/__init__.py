@@ -15,7 +15,11 @@
 
 """Vision AI adapter for VSS workflows."""
 
-from .tool import TOOL, VssInput, VssResult, VssSettings, VssTool
+from .tool import TOOL
+from .tool import VssInput
+from .tool import VssResult
+from .tool import VssSettings
+from .tool import VssTool
 
 __all__ = [
     "TOOL",

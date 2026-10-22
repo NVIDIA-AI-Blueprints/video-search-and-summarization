@@ -14,7 +14,6 @@ resolution-markers = [
 members = [
     "nvidia-vss-cli",
     "nvidia-vss-core",
-    "nvidia-vss-vision-ai",
     "vss",
     "vss-ingestion",
     "vss-summarization",
@@ -1205,47 +1204,6 @@ wheels = [
 ]
 
 [[package]]
-name = "nvidia-vision-ai"
-version = "0.1.0"
-source = { directory = "../vision-ai" }
-dependencies = [
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "tenacity" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", marker = "extra == 'es-caption'", specifier = "~=3.14" },
-    { name = "aiohttp", marker = "extra == 'frag-api'", specifier = "~=3.14" },
-    { name = "chromadb", marker = "extra == 'langchain'", specifier = ">=0.5" },
-    { name = "chromadb", marker = "extra == 'llama-index'", specifier = ">=0.5" },
-    { name = "httpx", specifier = "~=0.28" },
-    { name = "langchain-chroma", marker = "extra == 'langchain'", specifier = ">=0.1" },
-    { name = "langchain-classic", marker = "extra == 'arango-graph'", specifier = ">=1.0" },
-    { name = "langchain-community", marker = "extra == 'arango-graph'", specifier = ">=0.3.27" },
-    { name = "langchain-nvidia-ai-endpoints", marker = "extra == 'langchain'", specifier = ">=0.3" },
-    { name = "llama-index-core", marker = "extra == 'llama-index'", specifier = ">=0.11" },
-    { name = "llama-index-embeddings-nvidia", marker = "extra == 'llama-index'", specifier = ">=0.3" },
-    { name = "llama-index-vector-stores-chroma", marker = "extra == 'llama-index'", specifier = ">=0.3" },
-    { name = "nvidia-rag", marker = "extra == 'frag-lib'", specifier = ">=2.4.0" },
-    { name = "pydantic", specifier = ">=2.11,<3" },
-    { name = "python-arango", marker = "extra == 'arango-graph'", specifier = ">=8.2" },
-    { name = "tenacity", specifier = "~=9.0" },
-]
-provides-extras = ["frag-api", "es-caption", "frag-lib", "llama-index", "langchain", "arango-graph"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "aiohttp", specifier = "~=3.14" },
-    { name = "nvidia-vision-ai-cli", editable = "../vision-ai/packages/cli" },
-    { name = "pyright", specifier = ">=1.1.400" },
-    { name = "pytest", specifier = ">=8.3" },
-    { name = "pytest-asyncio", specifier = ">=0.25" },
-    { name = "ruff", specifier = ">=0.11" },
-]
-
-[[package]]
 name = "nvidia-vss-cli"
 source = { editable = "cli" }
 dependencies = [
@@ -1281,25 +1239,6 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "pyyaml", specifier = "~=6.0" },
     { name = "tenacity", specifier = "~=9.0" },
-]
-
-[[package]]
-name = "nvidia-vss-vision-ai"
-version = "0.1.0"
-source = { editable = "packages/vision-ai" }
-dependencies = [
-    { name = "nvidia-vision-ai" },
-    { name = "vss" },
-    { name = "vss-ingestion" },
-    { name = "vss-summarization", extra = ["openai"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "nvidia-vision-ai", directory = "../vision-ai" },
-    { name = "vss", editable = "." },
-    { name = "vss-ingestion", editable = "packages/ingestion" },
-    { name = "vss-summarization", extras = ["openai"], editable = "packages/summarization" },
 ]
 
 [[package]]
@@ -2037,13 +1976,13 @@ storage = [
 dev = [
     { name = "import-linter" },
     { name = "mypy" },
-    { name = "nvidia-vss-vision-ai" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "types-pyyaml" },
+    { name = "vss-summarization", extra = ["openai"] },
 ]
 docs = [
     { name = "nvidia-sphinx-theme" },
@@ -2061,13 +2000,13 @@ provides-extras = ["storage"]
 dev = [
     { name = "import-linter" },
     { name = "mypy", specifier = ">=1.15.0" },
-    { name = "nvidia-vss-vision-ai", editable = "packages/vision-ai" },
     { name = "pyright", specifier = ">=1.1.414" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.16.10" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
+    { name = "vss-summarization", extras = ["openai"], editable = "packages/summarization" },
 ]
 docs = [{ name = "nvidia-sphinx-theme", specifier = ">=0.0.9.post1,<0.1" }]
 

@@ -18,19 +18,21 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Literal, cast
+from typing import Literal
+from typing import cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
+from pydantic import ConfigDict
+from pydantic import Field
 
 from nvidia_vision_ai import Tool
-from vss.ingestion import (
-    DEFAULT_INGESTION_PROMPT,
-    IngestionResponse,
-    RequestSource,
-    VlmChunkResponse,
-    ingest,
-)
-from vss.summarization import CompletionResponse, summarize_video
+from vss.ingestion import DEFAULT_INGESTION_PROMPT
+from vss.ingestion import IngestionResponse
+from vss.ingestion import RequestSource
+from vss.ingestion import VlmChunkResponse
+from vss.ingestion import ingest
+from vss.summarization import CompletionResponse
+from vss.summarization import summarize_video
 
 
 class VssSettings(BaseModel):
@@ -144,9 +146,7 @@ class VssTool(Tool):
         if inputs.summarize:
             chunks = _caption_chunks(results, backends)
             if not chunks:
-                raise ValueError(
-                    "summarize requires at least one backend with VLM caption results"
-                )
+                raise ValueError("summarize requires at least one backend with VLM caption results")
             summary = await summarize_video(
                 chunks,
                 prompt=inputs.summary_prompt,

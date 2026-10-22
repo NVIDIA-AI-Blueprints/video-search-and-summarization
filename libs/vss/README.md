@@ -24,12 +24,12 @@ pip install vss vss-ingestion "vss-summarization[openai]"
 
 ## Vision AI tool adapter
 
-`packages/vision-ai` provides the `nvidia-vss-vision-ai` adapter. It registers
-the `vss` entry point through the shared `vision_ai.tools` contract and calls
-only public `vss.ingestion` and `vss.summarization` APIs.
+`../vision-ai/packages/vss` provides the `nvidia-vss-vision-ai` adapter. It
+registers the `vss` entry point through the shared `vision_ai.tools` contract
+and calls only public `vss.ingestion` and `vss.summarization` APIs.
 
 ```bash
-uv run vision-ai vss \
+uv run --project ../vision-ai vision-ai vss \
   --source /path/to/video.mp4 \
   --backends vlm \
   --decoder opencv \

@@ -581,7 +581,6 @@ jobs:
           # Connection-free unit and pipeline tests only. Live RTVI/Embed/VLM,
           # native Elasticsearch, and end-to-end suites run in owning lanes.
           uv run --no-sync pytest \
-            packages/vision-ai/tests \
             tests/storage \
             tests/video_processing \
             tests/test_*.py \
@@ -593,10 +592,10 @@ jobs:
           uv run --no-sync pyright
           uv run --no-sync ruff check \
             src packages/ingestion/src packages/summarization/src \
-            packages/vision-ai/src packages/vision-ai/tests tests
+            tests
           uv run --no-sync ruff format --check \
             src packages/ingestion/src packages/summarization/src \
-            packages/vision-ai/src packages/vision-ai/tests tests
+            tests
           uv run --no-sync lint-imports
           uv run --no-sync python ../../.github/osrb/test_osrb_scan.py
           uv run --no-sync python ../../.github/osrb/test_osrb_summary.py
@@ -606,8 +605,6 @@ jobs:
           uv build --package vss
           uv build --package vss-ingestion
           uv build --package vss-summarization
-          uv build --package nvidia-vss-vision-ai
-          uv build --project ../vision-ai --package nvidia-vision-ai --wheel --out-dir dist
 
       - name: Smoke-test built wheel in a clean environment
         run: |
@@ -647,7 +644,7 @@ jobs:
           PY
           .wheel-smoke/bin/vss --help >/dev/null
 
-      - name: Smoke-test public library and adapter wheels
+      - name: Smoke-test public library wheels
         run: |
           set -- dist/vss-*.whl
           test "$#" -eq 1 && test -f "$1"
@@ -658,29 +655,14 @@ jobs:
           set -- dist/vss_summarization-*.whl
           test "$#" -eq 1 && test -f "$1"
           summarization_whl="$1"
-          set -- dist/nvidia_vss_vision_ai-*.whl
-          test "$#" -eq 1 && test -f "$1"
-          adapter_whl="$1"
-          set -- dist/nvidia_vision_ai-*.whl
-          test "$#" -eq 1 && test -f "$1"
-          vision_ai_whl="$1"
           uv pip install --python .wheel-smoke/bin/python --no-cache \
-            "$vss_whl" "$ingestion_whl" "$summarization_whl" "$adapter_whl" "$vision_ai_whl"
+            "$vss_whl" "$ingestion_whl" "$summarization_whl"
           uv pip check --python .wheel-smoke/bin/python
           .wheel-smoke/bin/python -I - <<'PY'
-          from importlib.metadata import entry_points
-
           import vss.ingestion
           import vss.storage
           import vss.summarization
           import vss.video_processing
-          from nvidia_vision_ai import Tool
-
-          matches = [ep for ep in entry_points(group="vision_ai.tools") if ep.name == "vss"]
-          assert len(matches) == 1, matches
-          tool = matches[0].load()
-          assert isinstance(tool, Tool)
-          assert tool.name == "vss"
           PY
 
       - name: Upload lib coverage report
@@ -733,13 +715,17 @@ jobs:
       - name: Smoke-test built wheels in a clean environment
         run: |
           rm -rf dist .wheel-smoke
+          uv build --project ../vss --package vss --wheel --out-dir dist
+          uv build --project ../vss --package vss-ingestion --wheel --out-dir dist
+          uv build --project ../vss --package vss-summarization --wheel --out-dir dist
           uv build --all-packages --out-dir dist
           uv venv --python 3.13 .wheel-smoke
           uv pip install --python .wheel-smoke/bin/python dist/*.whl
           .wheel-smoke/bin/vision-ai --help
           .wheel-smoke/bin/vision-ai vlm --help
+          .wheel-smoke/bin/vision-ai vss --help
           .wheel-smoke/bin/python -I -c "import importlib.util as u, sys;
-          import nvidia_vision_ai_cli.app, nvidia_vision_ai.vlm, nvidia_vision_ai.memory, nvidia_vision_ai.knowledge;
+          import nvidia_vision_ai_cli.app, nvidia_vision_ai.vlm, nvidia_vision_ai.memory, nvidia_vision_ai.knowledge, vss_vision_ai;
           bad = [m for m in ('vss_core', 'vss_cli', 'aiohttp', 'elasticsearch', 'cv2') if m in sys.modules or u.find_spec(m)];
           sys.exit(f'unexpected modules: {bad}' if bad else 0)"
 

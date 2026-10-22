@@ -69,14 +69,11 @@ members = [
     "cli",
     "packages/ingestion",
     "packages/summarization",
-    "packages/vision-ai",
 ]
 
 [tool.uv.sources]
 nvidia-vss-core = { workspace = true }
 nvidia-vss-cli = { workspace = true }
-nvidia-vss-vision-ai = { workspace = true }
-nvidia-vision-ai = { path = "../vision-ai" }
 vss = { workspace = true }
 vss-ingestion = { workspace = true }
 vss-summarization = { workspace = true }
@@ -85,13 +82,13 @@ vss-summarization = { workspace = true }
 dev = [
     "import-linter",
     "mypy>=1.15.0",
-    "nvidia-vss-vision-ai",
     "pyright>=1.1.414",
     "pytest>=8.4.1",
     "pytest-asyncio>=0.24",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.10",
     "types-pyyaml>=6.0.12.20250915",
+    "vss-summarization[openai]",
 ]
 docs = [
     "nvidia-sphinx-theme>=0.0.9.post1,<0.1",
@@ -103,7 +100,6 @@ testpaths = [
     "core/tests/unit_test",
     "cli/tests/unit_test",
     "tests",
-    "packages/vision-ai/tests",
 ]
 markers = [
     "functional: requires a live RTVI service and GPU inference",
@@ -119,7 +115,6 @@ source = [
     "src/vss",
     "packages/ingestion/src/vss",
     "packages/summarization/src/vss",
-    "packages/vision-ai/src",
 ]
 omit = ["*/tests/*", "*/test_*.py", "*/sitecustomize.py"]
 
@@ -144,28 +139,24 @@ src = [
     "src",
     "packages/ingestion/src",
     "packages/summarization/src",
-    "packages/vision-ai/src",
 ]
 
 [tool.ruff.lint]
 select = ["B", "E", "F", "I", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["nvidia_vision_ai", "vss", "vss_cli", "vss_core", "vss_vision_ai"]
+known-first-party = ["vss", "vss_cli", "vss_core"]
 
 [tool.pyright]
 include = [
     "src",
     "packages/ingestion/src",
     "packages/summarization/src",
-    "packages/vision-ai/src",
 ]
 extraPaths = [
     "src",
     "packages/ingestion/src",
     "packages/summarization/src",
-    "packages/vision-ai/src",
-    "../vision-ai/src",
 ]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
