@@ -174,6 +174,8 @@ class RequestGenerationTracker:
                 self._aborts[parent_id] = operation
 
         def forget_operation(future):
+            if future.cancelled() or future.exception() is not None:
+                return
             with self._lock:
                 if self._aborts.get(parent_id) is future:
                     self._aborts.pop(parent_id)
@@ -200,6 +202,8 @@ class RequestGenerationTracker:
             if self._generations.get(parent_id):
                 raise RuntimeError(f"Request {parent_id} still owns model work")
             operation = self._aborts.get(parent_id)
-            if operation is not None and not operation.done():
-                raise RuntimeError(f"Request {parent_id} is still aborting model work")
+            if operation is not None:
+                if not operation.done():
+                    raise RuntimeError(f"Request {parent_id} is still aborting model work")
+                operation.result()
             self._cancelled.discard(parent_id)

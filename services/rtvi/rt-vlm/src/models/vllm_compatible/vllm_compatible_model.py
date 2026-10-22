@@ -2424,7 +2424,14 @@ class VllmCompatible(BaseVlmModel):
 
         The pipeline must retain this cancellation marker until all queued
         chunks are drained, then call release_request_tracking().
+        Shared EVS sessions do not expose parent-owned engine IDs, so reject
+        cancellation there rather than falsely acknowledging a drained request.
         """
+        if _is_evs_session_enabled():
+            raise NotImplementedError(
+                "Per-request cancellation is not supported for shared EVS sessions "
+                "(VIA_EVS_SESSION)."
+            )
         return self._request_generations.abort(
             parent_id, self._event_loop, self._llm.abort, timeout_sec
         )

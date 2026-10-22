@@ -8,13 +8,14 @@ import ast
 from collections.abc import AsyncGenerator
 import concurrent.futures
 import importlib.util
+import os
 import sys
 import threading
 import unittest
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 def _load_tracker():
@@ -44,9 +45,15 @@ def _source_method(relative_path, class_name, name, extra_namespace=None):
         for node in engine.body
         if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)) and node.name == name
     )
+    helpers = [
+        node
+        for node in source.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_is_evs_session_enabled"
+    ]
     module = ast.Module(
         body=[
             ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0),
+            *helpers,
             method,
         ],
         type_ignores=[],
@@ -57,6 +64,7 @@ def _source_method(relative_path, class_name, name, extra_namespace=None):
         "EngineCoreRequest": type("EngineCoreRequest", (), {}),
         "PoolingParams": type("PoolingParams", (), {}),
         "concurrent": concurrent,
+        "os": os,
         "uuid": uuid,
     }
     namespace.update(extra_namespace or {})
@@ -227,6 +235,29 @@ class RequestCancellationTests(unittest.TestCase):
             self.tracker.abort("parent", self.loop, fail_abort, 2)
         self.assertTrue(self.tracker.submit("parent", "late", lambda: None, self.loop).cancelled())
 
+    def test_final_engine_abort_failure_cannot_be_forgotten_after_coroutine_drain(self):
+        result = self.submit_blocked("parent", "engine")
+        unrelated = self.submit_blocked("other", "other-engine")
+        calls = []
+
+        async def fail_final_abort(engine_ids):
+            calls.append(engine_ids)
+            if len(calls) == 2:
+                raise RuntimeError("final engine abort failed")
+
+        with self.assertRaisesRegex(RuntimeError, "final engine abort failed"):
+            self.tracker.abort("parent", self.loop, fail_final_abort, 2)
+        self.assertTrue(result.cancelled())
+        self.assertEqual(calls, [("engine",), ("engine",)])
+        self.assertFalse(unrelated.done())
+        with self.assertRaisesRegex(RuntimeError, "final engine abort failed"):
+            self.tracker.abort("parent", self.loop, self.abort_engine, 2)
+        with self.assertRaisesRegex(RuntimeError, "final engine abort failed"):
+            self.tracker.release("parent")
+        self.assertTrue(self.tracker.submit("parent", "late", lambda: None, self.loop).cancelled())
+        self.assertEqual(self.tracker.abort("other", self.loop, self.abort_engine, 2), 1)
+        self.tracker.release("other")
+
     def test_cleanup_failure_is_not_reported_as_drain(self):
         def cleanup():
             raise RuntimeError("cleanup failed")
@@ -296,10 +327,32 @@ class RequestCancellationTests(unittest.TestCase):
             )
         self.assertTrue(started.wait(timeout=2))
         abort = _source_method(model_path, "VllmCompatible", "abort_request_generations")
-        self.assertEqual(abort(model, "parent-from-pipeline", 2), 1)
+        with patch.dict(os.environ, {"VIA_EVS_SESSION": ""}):
+            self.assertEqual(abort(model, "parent-from-pipeline", 2), 1)
         self.assertTrue(future.cancelled())
         self.assertEqual(set(sum(self.aborted, ())), set(engine_ids))
         self.assertEqual(model._inflight_req_ids, [])
+
+    def test_model_abort_rejects_shared_evs_sessions_without_touching_backend(self):
+        model_path = "src/models/vllm_compatible/vllm_compatible_model.py"
+        abort = _source_method(model_path, "VllmCompatible", "abort_request_generations")
+        tracker, engine, sessions = MagicMock(), MagicMock(), MagicMock()
+        model = SimpleNamespace(
+            _request_generations=tracker,
+            _event_loop=self.loop,
+            _llm=engine,
+            _evs_handler=sessions,
+        )
+        for enabled in ("true", "1"):
+            with (
+                self.subTest(enabled=enabled),
+                patch.dict(os.environ, {"VIA_EVS_SESSION": enabled}),
+            ):
+                with self.assertRaisesRegex(NotImplementedError, "shared EVS sessions"):
+                    abort(model, "parent", 2)
+        tracker.abort.assert_not_called()
+        engine.abort.assert_not_called()
+        sessions.delete_session.assert_not_called()
 
     def test_invalid_timeout_does_not_cancel_parent(self):
         with self.assertRaises(ValueError):
