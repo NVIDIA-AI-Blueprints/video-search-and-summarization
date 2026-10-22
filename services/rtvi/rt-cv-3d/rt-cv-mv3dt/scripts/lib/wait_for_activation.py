@@ -28,6 +28,11 @@ polling with a rising frame_number, while one that is not either never appears o
 stays frozen, observed live at frame_number 296 while DeepStream retried its RTSP
 connect. Both count as not producing.
 
+A re-added source restarts its counter from zero while the endpoint can still carry
+the value from its previous life, so a counter that goes backwards is measured
+again from the lower value instead of being compared with the stale first one. A
+reset alone is not proof of life: the source must advance after it (bug 6886570).
+
 Usage:  BASE=<url> ACTIVATION_TIMEOUT=<seconds> wait_for_activation.py CAM [CAM...]
 
 Exit codes, which add-streams.sh distinguishes:
@@ -86,6 +91,13 @@ while True:
     for sensor, frames in current.items():
         if sensor not in baseline:
             baseline[sensor] = frames
+        elif frames < baseline[sensor]:
+            # The counter went backwards, so the source was recreated (a remove
+            # then re-add) and the earlier value belongs to its previous life.
+            # Measure from here, and do not let an advance seen before the reset
+            # count as evidence about the new source.
+            baseline[sensor] = frames
+            producing.discard(sensor)
         elif frames > baseline[sensor]:
             producing.add(sensor)
     if all(cam in producing for cam in wanted):
