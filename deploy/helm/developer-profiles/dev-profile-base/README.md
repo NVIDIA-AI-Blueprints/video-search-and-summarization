@@ -440,13 +440,38 @@ helm upgrade <RELEASE_NAME> ./dev-profile-base -f dev-profile-base/values-base.y
 
 **Uninstall**:
 
+Back up uploaded video and any database metadata you need before uninstall. Whether data survives after a claim is deleted depends on the PersistentVolume reclaim policy and the StorageClass provisioner, not on Helm alone.
+
 ```bash
 helm uninstall <RELEASE_NAME> -n <NAMESPACE>
 ```
 
-Note: PVCs and any cluster-scoped resources (nimcache) are not removed by `helm uninstall`; delete them manually if needed.
+What `helm uninstall` does for this chart:
+
+| Resource | Helm uninstall behavior | Notes |
+|----------|-------------------------|-------|
+| Shared VST PVCs (`<RELEASE_NAME>-vst-data`, `<RELEASE_NAME>-vst-video`, `<RELEASE_NAME>-vst-streamer-videos`) | Can be deleted with the release | These chart-managed claims have no `helm.sh/resource-policy: keep` annotation. Uploaded media can be lost. |
+| Other release-owned PVCs (for example NIM or database claims created by this release) | Can be deleted with the release | Confirm reclaim policy / provisioner before assuming data remains on disk. |
+| `NIMCache` (namespaced; default name `nemotron-35-lightning-30b-a3b`) | Retained | Templates set `helm.sh/resource-policy: keep`. `NIMCache` is a namespaced CRD object, not cluster-scoped. |
+
+Do **not** run namespace-wide deletes such as `kubectl delete nimcache --all` or `kubectl delete pvc --all`. Those commands remove every matching object in the namespace, including leftovers from other releases.
+
+After uninstall, inspect ownership, confirm you intend to discard the data, then delete only the selected leftovers for this release:
 
 ```bash
-kubectl delete nimcache --all -n <NAMESPACE>
-kubectl delete pvc --all -n <NAMESPACE>
+# List leftovers that may remain after uninstall.
+kubectl get nimcache,pvc -n <NAMESPACE> \
+  -l app.kubernetes.io/instance=<RELEASE_NAME>
+kubectl get pvc -n <NAMESPACE> | grep -E "(^| )<RELEASE_NAME>-"
+
+# Delete only named leftovers you have verified belong to this release.
+# Example for the default LLM NIMCache (kept by Helm):
+kubectl delete nimcache nemotron-35-lightning-30b-a3b -n <NAMESPACE>
+
+# Example for shared VST claims if they remain and you no longer need the media:
+kubectl delete pvc \
+  <RELEASE_NAME>-vst-data \
+  <RELEASE_NAME>-vst-video \
+  <RELEASE_NAME>-vst-streamer-videos \
+  -n <NAMESPACE>
 ```
