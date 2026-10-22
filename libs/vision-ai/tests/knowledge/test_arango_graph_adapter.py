@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for nvidia_vision_ai.knowledge.adapters.arango_graph.
 
 The graph packages are optional. These tests inject fake LangChain graph
