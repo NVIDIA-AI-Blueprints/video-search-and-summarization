@@ -899,6 +899,8 @@ jobs:
   # so this lane needs no GPU and no vLLM. Because vLLM is absent, rt-vlm
   # selects the CI-safe subset of its mixed test module by the test_in_ci
   # marker; rt-embed's file is CI-safe throughout and is selected by path.
+  # Cancellation regressions run separately in a small isolated environment
+  # to preserve their HTTP dependency pins without changing the model tests.
   # ---------------------------------------------------------------------------
   rtvi-vllm-compatible-test:
     name: Test (rtvi vllm-compatible)
@@ -972,6 +974,25 @@ jobs:
           PYTHONPATH=src "$GITHUB_WORKSPACE/.venv-rtvi/bin/pytest" \
             tests/model/vllm_compatible/test_mm_processor_cache_engine_args.py \
             -v
+
+      - name: Install cancellation test dependencies
+        run: |
+          uv venv --python 3.12 .venv-rtvi-cancellation
+          # Keep the same HTTP dependency versions as the RT-VLM container.
+          uv pip install --python .venv-rtvi-cancellation/bin/python \
+            pytest==9.1.1 fastapi==0.141.1 starlette==1.3.1 \
+            sse-starlette==3.4.8 anyio==4.14.2 \
+            uvicorn==0.52.4 httpx==0.28.1
+
+      - name: Run RT-VLM cancellation tests (CPU)
+        timeout-minutes: 5
+        run: |
+          # Select all cancellation cases without GPU fixtures or marker filters.
+          "$GITHUB_WORKSPACE/.venv-rtvi-cancellation/bin/python" -m pytest \
+            --noconftest -c /dev/null -p no:cacheprovider \
+            -W error::RuntimeWarning -W error::ResourceWarning \
+            services/rtvi/rt-vlm/tests/model/test_request_cancellation.py \
+            services/rtvi/rt-vlm/tests/cancellation -v
 
   # ---------------------------------------------------------------------------
   # Job 5f: Behavior analytics Docker Compose integration test
