@@ -165,6 +165,11 @@ class ScriptTests(unittest.TestCase):
             self.assertIn("SPDX-FileCopyrightText", text)
             self.assertIn("SPDX-License-Identifier: Apache-2.0", text)
 
+    def test_pre_flight_reports_missing_files(self) -> None:
+        text = (PERF / "scripts" / "pre_flight.sh").read_text()
+        self.assertIn("pre-flight: missing file:", text)
+        self.assertIn("need_file \"$WAREHOUSE_DIR/compose.yml\"", text)
+
     def test_overlay_cli(self) -> None:
         overlay = PERF / "scripts" / "overlay_env.py"
         with tempfile.TemporaryDirectory() as tmp:

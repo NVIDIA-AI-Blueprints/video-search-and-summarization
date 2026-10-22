@@ -12,7 +12,7 @@ perf_configs:
     # makes `set -u` fail at `if [ -n "${COMPOSE_FILE}" ]`.
     composePath: deploy/docker/compose.yml
     checkoutPaths:
-      - deploy/docker/
+      - deploy/
       - perf/
     # Jenkins withEnv omits empty values; dummy strings keep the LVS wrapper
     # from dying on `set -u`.

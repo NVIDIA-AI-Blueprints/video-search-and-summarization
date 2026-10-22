@@ -4,16 +4,46 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-command -v docker >/dev/null
-docker info >/dev/null
-command -v python3 >/dev/null
-command -v nvidia-smi >/dev/null
-nvidia-smi >/dev/null
-test -f "$PERF_DIR/configs/kpis.yaml"
-test -f "$WAREHOUSE_DIR/compose.yml"
-test -f "$WAREHOUSE_DIR/overrides.env"
-test -f "$VSS_APPS_DIR/compose.yml"
-test -f "$VSS_APPS_DIR/containers.env"
+need_cmd() {
+    local name="$1"
+    if ! command -v "$name" >/dev/null; then
+        echo "pre-flight: missing command: $name" >&2
+        exit 1
+    fi
+}
+
+need_file() {
+    local path="$1"
+    if [[ ! -f "$path" ]]; then
+        echo "pre-flight: missing file: $path" >&2
+        echo "pre-flight: listing $(dirname "$path"):" >&2
+        ls -la "$(dirname "$path")" >&2 || true
+        echo "pre-flight: checkout root $REPO_ROOT:" >&2
+        ls -la "$REPO_ROOT" >&2 || true
+        echo "pre-flight: deploy tree:" >&2
+        ls -laR "$REPO_ROOT/deploy" >&2 || true
+        exit 1
+    fi
+}
+
+need_cmd docker
+need_cmd python3
+need_cmd nvidia-smi
+if ! docker info >/dev/null 2>&1; then
+    echo "pre-flight: docker info failed" >&2
+    docker info >&2 || true
+    exit 1
+fi
+if ! nvidia-smi >/dev/null 2>&1; then
+    echo "pre-flight: nvidia-smi failed" >&2
+    nvidia-smi >&2 || true
+    exit 1
+fi
+need_file "$PERF_DIR/configs/kpis.yaml"
+need_file "$VSS_APPS_DIR/compose.yml"
+need_file "$VSS_APPS_DIR/containers.env"
+need_file "$WAREHOUSE_DIR/compose.yml"
+need_file "$WAREHOUSE_DIR/overrides.env"
 ensure_host_dir "$OUTPUT_DIR"
 echo "Warehouse industry-example pre-flight passed."
 echo "  VSS_APPS_DIR=$VSS_APPS_DIR"
