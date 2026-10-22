@@ -39,8 +39,10 @@ if [[ -z "$network" ]]; then
 fi
 
 image="$(resolve_ba_image)"
-# post_deploy already waited for mdx-raw; keep a short extra settle for BA.
+# post_deploy already waited for mdx-raw. Settle + warmup happen before the
+# monitor starts so BA stats cover only PERF_DURATION_SECONDS.
 sleep "${PERF_SETTLE_SECONDS:-30}"
+sleep "$PERF_WARMUP_SECONDS"
 
 docker rm -f "$MONITOR_NAME" >/dev/null 2>&1 || true
 read -r -a monitor_topics <<< "$PERF_TOPICS"
@@ -74,7 +76,6 @@ if [[ "$(docker inspect -f '{{.State.Status}}' "$MONITOR_NAME" 2>/dev/null || tr
 fi
 
 echo "Measuring live warehouse BA Kafka topics for ${PERF_DURATION_SECONDS}s"
-sleep "$PERF_WARMUP_SECONDS"
 sleep "$PERF_DURATION_SECONDS"
 
 docker stop "$MONITOR_NAME" >/dev/null || true

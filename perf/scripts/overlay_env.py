@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 
@@ -34,6 +35,17 @@ def upsert_env(text: str, updates: dict[str, str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def write_private_text(path: Path, text: str) -> None:
+    """Create or replace ``path`` with owner-only permissions (0600)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        path.unlink()
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        os.fchmod(handle.fileno(), 0o600)
+        handle.write(text)
+
+
 def parse_assignments(items: list[str]) -> dict[str, str]:
     updates: dict[str, str] = {}
     for item in items:
@@ -51,8 +63,7 @@ def main() -> int:
     parser.add_argument("assignments", nargs="+")
     args = parser.parse_args()
     text = args.source.read_text()
-    args.dest.parent.mkdir(parents=True, exist_ok=True)
-    args.dest.write_text(upsert_env(text, parse_assignments(args.assignments)))
+    write_private_text(args.dest, upsert_env(text, parse_assignments(args.assignments)))
     print(args.dest)
     return 0
 

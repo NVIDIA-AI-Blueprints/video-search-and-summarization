@@ -12,9 +12,10 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-warehouse-bp-perf}"
 MONITOR_NAME="${MONITOR_NAME:-warehouse-bp-latency-monitor}"
 PERF_SCENARIO="${PERF_SCENARIO:-quick_test}"
 PERF_CONFIG_ID="${PERF_CONFIG_ID:-warehouse-2d-kafka}"
-if [[ -f "$PERF_DIR/benchmark/scenario_config.py" && -f "$PERF_DIR/configs/config.yaml" ]]; then
+PERF_CONFIG_PATH="${PERF_CONFIG_PATH:-$PERF_DIR/configs/config.yaml}"
+if [[ -f "$PERF_DIR/benchmark/scenario_config.py" && -f "$PERF_CONFIG_PATH" ]]; then
     eval "$(python3 "$PERF_DIR/benchmark/scenario_config.py" \
-        --config "$PERF_DIR/configs/config.yaml" \
+        --config "$PERF_CONFIG_PATH" \
         --scenario "$PERF_SCENARIO")"
 fi
 PERF_DURATION_SECONDS="${PERF_DURATION_SECONDS:-${CONFIG_DURATION_SECONDS:-60}}"

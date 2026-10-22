@@ -11,12 +11,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PERF = Path(__file__).resolve().parents[1]
 BENCH = PERF / "benchmark"
 sys.path.insert(0, str(BENCH))
 
-from http_latency import percentile, summarize  # noqa: E402
+from http_latency import discover_window, percentile, summarize  # noqa: E402
 from kpis import DEFAULT_KPIS_PATH, evaluate_kpis, load_kpis  # noqa: E402
 from latency import correct_topics, parse_latency_report  # noqa: E402
 from scenario_config import scenario_settings  # noqa: E402
@@ -110,6 +111,26 @@ class HttpTests(unittest.TestCase):
         self.assertTrue(summary["present"])
         self.assertEqual(summary["ok_count"], 5)
 
+    def test_discover_window_reads_nested_latest_timestamp(self) -> None:
+        body = (
+            '{"latestTimestamp":{"sensorId":"Camera",'
+            '"timestamp":"2026-10-22T07:14:00.000Z"}}'
+        ).encode()
+        with mock.patch(
+            "http_latency.request_once", return_value=(200, 0.01, body)
+        ):
+            window = discover_window("http://127.0.0.1:28081", "Camera", 60)
+        self.assertEqual(window["toTimestamp"], "2026-10-22T07:14:00.000Z")
+        self.assertEqual(window["fromTimestamp"], "2026-10-22T07:13:00.000Z")
+
+    def test_discover_window_fails_when_missing(self) -> None:
+        body = b'{"latestTimestamp":null}'
+        with mock.patch(
+            "http_latency.request_once", return_value=(200, 0.01, body)
+        ):
+            with self.assertRaises(RuntimeError):
+                discover_window("http://127.0.0.1:28081", "Camera", 60)
+
 
 class KpiTests(unittest.TestCase):
     def test_kpis_yaml_gates_combined_result(self) -> None:
@@ -182,6 +203,33 @@ class KpiTests(unittest.TestCase):
         self.assertFalse(verdict["passed"])
         self.assertTrue(any("ba.raw" in item for item in verdict["violations"]))
 
+    def test_extra_http_endpoint_uses_default_gates(self) -> None:
+        kpis = load_kpis()
+        correction = correct_topics(parse_latency_report(SAMPLE_REPORT))
+        measured = {
+            "scenario": "quick_test",
+            "config_id": "warehouse-2d-kafka",
+            "behavior_analytics": {
+                "raw": correction["raw"],
+                "topics": correction["topics"],
+            },
+            "video_analytics_api": {
+                "endpoints": {
+                    name: summarize([0.001, 0.002, 0.003], 20, 20)
+                    for name in ("livez", "frames", "behavior", "events", "incidents")
+                }
+            },
+        }
+        measured["video_analytics_api"]["endpoints"]["frames_enhanced"] = summarize(
+            [], 0, 20
+        )
+        verdict = evaluate_kpis(measured, kpis)
+        self.assertFalse(verdict["passed"])
+        self.assertTrue(
+            any("frames_enhanced" in item for item in verdict["violations"]),
+            verdict,
+        )
+
 
 class ScenarioTests(unittest.TestCase):
     def test_quick_test_settings(self) -> None:
@@ -226,6 +274,14 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("chmod -R a+rX", common)
         self.assertIn("wait_kafka_raw", post)
         self.assertIn("mdx-raw", post)
+        self.assertIn('PERF_CONFIG_PATH="${PERF_CONFIG_PATH:-$PERF_DIR/configs/config.yaml}"', common)
+        measure = (PERF / "scripts" / "measure.sh").read_text()
+        self.assertLess(
+            measure.find('sleep "$PERF_WARMUP_SECONDS"'),
+            measure.find("tools/latency/latency_monitor.py"),
+        )
+        teardown = (PERF / "scripts" / "teardown.sh").read_text()
+        self.assertIn('rm -f "$GENERATED_ENV"', teardown)
 
     def test_flatten_nested_app_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -304,6 +360,7 @@ class ScriptTests(unittest.TestCase):
             text = dest.read_text()
             self.assertIn("MODE=2d", text)
             self.assertIn("HOST_IP=10.0.0.1", text)
+            self.assertEqual(dest.stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":

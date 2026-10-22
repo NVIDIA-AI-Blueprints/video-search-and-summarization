@@ -164,39 +164,57 @@ def parse_timestamp(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def last_processed_timestamp(payload: Any) -> datetime | None:
+    """Read `/metrics/last-processed-timestamp` including `{latestTimestamp:{timestamp}}`."""
+    if not isinstance(payload, Mapping):
+        return None
+    nested = payload.get("latestTimestamp")
+    if isinstance(nested, Mapping):
+        parsed = parse_timestamp(
+            nested.get("timestamp") or nested.get("lastProcessedTimestamp")
+        )
+        if parsed is not None:
+            return parsed
+    elif nested not in (None, ""):
+        parsed = parse_timestamp(nested)
+        if parsed is not None:
+            return parsed
+    for key in ("lastProcessedTimestamp", "timestamp", "toTimestamp"):
+        parsed = parse_timestamp(payload.get(key))
+        if parsed is not None:
+            return parsed
+    data = payload.get("data")
+    if data is not payload and isinstance(data, Mapping):
+        return last_processed_timestamp(data)
+    return None
+
+
 def discover_window(base_url: str, sensor_id: str, window_seconds: int = 60) -> dict[str, str]:
-    """Use last-processed-timestamp when present; otherwise a UTC now window."""
+    """Query window ending at last-processed-timestamp. Fail if that value is missing."""
     url = endpoint_url(
         base_url,
         "/metrics/last-processed-timestamp",
         {"sensorId": sensor_id},
     )
     status, _, body = request_once(url)
-    to_ts = datetime.now(timezone.utc)
+    parsed = None
     if status == 200 and body:
         try:
             payload = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             payload = None
-        candidate = None
-        if isinstance(payload, Mapping):
-            candidate = (
-                payload.get("lastProcessedTimestamp")
-                or payload.get("timestamp")
-                or payload.get("toTimestamp")
-            )
-            if candidate is None:
-                nested = payload.get("data")
-                if isinstance(nested, Mapping):
-                    candidate = nested.get("lastProcessedTimestamp") or nested.get("timestamp")
-        parsed = parse_timestamp(candidate)
-        if parsed is not None:
-            to_ts = parsed
-    from_ts = to_ts - timedelta(seconds=window_seconds)
+        parsed = last_processed_timestamp(payload)
+    if parsed is None:
+        raise RuntimeError(
+            "Video Analytics API last-processed timestamp is missing; "
+            "refusing to query a host-now window"
+        )
+    from_ts = parsed - timedelta(seconds=window_seconds)
+    stamp = parsed.strftime("%Y-%m-%dT%H:%M:%S.000Z")
     return {
         "fromTimestamp": from_ts.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "toTimestamp": to_ts.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "timestamp": to_ts.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "toTimestamp": stamp,
+        "timestamp": stamp,
     }
 
 

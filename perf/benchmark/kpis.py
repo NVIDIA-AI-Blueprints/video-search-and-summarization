@@ -123,31 +123,49 @@ def _evaluate_api(measured: Mapping[str, Any], spec: Mapping[str, Any]) -> list[
         if not isinstance(row, Mapping) or not row.get("present"):
             violations.append(f"api.{name} missing")
             continue
-        limits = dict(default)
-        dedicated = spec.get(name)
-        if isinstance(dedicated, Mapping):
-            limits.update(dedicated)
-        min_count = limits.get("min_count")
-        ok_count = float(row.get("ok_count") or 0)
-        if min_count is not None and ok_count < float(min_count):
-            violations.append(f"api.{name}.ok_count {ok_count} < {min_count}")
-        min_ok_ratio = limits.get("min_ok_ratio")
-        if min_ok_ratio is not None:
-            ratio = row.get("ok_ratio")
-            if ratio is None:
-                violations.append(f"api.{name}.ok_ratio missing")
-            elif float(ratio) < float(min_ok_ratio):
-                violations.append(f"api.{name}.ok_ratio {ratio} < {min_ok_ratio}")
-        for value_field, limit_field in _MAX_FIELDS:
-            limit = limits.get(limit_field)
-            if limit is None:
-                continue
-            if row.get(value_field) is None:
-                violations.append(f"api.{name}.{value_field} missing")
-                continue
-            value = float(row[value_field])
-            if value > float(limit):
-                violations.append(f"api.{name}.{value_field} {value} > {limit}")
+        violations.extend(_evaluate_api_row(name, row, spec, default))
+    for name, row in endpoints.items():
+        if name in required or not isinstance(row, Mapping):
+            continue
+        if not row.get("present"):
+            violations.append(f"api.{name} missing")
+            continue
+        violations.extend(_evaluate_api_row(name, row, spec, default))
+    return violations
+
+
+def _evaluate_api_row(
+    name: str,
+    row: Mapping[str, Any],
+    spec: Mapping[str, Any],
+    default: Mapping[str, Any],
+) -> list[str]:
+    violations: list[str] = []
+    limits = dict(default)
+    dedicated = spec.get(name)
+    if isinstance(dedicated, Mapping):
+        limits.update(dedicated)
+    min_count = limits.get("min_count")
+    ok_count = float(row.get("ok_count") or 0)
+    if min_count is not None and ok_count < float(min_count):
+        violations.append(f"api.{name}.ok_count {ok_count} < {min_count}")
+    min_ok_ratio = limits.get("min_ok_ratio")
+    if min_ok_ratio is not None:
+        ratio = row.get("ok_ratio")
+        if ratio is None:
+            violations.append(f"api.{name}.ok_ratio missing")
+        elif float(ratio) < float(min_ok_ratio):
+            violations.append(f"api.{name}.ok_ratio {ratio} < {min_ok_ratio}")
+    for value_field, limit_field in _MAX_FIELDS:
+        limit = limits.get(limit_field)
+        if limit is None:
+            continue
+        if row.get(value_field) is None:
+            violations.append(f"api.{name}.{value_field} missing")
+            continue
+        value = float(row[value_field])
+        if value > float(limit):
+            violations.append(f"api.{name}.{value_field} {value} > {limit}")
     return violations
 
 
