@@ -20,7 +20,7 @@
 # Image tags aligned with release_3.1.0 dev-profile-base .env and agent_ui compose (see CROSS-VERIFICATION-83d604da.md).
 profile: base
 mode: ""
-llmNameSlug: <replace-with-llm-name> # e.g. nemotron-3.5-lightning-30b-a3b, nvidia-nemotron-nano-9b-v2-fp8
+llmNameSlug: "" # Not consumed. In-cluster LLM is nims.nemotron35; agent model id is global.llmName.
 vlmNameSlug: none
 vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 # NGC: set apiKey (createSecrets=true lets the chart create pull secrets from it). Do not commit the key.
