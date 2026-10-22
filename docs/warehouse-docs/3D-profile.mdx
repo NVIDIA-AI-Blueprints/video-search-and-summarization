@@ -20,16 +20,16 @@ The diagram depicts **VSS Warehouse 3D Blueprint**, emphasizing 3D multi-camera 
 1. **Input Source**
 
    - **Videos**: Raw video data stored in a filesystem, serving as input for processing.
-   - **NvStreamer** ([NVStreamer](/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
+   - **NvStreamer** ([NVStreamer](/system-components/middleware/video-io-storage-vios/nv-streamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
 
 2. **Video IO & Storage (VIOS)** ([VIOS Microservices](/system-components/middleware/video-io-storage-vios/vios-microservices))
 
    - VIOS ingests video streams from NvStreamer via RTSP.
    - It records the streams and forwards them (via RTSP) to the **DeepStream** microservice for further processing.
 
-3. **DeepStream** ([3D Multi Camera Detection and Tracking (Sparse4D)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d))
+3. **DeepStream** ([3D Multi Camera Detection and Tracking (Sparse4D)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-sparse-4-d))
 
-   - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, utilizing the Sparse4D model ([Sparse4D (3D multi-camera)](/system-components/models/sparse4d-3d-multi-camera)) to generate BEV (Bird's Eye View) outputs.
+   - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, utilizing the Sparse4D model ([Sparse4D (3D multi-camera)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/model-finetuning/sparse-4-d)) to generate BEV (Bird's Eye View) outputs.
    - It sends frame data, including detected and tracked object IDs, in Protobuf format to the message broker via the `mdx-bev` topic.
 
 4. **Message Broker (Kafka or Redis)**
@@ -51,8 +51,8 @@ The diagram depicts **VSS Warehouse 3D Blueprint**, emphasizing 3D multi-camera 
 
 7. **Visualization**
 
-   - **Kibana UI** ([Kibana UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
-   - **VIOS UI** ([VIOS UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from the message broker.
+   - **Kibana UI** ([Kibana UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
+   - **VIOS UI** ([VIOS UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from the message broker.
 
 8. **External Interfaces**
 
@@ -226,7 +226,7 @@ Each `rtsp_url` in `camera_info.json` must be reachable from the machine where y
 </Note>
 
 <Tip>
-You do not have to assign `group_id` by hand. The `spatialai_data_utils` (SDU) camera grouping tools derive the camera-to-BEV-group partition directly from your camera calibration. Run [create_camera_clusters.py](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-clustering) to partition cameras into non-overlapping BEV groups; cameras placed in the same cluster share a `group_id` (the generated group name, such as `bev-sensor-1`). These tools also populate the matching per-sensor `group` and `region` blocks (origin, dimensions, place level) in `calibration.json` that must be filled in before deployment (see the [note under Step 3](#calibration-group-region-note-3d)). For installation and the full command reference, see [Camera Grouping Utilities](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-grouping-utilities).
+You do not have to assign `group_id` by hand. The `spatialai_data_utils` (SDU) camera grouping tools derive the camera-to-BEV-group partition directly from your camera calibration. Run [create_camera_clusters.py](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile#camera-clustering) to partition cameras into non-overlapping BEV groups; cameras placed in the same cluster share a `group_id` (the generated group name, such as `bev-sensor-1`). These tools also populate the matching per-sensor `group` and `region` blocks (origin, dimensions, place level) in `calibration.json` that must be filled in before deployment (see the [note under Step 3](#calibration-group-region-note-3d)). For installation and the full command reference, see [Camera Grouping Utilities](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile#camera-grouping-utilities).
 </Tip>
 
     (ii) **Configure VSS Configurator environment variables**: Set the following in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env`, which is loaded after warehouse `.env` and takes precedence:
@@ -305,7 +305,7 @@ To use a custom dataset:
 * Add the image metadata and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. If you already have a calibration, add `calibration.json` to the same directory. Otherwise, generate it in Step 3. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
 
 <Note>
-Refer to [Sparse4D Real-Time Performance](/system-components/models/sparse4d-3d-multi-camera#real-time-inference-throughput--latency) for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used
+Refer to [Sparse4D Real-Time Performance](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/model-finetuning/sparse-4-d#real-time-inference-throughput--latency) for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used
 </Note>
 
 #### Step 3: Deploy and generate new calibration
@@ -343,7 +343,7 @@ Configure `industry-profiles/warehouse-operations/overrides.env` using the **Aut
 
 #### Step 4: Camera Clustering
 
-Use `create_camera_clusters.py` to partition cameras into non-overlapping groups for separate 3D model instances. Use `--n_clusters 1` for a single group. For command examples and available options, see [Camera Clustering](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-clustering).
+Use `create_camera_clusters.py` to partition cameras into non-overlapping groups for separate 3D model instances. Use `--n_clusters 1` for a single group. For command examples and available options, see [Camera Clustering](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile#camera-clustering).
 
 #### Step 5: Redeploy the stack to apply the new calibration
 
@@ -640,8 +640,8 @@ Key options:
 
 The Blueprint uses Sparse4D as its primary perception model. To customize:
 
-1. Fine-tune Sparse4D using TAO ([Sparse4D model page](/system-components/models/sparse4d-3d-multi-camera))
-2. Configure DeepStream to use your custom model ([model configuration guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#integrating-a-sparse4d-model-checkpoint))
+1. Fine-tune Sparse4D using TAO ([Sparse4D model page](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/model-finetuning/sparse-4-d))
+2. Configure DeepStream to use your custom model ([model configuration guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-sparse-4-d#integrating-a-sparse4d-model-checkpoint))
 
 ### Application Customization
 

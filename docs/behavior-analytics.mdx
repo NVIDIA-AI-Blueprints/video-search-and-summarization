@@ -457,7 +457,7 @@ For a complete example, refer to [apps/analytics/main_analytics_2d_app.py](https
 
 The protobuf message payload is sent to a message broker (Kafka, Redis Streams, or MQTT) as a ByteArray. For example, a Kafka ProducerRecord contains (topic, key, value), with `topic=mdx-raw`, `key=sensor-id`, and `value=protobuf-byte-array`. When the Behavior Analytics microservice receives the message, it transforms the byte array into a Frame object. The Frame object corresponds to the video frame being processed by the perception layer. It contains all detected objects for a given frame and their corresponding bounding boxes in a single message. Each object may include additional attributes like embedding vectors, pose data, etc.
 
-To read more about the schema, refer to the [Protobuf-Schema](/system-components/middleware/nvschema/protobuf-schema).
+To read more about the schema, refer to the [Protobuf-Schema](/system-components/middleware/nv-schema/protobuf-schema).
 
 **Usage**
 
@@ -1815,7 +1815,7 @@ Below we list out the key metrics along with the brief description that are incl
 | unsafePalletCnt | count of pallets flagged as unsafe (placed partially outside the buffer zone beyond the unsafeSize threshold) |
 
 The layouts of the free space and utilizable free space are also included in the output.
-NV schema output format follows exactly the definition in [JSON-Schema](/system-components/middleware/nvschema/json-schema), please refer to [JSON-Schema](/system-components/middleware/nvschema/json-schema) for more details.
+NV schema output format follows exactly the definition in [JSON-Schema](/system-components/middleware/nv-schema/json-schema), please refer to [JSON-Schema](/system-components/middleware/nv-schema/json-schema) for more details.
 
 The dictionary format output also includes the bounding boxes of the objects in the scene for visualization purposes. The dictionary format output is consumed directly in agent workflows.
 Below is a sample output of the dictionary format:

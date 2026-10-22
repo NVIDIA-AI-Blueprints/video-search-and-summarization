@@ -45,6 +45,7 @@ immutable release tree disagreeing with its own tag forever, which is worse.
 |---|---|---|
 | `vX.Y.Z` | a release | maintainers, manually, **after** stamping (below) |
 | `vX.Y.ZrcN` (also `aN`, `bN`) | develop now targets X.Y.Z; annotated, on develop | maintainers, once per line, when the line starts |
+| `docs-vX.Y.Z-N` | a docs refresh of release X.Y.Z, on its release branch (`docs/README.md`) | the product team, when the refreshed docs are validated; not a version input |
 | `nightly-*`, `dev-*`, `pr*`, anything else | bookmarks for other jobs | not a version input; **invisible to every rule here** |
 
 Everything derives from `git describe --tags --match 'v[0-9]*'`: the nearest

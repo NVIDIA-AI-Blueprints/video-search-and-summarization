@@ -13,7 +13,7 @@ This guide uses the simplest layout and runs everything on a single VSS-capable 
    path, configures optional webhooks, and opens the Agent UI.
 2. `deploy/docker/scripts/deploy_vss_orchestrator.ipynb` - prepares the host for VSS, starts the VSS Orchestrator MCP server, and deploys and manages VSS from the Agent UI by chatting with the agent.
 
-Follow the cells in each notebook in order. For the full variable reference and optional verification cells, see [Additional Configuration](/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
+Follow the cells in each notebook in order. For the full variable reference and optional verification cells, see [Additional Configuration](/vision-agent/agent-harnesses/nemo-claw/additional-configuration).
 
 <Note>
 The prompts and screenshots use OpenClaw as an example. Run the equivalent checks in whichever agent harness you onboarded (`AGENT_RUNTIME`, for example OpenClaw or Hermes).
@@ -48,7 +48,7 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
 
   * A VSS-capable GPU host, such as a preconfigured [Brev Launchable](https://brev.nvidia.com/launchable/deploy/now?launchableID=env-2tYIjRXL4eMCbH9Az8mJC5WPAI4) or your own GPU-enabled machine.
 
-    * If you are using the Brev Launchable, you can edit the Brev hardware profile and cloud service provider (CSP). See [Brev hardware and CSP selection](/vision-agent/agent-harnesses/nemoclaw/additional-configuration#brev-hardware-and-csp-selection) before launching.
+    * If you are using the Brev Launchable, you can edit the Brev hardware profile and cloud service provider (CSP). See [Brev hardware and CSP selection](/vision-agent/agent-harnesses/nemo-claw/additional-configuration#brev-hardware-and-csp-selection) before launching.
     * In the single-host layout used by this guide, this same machine also runs Part 1.
 
   * `NGC_CLI_API_KEY` (NGC Personal API Key) for `nvcr.io` login and the model weights the containers download from NGC.
@@ -114,7 +114,7 @@ In the single-host layout used by this guide, the VSS host is the same machine a
 
 1. Set `NEMOCLAW_SANDBOX_NAME` to the sandbox you onboarded in Part 1 and set
    `HARDWARE_PROFILE` to match the VSS deployment host. For edge hardware
-   profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`), see [Run on DGX Spark](/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills#run-on-dgx-spark) before you deploy.
+   profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`), see [Run on DGX Spark](/vision-agent/agent-harnesses/nemo-claw/setup-vss-and-skills#run-on-dgx-spark) before you deploy.
 
 2. Follow the notebook sections in order. The notebook covers:
 
@@ -133,7 +133,7 @@ In the single-host layout used by this guide, the VSS host is the same machine a
   <img src="./assets/images/nemoclaw/OpenClawUIDeploy.png" alt="Deploying a VSS profile from the agent chat" />
 </Frame>
 
-For the complete orchestrator tool reference, see [VSS Orchestrator MCP](/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
+For the complete orchestrator tool reference, see [VSS Orchestrator MCP](/vision-agent/agent-harnesses/nemo-claw/vss-orchestrator-mcp).
 
 ## Run on DGX Spark
 
@@ -167,9 +167,9 @@ DGX Spark is a single-GPU edge system, so it needs a few adjustments before you 
 
 5. **Expect the Docker pin to skip the downgrade** (`deploy_nemoclaw.ipynb` Section 2.1). On DGX Spark (DGX-OS, arm64), Pin Docker skips the exact-version downgrade when the installed Docker Engine is already within the tested range (`28.3.3` through `29.5.0`), because the DGX-OS apt repository may not carry the exact pinned versions. The packages are still held with `apt-mark hold` so the stack cannot drift past the tested range.
 
-6. **Leave the orchestrator MCP config defaults unless you need to tune them.** `deploy/docker/scripts/vss_orchestrator_mcp_config.yml` already sets DGX Spark defaults such as `VLM_NIM_KVCACHE_PERCENT`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, and the SBSA image tags. Change those values only if you need different GPU memory or image settings, then restart the MCP server. See [VSS Orchestrator MCP config YAML](/vision-agent/agent-harnesses/nemoclaw/additional-configuration#vss-orchestrator-mcp-config-yaml).
+6. **Leave the orchestrator MCP config defaults unless you need to tune them.** `deploy/docker/scripts/vss_orchestrator_mcp_config.yml` already sets DGX Spark defaults such as `VLM_NIM_KVCACHE_PERCENT`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, and the SBSA image tags. Change those values only if you need different GPU memory or image settings, then restart the MCP server. See [VSS Orchestrator MCP config YAML](/vision-agent/agent-harnesses/nemo-claw/additional-configuration#vss-orchestrator-mcp-config-yaml).
 
-For the full variable reference, see [Additional Configuration](/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
+For the full variable reference, see [Additional Configuration](/vision-agent/agent-harnesses/nemo-claw/additional-configuration).
 
 ## Add Video Sources
 
