@@ -1,0 +1,74 @@
+[
+  {
+    "name": "simple_conversation",
+    "description": "Simple conversation with basic greeting",
+    "request": {
+      "messages": [
+        {"role": "user", "content": "Hello, how are you?"}
+      ]
+    },
+    "response": {
+      "choices": [{"message": {"role": "assistant", "content": "I'm doing well, thank you!"}}]
+    }
+  },
+  {
+    "name": "with_system_message",
+    "description": "Conversation with a system message",
+    "request": {
+      "messages": [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is the weather today?"}
+      ]
+    },
+    "response": {
+      "choices": [{"message": {"role": "assistant", "content": "I don't have access to real-time weather information."}}]
+    }
+  },
+  {
+    "name": "with_tool_calls",
+    "description": "Conversation with tool calls for weather information",
+    "request": {
+      "messages": [
+        {"role": "user", "content": "What's the weather in New York?"}
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "Get the weather in a given location",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "location": {
+                  "type": "string",
+                  "description": "The location to get the weather for"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "response": {
+      "choices": [
+        {
+          "message": {
+            "role": "assistant",
+            "content": "Let me check the weather for you.",
+            "tool_calls": [
+            {
+              "id": "call_123",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"location\": \"New York\"}"
+              }
+            }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

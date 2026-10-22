@@ -1,0 +1,64 @@
+# ============================================================================
+# DEFT deployment-TEST overlay (lives under tests/ — deploy/ is production-only).
+#
+# Runs the REAL DFW stack (api + workers + beat + mongo + redis + mlflow) with
+# BACKEND=deft against the AOI-loop mock microservices, which run on the HOST
+# (everything is network_mode: host). From the repo root:
+#
+#   MOCK_PORT=9000 uv run python -m tests.mock_services              # terminal 1
+#   BACKEND=deft COMPOSE_PROFILES=deft docker compose \
+#       -f deploy/docker-compose.yaml \
+#       -f tests/e2e_scripts/deft/deploy/docker-compose.deft-e2e.yaml \
+#       up --build -d                                                # terminal 2
+#   uv run python -m tests.e2e_scripts.deft.deployment_e2e           # driver
+#
+# NOTE: relative host paths below resolve against the FIRST -f file's directory
+# (deploy/), hence the ../tests/... prefixes.
+#
+# The overlay mounts config.deft-e2e.yaml (mock-service URLs) over the baked-in
+# config via DFW_CONFIG_PATH, and parks the NMP-only ingestion services behind
+# an `ingestion` profile so a deft deployment doesn't start them.
+# ============================================================================
+
+services:
+  api:
+    environment:
+      - DFW_CONFIG_PATH=/legal/source/config/config.deft-e2e.yaml
+      # Real deft-service auth (trusted mode: the token IS the identity).
+      - DEFT_API_KEY=dfw-e2e
+    volumes:
+      - ../tests/e2e_scripts/deft/deploy/config.deft-e2e.yaml:/legal/source/config/config.deft-e2e.yaml:ro
+      - ../src:/legal/source/src
+
+  celery_worker:
+    environment:
+      - DFW_CONFIG_PATH=/legal/source/config/config.deft-e2e.yaml
+      # Real deft-service auth (trusted mode: the token IS the identity).
+      - DEFT_API_KEY=dfw-e2e
+    volumes:
+      - ../tests/e2e_scripts/deft/deploy/config.deft-e2e.yaml:/legal/source/config/config.deft-e2e.yaml:ro
+      - ../src:/legal/source/src
+
+  celery_parent_worker:
+    environment:
+      - DFW_CONFIG_PATH=/legal/source/config/config.deft-e2e.yaml
+      # Real deft-service auth (trusted mode: the token IS the identity).
+      - DEFT_API_KEY=dfw-e2e
+    volumes:
+      - ../tests/e2e_scripts/deft/deploy/config.deft-e2e.yaml:/legal/source/config/config.deft-e2e.yaml:ro
+      - ../src:/legal/source/src
+
+  celery_beat:
+    environment:
+      - DFW_CONFIG_PATH=/legal/source/config/config.deft-e2e.yaml
+      # Real deft-service auth (trusted mode: the token IS the identity).
+      - DEFT_API_KEY=dfw-e2e
+    volumes:
+      - ../tests/e2e_scripts/deft/deploy/config.deft-e2e.yaml:/legal/source/config/config.deft-e2e.yaml:ro
+      - ../src:/legal/source/src
+
+  # NMP-only ingestion services: not part of a deft deployment.
+  ingestion-plugins-api:
+    profiles: ["ingestion"]
+  ingestion-plugins-worker:
+    profiles: ["ingestion"]

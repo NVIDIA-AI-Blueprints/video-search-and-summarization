@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ============================================================================
+# The frozen reference encoder ref-img-v1 (ref-encoder/README.md; EPIC 1F), opt-in.
+#
+# An overlay on the curation stack, never used alone (the `pas` network and the project
+# name come from the curation file). From the repo root:
+#
+#   PAS_REF_ENCODER_GPU=<idle GPU index> docker compose \
+#     -f deploy/docker-compose.curation.yaml -f deploy/docker-compose.ref-encoder.yaml \
+#     up -d --build --wait
+#
+# The curation services still need the labeller (PAS_LABELLING_URL, or
+# PAS_LABELLING_CLIENT=mock: see the curation file); `up … pas-ref-encoder` starts the
+# encoder alone without it.
+#
+# A file of its own because the GPU has no default: a required variable fails every
+# command on the file that holds it, and the curation stack must run without a GPU.
+# ============================================================================
+
+services:
+  # It needs an NVIDIA GPU. First start downloads the pinned NGC files (4.5 GB, guest, no
+  # key) into the named volume; both sha256s are checked on every start, and it is healthy
+  # only once the session runs on CUDA and warm-up passed. On a slow link, prefetch first
+  # (README, "Prefetch") or raise --wait-timeout. To load from disk:
+  # PAS_REF_ENCODER_MODEL_DIR=<host dir>, PAS_REF_ENCODER_FETCH=never,
+  # PAS_REF_ENCODER_MODEL_MODE=ro. `down -v` with this file also deletes the model volume
+  # (README, "Reset").
+  # TODO(EPIC-1F · Rashmi): Reference-encoder path — once evaluate embeds the kept crops,
+  #   give pas-curation-worker (here, not in the curation file) CURATION_SERVICE_REF_ENCODER_URL: ${PAS_REF_ENCODER_URL:-}
+  #   and depends_on pas-ref-encoder {condition: service_healthy, required: false}.
+  pas-ref-encoder:
+    image: nvcr.io/nvstaging/blueprint/dfw-ref-encoder:${TAG:-26.08}
+    build:
+      context: ../ref-encoder
+      dockerfile: Dockerfile
+    ports:
+      # Loopback by default: no auth, like pas-curation.
+      - "${PAS_REF_ENCODER_BIND:-127.0.0.1}:${PAS_REF_ENCODER_PORT:-18090}:8080"
+    environment:
+      REF_ENCODER_FETCH: ${PAS_REF_ENCODER_FETCH:-auto}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Only the NGC download reads these (an empty value means no proxy). The
+      # healthcheck and the curation client never use a proxy.
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-}
+    volumes:
+      # A named volume by default, or a host dir. The weights must be a real file there:
+      # ORT refuses external data reached through a symlink that leaves the folder.
+      - "${PAS_REF_ENCODER_MODEL_DIR:-pas-ref-encoder-models}:/models:${PAS_REF_ENCODER_MODEL_MODE:-rw}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            # One GPU, by index (device 0 inside). Never `count: all`, `runtime: nvidia` or
+            # NVIDIA_VISIBLE_DEVICES=all: busy GPUs would show through. No default: on a
+            # shared host GPU 0 is usually someone else's.
+            - driver: nvidia
+              device_ids: ["${PAS_REF_ENCODER_GPU:?set PAS_REF_ENCODER_GPU to an idle GPU index (2-7 on 538)}"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:8080/v1/ready', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 900s
+      start_interval: 5s
+    # A pin, file, GPU or golden failure does NOT exit: it stays up and unhealthy, and
+    # /v1/ready says why. NGC unreachable is retried in-process with back-off, so it does
+    # not restart either. Only a sticky CUDA fault (3 failed runs in a row) exits (70).
+    # Unbounded, because Docker never resets an on-failure:N count during a container's life.
+    restart: on-failure
+    stop_grace_period: 30s
+    networks:
+      pas:
+        aliases: [pas-ref-encoder]
+
+volumes:
+  pas-ref-encoder-models: {}
