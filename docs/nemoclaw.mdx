@@ -46,7 +46,7 @@ There are two host-side pieces working together:
      `vss` CLI.
    * `deploy_vss_orchestrator.ipynb` prepares the host for local NIM-backed profiles, starts the MCP server, deploys and manages VSS from the Agent UI, and optionally verifies sandbox-to-host reachability.
 
-   See [Setup VSS and Skills](/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills).
+   See [Setup VSS and Skills](/vision-agent/agent-harnesses/nemo-claw/setup-vss-and-skills).
 2. **The VSS Orchestrator MCP server** - a host process started by `deploy_vss_orchestrator.ipynb` on port `9988`. It exposes nine `vss_orchestrator__*` tools that the NemoClaw agent calls to:
 
    * Generate compose artifacts.
@@ -54,7 +54,7 @@ There are two host-side pieces working together:
    * Inspect containers.
    * Fetch logs.
 
-   See [VSS Orchestrator MCP](/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
+   See [VSS Orchestrator MCP](/vision-agent/agent-harnesses/nemo-claw/vss-orchestrator-mcp).
 
 <Note>
 To route NemoClaw's agent model through Switchyard, set
@@ -65,4 +65,4 @@ as the model, followed by
 `deploy_vss_orchestrator.ipynb`.
 </Note>
 
-For per-variable details, provider choices, and optional verification steps, see [Additional Configuration](/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
+For per-variable details, provider choices, and optional verification steps, see [Additional Configuration](/vision-agent/agent-harnesses/nemo-claw/additional-configuration).

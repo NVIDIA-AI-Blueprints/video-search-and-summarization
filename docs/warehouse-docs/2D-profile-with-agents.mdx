@@ -20,16 +20,16 @@ The diagram depicts **VSS Warehouse 2D Vision AI with Agents Profile**, emphasiz
 1. **Input Source**
 
    - **Videos**: Raw video data stored in a filesystem, serving as input for processing.
-   - **NvStreamer** ([NVStreamer](/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
+   - **NvStreamer** ([NVStreamer](/system-components/middleware/video-io-storage-vios/nv-streamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
 
 2. **Video IO & Storage (VIOS)** ([VIOS Microservices](/system-components/middleware/video-io-storage-vios/vios-microservices)):
 
    - VIOS ingests video streams from NvStreamer via RTSP.
    - It records the streams and forwards them (via RTSP) to the **DeepStream** microservice for further processing.
 
-3. **DeepStream** ([2D Single Camera Detection and Tracking (RT-DETR)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr)):
+3. **DeepStream** ([2D Single Camera Detection and Tracking (RT-DETR)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2-d-single-camera-detection-and-tracking-rt-detr)):
 
-   - DeepStream processes RTSP streams for 2D single-camera detection and tracking, utilizing the RT-DETR (Real-Time Detection Transformer) model ([RT-DETR (2D warehouse detection)](/system-components/models/rt-detr-2d-warehouse-detection)) to generate precise 2D bounding boxes for diverse objects including people, humanoid robots, autonomous vehicles, and warehouse equipment.
+   - DeepStream processes RTSP streams for 2D single-camera detection and tracking, utilizing the RT-DETR (Real-Time Detection Transformer) model ([RT-DETR (2D warehouse detection)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/model-finetuning/rt-detr)) to generate precise 2D bounding boxes for diverse objects including people, humanoid robots, autonomous vehicles, and warehouse equipment.
    - RT-DETR features a ResNet-50 backbone, pretrained on warehouse scene datasets for accurate 2D object detection in industrial environments.
    - It sends frame data, including detected and tracked object IDs, in Protobuf format to the **Kafka** messaging system via the `mdx-raw` topic.
 
@@ -73,13 +73,13 @@ The diagram depicts **VSS Warehouse 2D Vision AI with Agents Profile**, emphasiz
 
 10. **Visualization**
 
-    - **Kibana UI** ([Kibana UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
-    - **VIOS UI** ([VIOS UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from Kafka.
+    - **Kibana UI** ([Kibana UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2-d-vision-ai-with-agents-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
+    - **VIOS UI** ([VIOS UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2-d-vision-ai-with-agents-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from Kafka.
 
 11. **External Interfaces**
 
     - **Video Analytics API** ([Video Analytics API](/system-components/middleware/api-gateway-mcp/video-analytics-api)): RESTful API providing programmatic access to analytics data, events, and incidents stored in Elasticsearch.
-    - **Video Analytics MCP Server** ([VSS Orchestrator MCP](/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp)): Exposes Elasticsearch queries, RTVI VLM controls, and alert management as MCP (Model Context Protocol) tools for the agent.
+    - **Video Analytics MCP Server** ([VSS Orchestrator MCP](/vision-agent/agent-harnesses/nemo-claw/vss-orchestrator-mcp)): Exposes Elasticsearch queries, RTVI VLM controls, and alert management as MCP (Model Context Protocol) tools for the agent.
 
 12. **Agents** ([Agents](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/agents)):
 
@@ -342,7 +342,7 @@ To use a custom dataset:
 * Add the image metadata and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. If you already have a calibration, add `calibration.json` to the same directory. Otherwise, generate it in Step 3. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
 
 <Note>
-Refer to [RT-DETR Real-Time Performance](/system-components/models/rt-detr-2d-warehouse-detection) for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used
+Refer to [RT-DETR Real-Time Performance](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/model-finetuning/rt-detr) for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used
 </Note>
 
 #### Step 3: Choose a calibration option
@@ -446,10 +446,10 @@ No containers belonging to the previous deployment should be present before star
 #### Perception Model Fine-tuning
 
 The Blueprint uses RT-DETR (Real-Time Detection Transformer) as its primary perception model. RT-DETR features a ResNet-50 backbone and is pretrained on warehouse scene datasets for precise 2D object detection in industrial environments. For details, see:
-[2D Single Camera Detection and Tracking](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr).
+[2D Single Camera Detection and Tracking](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2-d-single-camera-detection-and-tracking-rt-detr).
 
 For fine-tuning the RT-DETR model via TAO Toolkit on custom datasets, refer to:
-[RT-DETR (TAO fine-tuning)](/system-components/models/rt-detr-2d-warehouse-detection).
+[RT-DETR (TAO fine-tuning)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/model-finetuning/rt-detr).
 
 #### LLM Integration
 
