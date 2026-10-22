@@ -71,26 +71,21 @@ this server limit.
 
 - **Kubernetes cluster**
   - Running cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
-  - **Server version** validated for this profile: **1.34** — use a different minor/patch only if your platform or release notes require it; confirm compatibility with the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html) and [NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html) versions you deploy.
+  - **Server version** recorded for this profile: **1.34**. **Driver (x86 Ubuntu 24.04)** recorded for this profile: **595.58.03**.
+  - This README does **not** record a tested GPU Operator, NIM Operator, or local-path-provisioner version. Those products use their own version numbers. Do not replace an upstream version with VSS **3.3.0**. Links that say `latest`, `master`, or `main` move on their own and do not prove they were validated with Kubernetes 1.34 and driver 595.58.03. Install the versions you have validated, and open that version’s documentation.
 
 - **NVIDIA GPU Operator**
-  - Install the GPU Operator on the cluster. Follow [GPU Operator getting started](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html).
-  - **Driver (x86 Ubuntu 24.04)** — pin **595.58.03** via GPU Operator driver settings.
+  - Install the GPU Operator on the cluster so nodes advertise `nvidia.com/gpu`. Getting started: [GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html). Platform support for the version you install: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html). Replace `latest` in those URLs with the operator version you install.
+  - Pin driver **595.58.03** through the GPU Operator driver settings for x86 Ubuntu 24.04.
 
 - **NVIDIA NIM Operator**
   - Required when **`nims`** subcharts are enabled (`NIMCache` / `NIMService`).
-  - Install **after** the GPU Operator. See [NIM Operator installation](https://docs.nvidia.com/nim-operator/latest/install.html).
+  - Install **after** the GPU Operator. Installation for the version you install: [NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html). Replace `latest` with that operator version.
 
-- **Volume provisioner (e.g. local-path)**
-  - A **StorageClass** must exist on the cluster. Set **`global.storageClass`** in your Helm values override to that class’s **`metadata.name`** (see [Prepare the values file](#1-prepare-the-values-file)).
-  - **Bare-metal clusters:** Install **local-path** (see [rancher/local-path-provisioner](https://github.com/rancher/local-path-provisioner/tree/master)).
-  - **Default StorageClass:** If your class (for example **`local-path`**) is not already the default, set it as the default StorageClass:
-
-    ```bash
-    kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-    ```
-
-    Replace **`local-path`** with your StorageClass **`metadata.name`** if it differs.
+- **Volume provisioner**
+  - A **StorageClass** must exist. Set **`global.storageClass`** to that class’s **`metadata.name`**. The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile. Change the default only for other workloads that omit `storageClassName`.
+  - **Node-local storage (for example local-path):** the shared VST claims are `ReadWriteOnce`. **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** both mount `vst-data` and `vst-video`, so on a multi-node cluster they must run on a node that can mount those volumes — for local-path, the same node. The chart does not set that affinity. Set **`nodeSelector`** or **`affinity`** on **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`**, and confirm the node has capacity for the claims. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage).
+  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner). The `master` branch link is not a release pin; use the provisioner version you have validated.
 
 ### Chart / tooling
 
@@ -147,13 +142,13 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`global.externalScheme`** | `""` in defaults | Set in **`values-base.yaml`** (e.g. **`http`** or **`https`**). With **`externalHost`** / **`externalPort`**, builds browser-facing URLs for **`vss-agent-ui`**, **`vss-agent`**, and **`vss-vios-ingress`** when their own URL fields are empty. |
 | **`global.externalHost`** | `""` in defaults | Hostname or IP clients use in the browser (e.g. **`vss.YOUR_IP.nip.io`**). |
 | **`global.externalPort`** | `""` in defaults | Port segment in generated URLs; use **`""`** so URLs omit **`:port`** when using default 80/443. Set only for non-default ports (e.g. **`8080`**). |
-| **`global.storageClass`** | unset in default **`values.yaml`** | Set in **`values-base.yaml`**; used to create PVC. |
+| **`global.storageClass`** | unset in default **`values.yaml`** | Set in **`values-base.yaml`** to the StorageClass **`metadata.name`**. Chart PVCs use this as `storageClassName`. You do not need to mark that class as the cluster default. |
 | **`global.llmBaseUrl`** | `""` | Remote LLM API base URL for **vss-agent** when models are not in-cluster (use with **`nims.enabled: false`**). Must be reachable from pods in the release namespace (cluster DNS, **`NodePort`**, LB, or routable IP). |
 | **`global.vlmBaseUrl`** | `""` | Optional external VLM service root, without a trailing `/v1`. When set, keep RT-VLM enabled and set `rtvi.vss-rtvi-vlm.useSharedNim=true` so RT-VLM proxies that endpoint. |
 | **`global.llmName`** | e.g. **`nvidia/nemotron-3.5-lightning-30b-a3b`** | Catalog-style model id passed to the agent; must match the model served at **`global.llmBaseUrl`**. |
 | **`global.vlmName`** | e.g. **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | RT-VLM `/v1/models` basename (or remote model id); must match the model served at **`global.vlmBaseUrl`** / RT-VLM. |
 | **`vios.vstStorage.createSharedPvcs`** | `true` | **`true`:** the **`vios`** umbrella creates **PersistentVolumeClaims** so **sensor** and **streamprocessing** share on-disk folders for VST data and video; data survives pod restarts but your cluster must have a working **`StorageClass`** (see **`global.storageClass`**). **`false`:** no shared PVCs from **`vios`**—pods use emptyDir or per-subchart PVCs depending on **`vios.vss-vios-*`** persistence. **`false`** avoids disk provisioning but **uploaded video and VST cache are lost** when pods are rescheduled if nothing else persists them. |
-| **`vios.vstStorage.accessMode`** | **`ReadWriteOnce`** | Access mode for the three shared VST PVCs (see **`helm/services/vios/templates/vst-storage-pvc.yaml`**). |
+| **`vios.vstStorage.accessMode`** | **`ReadWriteOnce`** | Access mode for the three shared VST PVCs (see **`helm/services/vios/templates/vst-storage-pvc.yaml`**). `ReadWriteOnce` allows multiple pods on one node. With node-local storage, **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** must be placed on a node that can mount the shared claims. |
 | **`vios.vstStorage.vstData`** | **`size`:** **10Gi**, **`storageClass`:** `""` | Claim size for the shared **VST data** volume. Leave **`storageClass`** empty to inherit **`global.storageClass`**; set it only if this volume needs a different class than the rest of the chart. |
 | **`vios.vstStorage.vstVideo`** | **`size`:** **20Gi**, **`storageClass`:** `""` | Claim size for the shared **VST video** volume; same **`storageClass`** rules as **`vstData`**. |
 | **`vios.vstStorage.streamerVideos`** | **`size`:** **20Gi**, **`storageClass`:** `""` | Claim size for the shared **streamer upload** video volume; same **`storageClass`** rules as **`vstData`**. |
@@ -240,12 +235,14 @@ render and names the missing value. The same applies to `sdrc`
 
 ### Remote LLM and VLM
 
-When LLM and VLM run **outside** this release, disable bundled NIM workloads and configure the external service roots and model names:
+When LLM and VLM run **outside** this release, disable bundled NIM workloads and configure the external service roots and the model ids those endpoints advertise:
 
 - **`nims.enabled`**: **`false`** — skips **NIM** workloads and related **NIMOperator** objects. This does not remove every local GPU request. The documented remote path still requests one GPU for RT-VLM and one for **`vss-vios-streamprocessing`** (**2** local GPUs). See [GPU requirements](#gpu-requirements).
 - **`global.llmBaseUrl`** / **`global.vlmBaseUrl`**: service-root URLs reachable from pods, without a trailing `/v1`.
-- **`global.llmName`** / **`global.vlmName`**: identifiers for those models (e.g. **`nvidia/nemotron-3.5-lightning-30b-a3b`**, **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`**), aligned with the remote service.
+- **`global.llmName`** / **`global.vlmName`**: the exact ids returned by each endpoint’s **`/v1/models`**. Do not reuse the in-cluster Nemotron 3.5 Lightning id unless that remote LLM advertises it. **`global.vlmName`** is what RT-VLM sends as **`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**.
 - **`rtvi.vss-rtvi-vlm.useSharedNim`**: **`true`** — keeps RT-VLM in the request path and makes it proxy the external VLM instead of loading the integrated checkpoint.
+
+**Credentials are separate from the NGC registry key.** **`ngc.apiKey`** creates **`ngc-api`** (`NGC_API_KEY`) and **`ngc-secret`** for nvcr.io. RT-VLM sets **`VIA_VLM_API_KEY`** from that same secret (`rtvi.vss-rtvi-vlm.ngcApiSecret`, default name **`ngc-api`**, key **`NGC_API_KEY`**). A remote VLM that expects a different token needs a secret whose data key you name with **`rtvi.vss-rtvi-vlm.ngcApiSecret.name`** and **`rtvi.vss-rtvi-vlm.ngcApiSecret.key`**. The agent does not read that secret: **`NVIDIA_API_KEY`** renders empty and **`OPENAI_API_KEY`** renders **`NOAPIKEYSET`**. If the remote LLM requires a credential the agent sends, set it with **`agent.vss-agent.extraEnv`**.
 
 Do not disable `rtvi` for the normal migration path. The agent remains configured with `VLM_MODEL_TYPE=rtvi` and calls the in-cluster RT-VLM service.
 
@@ -290,10 +287,16 @@ helm upgrade --install vss-base ./dev-profile-base \
 export LLM_BASE_URL='<REMOTE LLM SERVICE ROOT, no trailing /v1>'
 export VLM_BASE_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
 
-# Query the remote VLM and select the exact model ID it advertises.
+# Query each remote endpoint and use the exact model id it advertises.
+curl -fsS "$LLM_BASE_URL/v1/models" | jq -r '.data[].id'
 curl -fsS "$VLM_BASE_URL/v1/models" | jq -r '.data[].id'
-export VLM_MODEL_NAME='<MODEL ID returned by the command above>'
+export LLM_MODEL_NAME='<MODEL ID returned by the LLM command above>'
+export VLM_MODEL_NAME='<MODEL ID returned by the VLM command above>'
 
+# ngc.apiKey is the NGC registry key. RT-VLM copies it into VIA_VLM_API_KEY.
+# A different VLM token: create a secret and set rtvi.vss-rtvi-vlm.ngcApiSecret.
+# A credential the agent must send: set agent.vss-agent.extraEnv.
+# NVIDIA_API_KEY stays empty and OPENAI_API_KEY stays NOAPIKEYSET unless you override them.
 helm upgrade --install vss-base ./dev-profile-base \
   -f dev-profile-base/values-base.yaml \
   -n vss-base --create-namespace \
@@ -303,9 +306,27 @@ helm upgrade --install vss-base ./dev-profile-base \
   --set global.storageClass="$STORAGE_CLASS" \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
   --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
-  --set-string global.llmName="nvidia/nemotron-3.5-lightning-30b-a3b" \
+  --set-string global.llmName="$LLM_MODEL_NAME" \
   --set-string global.vlmName="$VLM_MODEL_NAME" \
   --set rtvi.vss-rtvi-vlm.useSharedNim=true
+```
+
+### Shared VST volumes on node-local storage
+
+The three shared VST claims use **`ReadWriteOnce`**. **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** both mount **`<release>-vst-data`** and **`<release>-vst-video`**. Streamprocessing also mounts **`<release>-vst-streamer-videos`**.
+
+Set **`global.storageClass`** to the class you want. That is enough for this chart. Patching the cluster default StorageClass is for other workloads that do not set `storageClassName`.
+
+On node-local storage such as local-path, a volume is usable only on the node where it was created. This chart does not co-locate sensor and streamprocessing. On more than one node, pin both workloads to a node that can mount the claims and that has room for them, for example:
+
+```yaml
+vios:
+  vss-vios-sensor:
+    nodeSelector:
+      kubernetes.io/hostname: gpu-node-a
+  vss-vios-streamprocessing:
+    nodeSelector:
+      kubernetes.io/hostname: gpu-node-a
 ```
 
 ## Exposing the stack
@@ -320,7 +341,7 @@ The chart can create a single Kubernetes **`Ingress`** (**`templates/vss-ingress
 
 **Prerequisites**
 
-1. An **Ingress controller** must already be installed, and its **`IngressClass`** name must match **`vssIngress.ingressClassName`** (default **`haproxy`** for [HAProxy Kubernetes Ingress](https://github.com/haproxytech/helm-charts/tree/main/kubernetes-ingress)).
+1. An **Ingress controller** must already be installed, and its **`IngressClass`** name must match **`vssIngress.ingressClassName`** (default **`haproxy`**). The [HAProxy Kubernetes Ingress chart](https://github.com/haproxytech/helm-charts/tree/main/kubernetes-ingress) link follows `main` and is not a VSS 3.3.0 pin; use the controller version you have validated.
 2. **`global.externalHost`** must be set to that hostname (for example **`vss.203.0.113.nip.io`**), unless you set **`vssIngress.host`** explicitly.
 3. **`vssIngress.enabled`**: **`true`** in the sample **`values-base.yaml`**; set **`false`** if you do not use an Ingress (for example you rely on **`kubectl port-forward`** or a manually applied Ingress—see **`vss-ingress-example.yaml`** in this directory).
 
