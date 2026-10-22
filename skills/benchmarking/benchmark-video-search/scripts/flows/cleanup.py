@@ -111,8 +111,14 @@ def check_cleanup_hosts(agent_endpoint: str, vst_url: str, ingress_url: str) -> 
     confirms their documents are gone. On two hosts, what was read from one
     stack would be deleted from, or checked against, another. Two URLs on one
     host are not proven to be one deployment; this catches only a host mismatch.
+    An endpoint with no hostname aborts: two host-less URLs would compare equal.
     """
     host = _host(agent_endpoint)
+    if not host:
+        raise SystemExit(
+            f"ABORTED: --endpoint ({agent_endpoint}) has no hostname, so the wipe cannot check that "
+            "--vst-url and --ingress-url are on its host. Pass --endpoint as http(s)://HOST:PORT."
+        )
     for flag, url in (("--vst-url", vst_url), ("--ingress-url", ingress_url)):
         if _host(url) != host:
             raise SystemExit(
