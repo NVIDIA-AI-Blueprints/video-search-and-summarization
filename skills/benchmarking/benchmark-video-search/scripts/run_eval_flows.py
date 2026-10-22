@@ -267,6 +267,8 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             critic_input_height=args.critic_input_height,
             critic_diagnostic_dir=args.critic_diagnostic_dir,
             retrieval_pool_size=args.retrieval_pool_size,
+            frame_scoring=getattr(args, "frame_scoring", "auto"),
+            frame_lookup_transport=getattr(args, "frame_lookup_transport", "auto"),
             attribute_input=args.attribute_input
             if args.search_path == "attribute" and args.attribute_input_explicit
             else None,
@@ -432,6 +434,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     flow.add_argument("--critic-input-width", type=int)
     flow.add_argument("--critic-input-height", type=int)
     flow.add_argument("--critic-diagnostic-dir")
+    flow.add_argument("--frame-scoring", choices=("auto", "source", "indexed"), default="auto",
+                      help="Frame cosine kernel; effective compatibility profile is recorded before retrieval.")
+    flow.add_argument("--frame-lookup-transport", choices=("auto", "single", "msearch"), default="auto",
+                      help="Frame refinement transport; no timestamp bounds are added.")
     flow.add_argument(
         "--candidate-limit",
         type=int,

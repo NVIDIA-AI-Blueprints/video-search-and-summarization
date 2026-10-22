@@ -182,3 +182,18 @@ settings — is documented in
 with `curl`. That is also the right tool when you are debugging VIOS itself: when
 the question is *why* the service is failing, a wrapper over it tells you less
 than the status code does.
+
+## Attribute frame refinement controls
+
+`vss search run attribute` and `fusion` accept `--frame-scoring auto|source|indexed`
+and `--frame-lookup-transport auto|single|msearch`. These tune frame refinement,
+not candidate retrieval; no timestamp bounds are added implicitly. Inspect the
+selected index capabilities without calling a model or creating a job:
+
+```bash
+vss search frame-capabilities --source-type video_file --raw
+```
+
+The profile records concrete index identities, scoring version, selected modes,
+and a reproducibility fingerprint. Search output may include `frame_refinement`
+diagnostics; `no_match` and skipped refinement differ from failed refinement.

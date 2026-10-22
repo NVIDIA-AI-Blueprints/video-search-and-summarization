@@ -20,6 +20,10 @@ from flows.routing import load_decompositions
 
 
 class RecordingBackend(CliQueryBackend):
+    def capture_frame_capabilities(self, source_types=None):
+        self.frame_profiles = {source: {"enabled": False, "reason": "offline test backend"}
+                               for source in source_types or {self.source_type}}
+
     def search(self, query):
         plan = self.plan_for_query(query)
         plan["effective_argv"] = self.build_argv(query, plan)

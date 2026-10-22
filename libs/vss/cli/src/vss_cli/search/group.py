@@ -219,6 +219,12 @@ class SearchTuning(BaseModel):
     an omitted flag never silently overrides configuration.
     """
 
+    frame_scoring: Literal["auto", "source", "indexed"] | None = Field(
+        None, description="Frame cosine implementation; auto checks indexed-vector compatibility."
+    )
+    frame_lookup_transport: Literal["auto", "single", "msearch"] | None = Field(
+        None, description="Frame lookup transport; auto selects a verified supported backend."
+    )
     fusion_method: Literal["weighted_rrf", "rrf"] | None = Field(
         None, description="How tag, embed, and optional attribute ranks are combined."
     )
@@ -499,9 +505,10 @@ class SearchGroup(CommandGroup):
             requires=frozenset({"elasticsearch", "rtvi_cv"}),
         ),
     )
+    from .frame_capabilities import frame_capabilities_command
     from .readiness import readiness_command
 
-    primitives = (readiness_command(),)
+    primitives = (readiness_command(), frame_capabilities_command())
 
     extra_params: ClassVar[Sequence[click.Parameter]] = (
         *params_mod.options_from_model(SearchTuning),

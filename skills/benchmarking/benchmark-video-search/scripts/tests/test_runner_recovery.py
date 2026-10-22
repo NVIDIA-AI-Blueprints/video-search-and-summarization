@@ -70,6 +70,10 @@ def config(tmp_path, **overrides):
 
 
 class RecordingBackend(CliQueryBackend):
+    def capture_frame_capabilities(self, source_types=None):
+        self.frame_profiles = {source: {"enabled": False, "reason": "offline test backend"}
+                               for source in source_types or {self.source_type}}
+
     def __init__(self, fail=None, **kwargs):
         super().__init__(["vss"], **kwargs)
         self.calls = []

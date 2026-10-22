@@ -303,3 +303,16 @@ is implied by `--skip-ingest`, standalone retrieval, or offline scoring.
 Decomposition failures remain explicit failed queries. There is no silent
 original-query embedding fallback and no `--max-decompose-failed-pct` control.
 Saved decompositions are replayed without an inference request.
+
+
+## Attribute frame scoring and transport
+
+`--frame-scoring auto|source|indexed` and
+`--frame-lookup-transport auto|single|msearch` default to automatic compatibility
+selection. Use `vss search frame-capabilities --source-type video_file --raw` to
+inspect the configured backend without inference. Applicable retrieval plans
+capture this profile before resume validation; a changed profile requires a new
+run. Missing time bounds skip frame refinement rather than inventing a scope.
+Attempted failures preserve candidates and diagnostics as unanswered-query
+evidence. See [frame refinement](frame-refinement.md) for compatibility rules,
+automatic batching, scoring corrections, and local measurement limits.

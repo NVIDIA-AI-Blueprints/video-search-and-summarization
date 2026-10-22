@@ -1807,6 +1807,7 @@ def test_a_failed_decomposition_keeps_its_elapsed_time(tmp_path: Path, monkeypat
     (dataset / "dataset.json").write_text(json.dumps({"queries": {"a person": []}}))
     monkeypatch.setattr(rf.pipeline.time, "perf_counter", lambda: clock.t)
     backend = flows.CliQueryBackend(["vss"])
+    backend.capture_frame_capabilities = lambda source_types=None: None
     backend.search = lambda q: pytest.fail("failed decomposition must never retrieve")
     output = tmp_path / "result.json"
     with pytest.raises(SystemExit, match="ABORTED"):
@@ -2137,6 +2138,7 @@ def test_stored_route_replay_and_fixed_path_are_distinct(
         paths.append(backend.plan_for_query(query)["path"])
         return [], 0.01
 
+    backend.capture_frame_capabilities = lambda source_types=None: None
     backend.search = search  # type: ignore[method-assign]
     result = rf.run_evaluation(
         backend, tmp_path, "warehouse", "", output_file=str(tmp_path / "result.json"),
@@ -2172,6 +2174,7 @@ def _run_with_decomposer(tmp_path: Path, queries: list[str], failing: set[str], 
         sent[query] = plan["path"]
         return [], 0.01
 
+    backend.capture_frame_capabilities = lambda source_types=None: None
     backend.search = search  # type: ignore[method-assign]
     result = rf.run_evaluation(
         backend, tmp_path, "warehouse", "", output_file=str(tmp_path / "result.json"),

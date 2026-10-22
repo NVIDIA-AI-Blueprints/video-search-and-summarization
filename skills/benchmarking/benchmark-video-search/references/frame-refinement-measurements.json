@@ -1,0 +1,239 @@
+{
+  "server_version": "9.4.4",
+  "dimensions": 1152,
+  "scope": "warm frame-refinement stage; JSON sizes exclude transport headers",
+  "measurements": [
+    {
+      "candidates": 1,
+      "scoring": "source",
+      "transport": "single",
+      "median_s": 0.005429049953818321,
+      "max_s": 0.007493182085454464,
+      "samples_s": [
+        0.007493182085454464,
+        0.006601682864129543,
+        0.00532916747033596,
+        0.005324456840753555,
+        0.005429049953818321
+      ],
+      "requests_per_iteration": 1.0,
+      "json_request_bytes_per_iteration": 14052.0,
+      "json_response_bytes_per_iteration": 454.0,
+      "python_peak_bytes": 302998,
+      "successful": 1
+    },
+    {
+      "candidates": 1,
+      "scoring": "indexed",
+      "transport": "single",
+      "median_s": 0.00476191658526659,
+      "max_s": 0.005182094871997833,
+      "samples_s": [
+        0.005182094871997833,
+        0.00476191658526659,
+        0.004982819780707359,
+        0.004510961472988129,
+        0.004454330541193485
+      ],
+      "requests_per_iteration": 1.0,
+      "json_request_bytes_per_iteration": 6524.0,
+      "json_response_bytes_per_iteration": 684.0,
+      "python_peak_bytes": 293232,
+      "successful": 1
+    },
+    {
+      "candidates": 1,
+      "scoring": "indexed",
+      "transport": "msearch",
+      "median_s": 0.00789112038910389,
+      "max_s": 0.011732536368072033,
+      "samples_s": [
+        0.009477031417191029,
+        0.011732536368072033,
+        0.0061110323294997215,
+        0.005800256505608559,
+        0.00789112038910389
+      ],
+      "requests_per_iteration": 1.0,
+      "json_request_bytes_per_iteration": 6565.0,
+      "json_response_bytes_per_iteration": 727.0,
+      "python_peak_bytes": 309441,
+      "successful": 1
+    },
+    {
+      "candidates": 16,
+      "scoring": "source",
+      "transport": "single",
+      "median_s": 0.07842012587934732,
+      "max_s": 0.0852586543187499,
+      "samples_s": [
+        0.06557761691510677,
+        0.07842012587934732,
+        0.08034685533493757,
+        0.07322543114423752,
+        0.0852586543187499
+      ],
+      "requests_per_iteration": 16.0,
+      "json_request_bytes_per_iteration": 224850.0,
+      "json_response_bytes_per_iteration": 7464.4,
+      "python_peak_bytes": 860706,
+      "successful": 16
+    },
+    {
+      "candidates": 16,
+      "scoring": "indexed",
+      "transport": "single",
+      "median_s": 0.055401130579411983,
+      "max_s": 0.06227375939488411,
+      "samples_s": [
+        0.05563815496861935,
+        0.055401130579411983,
+        0.04373767413198948,
+        0.04077890329062939,
+        0.06227375939488411
+      ],
+      "requests_per_iteration": 16.0,
+      "json_request_bytes_per_iteration": 104390.0,
+      "json_response_bytes_per_iteration": 11348.0,
+      "python_peak_bytes": 747861,
+      "successful": 16
+    },
+    {
+      "candidates": 16,
+      "scoring": "indexed",
+      "transport": "msearch",
+      "median_s": 0.02383390162140131,
+      "max_s": 0.029697281308472157,
+      "samples_s": [
+        0.02035448234528303,
+        0.029697281308472157,
+        0.02383390162140131,
+        0.022206129506230354,
+        0.02667948044836521
+      ],
+      "requests_per_iteration": 1.0,
+      "json_request_bytes_per_iteration": 103471.0,
+      "json_response_bytes_per_iteration": 11646.4,
+      "python_peak_bytes": 444899,
+      "successful": 16
+    },
+    {
+      "candidates": 256,
+      "scoring": "source",
+      "transport": "single",
+      "median_s": 0.8448964767158031,
+      "max_s": 0.9657704355195165,
+      "samples_s": [
+        0.8315717671066523,
+        0.9657704355195165,
+        0.8448964767158031,
+        0.7489857524633408,
+        0.846495708450675
+      ],
+      "requests_per_iteration": 256.0,
+      "json_request_bytes_per_iteration": 3598518.0,
+      "json_response_bytes_per_iteration": 120593.2,
+      "python_peak_bytes": 2362677,
+      "successful": 256
+    },
+    {
+      "candidates": 256,
+      "scoring": "indexed",
+      "transport": "single",
+      "median_s": 0.8578103687614202,
+      "max_s": 1.0616669273003936,
+      "samples_s": [
+        0.6626234641298652,
+        0.8128602672368288,
+        1.0616669273003936,
+        0.8578103687614202,
+        0.9472959013655782
+      ],
+      "requests_per_iteration": 256.0,
+      "json_request_bytes_per_iteration": 1670546.0,
+      "json_response_bytes_per_iteration": 183105.2,
+      "python_peak_bytes": 1793483,
+      "successful": 256
+    },
+    {
+      "candidates": 256,
+      "scoring": "indexed",
+      "transport": "msearch",
+      "median_s": 0.24851594492793083,
+      "max_s": 0.2960500307381153,
+      "samples_s": [
+        0.2269705180078745,
+        0.27143186051398516,
+        0.1822820007801056,
+        0.2960500307381153,
+        0.24851594492793083
+      ],
+      "requests_per_iteration": 16.0,
+      "json_request_bytes_per_iteration": 1655842.0,
+      "json_response_bytes_per_iteration": 187872.6,
+      "python_peak_bytes": 1486572,
+      "successful": 256
+    },
+    {
+      "candidates": 1617,
+      "scoring": "source",
+      "transport": "single",
+      "median_s": 5.352062428370118,
+      "max_s": 6.6299713952466846,
+      "samples_s": [
+        5.352062428370118,
+        5.754432518966496,
+        5.029941626824439,
+        5.050869821570814,
+        6.6299713952466846
+      ],
+      "requests_per_iteration": 1617.0,
+      "json_request_bytes_per_iteration": 22733307.0,
+      "json_response_bytes_per_iteration": 765313.2,
+      "python_peak_bytes": 3737159,
+      "successful": 1617
+    },
+    {
+      "candidates": 1617,
+      "scoring": "indexed",
+      "transport": "single",
+      "median_s": 4.608043533749878,
+      "max_s": 4.97925235517323,
+      "samples_s": [
+        4.615334200672805,
+        4.608043533749878,
+        4.311951534822583,
+        4.97925235517323,
+        4.571427568793297
+      ],
+      "requests_per_iteration": 1617.0,
+      "json_request_bytes_per_iteration": 10553049.0,
+      "json_response_bytes_per_iteration": 1161315.4,
+      "python_peak_bytes": 3364037,
+      "successful": 1617
+    },
+    {
+      "candidates": 1617,
+      "scoring": "indexed",
+      "transport": "msearch",
+      "median_s": 1.1903521586209536,
+      "max_s": 1.3220558706671,
+      "samples_s": [
+        1.1903521586209536,
+        1.173134658485651,
+        1.0520039815455675,
+        1.2112186821177602,
+        1.3220558706671
+      ],
+      "requests_per_iteration": 102.0,
+      "json_request_bytes_per_iteration": 10460271.0,
+      "json_response_bytes_per_iteration": 1191455.0,
+      "python_peak_bytes": 2558818,
+      "successful": 1617
+    }
+  ],
+  "patch_sha256": "514d7837a6392577701fe63e3f1de1a3e00d6d60453ff943485a0ac7ca42aa81",
+  "fixture_image": "docker.io/library/elasticsearch:9.4.4",
+  "fixture_image_digest": "sha256:ab8f40dd7a767f130d691feffbdc8c7f8502cd7a407eadd0924c028d2794b8cd",
+  "automatic_transport_policy": "single below 16 unique lookups; msearch at or above 16 when supported"
+}

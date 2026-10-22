@@ -111,6 +111,8 @@ class RunConfig:
     # attributes. See flows/scoring/pas_ground_truth.py.
     pas_frame_supported: bool | None = None
     scenarios: list[str] | None = None
+    frame_scoring: str = "auto"
+    frame_lookup_transport: str = "auto"
     candidate_limit: int = 100000
     retrieval_pool_size: int | None = None
     ingestion_validation_contract: str | None = None
@@ -171,6 +173,8 @@ class RunConfig:
             full_gallery=getattr(args, "full_gallery", False),
             pas_frame_supported=getattr(args, "pas_frame_supported", False),
             scenarios=getattr(args, "scenarios", None),
+            frame_scoring=getattr(args, "frame_scoring", "auto"),
+            frame_lookup_transport=getattr(args, "frame_lookup_transport", "auto"),
             candidate_limit=getattr(args, "candidate_limit", None) or 100000,
             attribute_input=getattr(args, "attribute_input", "original"),
             query_domain=getattr(args, "query_domain", None),

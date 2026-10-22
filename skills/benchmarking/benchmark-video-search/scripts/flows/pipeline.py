@@ -1173,6 +1173,27 @@ def run_retrieve(
         except flows.QueryUnanswerableError:
             pass  # Invalid attribute replay is recorded per query below.
 
+    if hasattr(query_backend, "capture_frame_capabilities"):
+        # Only frame-capable plans need a live mapping/transport probe. Embed
+        # and unbounded attribute baselines must not depend on frame services.
+        source_types = set()
+        if decomposer is not None:
+            source_types.update({"video_file", "rtsp"})
+        elif hasattr(query_backend, "plan_for_query"):
+            for query, query_id in zip(queries, query_ids):
+                try:
+                    plan = backend_call("plan_for_query", query, query_id)
+                except flows.QueryUnanswerableError:
+                    continue
+                if plan["path"] == "fusion" or (
+                    plan["path"] == "attribute"
+                    and plan.get("timestamp_start") and plan.get("timestamp_end")
+                ):
+                    source_types.add(plan["source_type"])
+        query_backend.frame_profiles = {}
+        if source_types:
+            query_backend.capture_frame_capabilities(source_types)
+
     described = describe_query_flow(
         query_backend, decomposer, fallback=decompose_fallback
     )
@@ -1534,7 +1555,13 @@ def run_retrieve(
         )
         if stop_retrieval.is_set():
             return
-        raw_results, latency_s = backend_call("search", query, query_id)
+        try:
+            raw_results, latency_s = backend_call("search", query, query_id)
+        except flows.QueryUnanswerableError:
+            metadata = getattr(query_backend, "metadata_by_query", {}).get(identity)
+            if metadata:
+                records[qi] = replace(records[qi], evidence={**(query_evidence or {}), **metadata})
+            raise
         metadata = getattr(query_backend, "metadata_by_query", {}).get(identity)
         if metadata:
             query_evidence = {

@@ -154,6 +154,8 @@ class CliQueryBackend:
         critic_input_height: int | None = None,
         critic_diagnostic_dir: str | None = None,
         retrieval_pool_size: int | None = None,
+        frame_scoring: str = "auto",
+        frame_lookup_transport: str = "auto",
     ) -> None:
         if search_path not in SEARCH_PATHS:
             raise ValueError(
@@ -161,6 +163,13 @@ class CliQueryBackend:
             )
         if critic_eval_count is not None and critic_eval_count < 1:
             raise ValueError("critic_eval_count must be at least 1")
+        if frame_scoring not in ("auto", "source", "indexed"):
+            raise ValueError("invalid frame_scoring")
+        if frame_lookup_transport not in ("auto", "single", "msearch"):
+            raise ValueError("invalid frame_lookup_transport")
+        self.frame_scoring = frame_scoring
+        self.frame_lookup_transport = frame_lookup_transport
+        self.frame_profiles: dict[str, dict[str, Any]] = {}
         self.vss_cmd = vss_cmd
         self.search_path = search_path
         self.top_k = top_k
@@ -220,6 +229,32 @@ class CliQueryBackend:
         if (proc.returncode == 0) != body["ready"]:
             raise ValueError("CLI readiness exit disagrees with response")
         return body
+
+    def capture_frame_capabilities(self, source_types: set[str] | None = None) -> None:
+        """Resolve live execution identity before inference and resume validation."""
+        profiles = {}
+        for source_type in sorted(source_types or {self.source_type}):
+            argv = [*self.vss_cmd, "search", "frame-capabilities", "--raw",
+                    "--source-type", source_type, "--frame-scoring", self.frame_scoring,
+                    "--frame-lookup-transport", self.frame_lookup_transport]
+            try:
+                proc = subprocess.run(argv, capture_output=True, text=True, check=False,
+                                      cwd=self.cwd, timeout=self.timeout)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise CliExitError("Frame capability probe failed") from exc
+            if proc.returncode:
+                raise CliExitError(f"Frame capability probe exited {proc.returncode}: {(proc.stderr or proc.stdout)[:500]}",
+                                   returncode=proc.returncode)
+            try:
+                profile = json.loads(proc.stdout)
+                if not isinstance(profile, dict) or type(profile.get("enabled")) is not bool:
+                    raise ValueError("missing enabled flag")
+                if profile["enabled"] and not profile.get("fingerprint"):
+                    raise ValueError("missing execution fingerprint")
+            except (ValueError, TypeError) as exc:
+                raise CliExitError("Malformed frame capability profile") from exc
+            profiles[source_type] = profile
+        self.frame_profiles = profiles
 
     def capture_deployment_provenance(self) -> None:
         """Read recorded deployment models via the CLI without probing inference."""
@@ -292,6 +327,9 @@ class CliQueryBackend:
             "decomposition_source",
             "retrieval_pool_size",
             "deployment_identity",
+            "frame_scoring",
+            "frame_lookup_transport",
+            "frame_profiles",
         ):
             value = getattr(self, name, None)
             if value is not None:
@@ -412,6 +450,8 @@ class CliQueryBackend:
             "fusion",
         ):
             argv += ["--attribute-min-similarity", str(self.attribute_min_similarity)]
+        argv += ["--frame-scoring", self.frame_scoring,
+                 "--frame-lookup-transport", self.frame_lookup_transport]
         argv += ["--source-type", plan["source_type"]]
         returned = plan.get("top_k") or self.top_k
         if self.retrieval_pool_size is not None:
@@ -489,6 +529,26 @@ class CliQueryBackend:
             self.metadata_by_query[query_id or query] = metadata
         if timings:
             self.timings_by_query[query_id or query] = timings
+        diagnostics = metadata.get("frame_refinement") or []
+        expected = self.frame_profiles.get(plan["source_type"])
+        failure = any(row.get("status") == "failed" for row in diagnostics)
+        attempted = any(row.get("kind") == "lookup" and row.get("status") in
+                        {"succeeded", "no_match", "failed"} for row in diagnostics)
+        capabilities = [row for row in diagnostics if row.get("kind") == "capabilities"]
+        if attempted and (expected is None or not capabilities):
+            failure = True
+            metadata["frame_profile_mismatch"] = {"reason": "attempted refinement without verified execution identity"}
+        for row in diagnostics:
+            if row.get("kind") == "capabilities" and expected is not None:
+                actual = row.get("profile", row)
+                if actual.get("fingerprint") != expected.get("fingerprint"):
+                    failure = True
+                    metadata["frame_profile_mismatch"] = {"expected": expected, "actual": actual}
+        if failure:
+            # Evidence survives the exception and is copied into the query record.
+            metadata["candidate_pool"] = hits
+            self.metadata_by_query[query_id or query] = metadata
+            raise QueryUnanswerableError("Frame refinement failed or execution profile changed; candidate pool retained in evidence")
         return hits, latency
 
 
@@ -554,6 +614,12 @@ def parse_cli_output(
         if "data" in payload:
             if metadata is not None and "candidate_coverage" in payload:
                 metadata["candidate_coverage"] = payload["candidate_coverage"]
+            if "frame_refinement" in payload and payload["frame_refinement"] is not None:
+                diagnostics = payload["frame_refinement"]
+                if not isinstance(diagnostics, list) or any(not isinstance(row, dict) for row in diagnostics):
+                    raise QueryUnanswerableError("CLI frame_refinement must be a list of objects")
+                if metadata is not None:
+                    metadata["frame_refinement"] = diagnostics
             hits = _validate_hits(payload["data"])
             messages = payload.get("search_messages", [])
             if not isinstance(messages, list) or any(
