@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { CustomProvider, Button } from 'rsuite';
-import { Button as KaizenButton, Tag as KaizenTag } from '@nvidia/foundations-react-core';
-import { IconX } from '@tabler/icons-react';
+import { Button as KaizenButton } from '@nvidia/foundations-react-core';
 import { Funnel as FunnelIcon } from '@rsuite/icons';
 import { FilterDialog } from './FilterPopover';
+import { FilterTagChip } from './FilterTagChip';
 import { StreamInfo, FilterTag } from '../types';
 import { DEFAULT_TOP_K } from '../hooks/useFilter';
+import { isDefaultSearchFilters } from '../utils/searchFilters';
 
 interface SearchHeaderProps {
     theme: 'light' | 'dark';
@@ -76,8 +77,6 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ theme, streams, filt
     // Tag reset values lookup
     const tagResetValues: Record<string, any> = useMemo(() => ({
       videoSources: { videoSources: [] },
-      similarity: { similarity: '' },
-      topK: { topK: DEFAULT_TOP_K }
     }), []);
 
     const handleConfirm = useCallback((newParams?: any) => {
@@ -98,10 +97,15 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ theme, streams, filt
     }, [filterParams, tagResetValues, setFilterParams, removeFilterTag]);
       
     const onClearAll = useCallback(() => {
-      const newParams = { ...filterParams, videoSources: [], similarity: 0 };
-      removeFilterTag(null);
+      const newParams = {
+        ...filterParams,
+        videoSources: [],
+        similarity: 0,
+        topK: DEFAULT_TOP_K,
+      };
       setFilterParams(newParams);
-    }, [filterParams, removeFilterTag, setFilterParams]);
+      addFilter(newParams);
+    }, [filterParams, setFilterParams, addFilter]);
 
     const visibleTags = filterTags;
 
@@ -132,19 +136,15 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ theme, streams, filt
                     pointerEvents: contentDisabled ? 'none' : 'auto'
                   }}>
                     {visibleTags.map((tag: FilterTag, index: number) => (
-                      <KaizenTag
+                      <FilterTagChip
                         key={tag.key ?? index}
-                        kind="outline"
-                        color="gray"
-                        readOnly={tag.key === 'topK' || contentDisabled}
-                        style={{ opacity: contentDisabled ? 0.5 : 1 }}
-                        onClick={!contentDisabled && tag.key !== 'topK' ? () => removeTag(tag) : undefined}
-                      >
-                        {tag.title}: <span style={{ color: theme === 'dark' ? '#84E1BC' : 'green' }}>{tag.value}</span>
-                        {!contentDisabled && tag.key !== 'topK' && <IconX size={14} />}
-                      </KaizenTag>
+                        tag={tag}
+                        theme={theme}
+                        contentDisabled={contentDisabled}
+                        onRemove={removeTag}
+                      />
                     ))}
-                    {visibleTags.length > 1 && (
+                    {!isDefaultSearchFilters(filterParams) && (
                       <Button data-testid="search-clear-all-filters" size="sm" appearance="primary" color="red" onClick={onClearAll} disabled={contentDisabled}>
                         Clear All
                       </Button>
