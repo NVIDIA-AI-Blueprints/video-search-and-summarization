@@ -49,10 +49,11 @@ Shared job `benchmark-perf-test` with `PERF_SERVICE=warehouse-bp`,
 `vss-blueprints-compose-warehouse`. Unique service name so GPU `deleteDir`
 does not reuse the BA playback or VA-API dump checkouts.
 
-GPU sparse-checkout must include `deploy/` (`checkoutPaths` in
-`perf-configs.yaml`) so warehouse-operations compose files are present.
-Host ports are overlaid away from 9200/8081/9092 so a leftover playback
-or dump job on the node does not bind-conflict.
+Jenkins GPU sparse-checkout only materializes `deploy/docker/services/`
+and `perf/`. `pre_flight.sh` then checks out the rest of `deploy/docker`
+(including `industry-profiles/warehouse-operations`) from the shallow
+clone. Host ports are overlaid away from 9200/8081/9092 so a leftover
+playback or dump job on the node does not bind-conflict.
 
 `COMPOSE_PROJECT_NAME=warehouse-bp-perf`. Elastic/Kafka bind mounts live under
 `/tmp/warehouse-bp-perf-*` so uid-1000 Lucene files do not block `deleteDir`.

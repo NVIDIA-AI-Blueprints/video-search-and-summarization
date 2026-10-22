@@ -169,6 +169,8 @@ class ScriptTests(unittest.TestCase):
         text = (PERF / "scripts" / "pre_flight.sh").read_text()
         self.assertIn("pre-flight: missing file:", text)
         self.assertIn("need_file \"$WAREHOUSE_DIR/compose.yml\"", text)
+        self.assertIn("materialize_warehouse_compose", text)
+        self.assertIn("materializing deploy/docker from git", text)
 
     def test_overlay_cli(self) -> None:
         overlay = PERF / "scripts" / "overlay_env.py"
