@@ -116,3 +116,19 @@ class ElasticIndex(Protocol):
         forward it to helpers that re-resolve clients (e.g. the object-id
         re-search path), so the protocol exposes it."""
         ...
+
+
+@runtime_checkable
+class FrameCapabilityReader(Protocol):
+    """Optional frame mapping seam; search-only injected clients remain supported."""
+
+    async def frame_capabilities(self, *, index: str | list[str]) -> Any: ...
+
+
+@runtime_checkable
+class FrameMultiSearch(Protocol):
+    """Optional bounded frame transport seam."""
+
+    async def msearch(
+        self, *, index: str | list[str], searches: list[dict[str, Any]], max_concurrent_searches: int = 16
+    ) -> Any: ...

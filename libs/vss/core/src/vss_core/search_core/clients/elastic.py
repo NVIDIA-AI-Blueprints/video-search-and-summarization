@@ -326,6 +326,55 @@ class ElasticClient:
         except (ESConnectionError, ESApiError, ESTransportError) as e:
             raise BackendUnreachableError("elasticsearch", str(e), e) from e
 
+    async def frame_capabilities(self, *, index: str | list[str]) -> Any:
+        """Read concrete index identities and mappings without probing search data."""
+        try:
+            client = await self._client_for_active_loop()
+            response = await client.indices.get(index=index)
+            info = await client.info()
+            return {"indices": dict(response), "server_version": info.get("version", {}).get("number")}
+        except ESNotFoundError as exc:
+            raise IndexNotFoundError(index, exc) from exc
+        except (ESConnectionError, ESApiError, ESTransportError) as exc:
+            raise BackendUnreachableError("elasticsearch", str(exc), exc) from exc
+
+    async def frame_transport_capability(self, *, index: str | list[str]) -> bool:
+        """Probe only operation support; never treat permissions or timeouts as absence."""
+        try:
+            client = await self._client_for_active_loop()
+            response = await client.options(max_retries=0).msearch(
+                index=index, searches=[{}, {"size": 0, "query": {"match_none": {}}}],
+                max_concurrent_searches=1,
+            )
+            responses = response.get("responses")
+            if (not isinstance(responses, list) or len(responses) != 1
+                    or responses[0].get("error") or responses[0].get("timed_out")
+                    or responses[0].get("_shards", {}).get("failed", 0)):
+                raise BackendUnreachableError("elasticsearch", "Invalid multi-search capability response")
+            return True
+        except ESApiError as exc:
+            if exc.status_code in {405, 501}:
+                return False
+            raise BackendUnreachableError("elasticsearch", str(exc), exc) from exc
+        except (ESConnectionError, ESTransportError) as exc:
+            raise BackendUnreachableError("elasticsearch", str(exc), exc) from exc
+
+    async def msearch(
+        self, *, index: str | list[str], searches: list[dict[str, Any]], max_concurrent_searches: int = 16
+    ) -> Any:
+        """Issue bounded independent searches without retrying a failed batch."""
+        try:
+            client = await self._client_for_active_loop()
+            return await client.options(max_retries=0).msearch(
+                index=index,
+                searches=searches,
+                max_concurrent_searches=max_concurrent_searches,
+            )
+        except ESNotFoundError as exc:
+            raise IndexNotFoundError(index, exc) from exc
+        except (ESConnectionError, ESApiError, ESTransportError) as exc:
+            raise BackendUnreachableError("elasticsearch", str(exc), exc) from exc
+
     async def visit_documents(
         self,
         *,
