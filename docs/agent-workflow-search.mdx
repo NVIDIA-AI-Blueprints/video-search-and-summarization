@@ -82,7 +82,7 @@ Your coding agent drives the workflow: it deploys the stack, provisions sources,
 The host must meet the same deployment requirements listed under [Manually](/vision-agent/agent-workflows/search#manually) (supported GPU/hardware for that profile) and must meet the [Prerequisites](/getting-started/prerequisites). The skill selects the hardware profile to match your system, as detailed in [Development Profile GPU Requirements](/getting-started/prerequisites#development-profile-gpu-requirements).
 </Note>
 
-Deployment is driven by the [`vss-build-vision-ai`](/vision-agent/agent-skills) skill. It can deploy the Search developer profile as it ships, or compose a leaner stack from the capabilities you name. Any prompt below can also name an image tag to run a release's images instead of the `containers.env` default, for example *"…with image tag `${VSS_DOCS_IMAGE_TAG:-develop-latest}`."* See [Container image tag](/vision-agent/build-vision-ai#container-image-tag). The skill presents the composed architecture for your confirmation before it generates or deploys anything.
+Deployment is driven by the [`vss-build-vision-ai`](/vision-agent/agent-skills) skill. It can deploy the Search developer profile as it ships, or compose a leaner stack from the capabilities you name. Any prompt below can also name an image tag to run a release's images instead of the `containers.env` default, for example *"…with image tag `${VSS_DOCS_IMAGE_TAG:-develop-latest}`."* See [Container image tag](/vision-agent/build-vision-ai-skill#container-image-tag). The skill presents the composed architecture for your confirmation before it generates or deploys anything.
 
 ##### Stock Search profile with the in-stack Agent
 

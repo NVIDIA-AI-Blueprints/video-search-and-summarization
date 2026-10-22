@@ -21,7 +21,7 @@ More advanced techniques will be included in future releases to address similar 
 
 ### False Object Detections in MV3DT
 
-The [MV3DT Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) may exhibit the following detection and tracking issues:
+The [MV3DT Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv-3-dt-vision-ai-profile) may exhibit the following detection and tracking issues:
 
 - **Tracker ID switches:** When people move close together, a tracker ID may switch from one person to another. IDs may also become associated with different objects across camera views.
 - **Tracking loss:** Previously tracked objects may lose their tracks while still visible.
@@ -64,7 +64,7 @@ If there are not enough physical GPUs for dedicated allocations, configure GPU s
 
 [Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html) provides memory and fault isolation on supported hardware; [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) shares GPU access without that isolation. Choose based on your hardware and workload requirements, including VIOS video encode/decode support in the selected MIG profile. See the [MIG and time-slicing comparison](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#comparison-time-slicing-and-multi-instance-gpu).
 
-GPU time-slicing can be used with the Warehouse Blueprint’s [2D](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile), [3D](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile), [MV3DT](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) and [2D with Agents](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile) profiles.
+GPU time-slicing can be used with the Warehouse Blueprint’s [2D](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2-d-vision-ai-profile), [3D](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile), [MV3DT](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv-3-dt-vision-ai-profile) and [2D with Agents](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2-d-vision-ai-with-agents-profile) profiles.
 
 For ConfigMap and device-plugin configuration examples, see [NVIDIA GPU time-slicing configuration](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#configuration). Two shared allocations allow RTVI-CV and VIOS alone to share one physical GPU. Additional GPU workloads, such as ReID or in-cluster RT-VLM, require additional shared allocations and sufficient GPU memory.
 

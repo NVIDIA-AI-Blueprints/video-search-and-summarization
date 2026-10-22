@@ -898,10 +898,10 @@ The 300s figure on the ReID health check is a start grace period, not a maximum.
 
 For detailed testing and validation steps, refer to:
 
-- [2D Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile#testing-and-validation)
-- [2D Vision AI with Agents Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#testing-and-validation)
-- [3D Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#testing-and-validation)
-- [MV3DT Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#testing-and-validation)
+- [2D Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2-d-vision-ai-profile#testing-and-validation)
+- [2D Vision AI with Agents Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2-d-vision-ai-with-agents-profile#testing-and-validation)
+- [3D Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile#testing-and-validation)
+- [MV3DT Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv-3-dt-vision-ai-profile#testing-and-validation)
 - [Troubleshooting Guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/troubleshooting-guide)
 
 ## Service Access Points
@@ -966,10 +966,10 @@ The `down -v --rmi all` command removes this Compose project's non-external volu
 The Blueprint supports several levels of customization, including but not limited to adding new cameras and updating models.
 For details, refer to the following sections under the Blueprint deep dive pages:
 
-* [2D Vision AI Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile#customization)
-* [2D Vision AI with Agents Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#customization)
-* [3D Vision AI Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#customization)
-* [MV3DT Vision AI Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#customization)
+* [2D Vision AI Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2-d-vision-ai-profile#customization)
+* [2D Vision AI with Agents Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2-d-vision-ai-with-agents-profile#customization)
+* [3D Vision AI Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile#customization)
+* [MV3DT Vision AI Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv-3-dt-vision-ai-profile#customization)
 
 ## Warehouse Blueprint Skill
 
@@ -1079,7 +1079,7 @@ operator's behalf:
 * **Container image tag** - runs a release's images when you name an image tag in
   the prompt, or when `VSS_CONTAINER_TAG` is already exported. Otherwise it uses the
   `containers.env` default. See
-  [Container image tag](/vision-agent/build-vision-ai#container-image-tag).
+  [Container image tag](/vision-agent/build-vision-ai-skill#container-image-tag).
 * **Build and validate** - writes `_builds/<name>/override.env`, `compose.yml`,
   `configurator.env`, and `resolved.yml`. The Skill resolves the Warehouse env layers
   into `resolved.yml`, then validates the resolved services, images, bind mounts,
