@@ -70,26 +70,23 @@ this server limit.
 ## Prerequisites
 
 - **Kubernetes cluster**
-  - Running cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
-  - **Server version** recorded for this profile: **1.34**. **Driver (x86 Ubuntu 24.04)** recorded for this profile: **595.58.03**.
-  - Use a GPU Operator release that supports driver **595.58.03**, the latest NIM Operator, and the latest local-path-provisioner. Those products use their own version numbers. Do not replace an upstream version with VSS **3.3.0**.
+  - A Kubernetes cluster, version **1.34** or greater, whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
+  - **Driver (x86 Ubuntu 24.04)** recorded for this profile: **595.58.03**.
 
 - **NVIDIA GPU Operator**
-  - Install a GPU Operator release that supports driver **595.58.03** so nodes advertise `nvidia.com/gpu`. Getting started: [GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html). Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html).
-  - Pin driver **595.58.03** through the GPU Operator driver settings for x86 Ubuntu 24.04.
+  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html) on the cluster so nodes advertise `nvidia.com/gpu`. For x86 Ubuntu 24.04, use a release that supports driver **595.58.03** and set that driver in the GPU Operator driver settings. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html).
 
 - **NVIDIA NIM Operator**
-  - Required when **`nims`** subcharts are enabled (`NIMCache` / `NIMService`).
-  - Install the latest NIM Operator **after** the GPU Operator. Installation: [NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html).
+  - [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html) when deploying in-cluster LLM or VLM models (`nims` subcharts, `NIMCache` / `NIMService`). Install it after the GPU Operator.
 
-- **Volume provisioner**
-  - A **StorageClass** must exist. Set **`global.storageClass`** to that class’s **`metadata.name`**. The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile. Change the default only for other workloads that omit `storageClassName`.
+- **StorageClass**
+  - A **StorageClass** for PVC provisioning. Set **`global.storageClass`** to that class’s **`metadata.name`**. The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile. Change the default only for other workloads that omit `storageClassName`.
   - **Node-local storage (for example local-path):** the shared VST claims are `ReadWriteOnce`. **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** both mount `vst-data` and `vst-video`, so on a multi-node cluster they must run on a node that can mount those volumes — for local-path, the same node. The chart does not set that affinity. Set **`nodeSelector`** or **`affinity`** on **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`**, and confirm the node has capacity for the claims. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage).
-  - **Bare-metal clusters** with no provisioner yet can install the latest [local-path-provisioner](https://github.com/rancher/local-path-provisioner).
+  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner) and use the StorageClass it creates.
 
 ### Chart / tooling
 
-- **Helm** 3.x
+- **Helm** 3.7+
 - **Kubectl**
 - **Curl** and **jq** (to discover model IDs from remote endpoints)
 - **GPUs**: see [GPU requirements](#gpu-requirements) (3 with local defaults, 2 on the documented remote path).
