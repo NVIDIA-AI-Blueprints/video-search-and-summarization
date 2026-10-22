@@ -28,6 +28,12 @@ the same path the product uses, since the agent adapter shells out to
 `vss search run <mode> --raw` for every search — so the numbers describe what
 ships rather than a REST endpoint that is being retired.
 
+Searches go through `vss`. To know when ingestion is done and when a wipe has
+finished, the runner also reads Elasticsearch and RT-CV's stream list directly,
+read-only, through the deployment's `:7777` ingress (derived from
+`--endpoint`). It never writes to either. It changes deployment state only
+through the agent API: it deletes file sources and uploads videos.
+
 ## When not to use this skill
 
 - For a single video-search question, use `vss-search-archive`.
@@ -42,12 +48,12 @@ ships rather than a REST endpoint that is being retired.
 |---|---|
 | User asks to benchmark the OpenClaw chat route | This runner does not measure it; explain the gap instead of presenting CLI timings as chat timings |
 | User asks to benchmark the retired agent REST search endpoint | This runner does not measure it; for historical comparison, use the external legacy `run_eval.py` noted in `references/troubleshooting.md` |
-| No search profile deployed in this session | Use `vss-build-vision-ai` to deploy the **stock search profile with its in-stack agent REST API and in-stack LLM retained**. Explicitly name both requirements in the build request so it skips the harness question (which would remove the agent and possibly the LLM); do not select a NemoClaw-only or CLI-only harness. Record the reachable agent endpoint and unified origin, then return here. Check agent `/health` and LLM `/v1/models`, run Step 3 to inspect indices, and complete Step 4 ingestion and its index probe before scoring |
+| No search profile deployed in this session | Use `vss-build-vision-ai` to deploy the **stock search profile with its in-stack agent REST API and in-stack LLM retained**. Explicitly name both requirements in the build request so it skips the harness question (which would remove the agent and possibly the LLM); do not select a NemoClaw-only or CLI-only harness. Record the reachable agent endpoint and unified origin, then return here. Check agent `/health` and LLM `/v1/models`, run Step 3 to inspect indices, and complete Step 4 ingestion and its ingest gate before scoring |
 | User did not give an endpoint | Ask for it. Do not guess, and do not default to localhost |
 | Endpoint uses `localhost` or `127.0.0.1` | This is valid when the runner is on the deployment host. Verify the actual VST clip URL is reachable from RT-VLM before trusting critic-filtered metrics |
 | User did not give a dataset | Ask which dataset and where its `--data-dir` is. Do not invent one |
 | Elasticsearch has no `mdx-*` indices | Ingestion has not completed. Run **Step 4**; do not report zero scores as a quality result |
-| User asks to reuse what is already ingested | Add `--skip-ingest`. It cannot be combined with `--clear` or `--only-dataset` |
+| User asks not to ingest, to reuse what is indexed, or to "just run the evals" | Add `--skip-ingest`: nothing is deleted or uploaded. Any other request gets the default wipe and fresh ingest |
 | User asks to analyse an existing result file | Skip to **Step 6**; read the JSON, run nothing |
 | Every query returns 0 hits | Stop. Diagnose with **Step 3** before reporting anything — this is nearly always missing indices, not poor retrieval |
 | Critic-filtered metrics are all `NA` | The critic never ran. Check the clip-URL prerequisite below before concluding anything about verification quality |
@@ -60,20 +66,29 @@ if missing, which deployment endpoint to target.
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET \
-    --skip-download --skip-existing --name RUN_NAME
+    --skip-download --name RUN_NAME
 ```
 
 Five defaults, each load-bearing:
 
-- **`--skip-existing`** is non-destructive and avoids duplicate uploads on a
-  shared deployment. `--only-dataset` and `--clear` are explicit destructive
-  maintenance modes. Both require `--confirm-delete` in the same invocation;
-  there is no interactive prompt. Use either only when the user requested
-  deletion, and report the printed deletion inventory.
+- **Every run starts from an empty index.** Before uploading, the runner
+  deletes every uploaded **file** source in VST, waits for the cleanup
+  webhooks to empty the indexes a `video_file` search reads, then ingests the
+  whole dataset. Anything left indexed would be searched too, and every hit on
+  it would score as a false positive. **RTSP cameras are never deleted**; the
+  run lists the ones it kept. Report what was deleted (`flow.cleared`). The
+  deployment may be shared, but nobody else may upload to it while an eval
+  runs. For what is checked and the aborts, see "Before ingest: the wipe" in
+  `references/troubleshooting.md`.
+
+  `--skip-ingest` is the only way to keep what is there. It deletes nothing
+  and uploads nothing, and it aborts unless every dataset video is already
+  registered. Passing a removed cleanup flag (`--only-dataset`, `--clear`,
+  `--confirm-delete`, `--skip-existing`) is a usage error (exit 2).
 - **Live decomposition is on by default.** The LLM origin is derived from
   `--endpoint` (same host, port 30081), so there is no flag to forget. Every
-  query is decomposed the way the deployed agent decomposes it, and that choice
-  picks the retrieval path. Override with `--llm-url` / `--llm-port`; turn it
+  query is decomposed the way the deployed agent decomposes it, and routed the
+  way the agent routes it (`references/dataset-format.md`). Override with `--llm-url` / `--llm-port`; turn it
   off with `--no-decompose` (replays stored routes) or `--fixed-search-path`
   (ignores stored routes for a single-path baseline).
 
@@ -81,6 +96,17 @@ Five defaults, each load-bearing:
   otherwise it falls back to `embed`, which needs nothing but the query text.
   The fallback records `flow.query.live_decomposition.fell_back_to` in the
   result file. Check that field and `Search paths:` before quoting numbers.
+
+  If decomposition fails for one query mid-run, that query is searched on
+  `embed` with its original text, as the agent does. It is not marked
+  unanswered. The result records `decompose_failed` on that query and
+  `summary.decomposition.failed`, and the summary prints `N queries fell back
+  to embed: decomposition failed`. More than 20% of queries falling back
+  aborts the run (`--max-decompose-failed-pct`): the numbers would measure
+  embed, not routing. The run stops as soon as failures pass the cap across
+  the whole dataset, and still writes the result file — with `aborted` set,
+  each query's `decompose_failed` error, and no summary. Report the count next
+  to any number you quote.
 
   `--no-decompose` also replays dataset routes when present; it does not force
   one path. Use `--fixed-search-path` only for a deliberately single-path
@@ -108,23 +134,33 @@ Five defaults, each load-bearing:
 
   What `agent-3step` gave for free was proof: `/complete` returns
   `chunks_processed`, and a zero failed the upload. `vst-direct` has no such
-  step, so a **post-ingest index probe** replaces it — one embed query, retried,
-  before the real run starts. Registered in VST is not the same as indexed in
-  Elasticsearch, and without this check an unindexed deployment scores 0.0
-  across the board and reads as a retrieval collapse.
+  step, so an **ingest gate** replaces it: the runner reads Elasticsearch and
+  RT-CV through the `:7777` ingress until every video is complete, then
+  queries. Embeddings and tags are checked against chunk targets from the
+  video's duration. Raw frames and behavior are done once RT-CV has released
+  the stream and the counts stop changing. RT-CV writes raw only for frames
+  with detections, so sparse footage legitimately ends far below its frame
+  count. If any video is incomplete at the deadline it
+  aborts with each index's count against its target. The one exception is an
+  index no video ever gets: after `--ingest-absent-grace-s` (default 60 s) tags,
+  or raw with behavior, are treated as not produced by this deployment, and the
+  run confirms as degraded and queries without them (`--ingest-strict` aborts
+  instead). One searchable hit arrives ~20 s after upload; RT-CV is still
+  writing for minutes after that.
 
-  If the probe aborts a run, check the deployed VIOS notification config and
-  that `RTVI_EMBED_MODEL` matches the webhook's model string — RT-Embed answers
-  a mismatch with HTTP 200 and `inference: false`. The Docker and Helm search
-  profiles enable webhooks; generic VIOS chart defaults may not. If the
-  deployed webhooks are disabled, use `--ingest-flow agent-3step`.
-  Never pass `--skip-index-probe` on a run whose numbers you intend to quote.
+  If the gate reports `RT-CV never listed the stream`, check the deployed VIOS
+  notification config and that `RTVI_EMBED_MODEL` matches the webhook's model
+  string — RT-Embed answers a mismatch with HTTP 200 and `inference: false`.
+  The Docker and Helm search profiles enable webhooks; generic VIOS chart
+  defaults may not. If the deployed webhooks are disabled, use
+  `--ingest-flow agent-3step`. For a profile without RT-VLM or RT-CV, narrow
+  `--ingest-require`. Never pass `--skip-index-probe` or `--legacy-index-probe`
+  on a run whose numbers you intend to quote.
 - **Concurrency stays at 1** (the script's default). Concurrent queries contend
   for the same VLM and embedding services, so per-stage latencies inflate and
   stop describing a single query.
 
-Deviate only on request: `--skip-ingest` to reuse what is there, `--clear` to
-wipe the whole deployment, `--subset` to narrow the slice, `--concurrency N` to
+Deviate only on request: `--skip-ingest` to reuse what is there, `--subset` to narrow the slice, `--concurrency N` to
 trade latency fidelity for wall-clock, `--no-decompose` to replay stored routes,
 or `--fixed-search-path` for a single-path baseline.
 
@@ -146,8 +182,8 @@ eval. Both measure a different flow; the result records the routing mode.
 | Critic clip URL reachable **from RT-VLM** | Inspect a returned VST `videoUrl` and test that exact URL from the RT-VLM container. The CLI uses `video_url_scope="internal"`; CLI ORIGIN may legitimately be localhost on the host |
 
 Agent `/health` confirms the process is reachable, not that VIOS and the search
-indices are ready. Step 3 and the post-ingest index probe are the retrieval
-readiness gates.
+indices are ready. Step 3 and the ingest gate are the retrieval readiness
+gates.
 
 ## Step 1 — Configure the CLI
 
@@ -194,30 +230,27 @@ is missing, only `embed` can score. If the indices are absent, go to Step 4.
 
 The default `vst-direct` flow uploads to VIOS and lets its webhooks trigger
 perception. It does not call the agent's `/complete` endpoint or receive a
-`chunks_processed` count. The runner waits for VST registration, then probes
-the search index before scoring. Use `--ingest-flow agent-3step` only when the
+`chunks_processed` count. The runner waits for VST registration, then waits on
+the ingest gate until every index is complete. Use `--ingest-flow agent-3step` only when the
 deployment cannot run the webhook flow; see `references/troubleshooting.md`.
 
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
-    --data-dir /path/to/datasets --dataset DATASET --skip-download --skip-existing
+    --data-dir /path/to/datasets --dataset DATASET --skip-download
 ```
 
 Expect this to be slow while the webhook pipeline indexes the videos:
 
-- A registered source is not necessarily indexed. The post-ingest index probe
-  must pass before treating zero hits as a retrieval result.
+- A registered source is not necessarily indexed. The ingest gate must confirm
+  every video before scoring; a 210 s video takes about 220 s. It prints an
+  `INGESTION SUMMARY` with embedding-done and full-ingestion times per video.
+- The wipe runs first and prints what it found and deleted (`Not clean: ...`,
+  then `Index empty after Ns`). A clean index prints `Index is clean`.
+- Documents that reappear under a name about to be uploaded abort the run
+  before upload (`stale documents for X`): something wrote them after the
+  wipe, and they would satisfy the gate instantly.
 - If webhooks are disabled, select `--ingest-flow agent-3step` explicitly. That
   flow calls `/complete`, which can return a transient 502 and is retried.
-- `--skip-existing` is the default: ingest what is missing and delete nothing.
-- `--only-dataset` deletes foreign sources only when explicitly requested with
-  `--confirm-delete`; report its candidate inventory before it runs.
-- `--clear --confirm-delete` deletes **every** source including other people's.
-  Use it only on explicit request.
-- `--clear` and `--only-dataset` list sources via `--vst-url` but delete through
-  the agent endpoint. If those URLs have different hosts, verify they belong
-  to the **same deployment** before deletion; otherwise source IDs from one
-  stack could be sent to another.
 
 Then re-run Step 3. Indices are lazy; they appear after webhook processing,
 not immediately after upload. See `references/flags.md` for ingest options.
@@ -230,8 +263,9 @@ uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:
     --skip-download --skip-ingest --name RUN_NAME
 ```
 
-`--skip-ingest` reuses an already-indexed dataset; it cannot be combined with
-`--clear` or `--only-dataset`. See `references/flags.md` before changing flags
+`--skip-ingest` reuses an already-indexed dataset without wiping it. It aborts
+if a dataset video is not registered, and warns about sources outside the
+dataset. See `references/flags.md` before changing flags
 that affect run meaning.
 
 Decomposition needs no flag. An LLM turns the sentence into
@@ -265,10 +299,14 @@ State these alongside any number, because each one changes what it means:
 
 - **Which paths ran.** `Search paths:` in the summary. A run that was all
   `embed` says nothing about `attribute`.
-- **Whether decomposition was live.** If so, give its share of query time and
-  what it `Routed to:` — a routing shift changes what was measured.
+- **Whether decomposition was live.** If so, give its share of query time,
+  what it `Routed to:` — a routing shift changes what was measured — and how
+  many queries fell back to embed because it failed.
 - **Whether the critic ran.** Critic-filtered metrics print `NA` when the
   response carried no verification block. `NA` is not `0`.
+- **Whether ingest was degraded.** `summary.ingest_degraded` lists the indexes
+  the deployment never produced and the executed paths that read them. Scores
+  on those paths measure a missing index, not retrieval; do not quote them.
 
 Read `references/reading-results.md` when interpreting stage latencies or
 metrics. Read `references/flags.md` when a flag might change comparability.
@@ -292,9 +330,12 @@ Critic-filtered `NA` means verification was not available, not zero quality. Use
 - A non-zero CLI exit aborts the run rather than scoring 0.0. A stale virtualenv
   exits 1 on every invocation, and scoring that as "no results" would report a
   broken environment as an accuracy regression.
-- Queries do not merge adjacent windows by default. Upstream merging averages
-  the scores of merged windows and changes the precision denominator, so a
-  merged run is not comparable to an unmerged baseline.
+- Queries merge adjacent windows by default, as the agent does. Merging is
+  also what makes the search fetch the agent's doubled candidate pool;
+  unmerged runs search a smaller pool and score lower recall. Result files
+  captured before this default were unmerged. Their precision and mAP are not
+  comparable with a merged run, because merged windows span more segments.
+  Check `config.merge_adjacent` before comparing two runs.
 - The critic is an LLM and is not deterministic. Raw metrics repeat exactly;
   critic-filtered ones move a few points between runs. Gate on raw.
 - Live decomposition is not deterministic either. The same query can route

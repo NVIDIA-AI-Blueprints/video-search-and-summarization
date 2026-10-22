@@ -132,7 +132,7 @@ See [Video Search](/vss/vision-agent/agent-workflows/search) for deployment layo
   where it is until you move it under `alert_agent.event_filters`, and
   `VSS_BASE_URL`, `vss_agent`, and `vss_params` are ignored rather than
   rejected. The settings are listed one by one under Upgrading from 3.2.x in
-  the [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice)
+  the [Alerts Microservice](/system-components/analytics-microservices/alerts-microservice)
   guide.
 </Tab>
 <Tab title="Warehouse Operations">
@@ -164,7 +164,7 @@ See [Video Search](/vss/vision-agent/agent-workflows/search) for deployment layo
 
 - Models - Core AI models for perception and analytics:
 
-  - [Sparse4D - 3D Warehouse Models v2.3 and v3.0](/vss/system-components/models/sparse4d-3d-multi-camera) - Updated models for synthetic and real-world Warehouse datasets, respectively. `DATASET_TYPE` selects the matching model, anchor, labels, and TensorRT engine configuration.
+  - [Sparse4D - 3D Warehouse Models v2.3 and v3.0](/system-components/models/sparse4d-3d-multi-camera) - Updated models for synthetic and real-world Warehouse datasets, respectively. `DATASET_TYPE` selects the matching model, anchor, labels, and TensorRT engine configuration.
   - Perception models are now downloaded from the NGC TAO registry during deployment instead of being bundled in the Warehouse app-data archive.
 
 #### Improvements
@@ -212,7 +212,7 @@ See [Video Search](/vss/vision-agent/agent-workflows/search) for deployment layo
   - Fixed incorrect 3D bounding-box overlays caused by projecting boxes behind the camera.
   - Fixed missing overlays in downloaded recordings when Elasticsearch throttles metadata requests.
 
-See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/known-limitations) for current warehouse profile constraints and workarounds.
+See [Warehouse Known Limitations](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/known-limitations) for current warehouse profile constraints and workarounds.
 </Tab>
 </Tabs>
 
@@ -276,8 +276,8 @@ documents the developer profiles.
 ### Key Features and Enhancements
 
 - **Source code released** for all microservices and agent workflows on GitHub.
-- **Agent Skills** ([Agent Skills](/vss/vision-agent/agent-skills)) (*Early Access*) are now available for agent-driven deployment
-  and operations with support for [multiple agent harnesses](/vss/vision-agent/agent-harnesses). Skills are provided for:
+- **Agent Skills** ([Agent Skills](/vision-agent/agent-skills)) (*Early Access*) are now available for agent-driven deployment
+  and operations with support for [multiple agent harnesses](/vision-agent/agent-harnesses). Skills are provided for:
 
   - Profile deployment.
   - Agent workflow use cases such as video summarization, search, and report generation.
@@ -289,9 +289,9 @@ documents the developer profiles.
 - Added a Real-time Computer Vision 3D (RT-CV-3D) microservice with support for **MV3DT-based 3D multi-camera detection and tracking**, and integrated it into a new Warehouse Blueprint application.
 - Added the **Automatic Calibration** microservice for automated camera position and orientation calibration.
 - **NemoClaw + VSS** (*Early Access*): The `deploy_nemoclaw_vss.ipynb` notebook for deploying and
-  operating VSS from the [NemoClaw](/vss/vision-agent/agent-harnesses/nemoclaw) / OpenClaw chat UI, bundled with the
-  VSS OpenClaw plugin, VSS [Agent Skills](/vss/vision-agent/agent-skills), a VSS policy preset, and
-  the host-side [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
+  operating VSS from the [NemoClaw](/vision-agent/agent-harnesses/nemoclaw) / OpenClaw chat UI, bundled with the
+  VSS OpenClaw plugin, VSS [Agent Skills](/vision-agent/agent-skills), a VSS policy preset, and
+  the host-side [VSS Orchestrator MCP server](/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
 
 ### Agent Workflows
 
@@ -413,10 +413,10 @@ documents the developer profiles.
 - Added top-view image visualization on Thor and Spark platforms, and improved 3D bounding-box visualization by using individual camera timestamps when present.
 - Models - Core AI models for perception and analytics:
 
-  - [RT-DETR - 2D Warehouse Model v1.0.2](/vss/system-components/models/rt-detr-2d-warehouse-detection) - Model for 2D Single-Camera Object Detection.
-  - [Sparse4D - 3D Warehouse Model v2.2](/vss/system-components/models/sparse4d-3d-multi-camera) - Model for 3D Multi-Camera Object Detection and Tracking.
+  - [RT-DETR - 2D Warehouse Model v1.0.2](/system-components/models/rt-detr-2d-warehouse-detection) - Model for 2D Single-Camera Object Detection.
+  - [Sparse4D - 3D Warehouse Model v2.2](/system-components/models/sparse4d-3d-multi-camera) - Model for 3D Multi-Camera Object Detection and Tracking.
 
-See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/known-limitations) for current warehouse profile constraints and workarounds.
+See [Warehouse Known Limitations](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/known-limitations) for current warehouse profile constraints and workarounds.
 </Tab>
 </Tabs>
 
@@ -766,7 +766,7 @@ single tag serves `linux/amd64` (x86_64) and `linux/arm64`
   (BEV) outputs across cameras with overlapping fields of view. It
   ships as two container images, `vss-rt-cv` (Perception) and
   `vss-rt-cv-mv3dt-bev-fusion` (BEV Fusion). See
-  [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).
+  [Object Detection and Tracking](/system-components/vision-microservices/object-detection-and-tracking).
 * **Shared RTVI-CV REST API surface** — built on the same RTVI-CV
   codebase as the RT-CV microservice, the Perception microservice
   exposes the same core REST API for stream management (dynamic
@@ -775,11 +775,11 @@ single tag serves `linux/amd64` (x86_64) and `linux/arm64`
   monitoring.
 * **Docker Compose deployment** — RT-CV-3D is released with a
   Docker Compose deployment and its source code, deployed through
-  the [Warehouse Blueprint MV3DT profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile).
+  the [Warehouse Blueprint MV3DT profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile).
 * **Agent Skills added** — new VSS Agent Skills let a coding agent
   deploy and operate the RT-CV-3D perception and tracking stack
   end to end, and generate the camera calibration it needs. See the
-  [Agent Skills walkthrough](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough).
+  [Agent Skills walkthrough](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough).
 
 * [RT-DETR](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/rtdetr_2d_warehouse?version=deployable_rn50_v1.0.2):
   Real-Time Detection Transformer object detection model optimized
@@ -789,7 +789,7 @@ single tag serves `linux/amd64` (x86_64) and `linux/arm64`
 
 * Standalone launch of the RT-CV-3D microservice is not yet
   supported. Deploy RT-CV-3D through the Warehouse Blueprint MV3DT
-  profile or the [Agent Skills](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough).
+  profile or the [Agent Skills](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough).
   Standalone launch will be supported in a future release.
 * A Helm chart is not yet available. Helm support will be added in
   a future release.
@@ -865,13 +865,13 @@ These are the VSS 3.0.0 Release Notes. This is an early access release including
 
 - Refactored video summarization workflow into the Video Summarization microservice.
 - Introduced Video IO and Storage (VIOS) microservices, to manage video (stored and streamed), recording, and playback.
-- Introduced Behavior Analytics microservice, to setup heuristics for event creation based on computer vision metadata.
+- Introduced Behavior Analytics microservice, to set up heuristics for event creation based on computer vision metadata.
 - Introduced calibration microservices, to calibrate the camera position and orientation for 3D and multi-view applications.
 - Integrated a new API Gateway / MCP (Model Context Protocol) server to route requests to the appropriate microservices.
 
 <Card
   title="Next: VSS 2.X Release Notes"
-  href="/vss/release-notes/vss-2-x-release-notes"
+  href="/release-notes/vss-2-x-release-notes"
 >
   View release notes for VSS 2.x releases.
 </Card>

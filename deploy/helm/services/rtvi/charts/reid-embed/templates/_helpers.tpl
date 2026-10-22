@@ -19,6 +19,23 @@
 {{- default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) -}}
 {{- end }}
 
+{{/*
+Managed-image resolution for the ReID Embed container.
+Default repository/tag come from values (ghcr.io/.../reid-embed:develop-latest).
+global.container_prefix replaces the repository prefix. global.container_tag
+replaces the tag.
+*/}}
+{{- define "vss-reid-embed.image" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $prefix := index $global "container_prefix" | default "" -}}
+{{- $repository := .Values.image.repository -}}
+{{- if $prefix -}}
+{{- $repository = printf "%s/reid-embed" (trimSuffix "/" $prefix) -}}
+{{- end -}}
+{{- $tag := index $global "container_tag" | default .Values.image.tag -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+
 {{- define "vss-reid-embed.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}

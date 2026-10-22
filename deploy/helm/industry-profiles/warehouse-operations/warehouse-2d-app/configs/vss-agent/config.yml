@@ -175,6 +175,10 @@ llms:
     base_url: ${LLM_BASE_URL}/v1
     max_tokens: 32768
     temperature: 0.0
+    # ChatNVIDIA defaults to 60s. Report synthesis with llm_reasoning=True
+    # exceeded that on GB300 (SocketTimeoutError at 60s, three attempts).
+    # Match the HAProxy LLM backend (bk_llm_strip timeout server 600s).
+    timeout: 600
 
   # --- VLM profiles (selected by VLM_MODEL_TYPE) ---
   nim_vlm:

@@ -16,6 +16,7 @@ PROFILES = {
     "l40s": ("cr3-nano-reasoner-fp8", 1, 5, [1, 16, 32, 64, 128]),
     "h100_sxm": ("cr3-super-reasoner-fp8", 1, 5, [1, 16, 32, 64, 128]),
     "b200_sxm": ("cr3-super-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
+    "gb300": ("cr3-super-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
     "agx_thor_t5000": ("cr3-nano-reasoner-nvfp4", 1, 1, [1, 4, 8, 16]),
     "dgx_spark": ("cr3-nano-reasoner-nvfp4", 1, 1, [1, 4, 8, 16]),
     "agx_orin": ("cosmos3-edge-bf16", 1, 1, [1, 2, 4, 8]),
@@ -68,6 +69,17 @@ def render(
     )
     text = text.replace("stream_count: [1, 16, 32, 64, 128]", f"stream_count: {levels}")
     text = text.replace("concurrency_levels: [1, 16, 32, 64, 128]", f"concurrency_levels: {levels}")
+    if platform in {"b200_sxm", "gb300"}:
+        text = text.replace(
+            "binary_search_refinement: true\n",
+            "binary_search_refinement: true\n        max_stream_count: 512\n",
+        )
+    text = text.replace(
+        "required_unstable_windows: 2\n",
+        "required_unstable_windows: 2\n"
+        "        unstable_window_size: 5\n"
+        "        max_windows_per_level: 20\n",
+    )
     if platform == "agx_orin":
         # Cosmos3-Edge: (640 / 16 / 2)^2 = 400 vision tokens per frame.
         frames = {"10": "5", "20": "10", "40": "20"}

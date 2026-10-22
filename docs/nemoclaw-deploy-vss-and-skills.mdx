@@ -13,7 +13,7 @@ This guide uses the simplest layout and runs everything on a single VSS-capable 
    path, configures optional webhooks, and opens the Agent UI.
 2. `deploy/docker/scripts/deploy_vss_orchestrator.ipynb` - prepares the host for VSS, starts the VSS Orchestrator MCP server, and deploys and manages VSS from the Agent UI by chatting with the agent.
 
-Follow the cells in each notebook in order. For the full variable reference and optional verification cells, see [Additional Configuration](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
+Follow the cells in each notebook in order. For the full variable reference and optional verification cells, see [Additional Configuration](/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
 
 <Note>
 The prompts and screenshots use OpenClaw as an example. Run the equivalent checks in whichever agent harness you onboarded (`AGENT_RUNTIME`, for example OpenClaw or Hermes).
@@ -48,7 +48,7 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
 
   * A VSS-capable GPU host, such as a preconfigured [Brev Launchable](https://brev.nvidia.com/launchable/deploy/now?launchableID=env-2tYIjRXL4eMCbH9Az8mJC5WPAI4) or your own GPU-enabled machine.
 
-    * If you are using the Brev Launchable, you can edit the Brev hardware profile and cloud service provider (CSP). See [Brev hardware and CSP selection](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration#brev-hardware-and-csp-selection) before launching.
+    * If you are using the Brev Launchable, you can edit the Brev hardware profile and cloud service provider (CSP). See [Brev hardware and CSP selection](/vision-agent/agent-harnesses/nemoclaw/additional-configuration#brev-hardware-and-csp-selection) before launching.
     * In the single-host layout used by this guide, this same machine also runs Part 1.
 
   * `NGC_CLI_API_KEY` (NGC Personal API Key) for `nvcr.io` login and the model weights the containers download from NGC.
@@ -57,18 +57,27 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
 
 ## Part 1 - Set up NemoClaw
 
-1. Clone the VSS repository at `~/video-search-and-summarization` and check out
-   the repository reference selected for this documentation build:
+1. Prepare the VSS repository at `~/video-search-and-summarization` before opening either notebook.
+
+   On Brev, the repository is cloned automatically. Click **Open Notebook** on the instance page, then open a terminal in JupyterLab and check out the [repository reference selected for this documentation build](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}):
 
    ```bash
-   git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
-   cd video-search-and-summarization
+   cd ~/video-search-and-summarization
+   git fetch origin "${VSS_DOCS_GIT_REF:-develop}"
+   git checkout --detach FETCH_HEAD
+   ```
+
+   On your own host, clone the repository and check out the same reference:
+
+   ```bash
+   git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git ~/video-search-and-summarization
+   cd ~/video-search-and-summarization
    git checkout "${VSS_DOCS_GIT_REF:-develop}"
    ```
 
    If your checkout is elsewhere or the host has multiple clones, set `VSS_REPO_DIR` before launching Jupyter.
 
-2. Open `deploy/docker/scripts/deploy_nemoclaw.ipynb` on the VSS host.
+2. Open `deploy/docker/scripts/deploy_nemoclaw.ipynb` on the VSS host. If either setup notebook is already open, close and reopen it after checking out the reference so it loads the selected version.
 
    * If you are re-onboarding a host that previously ran an older OpenShell gateway, review the [NemoClaw sandbox lifecycle guidance](https://docs.nvidia.com/nemoclaw/manage-sandboxes/lifecycle) before running the notebook.
 
@@ -86,7 +95,7 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
    | 3.6 | Optionally verify the sandbox, policy, workspace, and webhooks. |
 
 <Frame caption="The agent chat UI after Section 3.5 prints the UI link.">
-  <img src="/assets/images/nemoclaw/OpenClawUIChat.png" alt="Agent UI chat interface" />
+  <img src="./assets/images/nemoclaw/OpenClawUIChat.png" alt="Agent UI chat interface" />
 </Frame>
 
    If you are not running on Brev, forward the gateway port from your local machine before opening the UI:
@@ -105,7 +114,7 @@ In the single-host layout used by this guide, the VSS host is the same machine a
 
 1. Set `NEMOCLAW_SANDBOX_NAME` to the sandbox you onboarded in Part 1 and set
    `HARDWARE_PROFILE` to match the VSS deployment host. For edge hardware
-   profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`), see [Run on DGX Spark](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills#run-on-dgx-spark) before you deploy.
+   profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`), see [Run on DGX Spark](/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills#run-on-dgx-spark) before you deploy.
 
 2. Follow the notebook sections in order. The notebook covers:
 
@@ -117,14 +126,14 @@ In the single-host layout used by this guide, the VSS host is the same machine a
    * Optionally verify host reachability from inside the sandbox
 
 <Frame caption="Listing the installed VSS skills from the agent chat.">
-  <img src="/assets/images/nemoclaw/OpenClawUISkills.png" alt="Agent UI listing the installed VSS skills" />
+  <img src="./assets/images/nemoclaw/OpenClawUISkills.png" alt="Agent UI listing the installed VSS skills" />
 </Frame>
 
 <Frame caption="Deploying a VSS profile from chat.">
-  <img src="/assets/images/nemoclaw/OpenClawUIDeploy.png" alt="Deploying a VSS profile from the agent chat" />
+  <img src="./assets/images/nemoclaw/OpenClawUIDeploy.png" alt="Deploying a VSS profile from the agent chat" />
 </Frame>
 
-For the complete orchestrator tool reference, see [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
+For the complete orchestrator tool reference, see [VSS Orchestrator MCP](/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
 
 ## Run on DGX Spark
 
@@ -158,10 +167,10 @@ DGX Spark is a single-GPU edge system, so it needs a few adjustments before you 
 
 5. **Expect the Docker pin to skip the downgrade** (`deploy_nemoclaw.ipynb` Section 2.1). On DGX Spark (DGX-OS, arm64), Pin Docker skips the exact-version downgrade when the installed Docker Engine is already within the tested range (`28.3.3` through `29.5.0`), because the DGX-OS apt repository may not carry the exact pinned versions. The packages are still held with `apt-mark hold` so the stack cannot drift past the tested range.
 
-6. **Leave the orchestrator MCP config defaults unless you need to tune them.** `deploy/docker/scripts/vss_orchestrator_mcp_config.yml` already sets DGX Spark defaults such as `VLM_NIM_KVCACHE_PERCENT`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, and the SBSA image tags. Change those values only if you need different GPU memory or image settings, then restart the MCP server. See [VSS Orchestrator MCP config YAML](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration#vss-orchestrator-mcp-config-yaml).
+6. **Leave the orchestrator MCP config defaults unless you need to tune them.** `deploy/docker/scripts/vss_orchestrator_mcp_config.yml` already sets DGX Spark defaults such as `VLM_NIM_KVCACHE_PERCENT`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, and the SBSA image tags. Change those values only if you need different GPU memory or image settings, then restart the MCP server. See [VSS Orchestrator MCP config YAML](/vision-agent/agent-harnesses/nemoclaw/additional-configuration#vss-orchestrator-mcp-config-yaml).
 
-For the full variable reference, see [Additional Configuration](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
+For the full variable reference, see [Additional Configuration](/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
 
 ## Add Video Sources
 
-Once the VSS stack is deployed, open the VSS UI and use the **Video Management** tab to upload video files (MP4, MKV) or add live RTSP camera streams for the agent to ingest. See [Video Management Tab](/vss/system-components/user-interface#4-video-management-tab) for the full walkthrough of upload, RTSP setup, and stream management.
+Once the VSS stack is deployed, open the VSS UI and use the **Video Management** tab to upload video files (MP4, MKV) or add live RTSP camera streams for the agent to ingest. See [Video Management Tab](/system-components/user-interface#4-video-management-tab) for the full walkthrough of upload, RTSP setup, and stream management.

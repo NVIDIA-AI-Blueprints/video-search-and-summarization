@@ -14,7 +14,7 @@ description: "Deploy RT-CV-3D standalone: RT-DETR detection with Multi-View 3D T
 
 The metadata path is `perception → mdx-raw → bev-fusion → mdx-bev`.
 
-Perception uses the same `vss-rt-cv` image as [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking), configured for multi-view 3D tracking rather than 2D. For MV3DT as deployed by the Warehouse Operations blueprint, see [3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt). This page covers running the microservice on its own.
+Perception uses the same `vss-rt-cv` image as [Object Detection and Tracking](/system-components/vision-microservices/object-detection-and-tracking), configured for multi-view 3D tracking rather than 2D. For MV3DT as deployed by the Warehouse Operations blueprint, see [3D Multi Camera Detection and Tracking (MV3DT)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt). This page covers running the microservice on its own.
 
 ## Standalone deployment
 
@@ -22,7 +22,7 @@ Unless noted otherwise, run every command below from `services/rtvi/rt-cv-3d/rt-
 
 **Assumptions**
 
-- Your cameras are already calibrated and you have a **`calibration.json`** for your camera setup. Refer to the [VSS Calibration documentation](/vss/system-components/calibration) for how to create one.
+- Your cameras are already calibrated and you have a **`calibration.json`** for your camera setup. Refer to the [VSS Calibration documentation](/system-components/calibration) for how to create one.
 - **Time-synchronized, 30 FPS multi-camera footage.** Whether you feed recordings or live streams, the cameras must be synchronized in two ways: at any moment all cameras capture the **same scene moment**, and frames of that moment carry timestamps that **agree to within one frame's duration (33 ms at 30 FPS)**, so they bucket into the same frame interval. Larger skew degrades cross-camera alignment and BEV fusion accuracy. For **live RTSP** that correspondence is carried in-band, as an SEI frame ID embedded by the VST proxy — see [§4](#4-add-streams-dynamically-rtsp).
 
 You can feed that footage in one of two ways. The simplest is to point the pipeline at **recorded per-camera `.mp4` files**: this needs no streaming server, and each clip plays once and then the app exits, so it is the easiest way to try RT-CV-3D on your own recordings (see [§2.3](#23-stage-the-deepstream-configs)). The other is **live RTSP streams**, which you register after launch (see [§4](#4-add-streams-dynamically-rtsp)). The rest of the setup is identical either way, so it is best to validate on recordings first and move to live RTSP once the results look good.
@@ -33,7 +33,7 @@ If you don't have your own footage yet, the package in [§1.1](#11-download-the-
 
 ### 1.1 Download the assets package
 
-Download the `vss-warehouse-app-data` package from NGC (substitute `<WAREHOUSE_APP_DATA_NGC>` / `<WAREHOUSE_APP_DATA_DIR>` with the resource reference and extracted directory name from the [VSS documentation](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#warehouse-app-data)):
+Download the `vss-warehouse-app-data` package from NGC (substitute `<WAREHOUSE_APP_DATA_NGC>` / `<WAREHOUSE_APP_DATA_DIR>` with the resource reference and extracted directory name from the [VSS documentation](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#warehouse-app-data)):
 
 ```bash
 ngc registry resource download-version "<WAREHOUSE_APP_DATA_NGC>"

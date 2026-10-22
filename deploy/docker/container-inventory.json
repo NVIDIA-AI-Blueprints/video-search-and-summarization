@@ -311,11 +311,16 @@
     },
     {
       "name": "reid-embed",
-      "strategy": "mirror",
+      "strategy": "build",
+      "ghcr_build": true,
+      "native_platform_build": true,
+      "source_path": "services/rtvi/rt-cv-3d/reid-embed",
+      "context": "services/rtvi/rt-cv-3d/reid-embed",
+      "dockerfile": "services/rtvi/rt-cv-3d/reid-embed/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["reid-embed"],
       "tag_variables": ["VSS_REID_EMBED_TAG"],
-      "notes": "Docker-only (warehouse MV3DT). Coordinates live in containers.env as VSS_REID_EMBED_IMAGE / VSS_REID_EMBED_TAG; not in this repo's GHCR build set."
+      "notes": "Built by GitHub from the ReID Embed service. The base is the NGC PyTorch image, so arm64 builds on a native runner."
     },
     {
       "name": "vss-auto-calibration",

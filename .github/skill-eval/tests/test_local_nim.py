@@ -499,6 +499,7 @@ def test_spark_resolves_registered_node_id_even_if_renamed(monkeypatch):
 )
 def test_spark_never_falls_back_to_other_workers(monkeypatch, nodes):
     monkeypatch.setattr(run_leg, "_list_registered_nodes", lambda: nodes)
+    monkeypatch.setattr(run_leg.subprocess, "run", Mock(side_effect=AssertionError("must not probe an unidentified worker")))
     with pytest.raises(ValueError):
         run_leg.spark_instance()
 

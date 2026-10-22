@@ -122,13 +122,11 @@ class CliQueryBackend:
         min_cosine_similarity: float | None = None,
         source_type: str = "video_file",
         attributes: list[str] | None = None,
-        # Deliberately the OPPOSITE of the upstream CLI default. Upstream merges
-        # contiguous same-sensor windows and reports the mean of their scores,
-        # which changes both the hit count (the precision denominator) and the
-        # score semantics. The historical REST baseline has unmerged windows, so
-        # defaulting to merged here would silently invalidate every comparison
-        # against it. Callers wanting product-default behaviour must ask.
-        merge_adjacent: bool = False,
+        # The upstream CLI default, and what the agent does. The search library
+        # doubles its candidate pool only when merging, so unmerged searches a
+        # smaller pool than the agent. Merged windows span more segments, so
+        # precision is not comparable with an unmerged run.
+        merge_adjacent: bool = True,
         cwd: str | None = None,
         timeout: int = SEARCH_TIMEOUT,
         decompositions: dict[str, dict[str, Any]] | None = None,

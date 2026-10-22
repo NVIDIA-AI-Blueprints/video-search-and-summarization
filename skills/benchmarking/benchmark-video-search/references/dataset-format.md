@@ -92,20 +92,27 @@ the same `--search-path` to every query. The contract is
 
 ### How the path is chosen
 
-Derived from the decomposition — no guessing:
+The route choice mirrors the agent's `execute_core_search`, so a stored
+decomposition is sent down the path the agent would choose:
 
 | `object_ids` | `attributes` | `has_action` | → path |
 |---|---|---|---|
 | present | — | — | `object` |
 | — | present | `true` | `fusion` |
 | — | present | `false` | `attribute` |
+| — | present | missing | `attribute` |
 | — | empty | — | `embed` |
 
-`attribute` is the no-action case because that path cannot express an action.
-`fusion` is the both case: the embedding leg carries the action, the attribute
-leg re-ranks by appearance. A decomposition missing `has_action` routes to
-`fusion`, because fusion still returns the embedding leg's candidates while
-`attribute` would silently drop every action-based match.
+`attributes` are counted after the agent's single-word pruning: an attribute
+with no space, `-` or `.` is dropped, so `["red"]` routes as empty. Nothing
+else is pruned; an attribute that repeats an action query is kept, as the
+agent keeps it. A missing `has_action` means attribute-only, as in the agent.
+
+The path is the agent's; what runs on `fusion` is not quite. The agent's
+fusion searches embed first and switches to attribute-only when the best embed
+score is below `embed_confidence_threshold`. The CLI fusion this runner calls
+never reads that threshold, so a `fusion` query is always scored on fusion,
+including queries where the agent would have answered from attributes alone.
 
 > **Attributes are matched semantically, not literally.** Attribute search
 > embeds your attribute text with RTVI-CV and runs kNN against per-object visual

@@ -7,13 +7,17 @@ This page describes how to configure the LLM for the VSS agent workflow—both *
 
 For **remote** LLMs, as long as the API is [OpenAI compatible](https://platform.openai.com/docs/api-reference/chat), you can point the agent to it for reasoning and coordinating tool calls during report generation, video understanding, video summarization, and more. Remote endpoints can enable rapid startup when they are already up and running.
 
+Agent containers default `OPENAI_API_KEY` to `NOAPIKEYSET` for local OpenAI-compatible clients, including direct NAT evaluation commands. Set a real `OPENAI_API_KEY` for an authenticated OpenAI endpoint; supplied Compose values and Helm `extraEnv` overrides take precedence.
+
+The Base and LVS evaluation configurations give `eval_llm_judge` the stock reasoning model's 32,768-token output budget so it can finish its score. When selecting a different judge model, adjust `max_tokens` to that model's supported output budget. QA judges keep their analysis in the reasoning channel and return only the decimal score in their final response, as required by the score parser.
+
 ## Local LLM customization
 
 When deploying with a local LLM, the agent workflow uses a default NIM endpoint. You can customize it as follows:
 
 - **Default model:** `nvidia/nemotron-3.5-lightning-30b-a3b` for every profile (configured as a local NIM endpoint; each profile's `overrides.env` carries the matching `LLM_NAME` and `LLM_NAME_SLUG`).
 
-- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile's `*-overrides.env` file to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
+- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile's `*-overrides.env` file to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
 
 - **Different local model:** Set `LLM_NAME` and its matching `LLM_NAME_SLUG` in the selected profile's `*-overrides.env` file to use one of the supported local models:
 
@@ -28,8 +32,8 @@ When deploying with a local LLM, the agent workflow uses a default NIM endpoint.
 
 ## Setup assumptions for remote LLMs
 
-Before you start, make sure you followed the [Prerequisites](/vss/getting-started/prerequisites) section.
-It is also recommended to review the different parameters described in the [Quickstart](/vss/getting-started/quickstart) guide.
+Before you start, make sure you followed the [Prerequisites](/getting-started/prerequisites) section.
+It is also recommended to review the different parameters described in the [Quickstart](/getting-started/quickstart) guide.
 
 1. Register an account at [NVIDIA NGC](https://org.ngc.nvidia.com/setup). Get an NGC API key.
 
@@ -63,7 +67,7 @@ cp deploy/docker/developer-profiles/dev-profile-base/overrides.env \
 
 For every configuration below, save the shown values in
 `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, then validate and start
-the profile with the native Docker Compose command in [Quickstart](/vss/getting-started/quickstart).
+the profile with the native Docker Compose command in [Quickstart](/getting-started/quickstart).
 
 ## Managed remote LLMs
 
@@ -94,7 +98,7 @@ the profile with the native Docker Compose command in [Quickstart](/vss/getting-
 
 <Note>
 Remote VLM endpoints are supported too — see
-[Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm)
+[Configure the VLM](/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm)
 — but `https://integrate.api.nvidia.com` does not serve the blueprint's VLMs:
 [`nvidia/cosmos3-nano-reasoner`](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner)
 is **downloadable** from the API Catalog, not hosted there. Point a remote VLM at a
@@ -207,7 +211,7 @@ Examples of downloadable NIM containers:
 
 ### Using vLLM Container
 
-You can deploy an opensource LLM from Hugging Face or any other source using the NVIDIA vLLM container.
+You can deploy an open-source LLM from Hugging Face or any other source using the NVIDIA vLLM container.
 Check the [NVIDIA vLLM container documentation](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/vllm?version=26.01-py3) for an introduction to vLLM and the vLLM container.
 
 1. Check [GPU requirements](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html) to ensure the machine that will host the LLM is supported.

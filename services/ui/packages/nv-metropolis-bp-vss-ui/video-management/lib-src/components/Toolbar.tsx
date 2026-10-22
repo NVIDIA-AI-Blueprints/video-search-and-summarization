@@ -145,20 +145,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     return 'Select File Type';
   };
 
-  const clearSearchSlot = searchQuery ? (
-    <button
-      type="button"
-      aria-label="Clear search"
-      onClick={() => onSearchChange('')}
-      className="inline-flex rounded p-0.5 text-gray-400 transition-colors hover:bg-neutral-700 hover:text-white dark:text-gray-400 dark:hover:bg-neutral-700 dark:hover:text-white"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-        <line x1="18" y1="6" x2="6" y2="18" />
-        <line x1="6" y1="6" x2="18" y2="18" />
-      </svg>
-    </button>
-  ) : undefined;
-
   const displayCheckboxes = (
     <>
       {showVideoOption && (
@@ -302,7 +288,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onValueChange={(val: string) => onSearchChange(val)}
             onKeyDown={handleSearchKeyDown}
             placeholder="Search Files"
-            slotRight={clearSearchSlot}
+            dismissible
           />
           <Button data-testid="search-video-button" kind="secondary" onClick={onSearch} className="w-full">
             Search
@@ -352,7 +338,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               onValueChange={(val: string) => onSearchChange(val)}
               onKeyDown={handleSearchKeyDown}
               placeholder="Search Files"
-              slotRight={clearSearchSlot}
+              dismissible
             />
           </div>
           <Button

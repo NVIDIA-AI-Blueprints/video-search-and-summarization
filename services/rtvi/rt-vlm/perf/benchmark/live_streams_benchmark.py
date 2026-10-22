@@ -26,6 +26,7 @@ import os
 import threading
 import time
 import uuid
+from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from concurrent.futures import wait
@@ -203,6 +204,23 @@ def next_ramp_target(current: int, step: int, checkpoints: List[int]) -> int:
     return min((count for count in checkpoints if current < count <= target), default=target)
 
 
+def _positive_search_int(config: Dict, key: str, default: int) -> int:
+    value = config.get(key, default)
+    if type(value) is not int or value <= 0:
+        raise ValueError(f"{key} must be a positive integer, got {value!r}")
+    return value
+
+
+def _search_window_limits(config: Dict, stable: int, unstable: int) -> Tuple[int, int]:
+    size = config.get("unstable_window_size", 0)
+    if type(size) is not int or size < 0 or (size and size < unstable):
+        raise ValueError("unstable_window_size must be 0 or an integer >= required_unstable_windows")
+    limit = _positive_search_int(config, "max_windows_per_level", max(20, stable, unstable, size))
+    if limit < max(stable, unstable, size):
+        raise ValueError("max_windows_per_level must cover the stability window")
+    return size, limit
+
+
 def summarize_latency_plateau(
     tracker: LatencyTracker,
     active_stream_ids: List[str],
@@ -212,6 +230,7 @@ def summarize_latency_plateau(
     latency_threshold_seconds: float,
     all_windows_fresh: bool = True,
     missing_latency_events: int = 0,
+    response_errors: int = 0,
 ) -> Dict[str, Any]:
     """Report full-window latency at one fixed load, including invalid evidence."""
     all_history = tracker.get_all_latencies()
@@ -235,6 +254,8 @@ def summarize_latency_plateau(
         failures.append("dropped_chunks")
     if missing_latency_events:
         failures.append("missing_latency_source")
+    if response_errors:
+        failures.append("response_errors")
     if not readings:
         failures.append("no_latency_measurements")
     elif percentiles["p95_latency"] > latency_threshold_seconds:
@@ -246,6 +267,7 @@ def summarize_latency_plateau(
         "fresh_every_window": all_windows_fresh,
         "dropped_chunks": dropped_chunks,
         "missing_latency_events": missing_latency_events,
+        "response_errors": response_errors,
         "total_measurements": len(readings),
         "avg_latency": sum(readings) / len(readings) if readings else 0.0,
         "min_latency": min(readings) if readings else 0.0,
@@ -278,6 +300,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
         self._stream_last_chunk_ids: Dict[str, int] = {}
         self._stream_dropped_chunks: Dict[str, int] = {}
         self._stream_missing_latency_events: Dict[str, int] = {}
+        self._stream_response_errors: Dict[str, int] = {}
         self._added_stream_ids: set[str] = set()
 
     def parse_benchmark_config(self, scenario_config: Dict, global_config: Dict) -> Dict[str, Any]:
@@ -359,6 +382,20 @@ class LiveStreamsBenchmark(BenchmarkBase):
             self._stream_dropped_chunks.clear()
             self._stream_missing_latency_events.clear()
 
+    def _get_response_error_count(self, active_stream_ids: List[str]) -> int:
+        with self._stream_integrity_lock:
+            return sum(
+                self._stream_response_errors.get(stream_id, 0)
+                for stream_id in active_stream_ids
+            )
+
+    @staticmethod
+    def _response_has_error(result: Dict[str, Any]) -> bool:
+        return bool(result.get("error")) or any(
+            isinstance(chunk, dict) and bool(chunk.get("error"))
+            for chunk in result.get("chunk_responses") or []
+        )
+
     def _get_missing_latency_count(self, active_stream_ids: List[str]) -> int:
         with self._stream_integrity_lock:
             return sum(
@@ -369,6 +406,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
     def _record_result_latency(
         self, stream_id: str, result: Dict[str, Any], source: str, strict_source: bool
     ) -> None:
+        if self._response_has_error(result):
+            return
         latency, actual_source = self._extract_live_stream_latency_seconds(
             result, source, strict_source=strict_source
         )
@@ -409,14 +448,24 @@ class LiveStreamsBenchmark(BenchmarkBase):
             if previous_chunk_id is None or current_chunk_id > previous_chunk_id:
                 self._stream_last_chunk_ids[stream_id] = current_chunk_id
 
-    def _record_response_chunks(self, stream_id: str, result: Dict[str, Any]) -> None:
-        """Record chunk IDs from generate_captions and chat-completions stream events."""
+    def _record_response_chunks(self, stream_id: str, result: Dict[str, Any]) -> bool:
+        """Track continuity and explicit errors; error responses can retain contiguous IDs."""
         for chunk_response in result.get("chunk_responses") or []:
             if isinstance(chunk_response, dict):
                 self._record_stream_chunk(stream_id, chunk_response.get("chunk_id"))
 
         if "chunk_id" in result:
             self._record_stream_chunk(stream_id, result.get("chunk_id"))
+        if self._response_has_error(result):
+            with self._stream_integrity_lock:
+                self._stream_response_errors[stream_id] = (
+                    self._stream_response_errors.get(stream_id, 0) + 1
+                )
+            self.logger.warning(
+                "Stream %s received a failed response; excluding it from measurements", stream_id
+            )
+            return False
+        return True
 
     def _get_stream_drop_counts(self) -> Dict[str, int]:
         """Return cumulative dropped chunk counts per stream."""
@@ -676,9 +725,21 @@ class LiveStreamsBenchmark(BenchmarkBase):
         """Execute live streams test case - gradually increase streams until degradation"""
         self.logger.info(f"Starting max live streams test: {test_case_id}")
 
-        initial_stream_count = video_config.get("initial_stream_count", 5)
-        if initial_stream_count <= 0:
-            raise ValueError(f"initial_stream_count must be > 0, got {initial_stream_count!r}")
+        initial_stream_count = _positive_search_int(video_config, "initial_stream_count", 5)
+        max_stream_count = _positive_search_int(video_config, "max_stream_count", 300)
+        if initial_stream_count > max_stream_count:
+            raise ValueError("initial_stream_count must not exceed max_stream_count")
+        _positive_search_int(video_config, "add_stream_count", 1)
+        extension_cap = _positive_search_int(
+            video_config, "binary_search_linear_extension_cap", max_stream_count
+        )
+        if extension_cap > max_stream_count:
+            raise ValueError("binary_search_linear_extension_cap must not exceed max_stream_count")
+        required_stable_windows = _positive_search_int(video_config, "required_stable_windows", 3)
+        required_unstable_windows = _positive_search_int(video_config, "required_unstable_windows", 2)
+        unstable_window_size, max_windows_per_level = _search_window_limits(
+            video_config, required_stable_windows, required_unstable_windows
+        )
         plateau_counts = video_config.get("latency_plateau_counts", [])
         if (
             not isinstance(plateau_counts, list)
@@ -710,7 +771,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
         os.makedirs(test_case_dir, exist_ok=True)
 
         # Configure connection pool for max live streams
-        self._configure_http_session(300)
+        self._configure_http_session(max_stream_count + 8)  # Leave room for control requests.
 
         # Start GPU monitoring
         self.start_gpu_monitoring()
@@ -723,6 +784,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
         self.stream_add_latencies.clear()
         self.latency_snapshots.clear()
         self._reset_stream_integrity_tracking()
+        with self._stream_integrity_lock:
+            self._stream_response_errors.clear()
 
         # Captured after the active stream count is reached so decode deltas
         # exclude stream-add ramp time where possible.
@@ -742,13 +805,16 @@ class LiveStreamsBenchmark(BenchmarkBase):
         stream_add_failure_stream_count = 0
         skipped_rtsp_sources: List[Dict[str, Any]] = []
         latency_plateaus: List[Dict[str, Any]] = []
+        search_stop_reason = "interrupted"
+        unresolved_stream_count = None
+        self._search_inconclusive_count = None
         # Snapshot latency stats every this many streams
         latency_snapshot_interval = video_config.get("latency_snapshot_interval", 20)
 
         try:
             self.logger.info(f"Starting with {initial_stream_count} initial streams...")
 
-            executor = ThreadPoolExecutor(max_workers=300)
+            executor = ThreadPoolExecutor(max_workers=max_stream_count)
 
             # Start initial streams, spread over one chunk window at steady state rate so VLM requests
             # arrive uniformly at (chunk_size / initial_stream_count) req/sec.
@@ -815,8 +881,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
             # Consecutive window counters for robust stability detection
             consecutive_stable_windows = 0
             consecutive_unstable_windows = 0
-            required_stable_windows = video_config.get("required_stable_windows", 3)
-            required_unstable_windows = video_config.get("required_unstable_windows", 2)
+            unstable_window = deque(maxlen=unstable_window_size or 1)
+            level_windows = 0
             min_stable_stream_coverage = float(video_config.get("min_stable_stream_coverage", 0.9))
             min_fresh_measurements = int(video_config.get("min_fresh_measurements_per_stream", 1))
             require_no_dropped_chunks = self._as_bool(
@@ -838,6 +904,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
             # BCD max-streams requires no dropped chunks, so a drop in any stability
             # window must remain visible until we either add streams or end the probe.
             window_drop_baseline = self._get_stream_drop_counts()
+            window_error_baseline = self._get_response_error_count(active_stream_ids)
             freshness_wait_started_at = None
 
             # Track recent moving average history for ratio-based instability detection
@@ -867,7 +934,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                 f"latency growth instability check: "
                 f"{'enabled' if latency_growth_instability_enabled else 'disabled'}"
             )
-            while not degradation_detected and not interrupted and current_stream_count < 300:
+            while not degradation_detected and not interrupted:
                 try:
                     current_time = time.time()
                     if current_time - last_check_time >= stability_check_interval:
@@ -927,6 +994,16 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                 f"streams: {stream_drops['total_dropped_chunks']} chunk(s) across "
                                 f"{stream_drops['streams_with_drops']} stream(s)"
                             )
+                        response_errors = (
+                            self._get_response_error_count(active_stream_ids) - window_error_baseline
+                        )
+                        if response_errors:
+                            is_stable = False
+                            freshness_pending = False
+                            self.logger.warning(
+                                "Response errors at %s streams: %s",
+                                current_stream_count, response_errors,
+                            )
 
                         # Track moving average history for ratio-based instability detection
                         if latency_growth_instability_enabled:
@@ -974,6 +1051,16 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                 f"Unstable ({consecutive_unstable_windows}/"
                                 f"{required_unstable_windows})"
                             )
+                        level_windows += 1
+                        if freshness_pending:
+                            unstable_window.clear()
+                        else:
+                            unstable_window.append(not is_stable)
+                        rolling_unstable = (
+                            unstable_window_size > 0
+                            and len(unstable_window) == unstable_window_size
+                            and sum(unstable_window) >= required_unstable_windows
+                        )
 
                         gpu_usage, nvdec_usage, gpu_metric_source = (
                             self._get_current_gpu_monitor_usage()
@@ -989,6 +1076,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                             f"Fresh streams: {fresh_streams}/{active_streams} "
                             f"({fresh_coverage:.1%}), "
                             f"Dropped chunks: {stream_drops['total_dropped_chunks']}, "
+                            f"Response errors: {response_errors}, "
                             f"GPU latest % ({gpu_metric_source}): {gpu_usage_str}, "
                             f"NVDEC latest % ({gpu_metric_source}): {nvdec_usage_str}, "
                             f"Status: {stability_status}"
@@ -1016,6 +1104,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                 "p95_latency": recent_p95,
                                 "max_latency": recent_max_latency,
                                 "dropped_chunks": stream_drops["total_dropped_chunks"],
+                                "response_errors": response_errors,
                                 "gpu_usage_pct": gpu_usage,
                                 "nvdec_usage_pct": nvdec_usage,
                                 "gpu_metric_source": gpu_metric_source,
@@ -1028,7 +1117,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                 f"moving_avg={moving_average_latency:.2f}s"
                             )
 
-                        if (
+                        if rolling_unstable or (
                             not is_stable
                             and consecutive_unstable_windows >= required_unstable_windows
                         ):
@@ -1042,6 +1131,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                     latency_threshold,
                                     plateau_all_windows_fresh,
                                     self._get_missing_latency_count(active_stream_ids),
+                                    response_errors=response_errors,
                                 )
                                 plateau["valid"] = False
                                 plateau["invalid_reasons"].append("unstable_load")
@@ -1055,12 +1145,15 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                 else ""
                             )
                             self.logger.info(
-                                f"System degradation confirmed after {consecutive_unstable_windows} "
-                                f"consecutive unstable windows with {current_stream_count} streams. "
+                                f"System degradation with {current_stream_count} streams: "
+                                f"{consecutive_unstable_windows} consecutive unstable windows, "
+                                f"rolling failures {sum(unstable_window)}/{len(unstable_window)} "
+                                f"(rolling rule {'enabled' if unstable_window_size else 'disabled'}). "
                                 f"Recent P95 latency: {recent_p95:.2f}s {threshold_msg}"
                             )
                             first_unstable_stream_count = len(active_stream_ids)
                             degradation_detected = True
+                            search_stop_reason = "degradation"
                             current_stream_count = last_stable_stream_count
                             self.stop_recording_gpu_usage()
                             break
@@ -1086,6 +1179,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                     latency_threshold,
                                     plateau_all_windows_fresh,
                                     self._get_missing_latency_count(active_stream_ids),
+                                    response_errors=response_errors,
                                 )
                                 plateau["started_at_epoch_seconds"] = plateau_started_at
                                 plateau["ended_at_epoch_seconds"] = current_time
@@ -1115,6 +1209,9 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                 **self.get_current_prometheus_collector_stats(),
                                 **self.get_pipeline_stage_stats(),
                             }
+                            if current_stream_count == max_stream_count:
+                                search_stop_reason = "max_stream_count"
+                                break
 
                             # Reset profiling collectors so final GPU/CPU stats reflect
                             # only this stable window, not the full ramp-up history
@@ -1127,8 +1224,9 @@ class LiveStreamsBenchmark(BenchmarkBase):
                             # Add more streams, spread over one chunk window so the
                             # new streams join uniformly at the target request rate.
                             add_stream_count = video_config.get("add_stream_count", 1)
-                            target_count = next_ramp_target(
-                                current_stream_count, add_stream_count, plateau_counts
+                            target_count = min(
+                                max_stream_count,
+                                next_ramp_target(current_stream_count, add_stream_count, plateau_counts),
                             )
                             add_stream_count = target_count - current_stream_count
                             inter_stream_delay = 1 + (chunk_size / target_count)
@@ -1187,6 +1285,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                     self.stop_recording_gpu_usage()
                                 if have_error:
                                     degradation_detected = True
+                                    search_stop_reason = "stream_add_failure"
                                     current_stream_count = last_stable_stream_count
                                     break
                             if degradation_detected:
@@ -1202,17 +1301,31 @@ class LiveStreamsBenchmark(BenchmarkBase):
                             self.reset_cpu_monitoring()
                             self.reset_pipeline_stage_samples()
                             plateau_started_at = time.time()
+                            unstable_window.clear()
+                            level_windows = 0
                             plateau_all_windows_fresh = True
                             window_measurement_baseline = (
                                 self.latency_tracker.get_stream_measurement_counts()
                             )
                             window_drop_baseline = self._get_stream_drop_counts()
+                            window_error_baseline = self._get_response_error_count(active_stream_ids)
                         elif freshness_pending:
                             # Keep the baseline while waiting so late responses can accumulate
                             # toward the fresh-coverage threshold instead of being discarded.
                             pass
                         else:
                             window_measurement_baseline = current_measurement_counts
+
+                        if level_windows >= max_windows_per_level:
+                            search_stop_reason = "inconclusive_level"
+                            unresolved_stream_count = len(active_stream_ids)
+                            current_stream_count = last_stable_stream_count
+                            self.logger.warning(
+                                "No stability decision at %s streams after %s checks; "
+                                "retaining last confirmed stable count %s, not a capacity ceiling",
+                                unresolved_stream_count, level_windows, last_stable_stream_count,
+                            )
+                            break
 
                         last_check_time = current_time
                     else:
@@ -1264,6 +1377,11 @@ class LiveStreamsBenchmark(BenchmarkBase):
                     probe_cooldown=probe_cooldown,
                 )
                 last_stable_stream_count = current_stream_count
+                if self._search_inconclusive_count is not None:
+                    search_stop_reason = "inconclusive_level"
+                    unresolved_stream_count = self._search_inconclusive_count
+                elif phase2_unstable_ceiling is None and current_stream_count == extension_cap:
+                    search_stop_reason = "max_stream_count"
                 # Update last_stable_* with Phase 2's final stable measurements.
                 # Critical when Phase 1 degraded immediately (last_stable_* = 0) — Phase 2
                 # found a valid stable count but the latency stats were never recorded.
@@ -1376,11 +1494,17 @@ class LiveStreamsBenchmark(BenchmarkBase):
         gpu_metrics = self.process_gpu_stats(gpu_stats_file)
 
         # Calculate max sustainable streams
+        if interrupted:
+            search_stop_reason = "interrupted"
+            unresolved_stream_count = len(active_stream_ids)
+            current_stream_count = last_stable_stream_count
         max_sustainable = current_stream_count
 
         latency_history = self.latency_tracker.get_all_latencies()
         stream_drop_counts = self._get_stream_drop_counts()
         total_dropped_chunks = sum(stream_drop_counts.values())
+        with self._stream_integrity_lock:
+            stream_response_errors = dict(self._stream_response_errors)
 
         # Compute average decode latency from /metrics deltas
         start_count = start_metrics.get("decode_latency_seconds_count") if start_metrics else None
@@ -1419,7 +1543,12 @@ class LiveStreamsBenchmark(BenchmarkBase):
                 len(latency_plateaus) == len(plateau_counts)
                 and all(plateau["valid"] for plateau in latency_plateaus)
             )
-        capacity_success = max_sustainable > 0
+        capacity_censored = search_stop_reason in {
+            "max_stream_count", "inconclusive_level", "interrupted"
+        }
+        capacity_success = max_sustainable > 0 and search_stop_reason not in {
+            "inconclusive_level", "interrupted"
+        }
         results = {
             "test_case_id": test_case_id,
             "benchmark_mode": "max_live_streams",
@@ -1428,6 +1557,14 @@ class LiveStreamsBenchmark(BenchmarkBase):
             "chunk_size": chunk_size,
             "initial_stream_count": initial_stream_count,
             "max_sustainable_streams": max_sustainable,
+            "search_stop_reason": search_stop_reason,
+            "max_stream_count": max_stream_count,
+            "capacity_censored": capacity_censored,
+            "unresolved_stream_count": unresolved_stream_count,
+            "unstable_window_size": unstable_window_size,
+            "required_unstable_windows": required_unstable_windows,
+            "required_stable_windows": required_stable_windows,
+            "max_windows_per_level": max_windows_per_level,
             "degradation_detected": degradation_detected,
             "stream_add_failure": stream_add_failure,
             "stream_add_failure_stream_count": stream_add_failure_stream_count,
@@ -1474,6 +1611,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
             "phase2_unstable_ceiling": phase2_unstable_ceiling,
             "total_dropped_chunks": total_dropped_chunks,
             "stream_dropped_chunks": stream_drop_counts,
+            "total_response_errors": sum(stream_response_errors.values()),
+            "stream_response_errors": stream_response_errors,
         }
 
         # Save results
@@ -1734,6 +1873,12 @@ class LiveStreamsBenchmark(BenchmarkBase):
     ) -> bool:
         """Run the Phase 2 stability loop for one stream-count probe."""
         bs_required_unstable = max(required_unstable_windows, 3)
+        unstable_window_size, max_windows_per_level = _search_window_limits(
+            video_config, required_stable_windows, required_unstable_windows
+        )
+        unstable_window = deque(maxlen=unstable_window_size or 1)
+        level_windows = 0
+        self._search_inconclusive_count = None
         consecutive_stable = 0
         consecutive_unstable = 0
         last_check = time.time()
@@ -1753,6 +1898,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
         # Latch dropped chunks for the whole Phase 2 probe. A probe that drops any
         # chunk during validation is not BCD-stable even if later windows recover.
         window_drop_baseline = self._get_stream_drop_counts()
+        window_error_baseline = self._get_response_error_count(active_stream_ids)
         freshness_wait_started_at = None
         timeout = fresh_latency_timeout + (
             stability_check_interval * (required_stable_windows + bs_required_unstable + 1)
@@ -1806,6 +1952,15 @@ class LiveStreamsBenchmark(BenchmarkBase):
                     f"{stream_drops['total_dropped_chunks']} chunk(s) across "
                     f"{stream_drops['streams_with_drops']} stream(s)"
                 )
+            response_errors = (
+                self._get_response_error_count(active_stream_ids) - window_error_baseline
+            )
+            if response_errors:
+                is_stable = False
+                freshness_pending = False
+                self.logger.warning(
+                    "[%s %s] Response errors: %s", probe_label, stream_count, response_errors
+                )
 
             if freshness_pending:
                 consecutive_stable = 0
@@ -1822,6 +1977,11 @@ class LiveStreamsBenchmark(BenchmarkBase):
                 consecutive_unstable += 1
                 consecutive_stable = 0
                 stability_status = f"Unstable ({consecutive_unstable}/{bs_required_unstable})"
+            level_windows += 1
+            if freshness_pending:
+                unstable_window.clear()
+            else:
+                unstable_window.append(not is_stable)
 
             gpu_usage, nvdec_usage, gpu_metric_source = self._get_current_gpu_monitor_usage()
             gpu_usage_str = "N/A" if gpu_usage is None else f"{gpu_usage:.2f}"
@@ -1834,6 +1994,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                 f"p95: {recent_p95:.2f}s, "
                 f"fresh: {fresh_streams}/{active_streams} ({fresh_coverage:.1%}), "
                 f"dropped_chunks: {stream_drops['total_dropped_chunks']}, "
+                f"response_errors: {response_errors}, "
                 f"GPU latest ({gpu_metric_source}): {gpu_usage_str}%, "
                 f"NVDEC latest ({gpu_metric_source}): {nvdec_usage_str}%, "
                 f"status: {stability_status}"
@@ -1850,15 +2011,22 @@ class LiveStreamsBenchmark(BenchmarkBase):
 
             if consecutive_stable >= required_stable_windows:
                 return True
-            if consecutive_unstable >= bs_required_unstable:
+            if consecutive_unstable >= bs_required_unstable or (
+                unstable_window_size > 0
+                and len(unstable_window) == unstable_window_size
+                and sum(unstable_window) >= required_unstable_windows
+            ):
                 return False
+            if level_windows >= max_windows_per_level:
+                break
             if not freshness_pending:
                 window_measurement_baseline = current_measurement_counts
             last_check = time.time()
 
         self.logger.warning(
-            f"  Timeout at {stream_count} streams after {timeout:.0f}s; treating as unstable"
+            f"  No stability decision at {stream_count} streams; probe is inconclusive"
         )
+        self._search_inconclusive_count = stream_count
         return False
 
     def _capture_stable_probe_latency_stats(
@@ -1990,6 +2158,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
                 video_config=video_config,
             )
 
+            if getattr(self, "_search_inconclusive_count", None) == mid:
+                return low, final_stable_latency_stats, None
             if is_stable_at_mid:
                 self.logger.info(f"  {mid} streams: STABLE → low={mid}")
                 low = mid
@@ -2008,6 +2178,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                     video_config.get("max_stream_count", 300),
                 )
             )
+            linear_cap = min(linear_cap, _positive_search_int(video_config, "max_stream_count", 300))
             probe_count = max(high, low + 1)
             reached_cap_without_instability = False
             while probe_count <= linear_cap:
@@ -2043,6 +2214,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
                     active_stream_ids=active_stream_ids,
                     video_config=video_config,
                 )
+                if getattr(self, "_search_inconclusive_count", None) == probe_count:
+                    return low, final_stable_latency_stats, None
                 if is_stable_at_probe:
                     self.logger.info(f"  {probe_count} streams: STABLE → low={probe_count}")
                     low = probe_count
@@ -2241,7 +2414,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
 
                     self.logger.debug(f"Stream {stream_num} parsed JSON event successfully")
 
-                    self._record_response_chunks(stream_id, result)
+                    if not self._record_response_chunks(stream_id, result):
+                        continue
                     self.record_pipeline_stage_samples(result)
 
                     if backend_type == "rtvi_embed":
@@ -2358,11 +2532,16 @@ class LiveStreamsBenchmark(BenchmarkBase):
                     "chunk_size": stream_results.get("chunk_size", 0),
                     "max_sustainable_streams": stream_results.get("max_sustainable_streams", 0),
                     "capacity_success": stream_results.get("capacity_success"),
+                    "search_stop_reason": stream_results.get("search_stop_reason"),
+                    "capacity_censored": stream_results.get("capacity_censored"),
+                    "max_stream_count": stream_results.get("max_stream_count"),
+                    "unresolved_stream_count": stream_results.get("unresolved_stream_count"),
                     "fixed_load_latency_complete": stream_results.get(
                         "fixed_load_latency_complete"
                     ),
                     "latency_threshold_seconds": stream_results.get("latency_threshold_seconds", 0),
                     "total_streams_tested": stream_results.get("total_streams_tested", 0),
+                    "total_response_errors": stream_results.get("total_response_errors"),
                     "decode_latency": stream_results.get("decode_latency_seconds_avg", 0),
                     "avg_latency": stream_results.get("last_stable_moving_average_latency", 0),
                     "p50_latency": stream_results.get("last_stable_p50", 0),
