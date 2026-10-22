@@ -23,6 +23,7 @@ import time
 import traceback
 from threading import Thread
 from typing import Optional
+from uuid import uuid4
 
 import torch
 from grpc._channel import _MultiThreadedRendezvous
@@ -155,6 +156,7 @@ class ProcessBase(mp_ctx.Process):
         super().__init__()
         self._cmd_queue = mp_ctx.Queue()
         self._cmd_response_queue = mp_ctx.Queue()
+        self._command_lock = mp_ctx.Lock()
         self._queue = input_queue if input_queue else mp_ctx.Queue(maxsize=qsize)
         self._qlock = input_queue_lock if input_queue_lock else mp_ctx.Lock()
         self._batch_size = batch_size
@@ -217,9 +219,44 @@ class ProcessBase(mp_ctx.Process):
         self._stop.set()
         self.join()
 
-    def set_output_queue(self, queue: multiprocessing.Queue):
+    def set_output_queue(self, queue: multiprocessing.Queue, queue_lock=None):
         """Set the output queue for the process"""
         self._output_queue = queue
+        self._output_queue_lock = queue_lock
+
+    def _put_queue_item(self, target, queue_lock, item, block=True, timeout=None):
+        """Never hold a queue lock while waiting for capacity.
+
+        Queue compaction and producers share the lock so cancellation can restore
+        healthy queued items without another producer taking their slots.
+        """
+        if queue_lock is None:
+            if not block:
+                return target.put_nowait(item)
+            return target.put(item, timeout=timeout) if timeout is not None else target.put(item)
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        while True:
+            with queue_lock:
+                if self._request_is_cancelled(item.get("request_id")):
+                    self._finish_cancelled_chunk(item)
+                    return
+                try:
+                    return target.put_nowait(item)
+                except queue.Full:
+                    if not block:
+                        raise
+            if deadline is not None and time.monotonic() >= deadline:
+                raise queue.Full
+            time.sleep(0.001)
+
+    def _put_output_item(self, item, block=True, timeout=None):
+        return self._put_queue_item(
+            self._output_queue,
+            getattr(self, "_output_queue_lock", None),
+            item,
+            block=block,
+            timeout=timeout,
+        )
 
     def set_final_output_queue(self, queue: multiprocessing.Queue):
         """Set the final output queue for the process (for handling errors)"""
@@ -237,9 +274,84 @@ class ProcessBase(mp_ctx.Process):
     def input_queue_lock(self):
         return self._qlock
 
-    def send_command(self, command: str, **args):
-        self._cmd_queue.put({"command": command, **args})
-        return self._cmd_response_queue.get()
+    def send_command(self, command: str, response_timeout_sec=None, **args):
+        """Serialize control RPCs and ignore replies from callers that timed out."""
+        deadline = (
+            time.monotonic() + response_timeout_sec
+            if response_timeout_sec is not None
+            else None
+        )
+        def remaining():
+            return max(0.0, deadline - time.monotonic()) if deadline is not None else None
+
+        if not self._command_lock.acquire(timeout=remaining()):
+            raise TimeoutError(f"Timed out waiting to send worker command {command}")
+        try:
+            command_id = uuid4().hex
+            self._cmd_queue.put({"command": command, "_command_id": command_id, **args})
+            while True:
+                try:
+                    response = self._cmd_response_queue.get(timeout=remaining())
+                except queue.Empty as ex:
+                    raise TimeoutError(f"Timed out waiting for worker command {command}") from ex
+                if response.get("command_id") != command_id:
+                    continue
+                if response.get("error"):
+                    raise RuntimeError(response["error"])
+                return response.get("result")
+        finally:
+            self._command_lock.release()
+
+    def _request_is_cancelled(self, request_id):
+        return bool(request_id) and request_id in getattr(self, "_cancelled_request_ids", ())
+
+    def _finish_cancelled_chunk(self, item):
+        """Return ownership only; never forward frames or stale model output."""
+        self._final_output_queue.put(
+            {
+                **{
+                    key: item[key]
+                    for key in ("chunk", "chunk_id", "request_id", "is_live_stream")
+                    if key in item
+                },
+                "cancelled": True,
+            }
+        )
+
+    def _filter_cancelled_items(self, items):
+        active = []
+        for item in items:
+            if self._request_is_cancelled(item.get("request_id")):
+                self._finish_cancelled_chunk(item)
+            else:
+                active.append(item)
+        return active
+
+    def _discard_queued_request(self, request_id, timeout_sec):
+        """Cancel queued work even while an unrelated request occupies the model."""
+        retained, cancelled = [], []
+        deadline = time.monotonic() + timeout_sec
+        try:
+            with self._qlock:
+                try:
+                    for _ in range(self._queue.qsize()):
+                        item = self._queue.get(timeout=max(0.0, deadline - time.monotonic()))
+                        if item.get("request_id") == request_id:
+                            cancelled.append(item)
+                        else:
+                            retained.append(item)
+                finally:
+                    for item in retained:
+                        self._queue.put_nowait(item)
+        finally:
+            for item in cancelled:
+                self._finish_cancelled_chunk(item)
+
+    def _abort_request(self, request_id, timeout_sec):
+        """Subclasses may abort active work; queued/results are masked by the base."""
+
+    def _release_request_tracking(self, request_id):
+        """Subclasses may release model cancellation markers after producer drain."""
 
     def _is_busy(self):
         return False
@@ -264,9 +376,11 @@ class ProcessBase(mp_ctx.Process):
 
     def _handle_result(self, result, **kwargs):
         num_items = len(kwargs["chunk"]) if self._supports_batching() else 1
+        cancelled = False
 
         if isinstance(result, concurrent.futures.Future):
             if result.cancelled():
+                cancelled = True
                 result = {}
             elif result.exception():
                 result = result.exception()
@@ -274,6 +388,7 @@ class ProcessBase(mp_ctx.Process):
                 result = result.result()
 
         if isinstance(result, concurrent.futures.CancelledError):
+            cancelled = True
             result = {}
         elif isinstance(result, BaseException):
             logger.error("".join(traceback.format_exception(result)))
@@ -325,6 +440,9 @@ class ProcessBase(mp_ctx.Process):
                         return v
 
                 ret_item = {k: _get_item_value(v) for k, v in result.items()}
+                if cancelled or self._request_is_cancelled(ret_item.get("request_id")):
+                    self._finish_cancelled_chunk(ret_item)
+                    continue
                 try:
                     if "frames" in ret_item:
                         ret_item["frames"] = _move_cuda_frames_to_cpu(ret_item["frames"])
@@ -374,7 +492,7 @@ class ProcessBase(mp_ctx.Process):
                             # baseline's global 128-request capacity. Only its
                             # on-device window is bounded above; host-spilled
                             # chunks can continue filling that global queue.
-                        self._output_queue.put(ret_item)
+                        self._put_output_item(ret_item)
         elif isinstance(result, dict):
             # Empty dict returned by process method, send the chunk to final output queue
             for idx in range(num_items):
@@ -393,7 +511,10 @@ class ProcessBase(mp_ctx.Process):
                         ret_item[key] = (
                             kwargs[key][idx] if self._supports_batching() else kwargs[key]
                         )
-                self._final_output_queue.put(ret_item)
+                if cancelled or self._request_is_cancelled(ret_item.get("request_id")):
+                    self._finish_cancelled_chunk(ret_item)
+                else:
+                    self._final_output_queue.put(ret_item)
         _safe_cuda_empty_cache()
         # Force Garbage Collect
         if os.environ.get("FORCE_PYTHON_GC"):
@@ -402,6 +523,12 @@ class ProcessBase(mp_ctx.Process):
 
     def __process_int(self, **kwargs):
         """Process the next batch of inputs"""
+        request_ids = kwargs.get("request_id", [])
+        if not isinstance(request_ids, list):
+            request_ids = [request_ids]
+        if request_ids and all(self._request_is_cancelled(rid) for rid in request_ids):
+            self._handle_result({}, **kwargs)
+            return
         try:
             # Call the actual process method implemented by subclasses.
             result = self._process(**kwargs)
@@ -455,17 +582,37 @@ class ProcessBase(mp_ctx.Process):
             except queue.Empty:
                 continue
             command = cmd.pop("command")
+            command_id = cmd.pop("_command_id", None)
             ret = None
-            if command == "drop-chunks":
-                # File requests sharing an asset each own a mask; live-delete retries do not.
-                if not cmd.get("idempotent") or cmd["stream_id"] not in self._drop_chunks_stream_list:
-                    self._drop_chunks_stream_list.append(cmd["stream_id"])
-            elif command == "stop-drop-chunks":
-                if cmd["stream_id"] in self._drop_chunks_stream_list:
-                    self._drop_chunks_stream_list.remove(cmd["stream_id"])
-            else:
-                ret = self._handle_command(command, **cmd)
-            self._cmd_response_queue.put(ret)
+            error = None
+            try:
+                if command == "drop-chunks":
+                    # File requests sharing an asset each own a mask; live-delete retries do not.
+                    if not cmd.get("idempotent") or cmd["stream_id"] not in self._drop_chunks_stream_list:
+                        self._drop_chunks_stream_list.append(cmd["stream_id"])
+                elif command == "stop-drop-chunks":
+                    if cmd["stream_id"] in self._drop_chunks_stream_list:
+                        self._drop_chunks_stream_list.remove(cmd["stream_id"])
+                elif command == "abort-request":
+                    self._cancelled_request_ids.add(cmd["request_id"])
+                    deadline = time.monotonic() + cmd["timeout_sec"]
+                    ret = self._abort_request(cmd["request_id"], cmd["timeout_sec"])
+                    self._discard_queued_request(
+                        cmd["request_id"], max(0.0, deadline - time.monotonic())
+                    )
+                elif command == "release-request-cancellation":
+                    self._release_request_tracking(cmd["request_id"])
+                    self._cancelled_request_ids.discard(cmd["request_id"])
+                else:
+                    ret = self._handle_command(command, **cmd)
+            except Exception as ex:
+                logger.exception("Worker command %s failed", command)
+                error = f"{type(ex).__name__}: {ex}"
+            self._cmd_response_queue.put(
+                {"command_id": command_id, "result": ret, "error": error}
+                if command_id is not None
+                else ret
+            )
 
     def run(self) -> None:
         """Process execution method"""
@@ -493,6 +640,7 @@ class ProcessBase(mp_ctx.Process):
             self._init_done_event.set()
 
         self._drop_chunks_stream_list = []
+        self._cancelled_request_ids = set()
         self._cmd_handler_thread = Thread(target=self._cmd_handler_thread_func)
         self._cmd_handler_thread.start()
 
@@ -518,6 +666,7 @@ class ProcessBase(mp_ctx.Process):
 
         # Run while not signalled to stop
         while not self._stop.is_set():
+            items = self._filter_cancelled_items(items)
             if not self._disabled and self._is_busy():
                 time.sleep(0.001)
                 continue
@@ -548,6 +697,9 @@ class ProcessBase(mp_ctx.Process):
 
                 for _ in range(min(self._batch_size - len(items), qsize)):
                     item = self._queue.get()
+                    if self._request_is_cancelled(item.get("request_id")):
+                        self._finish_cancelled_chunk(item)
+                        continue
                     if "chunk" in item and item["chunk"].streamId in self._drop_chunks_stream_list:
                         self._final_output_queue.put(
                             {k: v for k, v in item.items() if not isinstance(v, torch.Tensor)}
@@ -560,6 +712,7 @@ class ProcessBase(mp_ctx.Process):
                         remaining_cached_items.append(item)
                         break
 
+            items = self._filter_cancelled_items(items)
             if items:
                 if self._supports_batching():
                     cached_items = {}
@@ -593,7 +746,7 @@ class ProcessBase(mp_ctx.Process):
             **kwargs: Additional arguments to pass for processing
         """
         kwargs["chunk"] = chunk
-        self._queue.put(kwargs)
+        self._put_queue_item(self._queue, self._qlock, kwargs)
 
     def push_item(self, **kwargs):
-        self._queue.put(kwargs)
+        self._put_queue_item(self._queue, self._qlock, kwargs)

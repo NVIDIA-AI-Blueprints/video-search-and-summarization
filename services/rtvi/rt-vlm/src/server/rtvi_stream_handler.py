@@ -25,7 +25,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum, auto
-from threading import Event, RLock, Thread
+from threading import Event, Lock, RLock, Thread
 from typing import Any, Callable, MutableMapping, Optional
 
 import cuda.bindings.runtime
@@ -67,6 +67,12 @@ from vlm_pipeline.errors import is_cuda_oom_error  # isort:skip
 REASONING_INFO_KEY = "reasoning"
 REASONING_DESCRIPTION_INFO_KEY = "reasoningDescription"
 DEFAULT_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB = 1024
+
+
+def _completed_event() -> Event:
+    event = Event()
+    event.set()
+    return event
 
 
 def _add_reasoning_to_info(info: MutableMapping[str, str], reasoning: str) -> None:
@@ -176,6 +182,7 @@ class RequestInfo:
         PROCESSING = auto()
         SUCCESSFUL = auto()
         FAILED = auto()
+        CANCELLED = auto()
 
     # Request identification
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -210,6 +217,15 @@ class RequestInfo:
     assets: list[Asset] | None = None
     status: "RequestInfo.Status" = field(default_factory=lambda: RequestInfo.Status.QUEUED)
     status_event: Event = field(default_factory=Event)
+    cancel_requested: Event = field(default_factory=Event, repr=False)
+    producer_done: Event = field(default_factory=_completed_event, repr=False)
+    dispatch_done: Event = field(default_factory=_completed_event, repr=False)
+    _dispatch_count: int = 0
+    resources_released: Event = field(default_factory=Event, repr=False)
+    _abort_lock: Any = field(default_factory=Lock, repr=False)
+    _file_finalized: bool = False
+    _file_finishing: bool = False
+    _cancel_cleanup_steps: set[str] = field(default_factory=set, repr=False)
     _live_stop_finalized: bool = False
     _live_active_accounted: bool = False
 
@@ -248,10 +264,14 @@ class RequestInfo:
         return self.assets[0].asset_id if self.assets else ""
 
     @property
+    def is_terminal(self) -> bool:
+        return self.status in (self.Status.SUCCESSFUL, self.Status.FAILED, self.Status.CANCELLED)
+
+    @property
     def progress(self) -> float:
         """Calculate progress as percentage of processed chunks."""
         # If request is completed or failed, return 100%
-        if self.status in (RequestInfo.Status.SUCCESSFUL, RequestInfo.Status.FAILED):
+        if self.is_terminal:
             return 100.0
         if self.is_live:
             return 0.0
@@ -1597,8 +1617,36 @@ class RTVIStreamHandler:
         req_info: RequestInfo,
         is_live_stream_ended: bool,
         chunk_responses: list[PipelineChunkResult],
+        *,
+        _claimed: bool = False,
     ):
+        if req_info.is_live:
+            return self._process_output_unchecked(req_info, is_live_stream_ended, chunk_responses)
+        if not _claimed:
+            with self._lock:
+                if (
+                    req_info.cancel_requested.is_set()
+                    or req_info._file_finalized
+                    or req_info._file_finishing
+                    or not req_info.producer_done.is_set()
+                ):
+                    return
+                req_info._file_finishing = True
+        try:
+            self._process_output_unchecked(req_info, is_live_stream_ended, chunk_responses)
+            with self._lock:
+                req_info._file_finalized = True
+            req_info.resources_released.set()
+        finally:
+            with self._lock:
+                req_info._file_finishing = False
 
+    def _process_output_unchecked(
+        self,
+        req_info: RequestInfo,
+        is_live_stream_ended: bool,
+        chunk_responses: list[PipelineChunkResult],
+    ):
         if req_info.assets and len(req_info.assets) > 0:
             saved_dc_file = req_info.assets[0].path + ".dc.json"
             should_write_dc = (
@@ -1648,12 +1696,9 @@ class RTVIStreamHandler:
                         logger.warning("Failed to end e2e OTEL span: %s", e)
 
         else:
-            request_files_cleaned_up = False
             if req_info.status == RequestInfo.Status.FAILED:
                 logger.info("Processing failed for video file request %s", req_info.request_id)
                 self.stop_request_profiling(req_info, chunk_responses)
-                self._cleanup_request_files(req_info)
-                request_files_cleaned_up = True
             else:
                 req_info.end_time = time.time()
                 self.stop_request_profiling(req_info, chunk_responses)
@@ -1680,17 +1725,7 @@ class RTVIStreamHandler:
                 except Exception as e:
                     logger.warning("Failed to end e2e OTEL span: %s", e)
 
-            # Unlock the asset and update metrics
-            if req_info.assets:
-                for asset in req_info.assets:
-                    asset.unlock()
-
-            if not req_info.text_query:
-                self._metrics._queries_processed_counter.add(1)
-                self._metrics._queries_pending_counter.add(-1)
-
-            if not request_files_cleaned_up:
-                self._cleanup_request_files(req_info)
+            self._release_file_request_resources(req_info)
             if req_info.status != RequestInfo.Status.FAILED:
                 req_info.status = RequestInfo.Status.SUCCESSFUL
             req_info.status_event.set()
@@ -2765,6 +2800,14 @@ class RTVIStreamHandler:
 
     def _on_vlm_chunk_response(self, chunk_result: PipelineChunkResult, req_info: RequestInfo):
         """Gather chunks processed by the pipeline and run any further post-processing"""
+        if req_info.cancel_requested.is_set() or getattr(chunk_result, "cancelled", False):
+            if chunk_result.chunk and not req_info.is_live:
+                with self._lock:
+                    cost = req_info.active_file_chunk_costs.pop(chunk_result.chunk.chunkIdx, 0.0)
+                    self._vlm_admission_active_cost = max(
+                        0.0, self._vlm_admission_active_cost - cost
+                    )
+            return
         if req_info.is_live and req_info.status != RequestInfo.Status.PROCESSING:
             logger.debug(
                 "Ignoring live-stream chunk for completed query %s",
@@ -3046,7 +3089,6 @@ class RTVIStreamHandler:
             self._process_output(req_info, False, [chunk_result])
 
             if chunk_result.is_live_stream_ended:
-
                 cur_time = time.time()
                 latency = cur_time - req_info.start_time
                 if latency is not None and latency > 0:
@@ -3084,7 +3126,20 @@ class RTVIStreamHandler:
         if req_info.query and req_info.query.stream and chunk_result.chunk:
             req_info.response.append(chunk_result)
 
-        if len(req_info.processed_chunk_list) == req_info.chunk_count:
+        self._maybe_complete_file_request(req_info)
+
+    def _maybe_complete_file_request(self, req_info: RequestInfo) -> None:
+        with self._lock:
+            if (
+                not req_info.producer_done.is_set()
+                or req_info.cancel_requested.is_set()
+                or req_info._file_finalized
+                or req_info._file_finishing
+                or len(req_info.processed_chunk_list) != req_info.chunk_count
+            ):
+                return
+            req_info._file_finishing = True
+        try:
             # All chunks of file processed
             Thread(
                 target=self._vlm_pipeline.close_evs_sessions,
@@ -3123,10 +3178,13 @@ class RTVIStreamHandler:
             if req_info.query and req_info.query.stream:
                 # Streaming: chunks already delivered individually; call with
                 # empty list so finalization (profiling, OTEL, status) still runs.
-                self._process_output(req_info, False, [])
+                self._process_output(req_info, False, [], _claimed=True)
             else:
                 # Non-streaming: deliver all chunks at once
-                self._process_output(req_info, False, req_info.processed_chunk_list)
+                self._process_output(req_info, False, req_info.processed_chunk_list, _claimed=True)
+        finally:
+            with self._lock:
+                req_info._file_finishing = False
 
     def _estimate_file_chunk_cost(self, req_info: RequestInfo, chunk: ChunkInfo) -> float:
         """Estimate decoded-frame pressure in 40-frame 640p equivalents."""
@@ -3186,6 +3244,7 @@ class RTVIStreamHandler:
             if (
                 req_info is None
                 or req_info.status != RequestInfo.Status.PROCESSING
+                or req_info.cancel_requested.is_set()
                 or not req_info.pending_file_chunks
             ):
                 rounds_remaining -= 1
@@ -3215,6 +3274,15 @@ class RTVIStreamHandler:
 
     def _submit_file_dispatches(self, dispatches) -> None:
         for req_info, chunk, video_codec, decode_only in dispatches:
+            with self._lock:
+                if req_info.cancel_requested.is_set():
+                    cost = req_info.active_file_chunk_costs.pop(chunk.chunkIdx, 0.0)
+                    self._vlm_admission_active_cost = max(
+                        0.0, self._vlm_admission_active_cost - cost
+                    )
+                    continue
+                req_info._dispatch_count += 1
+                req_info.dispatch_done.clear()
             try:
                 self._vlm_pipeline.enqueue_chunk(
                     chunk,
@@ -3238,6 +3306,11 @@ class RTVIStreamHandler:
                     ),
                     req_info,
                 )
+            finally:
+                with self._lock:
+                    req_info._dispatch_count -= 1
+                    if req_info._dispatch_count == 0:
+                        req_info.dispatch_done.set()
 
     def _dispatch_pending_file_chunks(self) -> None:
         if self._vlm_admission_mode == "off":
@@ -3322,7 +3395,10 @@ class RTVIStreamHandler:
         from utils.file_splitter import FileSplitter
 
         logger.info("Triggering oldest queued query %s", req_info.request_id)
-        req_info.status = RequestInfo.Status.PROCESSING
+        with self._lock:
+            if req_info.cancel_requested.is_set():
+                return
+            req_info.status = RequestInfo.Status.PROCESSING
         req_info.start_time = start_time if start_time else time.time()
 
         # Open vlm_testdata_file once for writing if profiling is enabled
@@ -3383,10 +3459,11 @@ class RTVIStreamHandler:
 
         def _on_new_chunk(chunk: ChunkInfo, saved_responses=None):
             """Callback for when a new chunk is created"""
-            if chunk is None:
-                return
-            chunk.streamId = req_info.stream_id
-            req_info.chunk_count += 1
+            with self._lock:
+                if chunk is None or req_info.cancel_requested.is_set():
+                    return
+                chunk.streamId = req_info.stream_id
+                req_info.chunk_count += 1
 
             saved_response = saved_responses.get(chunk.chunkIdx)
 
@@ -3412,6 +3489,8 @@ class RTVIStreamHandler:
                 else:
                     cost = self._estimate_file_chunk_cost(req_info, chunk)
                     with self._lock:
+                        if req_info.cancel_requested.is_set():
+                            return
                         req_info.pending_file_chunks.append((chunk, video_codec, decode_only, cost))
                         if req_info.request_id not in self._vlm_admission_ready_request_ids:
                             self._vlm_admission_ready_requests.append(req_info.request_id)
@@ -3433,8 +3512,7 @@ class RTVIStreamHandler:
         ).split()
         nvtx.end_range(nvtx_file_split_start)
         # No chunks were created. Mark the request completed and trigger next query if queued
-        if req_info.chunk_count == 0:
-            req_info.status = RequestInfo.Status.SUCCESSFUL
+        if req_info.chunk_count == 0 and not req_info.cancel_requested.is_set():
             req_info.end_time = time.time()
             req_info.response = []
             self._finalize_stream_fps_tracking(req_info)
@@ -3484,7 +3562,7 @@ class RTVIStreamHandler:
                 asset.unlock()
             return (
                 False,
-                f"File duration {round(file_duration/60000000000, 2)} is greater"
+                f"File duration {round(file_duration / 60000000000, 2)} is greater"
                 f" than max allowed {self._args.max_file_duration} minutes",
                 None,
             )
@@ -3537,62 +3615,29 @@ class RTVIStreamHandler:
             req_info._e2e_span.set_attribute("stream_id", req_info.stream_id)
             req_info._e2e_span.set_attribute("is_live", req_info.is_live)
 
+        req_info.producer_done.clear()
         try:
             self._trigger_query(req_info, None)
         except Exception as ex:
-            with self._lock:
-                self._request_info_map.pop(req_info.request_id, None)
-                req_info.pending_file_chunks.clear()
-                self._vlm_admission_ready_request_ids.discard(req_info.request_id)
-                while req_info.request_id in self._vlm_admission_ready_requests:
-                    self._vlm_admission_ready_requests.remove(req_info.request_id)
-                released_cost = sum(req_info.active_file_chunk_costs.values())
-                req_info.active_file_chunk_costs.clear()
-                self._vlm_admission_active_cost = max(
-                    0.0, self._vlm_admission_active_cost - released_cost
+            # A splitter can fail after it has already submitted earlier
+            # chunks. Drain those readers before releasing their assets.
+            req_info.producer_done.set()
+            req_info.status = RequestInfo.Status.FAILED
+            req_info.error_message = str(ex)
+            try:
+                self.abort_request(req_info.request_id, reason="submission_failed")
+            except Exception:
+                logger.exception(
+                    "Failed to drain partially submitted request %s; retaining ownership",
+                    req_info.request_id,
                 )
-            try:
-                self._metrics._queries_pending_counter.add(-1)
-            except Exception:
-                logger.warning("Failed to roll back pending-query metric", exc_info=True)
-            try:
-                self._finalize_stream_fps_tracking(req_info)
-            except Exception:
-                logger.warning("Failed to finalize FPS tracking during query rollback", exc_info=True)
-            if req_info._monitor:
-                try:
-                    self.stop_request_profiling(req_info, [])
-                except Exception:
-                    logger.warning("Failed to stop profiling during query rollback", exc_info=True)
-            if req_info.vlm_pipeline_span:
-                try:
-                    req_info.vlm_pipeline_span.set_attribute("setup_failed", True)
-                    req_info.vlm_pipeline_span.end()
-                except Exception as span_error:
-                    logger.warning("Failed to end vlm_pipeline_latency span: %s", span_error)
-            if req_info._e2e_span:
-                try:
-                    req_info._e2e_span.set_attribute("setup_failed", True)
-                    req_info._e2e_span.set_attribute("error_message", str(ex))
-                    req_info._e2e_span.end()
-                except Exception as span_error:
-                    logger.warning("Failed to end e2e OTEL span: %s", span_error)
-            if req_info.nvtx_summarization_start:
-                try:
-                    nvtx.end_range(req_info.nvtx_summarization_start)
-                except Exception as nvtx_error:
-                    logger.warning("Failed to end summarization NVTX range: %s", nvtx_error)
-            try:
-                self._cleanup_request_files(req_info)
-            except Exception:
-                logger.warning("Failed to clean files during query rollback", exc_info=True)
-            for asset in locked_assets:
-                try:
-                    if asset.use_count > 0:
-                        asset.unlock()
-                except Exception:
-                    logger.warning("Failed to unlock asset during query rollback", exc_info=True)
+            else:
+                with self._lock:
+                    self._request_info_map.pop(req_info.request_id, None)
             raise
+        finally:
+            req_info.producer_done.set()
+        self._maybe_complete_file_request(req_info)
         return req_info.request_id
 
     def generate_vlm_captions(
@@ -4108,8 +4153,12 @@ class RTVIStreamHandler:
             decrement_active_count = req_info._live_active_accounted
             req_info._live_active_accounted = False
             req_info.end_time = time.time()
-            if req_info.status not in (RequestInfo.Status.SUCCESSFUL, RequestInfo.Status.FAILED):
-                req_info.status = RequestInfo.Status.SUCCESSFUL
+            if not req_info.is_terminal:
+                req_info.status = (
+                    RequestInfo.Status.CANCELLED
+                    if req_info.cancel_requested.is_set()
+                    else RequestInfo.Status.SUCCESSFUL
+                )
 
         try:
             if decrement_active_count:
@@ -4158,6 +4207,7 @@ class RTVIStreamHandler:
             # Status is terminal before the event is signalled, so a waiter
             # cannot wake and re-enter its loop with PROCESSING still visible.
             req_info.status_event.set()
+            req_info.resources_released.set()
 
     def remove_rtsp_stream_request(
         self,
@@ -4410,6 +4460,141 @@ class RTVIStreamHandler:
             req_info.response = req_info.response[chunk_response_size:]
         return req_info, response
 
+    def request_is_done(self, request_id: str) -> bool:
+        """Inspect completion without consuming retained response chunks."""
+        with self._lock:
+            req_info = self._request_info_map.get(request_id)
+            return req_info is None or req_info.status_event.is_set()
+
+    def request_is_drained(self, request_id: str) -> bool:
+        """Distinguish an early error response from released pipeline ownership."""
+        with self._lock:
+            req_info = self._request_info_map.get(request_id)
+            return req_info is None or req_info.resources_released.is_set()
+
+    def abort_request(
+        self,
+        request_id: str,
+        reason: str = "client_disconnected",
+        timeout_sec: float = 30.0,
+        submission_done: Event | None = None,
+    ) -> None:
+        """Stop one request, acknowledge drain, then release its owned resources.
+
+        This is a blocking control operation: HTTP callers must run it off-loop.
+        Failed drains leave cancellation intent and asset ownership visible so a
+        later call can retry safely. Text-only requests own pipeline callbacks
+        directly and do not need the video RequestInfo bookkeeping.
+        """
+        deadline = time.monotonic() + timeout_sec
+
+        def remaining():
+            value = deadline - time.monotonic()
+            if value <= 0:
+                raise TimeoutError(f"Request {request_id} did not drain within {timeout_sec}s")
+            return value
+
+        with self._lock:
+            req_info = self._request_info_map.get(request_id)
+        if req_info is None:
+            self._vlm_pipeline.abort_request(request_id, timeout_sec=remaining())
+            # Text-only submissions have no RequestInfo producer. Keep the
+            # cancellation marker until their off-thread enqueue has returned.
+            if submission_done is not None and not submission_done.wait(remaining()):
+                raise TimeoutError(f"Request {request_id} submission did not stop")
+            self._vlm_pipeline.release_request_cancellation(request_id, timeout_sec=remaining())
+            return
+
+        if not req_info._abort_lock.acquire(timeout=remaining()):
+            raise TimeoutError(f"Request {request_id} cancellation is already in progress")
+        try:
+            with self._lock:
+                finalized = (
+                    req_info._file_finalized
+                    or req_info._file_finishing
+                    or req_info._live_stop_finalized
+                )
+                if not finalized:
+                    req_info.cancel_requested.set()
+                    req_info.pending_file_chunks.clear()
+                    self._vlm_admission_ready_request_ids.discard(request_id)
+            if finalized:
+                if not req_info.resources_released.wait(remaining()):
+                    raise TimeoutError(f"Request {request_id} finalization did not finish")
+                return
+
+            logger.info("Cancelling request %s: %s", request_id, reason)
+            if req_info.is_live:
+                self.remove_rtsp_stream_request(
+                    req_info.assets[0], request_id, drain_timeout_sec=remaining()
+                )
+                return
+
+            # A producer may still be finishing a file split. Its callback now
+            # rejects new chunks; do not unlock its file until it has returned.
+            self._vlm_pipeline.abort_request(request_id, timeout_sec=remaining())
+            if not req_info.producer_done.wait(remaining()):
+                raise TimeoutError(f"Request {request_id} producer did not stop")
+            if not req_info.dispatch_done.wait(remaining()):
+                raise TimeoutError(f"Request {request_id} dispatch did not stop")
+            # Retire cancellation markers before publishing terminal cleanup.
+            # If a worker cannot acknowledge retirement, retain ownership so a
+            # retry cannot skip that unfinished step via the finalized path.
+            self._vlm_pipeline.release_request_cancellation(request_id, timeout_sec=remaining())
+            self._finish_cancelled_file_request(req_info)
+            self._dispatch_pending_file_chunks()
+        finally:
+            req_info._abort_lock.release()
+
+    def _finish_cancelled_file_request(self, req_info: RequestInfo) -> None:
+        """Finalize a drained file request once, preserving an earlier failure."""
+        with self._lock:
+            if req_info._file_finalized:
+                return
+            cost = sum(req_info.active_file_chunk_costs.values())
+            req_info.active_file_chunk_costs.clear()
+            self._vlm_admission_active_cost = max(0.0, self._vlm_admission_active_cost - cost)
+            req_info.end_time = time.time()
+
+        def once(key, operation):
+            if key not in req_info._cancel_cleanup_steps:
+                operation()
+                req_info._cancel_cleanup_steps.add(key)
+
+        once("fps", lambda: self._finalize_stream_fps_tracking(req_info))
+        if req_info._monitor or req_info._request_metrics:
+            once(
+                "profiling",
+                lambda: self.stop_request_profiling(req_info, req_info.processed_chunk_list),
+            )
+        once("files", lambda: self._cleanup_request_files(req_info))
+        for index, span in enumerate((req_info.vlm_pipeline_span, req_info._e2e_span)):
+            if span:
+                span.set_attribute("cancelled", True)
+                once(f"span-{index}", span.end)
+        self._release_file_request_resources(req_info)
+        with self._lock:
+            if req_info.status != RequestInfo.Status.FAILED:
+                req_info.status = RequestInfo.Status.CANCELLED
+            req_info._file_finalized = True
+        req_info.status_event.set()
+        req_info.resources_released.set()
+
+    def _release_file_request_resources(self, req_info: RequestInfo) -> None:
+        """Checkpoint releases so a partial cleanup failure is safe to retry."""
+
+        def once(key, operation):
+            if key not in req_info._cancel_cleanup_steps:
+                operation()
+                req_info._cancel_cleanup_steps.add(key)
+
+        once("files", lambda: self._cleanup_request_files(req_info))
+        for index, asset in enumerate(req_info.assets or []):
+            once(f"asset-{index}", asset.unlock)
+        if not req_info.text_query:
+            once("processed", lambda: self._metrics._queries_processed_counter.add(1))
+            once("pending", lambda: self._metrics._queries_pending_counter.add(-1))
+
     def wait_for_request_done(self, request_id):
         """Wait for request to either complete or fail."""
 
@@ -4420,7 +4605,7 @@ class RTVIStreamHandler:
                 )
             req_info = self._request_info_map[request_id]
 
-        while req_info.status not in [RequestInfo.Status.FAILED, RequestInfo.Status.SUCCESSFUL]:
+        while not req_info.is_terminal:
             logger.info(
                 "Status for query %s is %s, percent complete is %.2f, size of response list is %d",
                 req_info.request_id,
@@ -4606,13 +4791,13 @@ class RTVIStreamHandler:
             type=str,
             default="",
             choices=["", "kafka", "redis"],
-            help="Generated-message output bus at startup." " Can also be set via MESSAGE_BUS.",
+            help="Generated-message output bus at startup. Can also be set via MESSAGE_BUS.",
         )
         parser.add_argument(
             "--message-bus-topic",
             type=str,
             default="",
-            help="Generated-message output topic/stream." " Can also be set via MESSAGE_BUS_TOPIC.",
+            help="Generated-message output topic/stream. Can also be set via MESSAGE_BUS_TOPIC.",
         )
         parser.add_argument(
             "--error-bus",
