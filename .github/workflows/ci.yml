@@ -578,7 +578,16 @@ jobs:
             cli/src/vss_cli
           uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
             --cov=core/src --cov=cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
-          uv run --no-sync pytest tests packages/vision-ai/tests -m "not functional"
+          # Unit tests only: live RTVI/Embed/VLM, native Elasticsearch, and
+          # end-to-end integration suites run in their service-owning lanes.
+          uv run --no-sync pytest \
+            packages/vision-ai/tests \
+            tests/storage \
+            tests/video_processing \
+            tests/test_*.py \
+            --ignore=tests/storage/test_elasticsearch_native.py \
+            --ignore=tests/storage/test_native_pipeline.py \
+            -m "not functional and not integration"
           uv run --no-sync pyright
           uv run --no-sync ruff check \
             src packages/ingestion/src packages/summarization/src \
