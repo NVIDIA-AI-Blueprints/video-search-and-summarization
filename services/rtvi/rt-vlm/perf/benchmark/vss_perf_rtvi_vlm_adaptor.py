@@ -152,7 +152,7 @@ def _adapt_max_live_streams(
     """Adapt max_live_streams execution_results to VLMTestCase list."""
     out: List[VLMTestCase] = []
     for tc in execution_results.get("test_cases", []):
-        if not tc.get("success"):
+        if not tc.get("success") or tc.get("capacity_censored", False):
             continue
         test_case_id = tc.get("test_case_id", "")
         metrics = VLMTestCaseMetrics(
@@ -490,7 +490,7 @@ def _max_live_streams_test_cases(
 
     out: List[Dict[str, Any]] = []
     for tc in exec_summary.get("test_cases", []):
-        if not tc.get("success"):
+        if not tc.get("success") or tc.get("capacity_censored", False):
             continue
 
         # Derive resolution label from suffix: _8k_* -> 8k, _2k_* -> 2k

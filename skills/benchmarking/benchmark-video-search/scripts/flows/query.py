@@ -320,6 +320,18 @@ class CliQueryBackend:
                     raise QueryUnanswerableError(
                         "missing decomposition for attribute replay"
                     )
+                try:
+                    # This comparison consumes only attributes. Route/source/time
+                    # fields are deliberately outside its scope, even when invalid.
+                    routing.validate_decomposition({
+                        "attributes": saved.get("attributes"),
+                        **({"_decomposition_error": saved["_decomposition_error"]}
+                           if "_decomposition_error" in saved else {}),
+                    })
+                except ValueError as exc:
+                    raise QueryUnanswerableError(
+                        f"invalid decomposition for attribute replay: {exc}"
+                    ) from exc
                 attrs = saved.get("attributes")
                 if (
                     not isinstance(attrs, list)

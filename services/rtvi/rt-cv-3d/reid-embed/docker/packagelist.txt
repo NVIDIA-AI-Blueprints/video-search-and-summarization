@@ -1,0 +1,68 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Runtime files copied into the Docker image.
+# Paths are relative to the repository root.
+# A trailing slash marks a directory (copy the whole tree; tests/ and
+# __pycache__ are already stripped by .dockerignore).
+#
+# This list is the source of truth for what ships in the image. The source
+# tree also contains dataset dumps, archives, scratch notebooks, and CLI-only
+# modules that must not be included.
+
+src/start_service.sh
+src/main.py
+src/config.py
+src/models.py
+src/ingest.py
+src/profiling.py
+
+# proto_utils is an implicit namespace package (no __init__.py); only the
+# generated protobuf module is imported from main.py and the embedding worker.
+src/proto_utils/ds_schema_pb2.py
+
+# cluster_sampling: main.py imports from sample_and_extract_patches only.
+src/cluster_sampling/__init__.py
+src/cluster_sampling/sample_and_extract_patches.py
+
+# cluster_manager: the online clustering engine. Whole-dir copy (imported
+# broadly by the clustering tick).
+src/cluster_manager/
+
+# service_adapters: clustering<->service glue (cluster_service, compressed_relabel).
+src/service_adapters/
+
+# secondary_embedding_generation: the worker module + its TRT helper.
+src/secondary_embedding_generation/__init__.py
+src/secondary_embedding_generation/secondary_embedding_generation.py
+src/secondary_embedding_generation/embed_image_trt.py
+
+# tracking_store: the new tracking store implementation.
+src/tracking_store/__init__.py
+src/tracking_store/base.py
+src/tracking_store/memory.py
+src/tracking_store/sqlite.py
+src/tracking_store/models.py
+src/tracking_store/factory.py
+
+# cluster_stats: in-process cache of per-object cluster statistics.
+src/cluster_stats/__init__.py
+src/cluster_stats/base.py
+src/cluster_stats/factory.py
+src/cluster_stats/memory.py
+src/cluster_stats/sqlite.py
+src/cluster_stats/models.py
+src/cluster_stats/clt.py
+src/cluster_stats/moments.py

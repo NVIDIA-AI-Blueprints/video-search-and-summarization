@@ -83,6 +83,16 @@ def registered_source(monkeypatch):
     monkeypatch.setattr(
         pipeline.flows, "list_sensor_streams", lambda *a: {"id": "clip"}
     )
+    # Resolve the current mock at call time, preserving each test's evolving
+    # inventory and failures for both the initial listing and deletion check.
+    monkeypatch.setattr(
+        pipeline.flows,
+        "list_sensor_sources",
+        lambda *args: {
+            sid: {"name": name, "url": f"/storage/{name}.mp4"}
+            for sid, name in pipeline.flows.list_sensor_streams(*args).items()
+        },
+    )
 
 
 def _cfg(tmp_path, **kw):

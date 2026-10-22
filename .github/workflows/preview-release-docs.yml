@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Publishes a release branch's docs as a stable named Fern preview, the
+# release "staging" site: release/X.Y.Z publishes preview id release-X-Y-Z of
+# the fern/docs.yml instance; the URL is in the job summary.
+#
+# The branch is built as "X.Y.Z (preview)", the default version, stamped with
+# the values the release will ship (vX.Y.Z / X.Y.Z / X.Y.Z-sbsa), alongside
+# the release tags listed in its fern/docs.yml. Rerunning updates the same
+# URL. Production is not touched (publish-fern-docs.yml).
+#
+# Requires the DOCS_FERN_TOKEN repo secret.
+
+name: Preview Release Docs
+
+on:
+  push:
+    branches:
+      - 'release/**'
+    paths:
+      - 'docs/**'
+      - 'fern/**'
+      - 'services/analytics/video-analytics-api/src/app/specification/openapi.json'
+      - '.github/scripts/build_fern_site.py'
+      - '.github/scripts/resolve_fern_docs_context.sh'
+      - '.github/scripts/check_fern_site.sh'
+      - '.github/scripts/publish_fern_docs.sh'
+      - '.github/actions/setup-fern/**'
+      - '.github/workflows/preview-release-docs.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fern-release-preview-${{ github.ref }}
+  # Do not cancel an in-flight Fern upload; a killed register can leave the
+  # preview incomplete until the next run.
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    name: Release preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Resolve release version
+        id: context
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: .github/scripts/resolve_fern_docs_context.sh
+
+      - name: Require a release branch
+        if: steps.context.outputs.release == ''
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          echo "::error::${REF_NAME} is not a release/X.Y.Z branch; nothing to preview"
+          exit 1
+
+      - name: Set up Fern CLI
+        uses: ./.github/actions/setup-fern
+
+      - name: Build Fern site
+        env:
+          RELEASE: ${{ steps.context.outputs.release }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/build_fern_site.py --fetch --release "$RELEASE" \
+            --output "${RUNNER_TEMP}/fern-site" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Check Fern site
+        working-directory: ${{ runner.temp }}/fern-site
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}   # enables the redirects check
+        run: '"${GITHUB_WORKSPACE}/.github/scripts/check_fern_site.sh"'
+
+      - name: Publish named preview
+        working-directory: ${{ runner.temp }}/fern-site
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+          RELEASE: ${{ steps.context.outputs.release }}
+        run: |
+          if ! "${GITHUB_WORKSPACE}/.github/scripts/publish_fern_docs.sh" --preview "release-${RELEASE//./-}"; then
+            echo "::error::Failed to publish the release preview. See fern output above."
+            exit 1
+          fi

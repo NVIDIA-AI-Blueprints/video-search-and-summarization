@@ -34,6 +34,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from flows import pipeline
 from flows.artifacts import RunConfig, read_retrieval_artifact
 
+
+@pytest.fixture(autouse=True)
+def registered_gallery_sources(monkeypatch):
+    """Keep reuse/readiness checks local and supply typed file inventories."""
+    monkeypatch.setattr(
+        pipeline.flows, "list_sensor_names", lambda *args: {"c0.mp4", "c1.mp4"}
+    )
+    # inventory_snapshot uses its defining module's listing helper.
+    monkeypatch.setattr(
+        "flows.readiness.list_sensor_names",
+        lambda *args: pipeline.flows.list_sensor_names(*args),
+    )
+    monkeypatch.setattr(
+        pipeline.flows, "list_sensor_streams",
+        lambda *args: {"sensor-c0": "c0.mp4", "sensor-c1": "c1.mp4"},
+    )
+    monkeypatch.setattr(
+        pipeline.flows, "list_sensor_sources",
+        lambda *args: {
+            sid: {"name": name, "url": f"/storage/{name}"}
+            for sid, name in pipeline.flows.list_sensor_streams(*args).items()
+        },
+    )
+
+
 # A 2-clip gallery release on disk: gt/queries_gt.json + additional_gt/clips_gt.json
 GALLERY_GT = {
     "meta": {"set": "synthetic-gallery"},
@@ -245,6 +270,12 @@ def test_gallery_skipped_sources_keep_listed_identities(tmp_path, monkeypatch):
         "list_sensor_streams",
         lambda _: {"assigned-id-9": "c0", "assigned-id-4": "c1"},
     )
+    monkeypatch.setattr(
+        pipeline.flows, "list_sensor_sources", lambda _: {
+            "assigned-id-9": {"name": "c0", "url": "/storage/c0.mp4"},
+            "assigned-id-4": {"name": "c1", "url": "/storage/c1.mp4"},
+        },
+    )
     cfg = RunConfig(
         endpoint="http://fake",
         data_dir=tmp_path,
@@ -282,6 +313,10 @@ def _content_validation_setup(tmp_path, monkeypatch, response):
     monkeypatch.setattr(ingestion_validation, "prepare_contract", lambda *args: (template, {"ffprobe_version": "test"}))
     monkeypatch.setattr(pipeline, "probe_index_coverage", lambda *args, **kwargs: {"checked": True, "covered": True})
     monkeypatch.setattr(pipeline.flows, "list_sensor_streams", lambda *args: {"sensor-c0": "c0.mp4", "sensor-c1": "c1.mp4"})
+    monkeypatch.setattr(pipeline.flows, "list_sensor_sources", lambda *args: {
+        "sensor-c0": {"name": "c0.mp4", "url": "/storage/c0.mp4"},
+        "sensor-c1": {"name": "c1.mp4", "url": "/storage/c1.mp4"},
+    })
     readiness = Mock(side_effect=response) if isinstance(response, BaseException) else Mock(return_value=response)
     query = SimpleNamespace(search_path="embed", readiness=readiness)
     return cfg, query, readiness

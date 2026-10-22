@@ -41,7 +41,8 @@ pipeline internally, so it is not more reliable — just less observable.
 
 Neither a successful `vst-direct` upload nor a 200 from the optional
 `agent-3step` `/complete` call proves readiness. The runner polls VST for
-registration; for `vst-direct` it also probes index coverage before scoring.
+registration; all ingestion strategies also require embedding coverage and
+configured CLI readiness checks, with attribute readiness for dependent scenarios.
 Querying early returns empty results that look like a retrieval regression.
 
 ### On a shared deployment
@@ -62,7 +63,7 @@ Querying early returns empty results that look like a retrieval regression.
 | `vss exited 1 ... ModuleNotFoundError` | stale virtualenv | rebuild it, or use `--vss-repo-root` |
 | `vss exited 5` | nothing ingested | drop `--skip-ingest` |
 | `/complete` 502 | known flakiness | retried automatically; raise `--complete-retries` |
-| `Duplicate Camera id` | RTVI-CV already has that stream | treated as done — embeddings still generate |
+| `Duplicate Camera id` | RTVI-CV already has that stream | does not prove indexing completion; inspect post-ingest coverage and readiness |
 | Everything scores 0.0 | possibly empty or unscoped search indices | check Step 3's Elasticsearch index counts and the index-probe result; a VST listing alone is insufficient |
 | Header says `fallback_path` | routing is active; that is the path for unrouted queries | look at `planned_paths` |
 
@@ -149,3 +150,16 @@ must match the ingestion manifest's `sensor_id` — verify the gallery was inges
 with that manifest and that the deployment returns matching sensor ids. Scoring a
 gallery artifact with `segment-overlap` (or vice versa) fails loudly by design;
 match `--scoring` to how the artifact was retrieved.
+
+
+## Upstream monitoring deferred
+
+The staged runner does not activate the upstream background ingestion watcher
+or derive direct Elasticsearch/RT-CV polling endpoints. Diagnose readiness
+through the configured `vss search readiness` command and its saved evidence.
+Sparse clips can legitimately have no detections; record those gaps without
+requiring one detection per clip. Missing required attribute services must not
+be treated as a successful attribute evaluation.
+
+A failed live decomposition is recorded and remains a failed query. It does
+not trigger the upstream embedding fallback or failure-percentage policy.

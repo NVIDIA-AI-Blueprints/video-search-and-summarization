@@ -30,11 +30,11 @@ affinity: {}
 runtimeClassName: ""
 
 # ── ReID embedding service ────────────────────────────────────────────────────
-# Mirror-only image (container-inventory strategy "mirror"), so it is pinned
-# here rather than routed through the GHCR develop-latest channel.
+# Managed GHCR image. global.container_prefix / global.container_tag override
+# the repository prefix and tag; see vss-reid-embed.image.
 image:
-  repository: nvcr.io/nvstaging/vss-core/reid-embed
-  tag: 3.3.0-26.09.3
+  repository: ghcr.io/nvidia-ai-blueprints/vss/reid-embed
+  tag: develop-latest
   pullPolicy: IfNotPresent
 
 replicas: 1

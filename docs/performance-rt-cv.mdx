@@ -12,7 +12,7 @@ measure the maximum number of concurrent 1080p streams a single GPU can sustain 
 with object detection and tracker enabled.
 
 <Frame caption="Max concurrent 1080p streams per GPU. RT-DETR Resnet50 provides the highest stream count on server GPUs (H100, RTX Pro 6000 SE); edge platforms (DGX Spark, AGX Thor) are best suited for lighter-weight deployments.">
-  <img src="/assets/images/performance/cv_max_streams_by_model.png" alt="RT-CV max concurrent 1080p streams per GPU by model" />
+  <img src="./assets/images/performance/cv_max_streams_by_model.png" alt="RT-CV max concurrent 1080p streams per GPU by model" />
 </Frame>
 
 ## Test Configuration
@@ -108,7 +108,7 @@ To run the perception pipeline in real time on this platform, do one of the foll
   stream to be processed without frame drops.
 * Configure the source streams at 15 FPS instead of 30 FPS.
 
-Jetson Orin NX 8 GB is not part of the validated platform list in [Prerequisites](/vss/getting-started/prerequisites#hardware-requirements). For 30 FPS deployments without an inference interval, use one of
+Jetson Orin NX 8 GB is not part of the validated platform list in [Prerequisites](/getting-started/prerequisites#hardware-requirements). For 30 FPS deployments without an inference interval, use one of
 the validated platforms listed in the [Performance by GPU](#performance-by-gpu) tables above.
 
 **Jetson AGX Orin**

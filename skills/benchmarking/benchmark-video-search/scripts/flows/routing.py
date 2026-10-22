@@ -59,6 +59,16 @@ FUSION = "fusion"
 OBJECT = "object"
 
 
+def effective_attributes(decomposition: dict[str, Any]) -> list[str]:
+    """Preserve all validated attributes for the benchmark routing contract.
+
+    Product-side pruning is deliberately not replayed here: dropping an
+    extracted single-word attribute would change the established comparison.
+    """
+    validate_decomposition(decomposition)
+    return list(decomposition.get("attributes") or [])
+
+
 class InvalidDecomposition(ValueError):
     """Supplied decomposition fields violate the retrieval schema."""
 
@@ -149,7 +159,7 @@ def route(decomposition: dict[str, Any]) -> str:
     if decomposition.get("object_ids"):
         return OBJECT
 
-    attributes = decomposition.get("attributes") or []
+    attributes = effective_attributes(decomposition)
     if not attributes:
         return EMBED
 
@@ -197,7 +207,7 @@ def plan_for(
         # wearing beige shirt"). Feeding the raw text instead would embed the
         # time range and source name as if they were visual content.
         "query": decomposition.get("query") or query,
-        "attributes": list(decomposition.get("attributes") or []),
+        "attributes": effective_attributes(decomposition),
         "source_type": decomposition.get("source_type") or default_source_type,
         "video_sources": list(decomposition.get("video_sources") or []),
         "timestamp_start": decomposition.get("timestamp_start"),

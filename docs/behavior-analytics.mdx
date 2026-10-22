@@ -9,28 +9,28 @@ position: 1
 
 The **Behavior Analytics** microservice is implemented in [Python](https://www.python.org/) and leverages the [Python Multiprocessing](https://docs.python.org/3/library/multiprocessing.html) library for parallel processing.
 
-![Behavior Analytics workflow](/assets/images/behavior-analytics/streaming-pipeline.png)
+![Behavior Analytics workflow](./assets/images/behavior-analytics/streaming-pipeline.png)
 
 The perception layer processes camera or video input streams, performing sequential frame analysis for object detection and tracking. It generates object embeddings and sends protobuf messages containing frame metadata to a message broker. The pipeline supports multiple message brokers including **Kafka**, **Redis Streams**, and **MQTT**, allowing flexibility based on deployment requirements. The diagram above illustrates the input and output of the Behavior Analytics pipeline within the overall dataflow context.
 
 The metadata from the perception layer represents a frame containing object detection bounding boxes, tracking IDs, embedding vectors, and other attributes. This input is processed by the pipeline to generate Behavior data. A Behavior represents an object tracked over time with its associated attributes. The key components of the pipeline are:
 
-* [Protobuf Message to Frame](/vss/system-components/analytics-microservices/behavior-analytics#protobuf-to-object): Converts protobuf messages or byte arrays into Frame objects.
-* [Dynamic Configuration](/vss/system-components/analytics-microservices/behavior-analytics#dynamic-configuration): Applies runtime updates to `app` and `sensors` config keys from `mdx-notification`, with per-key allowlist validation and ack-back semantics.
-* [Dynamic Calibration](/vss/system-components/analytics-microservices/behavior-analytics#dynamic-calibration): Loads and manages calibration data, supporting multiple coordinate systems (image, Cartesian, geo) and monitoring for calibration file changes.
-* [Image to Real World Coordinate](/vss/system-components/analytics-microservices/behavior-analytics#image-to-global-coordinate-transformation): Transforms image coordinates to real-world coordinates (latitude, longitude) or other coordinate systems such as Cartesian. Also validates if points fall within defined Regions of Interest (ROI).
-* [Behavior State Management](/vss/system-components/analytics-microservices/behavior-analytics#behavior-state-management-bsm): Manages the state of each object's Behavior for individual cameras, processing objects across all camera sensors simultaneously.
-* [Behavior Processing](/vss/system-components/analytics-microservices/behavior-analytics#behavior-processing): Calculates key metrics such as speed, direction, and distance based on object movement, appearance, and embeddings.
-* [Video Embedding Downsampling](/vss/system-components/analytics-microservices/behavior-analytics#video-embedding-downsampling): Optional. Compresses time-series video embedding data (e.g. VisionLLM) per sensor while preserving patterns and transitions; supports Swinging Door Trending (SDT) and Sliding Window algorithms.
-* [Event Detection](/vss/system-components/analytics-microservices/behavior-analytics#event-detection): Generates events including Tripwire events and ROI events.
-* [Incident Generation](/vss/system-components/analytics-microservices/behavior-analytics#incidents): Detects violations (proximity, restricted zone, confined zone, FOV count) and generates incidents when violations persist beyond configured thresholds.
-* [Sink](/vss/system-components/analytics-microservices/behavior-analytics#sink): Sends Behavior data, events, and incidents to message brokers (Kafka, Redis Streams, or MQTT).
+* [Protobuf Message to Frame](/system-components/analytics-microservices/behavior-analytics#protobuf-to-object): Converts protobuf messages or byte arrays into Frame objects.
+* [Dynamic Configuration](/system-components/analytics-microservices/behavior-analytics#dynamic-configuration): Applies runtime updates to `app` and `sensors` config keys from `mdx-notification`, with per-key allowlist validation and ack-back semantics.
+* [Dynamic Calibration](/system-components/analytics-microservices/behavior-analytics#dynamic-calibration): Loads and manages calibration data, supporting multiple coordinate systems (image, Cartesian, geo) and monitoring for calibration file changes.
+* [Image to Real World Coordinate](/system-components/analytics-microservices/behavior-analytics#image-to-global-coordinate-transformation): Transforms image coordinates to real-world coordinates (latitude, longitude) or other coordinate systems such as Cartesian. Also validates if points fall within defined Regions of Interest (ROI).
+* [Behavior State Management](/system-components/analytics-microservices/behavior-analytics#behavior-state-management-bsm): Manages the state of each object's Behavior for individual cameras, processing objects across all camera sensors simultaneously.
+* [Behavior Processing](/system-components/analytics-microservices/behavior-analytics#behavior-processing): Calculates key metrics such as speed, direction, and distance based on object movement, appearance, and embeddings.
+* [Video Embedding Downsampling](/system-components/analytics-microservices/behavior-analytics#video-embedding-downsampling): Optional. Compresses time-series video embedding data (e.g. VisionLLM) per sensor while preserving patterns and transitions; supports Swinging Door Trending (SDT) and Sliding Window algorithms.
+* [Event Detection](/system-components/analytics-microservices/behavior-analytics#event-detection): Generates events including Tripwire events and ROI events.
+* [Incident Generation](/system-components/analytics-microservices/behavior-analytics#incidents): Detects violations (proximity, restricted zone, confined zone, FOV count) and generates incidents when violations persist beyond configured thresholds.
+* [Sink](/system-components/analytics-microservices/behavior-analytics#sink): Sends Behavior data, events, and incidents to message brokers (Kafka, Redis Streams, or MQTT).
 
 ### Input & Output
 
 The pipeline stages and their corresponding inputs and outputs are shown below:
 
-![Behavior Analytics microservice](/assets/images/behavior-analytics/streaming-pipeline-input-output.png)
+![Behavior Analytics microservice](./assets/images/behavior-analytics/streaming-pipeline-input-output.png)
 
 Each stage's inputs and outputs:
 
@@ -215,7 +215,7 @@ The configuration file supports multiple message broker types. You can configure
 | Key (name) | Default Value (value) | Description |
 | --- | --- | --- |
 | raw | `mdx-raw` | Comma-separated list of topics. The sensor-processing layer sends metadata to this topic. Multiple topics may be needed when the tracker is switched off for some sensors in the sensor-processing layer (DeepStream) and run externally. |
-| behavior | `mdx-behavior` | All behavior data is sent to this topic by the Python streaming pipeline. See [Behavior Processing](/vss/system-components/analytics-microservices/behavior-analytics#behavior-processing). |
+| behavior | `mdx-behavior` | All behavior data is sent to this topic by the Python streaming pipeline. See [Behavior Processing](/system-components/analytics-microservices/behavior-analytics#behavior-processing). |
 | events | `mdx-events` | All events, including tripwire and ROI events, are sent to this topic by the Python streaming pipeline. |
 | frames | `mdx-frames` | Enriched frames metadata. The pipeline may or may not use this topic. |
 | notification | `mdx-notification` | Notifications such as calibration updates, sensor additions, or deletions. |
@@ -224,7 +224,7 @@ The configuration file supports multiple message broker types. You can configure
 | behaviorPlus | `mdx-behavior-plus` | Enhanced behavior data (Smart Cities Application). |
 | anomaly | `mdx-alerts` | Anomaly detection alerts (Smart Cities Application). |
 | embed | `mdx-embed` | Raw video-embedding (`VisionLLM`) input stream consumed by the search-and-alerts application via `BaseApp.read_embed()`. |
-| embedFiltered | `mdx-embed-filtered` | Filtered / downsampled video embeddings produced by the search-and-alerts application via `BaseApp.write_embed_filtered()`. See [Video Embedding Downsampling](/vss/system-components/analytics-microservices/behavior-analytics#video-embedding-downsampling). |
+| embedFiltered | `mdx-embed-filtered` | Filtered / downsampled video embeddings produced by the search-and-alerts application via `BaseApp.write_embed_filtered()`. See [Video Embedding Downsampling](/system-components/analytics-microservices/behavior-analytics#video-embedding-downsampling). |
 
 * **App Pipeline Config**
 
@@ -239,7 +239,7 @@ The configuration file supports multiple message broker types. You can configure
     - `objectConfidenceThreshold`: Minimum confidence score for object detection. Objects below this threshold are filtered out. **Default: 0.5**
     - `clusterThreshold`: Cosine similarity threshold for per-object embedding clustering (Chinese Restaurant Process) during state management. **Default: 0.9**
     - `imageLocationMode`: (Image calibration only.) Bbox reference point: `bottom_center` or `center`. **Default: bottom_center**
-    - `roiEventDetectionMode`: How ROI ENTRY/EXIT is decided — `coordinate` or `bbox`. See [ROI event detection mode](/vss/system-components/analytics-microservices/behavior-analytics#event-detection). Unrecognized values fall back to `coordinate`. **Default: coordinate**
+    - `roiEventDetectionMode`: How ROI ENTRY/EXIT is decided — `coordinate` or `bbox`. See [ROI event detection mode](/system-components/analytics-microservices/behavior-analytics#event-detection). Unrecognized values fall back to `coordinate`. **Default: coordinate**
     - `advancedOverlay`: If true, the space-utilization visualization draws transparent patches that avoid overlapping existing objects. Costs roughly 0.04 s → 1.7 s per visualization. **Default: false**
 
 * **Tripwire** (Sensor-level config)
@@ -391,7 +391,7 @@ The configuration file supports multiple message broker types. You can configure
 
 ### CalibrationFile
 
-Use the Calibration tool to generate the JSON file. For more details, refer to the [Calibration](/vss/system-components/calibration). For the calibration JSON structure, see [Calibration Schema](/vss/system-components/calibration/calibration-schema).
+Use the Calibration tool to generate the JSON file. For more details, refer to the [Calibration](/system-components/calibration). For the calibration JSON structure, see [Calibration Schema](/system-components/calibration/calibration-schema).
 
 ## Components & Customization
 
@@ -457,7 +457,7 @@ For a complete example, refer to [apps/analytics/main_analytics_2d_app.py](https
 
 The protobuf message payload is sent to a message broker (Kafka, Redis Streams, or MQTT) as a ByteArray. For example, a Kafka ProducerRecord contains (topic, key, value), with `topic=mdx-raw`, `key=sensor-id`, and `value=protobuf-byte-array`. When the Behavior Analytics microservice receives the message, it transforms the byte array into a Frame object. The Frame object corresponds to the video frame being processed by the perception layer. It contains all detected objects for a given frame and their corresponding bounding boxes in a single message. Each object may include additional attributes like embedding vectors, pose data, etc.
 
-To read more about the schema, refer to the [Protobuf-Schema](/vss/system-components/middleware/nvschema/protobuf-schema).
+To read more about the schema, refer to the [Protobuf-Schema](/system-components/middleware/nvschema/protobuf-schema).
 
 **Usage**
 
@@ -588,11 +588,11 @@ class Source:
 
 ### Image to Global Coordinate Transformation
 
-![Image to Geo Coordinates](/assets/images/behavior-analytics/behavior-analytics-perspective-transform.png)
+![Image to Geo Coordinates](./assets/images/behavior-analytics/behavior-analytics-perspective-transform.png)
 
 Frame metadata includes object-id, bbox in image/pixel coordinates, object-type, and other attributes.
 
-**Cartesian or geo calibration:** Diagram: image coordinates (left) transformed via homography to real-world—geo (lat/lon) or Cartesian (meters)—for speed, distance, ROI, etc. Bbox reference is configurable for image calibration (see [Image calibration (no transformation)](/vss/system-components/analytics-microservices/behavior-analytics)).
+**Cartesian or geo calibration:** Diagram: image coordinates (left) transformed via homography to real-world—geo (lat/lon) or Cartesian (meters)—for speed, distance, ROI, etc. Bbox reference is configurable for image calibration (see [Image calibration (no transformation)](/system-components/analytics-microservices/behavior-analytics)).
 
 **Image calibration:** No transformation; output stays in image/pixel. Default when no calibration file or `calibrationType` is `"image"`.
 
@@ -715,7 +715,7 @@ def transform_frame(self, frame: nvSchema.Frame) -> nvSchema.Frame
 
 As the perception layer tracks a given object, the object-id remains the same during the time the object is seen by a single camera. This helps in forming a Behavior for a given object. Behavior defines the sequence of real world coordinates an object was detected at, its appearance, embeddings, pose etc., The span of the Behavior may be short lived based on how long it was seen with respect to a given camera. There are cases where the span of the Behavior can be very long. An example is a car stopped due to a red signal or a car parked on the roadside or a person standing in a queue.
 
-![Behavior State Management](/assets/images/behavior-analytics/behavior-state-management.png)
+![Behavior State Management](./assets/images/behavior-analytics/behavior-state-management.png)
 
 The above diagram depicts a few tracks with respect to vehicle and people movement as seen by the camera. However, this can be any kind of object, like a robot, a bicycle, etc. The BSM maintains the Behavior state on live streaming data. As the objects are detected by the perception layer and frame metadata is sent over the network to the Kafka broker, the Behavior Analytics pipeline consumes all detections corresponding to an object and maintains the Behavior state in memory. The in-memory copy of the Behavior is backed up by a persistent store for reliability. The Behavior gets updated when the perception layer sends more detection metadata with respect to the same object. At some point in time, the object gets out of the Field of View of the camera and no more metadata is sent to the BSM. The BSM then cleans up the Behavior corresponding to the object that is no longer seen. The period of time after which the BSM cleans up the state is configurable. To keep the memory footprint of the Behavior state low, only minimal information is stored during the life of the Behavior. The state comprises the object ID, sensor ID, locations, start and end timestamps, object embeddings, etc.
 
@@ -837,7 +837,7 @@ Behavior comprises of sequence of real world coordinates an object was detected 
 Embeddings cluster tries to summarize 100s of feature vectors into few salient ones that can be used to represent an object appearance. The cluster algorithm used is CRP, it is a non-parametric generative Bayesian model, the data is processed in a streaming mode, clustering is done in an incremental model.
 As the sequence of embeddings is processed by the pipeline, it simultaneously learns the number of clusters, the model of each cluster, and entity assignments into clusters. The state of the cluster model is maintained by computing the cluster centers across every micro batch.
 
-![Behavior State Management](/assets/images/behavior-analytics/behavior-analytics-embedding-cluster.png)
+![Behavior State Management](./assets/images/behavior-analytics/behavior-analytics-embedding-cluster.png)
 
 The diagram above shows only a few embeddings instead of hundreds; the idea is to create a few representative embeddings from all the detections for a given object. The clustering distance used is cosine similarity, and the default threshold is 0.9. The clustering process completes when an object is no longer detected by a sensor.
 
@@ -976,7 +976,7 @@ Both algorithms support **distance** (Euclidean in normalized vector space) or *
 
 **Configuration**
 
-Video embedding is configured via `AppConfig.video_embedding` (`VideoEmbeddingConfig`). App-level keys use the `embed` prefix (camelCase in JSON). For the full list of parameters and defaults, see [Configuration Parameters](/vss/system-components/analytics-microservices/behavior-analytics#configuration-parameters) (Video Embedding, App-level config).
+Video embedding is configured via `AppConfig.video_embedding` (`VideoEmbeddingConfig`). App-level keys use the `embed` prefix (camelCase in JSON). For the full list of parameters and defaults, see [Configuration Parameters](/system-components/analytics-microservices/behavior-analytics#configuration-parameters) (Video Embedding, App-level config).
 
 **Usage**
 
@@ -1032,11 +1032,11 @@ The event detection system supports two types of events:
 
 Both tripwire and ROI are defined in the camera/sensor calibration JSON. Multiple tripwires or ROIs can be configured for each sensor.
 
-![Tripwire Definition](/assets/images/behavior-analytics/tripwire-definition.png)
+![Tripwire Definition](./assets/images/behavior-analytics/tripwire-definition.png)
 
 The **wire** is defined as a line segment between two points. The **direction** specifies IN point (p1) and OUT point (p2).
 
-![ROI Definition](/assets/images/behavior-analytics/roi-definition.png)
+![ROI Definition](./assets/images/behavior-analytics/roi-definition.png)
 
 The **roiCoordinates** define the vertices of the ROI polygon.
 
@@ -1116,7 +1116,7 @@ The Incidents framework detects violations in video frames and tracks them over 
 * **Violation State**: Internal tracking of violation duration and continuity across frames.
 * **Incident**: A violation that exceeds the configured time threshold and needs reporting.
 
-For configuration details, see [Configuration Parameters](/vss/system-components/analytics-microservices/behavior-analytics#configuration-parameters). For calibration schema details, refer to [Calibration Schema](/vss/system-components/calibration/calibration-schema).
+For configuration details, see [Configuration Parameters](/system-components/analytics-microservices/behavior-analytics#configuration-parameters). For calibration schema details, refer to [Calibration Schema](/system-components/calibration/calibration-schema).
 
 #### Violation Types
 
@@ -1131,13 +1131,13 @@ The framework supports four types of violations that can be promoted to incident
 
 **Proximity Violation**
 
-![Proximity Detection](/assets/images/behavior-analytics/behavior-analytics-sd.png)
+![Proximity Detection](./assets/images/behavior-analytics/behavior-analytics-sd.png)
 
 The objects detected are clustered via distance calculation and reports the cluster of points/objectIds involved in the violation.
 
 The image below shows a proximity violation between a humanoid and a person. The distance between the two objects is less than the proximity threshold.
 
-![Proximity Violation](/assets/images/behavior-analytics/proximity-violation.png)
+![Proximity Violation](./assets/images/behavior-analytics/proximity-violation.png)
 
 **Confined Area Violation**
 
@@ -1145,7 +1145,7 @@ The confined area violation is detected via point-in-polygon calculation. The sy
 
 The image below shows the confined area violation. There are two humanoids present outside their designated confined areas. **confinedObjectTypes** for the area is set to "Humanoid" object type.
 
-![Confined Area Violation](/assets/images/behavior-analytics/confined-area-violation.png)
+![Confined Area Violation](./assets/images/behavior-analytics/confined-area-violation.png)
 
 **Restricted Area Violation**
 
@@ -1153,7 +1153,7 @@ The restricted area violation is also detected via point-in-polygon calculation.
 
 The image below shows the restricted area violation. One person is not allowed to be in the restricted area but is present inside it. **restrictedObjectTypes** for the same area is set to "Person" object type.
 
-![Restricted Area Violation](/assets/images/behavior-analytics/restricted-area-violation.png)
+![Restricted Area Violation](./assets/images/behavior-analytics/restricted-area-violation.png)
 
 **FOV Count Violation**
 
@@ -1658,7 +1658,7 @@ The system supports dynamic calibration at runtime. `BaseApp` uses the `DynamicC
 3. **File monitoring**: Watches the calibration directory; if started with a file, changes only reload data (type does not switch).
 4. **Notification listener**: Listens to `mdx-notification`.
 
-![Dynamic Calibration](/assets/images/behavior-analytics/dynamic-calibration.png)
+![Dynamic Calibration](./assets/images/behavior-analytics/dynamic-calibration.png)
 
 **How It Works**
 
@@ -1691,7 +1691,7 @@ When `BaseApp` starts:
 ```
 
 <Note>
-Unlike [Dynamic Configuration](/vss/system-components/analytics-microservices/behavior-analytics#dynamic-configuration), calibration updates do **not** produce an ack message back to the video analytics API. A schema violation or other application failure is observable only via container logs (look for `calibration schema violation` or `rejecting invalid calibration payload` entries) — the producing side has no programmatic way to confirm the update landed. Validation runs in two layers (listener pre-write gate and watcher defense-in-depth); both reject without modifying the live calibration, so a bad payload never destabilizes the running pipeline.
+Unlike [Dynamic Configuration](/system-components/analytics-microservices/behavior-analytics#dynamic-configuration), calibration updates do **not** produce an ack message back to the video analytics API. A schema violation or other application failure is observable only via container logs (look for `calibration schema violation` or `rejecting invalid calibration payload` entries) — the producing side has no programmatic way to confirm the update landed. Validation runs in two layers (listener pre-write gate and watcher defense-in-depth); both reject without modifying the live calibration, so a bad payload never destabilizes the running pipeline.
 </Note>
 
 **Usage with BaseApp**
@@ -1784,7 +1784,7 @@ Initialize the `SpaceAnalyzer` with the app config and calibration file, then in
 calculating metrics such as occupied space, free space, and maximum additional pallets that can be placed. It supports both genetic algorithm and greedy search approaches
 for pallet placement optimization.
 
-The details on the designated config parameters can be found in the above [space analytics config section](/vss/system-components/analytics-microservices/behavior-analytics).
+The details on the designated config parameters can be found in the above [space analytics config section](/system-components/analytics-microservices/behavior-analytics).
 
 ```python
 from mdx.analytics.core.utils.space_utilization import SpaceAnalyzer
@@ -1815,7 +1815,7 @@ Below we list out the key metrics along with the brief description that are incl
 | unsafePalletCnt | count of pallets flagged as unsafe (placed partially outside the buffer zone beyond the unsafeSize threshold) |
 
 The layouts of the free space and utilizable free space are also included in the output.
-NV schema output format follows exactly the definition in [JSON-Schema](/vss/system-components/middleware/nvschema/json-schema), please refer to [JSON-Schema](/vss/system-components/middleware/nvschema/json-schema) for more details.
+NV schema output format follows exactly the definition in [JSON-Schema](/system-components/middleware/nvschema/json-schema), please refer to [JSON-Schema](/system-components/middleware/nvschema/json-schema) for more details.
 
 The dictionary format output also includes the bounding boxes of the objects in the scene for visualization purposes. The dictionary format output is consumed directly in agent workflows.
 Below is a sample output of the dictionary format:
@@ -1886,9 +1886,9 @@ Below is a sample output of the dictionary format:
 
 **Logic and Method**
 
-The logic to compute the [space utilization metrics](/vss/system-components/analytics-microservices/behavior-analytics) is described as follows:
+The logic to compute the [space utilization metrics](/system-components/analytics-microservices/behavior-analytics) is described as follows:
 
-* Everything is projected from 3D to 2D floor space (top-down view) of the moniored area.
+* Everything is projected from 3D to 2D floor space (top-down view) of the monitored area.
 * `totalSpace` is the size of the designated buffer zone which is on the floor plane.
 * `spaceOccupied` is the total area within the buffer zone that is occupied by target objects. Typical target objects are pallets and boxes. The detected 3D bounding boxes of the target objects are projected onto the floor plane and total size of the projected area (within the buffer zone) is calculated.
 * `freeSpace` is calculated as `totalSpace - spaceOccupied`.
@@ -1902,7 +1902,7 @@ red squares are existing pallets in the buffer zone and blue squares are the ext
 In the right case the 3 existing pallets are placed tightly together in a corner and the free space can be fully utilized to place 17 extra pallets thus the `freeSpaceQuality` is 100%.
 In the left case the 4 existing pallets are placed spreading out thus only 7 extra pallets can be placed in the free space which yields 43.75% as the `freeSpaceQuality`.
 
-![Free Space Quality](/assets/images/behavior-analytics/free-space-quality.png)
+![Free Space Quality](./assets/images/behavior-analytics/free-space-quality.png)
 
 The key value and trickiest one to compute here is `numExtraPallets`.
 Finding the maximum number extra of pallets is an optimization problem to find the best placement strategy to fit the most pallets
@@ -1926,7 +1926,7 @@ To find this optimal placement strategy we provide two different search algorith
     * If no more pallets can be fit in, stop and return the number of pallets that have been fit in.
 
 Under the simplified assumption of rectangle-shaped buffer zone and square-shaped pallet of our current use case, Greedy Search provides on-par or better accuracy and much faster processing speed comparing to GA.
-Greedy search is the default method used in the space utilization app, and user can also choose to use GA by setting the `useGA` parameter to `true` in the [space analytics config section](/vss/system-components/analytics-microservices/behavior-analytics).
+Greedy search is the default method used in the space utilization app, and user can also choose to use GA by setting the `useGA` parameter to `true` in the [space analytics config section](/system-components/analytics-microservices/behavior-analytics).
 
 ## Other Tools
 
@@ -2222,7 +2222,7 @@ The full config file for the SpaceUtilization tool is shown below:
 }
 ```
 
-Space analytics parameters (`spaceAnalyticsIntervalSec`, `spaceAnalyticsGridSize`, etc.) follow the same naming convention as described in the [space analytics config section](/vss/system-components/analytics-microservices/behavior-analytics).
+Space analytics parameters (`spaceAnalyticsIntervalSec`, `spaceAnalyticsGridSize`, etc.) follow the same naming convention as described in the [space analytics config section](/system-components/analytics-microservices/behavior-analytics).
 The extra parameters in the `app` section are described below:
 
 | Name | Default | Description |
@@ -2248,13 +2248,13 @@ The extra parameters in the `app` section are described below:
 
 Sample space utilization visualization is shown below. The green color patch indicates the extra pallets that can be placed in the free space, and the blue color shows the rest of the free space.
 
-![Free Space Quality](/assets/images/behavior-analytics/space-utilization-viz.png)
+![Free Space Quality](./assets/images/behavior-analytics/space-utilization-viz.png)
 
 When visualizing space utilization, if `advancedOverlay` is set to `true`, the tool will make the color patch transparent as well as avoid overlapping on the existing objects (boxes/pallets) in the buffer zone.
 This makes image visualization more intuitive to read but will also introduce extra computation time. For reference, a single visualization invocation time goes from 0.04sec to 1.7sec when using advanced overlay.
 Sample space utilization visualization with advanced overlay is shown below.
 
-![Free Space Quality](/assets/images/behavior-analytics/space-utilization-viz-advanced.png)
+![Free Space Quality](./assets/images/behavior-analytics/space-utilization-viz-advanced.png)
 
 Sample visualizations of frame alerts are shown below.
 The dark red color bounding box highlights the restricted area violation objects.
@@ -2262,9 +2262,9 @@ The orange color bounding box shows the confined area violation objects.
 The blue color bounding box shows the center object of a proximity violation detection,
 the red circle indicates the proximity range and the red bounding box highlights the proximity violation object.
 
-![Free Space Quality](/assets/images/behavior-analytics/alerts-confined-restricted.png)
+![Free Space Quality](./assets/images/behavior-analytics/alerts-confined-restricted.png)
 
-![Free Space Quality](/assets/images/behavior-analytics/alerts-confined-proximity.png)
+![Free Space Quality](./assets/images/behavior-analytics/alerts-confined-proximity.png)
 
 ### USD Search Tool
 
@@ -2585,7 +2585,7 @@ or point the service at a custom config or calibration without redeploying the f
 warehouse blueprint stack.
 
 The Skill is published in the `skills/deployment/vss-setup-behavior-analytics` folder of the VSS Blueprint repository.
-Install it the same way as any other VSS Agent Skill — see [Installing Skills](/vss/vision-agent/agent-skills#installing-skills)
+Install it the same way as any other VSS Agent Skill — see [Installing Skills](/vision-agent/agent-skills#installing-skills)
 for the catalog-wide install flow.
 
 ### When to invoke
@@ -2614,9 +2614,9 @@ The Skill drives the operator through four decisions, then deploys:
 | `apps/smart_city/main_smart_city_app.py` | `SmartCityApp` — geo-oriented street/city pipeline with anomaly detection built in unconditionally. Behavior clustering registers only when `inference.enable` is `true`. |
 | `apps/composite/main_composite_app.py` | `CompositeApp` — every capability in one process, each enabled by its own `numWorkersFor*` count. The heavyweight option: it builds all capability state at startup regardless of what you enable. Pick it only when the combination you want is not a shipped app. The shipped `composite_config.json` sets every count to `0`, so the app logs a FATAL and exits 0 until you set some. |
 
-2. **Config (required)** — either a profile-shipped config (recommended pairings are listed in the Skill reference) or any custom JSON conforming to the shape documented in [Configuration Parameters](/vss/system-components/analytics-microservices/behavior-analytics#configuration-parameters). Mounted into the container at `/resources/vss-behavior-analytics-config.json` and passed via `--config`.
+2. **Config (required)** — either a profile-shipped config (recommended pairings are listed in the Skill reference) or any custom JSON conforming to the shape documented in [Configuration Parameters](/system-components/analytics-microservices/behavior-analytics#configuration-parameters). Mounted into the container at `/resources/vss-behavior-analytics-config.json` and passed via `--config`.
 
-3. **Calibration (optional)** — pick a `"cartesian"` / `"geo"` / `"image"` calibration file (profile-shipped or custom), or skip it entirely. If skipped, the app starts with a `DynamicCalibration` wrapper that waits for the first calibration notification on `mdx-notification` before switching to the typed subclass. See [Image to Global Coordinate Transformation](/vss/system-components/analytics-microservices/behavior-analytics#image-to-global-coordinate-transformation) for the calibration types.
+3. **Calibration (optional)** — pick a `"cartesian"` / `"geo"` / `"image"` calibration file (profile-shipped or custom), or skip it entirely. If skipped, the app starts with a `DynamicCalibration` wrapper that waits for the first calibration notification on `mdx-notification` before switching to the typed subclass. See [Image to Global Coordinate Transformation](/system-components/analytics-microservices/behavior-analytics#image-to-global-coordinate-transformation) for the calibration types.
 
 4. **Broker** — Kafka / Redis Streams / MQTT is **not required to launch**. Without a reachable broker, the container cycles via `restart: always` until one comes up. With a broker, the dynamic-update flows below become available.
 
@@ -2625,8 +2625,8 @@ The Skill drives the operator through four decisions, then deploys:
 Once the container is running and a broker is reachable, the Skill can also walk you
 through the two runtime-update flows that don't require restarting the container:
 
-* **Dynamic config** — publish an `upsert` (per-key patch) or `upsert-all` (full snapshot) to `mdx-notification` with Kafka key `behavior-analytics-config`. See [Dynamic Configuration](/vss/system-components/analytics-microservices/behavior-analytics#dynamic-configuration) for the wire contract and ack semantics.
-* **Dynamic calibration** — publish to the same topic with Kafka key `calibration` using `upsert-all` / `upsert` / `delete` actions. See [Dynamic Calibration](/vss/system-components/analytics-microservices/behavior-analytics#dynamic-calibration) for the per-action validation policy.
+* **Dynamic config** — publish an `upsert` (per-key patch) or `upsert-all` (full snapshot) to `mdx-notification` with Kafka key `behavior-analytics-config`. See [Dynamic Configuration](/system-components/analytics-microservices/behavior-analytics#dynamic-configuration) for the wire contract and ack semantics.
+* **Dynamic calibration** — publish to the same topic with Kafka key `calibration` using `upsert-all` / `upsert` / `delete` actions. See [Dynamic Calibration](/system-components/analytics-microservices/behavior-analytics#dynamic-calibration) for the per-action validation policy.
 
 Both flows live entirely on the broker — the producer can be `video-analytics-api`, a
 custom script, or any Kafka/Redis/MQTT client that mirrors the wire shape.
@@ -2667,9 +2667,9 @@ The two screenshots below were captured against an earlier release that shipped 
 above; the skill's flow — inspect, check prerequisites, deploy, verify — is unchanged.
 </Note>
 
-![Coding agent confirming the compose entrypoint, checking Docker prerequisites, and warning about the version](/assets/images/behavior-analytics/standalone-dev-example-plan.png)
+![Coding agent confirming the compose entrypoint, checking Docker prerequisites, and warning about the version](./assets/images/behavior-analytics/standalone-dev-example-plan.png)
 
-![Coding agent deploying behavior-analytics, confirming the container is up, and the config loaded](/assets/images/behavior-analytics/standalone-dev-example-deploy.png)
+![Coding agent deploying behavior-analytics, confirming the container is up, and the config loaded](./assets/images/behavior-analytics/standalone-dev-example-deploy.png)
 
 When no broker is reachable, the logs show the expected broker-less state:
 kafka retries `localhost:9092` continuously, the workers find no
@@ -2678,7 +2678,7 @@ cycling its retry logic rather than exiting. Once a Kafka broker comes up at
 `localhost:9092` the workers connect and start processing on the next retry
 cycle.
 
-![Behavior Analytics logs showing Kafka connection retries with no broker running](/assets/images/behavior-analytics/standalone-broker-less-logs.png)
+![Behavior Analytics logs showing Kafka connection retries with no broker running](./assets/images/behavior-analytics/standalone-broker-less-logs.png)
 
 For the standalone-service walkthrough, configuration field guide, and per-flow wire
 contracts, refer to the Skill's bundled references under

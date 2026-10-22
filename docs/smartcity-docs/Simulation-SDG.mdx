@@ -8,12 +8,12 @@ Synthetic Data Generation (SDG) addresses simulation, and subsequently augmentat
 The SDG workflow can be broken in a series of steps:
 
 * Scenario creation (e.g. for collision detection) in simulation
-* Running simulation to generation video output along with ground truth
+* Running simulation to generate video output along with ground truth
 * Augmentation of simulation output to bridge the sim to real gap
 
 Each scenario is processed by a multi-stage pipeline to generate the full dataset, as shown below.
 
-![The multi-stage SDG pipeline: each scenario passes through simulation, ground-truth generation, and Cosmos augmentation to produce the full dataset](/assets/images/SDG_Workflow.png)
+![The multi-stage SDG pipeline: each scenario passes through simulation, ground-truth generation, and Cosmos augmentation to produce the full dataset](../assets/images/SDG_Workflow.png)
 
 ## Simulation for Outdoor Environments
 
@@ -36,11 +36,11 @@ Scenario simulations can be recorded and saved as a CARLA log file (in custom bi
 
 You can create simulations on real world locations using their digital twins. A sample CARLA map for Montague Expressway in Santa Clara, CA, USA (screenshot below) is available from AVES for download and testing.
 
-![Screenshot of the CARLA digital twin of Montague Expressway in Santa Clara, California](/assets/images/Montague-DT.png)
+![Screenshot of the CARLA digital twin of Montague Expressway in Santa Clara, California](../assets/images/Montague-DT.png)
 
 To create and use your own digital twin, follow these steps:
 
-* Install full CARLA distribution that includes the UE4 Editor and the AVES plugin (see link provided earlier). Follow AVES instructions to select the map area and generate the CARLA map. If you need a very accurate geo-representation of the area for your simulation and [Calibration](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/development-workflow/calibration) needs, you can ask AVES to provide you a cleaned up xodr file for your chosen location that you can import into your project and use. Once the map is created, you can package it using CARLA's [packaging instructions](https://carla.readthedocs.io/en/latest/tuto_content_authoring_maps/#exporting-a-map-as-a-separate-package) to generate the tar.gz (similar to the sample) that you can import and install on other CARLA instances for simulation and testing. See section below for setting up CARLA server and importing your generated map.
+* Install full CARLA distribution that includes the UE4 Editor and the AVES plugin (see link provided earlier). Follow AVES instructions to select the map area and generate the CARLA map. If you need a very accurate geo-representation of the area for your simulation and [Calibration](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/development-workflow/calibration) needs, you can ask AVES to provide you a cleaned up xodr file for your chosen location that you can import into your project and use. Once the map is created, you can package it using CARLA's [packaging instructions](https://carla.readthedocs.io/en/latest/tuto_content_authoring_maps/#exporting-a-map-as-a-separate-package) to generate the tar.gz (similar to the sample) that you can import and install on other CARLA instances for simulation and testing. See section below for setting up CARLA server and importing your generated map.
 * You can generate traffic on the digital twin using AVES provided instructions with their additional script. To create custom scenarios for anomalies like collisions, wrong way driving, speeding, stalling, etc., you can install and use RoadRunner tooling. See section below on how to create such scenarios using RoadRunner. They can then be processed with the SDG pipeline to generate data at scale, to fine tune your models for Smart City use cases.
 
 ### Set up CARLA server and Import Custom Map
@@ -114,21 +114,21 @@ services:
 ```
 
 If you have additional services that need to communicate with the CARLA server, you can integrate them into your existing Docker Compose workflow by configuring them accordingly.
-One such use case is running calibration using Digital Twin. For more information refer to ([Calibration](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/development-workflow/calibration)).
+One such use case is running calibration using Digital Twin. For more information refer to ([Calibration](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/development-workflow/calibration)).
 
 ### Create Scenarios using RoadRunner
 
 You can use RoadRunner to create scenarios and then cosimulate with CARLA to generate the data. Once you import the sample Montague Expressway map, you'll see something similar to below
 
-![Montague Expressway RoadRunner map](/assets/images/scbp/montague-roadrunner.png)
+![Montague Expressway RoadRunner map](../assets/images/scbp/montague-roadrunner.png)
 
 * You can then add vehicles into the scene, add paths to each vehicle in the scene, modify behaviors, and create scenarios as desired
 
-![Montague Expressway collision scenario](/assets/images/scbp/montague-test-collision.png)
+![Montague Expressway collision scenario](../assets/images/scbp/montague-test-collision.png)
 
 * Afterwards, cosimulation with CARLA can occur. The above scenario can be seen below being played out in CARLA
 
-![Montague Expressway collision scenario in CARLA](/assets/images/scbp/montague-carla-output.gif)
+![Montague Expressway collision scenario in CARLA](../assets/images/scbp/montague-carla-output.gif)
 
 For more information on creating scenarios using RoadRunner, refer to the [RoadRunner blog](https://blogs.mathworks.com/autonomous-systems/2026/01/05/roadrunner-for-nvidia-sgd/) and [documentation](https://www.mathworks.com/help/roadrunner).
 
@@ -142,7 +142,7 @@ Although there are multiple types of sensors, they are placed together at the sa
 
 The SDG workflow runs in multiple stages to generate the base ground truths, and the augmented output through Cosmos. The base ground truths include frames and video for RGB, Instance and Semantic segmentation, Depth, Edge, Normals, 2D and 3D Bounding box overlays, ODVG data, and Json files for objects, instances, and detected collisions. The augmented output (only supported for scenario duration of up to 15 secs for Cosmos Transfer) includes multiple iterations with RGB video and bounding box overlays, including collision and non-collision vehicles. The full list of SDG outputs is shown below, with a separate output folder (denoted by SDG-1, SDG-2,...) generated for each input log.
 
-![Full list of SDG outputs per input log, with a separate output folder generated for each log](/assets/images/SDG_Outputs.png)
+![Full list of SDG outputs per input log, with a separate output folder generated for each log](../assets/images/SDG_Outputs.png)
 
 ## Augmentation
 
@@ -152,7 +152,7 @@ Cosmos Transfer 2.5 transforms synthetic simulator outputs into photorealistic, 
 
 The simulation generates synthetic data that, while providing perfect ground truth, has a characteristic rendering style that creates a domain gap with real-world data:
 
-![Base simulation RGB output from CARLA](/assets/images/sdg-augmentation/simulation_base_rgb.png)
+![Base simulation RGB output from CARLA](../assets/images/sdg-augmentation/simulation_base_rgb.png)
 
 ### Types of Augmentation
 
@@ -199,7 +199,7 @@ From a single base simulation, Cosmos Transfer 2.5 generates photorealistic vari
 
 The key benefit of this augmentation approach is **multiplicity** - from a single simulation scenario, you can generate 18+ photorealistic variations spanning different lighting, weather, and road conditions. The matrix below shows all possible augmentations from one base scene:
 
-![Complete augmentation matrix showing 18 variations from a single base scenario](/assets/images/sdg-augmentation/augmentation_matrix_grid.gif)
+![Complete augmentation matrix showing 18 variations from a single base scenario](../assets/images/sdg-augmentation/augmentation_matrix_grid.gif)
 
 This approach provides significant advantages over traditional simulator methods:
 
@@ -212,20 +212,20 @@ For more details on Cosmos Transfer 2.5 for sim-to-real augmentation, see the [C
 
 ### Setup and Workflow
 
-Details on how to setup and run the SDG workflow are available in this [cookbook recipe](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/end2end/smart_city_sdg/workflow_e2e.html).
+Details on how to set up and run the SDG workflow are available in this [cookbook recipe](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/end2end/smart_city_sdg/workflow_e2e.html).
 
 ### SDG Integration with Smart City Blueprint end-to-end Workflow
 
 The SDG-generated videos can be ingested into the Smart City workflow for validation and testing. The screenshot below shows the Map UI visualizing the processed SDG video output, with vehicle detections, tracking, and collision alerts overlaid on the Montague Expressway digital twin.
 
-![SDG video output visualized in Map UI](/assets/images/scbp/montague-mapui.png)
+![SDG video output visualized in Map UI](../assets/images/scbp/montague-mapui.png)
 
 The workflow generates metrics that can be monitored through Kibana dashboards, enabling analysis of detection accuracy and traffic patterns from the synthetic data.
 
-![Kibana dashboard showing SDG workflow metrics](/assets/images/scbp/montague-kibana-dashboard.png)
+![Kibana dashboard showing SDG workflow metrics](../assets/images/scbp/montague-kibana-dashboard.png)
 
-The [VSS Blueprint UI](/vss/system-components/user-interface) displays detected collision alerts with timestamps, sensor information, and alert descriptions, allowing verification of incident detection from the SDG video output.
+The [VSS Blueprint UI](/system-components/user-interface) displays detected collision alerts with timestamps, sensor information, and alert descriptions, allowing verification of incident detection from the SDG video output.
 
-The UI's [Alerts Tab](/vss/system-components/user-interface#1-alerts-tab) shows those results.
+The UI's [Alerts Tab](/system-components/user-interface#1-alerts-tab) shows those results.
 
-![Alerts table showing collision alerts](/assets/images/scbp/montague-vssui.png)
+![Alerts table showing collision alerts](../assets/images/scbp/montague-vssui.png)

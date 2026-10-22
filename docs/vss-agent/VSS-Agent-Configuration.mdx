@@ -60,8 +60,8 @@ llms:
 | `temperature` | No | Sampling temperature; `0.0` selects deterministic sampling. |
 | `model_kwargs` | No | Provider-specific request options. |
 
-See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm)
-and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm)
+See [Configure the LLM](/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm)
+and [Configure the VLM](/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm)
 for supported model-placement examples.
 
 ## MCP Clients
@@ -315,19 +315,19 @@ general:
 | `project` | Yes | Phoenix project used to group traces. |
 
 For setup and trace inspection, see
-[Agent Observability](/vss/vision-agent/vss-agents/observability).
+[Agent Observability](/vision-agent/vss-agents/observability).
 
 ## Evaluation Configuration
 
 The `eval:` section configures the evaluation framework. See
-[Agent Evaluation](/vss/vision-agent/vss-agents/agent-evaluation) for evaluator
+[Agent Evaluation](/vision-agent/vss-agents/agent-evaluation) for evaluator
 types and examples.
 
 ## Environment Variables
 
 Profile `.env` files and the final local Compose override file supply values to
 the Agent container. Create and select that file as described in
-[Configuration](/vss/system-components/configuration).
+[Configuration](/system-components/configuration).
 
 | Variable | Purpose |
 | --- | --- |
@@ -361,7 +361,7 @@ nothing needs to be configured for a stock image to report its version.
 The checked-in profile files already define the service URLs and stable
 defaults. For a Docker Compose deployment, a `user-overrides.env` file should
 contain only values you need to change. See
-[Configuration](/vss/system-components/configuration) for file precedence.
+[Configuration](/system-components/configuration) for file precedence.
 For example, an override can contain:
 
 ```bash

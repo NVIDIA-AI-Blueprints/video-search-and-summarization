@@ -66,7 +66,7 @@ export const useTheme = () => {
     // Only apply theme changes after hydration
     if (!isHydrated) return;
     
-    // Tailwind `dark` + Kaizen `nv-dark` (see kaizen theme.css :where(.nv-dark,.nv-dark *))
+    // Tailwind `dark` + Kaizen `nv-dark` (see kaizen base.css :where(.nv-dark,.nv-dark *))
     const root = document.documentElement;
     if (theme === 'dark') {
       root.classList.add('dark', 'nv-dark');

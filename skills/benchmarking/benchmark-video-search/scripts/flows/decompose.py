@@ -66,6 +66,40 @@ PROMPT_SOURCE = "services/agent/packages/vss_agents/src/vss_agents/tools/search.
 TEMPERATURE = 0.0
 MAX_TOKENS = 4096
 
+#: The agent decomposes with reasoning off (``reasoning_utils``). Nemotron chat
+#: templates default ``enable_thinking`` to true, and a thinking reply is
+#: reasoning text -- or ``content: null`` -- rather than the JSON object.
+CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
+
+#: Models whose template reads that kwarg: the agent's
+#: ``_ENABLE_THINKING_MARKERS``, kept equal by a test. Any other model is sent
+#: nothing, since a strict OpenAI-compatible server rejects unknown fields.
+ENABLE_THINKING_MARKERS = ("nemotron-3.5-lightning", "nemotron-3-nano")
+
+
+def thinking_kwargs(model: str) -> dict[str, Any]:
+    """The ``chat_template_kwargs`` the agent would send this model, if any."""
+    name = (model or "").lower()
+    return dict(CHAT_TEMPLATE_KWARGS) if any(m in name for m in ENABLE_THINKING_MARKERS) else {}
+
+
+def thinking_off_tag(model: str) -> str | None:
+    """The line the agent appends to the system message to turn thinking off.
+
+    Mirrors ``reasoning_utils.get_thinking_tag(llm, False)``: Llama and NVIDIA
+    Nemotron NIMs read it from the system prompt, not from a template kwarg.
+    """
+    name = (model or "").lower().translate(str.maketrans("_.", "--"))
+    if name.startswith("nvidia/nvidia"):
+        return None if "nemotron-3" in name else "/no_think"
+    if name.startswith("nvidia/llama"):
+        if "v1-0" in name or "v1-1" in name or name.endswith("v1"):
+            return "detailed thinking off"
+        return "/no_think"
+    return None
+
+_THINK_BLOCK = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL)
+
 _SYSTEM = (
     "You are a helpful assistant that extracts search parameters from natural "
     "language queries. Return only valid JSON."
@@ -97,7 +131,7 @@ def load_prompt(repo_root: Path) -> tuple[str, str]:
 
 def _strip_fences(text: str) -> str:
     """Undo markdown fencing. Mirrors what ``decompose_query`` does upstream."""
-    stripped = text.strip()
+    stripped = _THINK_BLOCK.sub("", text).strip()
     if "```json" in stripped:
         return stripped.split("```json", 1)[1].split("```", 1)[0].strip()
     if "```" in stripped:
@@ -155,12 +189,29 @@ class LiveDecomposer:
         model: str | None = None,
         timeout_s: float = 120.0,
         chat_template_kwargs: dict[str, Any] | None = None,
+        source_type: str = "video_file",
     ) -> None:
-        self._chat_template_kwargs = validate_chat_template_kwargs(chat_template_kwargs)
+        explicit_settings = validate_chat_template_kwargs(chat_template_kwargs)
+        if source_type not in ("video_file", "rtsp"):
+            raise ValueError("source_type must be video_file or rtsp")
+        self._source_type = source_type
+        self._sources_label = "Video streams" if source_type == "rtsp" else "Video files"
         self._url = llm_url.rstrip("/")
         self._timeout = timeout_s
         self._prompt, self._few_shot = load_prompt(repo_root)
         self._model = model or self._discover_model()
+        # Explicit settings, including {}, override model-specific defaults.
+        self._chat_template_kwargs = (
+            explicit_settings
+            if explicit_settings is not None
+            else thinking_kwargs(self._model) or None
+        )
+        self._thinking_tag = (
+            None if explicit_settings is not None else thinking_off_tag(self._model)
+        )
+        self._system_prompt = (
+            f"{_SYSTEM}\n{self._thinking_tag}" if self._thinking_tag else _SYSTEM
+        )
 
     @property
     def model(self) -> str:
@@ -199,7 +250,10 @@ class LiveDecomposer:
             "max_tokens": MAX_TOKENS,
             "prompt_source": PROMPT_SOURCE,
             "prompt_sha256": hashlib.sha256(self._prompt.encode()).hexdigest(),
-            "system_prompt_sha256": hashlib.sha256(_SYSTEM.encode()).hexdigest(),
+            "source_type": self._source_type,
+            "system_thinking_tag": self._thinking_tag,
+            "system_prompt": self._system_prompt,
+            "system_prompt_sha256": hashlib.sha256(self._system_prompt.encode()).hexdigest(),
             "few_shot_sha256": hashlib.sha256(self._few_shot.encode()).hexdigest(),
             **(
                 {"chat_template_kwargs": copy.deepcopy(self._chat_template_kwargs)}
@@ -221,7 +275,7 @@ class LiveDecomposer:
         end-to-end cost the same way the CLI subprocess does.
         """
         sources = (
-            f"Video files: {', '.join(video_sources)}"
+            f"{self._sources_label}: {', '.join(video_sources)}"
             if video_sources
             else "No specific sources available"
         )
@@ -230,7 +284,7 @@ class LiveDecomposer:
             "temperature": TEMPERATURE,
             "max_tokens": MAX_TOKENS,
             "messages": [
-                {"role": "system", "content": _SYSTEM},
+                {"role": "system", "content": self._system_prompt},
                 {
                     "role": "user",
                     "content": self._prompt.format(
@@ -249,6 +303,7 @@ class LiveDecomposer:
             "submitted_request": body,
             "model": self._model,
             "prompt_source": PROMPT_SOURCE,
+            "configuration": self.describe(),
             "raw_response": None,
             "parsed": None,
             "error": None,
@@ -265,7 +320,9 @@ class LiveDecomposer:
             if evidence_sink:
                 evidence_sink(evidence)
             resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
+            message = resp.json()["choices"][0]["message"]
+            evidence["raw_message"] = copy.deepcopy(message)
+            content = message["content"]
         except (
             requests.RequestException,
             KeyError,
@@ -284,11 +341,17 @@ class LiveDecomposer:
         if evidence_sink:
             evidence_sink(evidence)
 
-        if not isinstance(content, str):
-            evidence["error"] = "model content must be a string"
+        if not isinstance(content, str) or not _strip_fences(content):
+            reasoning = message.get("reasoning_content") or message.get("reasoning") or ""
+            error = (
+                f"decomposition for {query!r} returned no content"
+                + (f" (only reasoning: {str(reasoning)[:120]!r})" if reasoning else "")
+                + ("; the model answered in thinking mode." if reasoning or content else ".")
+            )
+            evidence["error"] = error
             if evidence_sink:
                 evidence_sink(evidence)
-            raise DecompositionError(evidence["error"])
+            raise DecompositionError(error)
         try:
             decomposition = json.loads(_strip_fences(content))
         except json.JSONDecodeError as e:

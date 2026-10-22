@@ -22,6 +22,8 @@ while the agent and legacy paths remain available for older baselines.
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import time
 import uuid
 from datetime import datetime, timezone
@@ -58,6 +60,62 @@ _DUPLICATE_CAMERA_MARKER = "duplicate camera id"
 _DEFAULT_VIDEO_TYPE = "video/mp4"
 _JSON_TYPE = "application/json"
 _TIMEOUT_ERROR = "Request timeout"
+
+
+def _parse_rate(rate: Any) -> float | None:
+    """``"30000/1001"`` -> 29.97; ``"0/0"`` and garbage -> None."""
+    try:
+        num, _, den = str(rate).partition("/")
+        value = float(num) / float(den or 1)
+    except (ValueError, ZeroDivisionError):
+        return None
+    return round(value, 3) if value > 0 else None
+
+
+def probe_media(video_path: Path, timeout: int = 30) -> dict[str, float | None]:
+    """Duration and frame rate of a local file, from ffprobe.
+
+    Both are what the ingest gate's completion targets are computed from.
+    ``None`` when ffprobe is missing or cannot read the file: the gate falls
+    back to the VST timeline for duration, and drops the raw frame-count
+    target when the frame rate is unknown.
+    """
+    unknown: dict[str, float | None] = {"duration_s": None, "fps": None}
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return unknown
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe, "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=r_frame_rate:format=duration",
+                "-of", "json", str(video_path),
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+        payload = json.loads(proc.stdout or "{}") if proc.returncode == 0 else {}
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return unknown
+    try:
+        duration = float((payload.get("format") or {}).get("duration"))
+    except (TypeError, ValueError):
+        duration = None
+    streams = payload.get("streams") or [{}]
+    return {
+        "duration_s": round(duration, 3) if duration and duration > 0 else None,
+        "fps": _parse_rate(streams[0].get("r_frame_rate")),
+    }
+
+
+def _start_record(video_path: Path) -> dict[str, Any]:
+    """Probe first, then stamp the start, so ffprobe is not timed as upload."""
+    media = probe_media(video_path)
+    record = base_record(video_path)
+    record.update(media)
+    return record
 
 
 def classify_complete_failure(status_code: int, body: str) -> str:
@@ -102,7 +160,7 @@ class LegacyPutIngest:
         }
 
     def upload(self, video_path: Path) -> dict[str, Any]:
-        record = base_record(video_path)
+        record = _start_record(video_path)
         content_type = CONTENT_TYPES.get(video_path.suffix, _DEFAULT_VIDEO_TYPE)
         try:
             with open(video_path, "rb") as f:
@@ -216,7 +274,7 @@ class AgentThreeStepIngest:
         raise RuntimeError(f"/complete exhausted {self.complete_retries} attempts: {last_detail}")
 
     def upload(self, video_path: Path) -> dict[str, Any]:
-        record = base_record(video_path)
+        record = _start_record(video_path)
         filename = video_path.name
         content_type = CONTENT_TYPES.get(video_path.suffix, _DEFAULT_VIDEO_TYPE)
         phases: dict[str, float] = {}
@@ -336,13 +394,13 @@ class VstDirectIngest:
     * **No completion proof.** ``/complete`` runs the embedding leg
       synchronously and returns ``chunks_processed``; the webhook fan-out is
       fire-and-forget and VIOS never reports the outcome to the uploader. The
-      readiness poll and post-ingest index probe confirm that sources are
-      searchable, so ``chunks_processed`` is ``None`` -- not zero -- and the
-      run records ``ingest_proof: "none"``.
+      runner's ingest gate (:mod:`.ingest_readiness`) reads completion from
+      Elasticsearch instead, so ``chunks_processed`` is ``None`` -- not zero --
+      and the run records ``ingest_proof: "none"``.
     * **Webhook configuration varies by deployment.** Both Docker and Helm
       search profiles enable webhooks, but generic VIOS chart defaults do not.
-      If the deployed config leaves them off, the post-ingest index probe
-      aborts instead of scoring empty results.
+      If the deployed config leaves them off, RT-CV never lists the upload and
+      the ingest gate aborts instead of scoring empty results.
 
     :meth:`verify_anchor` remains as a cheap one-video sanity check, since a
     wrong anchor is silent and indistinguishable from broken retrieval.
@@ -421,7 +479,7 @@ class VstDirectIngest:
         }
 
     def upload(self, video_path: Path) -> dict[str, Any]:
-        record = base_record(video_path)
+        record = _start_record(video_path)
         filename = video_path.name
         content_type = CONTENT_TYPES.get(video_path.suffix, _DEFAULT_VIDEO_TYPE)
         overall_start = time.time()

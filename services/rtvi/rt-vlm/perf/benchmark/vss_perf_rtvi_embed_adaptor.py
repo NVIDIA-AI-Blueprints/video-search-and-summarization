@@ -161,6 +161,9 @@ def _load_live_streams_summary_from_xlsx(xlsx_path: str) -> Dict[str, Dict[str, 
         return {}
     out: Dict[str, Dict[str, Any]] = {}
     for _, row in summary_df.iterrows():
+        censored = row.get("capacity_censored", False)
+        if pd.notna(censored) and censored:
+            continue
         tc_id = row.get("test_case_id")
         if pd.isna(tc_id):
             continue
@@ -825,7 +828,7 @@ def rtvi_embed_execution_results_to_test_cases(
         summary_by_tc = _load_live_streams_summary_from_xlsx(xlsx_path)
 
         for tc in execution_results.get("test_cases", []):
-            if not tc.get("success"):
+            if not tc.get("success") or tc.get("capacity_censored", False):
                 continue
             test_case_id = tc.get("test_case_id", "")
             row = summary_by_tc.get(test_case_id)

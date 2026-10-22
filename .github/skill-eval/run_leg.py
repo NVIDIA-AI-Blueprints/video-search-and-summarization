@@ -983,7 +983,7 @@ def _registry_environment_groups(registry_path: Path) -> set[int]:
         f"{TRANSPORT_PGID_REGISTRY_ENV}={registry_path}".encode()
     )
     try:
-        proc_entries = Path("/proc").iterdir()
+        proc_entries = list(Path("/proc").iterdir())
     except OSError:
         return set()
     groups: set[int] = set()
@@ -1670,6 +1670,8 @@ def spark_instance() -> str:
     node = matches[0]
     name = node["name"]
     if (node.get("status") or "").lower() != "connected":
+        if node_id(node) != SPARK_NODE_ID:
+            raise ValueError("Disconnected Spark worker lacks its registered node ID")
         # Registered-node status can lag a working Brev SSH connection.
         # Only the explicitly selected, identity-checked Spark may use this
         # fallback; automatic pool selection still requires Connected.

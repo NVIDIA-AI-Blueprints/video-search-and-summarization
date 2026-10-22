@@ -543,6 +543,7 @@ class SelectImagesTest(unittest.TestCase):
                 "vss-vios-streamprocessing",
                 "vss-vios-nvstreamer",
                 "vss-vios-ingress",
+                "reid-embed",
                 "vss-rt-embed",
                 "vss-rt-embed-sbsa",
                 "vss-rt-vlm-sbsa",

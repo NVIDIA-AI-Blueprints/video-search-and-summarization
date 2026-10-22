@@ -25,11 +25,10 @@
         "postcss": "8.5.26"
     },
     "devDependencies": {
-        "turbo": "^2.10.12"
+        "turbo": "^2.11.10"
     },
     "overrides": {
         "preact": "10.29.8",
-        "@ariakit/react": "0.4.26",
         "react": "19.2.8",
         "react-dom": "19.2.8",
         "next": {

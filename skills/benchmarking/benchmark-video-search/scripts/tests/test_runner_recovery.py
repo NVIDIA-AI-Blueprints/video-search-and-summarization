@@ -144,6 +144,11 @@ def test_cleanup_retains_gallery_instead_of_default_dataset(tmp_path, monkeypatc
     )
     deleted = []
     monkeypatch.setattr(
+        flows, "list_sensor_sources",
+        lambda *args: {sid: {"name": name, "url": f"/storage/{name}"}
+                       for sid, name in flows.list_sensor_streams(*args).items()},
+    )
+    monkeypatch.setattr(
         pipeline.requests,
         "delete",
         lambda url, **kwargs: deleted.append(url) or Mock(status_code=200, json=lambda: {"status": "success"}),

@@ -5,8 +5,8 @@ position: 4
 ---
 NvSchema can be defined in the following two formats. Only one may be used for a given deployment (default: Protobuf).
 
-- [JSON Schema](/vss/system-components/middleware/nvschema/json-schema)
-- [Protobuf Schema](/vss/system-components/middleware/nvschema/protobuf-schema)
+- [JSON Schema](/system-components/middleware/nvschema/json-schema)
+- [Protobuf Schema](/system-components/middleware/nvschema/protobuf-schema)
 
 ## Introduction
 
@@ -71,7 +71,7 @@ purpose it is reasonable to adopt it for the description of camera specific comm
 *Table 2: Sensor Metadata*
 
 <Note>
-Additional camera parameters like lens distortion, focal length, etc., for camera calibration can also be added to the Sensor Metadata. Similarly, environmental attributes such as temperature, relative humidity etc., can also be added. Attributes should follow the ONVIF standard specified in ONVIF-Core-Specification-v1612.pdf for those that are defined by the ONVIF core specification. SensorCoordinates denote the Cartesian coordinates, with respect to some Euclidian plane. Such information yield to faster and simpler computation in spatio-temporal analysis than utilizing geo-coordinates (which are uses computations on an ellipsoid surface).
+Additional camera parameters like lens distortion, focal length, etc., for camera calibration can also be added to the Sensor Metadata. Similarly, environmental attributes such as temperature, relative humidity etc., can also be added. Attributes should follow the ONVIF standard specified in ONVIF-Core-Specification-v1612.pdf for those that are defined by the ONVIF core specification. SensorCoordinates denote the Cartesian coordinates, with respect to some Euclidian plane. Such information leads to faster and simpler computation in spatio-temporal analysis than utilizing geo-coordinates (which require computations on an ellipsoid surface).
 </Note>
 
 ### Metadata about the “Things" seen (and heard) in the video

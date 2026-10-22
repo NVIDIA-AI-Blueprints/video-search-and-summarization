@@ -106,6 +106,12 @@ leg re-ranks by appearance. A decomposition missing `has_action` routes to
 `fusion`, because fusion still returns the embedding leg's candidates while
 `attribute` would silently drop every action-based match.
 
+Benchmark routing preserves every validated attribute, including single-word
+attributes. It does not apply the product agent's single-word pruning. A
+missing `has_action` retains the legacy fusion default; an explicitly null or
+non-boolean value is invalid. These differences are intentional and must be
+recorded when comparing this runner with product-agent routing.
+
 > **Attributes are matched semantically, not literally.** Attribute search
 > embeds your attribute text with RTVI-CV and runs kNN against per-object visual
 > embeddings. There is no attribute vocabulary to match against, and none is

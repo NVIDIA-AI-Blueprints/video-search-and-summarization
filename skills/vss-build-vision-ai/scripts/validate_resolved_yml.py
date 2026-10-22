@@ -42,6 +42,7 @@ DEFAULT_CONTAINER_TAG = "develop-latest"
 # by last path segment so a registry override stays covered.
 MANAGED_IMAGE_NAMES = frozenset(
     {
+        "reid-embed",
         "sdr-mw-l",
         "vss-agent",
         "vss-agent-ui",

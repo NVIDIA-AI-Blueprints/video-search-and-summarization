@@ -64,7 +64,7 @@ if missing, which deployment endpoint to target.
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET \
-    --skip-download --skip-existing --name RUN_NAME
+    --skip-download --skip-existing --webhooks-confirmed --name RUN_NAME
 ```
 
 Five defaults, each load-bearing:
@@ -345,3 +345,20 @@ After an index reset, run `vss configure --base-url <the recorded origin>` again
 when ingestion has created the lazy indices. If readiness reports that raw-frame
 lookup was disabled by the old configuration snapshot, reconfigure and rerun
 ingestion with `--skip-existing`, without `--clear`, to verify the existing data.
+
+
+### Integration contracts
+
+This branch retains the staged evaluator's routing and readiness contracts.
+Single-word extracted attributes are preserved, and omitted `has_action`
+retains the legacy fusion route; explicit invalid values fail validation.
+These choices can differ from product-agent routing and must be reported in
+comparisons. Live decomposition failures remain explicit failures rather than
+silently switching to embedding-only retrieval.
+
+Upstream background ingestion monitoring is deferred. The active gate is the
+configured `vss search readiness` command; direct Elasticsearch/RT-CV watcher
+polling flags are not runner controls. Cleanup remains explicit and confirmed.
+Fresh RTSP ingestion is unsupported: use `--source-type rtsp --skip-ingest`
+only for already registered sources. Inspect the reused-index inventory and
+report indexed coverage separately from annotation-gallery coverage.

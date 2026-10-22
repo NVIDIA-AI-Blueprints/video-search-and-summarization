@@ -31,6 +31,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from .ingest_readiness import raw_coverage
+
 #: Where DSS downloads land unless --data-dir says otherwise.
 #:
 #: Deliberately NOT /tmp, which run_eval.py used and which is world-writable.
@@ -264,6 +266,107 @@ def print_upload_summary(stats: dict[str, Any]) -> None:
         print("\nFailed Uploads:")
         for err in errs:
             print(f"  - {err['video']}: {err['error']}")
+    print(f"{'=' * 60}\n")
+
+
+def _mean_p90(values: list[float]) -> dict[str, float] | None:
+    """Mean and P90 by the same ``sorted[int(n * pct)]`` rule as upload latency."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    n = len(ordered)
+    return {"mean": round(statistics.mean(ordered), 3), "p90": round(ordered[min(int(n * 0.9), n - 1)], 3)}
+
+
+def aggregate_ingest_stats(readiness: dict[str, Any]) -> dict[str, Any]:
+    """Batch ingest figures from the ingest gate's per-video reports.
+
+    Shaped to fill the docs' upload table directly. Chunks come from the
+    embedding index, so they are filled on ``vst-direct`` too, where the
+    upload itself reports none.
+    """
+    per_video = readiness.get("per_video") or []
+    durations = [r["duration_s"] for r in per_video if r.get("duration_s")]
+    chunk_counts = [r["counts"]["embed"] for r in per_video if "embed" in (r.get("counts") or {})]
+
+    wall_s = None
+    finished = [
+        (r["upload_start_mono"], r["upload_start_mono"] + r["ingest_s"])
+        for r in per_video
+        if r.get("upload_start_mono") is not None and r.get("ingest_s") is not None
+    ]
+    if finished and len(finished) == len(per_video):
+        wall_s = round(max(end for _, end in finished) - min(start for start, _ in finished), 3)
+    total_duration = sum(r.get("duration_s") or 0.0 for r in per_video)
+
+    return {
+        "outcome": readiness.get("outcome"),
+        "absent": dict(readiness.get("absent") or {}),
+        "videos": len(per_video),
+        "duration_range_s": [min(durations), max(durations)] if durations else None,
+        "total_size_mb": round(sum(r.get("file_size_mb") or 0.0 for r in per_video), 2),
+        "chunks": (
+            {"total": sum(chunk_counts), "avg_per_video": round(sum(chunk_counts) / len(chunk_counts), 1)}
+            if chunk_counts else None
+        ),
+        "embed_done_s": _mean_p90(
+            [r["per_index_done_s"]["embed"] for r in per_video
+             if (r.get("per_index_done_s") or {}).get("embed") is not None]
+        ),
+        "ingest_s": _mean_p90([r["ingest_s"] for r in per_video if r.get("ingest_s") is not None]),
+        "wall_s": wall_s,
+        "video_min_per_min": round(total_duration / wall_s, 3) if wall_s else None,
+        "poll_interval_s": readiness.get("poll_interval_s"),
+        "quiet_s": readiness.get("quiet_s"),
+        "behavior_check": readiness.get("behavior_check"),
+    }
+
+
+def print_ingest_summary(stats: dict[str, Any], per_video: list[dict[str, Any]] | None = None) -> None:
+    """Print the ingest gate's figures in the same style as the upload block.
+
+    ``stats`` is the batch block (``summary.ingest``); ``per_video`` is the
+    gate's own report (``flow.ingest_readiness.per_video``), the one copy.
+    """
+    if not stats or not stats.get("videos"):
+        return
+
+    def _pair(block: dict[str, float] | None) -> str:
+        return f"mean {block['mean']:.1f}s  P90 {block['p90']:.1f}s" if block else "n/a"
+
+    print(f"\n{'=' * 60}")
+    print("INGESTION SUMMARY")
+    print(f"{'=' * 60}")
+    absent = stats.get("absent") or {}
+    print(f"Outcome:            {stats['outcome']}{' (degraded)' if absent else ''}")
+    for reason in absent.values():
+        print(f"  WARNING: {reason}")
+    print(f"Videos:             {stats['videos']}")
+    if stats.get("chunks"):
+        print(f"Chunks:             {stats['chunks']['total']} (avg {stats['chunks']['avg_per_video']}/video)")
+    print(f"Embeddings done:    {_pair(stats.get('embed_done_s'))}")
+    print(f"Full ingestion:     {_pair(stats.get('ingest_s'))}")
+    if stats.get("wall_s") is not None:
+        print(f"Batch wall clock:   {stats['wall_s']:.1f}s  ({stats['video_min_per_min']} video-min/min)")
+    print(f"Poll interval:      {stats['poll_interval_s']}s (timings late by at most this)")
+    if stats.get("behavior_check"):
+        print(f"Behavior check:     {stats['behavior_check']} ({stats['quiet_s']}s, heuristic)")
+
+    def _s(value: float | None) -> str:
+        return f"{value}s" if value is not None else "n/a"
+
+    for r in per_video or []:
+        done = "  ".join(f"{k}={_s(v)}" for k, v in (r.get("per_index_done_s") or {}).items())
+        flag = f"  OVER TARGET: {r['over_target']}" if r.get("over_target") else ""
+        print(f"  {r['sensor']}: {r['outcome']}  ingest={_s(r.get('ingest_s'))}  {done}{flag}")
+        if "raw" in (r.get("counts") or {}) and "raw" not in (r.get("absent") or []):
+            frames = (r.get("targets") or {}).get("raw")
+            print(
+                f"    raw={raw_coverage(r['counts']['raw'], frames)}  last detection "
+                f"{_s(r.get('raw_last_s'))} of {_s(r.get('duration_s'))}"
+            )
+        for warning in r.get("warnings") or []:
+            print(f"    WARNING: {warning}")
     print(f"{'=' * 60}\n")
 
 

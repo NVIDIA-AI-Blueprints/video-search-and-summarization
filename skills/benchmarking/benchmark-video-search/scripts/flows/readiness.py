@@ -55,19 +55,25 @@ def list_sensor_streams(vst_url: str, timeout: int = VST_LIST_TIMEOUT) -> dict[s
     matters for destructive callers: deriving the origin twice is how you end
     up deleting from a different host than the one you listed.
     """
+    return {sid: s["name"] for sid, s in list_sensor_sources(vst_url, timeout).items()}
+
+
+def list_sensor_sources(vst_url: str, timeout: int = VST_LIST_TIMEOUT) -> dict[str, dict[str, str]]:
+    """Return ``{stream_id: {"name", "url"}}`` for every registered sensor."""
     resp = requests.get(f"{vst_url.rstrip('/')}/vst/api/v1/sensor/streams", timeout=timeout)
     resp.raise_for_status()
     payload = resp.json() or []  # list of {stream_id: [{name, url, ...}]}
 
-    streams: dict[str, str] = {}
+    sources: dict[str, dict[str, str]] = {}
     for entry in payload:
         if not isinstance(entry, dict) or not entry:
             continue
         stream_id = next(iter(entry))
         stream_list = entry[stream_id]
         if stream_list:
-            streams[stream_id] = stream_list[0].get("name", "unknown")
-    return streams
+            first = stream_list[0]
+            sources[stream_id] = {"name": first.get("name", "unknown"), "url": str(first.get("url") or "")}
+    return sources
 
 
 def inventory_snapshot(vst_url: str) -> dict[str, Any]:
@@ -116,7 +122,7 @@ def name_variants(video_name: str) -> set[str]:
     Matching on the stem alone therefore waits forever for sources that are
     already registered. Accept either.
     """
-    stem = video_name.rsplit(".", 1)[0]
+    stem = video_name.rsplit(".", 1)[0] if video_name.lower().endswith((".mp4", ".mkv")) else video_name
     return {stem.lower(), f"{stem.lower()}.mp4", f"{stem.lower()}.mkv"}
 
 
@@ -133,10 +139,9 @@ def wait_for_sources(
 ) -> dict[str, Any]:
     """Block until VST lists every expected source, or the budget runs out.
 
-    Only VST registration is checked. The upstream skill also checks the three
-    Elasticsearch indices directly, which this deliberately does not do --
-    reaching past the public origin into ES is what the skill's hard boundaries
-    forbid.
+    Only VST registration is checked. Whether perception has finished is
+    the configured CLI readiness gate's question. The standalone upstream
+    :mod:`.ingest_readiness` watcher is retained but not activated by this runner.
 
     Note VST registration is not a complete readiness signal: an aborted ingest
     can leave embedding documents in Elasticsearch with no VST sensor, which

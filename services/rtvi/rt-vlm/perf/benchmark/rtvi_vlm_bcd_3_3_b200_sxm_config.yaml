@@ -92,8 +92,11 @@ test_scenarios:
         latency_plateau_counts: [1, 16, 32, 64, 128]
         latency_plateau_duration_seconds: 300
         binary_search_refinement: true
+        max_stream_count: 512
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
@@ -123,8 +126,11 @@ test_scenarios:
         latency_plateau_counts: [1, 16, 32, 64, 128]
         latency_plateau_duration_seconds: 300
         binary_search_refinement: true
+        max_stream_count: 512
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
@@ -155,8 +161,11 @@ test_scenarios:
         latency_plateau_counts: [1, 16, 32, 64, 128]
         latency_plateau_duration_seconds: 300
         binary_search_refinement: true
+        max_stream_count: 512
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
@@ -186,8 +195,11 @@ test_scenarios:
         latency_plateau_counts: [1, 16, 32, 64, 128]
         latency_plateau_duration_seconds: 300
         binary_search_refinement: true
+        max_stream_count: 512
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
@@ -218,8 +230,11 @@ test_scenarios:
         latency_plateau_counts: [1, 16, 32, 64, 128]
         latency_plateau_duration_seconds: 300
         binary_search_refinement: true
+        max_stream_count: 512
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
@@ -249,8 +264,11 @@ test_scenarios:
         latency_plateau_counts: [1, 16, 32, 64, 128]
         latency_plateau_duration_seconds: 300
         binary_search_refinement: true
+        max_stream_count: 512
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5

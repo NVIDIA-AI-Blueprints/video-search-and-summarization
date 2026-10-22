@@ -59,6 +59,13 @@ from flows.artifacts import (
     write_ingest_manifest,
     write_retrieval_artifact,
 )
+from flows.preflight import (
+    check_inputs_before_wipe,
+    check_reused_index,
+    dataset_video_names,
+    decomposition_sources,
+    file_sources,
+)
 from flows.scoring import SCORING_BACKENDS
 from flows.scoring.gallery import load_gallery_gt, validate_gallery_queries
 
@@ -93,7 +100,7 @@ def _verify_deleted(
     vst_url: str, targets: dict[str, str], *, require_empty: bool = False
 ) -> list[str]:
     """Verify targeted registrations disappeared; index reset is a separate operation."""
-    remaining = flows.list_sensor_streams(vst_url)
+    remaining, _ = file_sources(vst_url)
     target_names = set(targets.values())
     return [
         name
@@ -111,7 +118,7 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
     deployments carry other people's fixtures.
     """
     try:
-        streams = flows.list_sensor_streams(vst_url)
+        streams, kept_rtsp = file_sources(vst_url)
     except Exception as e:
         raise SystemExit(
             f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})"
@@ -119,7 +126,7 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
 
     if not streams:
         print("  No videos found to delete.")
-        return {"found": 0, "deleted": 0, "names": []}
+        return {"found": 0, "deleted": 0, "names": [], "kept_rtsp": kept_rtsp}
 
     print(f"  Deleting {len(streams)} video(s) from {agent_endpoint}:")
     for stream_id, name in streams.items():
@@ -137,7 +144,7 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
 
     try:
         remaining = _verify_deleted(vst_url, streams, require_empty=True)
-    except Exception as exc:
+    except (Exception, SystemExit) as exc:
         raise SystemExit(f"ABORTED: could not verify cleanup inventory: {exc}") from exc
     failed = list(dict.fromkeys([*failed, *remaining]))
     deleted = sum(name not in failed for name in streams.values())
@@ -147,6 +154,7 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
         "deleted": deleted,
         "failed": failed,
         "names": list(streams.values()),
+        "kept_rtsp": kept_rtsp,
     }
 
 
@@ -424,7 +432,7 @@ def prune_foreign_videos(
     matcher is what stops this deleting a video the very next step re-uploads.
     """
     try:
-        streams = flows.list_sensor_streams(vst_url)
+        streams, kept_rtsp = file_sources(vst_url)
     except Exception as e:
         raise SystemExit(
             f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})"
@@ -467,7 +475,7 @@ def prune_foreign_videos(
 
     try:
         remaining = _verify_deleted(vst_url, foreign)
-    except Exception as exc:
+    except (Exception, SystemExit) as exc:
         raise SystemExit(f"ABORTED: could not verify pruned inventory: {exc}") from exc
     failed = list(dict.fromkeys([*failed, *remaining]))
     deleted = sum(name not in failed for name in foreign.values())
@@ -480,6 +488,7 @@ def prune_foreign_videos(
         "deleted": deleted,
         "failed": failed,
         "names": list(foreign.values()),
+        "kept_rtsp": kept_rtsp,
     }
 
 
@@ -584,12 +593,38 @@ def run_ingest(
     """
     manifest = IngestManifest(ingest_description=ingest_backend.describe())
     if cfg.ingestion_validation_contract and (
-        not cfg.gallery_gt or cfg.stage not in ("run", "ingest") or cfg.skip_ingest or cfg.skip_index_probe
+        not cfg.gallery_gt
+        or cfg.stage not in ("run", "ingest")
+        or cfg.skip_ingest
+        or cfg.skip_index_probe
     ):
-        raise SystemExit("ABORTED: indexed-content validation requires gallery ingestion with index probes enabled")
+        raise SystemExit(
+            "ABORTED: indexed-content validation requires gallery ingestion with index probes enabled"
+        )
     if cfg.skip_ingest:
         print("Skipping ingest (--skip-ingest)")
+        if cfg.vst_url:
+            names = (
+                [
+                    Path(row["video"]).stem
+                    for row in load_gallery_gt(cfg.gallery_gt)["gallery"]
+                ]
+                if cfg.gallery_gt
+                else dataset_video_names(
+                    cfg.data_dir / cfg.dataset / "videos",
+                    cfg.data_dir,
+                    cfg.dataset,
+                    cfg.subset,
+                )
+            )
+            manifest.readiness = {
+                "reused_index": check_reused_index(cfg.vst_url, names, cfg.source_type)
+            }
         return manifest
+    if cfg.source_type == "rtsp":
+        raise SystemExit(
+            "ABORTED: --source-type rtsp requires --skip-ingest; fresh uploads are video files"
+        )
     if (
         getattr(ingest_backend, "name", None) == "vst-direct"
         and not cfg.webhooks_confirmed
@@ -602,6 +637,8 @@ def run_ingest(
     gallery_gt = load_gallery_gt(cfg.gallery_gt) if cfg.gallery_gt else None
     gallery_files = None
     pending_gallery_mapping = None
+    if gallery_gt is None and (cfg.clear or cfg.only_dataset):
+        check_inputs_before_wipe(video_dir, cfg.data_dir, cfg.dataset, cfg.subset)
     if gallery_gt is not None:
         validate_gallery_queries(gallery_gt)
         if cfg.query_domain and not any(
@@ -637,9 +674,13 @@ def run_ingest(
         from flows.ingestion_validation import prepare_contract
 
         try:
-            prepared_content, content_provenance = prepare_contract(cfg.ingestion_validation_contract, gallery_files)
+            prepared_content, content_provenance = prepare_contract(
+                cfg.ingestion_validation_contract, gallery_files
+            )
         except Exception as exc:
-            raise SystemExit(f"ABORTED: content-validation preflight failed before cleanup/ingestion: {exc}") from exc
+            raise SystemExit(
+                f"ABORTED: content-validation preflight failed before cleanup/ingestion: {exc}"
+            ) from exc
 
     cleared: dict[str, Any] | None = None
     if cfg.clear:
@@ -881,32 +922,48 @@ def run_ingest(
         index_probe["registered_sources"] = resolved_sources
         readiness_options = {"require_attributes": require_attributes}
         if prepared_content is not None:
-            decoded = {name.casefold(): count for name, count in prepared_content["frame_counts"].items()}
+            decoded = {
+                name.casefold(): count
+                for name, count in prepared_content["frame_counts"].items()
+            }
             resolved_contract = {
                 **prepared_content,
-                "frame_counts": {registered: decoded[Path(source).stem.casefold()]
-                                 for source, registered in resolved_sources.items()},
+                "frame_counts": {
+                    registered: decoded[Path(source).stem.casefold()]
+                    for source, registered in resolved_sources.items()
+                },
             }
             # An unsuccessful re-ingest must not invalidate the receipt linked
             # by the previous successfully published gallery manifest.
-            contract_path = pending_gallery_mapping[0].with_suffix(f".{uuid4().hex}.content-contract.json").resolve()
+            contract_path = (
+                pending_gallery_mapping[0]
+                .with_suffix(f".{uuid4().hex}.content-contract.json")
+                .resolve()
+            )
             atomic_write_json(contract_path, resolved_contract)
             readiness_options["content_contract"] = contract_path
             index_probe["content_contract"] = {
-                "path": str(contract_path), "sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+                "path": str(contract_path),
+                "sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
                 **content_provenance,
             }
+
         def save_validation_receipt(body):
             if prepared_content is None:
                 return
             receipt_path = contract_path.with_suffix(".validation.json")
-            atomic_write_json(receipt_path, {
-                "schema_version": 1, "contract": resolved_contract,
-                "contract_identity": index_probe["content_contract"],
-                "pipeline_readiness": body,
-            })
+            atomic_write_json(
+                receipt_path,
+                {
+                    "schema_version": 1,
+                    "contract": resolved_contract,
+                    "contract_identity": index_probe["content_contract"],
+                    "pipeline_readiness": body,
+                },
+            )
             index_probe["content_validation_receipt"] = {
-                "path": str(receipt_path), "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+                "path": str(receipt_path),
+                "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
             }
 
         pipeline_readiness = None
@@ -917,7 +974,9 @@ def run_ingest(
                     **readiness_options,
                 )
             except Exception as exc:
-                save_validation_receipt({"ready": False, "error": f"{type(exc).__name__}: {exc}"})
+                save_validation_receipt(
+                    {"ready": False, "error": f"{type(exc).__name__}: {exc}"}
+                )
                 raise SystemExit(
                     f"ABORTED: pipeline readiness check failed: {exc}"
                 ) from exc
@@ -970,8 +1029,12 @@ def run_ingest(
 
     if pending_gallery_mapping is not None:
         out_path, mapping = pending_gallery_mapping
-        if manifest.index_probe and manifest.index_probe.get("content_validation_receipt"):
-            mapping["content_validation_receipt"] = manifest.index_probe["content_validation_receipt"]
+        if manifest.index_probe and manifest.index_probe.get(
+            "content_validation_receipt"
+        ):
+            mapping["content_validation_receipt"] = manifest.index_probe[
+                "content_validation_receipt"
+            ]
         atomic_write_json(out_path, mapping)
         print(f"Ingestion manifest saved to: {out_path.absolute()}")
     return manifest
@@ -1173,6 +1236,17 @@ def run_retrieve(
         )
     )
     checkpoint_dir = Path(str(checkpoint_base) + ".checkpoint")
+    prompt_sources = (
+        sorted(video_names)
+        if cfg.gallery_gt
+        else decomposition_sources(
+            annotations,
+            cfg.vst_url,
+            getattr(query_backend, "source_type", cfg.source_type),
+        )
+        if decomposer is not None
+        else []
+    )
     signature_data = {
         "endpoint": cfg.endpoint,
         "vst_url": cfg.vst_url,
@@ -1184,6 +1258,7 @@ def run_retrieve(
         "cohort": list(zip(query_ids, queries)),
         "query_settings": query_backend.describe(),
         "live_decomposition": decomposer.describe() if decomposer else None,
+        "prompt_sources": prompt_sources if decomposer is not None else None,
         "saved_decompositions": getattr(query_backend, "decompositions", {}),
         "dataset_identity": described["provenance"]["dataset_identity"],
         "ingestion_identity": described["provenance"]["ingestion_identity"],
@@ -1290,6 +1365,8 @@ def run_retrieve(
     resumed_plans = [
         record.plan for record in records if record is not None and record.plan
     ]
+    stop_retrieval = threading.Event()
+    failures = [0]
 
     def _retrieve_single(qi: int, query: str) -> None:
         query_id = query_ids[qi]
@@ -1339,17 +1416,42 @@ def run_retrieve(
                         file=sys.stderr,
                     )
 
-            decomposition, decompose_s = decomposer.decompose(
-                query,
-                video_sources=sorted(video_names),
-                evidence_sink=save_evidence,
-                query_id=query_id,
-            )
+            started = time.perf_counter()
+            try:
+                decomposition, decompose_s = decomposer.decompose(
+                    query,
+                    video_sources=prompt_sources,
+                    evidence_sink=save_evidence,
+                    query_id=query_id,
+                )
+            except BaseException:
+                elapsed = time.perf_counter() - started
+                records[qi] = replace(
+                    records[qi],
+                    decompose_s=elapsed,
+                    evidence={
+                        **(records[qi].evidence or {}),
+                        "fresh_inference_s": elapsed,
+                        "decomposition_evidence": dict(latest_evidence),
+                    },
+                )
+                raise
             query_backend.decompositions[identity] = decomposition
         elif decomposer is not None:
-            decomposition, decompose_s = decomposer.decompose(
-                query, video_sources=sorted(video_names)
-            )
+            started = time.perf_counter()
+            try:
+                decomposition, decompose_s = decomposer.decompose(
+                    query, video_sources=prompt_sources
+                )
+            except BaseException:
+                records[qi] = QueryRecord(
+                    index=qi,
+                    query_id=query_id,
+                    query=query,
+                    status="unanswerable",
+                    decompose_s=time.perf_counter() - started,
+                )
+                raise
             query_backend.decompositions[identity] = decomposition
         elif hasattr(query_backend, "decompositions"):
             replay_start = time.perf_counter()
@@ -1360,6 +1462,9 @@ def run_retrieve(
             ):
                 decomposition = query_backend.decompositions.get(query)
             replay_s = time.perf_counter() - replay_start
+
+        if stop_retrieval.is_set():
+            return
 
         if cfg.gallery_gt:
             records[qi] = QueryRecord(
@@ -1427,6 +1532,8 @@ def run_retrieve(
             plan=plan_before,
             evidence=query_evidence,
         )
+        if stop_retrieval.is_set():
+            return
         raw_results, latency_s = backend_call("search", query, query_id)
         metadata = getattr(query_backend, "metadata_by_query", {}).get(identity)
         if metadata:
@@ -1478,6 +1585,24 @@ def run_retrieve(
                 f'[{completed[0]}/{len(queries)}] "{query}"  ({len(normalized)} hits, {latency_s:.2f}s)'
             )
 
+    def _retrieve_guarded(qi: int, query: str) -> None:
+        if stop_retrieval.is_set():
+            return
+        try:
+            _retrieve_single(qi, query)
+        except BaseException as exc:
+            with print_lock:
+                failures[0] += 1
+                if isinstance(
+                    exc, (flows.CliExitError, KeyboardInterrupt, SystemExit)
+                ) or (
+                    isinstance(exc, flows.DecompositionError)
+                    and failures[0] > cfg.tolerate_unanswered
+                ):
+                    stop_retrieval.set()
+                    fatal.append(exc)
+            raise
+
     inventory_before = (
         flows.inventory_snapshot(cfg.vst_url) if cfg.vst_url else {"ok": False}
     )
@@ -1491,14 +1616,14 @@ def run_retrieve(
     futures = {}
     try:
         futures = {
-            executor.submit(_retrieve_single, qi, q): qi
+            executor.submit(_retrieve_guarded, qi, q): qi
             for qi, q in enumerate(queries)
             if records[qi] is None
         }
         for future in as_completed(futures):
             try:
                 future.result()
-            except (flows.CliExitError, KeyboardInterrupt) as exc:
+            except (flows.CliExitError, KeyboardInterrupt, SystemExit) as exc:
                 # An environment fault, not a bad query. Scoring it as zero
                 # recall would report an accuracy cliff that never happened.
                 fatal.append(exc)
@@ -1561,6 +1686,7 @@ def run_retrieve(
                     f"  Query {qi} raised: {type(exc).__name__}: {exc}", file=sys.stderr
                 )
     except KeyboardInterrupt as exc:
+        stop_retrieval.set()
         fatal.append(exc)
         for pending in futures:
             pending.cancel()
@@ -1880,7 +2006,9 @@ def run_scenarios(cfg, ingest_backend, query_backend, decomposer, fallback):
             artifact.described["metric_top_k"] = cfg.top_k
         artifact.described["returned_pool_limit"] = cfg.retrieval_pool_size
         if cfg.retrieval_pool_size is not None:
-            artifact.described["returned_ranking"] = "bounded; annotation coverage is reported separately"
+            artifact.described["returned_ranking"] = (
+                "bounded; annotation coverage is reported separately"
+            )
         artifact.described["decomposition_mode"] = (
             "fresh"
             if active_decomposer

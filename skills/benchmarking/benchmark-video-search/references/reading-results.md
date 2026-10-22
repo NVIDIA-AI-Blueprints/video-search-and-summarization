@@ -36,8 +36,9 @@ twice: once on everything (**Raw**), once with critic-rejected hits removed
 Two caveats worth internalising:
 
 - **Recall is identical across retrieval paths when they find the same
-  material.** If Raw recall matches between CLI and REST but mAP differs, that
-  is usually the merge asymmetry, not a quality difference.
+  material.** If Raw recall matches between two runs but mAP differs, inspect
+  `config.merge_adjacent`: merged intervals change precision and mAP even when
+  the retrieved footage is the same.
 - **The critic is an LLM and is not deterministic.** Raw metrics repeat exactly
   run to run; critic-filtered ones move by a few points. Gate on Raw, or use
   repeats and a tolerance band.
@@ -200,3 +201,17 @@ When `--scoring clip-relevance` or `--scoring drive` runs, the result file's
 
 Both are comparable to a Drive-script baseline only when the deployed embed model
 matches the one the gallery was embedded with.
+
+
+### Reused data and incomplete campaigns
+
+A run does not automatically wipe indexed data. Cleanup requires explicit
+confirmation; `--skip-ingest` leaves deployment data intact. Report the saved
+reused-index inventory and indexed coverage separately from annotation-gallery
+coverage. Hits from sources outside the annotation gallery must not silently
+expand the metric denominator.
+
+An aborted retrieval artifact preserves diagnostics and completed queries. It
+is not a completed benchmark: resume with the same campaign identity before
+quoting aggregate metrics. Failed live decompositions are explicit failures,
+not successful embedding-only substitutions.

@@ -60,7 +60,7 @@ AMC filters and matches tracklets before multi-view calibration:
   per camera pair, or three in the robust two-view fallback.
 
 If videos lack enough moving people or are too short, calibration may fail during
-detection, tracking, or tracklet matching. See [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting).
+detection, tracking, or tracklet matching. See [Troubleshooting](/system-components/calibration/auto-calibration/troubleshooting).
 
 ## VGGT Camera-Group Suitability
 
@@ -91,7 +91,7 @@ context:
 For example, two warehouse zones may contain identical sets of parallel
 rectangular floor markings and similar boxes. Views showing only those features
 may be difficult to place in the correct zone. Include distinctive shared context
-and follow the [geometry troubleshooting workflow](/vss/system-components/calibration/auto-calibration/troubleshooting#vggt-completes-but-camera-placement-or-roi-projection-is-incorrect)
+and follow the [geometry troubleshooting workflow](/system-components/calibration/auto-calibration/troubleshooting#vggt-completes-but-camera-placement-or-roi-projection-is-incorrect)
 if camera placement is incorrect.
 
 ## Lens Distortion Output (`distortion.yaml`)
@@ -220,9 +220,9 @@ For a custom dataset, you should prepare the following items:
 - **Input videos or RTSP streams** — Camera video files **or** time-synchronized RTSP streams
 - **A floor map** — Layout/map image of the surveillance area (PNG)
 - **Alignment data** — `alignment_data.json` (upload or create in the UI; see [Alignment Data](#alignment-data-alignment_datajson))
-- **Layout Pixels Per Meter** — Number of pixels per meter in the layout floor map. Initialize this on [Step 3: Parameters](/vss/system-components/calibration/auto-calibration/workflow-steps#step-3-parameters) (Floor-plan to 3D scale) or under [Configuring Settings](/vss/system-components/calibration/auto-calibration/workflow-steps#configuring-settings).
+- **Layout Pixels Per Meter** — Number of pixels per meter in the layout floor map. Initialize this on [Step 3: Parameters](/system-components/calibration/auto-calibration/workflow-steps#step-3-parameters) (Floor-plan to 3D scale) or under [Configuring Settings](/system-components/calibration/auto-calibration/workflow-steps#configuring-settings).
 - **Ground truth data (optional)** — For calibration evaluation
-- **Rectified / linear media** — Complete [Step 4: Rectification](/vss/system-components/calibration/auto-calibration/workflow-steps#step-4-rectification) (Auto, Manual, or Videos Are Rectified) before alignment and calibration
+- **Rectified / linear media** — Complete [Step 4: Rectification](/system-components/calibration/auto-calibration/workflow-steps#step-4-rectification) (Auto, Manual, or Videos Are Rectified) before alignment and calibration
 
 ## Input Requirements
 
@@ -288,7 +288,7 @@ For projects with more than two cameras, the format remains exactly three pairs 
 | **Interactive draw / save** in the Manual Alignment tool | **Rectified / linear** pixel space | Saves with `coord_space=rectified` (points are clicked on rectified frames) |
 | **API upload** | Follow the `coord_space` query parameter you pass (`original` or `rectified`) | Converts only when `coord_space=original` |
 
-Do **not** upload already-rectified camera points through the UI file-upload path — that triggers a second conversion and corrupts alignment. For interactive creation and the on-disk rectified alignment used by calibration, points must match the **rectified / linear** frames from Step 4. See [Step 5: Manual Alignment](/vss/system-components/calibration/auto-calibration/workflow-steps#step-5-manual-alignment).
+Do **not** upload already-rectified camera points through the UI file-upload path — that triggers a second conversion and corrupts alignment. For interactive creation and the on-disk rectified alignment used by calibration, points must match the **rectified / linear** frames from Step 4. See [Step 5: Manual Alignment](/system-components/calibration/auto-calibration/workflow-steps#step-5-manual-alignment).
 
 ## Guidelines for Input Videos to Achieve Optimal Calibration Results
 

@@ -84,6 +84,14 @@ from flows.pipeline import (
     probe_index_coverage,
     prune_foreign_videos,
 )
+from flows.preflight import (
+    check_inputs_before_wipe,
+    check_reused_index,
+    dataset_video_names,
+    decomposition_sources,
+    file_sources,
+    local_videos,
+)
 from flows.scoring import SCORING_BACKENDS
 from flows.scoring.summarize import _print_summary, _summarize
 
@@ -100,10 +108,16 @@ __all__ = [
     "_print_summary",
     "_probe_backend",
     "_summarize",
+    "check_inputs_before_wipe",
+    "check_reused_index",
     "clear_all_videos",
+    "dataset_video_names",
+    "decomposition_sources",
     "describe_query_flow",
     "expected_sources_from_upload",
+    "file_sources",
     "ingest_videos",
+    "local_videos",
     "probe_index_coverage",
     "prune_foreign_videos",
     "run_evaluation",
@@ -220,7 +234,11 @@ def build_query_backend(args: argparse.Namespace) -> Any:
         # no adjacent merging. Exact scanning fails on budget overflow;
         # clip-level scorers separately report annotation-gallery coverage.
         full_gallery = getattr(args, "full_gallery", False)
-        top_k = (args.candidate_limit or 100000) if full_gallery else (args.retrieval_pool_size or args.top_k)
+        top_k = (
+            (args.candidate_limit or 100000)
+            if full_gallery
+            else (args.retrieval_pool_size or args.top_k)
+        )
         min_cosine_similarity = -1.0 if full_gallery else args.min_cosine_similarity
         merge_adjacent = False if full_gallery else args.merge_adjacent
         if full_gallery:
@@ -857,18 +875,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         if not 1 <= args.retrieval_pool_size <= 100000:
             p.error("--retrieval-pool-size must be between 1 and 100000")
         if args.full_gallery or args.stage not in ("run", "retrieve"):
-            p.error("--retrieval-pool-size requires run/retrieve and conflicts with --full-gallery")
+            p.error(
+                "--retrieval-pool-size requires run/retrieve and conflicts with --full-gallery"
+            )
     if args.ingestion_validation_contract and (
-        not args.gallery_gt or args.stage not in ("run", "ingest") or args.skip_ingest or args.skip_index_probe
+        not args.gallery_gt
+        or args.stage not in ("run", "ingest")
+        or args.skip_ingest
+        or args.skip_index_probe
     ):
-        p.error("--ingestion-validation-contract requires gallery ingestion with index probes enabled")
+        p.error(
+            "--ingestion-validation-contract requires gallery ingestion with index probes enabled"
+        )
     if "--llm-chat-template-kwargs" in explicit:
         from flows.decompose import validate_chat_template_kwargs
 
         try:
             if args.llm_chat_template_kwargs is None:
                 raise ValueError("must be a JSON object, not null")
-            args.llm_chat_template_kwargs = validate_chat_template_kwargs(args.llm_chat_template_kwargs)
+            args.llm_chat_template_kwargs = validate_chat_template_kwargs(
+                args.llm_chat_template_kwargs
+            )
         except ValueError as exc:
             p.error(f"invalid --llm-chat-template-kwargs: {exc}")
     if args.resume_from and args.scenarios and len(args.scenarios) != 1:
@@ -919,6 +946,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("--fixed-search-path cannot be combined with --decompositions")
     if args.fixed_search_path:
         args.no_decompose = True
+    if (
+        args.source_type == "rtsp"
+        and args.stage in ("run", "ingest")
+        and not args.skip_ingest
+    ):
+        p.error(
+            "--source-type rtsp requires --skip-ingest: fresh uploads are video files"
+        )
     if (args.only_dataset or args.clear) and not args.confirm_delete:
         p.error("--only-dataset and --clear require --confirm-delete")
     if (args.only_dataset or args.clear) and args.skip_ingest:
@@ -987,9 +1022,15 @@ def main() -> None:
     elif stage in ("run", "retrieve") and args.llm_url and not args.dry_run:
         try:
             decomposer = flows.LiveDecomposer(
-                args.llm_url, repo_root=flows.REPO_ROOT, model=args.llm_model,
-                **({"chat_template_kwargs": args.llm_chat_template_kwargs}
-                   if args.llm_chat_template_kwargs is not None else {}),
+                args.llm_url,
+                repo_root=flows.REPO_ROOT,
+                model=args.llm_model,
+                source_type=args.source_type,
+                **(
+                    {"chat_template_kwargs": args.llm_chat_template_kwargs}
+                    if args.llm_chat_template_kwargs is not None
+                    else {}
+                ),
             )
             print(f"decomposition: live via {args.llm_url}  model={decomposer.model}")
         except flows.DecompositionError as e:

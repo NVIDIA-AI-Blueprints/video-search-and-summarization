@@ -76,6 +76,7 @@ class RunConfig:
 
     # ingest
     webhooks_confirmed: bool = False
+    source_type: str = "video_file"
     skip_ingest: bool = False
     skip_existing: bool = True
     clear: bool = False
@@ -149,6 +150,7 @@ class RunConfig:
             ingest_in=getattr(args, "ingest_in", None),
             ingest_out=getattr(args, "ingest_out", None),
             webhooks_confirmed=getattr(args, "webhooks_confirmed", False),
+            source_type=getattr(args, "source_type", "video_file"),
             skip_ingest=args.skip_ingest,
             skip_existing=args.skip_existing,
             clear=args.clear,
@@ -183,8 +185,8 @@ class RunConfig:
 class IngestManifest:
     """What the ingest stage established, for the retrieval artifact's flow block.
 
-    All fields are ``None`` on a ``--skip-ingest`` run except
-    ``ingest_description`` (the backend's cheap, offline ``describe()``).
+    A ``--skip-ingest`` run records the backend description and, when a VST
+    origin is supplied, a non-destructive reused-source inventory in readiness.
     """
 
     ingest_description: dict[str, Any] | None = None

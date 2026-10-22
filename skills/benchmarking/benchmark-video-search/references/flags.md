@@ -27,7 +27,9 @@ read as a retrieval collapse.
 Upstream merges contiguous same-sensor windows by default and reports the mean
 of their scores. That changes the number of scored segments — the denominator
 of precision — so this script passes `--no-merge-adjacent` by default to stay
-comparable with the REST baseline. `--merge-adjacent` opts back in.
+comparable with the REST baseline. `--merge-adjacent` opts back in. Check `config.merge_adjacent` before comparing
+precision or mAP between runs; merging changes the scored intervals and may
+also change the retrieval candidate pool.
 
 ## Pipeline stages
 
@@ -282,3 +284,22 @@ and standalone-ingest receipts. No per-clip detection requirement is introduced.
 The [archive port assessment](archive-port-assessment.md) records which Round8e
 changes were incorporated and why checkpoint compatibility and clip diversity
 remain separate follow-up work.
+
+
+## Integration policy for upstream ingestion monitoring
+
+This staged runner uses its existing configured `vss search readiness` gate.
+The upstream background watcher, direct Elasticsearch/RT-CV polling controls
+(`--ingest-require`, `--ingest-quiet-s`, `--ingest-absent-grace-s`,
+`--ingest-strict`, and `--legacy-index-probe`) are not active runner options.
+Their integration is deferred; do not use them to weaken readiness checks.
+
+Fresh uploads use `video_file` sources. `--source-type rtsp` therefore requires
+`--skip-ingest` and evaluates already registered sources. Reusing an index
+requires the requested dataset sources to be registered; inspect the recorded
+reused-index inventory and report other indexed sources separately. No cleanup
+is implied by `--skip-ingest`, standalone retrieval, or offline scoring.
+
+Decomposition failures remain explicit failed queries. There is no silent
+original-query embedding fallback and no `--max-decompose-failed-pct` control.
+Saved decompositions are replayed without an inference request.

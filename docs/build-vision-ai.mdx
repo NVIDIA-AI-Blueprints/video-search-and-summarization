@@ -25,7 +25,7 @@ plan, deploys the stack when requested, and returns the URL you use afterward.
 
 <Note>
 For the fastest first run, use `vss-build-vision-ai` to deploy the `base`
-profile from the [Quickstart](/vss/getting-started/quickstart#deploy-the-base-profile).
+profile from the [Quickstart](/getting-started/quickstart#deploy-the-base-profile).
 </Note>
 
 ## When to use it
@@ -54,7 +54,7 @@ for the cache-preserving teardown before you approve the replacement.
 
 Do not use this Skill for ordinary runtime operations after deployment. Once the
 stack is running, use the matching runtime Skill from the
-[Agent Skills catalog](/vss/vision-agent/agent-skills#available-skills), or
+[Agent Skills catalog](/vision-agent/agent-skills#available-skills), or
 configure the checkout-local `vss` CLI wrapper for tasks such as uploading
 video, asking a question, searching an archive, managing alerts, or generating a
 report.
@@ -108,7 +108,7 @@ are working with a separate custom or headless deployment.
 
 ## Host preflight and intake
 
-The host must satisfy [Prerequisites](/vss/getting-started/prerequisites) (Linux, GPU, Docker, NVIDIA Container Toolkit, NGC). The Skill's own checks in `skills/vss-build-vision-ai/references/prerequisites.md` also require:
+The host must satisfy [Prerequisites](/getting-started/prerequisites) (Linux, GPU, Docker, NVIDIA Container Toolkit, NGC). The Skill's own checks in `skills/vss-build-vision-ai/references/prerequisites.md` also require:
 
 - `uv` for mandatory service-graph checks and helper scripts. Install it with
   `curl -LsSf https://astral.sh/uv/install.sh | sh`.

@@ -62,6 +62,7 @@ functions:
     min_pixels: 3136
     max_pixels: 12845056
     reasoning: true
+    time_format: offset
     video_url_tool: vst_video_clip
     vlm_mode: ${VLM_MODE}
     vst_internal_url: ${VST_INTERNAL_URL}

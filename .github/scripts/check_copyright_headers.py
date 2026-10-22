@@ -21,7 +21,20 @@ from pathlib import Path
 REQUIRED_MARKER = "SPDX-License-Identifier"
 
 # File extensions and names to check
-CHECK_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx", ".yml", ".yaml"}
+CHECK_EXTENSIONS = {
+    ".py",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".yml",
+    ".yaml",
+    ".sh",
+    ".cpp",
+    ".proto",
+    ".gradle",
+}
+CHECK_FILENAMES = {"Jenkinsfile", "Makefile.dep"}
 
 # Glob patterns to skip (relative to repo root)
 EXCLUDE_PATTERNS = (
@@ -40,6 +53,8 @@ EXCLUDE_PATTERNS = (
     "**/package-lock.json",
     # Stubs (third-party type stubs)
     "**/stubs/**",
+    # Vendored Google protobuf source
+    "libs/nvschema/protobuf/struct.proto",
     # UI — original MIT-licensed code; headers will be added incrementally
     "ui/**",
     "services/ui/**",
@@ -108,7 +123,11 @@ def main() -> int:
 
     for filepath in files:
         path = Path(filepath)
-        if path.suffix not in CHECK_EXTENSIONS and not path.name.startswith("Dockerfile"):
+        if (
+            path.suffix not in CHECK_EXTENSIONS
+            and path.name not in CHECK_FILENAMES
+            and not path.name.startswith("Dockerfile")
+        ):
             continue
         if is_excluded(filepath):
             continue

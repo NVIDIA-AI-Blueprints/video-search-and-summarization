@@ -18,6 +18,8 @@ metadata:
 data:
   config.yml: |
 {{- tpl (.Files.Get "configs/vss-agent/config.yml") . | nindent 4 }}
+  search_prompt_policy.py: |
+{{ .Files.Get "configs/vss-agent/search_prompt_policy.py" | indent 4 }}
   {{- if $tpl.name }}
   {{- $extra := printf "configs/vss-agent/%s" $tpl.name }}
   {{- if (.Files.Glob $extra) }}
