@@ -395,6 +395,17 @@ services:
         self.assertIn("unresolved", rows[0]["notes"])
         self.assertEqual("Unknown", rows[0]["risk"])
 
+    def test_unresolved_required_image_expression_stays_in_package_field(self) -> None:
+        compose = b"""
+services:
+  nim:
+    image: ${NIM_IMAGE:?Set NIM_IMAGE in .env}
+"""
+        rows = osrb_sources.parse_compose(compose, "services/nim/compose.yaml")
+
+        self.assertEqual("${NIM_IMAGE:?Set NIM_IMAGE in .env}", rows[0]["package"])
+        self.assertEqual("", rows[0]["new_version"])
+
     def test_commented_images_and_keys_outside_services_are_ignored(self) -> None:
         compose = b"""
 x-shared: &shared

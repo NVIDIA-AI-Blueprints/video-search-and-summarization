@@ -128,6 +128,7 @@ from gi.repository import GstRtsp  # noqa: E402
 API_PREFIX = "/v1"
 CHAT_COMPLETION_STREAM_POLL_INTERVAL_SEC = 0.001
 GENERATE_CAPTIONS_STREAM_POLL_INTERVAL_SEC = 0.001
+STREAMING_VLM_DISCONNECT_CLEANUP_ATTEMPTS = 5
 DEFAULT_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC = 300.0
 INPUT_MEDIA_VERIFICATION_TIMEOUT_ENV = "VSS_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC"
 
@@ -1308,6 +1309,88 @@ class RTVIServer:
             422,
         )
 
+    async def _cleanup_streaming_vlm_request(self, request_id: str) -> None:
+        """Bound cleanup of one disconnected Streaming VLM subscriber."""
+        from server.rtvi_stream_handler import RequestInfo
+
+        with self._stream_handler._lock:
+            req_info = self._stream_handler._request_info_map.get(request_id)
+            # Explicit stop owns teardown once the request is terminal.
+            if req_info is not None and req_info.status == RequestInfo.Status.SUCCESSFUL:
+                return
+        if (
+            req_info is None
+            or not req_info.is_live
+            or req_info.query is None
+            or not req_info.assets
+        ):
+            return
+
+        inference_mode = getattr(
+            req_info.query.inference_mode,
+            "value",
+            req_info.query.inference_mode,
+        )
+        if inference_mode != "streaming_vlm":
+            return
+
+        drain_timeout_sec = float(
+            os.environ.get("RTVI_STREAMING_VLM_DISCONNECT_DRAIN_TIMEOUT_SEC", "1")
+        )
+        loop = asyncio.get_running_loop()
+        cleanup_future = loop.run_in_executor(
+            self._async_executor,
+            functools.partial(
+                self._remove_streaming_vlm_request_with_retry,
+                req_info.assets[0],
+                request_id,
+                drain_timeout_sec=drain_timeout_sec,
+            ),
+        )
+
+        def log_cleanup_failure(future):
+            try:
+                future.result()
+            except Exception:
+                logger.warning(
+                    "Failed to clean up streaming request %s",
+                    request_id,
+                    exc_info=True,
+                )
+
+        cleanup_future.add_done_callback(log_cleanup_failure)
+        try:
+            await asyncio.shield(cleanup_future)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass
+
+    def _remove_streaming_vlm_request_with_retry(
+        self, asset: Asset, request_id: str, drain_timeout_sec: float
+    ) -> None:
+        delay = 0.1
+        for attempt in range(STREAMING_VLM_DISCONNECT_CLEANUP_ATTEMPTS):
+            try:
+                self._stream_handler.remove_rtsp_stream_request(
+                    asset,
+                    request_id,
+                    drain_timeout_sec=drain_timeout_sec,
+                    abort_inflight=True,
+                )
+                return
+            except ServiceException as ex:
+                with self._stream_handler._lock:
+                    request_registered = request_id in self._stream_handler._request_info_map
+                if not request_registered:
+                    return
+                if ex.status_code not in (409, 503) or (
+                    attempt + 1 == STREAMING_VLM_DISCONNECT_CLEANUP_ATTEMPTS
+                ):
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 1.0)
+
     async def _process_vlm_request(
         self,
         vlm_query: VlmQuery,
@@ -1440,6 +1523,14 @@ class RTVIServer:
                 f"Failed to get asset {video_id}: {str(ex)}", "InternalServerError", 500
             ) from ex
 
+        inference_mode = getattr(vlm_query.inference_mode, "value", vlm_query.inference_mode)
+        if inference_mode == "streaming_vlm" and not asset.is_live:
+            raise ServiceException(
+                "Streaming VLM inference is supported only for live streams",
+                "BadParameters",
+                400,
+            )
+
         # Validate model
         model_info = self._stream_handler.get_models_info()
         if vlm_query.model != model_info.id:
@@ -1557,6 +1648,8 @@ class RTVIServer:
         if resp.vlm_model_output:
             chunk_response["input_tokens"] = resp.vlm_model_output.input_tokens
             chunk_response["output_tokens"] = resp.vlm_model_output.output_tokens
+            if resp.vlm_model_output.streaming_metrics is not None:
+                chunk_response["streaming_metrics"] = resp.vlm_model_output.streaming_metrics
         # Add reasoning description if available
         if resp.vlm_model_output and resp.vlm_model_output.reasoning_description:
             chunk_response["reasoning_description"] = resp.vlm_model_output.reasoning_description
@@ -2960,6 +3053,7 @@ class RTVIServer:
                                     break
                     finally:
                         self._sse_active_clients.pop(sse_client_key, None)
+                        await self._cleanup_streaming_vlm_request(request_id)
 
                     # Generate usage data and send as server-sent event if requested
                     if (
@@ -3632,6 +3726,7 @@ class RTVIServer:
                         yield "[DONE]"
                     finally:
                         self._sse_active_clients.pop(sse_client_key, None)
+                        await self._cleanup_streaming_vlm_request(request_id)
                         await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
 
                 try:

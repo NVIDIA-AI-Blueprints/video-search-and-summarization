@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+services:
+  rtvi-server:
+    environment:
+      VIA_VLM_STREAMING_NIM_ENABLED: "true"
+      VLM_MODEL_TO_USE: openai-compat
+      MODEL_PATH: ""
+      OPENAI_MAX_PARALLEL_REQUESTS: "${OPENAI_MAX_PARALLEL_REQUESTS:-48}"

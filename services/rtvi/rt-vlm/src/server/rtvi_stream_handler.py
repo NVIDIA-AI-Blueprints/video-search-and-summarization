@@ -4164,6 +4164,7 @@ class RTVIStreamHandler:
         asset: Asset,
         request_id: str,
         drain_timeout_sec: Optional[float] = None,
+        abort_inflight: bool = False,
     ):
         """Stop one live caption request for an RTSP asset.
 
@@ -4221,7 +4222,9 @@ class RTVIStreamHandler:
                         stream_id,
                     )
                     drain_latency = self._vlm_pipeline.remove_live_stream(
-                        stream_id, timeout_sec=drain_timeout_sec
+                        stream_id,
+                        timeout_sec=drain_timeout_sec,
+                        abort_inflight=abort_inflight,
                     )
                     logger.info(
                         "Removed final live caption request %s for stream %s from pipeline",
