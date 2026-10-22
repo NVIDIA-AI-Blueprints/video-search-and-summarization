@@ -46,6 +46,7 @@ src/server/protos/nv_pb2.py
 src/server/protos/nv.proto
 src/server/rtvi_stream_handler.py
 src/server/rtvi_vlm_server.py
+src/server/request_lifecycle.py
 src/utils/asset_manager.py
 src/utils/dense_caption_serializer.py
 src/utils/env_validation.py
@@ -80,6 +81,7 @@ tests/model/openai_compat/test_openai_compat.py
 tests/model/test_request_cancellation.py
 tests/cancellation/test_pipeline_cancellation.py
 tests/cancellation/test_request_handler_cancellation.py
+tests/cancellation/test_http_request_cancellation.py
 tests/rtvi_vlm/test_vlm_pipeline_request_cancellation.py
 tests/model/vllm_compatible/test_adaptive_preprocess_limiter.py
 tests/model/vllm_compatible/test_evs_encode_error.py

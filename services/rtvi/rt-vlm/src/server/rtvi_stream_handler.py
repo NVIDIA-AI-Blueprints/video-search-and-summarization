@@ -3526,6 +3526,7 @@ class RTVIStreamHandler:
         assets: list[Asset],
         query: VlmQuery,
         is_chat_completion: bool = False,
+        on_registered: Callable[[str], None] | None = None,
     ):
         """Run a query on a file
 
@@ -3601,6 +3602,7 @@ class RTVIStreamHandler:
         )
 
         req_info.queue_time = time.time()
+        req_info.producer_done.clear()
         # Adding the request info to the request info map
         with self._lock:
             self._request_info_map[req_info.request_id] = req_info
@@ -3615,8 +3617,9 @@ class RTVIStreamHandler:
             req_info._e2e_span.set_attribute("stream_id", req_info.stream_id)
             req_info._e2e_span.set_attribute("is_live", req_info.is_live)
 
-        req_info.producer_done.clear()
         try:
+            if on_registered is not None:
+                on_registered(req_info.request_id)
             self._trigger_query(req_info, None)
         except Exception as ex:
             # A splitter can fail after it has already submitted earlier
@@ -3646,6 +3649,7 @@ class RTVIStreamHandler:
         query: VlmQuery,
         is_rtsp=False,
         is_chat_completion: bool = False,
+        on_registered: Callable[[str], None] | None = None,
     ):
         """Run VLM captions generation on a file or RTSP stream.
         This reuses the query function since they have identical logic.
@@ -3687,6 +3691,8 @@ class RTVIStreamHandler:
             req_id = self._create_rtsp_vlm_captions_request(
                 asset, query, is_chat_completion=is_chat_completion
             )
+            if on_registered is not None:
+                on_registered(req_id)
             return req_id
         else:
             # Handle file-based VLM captions
@@ -3694,6 +3700,7 @@ class RTVIStreamHandler:
                 assets=assets,
                 query=query,
                 is_chat_completion=is_chat_completion,
+                on_registered=on_registered,
             )
             return req_id
 

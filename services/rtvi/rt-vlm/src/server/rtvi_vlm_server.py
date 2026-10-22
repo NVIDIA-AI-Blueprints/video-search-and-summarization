@@ -27,10 +27,13 @@ import json
 import math
 import os
 import re
+import sys
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from threading import Event
 from typing import Annotated, List, Optional, Union
 from uuid import UUID, uuid4
 
@@ -38,12 +41,6 @@ import aiofiles
 import aiofiles.os
 import gi
 import uvicorn
-from fastapi import FastAPI, File, Form, Path, Query, Request, Response, UploadFile
-from fastapi.exceptions import HTTPException, RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
-from pydantic import Field, ValidationError
-from sse_starlette.sse import EventSourceResponse
-
 from api_models.captions import (
     VlmCaptionResponse,
     VlmCaptionsCompletionResponse,
@@ -117,6 +114,16 @@ from common.logger import (
 )
 from common.service_exception import ServiceException
 from common.version import VERSION
+from fastapi import FastAPI, File, Form, Path, Query, Request, Response, UploadFile
+from fastapi.exceptions import HTTPException, RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import Field, ValidationError
+from server.request_lifecycle import (
+    ClientDisconnected,
+    RequestOwnedEventSourceResponse,
+    wait_for_completion_or_disconnect,
+)
+from sse_starlette.sse import EventSourceResponse
 from utils.asset_manager import Asset, AssetManager
 from utils.media_file_info import MediaFileInfo
 from utils.media_io_kwargs import get_frame_sampling_params_from_media_io_kwargs
@@ -490,6 +497,7 @@ class RTVIServer:
             max_workers=4, thread_name_prefix="rtvi-cleanup"
         )
         self._temporary_chat_asset_cleanup_tasks = set()
+        self._http_request_finalization_tasks = {}
 
         # Use FastAPI to implement the REST API
         openapi_tags = [
@@ -524,6 +532,7 @@ class RTVIServer:
         ]
         openapi_tags.sort(key=lambda x: x["name"])
         self._app = FastAPI(
+            lifespan=self._request_cleanup_lifespan,
             contact={"name": "NVIDIA", "url": "https://nvidia.com"},
             description="NVIDIA RTVI VLM API.",
             title="RTVI API",
@@ -582,6 +591,7 @@ class RTVIServer:
         request_body,
         system_prompt: str,
         user_prompt: str,
+        request: Request,
     ):
         """Handle text-only chat completion (no video/image input).
 
@@ -704,13 +714,20 @@ class RTVIServer:
             main_loop.call_soon_threadsafe(result_event.set)
 
         try:
-            self._stream_handler._vlm_pipeline.enqueue_vlm_text_chunk(
-                chunk=text_chunk,
-                on_chunk_result=on_chunk_result,
-                vlm_query=vlm_query,
-                request_id=request_id,
-                chat_messages=chat_messages,
+            await self._submit_text_request_for_http(
+                request,
+                request_id,
+                functools.partial(
+                    self._stream_handler._vlm_pipeline.enqueue_vlm_text_chunk,
+                    chunk=text_chunk,
+                    on_chunk_result=on_chunk_result,
+                    vlm_query=vlm_query,
+                    request_id=request_id,
+                    chat_messages=chat_messages,
+                ),
             )
+        except ServiceException:
+            raise
         except Exception as ex:
             logger.error("Failed to enqueue text-only chunk: %s", str(ex), exc_info=True)
             raise ServiceException(
@@ -721,6 +738,8 @@ class RTVIServer:
 
         def raise_for_pipeline_error():
             chunk_result = result_holder.get("result")
+            if chunk_result and chunk_result.cancelled:
+                raise ServiceException("Request was cancelled.", "RequestCancelled", 499)
             if chunk_result and chunk_result.error:
                 raise ServiceException(
                     chunk_result.error,
@@ -769,6 +788,16 @@ class RTVIServer:
 
                     while True:
                         chunk_result = result_holder.get("result")
+                        if chunk_result and chunk_result.cancelled:
+                            yield json.dumps(
+                                {
+                                    "error": {
+                                        "code": "RequestCancelled",
+                                        "message": "Request was cancelled.",
+                                    }
+                                }
+                            )
+                            return
                         if chunk_result and chunk_result.error:
                             yield json.dumps(
                                 {
@@ -860,17 +889,36 @@ class RTVIServer:
                     logger.error("Text-only streaming error: %s", str(ex), exc_info=True)
                     yield json.dumps({"error": {"code": "StreamingError", "message": str(ex)}})
 
-            return EventSourceResponse(text_only_stream_generator(), send_timeout=5, ping=1)
+            return RequestOwnedEventSourceResponse(
+                text_only_stream_generator(),
+                finalize=functools.partial(
+                    self._finalize_owned_http_request,
+                    request_id,
+                    is_done=result_event.is_set,
+                    preserve_error=True,
+                ),
+                send_timeout=5,
+                ping=1,
+            )
 
         else:
             # Non-streaming: wait for pipeline callback
             try:
-                await asyncio.wait_for(result_event.wait(), timeout=300)
+                await self._wait_for_http_request(
+                    request,
+                    request_id,
+                    is_done=result_event.is_set,
+                    timeout=300,
+                )
             except asyncio.TimeoutError:
                 raise ServiceException(
                     "Text-only chat completion timed out after 300 seconds.",
                     "Timeout",
                     504,
+                )
+            finally:
+                await self._finalize_owned_http_request(
+                    request_id, is_done=result_event.is_set, preserve_error=True
                 )
 
             chunk_result = result_holder.get("result")
@@ -909,6 +957,18 @@ class RTVIServer:
                     headers={"X-Warning": context_warning},
                 )
             return response
+
+    @asynccontextmanager
+    async def _request_cleanup_lifespan(self, app):
+        """Keep the event loop alive until tracked disconnect cleanup settles."""
+        try:
+            yield
+        finally:
+            while self._temporary_chat_asset_cleanup_tasks:
+                await asyncio.gather(
+                    *list(self._temporary_chat_asset_cleanup_tasks),
+                    return_exceptions=True,
+                )
 
     @staticmethod
     def _data_url_file_extension(header: str, media_type: MediaType) -> str:
@@ -1132,7 +1192,9 @@ class RTVIServer:
                     exc_info=True,
                 )
 
-    def _track_temporary_chat_asset_cleanup_task(self, task: asyncio.Task) -> None:
+    def _track_temporary_chat_asset_cleanup_task(
+        self, task: asyncio.Future, *, report_failure: bool = True
+    ) -> None:
         self._temporary_chat_asset_cleanup_tasks.add(task)
 
         def _cleanup_done(completed_task: asyncio.Task) -> None:
@@ -1140,13 +1202,15 @@ class RTVIServer:
             try:
                 completed_task.result()
             except asyncio.CancelledError:
-                logger.warning("Temporary chat asset cleanup task was cancelled")
+                if report_failure:
+                    logger.warning("Request cleanup task was cancelled")
             except Exception as e:
-                logger.warning(
-                    "Unexpected error in temporary chat asset cleanup task: %s",
-                    e,
-                    exc_info=True,
-                )
+                if report_failure:
+                    logger.warning(
+                        "Unexpected error in request cleanup task: %s",
+                        e,
+                        exc_info=True,
+                    )
 
         task.add_done_callback(_cleanup_done)
 
@@ -1164,6 +1228,213 @@ class RTVIServer:
             logger.info(
                 "Temporary chat asset cleanup will continue after stream cancellation: %s",
                 ",".join(temp_asset_ids),
+            )
+            raise
+
+    async def _finalize_owned_http_request(
+        self,
+        request_id: str,
+        temp_asset_ids=(),
+        *,
+        is_done=None,
+        submission_done=None,
+        preserve_error: bool = False,
+    ) -> None:
+        """Abort unfinished work before releasing HTTP-owned temporary assets.
+
+        The tracked task outlives cancellation of the HTTP coroutine. A failed
+        abort deliberately skips asset deletion: workers may still read them.
+        """
+        primary_error = sys.exception() if preserve_error else None
+        task = self._http_request_finalization_tasks.get(request_id)
+        if task is None:
+
+            async def finalize():
+                done = is_done or functools.partial(
+                    self._stream_handler.request_is_drained, request_id
+                )
+                if not done():
+                    abort_kwargs = {
+                        "reason": "http_response_closed",
+                        "timeout_sec": 30,
+                    }
+                    if submission_done is not None:
+                        abort_kwargs["submission_done"] = submission_done
+                    await asyncio.to_thread(
+                        self._stream_handler.abort_request,
+                        request_id,
+                        **abort_kwargs,
+                    )
+                await self._cleanup_temporary_chat_assets(list(temp_asset_ids))
+
+            task = asyncio.create_task(finalize())
+            self._http_request_finalization_tasks[request_id] = task
+            self._track_temporary_chat_asset_cleanup_task(task)
+            task.add_done_callback(
+                lambda _: self._http_request_finalization_tasks.pop(request_id, None)
+            )
+        try:
+            await asyncio.shield(task)
+        except Exception:
+            if primary_error is None:
+                raise
+            logger.exception(
+                "Request %s cleanup failed while preserving %s",
+                request_id,
+                type(primary_error).__name__,
+            )
+
+    async def _wait_for_http_request(
+        self, request: Request, request_id: str, *, is_done=None, timeout=None
+    ) -> None:
+        try:
+            await wait_for_completion_or_disconnect(
+                is_done
+                or functools.partial(self._stream_handler.request_is_done, request_id),
+                request.is_disconnected,
+                timeout=timeout,
+            )
+        except ClientDisconnected as ex:
+            raise ServiceException("Client disconnected.", "ClientDisconnected", 499) from ex
+
+    async def _process_http_vlm_request(
+        self, request: Request, *args, temp_asset_ids=(), **kwargs
+    ):
+        """Observe registration before a producer can block on downstream work."""
+        registered = asyncio.get_running_loop().create_future()
+        loop = asyncio.get_running_loop()
+
+        def on_registered(request_id):
+            def notify():
+                if not registered.done():
+                    registered.set_result(request_id)
+
+            loop.call_soon_threadsafe(notify)
+
+        submission = asyncio.create_task(
+            self._process_vlm_request(*args, on_registered=on_registered, **kwargs)
+        )
+        # Submission outlives the HTTP waiter even if abort itself fails. Retain
+        # it independently so shutdown waits and a late exception is retrieved.
+        self._track_temporary_chat_asset_cleanup_task(submission, report_failure=False)
+        try:
+            await wait_for_completion_or_disconnect(
+                submission.done, request.is_disconnected
+            )
+        except (ClientDisconnected, asyncio.CancelledError) as ex:
+
+            async def finalize_submission():
+                # A producer blocked by a full queue may only return *after*
+                # cancellation frees that queue. Never wait for it before abort.
+                while not registered.done() and not submission.done():
+                    await asyncio.sleep(0.01)
+                if registered.done():
+                    await self._finalize_owned_http_request(
+                        registered.result(), temp_asset_ids
+                    )
+                    try:
+                        await submission
+                    except Exception as submission_error:
+                        logger.warning(
+                            "Cancelled submission finished with an error: %s",
+                            submission_error,
+                        )
+                    return
+                try:
+                    request_id, _, _ = await submission
+                except Exception as submission_error:
+                    logger.warning(
+                        "Disconnected submission failed before registration: %s",
+                        submission_error,
+                    )
+                    await self._cleanup_temporary_chat_assets(list(temp_asset_ids))
+                    return
+                await self._finalize_owned_http_request(request_id, temp_asset_ids)
+
+            cleanup = asyncio.create_task(finalize_submission())
+            self._track_temporary_chat_asset_cleanup_task(cleanup)
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                raise
+            except Exception as drain_error:
+                logger.error(
+                    "Failed to drain disconnected submission: %s",
+                    drain_error,
+                    exc_info=True,
+                )
+            if isinstance(ex, ClientDisconnected):
+                raise ServiceException(
+                    "Client disconnected.", "ClientDisconnected", 499
+                ) from ex
+            raise
+        try:
+            return submission.result()
+        except Exception:
+            if registered.done():
+                await self._finalize_owned_http_request(
+                    registered.result(), temp_asset_ids, preserve_error=True
+                )
+            else:
+                await self._cleanup_temporary_chat_assets(list(temp_asset_ids))
+            raise
+
+    async def _submit_text_request_for_http(self, request, request_id, enqueue):
+        """Keep a blocked queue handoff off-loop and owned until it settles."""
+        submission_done = Event()
+
+        def submit():
+            try:
+                return enqueue()
+            finally:
+                submission_done.set()
+
+        # Do not use the default executor: abort control operations must remain
+        # runnable even when all media submission workers are blocked on queues.
+        submission = asyncio.get_running_loop().run_in_executor(
+            self._async_executor, submit
+        )
+        self._track_temporary_chat_asset_cleanup_task(submission, report_failure=False)
+        try:
+            await wait_for_completion_or_disconnect(
+                submission.done, request.is_disconnected
+            )
+        except (ClientDisconnected, asyncio.CancelledError) as ex:
+
+            async def finalize_submission():
+                await self._finalize_owned_http_request(
+                    request_id,
+                    is_done=lambda: False,
+                    submission_done=submission_done,
+                )
+                # Abort waits for this latch before retiring its marker. Keep
+                # the actual future owned as well, including a late exception.
+                try:
+                    await submission
+                except Exception as submission_error:
+                    logger.warning("Cancelled text submission failed: %s", submission_error)
+
+            cleanup = asyncio.create_task(finalize_submission())
+            self._track_temporary_chat_asset_cleanup_task(cleanup)
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                raise
+            except Exception as drain_error:
+                logger.error("Text submission did not drain: %s", drain_error, exc_info=True)
+            if isinstance(ex, ClientDisconnected):
+                raise ServiceException(
+                    "Client disconnected.", "ClientDisconnected", 499
+                ) from ex
+            raise
+        try:
+            return submission.result()
+        except Exception:
+            await self._finalize_owned_http_request(
+                request_id,
+                is_done=lambda: False,
+                submission_done=submission_done,
+                preserve_error=True,
             )
             raise
 
@@ -1314,6 +1585,7 @@ class RTVIServer:
         video_id_list: List[str],
         log_prefix: str = "VLM",
         is_chat_completion: bool = False,
+        on_registered=None,
     ) -> tuple[str, Asset, List[Asset]]:
         """
         Common helper method to process VLM requests (validate, get assets, generate request ID).
@@ -1459,6 +1731,10 @@ class RTVIServer:
             # targets a stream that was already added through /streams/add.
             try:
                 generate_captions = self._stream_handler.generate_vlm_captions
+                if on_registered is not None:
+                    generate_captions = functools.partial(
+                        generate_captions, on_registered=on_registered
+                    )
                 if is_chat_completion:
                     generate_captions = functools.partial(
                         generate_captions,
@@ -1485,6 +1761,10 @@ class RTVIServer:
             # Summarize on a file or multiple files
             try:
                 generate_captions = self._stream_handler.generate_vlm_captions
+                if on_registered is not None:
+                    generate_captions = functools.partial(
+                        generate_captions, on_registered=on_registered
+                    )
                 if is_chat_completion:
                     generate_captions = functools.partial(
                         generate_captions,
@@ -2805,8 +3085,8 @@ class RTVIServer:
             # Use common helper to process VLM request
             # ServiceException from _process_vlm_request will be caught by exception handler
             try:
-                request_id, asset, assetList = await self._process_vlm_request(
-                    query, videoIdList, log_prefix="generate_captions"
+                request_id, asset, assetList = await self._process_http_vlm_request(
+                    request, query, videoIdList, log_prefix="generate_captions"
                 )
             except ServiceException:
                 # Re-raise ServiceException to be handled by FastAPI exception handler
@@ -2820,12 +3100,11 @@ class RTVIServer:
 
             videoId = videoIdList[0]
             sse_client_key = request_id
-            loop = asyncio.get_event_loop()
-
             if query.stream:
                 # Allow only one SSE reader for this request. Multiple requests
                 # may independently target the same file or live stream asset.
                 if time.time() - self._sse_active_clients.get(sse_client_key, 0) < 3:
+                    await self._finalize_owned_http_request(request_id)
                     raise ServiceException(
                         "Another client is already connected to live stream", "Conflict", 409
                     )
@@ -2839,22 +3118,6 @@ class RTVIServer:
                     try:
                         while True:
                             self._sse_active_clients[sse_client_key] = time.time()
-                            try:
-                                if await request.is_disconnected():
-                                    logger.info(
-                                        "Client %s disconnected for live-stream %s",
-                                        request.client.host if request.client else "unknown",
-                                        videoId,
-                                    )
-                                    return
-                            except RuntimeError:
-                                logger.warning(
-                                    "Disconnect polling failed for request %s; closing SSE generator",
-                                    request_id,
-                                    exc_info=True,
-                                )
-                                break
-
                             # Get current response status from the pipeline
                             try:
                                 if request_id not in self._stream_handler._request_info_map:
@@ -2864,6 +3127,16 @@ class RTVIServer:
                                 )
                             except ServiceException:
                                 break
+                            if req_info.status == RequestInfo.Status.CANCELLED:
+                                yield json.dumps(
+                                    {
+                                        "error": {
+                                            "code": "RequestCancelled",
+                                            "message": "Request was cancelled.",
+                                        }
+                                    }
+                                )
+                                return
                             if (
                                 time.time() - last_status_report_time >= 10
                                 or resp_list
@@ -2885,6 +3158,7 @@ class RTVIServer:
                                 if req_info.status in [
                                     RequestInfo.Status.SUCCESSFUL,
                                     RequestInfo.Status.FAILED,
+                                    RequestInfo.Status.CANCELLED,
                                 ]:
                                     if req_info.status == RequestInfo.Status.FAILED:
                                         # Create the response json
@@ -2991,13 +3265,17 @@ class RTVIServer:
                     yield "[DONE]"
 
                 try:
-                    return EventSourceResponse(
+                    return RequestOwnedEventSourceResponse(
                         message_generator(),
+                        finalize=functools.partial(
+                            self._finalize_owned_http_request, request_id, preserve_error=True
+                        ),
                         send_timeout=5,
                         ping=1,
                         headers={"X-Request-ID": request_id},
                     )
                 except Exception as ex:
+                    await self._finalize_owned_http_request(request_id, preserve_error=True)
                     self._stream_handler._send_error_message_to_kafka(
                         VLM_CAPTIONS_ERROR_MESSAGE % str(ex),
                         videoId,
@@ -3009,10 +3287,10 @@ class RTVIServer:
             else:
                 # Non-streaming output. Wait for request to be completed.
                 try:
-                    await loop.run_in_executor(
-                        self._async_executor, self._stream_handler.wait_for_request_done, request_id
-                    )
+                    await self._wait_for_http_request(request, request_id)
                     req_info, resp_list = self._stream_handler.get_response(request_id)
+                    if req_info.status == RequestInfo.Status.CANCELLED:
+                        raise ServiceException("Request was cancelled.", "RequestCancelled", 499)
                     if req_info.status == RequestInfo.Status.FAILED:
                         raise ServiceException(
                             req_info.error_message or "Failed to generate VLM captions",
@@ -3090,6 +3368,8 @@ class RTVIServer:
                     raise ServiceException(
                         "Failed to generate VLM captions.", "InternalServerError", 500
                     ) from ex
+                finally:
+                    await self._finalize_owned_http_request(request_id, preserve_error=True)
 
         # ======================= Summarize API
         # ======================= Stop Live Stream VLM API
@@ -3323,7 +3603,9 @@ class RTVIServer:
                 asset_uuid = UUID(asset_id_from_url)
             else:
                 # Text-only request — no media provided, bypass VLM pipeline
-                return await self._handle_text_only_chat(request_body, system_prompt, user_prompt)
+                return await self._handle_text_only_chat(
+                    request_body, system_prompt, user_prompt, request
+                )
 
             # Convert ID to list format
             videoIdListUUID = [asset_uuid] if isinstance(asset_uuid, UUID) else asset_uuid
@@ -3428,18 +3710,18 @@ class RTVIServer:
             # Use common helper to process VLM request
             # ServiceException from _process_vlm_request will be caught by exception handler
             try:
-                request_id, asset, assetList = await self._process_vlm_request(
+                request_id, asset, assetList = await self._process_http_vlm_request(
+                    request,
                     vlm_query,
                     videoIdList,
+                    temp_asset_ids=temp_asset_ids,
                     log_prefix="NIM chat completion",
                     is_chat_completion=True,
                 )
             except ServiceException:
-                await self._cleanup_temporary_chat_assets(temp_asset_ids)
                 # Re-raise ServiceException to be handled by FastAPI exception handler
                 raise
             except Exception as ex:
-                await self._cleanup_temporary_chat_assets(temp_asset_ids)
                 # Wrap unexpected exceptions
                 logger.error("Unexpected error in _process_vlm_request: %s", str(ex), exc_info=True)
                 raise ServiceException(
@@ -3452,14 +3734,11 @@ class RTVIServer:
             # Get model info for response
             model_info = self._stream_handler.get_models_info()
 
-            # Get event loop for non-streaming path
-            loop = asyncio.get_event_loop()
-
             if vlm_query.stream:
                 # Allow only one SSE reader for this request. Multiple requests
                 # may independently target the same file or live stream asset.
                 if time.time() - self._sse_active_clients.get(sse_client_key, 0) < 3:
-                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                    await self._finalize_owned_http_request(request_id, temp_asset_ids)
                     raise ServiceException(
                         "Another client is already connected to live stream", "Conflict", 409
                     )
@@ -3472,22 +3751,6 @@ class RTVIServer:
                     try:
                         while True:
                             self._sse_active_clients[sse_client_key] = time.time()
-                            try:
-                                if await request.is_disconnected():
-                                    logger.info(
-                                        "Client %s disconnected for live-stream %s",
-                                        request.client.host if request.client else "unknown",
-                                        videoId,
-                                    )
-                                    return
-                            except RuntimeError:
-                                logger.warning(
-                                    "Disconnect polling failed for request %s; closing SSE generator",
-                                    request_id,
-                                    exc_info=True,
-                                )
-                                break
-
                             # Get current response status from the pipeline
                             try:
                                 if request_id not in self._stream_handler._request_info_map:
@@ -3498,6 +3761,16 @@ class RTVIServer:
                                 final_created = int(req_info.queue_time)
                             except ServiceException:
                                 break
+                            if req_info.status == RequestInfo.Status.CANCELLED:
+                                yield json.dumps(
+                                    {
+                                        "error": {
+                                            "code": "RequestCancelled",
+                                            "message": "Request was cancelled.",
+                                        }
+                                    }
+                                )
+                                return
                             if (
                                 time.time() - last_status_report_time >= 10
                                 or resp_list
@@ -3519,6 +3792,7 @@ class RTVIServer:
                                 if req_info.status in [
                                     RequestInfo.Status.SUCCESSFUL,
                                     RequestInfo.Status.FAILED,
+                                    RequestInfo.Status.CANCELLED,
                                 ]:
                                     if req_info.status == RequestInfo.Status.FAILED:
                                         # Send error as OpenAI-compatible format
@@ -3632,15 +3906,28 @@ class RTVIServer:
                         yield "[DONE]"
                     finally:
                         self._sse_active_clients.pop(sse_client_key, None)
-                        await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
 
                 try:
-                    return EventSourceResponse(chat_message_generator(), send_timeout=5, ping=1)
+                    return RequestOwnedEventSourceResponse(
+                        chat_message_generator(),
+                        finalize=functools.partial(
+                            self._finalize_owned_http_request,
+                            request_id,
+                            temp_asset_ids,
+                            preserve_error=True,
+                        ),
+                        send_timeout=5,
+                        ping=1,
+                    )
                 except ServiceException:
-                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                    await self._finalize_owned_http_request(
+                        request_id, temp_asset_ids, preserve_error=True
+                    )
                     raise
                 except Exception as ex:
-                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                    await self._finalize_owned_http_request(
+                        request_id, temp_asset_ids, preserve_error=True
+                    )
                     self._stream_handler._send_error_message_to_kafka(
                         VLM_CAPTIONS_ERROR_MESSAGE % str(ex),
                         videoId,
@@ -3652,10 +3939,10 @@ class RTVIServer:
             else:
                 # Non-streaming output. Wait for request to be completed.
                 try:
-                    await loop.run_in_executor(
-                        self._async_executor, self._stream_handler.wait_for_request_done, request_id
-                    )
+                    await self._wait_for_http_request(request, request_id)
                     req_info, resp_list = self._stream_handler.get_response(request_id)
+                    if req_info.status == RequestInfo.Status.CANCELLED:
+                        raise ServiceException("Request was cancelled.", "RequestCancelled", 499)
                     if req_info.status == RequestInfo.Status.FAILED:
                         raise ServiceException(
                             req_info.error_message or "Failed to generate VLM captions",
@@ -3730,7 +4017,9 @@ class RTVIServer:
                         "Failed to generate chat completion.", "InternalServerError", 500
                     ) from ex
                 finally:
-                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                    await self._finalize_owned_http_request(
+                        request_id, temp_asset_ids, preserve_error=True
+                    )
 
         @self._app.post(
             f"{API_PREFIX}/completions",
