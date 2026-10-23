@@ -100,10 +100,10 @@ fi
 
 PYTHONPATH="$PERF_DIR/benchmark" python3 "$PERF_DIR/benchmark/vss_perf_benchmark.py" \
     --report "$report" \
-    --output "$OUTPUT_DIR/result.json" \
+    --output "$OUTPUT_DIR/execution_summary.json" \
     --artifact-ref "$image" \
     --scenario "$PERF_SCENARIO" \
     --config-id "$PERF_CONFIG_ID" \
     --duration-seconds "$PERF_DURATION_SECONDS" \
     --warmup-seconds "$PERF_WARMUP_SECONDS" \
-    || fail_measure "latency report did not produce a passing result.json"
+    || fail_measure "latency report did not produce a passing execution_summary.json"

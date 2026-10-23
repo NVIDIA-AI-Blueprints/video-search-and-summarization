@@ -4,7 +4,7 @@ This package measures the promoted Behavior Analytics image with the warehouse 2
 
 The published Behavior Analytics latency for frames, behavior, events, and incidents is that topic's latency-monitor summary minus the raw-topic summary. The result keeps both values. A negative corrected value fails the run. Percentile correction subtracts the printed percentile columns; it does not recompute percentiles from individual messages.
 
-`perf/configs/kpis.yaml` is the regression gate. After correction, the writer requires raw/frames/behavior/events/incidents and checks min counts plus Yun He's p50/p99 (frames 20/50 ms, incidents 30/60 ms, behavior and events 60/120 ms). A miss sets `success` false and records `kpis.violations` in `result.json`. Deploy overlays `behaviorEmitOnce=false` (product default) so the behavior KPI measures live updates; the integration fixture still has emit-once on.
+`perf/configs/kpis.yaml` is the regression gate. After correction, the writer requires raw/frames/behavior/events/incidents and checks min counts plus Yun He's p50/p99 (frames 20/50 ms, incidents 30/60 ms, behavior and events 60/120 ms). A miss sets `success` false and records `kpis.violations` in the native `execution_summary.json`. Deploy overlays `behaviorEmitOnce=false` (product default) so the behavior KPI measures live updates; the integration fixture still has emit-once on.
 
 Playback does not use a GPU. The result is the Behavior Analytics overhead on recorded frames, not warehouse blueprint end-to-end latency.
 
@@ -16,7 +16,15 @@ Set `ARTIFACT_REF` to the promoted image, then run:
 ./perf/run_benchmark.sh
 ```
 
-The result is written to `perf/results/behavior-analytics_<scenario>_<config-id>/result.json`. Jenkins already passes `--upload` and MinIO keys; the writer PUTs a timestamped copy to `s3://perf-results-dev/behavior-analytics/...` (`10.111.52.248:9000`, same endpoint as compose-base). The dashboard still has to onboard this service name.
+The canonical result is written beneath
+`perf/results/behavior-analytics_<scenario>_<config-id>/vss-perf-results/` as
+`behavior-analytics_<config-id>_<timestamp>.json`. It uses the same versioned
+`metadata`, `summary`, and `test_cases` contract as LVS. The native
+`execution_summary.json` remains in the parent run directory for diagnostics.
+
+Jenkins already passes `--upload` and MinIO keys. The canonical file is uploaded
+unchanged to `s3://<bucket>/behavior-analytics/<same-filename>`. The dashboard
+still has to onboard this service name.
 
 ## Jenkins
 
@@ -40,4 +48,13 @@ The Jenkins entrypoint accepts the common flags (`--config-id`, `--scenario`,
 `--output-json`, and `--upload`). When Jenkins has already run the stage
 scripts it only measures. `PERF_SCENARIO=quick_test` selects the 60-second
 playback window. Results are written to
-`{checkout}/perf/results/behavior-analytics_<scenario>_<config-id>/`.
+`{checkout}/perf/results/behavior-analytics_<scenario>_<config-id>/`; Jenkins
+archives the complete directory, including the canonical `vss-perf-results/`
+subdirectory and native diagnostic evidence.
+
+## Shared reporting
+
+`perf/benchmark/vss_perf_ba_adapter.py` is the only Behavior Analytics-specific
+report mapping. It preserves the benchmark's native topic latency and KPI data
+under a canonical test case. Schema validation, naming, platform discovery,
+atomic writes, and MinIO publication come from `libs/vss-perf-reporting`.

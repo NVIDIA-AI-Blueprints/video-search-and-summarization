@@ -27,6 +27,11 @@ and invokes `perf/scripts/run_benchmark.sh` directly from the
 Python modules, Compose recipes, virtual environments, and reports from this
 service-owned `perf/` tree.
 
+The existing `vss_perf_common` API now acts as a compatibility facade over
+`libs/vss-perf-reporting` for the shared schema, run naming, JSON writing, and
+MinIO publication. LVS scenario execution, KPI calculation, and monitoring
+remain service-owned and unchanged.
+
 The promotion trigger supplies:
 
 ```text

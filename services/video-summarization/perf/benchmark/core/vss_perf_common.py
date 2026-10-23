@@ -35,6 +35,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -739,6 +740,69 @@ def upload_result_file(
     except Exception as e:
         logger.error("Failed to upload to MinIO: %s", e)
         return False
+
+
+# Keep this service module as a compatibility facade while reporting is shared.
+# The full VSS checkout is available both locally and on Jenkins bare-metal
+# nodes, so load the repository-owned package directly without requiring a
+# separately published wheel. LVS-only perf-config resolution helpers above
+# deliberately remain service-owned.
+_REPO_ROOT = Path(__file__).resolve().parents[5]
+_SHARED_REPORTING_SRC = _REPO_ROOT / "libs" / "vss-perf-reporting" / "src"
+if str(_SHARED_REPORTING_SRC) not in sys.path:
+    sys.path.insert(0, str(_SHARED_REPORTING_SRC))
+
+from vss_perf_reporting import (  # noqa: E402
+    DEFAULT_GPU_MODEL_UNKNOWN as _SHARED_DEFAULT_GPU_MODEL_UNKNOWN,
+    DEFAULT_MINIO_ACCESS_KEY as _SHARED_DEFAULT_MINIO_ACCESS_KEY,
+    DEFAULT_MINIO_BUCKET as _SHARED_DEFAULT_MINIO_BUCKET,
+    DEFAULT_MINIO_ENDPOINT as _SHARED_DEFAULT_MINIO_ENDPOINT,
+    DEFAULT_MINIO_SECRET_KEY as _SHARED_DEFAULT_MINIO_SECRET_KEY,
+    DEFAULT_PLATFORM_PLACEHOLDER as _SHARED_DEFAULT_PLATFORM_PLACEHOLDER,
+    DEFAULT_SCHEMA_VERSION as _SHARED_DEFAULT_SCHEMA_VERSION,
+    DEFAULT_TRIGGERED_BY as _SHARED_DEFAULT_TRIGGERED_BY,
+    BenchmarkMetadata as _SharedBenchmarkMetadata,
+    BenchmarkStatus as _SharedBenchmarkStatus,
+    BenchmarkSummary as _SharedBenchmarkSummary,
+    CPUInfo as _SharedCPUInfo,
+    GPUInfo as _SharedGPUInfo,
+    MinIOUploader as _SharedMinIOUploader,
+    PlatformInfo as _SharedPlatformInfo,
+    RunInfo as _SharedRunInfo,
+    TriggerSource as _SharedTriggerSource,
+    VSSBenchmarkResult as _SharedVSSBenchmarkResult,
+    build_and_save as _shared_build_and_save,
+    build_result as _shared_build_result,
+    generate_run_id as _shared_generate_run_id,
+    get_minio_bucket as _shared_get_minio_bucket,
+    get_minio_endpoint as _shared_get_minio_endpoint,
+    upload_result_file as _shared_upload_result_file,
+)
+
+BenchmarkStatus = _SharedBenchmarkStatus
+TriggerSource = _SharedTriggerSource
+RunInfo = _SharedRunInfo
+GPUInfo = _SharedGPUInfo
+CPUInfo = _SharedCPUInfo
+PlatformInfo = _SharedPlatformInfo
+BenchmarkMetadata = _SharedBenchmarkMetadata
+BenchmarkSummary = _SharedBenchmarkSummary
+VSSBenchmarkResult = _SharedVSSBenchmarkResult
+DEFAULT_SCHEMA_VERSION = _SHARED_DEFAULT_SCHEMA_VERSION
+DEFAULT_TRIGGERED_BY = _SHARED_DEFAULT_TRIGGERED_BY
+DEFAULT_GPU_MODEL_UNKNOWN = _SHARED_DEFAULT_GPU_MODEL_UNKNOWN
+DEFAULT_PLATFORM_PLACEHOLDER = _SHARED_DEFAULT_PLATFORM_PLACEHOLDER
+DEFAULT_MINIO_ENDPOINT = _SHARED_DEFAULT_MINIO_ENDPOINT
+DEFAULT_MINIO_BUCKET = _SHARED_DEFAULT_MINIO_BUCKET
+DEFAULT_MINIO_ACCESS_KEY = _SHARED_DEFAULT_MINIO_ACCESS_KEY
+DEFAULT_MINIO_SECRET_KEY = _SHARED_DEFAULT_MINIO_SECRET_KEY
+generate_run_id = _shared_generate_run_id
+build_result = _shared_build_result
+build_and_save = _shared_build_and_save
+get_minio_endpoint = _shared_get_minio_endpoint
+get_minio_bucket = _shared_get_minio_bucket
+MinIOUploader = _SharedMinIOUploader
+upload_result_file = _shared_upload_result_file
 
 
 # -----------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -269,15 +270,15 @@ INCIDENTS MESSAGES
         self.assertEqual(settings["endpoint"], "10.111.52.248:9000")
         self.assertEqual(settings["service"], "behavior-analytics")
 
-        def fake_upload(local_file, **kwargs):
+        def fake_publish(local_file, service, **kwargs):
             if not os.environ.get("MINIO_ACCESS_KEY") or not os.environ.get("MINIO_SECRET_KEY"):
                 raise ValueError("MinIO credentials are required for upload")
-            return f"{kwargs['service']}/{local_file.name}"
+            return {"object": f"{service}/{local_file.name}", "uri": "s3://perf-results-dev/result"}
 
         with tempfile.TemporaryDirectory() as directory:
-            result_path = Path(directory) / "result.json"
+            result_path = Path(directory) / "behavior-analytics_cfg_20261023_121500.json"
             result_path.write_text('{"success": true}\n')
-            with patch("minio_upload.upload_result_file", side_effect=fake_upload) as put:
+            with patch("minio_upload.publish_result_file", side_effect=fake_publish) as put:
                 with patch.dict(
                     os.environ,
                     {"MINIO_ACCESS_KEY": "", "MINIO_SECRET_KEY": ""},
@@ -299,13 +300,9 @@ INCIDENTS MESSAGES
                         config_path=config,
                         config_id="warehouse_2d-kafka-playback",
                     )
-            self.assertTrue(
-                published["object"].startswith(
-                    "behavior-analytics/behavior-analytics_warehouse_2d-kafka-playback_"
-                )
-            )
-            self.assertTrue(published["uri"].startswith("s3://perf-results-dev/"))
-            self.assertGreaterEqual(put.call_count, 2)
+            self.assertEqual(published["object"], f"behavior-analytics/{result_path.name}")
+            self.assertEqual(put.call_args.args[0], result_path)
+            self.assertEqual(put.call_count, 1)
 
     def test_negative_correction_fails(self) -> None:
         topics = parse_latency_report(REPORT)
@@ -347,7 +344,7 @@ INCIDENTS MESSAGES
         env = {**os.environ, "PYTHONPATH": str(CORE.parent.parent)}
         completed = subprocess.run(
             [
-                "python3",
+                sys.executable,
                 str(CORE),
                 "--help",
             ],
@@ -401,7 +398,9 @@ INCIDENTS MESSAGES
                 args = module.parse_args(
                     ["--scenario", "quick_test", "--config-id", "warehouse_2d-kafka-playback"]
                 )
-                self.assertEqual(module.result_dir(args), Path(directory))
+                self.assertEqual(
+                    module.result_dir(args), Path(directory) / "vss-perf-results"
+                )
                 named = module.parse_args(["--output-json", str(Path(directory) / "benchmark.json")])
                 self.assertEqual(module.result_file(named), Path(directory) / "benchmark.json")
             finally:
@@ -423,8 +422,8 @@ INCIDENTS MESSAGES
                     code = module.main(["--output-json", str(output), "--upload"])
             payload = json.loads(output.read_text())
             self.assertEqual(code, 1)
-            self.assertFalse(payload["success"])
-            self.assertNotIn("stale", payload)
+            self.assertEqual(payload["summary"]["overall_status"], "FAIL")
+            self.assertEqual(payload["test_cases"][0]["status"], "FAIL")
             upload.assert_called_once_with(output, ANY)
 
     def test_entrypoint_uploads_explicit_stage_failure(self) -> None:
@@ -449,7 +448,10 @@ INCIDENTS MESSAGES
                     ]
                 )
             self.assertEqual(code, 1)
-            self.assertIn("deploy: boom", json.loads(output.read_text())["error"])
+            payload = json.loads(output.read_text())
+            self.assertEqual(
+                payload["test_cases"][0]["error"], {"stage": "deploy", "message": "boom"}
+            )
             upload.assert_called_once_with(output, ANY)
 
     def test_entrypoint_passes_selected_config_to_runner(self) -> None:
@@ -464,7 +466,10 @@ INCIDENTS MESSAGES
 
             def fake_run(_cmd, *, env, check):
                 self.assertEqual(env["PERF_CONFIG_FILE"], str(config.resolve()))
-                output.write_text('{"success": true}\n')
+                native = Path(env["OUTPUT_DIR"]) / "execution_summary.json"
+                native.write_text(
+                    json.dumps({"success": True, "setup": "warehouse_2d_kafka_playback"})
+                )
                 return subprocess.CompletedProcess([], 0)
 
             with patch.object(module.subprocess, "run", side_effect=fake_run):
@@ -472,6 +477,7 @@ INCIDENTS MESSAGES
                     ["--config", str(config), "--output-json", str(output)]
                 )
             self.assertEqual(code, 0)
+            self.assertEqual(json.loads(output.read_text())["summary"]["overall_status"], "PASS")
 
     def test_safe_write_replaces_symlink_instead_of_following_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
