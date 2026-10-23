@@ -118,25 +118,16 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
 
-### VSS Deploy Conventions
+### VSS Operations
 
-- The runtime image ships operation skills and the `vss` CLI. It does not ship
-  `/vss-build-vision-ai` or a source checkout. Do not fall back to a deployment
-  script when an operation skill routes to that build workflow.
-- If an orchestrator MCP is configured, use its deployment recipe in `TOOLS.md`.
-  The NemoClaw workspace has its own orchestrator instructions; preserve that
-  boundary rather than running host shell or raw Compose commands in its sandbox.
-- Without an orchestrator, hand deployment to a host-side agent with the
-  repository's `skills/vss-build-vision-ai/SKILL.md`. Include the requested
-  profile/capabilities and supplied hardware, GPU, and model choices. Alerts
-  requires a real-time or verification mode choice; ask only if it is missing.
-- On the deployment host, follow the build skill to create, resolve, validate,
-  deploy, and check readiness using its build-local Compose artifacts. A
-  container being `Up` alone does not establish service readiness.
-- After deployment, consume the public origin returned by that workflow. On
-  Brev, use the actual secure link it resolved; never construct a hostname.
-  Configure this runtime with `vss configure --base-url <origin>` and run
-  `vss configure check` before operating the stack.
+- Operate an existing VSS deployment through the installed operation skills
+  and `vss` CLI. Do not deploy VSS from this runtime.
+- For a deployment or profile-change request, or when an operation skill
+  routes to the build workflow, tell the user: "Please switch to a coding
+  agent and use the `vss-build-vision-ai` skill to deploy VSS."
+- Once the user supplies the deployed public origin, configure this runtime
+  with `vss configure --base-url <origin>` and run `vss configure check` before
+  operating the stack. Use the supplied origin; never construct a hostname.
 
 When the user asks about **incidents, alerts, PPE violations, occupancy, object
 counts, speeds, or "what happened"** in video:
