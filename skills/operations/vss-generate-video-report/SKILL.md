@@ -332,21 +332,24 @@ printf 'BROWSER_CLIP_URL=%q\n' "${BROWSER_CLIP_URL}"
 ```
 
 **Docker Compose** — the browser-facing origin is the HAProxy host port on the Compose host:
-`http://${HOST_IP}:7777` by default (`HAPROXY_HOST_PORT`). The profile deploy workflow (`/vss-build-vision-ai` → `dev-profile.sh`) writes resolved
-`VSS_PUBLIC_HOST` / `VSS_PUBLIC_PORT` / `VSS_PUBLIC_HTTP_PROTOCOL` into
-`deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` only on Brev; elsewhere that
-file still carries the templates `${EXTERNAL_IP}` / `${HAPROXY_HOST_PORT}` (a resolved
-`EXTERNAL_IP=<public IP>` or `HAPROXY_HOST_PORT=<port>` line there IS a resolved value — pass those as
-`VSS_PUBLIC_HOST` / `VSS_PUBLIC_PORT`). So: paste the Endpoint resolution hand-off (`HOST_IP`) at the
-top of this block and set all three — `VSS_PUBLIC_HTTP_PROTOCOL`, `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT` —
-only when you hold resolved values (Brev: `https`, the Brev host, `443`); the block falls back to
-`http://HOST_IP:7777` otherwise and ignores unresolved templates. The rewrite is:
+`http://${HOST_IP}:7777` by default (`HAPROXY_HOST_PORT`). For a full build,
+`/vss-build-vision-ai` supplies the deployment's public origin. Use that
+handoff to set concrete `VSS_PUBLIC_HOST` / `VSS_PUBLIC_PORT` /
+`VSS_PUBLIC_HTTP_PROTOCOL` values for the block below. If inspecting the
+deployed `_builds/<name>/resolved.yml`, read the materialized public URLs
+(for example, `vss-ui.environment.NEXT_PUBLIC_VST_API_URL`); interpolation
+inputs need not remain as environment keys in that file. Do not use a
+checked-in env template or an older deployment's generated file.
+On Brev, use the actual secure-link host, protocol, and public port resolved by
+the build workflow; never construct a hostname. When the values are unavailable,
+the block below falls back to the handoff's `HOST_IP` and port 7777 and reports
+agent-side-only hosts. The rewrite is:
 
 ```bash
 : "${RAW_URL:?set RAW_URL to the clip URL from Mode A Step 1 / the Mode B incident at the top of this block}"
 VSS_PUBLIC_HTTP_PROTOCOL="${VSS_PUBLIC_HTTP_PROTOCOL:-http}"
 BROWSER_CLIP_URL=""
-# Unresolved templates (generated.env on non-Brev deploys) are ignored, not pasted into a link.
+# Unresolved env templates are ignored, not pasted into a link.
 case "${VSS_PUBLIC_HOST:-}" in *'${'*) echo "VSS_PUBLIC_HOST holds an unresolved template — using the hand-off HOST_IP instead" >&2; VSS_PUBLIC_HOST="" ;; esac
 case "${VSS_PUBLIC_PORT:-}" in *'${'*) VSS_PUBLIC_PORT="" ;; esac
 VSS_PUBLIC_HOST="${VSS_PUBLIC_HOST:-${HOST_IP:-}}"   # hand-off fallback
