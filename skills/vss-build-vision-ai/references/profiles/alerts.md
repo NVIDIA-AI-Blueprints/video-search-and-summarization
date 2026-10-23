@@ -56,7 +56,8 @@ without the agent add `vss-va-mcp` explicitly (`services/sop.md`).
 | `NEXT_PUBLIC_APP_SUBTITLE` | Derive from the final service set using [`composition.md`](../composition.md#ui-subtitle). |
 | `VST_NOTIFICATION_CONFIG_PATH` | MODE-selected VIOS webhook config (`notification_config_${MODE}.json`): `2d_cv` → RT-CV stream add/remove; `2d_vlm` → Alert Bridge always-on. |
 | `ALERT_AGENT_ALWAYS_ON` | Gate always-on rules (`true` for real-time / `2d_vlm`, `false` for verification / `2d_cv`). |
-| `RTVI_VLM_KAFKA_ENABLED` | Set `true` for real-time / `2d_vlm`, `false` for verification / `2d_cv`; Compose maps this to RT-VLM `KAFKA_ENABLED`. |
+| `RTVI_VLM_MESSAGE_BUS` | Generated-message output bus: `kafka` for real-time / `2d_vlm`, explicitly empty for verification / `2d_cv`; Compose maps this to RT-VLM `MESSAGE_BUS`. Kafka also requires non-empty `KAFKA_BOOTSTRAP_SERVERS`. |
+| `RTVI_VLM_KAFKA_ENABLED` | Legacy compatibility setting: `true` for `2d_vlm`, `false` for `2d_cv`. The current RT-VLM runtime does not use `KAFKA_ENABLED` to control publishing; set `RTVI_VLM_MESSAGE_BUS` as above. |
 | `NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS` | Keep `true` in both Alerts modes. |
 | `NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION` | Set `false` for `2d_vlm`; keep `true` for `2d_cv`. |
 | `DS_MODEL_FAMILY`, `MODEL_NAME_2D`, `RT_CV_DEVICE_ID`, `VSS_RT_CV_TAG` | Configure RT-CV in `2d_cv`. |
@@ -73,15 +74,20 @@ resolution. The checked-in overrides default to verification: changing `MODE`
 alone does not update values already expanded in an earlier env layer.
 
 - `2d_vlm`: select the real-time service set above, set
-  `ALERT_AGENT_ALWAYS_ON=true` and `RTVI_VLM_KAFKA_ENABLED=true`.
-- `2d_cv`: select the verification service set above, set both values to `false`.
+  `ALERT_AGENT_ALWAYS_ON=true` and `RTVI_VLM_MESSAGE_BUS=kafka`.
+- `2d_cv`: select the verification service set above, set
+  `ALERT_AGENT_ALWAYS_ON=false` and explicitly set `RTVI_VLM_MESSAGE_BUS=`.
+  Omitting the bus setting leaves Compose's `kafka` default active.
+- Retain `RTVI_VLM_KAFKA_ENABLED=true` for `2d_vlm` and `false` for `2d_cv`
+  for legacy compatibility; this flag alone does not establish publishing state.
 - In either mode, materialize `VST_NOTIFICATION_CONFIG_PATH` to the selected
   `${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/vios/configs/notification_config_<MODE>.json`
   with concrete path and mode values. It must follow the effective build's
   `VSS_APPS_DIR`, not an earlier env layer's default.
 
-Check `ALERT_AGENT_ALWAYS_ON` on `alert-bridge`, `KAFKA_ENABLED` on `rtvi-vlm`,
-and the VIOS notification-config mount in the resolved model before deploying.
+Check `ALERT_AGENT_ALWAYS_ON` on `alert-bridge`, `MESSAGE_BUS` on `rtvi-vlm`
+(and non-empty `KAFKA_BOOTSTRAP_SERVERS` for real-time), and the VIOS
+notification-config mount in the resolved model before deploying.
 These are deployment settings; an operation request observes the running
 configuration instead of changing it.
 
