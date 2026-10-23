@@ -33,7 +33,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
   close,
   streams,
   filterParams,
-  setFilterParams,
+  setFilterParams: _setFilterParams,
   containerRef,
   triggerRef,
   disabled = false,

@@ -14,7 +14,7 @@
  */
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { SearchComponent } from '../../lib-src/SearchComponent';
 import { SearchComponentProps } from '../../lib-src/types';
 

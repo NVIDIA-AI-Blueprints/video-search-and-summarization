@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next && rm -rf node_modules",
     "format": "prettier --write .",
-    "lint": "eslint . --ext .ts,.tsx",
+    "lint": "eslint .",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"

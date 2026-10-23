@@ -4,7 +4,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { StreamCard } from '../../lib-src/components/StreamCard';
 import type { StreamInfo } from '../../lib-src/types';
-import { makeStream, videoStream, rtspStream } from '../helpers/streamFixtures';
+import { videoStream, rtspStream } from '../helpers/streamFixtures';
 
 jest.mock('../../lib-src/utils', () => ({
   getFileExtension: (url: string) => {
