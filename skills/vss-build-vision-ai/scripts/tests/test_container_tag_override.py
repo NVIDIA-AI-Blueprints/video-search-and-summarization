@@ -364,6 +364,7 @@ def test_compose_flags_follow_explicit_alerts_mode_contract(
     tmp_path, mode, expected_cv
 ):
     backend_enabled = "true" if mode == "2d_vlm" else "false"
+    message_bus = "kafka" if mode == "2d_vlm" else ""
     override = tmp_path / "override.env"
     override.write_text(
         f"MODE={mode}\nCOMPOSE_PROFILES=vss-ui,alert-bridge,rtvi-vlm\n"
@@ -371,11 +372,13 @@ def test_compose_flags_follow_explicit_alerts_mode_contract(
         f"ALERT_AGENT_ALWAYS_ON={backend_enabled}\n"
     )
     # Reproduce the omission with the real Compose env layers before writing
-    # the build's explicit UI settings. MODE alone leaves the CV editor on.
+    # the build's explicit settings. MODE alone leaves the CV editor and
+    # generated-message output on, despite the legacy KAFKA_ENABLED=false.
     omitted = _compose_config(override)
     assert omitted["services"]["vss-ui"]["environment"][CV_FLAG] == "true"
     assert bool(alerts_ui_errors(omitted)) == (mode == "2d_vlm")
     assert omitted["services"]["rtvi-vlm"]["environment"]["KAFKA_ENABLED"] == "false"
+    assert omitted["services"]["rtvi-vlm"]["environment"]["MESSAGE_BUS"] == "kafka"
 
     # Apply the supported build override contract directly. Neither resolving
     # Compose nor validating its UI contract depends on a deployment launcher.
@@ -383,6 +386,7 @@ def test_compose_flags_follow_explicit_alerts_mode_contract(
         env_file.write(
             f"{REALTIME_FLAG}=true\n{CV_FLAG}={expected_cv}\n"
             f"RTVI_VLM_KAFKA_ENABLED={backend_enabled}\n"
+            f"RTVI_VLM_MESSAGE_BUS={message_bus}\n"
         )
     configured = _compose_config(override)
     ui_env = configured["services"]["vss-ui"]["environment"]
@@ -393,7 +397,8 @@ def test_compose_flags_follow_explicit_alerts_mode_contract(
         configured["services"]["alert-bridge"]["environment"]["ALERT_AGENT_ALWAYS_ON"]
         == backend_enabled
     )
-    assert (
-        configured["services"]["rtvi-vlm"]["environment"]["KAFKA_ENABLED"]
-        == backend_enabled
-    )
+    rt_vlm_env = configured["services"]["rtvi-vlm"]["environment"]
+    assert rt_vlm_env["KAFKA_ENABLED"] == backend_enabled
+    assert rt_vlm_env["MESSAGE_BUS"] == message_bus
+    if message_bus == "kafka":
+        assert rt_vlm_env["KAFKA_BOOTSTRAP_SERVERS"].strip()
