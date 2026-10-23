@@ -125,7 +125,7 @@ passes, detect the mode per Step 1.
 
 **Switching modes** uses the `vss-build-vision-ai` teardown + deploy flow, asking for the other mode. Both modes use the same agent `config.yml`; VIOS webhooks follow `notification_config_${MODE}.json`. `rtvi-vlm` runs in both modes.
 
-**`RTVI_VLM_KAFKA_ENABLED` is mode-specific.** `overrides.env` ships `RTVI_VLM_KAFKA_ENABLED=false` for verification (`2d_cv`), where nothing consumes RT-VLM's Kafka output and leaving it on makes RT-VLM publish duplicate incidents that Logstash indexes under `mdx-vlm-incidents-1970-01-01`. Real-time (`2d_vlm`) alerts require `RTVI_VLM_KAFKA_ENABLED=true` in the build's `override.env` before resolution. Check the deployed `rtvi-vlm` container's `KAFKA_ENABLED` value rather than assuming a script changed it. The complete mode configuration is in `vss-build-vision-ai/references/profiles/alerts.md` (within that skill).
+**RT-VLM generated-message output is mode-specific.** Set `RTVI_VLM_MESSAGE_BUS=kafka` for real-time (`2d_vlm`) and explicitly set `RTVI_VLM_MESSAGE_BUS=` for verification (`2d_cv`) in the build's `override.env` before resolution. Real-time alerts require Kafka output; verification disables RT-VLM generated output to avoid duplicate incidents. Compose maps this setting to the container's `MESSAGE_BUS`; Kafka also requires non-empty `KAFKA_BOOTSTRAP_SERVERS`. `RTVI_VLM_KAFKA_ENABLED` maps to the legacy `KAFKA_ENABLED` variable and does not control publishing in the current runtime. Check the deployed container's actual output-bus configuration rather than that legacy flag. The complete mode configuration is in `vss-build-vision-ai/references/profiles/alerts.md` (within that skill).
 
 ---
 
