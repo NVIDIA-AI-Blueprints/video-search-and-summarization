@@ -1127,7 +1127,7 @@ jobs:
     name: Lint & Typecheck (UI)
     needs: prepare-source
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: services/ui
@@ -1156,17 +1156,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The remaining app workspace defines `lint` but runs ESLint without an
-      # ESLint 9 flat config in-tree. Exclude it until that source is fixed.
-      # TODO: remove this once the dev source is fixed for linting.
       - name: Lint
-        run: npm run lint -- --filter='!nv-metropolis-bp-vss-ui'
+        run: npm run lint
 
-      # The UI workspaces need the full local build graph before `tsc` can
-      # resolve sibling packages. Keep this check scoped to `common`.
-      # TODO: remove these filters once the dev source is fixed for typechecking.
       - name: Typecheck
-        run: npm run typecheck -- --filter='common'
+        run: npm run typecheck
 
   # ---------------------------------------------------------------------------
   # Job 6: Frontend build

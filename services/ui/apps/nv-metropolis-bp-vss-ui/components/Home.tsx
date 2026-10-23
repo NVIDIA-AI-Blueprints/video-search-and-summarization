@@ -23,10 +23,8 @@ import {
   IconMoon,
   IconMenu2
 } from '@tabler/icons-react';
-import { getTabChatInitialStateOverride, getTabChatWorkflow } from '../utils/tabChatEnv';
 import {
   CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX,
-  SIDEBAR_CHAT_ENV_TAB_KEY,
   getChatSidebarEnabled,
 } from '../utils/tabChatSidebarConfig';
 

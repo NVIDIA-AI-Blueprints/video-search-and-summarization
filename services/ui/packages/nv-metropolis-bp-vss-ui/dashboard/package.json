@@ -22,7 +22,8 @@
     "build": "rm -rf lib && swc lib-src -d lib --config-file .swcrc && mv lib/lib-src/* lib/ && rmdir lib/lib-src && tsc --project tsconfig.lib.json",
     "dev": "swc lib-src -d lib --config-file .swcrc -w",
     "clean": "rm -rf lib && rm -rf node_modules",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@nvidia/foundations-react-core": "1.17.0",

@@ -69,3 +69,4 @@ describe('DashboardComponent', () => {
 
     expect(screen.getByTitle('Kibana Dashboard')).toBe(iframe);
   });
+});

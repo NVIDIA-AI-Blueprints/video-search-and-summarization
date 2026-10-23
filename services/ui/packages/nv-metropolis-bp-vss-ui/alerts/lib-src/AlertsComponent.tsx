@@ -88,10 +88,10 @@ const FILTERS_STORAGE_KEY = 'alertsTabActiveFilters';
 
 export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   theme = 'light',
-  onThemeChange,
+  onThemeChange: _onThemeChange,
   isActive = true,
   alertsData,
-  serverRenderTime,
+  serverRenderTime: _serverRenderTime,
   renderControlsInLeftSidebar = false,
   onControlsReady,
   submitChatMessage,

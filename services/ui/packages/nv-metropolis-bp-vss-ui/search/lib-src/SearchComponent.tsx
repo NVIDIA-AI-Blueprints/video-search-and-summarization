@@ -50,7 +50,7 @@ const SearchByImageOverlayComponent = dynamic(loadSearchByImageOverlay, {
 
 export const SearchComponent: React.FC<SearchComponentProps> = ({
   theme = 'light',
-  onThemeChange,
+  onThemeChange: _onThemeChange,
   isActive = true,
   searchData,
   renderControlsInLeftSidebar = false,

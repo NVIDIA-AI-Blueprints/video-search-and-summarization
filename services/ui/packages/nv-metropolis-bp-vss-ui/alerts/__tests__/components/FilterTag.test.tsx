@@ -23,7 +23,7 @@ jest.mock('@nvidia/foundations-react-core', () => {
         ),
       ),
     ),
-    Switch: React.forwardRef(({ checked, onCheckedChange, slotLabel, labelSide, ...rest }: any, ref: any) =>
+    Switch: React.forwardRef(({ checked, onCheckedChange, slotLabel, labelSide: _labelSide, ...rest }: any, ref: any) =>
       React.createElement('input', {
         ...rest,
         ref,

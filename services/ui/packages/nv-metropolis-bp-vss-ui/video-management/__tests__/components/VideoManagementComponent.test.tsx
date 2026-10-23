@@ -183,7 +183,7 @@ describe('VideoManagementComponent — video playback', () => {
         if (args.length === 0) {
           super(fixedNow);
         } else {
-          // @ts-ignore
+          // @ts-expect-error Date constructor overloads are not modelled here
           super(...args);
         }
       }

@@ -14,7 +14,7 @@
  */
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { AlertsComponent } from '../../lib-src/AlertsComponent';
 import { AlertsComponentProps } from '../../lib-src/types';
 
@@ -42,7 +42,7 @@ jest.mock('@nvidia/foundations-react-core', () => {
         ),
       ),
     ),
-    Switch: React.forwardRef(({ checked, onCheckedChange, slotLabel, labelSide, ...rest }: any, ref: any) =>
+    Switch: React.forwardRef(({ checked, onCheckedChange, slotLabel, labelSide: _labelSide, ...rest }: any, ref: any) =>
       React.createElement('input', {
         ...rest,
         ref,

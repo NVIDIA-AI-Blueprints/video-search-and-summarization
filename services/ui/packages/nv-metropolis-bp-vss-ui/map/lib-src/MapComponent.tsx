@@ -92,7 +92,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     if (!url) return null;
     
     // Remove leading/trailing quotes and whitespace
-    let sanitized = url.trim().replaceAll(/^["']|["']$/g, '');
+    const sanitized = url.trim().replaceAll(/^["']|["']$/g, '');
     
     // Validate URL format
     try {

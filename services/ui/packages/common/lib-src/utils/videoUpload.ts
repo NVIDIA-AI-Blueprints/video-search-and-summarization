@@ -7,7 +7,6 @@
  */
 
 import { chunkedUpload } from './chunkedUpload';
-import type { ChunkedUploadResponse } from './chunkedUpload';
 
 export interface FileUploadResult {
   filename: string;

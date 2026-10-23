@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { AlertsSidebarControls } from '../../lib-src/components/AlertsSidebarControls';
 
 jest.mock('@nvidia/foundations-react-core', () => {
@@ -21,7 +21,7 @@ jest.mock('@nvidia/foundations-react-core', () => {
         ),
       ),
     ),
-    Switch: React.forwardRef(({ checked, onCheckedChange, slotLabel, labelSide, ...rest }: any, ref: any) =>
+    Switch: React.forwardRef(({ checked, onCheckedChange, slotLabel, labelSide: _labelSide, ...rest }: any, ref: any) =>
       React.createElement('input', {
         ...rest,
         ref,

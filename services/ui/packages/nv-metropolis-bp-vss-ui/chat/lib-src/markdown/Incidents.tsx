@@ -52,7 +52,7 @@ interface CustomIncidentsProps {
 }
 
 export const CustomIncidents = memo<CustomIncidentsProps>(
-  ({ payload, ...props }) => {
+  ({ payload }) => {
     const [expandedItem, setExpandedItem] = useState<number | null>(null);
     const [expandedClipInfo, setExpandedClipInfo] = useState<number | null>(null);
     const [expandedAlertDetails, setExpandedAlertDetails] = useState<number | null>(null);
