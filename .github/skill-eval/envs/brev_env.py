@@ -488,7 +488,7 @@ class BrevEnvironment(BaseEnvironment):
             # marker.
             "GITHUB_RUN_ID",
             # Prebaked VIOS packages (#1798). The workflow setting it is not
-            # enough: dev-profile.sh reads it here, from ~/.eval_env.
+            # enough: forward the opt-in into the trial through ~/.eval_env.
             "VSS_VIOS_PREBAKE_PACKAGES",
         ):
             val = os.environ.get(key)
@@ -582,7 +582,7 @@ class BrevEnvironment(BaseEnvironment):
         # `deploy/docker/data-dir/`, whose name does not match. `data-dir/` is
         # the host source of the LVS/VIOS bind mounts (clip_storage, vst_data,
         # vst/temp_files, ...) whenever a deploy roots VSS_DATA_DIR there
-        # (dev-profile.sh's default). On `step-2+` the step-1 containers are
+        # (a deployment-selected data root). On `step-2+` the step-1 containers are
         # still running and bind-mounted onto those dirs; cleaning them
         # mid-chain unlinks the host inode out from under the containers —
         # confirmed by the mount probe below: host inode gone, container still
