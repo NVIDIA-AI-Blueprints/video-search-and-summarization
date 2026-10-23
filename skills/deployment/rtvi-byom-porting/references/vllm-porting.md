@@ -86,19 +86,37 @@ docker build -t "$BYOM_REGISTRY_REPO:$MODEL_REVISION" .
 docker push "$BYOM_REGISTRY_REPO:$MODEL_REVISION"
 docker image inspect "$BYOM_REGISTRY_REPO:$MODEL_REVISION" --format '{{.Id}}'
 cd /path/to/video-search-and-summarization
+```
 
-export VSS_RT_VLM_IMAGE="$BYOM_REGISTRY_REPO"
-export VSS_RT_VLM_TAG="$MODEL_REVISION"
-export RTVI_VLM_MODEL_TO_USE=vllm-compatible
-export RTVI_VLM_MODEL_PATH=/opt/models/byom
-export RTVI_VLM_PORT=8018
-: "${HARDWARE_PROFILE:?Set the actual VSS hardware profile}"
-: "${HOST_IP:?Set the host IP reachable by the VSS services}"
+Use `/vss-build-vision-ai` with the Base Foundation and the observed hardware,
+host IP, and GPU placement. Keep the tested image and model settings in the
+build's `_builds/<name>/override.env`:
 
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile base --hardware-profile "$HARDWARE_PROFILE" --host-ip "$HOST_IP" --dry-run
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile base --hardware-profile "$HARDWARE_PROFILE" --host-ip "$HOST_IP"
+```ini
+VSS_RT_VLM_IMAGE=<private registry/repository>
+VSS_RT_VLM_TAG=<immutable MODEL_REVISION>
+RTVI_VLM_MODEL_TO_USE=vllm-compatible
+RTVI_VLM_MODEL_PATH=/opt/models/byom
+RTVI_VLM_PORT=8018
+```
+
+Replace the placeholders with the image just pushed. Preserve the build's
+required Foundation, effective service profiles, hardware, host, path, and
+transitively derived values. For reviewed remote code, also record
+`VLM_TRUST_REMOTE_CODE=true` and
+`RTVI_VLM_MODEL_PATH_ALLOWLIST=/opt/models/byom` in that override.
+
+Follow the build skill's Steps 7–9 and `references/deployment.md`: resolve the
+ordered env layers into `resolved.yml`, normalize and validate it, prepare the
+data directory, and deploy that exact file. Check the resolved `rtvi-vlm` image
+and container environment against the tested image and snapshot path before
+bring-up. Do not run a standalone deployment in place of this full-profile
+integration check.
+
+After the build's readiness checks, use the actual deployed RT-VLM host port:
+
+```bash
+: "${RTVI_VLM_PORT:?Set the RT-VLM host port from the deployed build}"
 curl -fsS --connect-timeout 10 --max-time 30 --retry 120 \
   --retry-connrefused --retry-delay 15 --retry-max-time 1800 \
   "http://127.0.0.1:$RTVI_VLM_PORT/v1/health/ready"
@@ -106,13 +124,11 @@ curl -fsS --connect-timeout 10 --max-time 30 \
   "http://127.0.0.1:$RTVI_VLM_PORT/v1/models"
 ```
 
-Set `VLM_TRUST_REMOTE_CODE=true` and
-`RTVI_VLM_MODEL_PATH_ALLOWLIST=/opt/models/byom` for reviewed remote code in the
-full VSS profile. Replace the example hardware profile and host IP with observed
-values; provide `NGC_CLI_API_KEY` through the shell or secret manager as required
-by the launcher. Authenticate Docker to the private registry without putting
-credentials in this file or command history; the profile helper pulls the image
-on launch. Use `vss-deploy-dense-captioning` for the complete operational checks.
+Provide `NGC_CLI_API_KEY` through the shell or secret manager as required
+by the build workflow. Authenticate Docker to the private registry without
+putting credentials in this file or command history; the resolved Compose
+lifecycle pulls the image before bring-up. Use `vss-deploy-dense-captioning`
+for the complete operational checks.
 The health and model endpoints prove readiness and registration only; run the
 text, image, and video smoke tests from this skill before accepting the port.
 Verify the implementation/plugin imports inside the running container before
