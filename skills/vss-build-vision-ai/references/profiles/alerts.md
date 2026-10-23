@@ -68,8 +68,7 @@ without the agent add `vss-va-mcp` explicitly (`services/sop.md`).
 ### Mode-selected Manage Alerts editors
 
 Materialize both Manage Alerts flags in the build's `override.env` using the
-selected `MODE`, matching `set_alerts_ui_rule_kinds_from_mode` in
-`deploy/docker/scripts/dev-profile.sh`. Compose defaults both flags to `true`
+selected `MODE`. Compose defaults both flags to `true`
 and does not derive them from `MODE` or `ALERT_AGENT_ALWAYS_ON`.
 
 For real-time `MODE=2d_vlm`, write:
@@ -83,6 +82,22 @@ For verification `MODE=2d_cv`, set both to `true`. These flags control which
 editors appear under Manage Alerts; `ALERT_AGENT_ALWAYS_ON` controls the backend
 pipeline separately. `validate_resolved_yml.py` rejects an always-on Alerts
 build whose UI still exposes CV Alerts Verification.
+
+### Mode-selected backend settings
+
+Write the backend settings explicitly in the same build's `override.env`;
+selecting `MODE` alone does not replace the Foundation's verification defaults:
+
+| Key | Real-time (`2d_vlm`) | Verification (`2d_cv`) |
+|---|---|---|
+| `ALERT_AGENT_ALWAYS_ON` | `true` | `false` |
+| `RTVI_VLM_MESSAGE_BUS` | `kafka` | empty (`RTVI_VLM_MESSAGE_BUS=`) |
+| `RTVI_VLM_KAFKA_ENABLED` | `true` | `false` |
+| `RTVI_VLM_KAFKA_INCIDENT_TOPIC` | `mdx-vlm-incidents` | unused by the generated-message path |
+
+The legacy Kafka flag is kept aligned for Compose compatibility; current RT-VLM
+uses `RTVI_VLM_MESSAGE_BUS`. See [`services/rt-vlm.md`](../services/rt-vlm.md)
+for consumer wiring. Resolve and validate the build before deploying it.
 
 ## Efficient Video Sampling
 

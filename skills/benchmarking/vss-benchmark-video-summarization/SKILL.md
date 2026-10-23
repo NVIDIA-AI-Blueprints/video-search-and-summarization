@@ -68,38 +68,39 @@ Measure the latency and throughput limits of a deployed LVS (Long Video Summariz
 
 Before benchmarking, deploy a fresh LVS instance using `vss-build-vision-ai`. On shared systems, always use a unique `COMPOSE_PROJECT_NAME` so your containers and volumes are isolated from other users.
 
-```bash
-# Choose a unique project name (e.g. your username)
-export COMPOSE_PROJECT_NAME="lvs-bench-$(whoami)"
+Use [`vss-build-vision-ai`](../../vss-build-vision-ai/SKILL.md) with the `lvs`
+Foundation, the observed hardware, your designated LLM/RT-VLM GPU IDs, free
+host ports, and a unique `COMPOSE_PROJECT_NAME` in the build override. Check for
+container-name collisions too: a unique project does not isolate the stock
+`vss-lvs` container name. On a shared host, have the build skill assign unique
+container names in a build-local Compose patch before deployment.
 
-cd <repo>/deploy/docker
+The benchmark uploads videos through the dev-only `/files` route, gated by
+`VIA_DEV_API=true`. The current LVS Compose service does not forward this flag
+from the env layers. Before resolving the build, have the build skill add
+`_builds/<name>/patches/lvs-server.yml`:
 
-# REQUIRED FOR BENCHMARKING: the benchmark uploads videos via the LVS dev /files
-# route, which is gated by VIA_DEV_API (default false; POST /files returns 404 when
-# off). The lvs-server container loads its environment from
-# services/video-summarization/.env (the compose `env_file:`), so VIA_DEV_API must
-# be set THERE — putting it in any other env file will NOT reach the container.
-# Set it before deploying:
-grep -q '^VIA_DEV_API=' services/video-summarization/.env \
-  && sed -i 's/^VIA_DEV_API=.*/VIA_DEV_API=true/' services/video-summarization/.env \
-  || echo 'VIA_DEV_API=true' >> services/video-summarization/.env
-
-# Deploy LVS on your designated GPUs
-./scripts/dev-profile.sh up \
-  --profile lvs \
-  --hardware-profile RTXPRO6000BW \
-  --llm-device-id <LLM_GPU> \
-  --vlm-device-id <VLM_GPU>
-
-# If LVS was already running, re-run the deploy command above so compose
-# recreates the container with the new env (a plain `docker restart` does
-# NOT re-read env_file changes).
+```yaml
+services:
+  lvs-server:
+    environment:
+      VIA_DEV_API: "true"
 ```
 
-Note the LVS endpoint (`http://<HOST_IP>:38111`) and container name: the compose file sets it statically to `vss-lvs` (verify with `docker ps --filter name=lvs`). Set these before continuing:
+Include that patch in the build's `compose.yml`, following the build skill's
+changed-service patch procedure. Do not edit the Foundation or service `.env`
+files. Resolve, normalize, validate, and deploy the exact build artifact using
+[`references/deployment.md`](../../vss-build-vision-ai/references/deployment.md).
+Verify `VIA_DEV_API=true` in the resolved and running `lvs-server` environment.
+For an existing benchmark build, update its patch and repeat that lifecycle;
+a plain `docker restart` does not apply environment changes.
+
+Record the actual LVS endpoint, container name, and GPU IDs from that deployment
+before continuing; do not substitute stock defaults:
+
 ```bash
-export LVS_BACKEND=http://localhost:38111
-export LVS_CONTAINER_NAME=vss-lvs
+export LVS_BACKEND=<deployed-LVS-endpoint>
+export LVS_CONTAINER_NAME=<deployed-LVS-container>
 export VLM_GPUS=<VLM_GPU>
 export LLM_GPUS=<LLM_GPU>
 ```

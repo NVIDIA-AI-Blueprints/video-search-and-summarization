@@ -133,16 +133,18 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
   ```
 
 - When the user says **"deploy VSS base"** or **"deploy VSS base profile"**:
-  - Use the `vss-base` skill.
+  - Use the `vss-build-vision-ai` skill with the `base` Foundation.
   - Repo path: read from `TOOLS.md` VSS section.
   - Hardware profile: read from `TOOLS.md` VSS section.
-  - Preferred layout (default): **LLM + VLM share GPU 0** (`local_shared`), no extra flags.
-  - Deploy runs ~10 min (image pull + start). **Always run in the background** so the conversation stays live:
+  - Preferred layout (default): **LLM + VLM share GPU 0** (`local_shared`).
+  - Follow that skill's prerequisite, build, validation, deployment, and readiness steps. Write the selected hardware and GPU placement into `_builds/<name>/override.env`; do not infer them from launcher defaults.
+  - Image pull + start can take ~10 min. After the skill has validated `_builds/<name>/resolved.yml`, run its deployment step in the background so the conversation stays live:
     ```bash
     cd <repo>
     set -a && . ~/.ngc/.env && set +a
     LOG=/tmp/vss-deploy.log
-    nohup bash scripts/dev-profile.sh up -p base -H <hardware> \
+    BUILD_DIR="$PWD/_builds/<name>"
+    nohup bash -c 'docker compose -f "$1/resolved.yml" pull && docker compose -f "$1/resolved.yml" up -d --build' _ "$BUILD_DIR" \
       > "$LOG" 2>&1 &
     echo "Deploy started (PID $!) — logging to $LOG"
     ```

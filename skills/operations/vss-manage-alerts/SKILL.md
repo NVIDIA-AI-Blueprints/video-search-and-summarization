@@ -118,14 +118,14 @@ passes, detect the mode per Step 1.
 
 ## The Two Modes (Deploy-Time Choice)
 
-| Mode | Deploy flag | Env (`.env`) | What runs | What is available |
-|---|---|---|---|---|
-| **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**) + on-demand verification (**Workflow F**). VIOS webhooks register streams with RT-CV. Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
-| **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), incident queries (**C**), and always-on operation (**Workflow G** — `ALERT_AGENT_ALWAYS_ON=true` / `alert_agent.always_on: true` when deployed with `-m real-time`). No static CV pipeline. |
+| Mode | Build override | What runs | What is available |
+|---|---|---|---|
+| **CV (verification)** | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**) + on-demand verification (**Workflow F**). VIOS webhooks register streams with RT-CV. Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
+| **VLM (real-time)** | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), incident queries (**C**), and always-on operation (**Workflow G** — `ALERT_AGENT_ALWAYS_ON=true` / `alert_agent.always_on: true` when deployed with `MODE=2d_vlm`). No static CV pipeline. |
 
 **Switching modes** uses the `vss-build-vision-ai` teardown + deploy flow, asking for the other mode. Both modes use the same agent `config.yml`; VIOS webhooks follow `notification_config_${MODE}.json`. `rtvi-vlm` runs in both modes.
 
-**`RTVI_VLM_KAFKA_ENABLED` is mode-specific.** `overrides.env` ships `RTVI_VLM_KAFKA_ENABLED=false` for verification (`2d_cv`), where nothing consumes RT-VLM's Kafka output and leaving it on makes RT-VLM publish duplicate incidents that Logstash indexes under `mdx-vlm-incidents-1970-01-01`. Real-time (`2d_vlm`) alerts depend on RT-VLM publishing to Kafka, so the line must be commented out in that mode — `dev-profile.sh` does this automatically for `-m real-time`. If a real-time deployment produces no alerts, check that this override is not still active in `generated.env`.
+**RT-VLM publication is mode-specific.** The `vss-build-vision-ai` build must explicitly set `RTVI_VLM_MESSAGE_BUS=kafka`, compatibility flag `RTVI_VLM_KAFKA_ENABLED=true`, and `RTVI_VLM_KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents` for real-time (`2d_vlm`) alerts. Verification (`2d_cv`) uses `RTVI_VLM_MESSAGE_BUS=` and `RTVI_VLM_KAFKA_ENABLED=false`; verified incidents reach Elasticsearch through Alert Bridge. Current RT-VLM uses the message-bus setting, not the legacy Kafka flag. If real-time alerts are missing, inspect the deployed build's `override.env`, `resolved.yml`, and running RT-VLM environment; do not assume `MODE` changes these settings automatically. See the build skill's `references/services/rt-vlm.md`.
 
 ---
 
@@ -170,12 +170,12 @@ If `vss-behavior-analytics` is present → **CV mode** (which also has `vss-rtvi
 If only `vss-rtvi-vlm` is present (and no CV pipeline) → **VLM mode**.
 If neither matches on Docker, the alerts profile is not deployed — direct the user to the `vss-build-vision-ai` skill.
 
-Alternative Docker signal (preferred when `docker ps` isn't accessible): check the deployed `generated.env`, falling back to `overrides.env` before a deployment has generated one:
+Alternative Docker signal (preferred when `docker ps` isn't accessible): check the deployed build's `override.env`. Use the build directory from the deployment hand-off; checked-in Foundation defaults do not prove a deployment's mode:
 
 ```bash
 if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  ENV_FILE=deploy/docker/developer-profiles/dev-profile-alerts/generated.env
-  [ -f "$ENV_FILE" ] || ENV_FILE=deploy/docker/developer-profiles/dev-profile-alerts/overrides.env
+  : "${BUILD_DIR:?Set BUILD_DIR to the deployed _builds/<name> directory}"
+  ENV_FILE="$BUILD_DIR/override.env"
   grep -E '^MODE=' "$ENV_FILE"
   # MODE=2d_cv   → CV mode (full superset)
   # MODE=2d_vlm  → VLM real-time mode (vss-rtvi-vlm only; no vss-rtvi-cv)
@@ -197,8 +197,8 @@ fi
 | **CV** | verification results / verdicts ("was it confirmed?", "show verification results"), *how does verification work*, verifier-prompt customization | **Workflow B (Verification)** — `references/verification.md`. **But** a verdict/result **follow-up to an on-demand verification just run** ("was it confirmed?", "what was the result?") → stay in **Workflow F**: poll `/realtime/incidents` by that request's `correlationId` |
 | **CV** | one-shot "verify **this** clip/image" with a media URL, or the literal "on-demand" | **Workflow F (On-demand)** — `references/on-demand-verification.md` |
 | **CV** | static CV alert onboarding | **Workflow A (CV)** — onboard RTSP via `vss-manage-video-io-storage`; VIOS webhook registers it with RT-CV |
-| **VLM** | verification results / verdict inspection, verifier-prompt config, or on-demand verification (CV-only capabilities) | *Explain-only* asks → answer from **Workflow B/F** background, no calls needed. *Execution* asks → VLM-mode refusal text below (redeploy hint `-m verification`) |
-| **VLM** | a CV / behavior-analytics / PPE-rule alert needing the static CV pipeline | **Redeployment required** — confirm first, then `the `/vss-build-vision-ai` stock Alerts workflow in verification mode` |
+| **VLM** | verification results / verdict inspection, verifier-prompt config, or on-demand verification (CV-only capabilities) | *Explain-only* asks → answer from **Workflow B/F** background, no calls needed. *Execution* asks → VLM-mode refusal text below (redeploy hint `MODE=2d_cv`) |
+| **VLM** | a CV / behavior-analytics / PPE-rule alert needing the static CV pipeline | **Redeployment required** — confirm first, then the `/vss-build-vision-ai` stock Alerts workflow in verification mode |
 | **CV** | enable, add, change, or remove alert enhancement — a custom VLM response parser that returns structured fields (severity, description, confidence…) instead of a Yes/No verdict | **Redeployment required** — Alert Bridge loads the parser once at startup and has no API for it. In an OpenClaw / Hermes sandbox (origin on `host.openshell.internal`, or no `vss-build-vision-ai` skill installed) stop before confirming: the build runs from a host coding agent or by the user, so say so and hand nothing off. On Kubernetes (`DEPLOYMENT_KIND=kubernetes`) stop here: the Helm chart has no parser mount, so say it is not supported and hand nothing off. On Docker, confirm first, saying the parser replaces the verdict for **every** alert type, then hand off to `/vss-build-vision-ai` ([custom response parser](../../vss-build-vision-ai/references/services/alerts.md#custom-vlm-response-parser-alert-enhancement)). Contract and example: `references/response-parser.md` |
 | **VLM** | alert enhancement / a custom VLM response parser | Explain that it applies only to CV verification: the real-time path never calls a parser. A parser needs a verification (CV) build; no auto-redeploy |
 | **any** | video summarization, highlight reels, reports, non-alert analytics | **Out of scope** — hand off to `vss-generate-video-report` / `vss-query-analytics` (Cross-Skill Links); do **not** answer it via incidents or rules, even when incidents are empty |
@@ -247,7 +247,7 @@ No auto-redeploy. The user decides whether to switch modes.
 
 Verification verdicts and on-demand verification exist only on a CV (verification) deployment. On VLM real-time, *explain-only* asks ("how does verification work?") are always answerable from Workflow B/F background — no calls, no refusal. For *execution* asks (inspect verdicts, customize verifier prompts, verify a clip on demand), reply with this message verbatim:
 
-> "Verification workflows (verdict inspection, verifier-prompt configuration, on-demand verification) require the verification (CV) deployment. Your current deployment is VLM real-time. To use them, redeploy with `the `/vss-build-vision-ai` stock Alerts workflow in verification mode` (note: switching stops currently-running realtime monitoring)."
+> "Verification workflows (verdict inspection, verifier-prompt configuration, on-demand verification) require the verification (CV) deployment. Your current deployment is VLM real-time. To use them, redeploy with the `/vss-build-vision-ai` stock Alerts workflow in verification mode (note: switching stops currently-running realtime monitoring)."
 
 No auto-redeploy here either.
 
@@ -292,7 +292,7 @@ Never fabricate a `sensor_id` or `live_stream_url`.
 
 ---
 
-## Workflow A — CV Mode (`-m verification` / `MODE=2d_cv`)
+## Workflow A — CV Mode (`MODE=2d_cv`)
 
 CV alerts are **deployment-driven, not request-driven** — there is no agent
 call to "create" one.
@@ -410,7 +410,7 @@ Load `references/on-demand-verification.md` for the full contract, media constra
 
 Always-on alerting starts pre-configured rules automatically when VIOS posts a camera lifecycle webhook (`notification_config_2d_vlm.json` → `camera_streaming` starts one realtime rule per `always_on_rules` YAML entry; `camera_remove` tears them down) via `POST $AB/api/v1/realtime/always-on`. **Operate, don't author** — this workflow never creates or edits always-on rule config; it checks status, queries results, and troubleshoots.
 
-1. **Status** — the feature is gated by `ALERT_AGENT_ALWAYS_ON` (substituted into `alert_agent.always_on` in the Alert Bridge config). `dev-profile.sh` sets it **true** for `-m real-time` (`MODE=2d_vlm`) and **false** for `-m verification` (`MODE=2d_cv`). There is **no** `/always-on/health` endpoint — do not invent one. Signals: the config gate itself, or the endpoint's reply to a benign `camera_remove` probe — `503 {"reason":"ALWAYS_ON_DISABLED"}` = off, anything else (e.g. `200 STREAM_REMOVE_SUCCESS`) = on. Zero-side-effect probe options in `references/always-on.md`.
+1. **Status** — the feature is gated by `ALERT_AGENT_ALWAYS_ON` (substituted into `alert_agent.always_on` in the Alert Bridge config). The build must explicitly set it **true** for real-time (`MODE=2d_vlm`) and **false** for verification (`MODE=2d_cv`) in `_builds/<name>/override.env`; verify the deployed gate rather than assuming `MODE` sets it. There is **no** `/always-on/health` endpoint — do not invent one. Signals: the config gate itself, or the endpoint's reply to a benign `camera_remove` probe — `503 {"reason":"ALWAYS_ON_DISABLED"}` = off, anything else (e.g. `200 STREAM_REMOVE_SUCCESS`) = on. Zero-side-effect probe options in `references/always-on.md`.
 2. **Query incidents** — always-on rules are ordinary realtime rules once started; their incidents surface through **Workflow C** (`GET $AB/api/v1/realtime/incidents`). The rules live in an **in-memory sidecar** (not the ES-backed rules index), so they may not appear in Workflow D's rules list — that is expected, not a bug.
 3. **Troubleshoot "no always-on alerts"** — walk the ladder in `references/always-on.md`: feature gate → rules YAML resolves/validates at boot → VIOS webhooks actually reaching Alert Bridge → stream registered on `rtvi-vlm` → incidents query.
 
@@ -478,13 +478,13 @@ alternate-identity check, the VIOS-down fallback) and the response contract. Its
 - **Workflow scope by mode:** A, B, and F are CV-only (B/F explain-only asks answerable anywhere); **C and B both read `/api/v1/realtime/incidents`** (the `mdx-vlm-incidents-*` store; on CV it holds the verifier results — B reports their verdicts, C lists them); D, E, and G are VLM real-time only (refuse on CV with the canonical text).
 - **On-demand verification is `POST /api/v1/verification/ondemand`** — not `/verification/verify`, not a realtime rule, not `/generate`. 202 = accepted (async), never a verdict.
 - **Always-on has no health endpoint** — status is the `alert_agent.always_on` config gate or the reply to a benign `camera_remove` probe on `POST /api/v1/realtime/always-on`: `503 ALWAYS_ON_DISABLED` means off, anything else (e.g. `200 STREAM_REMOVE_SUCCESS`) means on. Its rules are in-memory (not in the ES rules index), so absence from Workflow D's rules list is expected.
-- **The gate follows the deploy mode — don't assume it is off.** `dev-profile.sh` sets
-  `ALERT_AGENT_ALWAYS_ON=true` for `-m real-time` and `false` for `-m verification`, so
+- **The gate is configured for the deploy mode — don't assume it is off.** The build explicitly sets
+  `ALERT_AGENT_ALWAYS_ON=true` for real-time and `false` for verification, so
   always-on is normally **already active** where Workflow G applies. Report the state you
   probed, and on a real-time deploy walk the rest of the chain in `references/always-on.md`
   rather than blaming the gate.
 - **Turning always-on on or off:** on Docker it is a **deploy-mode choice** (redeploy with
-  `the `/vss-build-vision-ai` stock Alerts workflow in real-time mode`, or `-m verification`
+  the `/vss-build-vision-ai` stock Alerts workflow in real-time mode, or verification mode
   to turn it off); on **Kubernetes the chart exposes no switch** (`always_on: false` is pinned)
   — report it off and not enablable, and never hand over a set-the-gate-and-restart recipe.
   Full reasoning in `references/always-on.md`. Make no config changes either way.

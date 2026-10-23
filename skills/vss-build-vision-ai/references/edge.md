@@ -10,8 +10,8 @@ manifest carries the same profile id with only `min_vram_per_device_gb: 32.0`
 and no GPU allow-list, and Spark's GB10 has 128 GB of unified memory.
 
 **AGX Thor and IGX Thor** run the same default. They ship
-`hw-AGX-THOR` / `hw-IGX-THOR` env pairs of their own, so `dev-profile.sh` no
-longer rewrites `LLM_NAME` on any edge platform.
+`hw-AGX-THOR` / `hw-IGX-THOR` env pairs of their own. Resolve `LLM_NAME` and
+`LLM_NAME_SLUG` from the selected hardware's checked-in defaults.
 
 `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` (slug `nvidia-nemotron-nano-9b-v2-fp8`)
 remains in the tree as an explicit `--llm` fallback for all three. It is served
@@ -175,9 +175,9 @@ these values to `_builds/<name>/override.env`:
 | `LLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 | `RT_VLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 
-`dev-profile.sh` rewrites the two `LLM_NAME*` values only on `AGX-THOR` and
-`IGX-THOR`; on `DGX-SPARK` the blueprint default already applies. Either way,
-set them by hand only because a build override is written directly.
+The `LLM_NAME` and `LLM_NAME_SLUG` values above select the blueprint default
+on DGX Spark, AGX Thor, and IGX Thor. Keep the model name, slug, hardware env,
+and effective `COMPOSE_PROFILES` aligned when writing the build override.
 
 Both Lightning variants load `NIM_GPU_MEM_FRACTION=0.3` and
 `NIM_MAX_MODEL_LEN=65536` from `hw-DGX-SPARK-shared.env` / `hw-DGX-SPARK.env`,

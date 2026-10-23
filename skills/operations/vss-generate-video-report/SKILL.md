@@ -332,21 +332,21 @@ printf 'BROWSER_CLIP_URL=%q\n' "${BROWSER_CLIP_URL}"
 ```
 
 **Docker Compose** — the browser-facing origin is the HAProxy host port on the Compose host:
-`http://${HOST_IP}:7777` by default (`HAPROXY_HOST_PORT`). The profile deploy workflow (`/vss-build-vision-ai` → `dev-profile.sh`) writes resolved
-`VSS_PUBLIC_HOST` / `VSS_PUBLIC_PORT` / `VSS_PUBLIC_HTTP_PROTOCOL` into
-`deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` only on Brev; elsewhere that
-file still carries the templates `${EXTERNAL_IP}` / `${HAPROXY_HOST_PORT}` (a resolved
-`EXTERNAL_IP=<public IP>` or `HAPROXY_HOST_PORT=<port>` line there IS a resolved value — pass those as
-`VSS_PUBLIC_HOST` / `VSS_PUBLIC_PORT`). So: paste the Endpoint resolution hand-off (`HOST_IP`) at the
-top of this block and set all three — `VSS_PUBLIC_HTTP_PROTOCOL`, `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT` —
-only when you hold resolved values (Brev: `https`, the Brev host, `443`); the block falls back to
+`http://${HOST_IP}:7777` by default (`HAPROXY_HOST_PORT`). Use the browser-facing
+origin handed off by `vss-build-vision-ai` for the deployed build. Its build-local
+`override.env` and validated `resolved.yml` hold the selected host, port, and
+protocol settings; do not infer them from a profile's `generated.env` or assume
+a deployment script rewrote them. Paste the Endpoint resolution hand-off
+(`HOST_IP`) at the top of this block and set `VSS_PUBLIC_HTTP_PROTOCOL`,
+`VSS_PUBLIC_HOST`, and `VSS_PUBLIC_PORT` only from resolved deployment values
+(Brev: `https`, the Brev host, `443`). The block falls back to
 `http://HOST_IP:7777` otherwise and ignores unresolved templates. The rewrite is:
 
 ```bash
 : "${RAW_URL:?set RAW_URL to the clip URL from Mode A Step 1 / the Mode B incident at the top of this block}"
 VSS_PUBLIC_HTTP_PROTOCOL="${VSS_PUBLIC_HTTP_PROTOCOL:-http}"
 BROWSER_CLIP_URL=""
-# Unresolved templates (generated.env on non-Brev deploys) are ignored, not pasted into a link.
+# Unresolved templates are ignored, not pasted into a link.
 case "${VSS_PUBLIC_HOST:-}" in *'${'*) echo "VSS_PUBLIC_HOST holds an unresolved template — using the hand-off HOST_IP instead" >&2; VSS_PUBLIC_HOST="" ;; esac
 case "${VSS_PUBLIC_PORT:-}" in *'${'*) VSS_PUBLIC_PORT="" ;; esac
 VSS_PUBLIC_HOST="${VSS_PUBLIC_HOST:-${HOST_IP:-}}"   # hand-off fallback

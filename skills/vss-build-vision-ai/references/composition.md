@@ -221,7 +221,9 @@ For example:
   flags from [`profiles/alerts.md`](profiles/alerts.md#mode-selected-manage-alerts-editors):
   real-time alerts enabled and CV verification disabled. The Compose defaults
   enable both editors; setting `ALERT_AGENT_ALWAYS_ON=true` alone does not
-  change them.
+  change them. Materialize the matching backend settings from
+  [`profiles/alerts.md`](profiles/alerts.md#mode-selected-backend-settings) as
+  well; selecting `MODE` does not derive the always-on gate or publication bus.
 
 Find the exact closure by following variable references in the selected
 Foundation's `.env` and `overrides.env`; do not assume a later primitive

@@ -17,10 +17,10 @@ Don't ask — probe first. Report what you find.
 Search common locations:
 
 ```bash
-find ~ -maxdepth 5 -name "dev-profile.sh" 2>/dev/null | head -5
+find ~ -maxdepth 7 -path '*/skills/vss-build-vision-ai/SKILL.md' 2>/dev/null | head -5
 ```
 
-If found, infer the repo root (parent of `scripts/`). If multiple hits, show them and ask which one to use. If nothing found:
+If found, infer the repo root (the directory containing `skills/`). Confirm it also contains `deploy/docker/compose.yml`. If multiple hits, show them and ask which one to use. If nothing found:
 
 > "I couldn't find the VSS repo. Have you cloned it yet? If not, here's how:
 > ```bash
@@ -29,7 +29,7 @@ If found, infer the repo root (parent of `scripts/`). If multiple hits, show the
 > ```
 > Let me know the path once it's ready."
 
-**Do NOT use `source scripts/dev-profile.sh`. This is NOT a shell profile, it is a deployment script to be run directly (e.g., `bash scripts/dev-profile.sh [args]`). Always execute it as a script, never with `source`.**
+**For deployment, read `skills/vss-build-vision-ai/SKILL.md` from the selected checkout and follow its resolved Compose workflow. Do not run `dev-profile.sh`.**
 
 ### 2b. Detect GPU hardware
 

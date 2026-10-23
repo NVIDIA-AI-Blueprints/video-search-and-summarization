@@ -22,11 +22,11 @@ VIOS webhook ──POST /api/v1/realtime/always-on──▶ Alert Bridge
 
 There is **no `/always-on/health` endpoint** — never invent one. Two signals, in preference order:
 
-1. **Config gate (zero side effects).** The feature is gated by `ALERT_AGENT_ALWAYS_ON` in the alerts profile env (substituted into `alert_agent.always_on` in the mounted verifier config). On a Docker compose deploy via `dev-profile.sh`, real-time (`MODE=2d_vlm`) sets it **true**; verification (`MODE=2d_cv`) sets it **false**. Check the env or the resolved config. On Kubernetes, skip these local-file and `docker exec` checks; ask the operator or use the endpoint probe below.
+1. **Config gate (zero side effects).** The feature is gated by `ALERT_AGENT_ALWAYS_ON` in the alerts profile env (substituted into `alert_agent.always_on` in the mounted verifier config). The `vss-build-vision-ai` build explicitly sets it **true** for real-time (`MODE=2d_vlm`) and **false** for verification (`MODE=2d_cv`). Check the deployed build and running config; do not infer the gate from `MODE` alone. On Kubernetes, skip these local-file and `docker exec` checks; ask the operator or use the endpoint probe below.
    ```bash
    if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-     grep -E '^ALERT_AGENT_ALWAYS_ON=' deploy/docker/developer-profiles/dev-profile-alerts/generated.env 2>/dev/null \
-       || grep -E '^ALERT_AGENT_ALWAYS_ON=' deploy/docker/developer-profiles/dev-profile-alerts/overrides.env
+     : "${BUILD_DIR:?Set BUILD_DIR to the deployed _builds/<name> directory}"
+     grep -E '^ALERT_AGENT_ALWAYS_ON=' "$BUILD_DIR/override.env"
      docker exec vss-alert-bridge sh -c 'grep -A1 -E "^\s*always_on" /app/runtime/config.yml' 2>/dev/null
    fi
    ```

@@ -256,7 +256,7 @@ docker compose -f deploy/docker/services/vios/compose.yml \
 
 # SDRC runtime artifact cleanup — log/ and .wdm-env/ are written as root inside the
 # container; rm needs write+exec on the parent dirs (init-dirs chmod-0777ed them so
-# this works without sudo). Same shape as dev-profile.sh:1585-1617.
+# this works without sudo).
 # IMPORTANT: ./log and ./.wdm-env are relative to the SDRC compose-file directory
 # (typically `deploy/docker/services/infra/sdrc/` upstream, or
 # a patched copy of `services/infra/sdrc/`) — NOT under
