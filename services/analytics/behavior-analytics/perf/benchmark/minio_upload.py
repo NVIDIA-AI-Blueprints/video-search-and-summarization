@@ -19,7 +19,7 @@ from vss_perf_reporting import publish_result_file  # noqa: E402
 
 DEFAULT_ENDPOINT = "10.111.52.248:9000"
 DEFAULT_BUCKET = "perf-results-dev"
-DEFAULT_SERVICE = "behavior-analytics"
+DEFAULT_SERVICE = "Behavior-Analytics"
 
 
 def minio_settings(config_path: Path) -> dict[str, Any]:

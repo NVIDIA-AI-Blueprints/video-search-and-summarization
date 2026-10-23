@@ -30,7 +30,7 @@ def test_ba_adapter_preserves_native_metrics(tmp_path) -> None:
     test_cases = to_test_cases(native)
     path = build_and_save(
         tmp_path,
-        "behavior-analytics",
+        "Behavior-Analytics",
         test_cases,
         config_id="warehouse-2d",
         run_id="behavior-analytics_warehouse-2d_20261023_121500",
@@ -41,6 +41,8 @@ def test_ba_adapter_preserves_native_metrics(tmp_path) -> None:
     )
     result = json.loads(path.read_text())
     VSSBenchmarkResult.model_validate(result)
+    assert path.name == "behavior-analytics_warehouse-2d_20261023_121500.json"
+    assert result["metadata"]["service"] == "Behavior-Analytics"
     assert result["test_cases"][0]["metrics"]["topics"] == native["topics"]
 
 

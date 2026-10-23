@@ -21,9 +21,12 @@ The canonical result is written beneath
 `behavior-analytics_<config-id>_<timestamp>.json`. It uses the same versioned
 `metadata`, `summary`, and `test_cases` contract as LVS. The native
 `execution_summary.json` remains in the parent run directory for diagnostics.
+The dashboard-facing `metadata.service` value and case-sensitive MinIO prefix are
+`Behavior-Analytics`. Lowercase `behavior-analytics` remains the stable local
+filename and Jenkins artifact-directory slug.
 
 Jenkins already passes `--upload` and MinIO keys. The canonical file is uploaded
-unchanged to `s3://<bucket>/behavior-analytics/<same-filename>`. The dashboard
+unchanged to `s3://<bucket>/Behavior-Analytics/<same-filename>`. The dashboard
 still has to onboard this service name.
 
 ## Jenkins
