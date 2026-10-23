@@ -268,7 +268,7 @@ INCIDENTS MESSAGES
         )
         settings = minio_settings(config)
         self.assertEqual(settings["endpoint"], "10.111.52.248:9000")
-        self.assertEqual(settings["service"], "behavior-analytics")
+        self.assertEqual(settings["service"], "Behavior-Analytics")
 
         def fake_publish(local_file, service, **kwargs):
             if not os.environ.get("MINIO_ACCESS_KEY") or not os.environ.get("MINIO_SECRET_KEY"):
@@ -300,7 +300,7 @@ INCIDENTS MESSAGES
                         config_path=config,
                         config_id="warehouse_2d-kafka-playback",
                     )
-            self.assertEqual(published["object"], f"behavior-analytics/{result_path.name}")
+            self.assertEqual(published["object"], f"Behavior-Analytics/{result_path.name}")
             self.assertEqual(put.call_args.args[0], result_path)
             self.assertEqual(put.call_count, 1)
 
@@ -477,7 +477,9 @@ INCIDENTS MESSAGES
                     ["--config", str(config), "--output-json", str(output)]
                 )
             self.assertEqual(code, 0)
-            self.assertEqual(json.loads(output.read_text())["summary"]["overall_status"], "PASS")
+            result = json.loads(output.read_text())
+            self.assertEqual(result["summary"]["overall_status"], "PASS")
+            self.assertEqual(result["metadata"]["service"], "Behavior-Analytics")
 
     def test_safe_write_replaces_symlink_instead_of_following_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

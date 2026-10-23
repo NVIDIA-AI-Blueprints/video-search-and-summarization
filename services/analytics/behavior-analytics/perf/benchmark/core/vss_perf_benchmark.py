@@ -29,7 +29,8 @@ from vss_perf_reporting import (  # noqa: E402
     publish_result_file,
 )
 
-SERVICE = "behavior-analytics"
+REPORT_SERVICE = "Behavior-Analytics"
+SERVICE_SLUG = "behavior-analytics"
 RESULTS_DIR_NAME = "vss-perf-results"
 NATIVE_RESULT_NAME = "execution_summary.json"
 
@@ -71,7 +72,7 @@ def result_target(args: argparse.Namespace) -> Path:
     env_output = os.environ.get("OUTPUT_DIR")
     if env_output:
         return Path(env_output) / RESULTS_DIR_NAME
-    run_dir = PERF_ROOT / "results" / f"{SERVICE}_{args.scenario}_{args.config_id}"
+    run_dir = PERF_ROOT / "results" / f"{SERVICE_SLUG}_{args.scenario}_{args.config_id}"
     return run_dir / RESULTS_DIR_NAME
 
 
@@ -106,7 +107,7 @@ def _write_canonical_result(payload: dict[str, Any], args: argparse.Namespace) -
     }
     return build_and_save(
         result_target(args),
-        SERVICE,
+        REPORT_SERVICE,
         test_cases,
         config_id=args.config_id,
         platform=platform,
@@ -148,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
     if target.suffix.lower() == ".json":
         target.unlink(missing_ok=True)
     else:
-        for stale in target.glob(f"{SERVICE}_*.json"):
+        for stale in target.glob(f"{SERVICE_SLUG}_*.json"):
             stale.unlink()
 
     env = os.environ.copy()
