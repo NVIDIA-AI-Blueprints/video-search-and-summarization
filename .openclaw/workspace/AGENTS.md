@@ -120,56 +120,33 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 
 ### VSS Deploy Conventions
 
-> **You have Docker access. Run all deploy and docker commands yourself — do NOT ask the user to run them in their terminal.**
+- The runtime image ships operation skills and the `vss` CLI. It does not ship
+  `/vss-build-vision-ai` or a source checkout. Do not fall back to a deployment
+  script when an operation skill routes to that build workflow.
+- If an orchestrator MCP is configured, use its deployment recipe in `TOOLS.md`.
+  The NemoClaw workspace has its own orchestrator instructions; preserve that
+  boundary rather than running host shell or raw Compose commands in its sandbox.
+- Without an orchestrator, hand deployment to a host-side agent with the
+  repository's `skills/vss-build-vision-ai/SKILL.md`. Include the requested
+  profile/capabilities and supplied hardware, GPU, and model choices. Alerts
+  requires a real-time or verification mode choice; ask only if it is missing.
+- On the deployment host, follow the build skill to create, resolve, validate,
+  deploy, and check readiness using its build-local Compose artifacts. A
+  container being `Up` alone does not establish service readiness.
+- After deployment, consume the public origin returned by that workflow. On
+  Brev, use the actual secure link it resolved; never construct a hostname.
+  Configure this runtime with `vss configure --base-url <origin>` and run
+  `vss configure check` before operating the stack.
 
-- Operation skills hand deployment off to `/vss-build-vision-ai`. That skill is
-  **not installed in this sandbox** — when a skill routes there, use the deploy
-  conventions in this section instead (or, when the deployment is not yours to
-  touch, report what it needs and stop).
+When the user asks about **incidents, alerts, PPE violations, occupancy, object
+counts, speeds, or "what happened"** in video:
 
-- Always load the NGC key before deploying, if  NGC_CLI_API_KEY is missing, ask user about it
-  ```bash
-  set -a && . ~/.ngc/.env && set +a
-  ```
-
-- When the user says **"deploy VSS base"** or **"deploy VSS base profile"**:
-  - Use the `vss-base` skill.
-  - Repo path: read from `TOOLS.md` VSS section.
-  - Hardware profile: read from `TOOLS.md` VSS section.
-  - Preferred layout (default): **LLM + VLM share GPU 0** (`local_shared`), no extra flags.
-  - Deploy runs ~10 min (image pull + start). **Always run in the background** so the conversation stays live:
-    ```bash
-    cd <repo>
-    set -a && . ~/.ngc/.env && set +a
-    LOG=/tmp/vss-deploy.log
-    nohup bash scripts/dev-profile.sh up -p base -H <hardware> \
-      > "$LOG" 2>&1 &
-    echo "Deploy started (PID $!) — logging to $LOG"
-    ```
-  - After starting, tell the user it's running, then poll every ~60s:
-    ```bash
-    tail -20 /tmp/vss-deploy.log
-    docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-    ```
-  - Report progress each poll. Done when all `mdx-*` containers show `Up`.
-
-- When the user asks about **incidents, alerts, PPE violations, occupancy, object counts, speeds, or "what happened"** in video:
-  - Use the **`vss-query-analytics` skill**, which runs the project-local `vss analytics` CLI against the configured Video Analytics API.
-  - Use `vss analytics sensors` for sensors represented in analytics data and `vss vios list` for sensors registered in VIOS.
-  - **Do NOT initialize an MCP session, call port 9901 or `/va-mcp`, or use the VSS agent on port 8000 for read-only analytics.**
-  - VA-MCP remains only for requests that explicitly require its legacy MCP or SOP tool surface.
-
-- When the user says **"deploy VSS alerts"** or **"deploy VSS alerts profile"**:
-  - Use the `vss-alerts` skill.
-  - Use the same repo + hardware from `TOOLS.md`.
-  - Always confirm the **mode** with the user: `verification` vs `real-time`.
-
-- After any deploy command, check status yourself:
-  ```bash
-  docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-  ```
-  - Report what you see — do not ask the user to run docker ps.
-  - **Reporting the access URL:** never give a raw `<HOST_IP>:<port>` (e.g. `:3000`) — that's an internal port, unreachable from a browser on Brev. Read the deployed public origin from the running stack — `docker inspect vss-agent` → `VSS_AGENT_EXTERNAL_URL` (already `proto://host:port`) — and report the UI as `<origin>/`. On Brev that origin is the instance's secure link, resolved from `/etc/brev/environment-context.json` when the stack was deployed — report it verbatim and never assemble one from `<port>-<id>.<domain>`, because the domain varies per instance. Full mapping: `vss-build-vision-ai` skill `references/base.md` (Endpoints) / `references/brev.md`.
+- Use **`vss-query-analytics`** through the configured `vss analytics` CLI.
+- Use `vss analytics sensors` for sensors represented in analytics data and
+  `vss vios list` for sensors registered in VIOS.
+- Do not initialize an MCP session, call port 9901 or `/va-mcp`, or use the VSS
+  agent on port 8000 for read-only analytics. VA-MCP remains for requests that
+  explicitly require its legacy MCP or SOP tool surface.
 
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 
