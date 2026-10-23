@@ -217,7 +217,10 @@ For example:
   `SDR_CONTROLLER_CONFIG_PATH`, and any selected profile-specific config paths;
 - changing `HOST_IP` also requires the effective `EXTERNAL_IP`,
   `VSS_PUBLIC_HOST`, public VIOS/Agent URLs, and selected UI/API endpoints.
-- choosing Alerts `MODE=2d_vlm` requires the mode-selected Manage Alerts UI
+- choosing an Alerts mode requires the matching service set, always-on and
+  RT-VLM Kafka settings, and VIOS webhook config from
+  [`profiles/alerts.md`](profiles/alerts.md#mode-selected-backend-configuration);
+- choosing Alerts `MODE=2d_vlm` also requires the mode-selected Manage Alerts UI
   flags from [`profiles/alerts.md`](profiles/alerts.md#mode-selected-manage-alerts-editors):
   real-time alerts enabled and CV verification disabled. The Compose defaults
   enable both editors; setting `ALERT_AGENT_ALWAYS_ON=true` alone does not
