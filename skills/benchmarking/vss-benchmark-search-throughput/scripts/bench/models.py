@@ -35,13 +35,13 @@ class QueryItem:
 
 @dataclass
 class QueryPlan:
-    """A query's resolved search path and arguments, fixed before measuring.
+    """A query's target path, checked by the route check before measuring.
 
-    Produced once per query by decomposing it against the deployment's LLM.
-    Holding it fixed for the whole sweep is what makes a per-path comparison
-    mean anything: the LLM is called at temperature 0 but is not guaranteed
-    deterministic, and a query that routed differently between requests would
-    put two pipelines in one latency distribution.
+    Every measured request decomposes its query again, so this plan is not
+    what a request sends: it is the reference a request's own decomposition is
+    compared against. A request that routes to ``path`` is on target; one that
+    routes elsewhere is recorded, counted in throughput and path stability, and
+    kept out of the per-path latency.
     """
 
     query_id: str
@@ -50,9 +50,10 @@ class QueryPlan:
     routed: bool = True
     plan: dict[str, Any] = field(default_factory=dict)
     decomposition: dict[str, Any] = field(default_factory=dict)
-    #: Seconds the LLM took. Outside the measured window by construction, and
-    #: recorded here so the cost is visible rather than merely excluded.
+    #: Seconds the first route-check call took.
     decompose_sec: float = 0.0
+    #: Path each route-check call resolved to, in call order.
+    route_check_paths: list[str] = field(default_factory=list)
     expected_path: str = ""
     status: str = "not_run"
     error: str = ""
@@ -115,17 +116,26 @@ class RequestRecord:
     critic_eval_count: int | None
     top_k: int
     concurrency: int
-    #: The CLI path this request actually ran. Known, not inferred: the
-    #: benchmark chose it and put it on the command line.
+    #: The query's target path, from the route check.
     path: str = ""
     critic: bool = True
+    #: The path this request's own decomposition routed to, which is the CLI
+    #: path it ran. Empty when decomposition failed.
+    resolved_path: str = ""
+    #: t0: the worker sent the decomposition call.
     started_at: str = ""
+    #: t1: the worker spawned the CLI.
+    cli_started_at: str = ""
+    #: t2: the CLI exited.
     completed_at: str = ""
-    #: Wall clock around the subprocess, so it includes interpreter startup.
-    #: That is the honest number for "what a CLI search costs", and
-    #: ``cli_spawn_cost_sec`` in the run summary is what it should be compared
-    #: against before any of it is attributed to the cluster.
+    #: t1 - t0: the LLM call plus ``route()``. 0 for a pinned query.
+    decompose_sec: float = 0.0
+    #: t2 - t1: wall clock around the subprocess, so it includes interpreter
+    #: startup. ``cli_spawn_cost_sec`` in the run summary is what it should be
+    #: compared against before any of it is attributed to the cluster.
     latency_sec: float = 0.0
+    #: t2 - t0: the whole request, what a user of the product waits for.
+    e2e_latency_sec: float = 0.0
     exit_code: int = -1
     result_count: int = 0
     error: str = ""
@@ -160,6 +170,11 @@ class RequestRecord:
         queries happen to match.
         """
         return self.exit_code == 0 and not self.error
+
+    @property
+    def on_target(self) -> bool:
+        """Whether this request ran the path its query targets."""
+        return bool(self.resolved_path) and self.resolved_path == self.path
 
 
 @dataclass
@@ -213,18 +228,49 @@ class RunSummary:
     critic_confirmed: int = 0
     critic_rejected: int = 0
     critic_unverified: int = 0
-    #: Latency percentiles over every successful measured request of the run,
-    #: whatever query it carried. ``per_query_stats`` splits the same samples.
+    #: Percentiles over the successful, on-target measured requests of the
+    #: run: ``latency_stats`` of the CLI's ``latency_sec``,
+    #: ``e2e_latency_stats`` of the whole request and ``decompose_stats`` of
+    #: the LLM call. ``per_query_stats`` splits the same samples by query.
     latency_stats: dict[str, float] = field(default_factory=dict)
+    e2e_latency_stats: dict[str, float] = field(default_factory=dict)
+    decompose_stats: dict[str, float] = field(default_factory=dict)
+    #: ``mean(decompose_sec) / mean(e2e_latency_sec)``.
+    llm_share: float | None = None
+    #: Measured requests whose decomposition routed off target, and that failed
+    #: to decompose at all.
+    off_target_count: int = 0
+    decompose_error_count: int = 0
+    #: Share of measured requests with a resolved path that ran their target
+    #: path. None when no request decomposed.
+    path_stability: float | None = None
+    #: False when ``path_stability`` is below ``execution.min_path_stability``:
+    #: the cell mixes pipelines and is left out of the comparisons.
+    cell_valid: bool = True
     #: Resolved path of each query the run cycled, ``q1=attribute;...``. For a
     #: path run this is one entry; for the round-robin mix it is the mixture.
     resolved_paths: str = ""
     #: Seconds the pre-run health gate took, None when the gate was skipped.
     health_gate_sec: float | None = None
     per_query_stats: dict[str, dict[str, float]] = field(default_factory=dict)
+    #: Stage label -> figures over the latency samples; see
+    #: :func:`bench.stats.compute_stage_stats`.
+    stage_stats: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: Step -> RT-VLM's own per-clip figures over the measured window; see
+    #: :func:`bench.resources.rt_vlm_window_stats`.
+    rt_vlm_stats: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: The load generator's own CPU and the host's CPU/memory over the measured
+    #: window; see :class:`bench.resources.HostSampler`.
+    host_resources: dict[str, Any] = field(default_factory=dict)
     prometheus_metrics: dict[str, Any] = field(default_factory=dict)
     pod_log_errors: dict[str, Any] = field(default_factory=lambda: {"enabled": False})
     cooldown: dict[str, Any] = field(default_factory=dict)
+    #: Why the cell stopped before its budget, empty when it ran to the end.
+    #: Set when the backend timed out under this cell's load: the cell is
+    #: recorded as failed and the sweep moves on. Not a ``summary.csv``
+    #: column, so existing result directories still resume; such a cell has
+    #: ``measurement_window_clean=false`` there.
+    stopped_reason: str = ""
 
 
 #: Columns identifying the sweep cell, leading every CSV.
@@ -236,7 +282,10 @@ SUMMARY_FIELDS = [
     "query_count", "resolved_paths", "wall_clock_sec", "measurement_wall_clock_sec",
     "measurement_window_clean", "total_requests", "warmup_requests",
     "measured_requests", "success_count", "failure_count", "queries_per_sec",
+    "e2e_p50_sec", "e2e_p95_sec", "e2e_p99_sec", "e2e_mean_sec",
+    "decompose_p50_sec", "decompose_p95_sec", "decompose_p99_sec", "decompose_mean_sec",
     "p50_sec", "p95_sec", "p99_sec", "mean_sec",
+    "llm_share", "path_stability", "off_target_count", "decompose_error_count", "cell_valid",
     "cli_spawn_cost_sec",
     "critic_ran_count", "critic_confirmed", "critic_rejected", "critic_unverified",
     "pod_log_error_count", "health_gate_sec", "cooldown_reason", "cooldown_waited_sec",
@@ -247,6 +296,7 @@ SUMMARY_FIELDS = [
 PER_QUERY_FIELDS = [
     *CELL_FIELDS,
     "query_id", "resolved_path", "count",
+    "e2e_p50_sec", "e2e_p95_sec", "e2e_p99_sec", "e2e_mean_sec", "decompose_mean_sec",
     "p50_sec", "p95_sec", "p99_sec", "mean_sec", "min_sec", "max_sec", "std_sec",
 ]
 
@@ -254,11 +304,18 @@ PER_QUERY_FIELDS = [
 #: flattened out of ``prometheus_metrics.json`` so it can be plotted directly.
 RESOURCE_FIELDS = [*CELL_FIELDS, "metric", "service", "series", "avg", "peak"]
 
+#: Column order of ``stage_summary.csv``: one row per (run, stage).
+STAGE_FIELDS = [
+    *CELL_FIELDS, "step", "stage", "requests", "calls_per_request", "per_call_mean_sec",
+    "per_call_p50_sec", "per_call_p95_sec",
+    "p50_sec", "p95_sec", "p99_sec", "mean_sec", "concurrent", "source",
+]
+
 #: Column order of each run's ``per_query_latency.csv``. One row per measured request.
 LATENCY_FIELDS = [
-    "run_id", "query_id", "path", "worker_id", "iteration",
+    "run_id", "query_id", "path", "resolved_path", "on_target", "worker_id", "iteration",
     "critic", "critic_eval_count", "top_k", "concurrency",
-    "latency_sec", "exit_code", "result_count", "critic_ran",
+    "decompose_sec", "latency_sec", "e2e_latency_sec", "exit_code", "result_count", "critic_ran",
     "critic_confirmed", "critic_rejected", "critic_unverified",
-    "started_at", "completed_at", "error",
+    "started_at", "cli_started_at", "completed_at", "error",
 ]

@@ -26,8 +26,8 @@ VLM tag documents, so `tag` needs `decomposition.pin_paths`.
 
 Each run cycles only the queries routing to its path, so its latency,
 throughput and per-service CPU attribute to that path. The run id ends in the
-path: `critic_off_topk_5_c1_event`. A path no query routes to after
-decomposition exits 5.
+path: `critic_off_topk_5_c1_event`. A path no query routes to in the route
+check exits 5.
 
 Setting `sweep.paths: []` returns to the old round-robin over all queries, where
 a run's p95 is the p95 of a tri-modal mixture. The paths are 20–70× apart in
@@ -101,12 +101,16 @@ there is no port to derive it from and no name to guess. Set
 `kubectl get svc -n <ns> | grep -iE 'nemotron|nim|llm'` — note the Service
 name drops the dots, `nemotron-35-lightning-30b-a3b`.
 
-Decomposition runs **once per query before the sweep**, not per request. That
-keeps the LLM call out of the measured latency, and keeps each query on one
-path for the whole sweep — at temperature 0 the model is still not
-contractually deterministic, and a query that routed to `fusion` on one
-request and `attribute` on the next would merge two pipelines into one latency
-distribution with nothing saying so.
+Decomposition runs **on every measured request**, inside the measured
+latency: `decompose_sec` + the CLI's `latency_sec` = `e2e_latency_sec`. At
+temperature 0 the model is still not contractually deterministic, so a
+request can route off its query's path; it then counts in throughput and
+`path_stability` but not in the cell's latency, and a cell below
+`execution.min_path_stability` is `cell_valid=False`. The route check before
+the sweep (`decomposition.route_check_calls`, 10) refuses a query that misses
+its path even once. Timeouts: `decomposition.request_timeout_sec` (60) for the
+LLM call, `execution.request_timeout_sec` (300) for the CLI,
+`execution.e2e_timeout_sec` (360) for both.
 
 ### `--skip-vss-configure`
 
@@ -229,9 +233,10 @@ Continue into an existing results directory. A run counts as complete when its
 `run_summary.json` exists — that file is written last, so a run interrupted
 mid-way is retried rather than silently skipped.
 
-It reuses the directory's `query_plans.json`, so the remaining runs search with
-exactly the arguments the finished ones did; a query whose text changed in the
-config exits 5. Ingest is skipped unless `--ingest` is given. The config of the
+It re-runs the route check and compares it with the directory's
+`query_plans.json`: a query whose text or target path changed exits 5, because
+the finished runs measured something else. A directory from before end-to-end
+measurement cannot be resumed (its CSV columns differ). Ingest is skipped unless `--ingest` is given. The config of the
 resuming invocation is written to `config.resume_<stamp>.yaml` beside the
 original `config.yaml`.
 

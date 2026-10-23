@@ -9,7 +9,7 @@
 | 2 | Bad config or bad flags, or the lock store (Elasticsearch) did not answer. Nothing ran |
 | 3 | The CLI could not be found, run or configured; a `cli.service_urls` address does not answer; or critic-on runs are planned against a deployment with no RT-VLM. Nothing ran |
 | 4 | The corpus gate failed. Nothing was measured |
-| 5 | A query could not be decomposed, its saved plan no longer matches (`--resume`), or a swept path has no query routing to it |
+| 5 | The route check failed (a query could not be decomposed, or missed its path on some call), its target path or text changed since `query_plans.json` (`--resume`), or a swept path has no query routing to it |
 | 6 | The sweep aborted deliberately; remaining runs skipped |
 | 7 | Another benchmark holds this namespace |
 
@@ -298,6 +298,16 @@ continuing would spend hours producing a wall of zeros and file them as
 measurements. The failing command is in `<run_id>/request_records.jsonl` under
 `argv`, with the CLI's own message in `stderr_excerpt`.
 
+**Exit 3 under load is not an abort.** The CLI also exits 3 when a healthy
+backend times out under the cell's load, for example fusion at top_k 20 and
+concurrency 20, where requests run past a minute and fail with `Cannot send a
+request, as the client has been closed`. When every fault in a cell is exit 3
+and the health gate before it passed (or any request in it succeeded), the cell
+is stopped, recorded with `stopped_reason` in `run_summary.json` and
+`summary.jsonl` and `measurement_window_clean=false` in `summary.csv`, and the
+sweep moves on. The final summary lists it under `Overloaded (stopped)`. If the
+backend really went down, the next cell's health gate aborts the sweep.
+
 **Exit 4 almost always means the origin.** The CLI needs the unified
 path-prefix origin, which routes `/vst`, `/elasticsearch` and `/rtvi-embed`.
 Pointed at the agent's own port it finds one service of seven.
@@ -320,15 +330,20 @@ so if the gate passed and a search still exits 5, the path being measured
 queries an index the gate does not check. `attribute` and `object` read
 `mdx-behavior-*`, which is deliberately not gated on.
 
-### Exit 5 from the runner: a query could not be decomposed
+### Exit 5 from the runner: the route check failed
 
-The LLM was unreachable, or returned something that was not JSON. Every query
-needs a path before the sweep starts, so this stops rather than dropping the
-query.
+Either the LLM was unreachable or returned something that was not JSON, or a
+query missed its target path on at least one of the
+`decomposition.route_check_calls` calls (`2/10 call(s) missed attribute:
+attribute=8, fusion=2`). Every measured request decomposes again, so an
+unstable query would put off-target requests into its cell; this stops before
+measuring rather than marking the cell invalid afterwards.
+`query_plans.json` holds every call's path. Fix `expected_path` if it was
+wrong, or reword the query.
 
-On `--resume`, exit 5 can also mean a query's text in the config no longer
-matches the saved `query_plans.json`. The finished runs measured the old text;
-resume with the old config or start a new directory.
+On `--resume`, exit 5 can also mean a query's text or target path no longer
+matches the saved `query_plans.json`. The finished runs measured something
+else; resume with the old config or start a new directory.
 
 "no query resolves to path X" means decomposition routed the query you
 expected on X somewhere else. See *A query routed somewhere unexpected* below.
@@ -354,7 +369,9 @@ Noted here because it makes critic figures incomparable across CLI versions.
 
 ### Throughput plateaus well below what the GPUs suggest
 
-Compare `cli_spawn_cost_sec` against the median latency. Every query is a
+Check `llm_share` and `decompose_p95_sec` first: if the decomposition's share
+grows with concurrency, the plateau is the LLM, not retrieval. Then compare
+`cli_spawn_cost_sec` against the median CLI latency. Every query is a
 Python interpreter start, and at concurrency 20 the load host runs twenty at
 once — the plateau may be this machine, not the cluster. The runner warns when
 startup exceeds 20% of the median.
@@ -378,15 +395,19 @@ Check `corpus_state.json`. A kNN query against an empty or nearly-empty index
 returns almost instantly. The corpus gate catches "empty", but a corpus that is
 merely *small* passes it.
 
-### A query routed somewhere unexpected
+### A cell is `cell_valid=False`, or a query routed somewhere unexpected
 
-`query_plans.json` has the decomposition that produced it. The common case is
+Look at `resolved_path` / `on_target` in `<run_id>/per_query_latency.csv` for
+the measured requests, and at `query_plans.json` for the route check.
+Off-target requests are under load what the route check could not see at
+concurrency 1. `decompose_error` failures mean the LLM itself timed out or
+answered garbage under load: compare `decompose_p95_sec` across concurrency. The common case is
 an absent `has_action`: the prompt marks it required and the model omits it
 often enough to matter, and an absent one routes to `fusion` rather than
 `attribute` — fusion still returns the embedding leg's candidates, where
 `attribute` would silently drop every action-based match.
 
-Group by `resolved_path` and say so in the report. Do not edit the query to
+Leave an invalid cell out of comparisons and say so in the report. Do not edit the query to
 force the routing you expected without recording that you did.
 
 ### Pod logs are empty

@@ -21,11 +21,17 @@ Each worker runs two phases:
 2. **Measurement** -- all workers pass a barrier together, then draw from a
    shared :class:`bench.budget.SampleBudget`.
 
-Each request is ``vss search run <path> ... --raw`` as a subprocess, because
-that is the interface the product ships: the agent's ``POST /api/v1/search``
-has been removed. The path is already decided -- :mod:`bench.decompose` and
-:mod:`bench.routing` resolved it once per query before the sweep -- so a worker
-never calls the LLM and never guesses.
+Each request is the whole product flow, timed at three points:
+
+* **t0** -- decompose the query against the deployment's LLM
+  (:class:`bench.decompose.QueryRouter`), then ``route()`` it;
+* **t1** -- spawn ``vss search run <path> ... --raw`` with that plan, because
+  the CLI is the interface the product ships;
+* **t2** -- the CLI exits.
+
+``decompose_sec = t1 - t0``, ``latency_sec = t2 - t1`` and
+``e2e_latency_sec = t2 - t0``. A decomposition that fails ends the request with
+a ``decompose_error`` and no CLI process.
 
 One consequence is worth keeping in view while reading any result from here: a
 thread spends most of its time waiting on a process, and the process spends its
@@ -47,13 +53,20 @@ from .budget import SampleBudget
 from .cli import (
     CONFIG_HOME_ENV,
     build_argv,
+    clean_cli_stderr,
     explain_exit,
     is_environment_fault,
     parse_cli_output,
 )
+from .decompose import DecompositionError, QueryRouter
 from .models import QueryItem, QueryPlan, RequestRecord, RunConfig
 
 logger = logging.getLogger(__name__)
+
+#: ``exit_code`` of a request whose decomposition failed: no CLI ran. Not an
+#: environment fault -- one bad completion does not stop the sweep -- but a
+#: down LLM fails the health gate and empties the run, and both of those do.
+DECOMPOSE_ERROR_EXIT = -2
 
 
 def utc_now_iso() -> str:
@@ -101,8 +114,16 @@ def send_search_request(
     is_warmup: bool,
     timeout_sec: int = 300,
     cli_options: dict[str, Any] | None = None,
+    *,
+    router: QueryRouter,
+    e2e_timeout_sec: float | None = None,
 ) -> RequestRecord:
-    """Run one ``vss search run`` and record the outcome."""
+    """Decompose, route and run one ``vss search run``; record the outcome.
+
+    ``timeout_sec`` bounds the CLI alone and ``e2e_timeout_sec`` the whole
+    request: the CLI gets whichever leaves less, so a slow decomposition eats
+    into its budget rather than extending the request.
+    """
     options = cli_options or {}
     record = RequestRecord(
         run_id=run_config.run_id,
@@ -127,9 +148,25 @@ def send_search_request(
         )
     env = {**os.environ, CONFIG_HOME_ENV: str(home)} if home else None
 
+    record.started_at = utc_now_iso()
+    t0 = time.perf_counter()
+    try:
+        plan = router.plan(query_item.id, query_item.query)
+    except DecompositionError as e:
+        record.decompose_sec = record.e2e_latency_sec = time.perf_counter() - t0
+        record.completed_at = utc_now_iso()
+        record.exit_code = DECOMPOSE_ERROR_EXIT
+        record.error = f"decompose_error: {str(e)[:300]}"
+        return record
+    record.resolved_path = plan["path"]
+
+    cli_timeout = float(timeout_sec)
+    if e2e_timeout_sec:
+        cli_timeout = max(1.0, min(cli_timeout, e2e_timeout_sec - (time.perf_counter() - t0)))
+
     argv = build_argv(
         vss_cmd=vss_cmd,
-        plan=query_plan.plan,
+        plan=plan,
         top_k=run_config.top_k,
         critic_eval_count=run_config.critic_eval_count if run_config.critic else None,
         min_cosine_similarity=options.get("min_cosine_similarity"),
@@ -139,15 +176,22 @@ def send_search_request(
         ),
     )
 
-    record.started_at = utc_now_iso()
+    record.cli_started_at = utc_now_iso()
     start = time.perf_counter()
+    record.decompose_sec = start - t0
+
+    def _stop() -> None:
+        end = time.perf_counter()
+        record.latency_sec = end - start
+        record.e2e_latency_sec = end - t0
+        record.completed_at = utc_now_iso()
+
     try:
         proc = subprocess.run(
-            argv, capture_output=True, check=False, text=True, timeout=timeout_sec,
+            argv, capture_output=True, check=False, text=True, timeout=cli_timeout,
             env=env,
         )
-        record.latency_sec = time.perf_counter() - start
-        record.completed_at = utc_now_iso()
+        _stop()
         record.exit_code = proc.returncode
 
         if proc.returncode == 0:
@@ -161,18 +205,16 @@ def send_search_request(
                 record.search_total_sec = timings.get("total_s")
                 _extract_hit_evidence(hits, record)
         else:
-            detail = (proc.stderr or proc.stdout or "").strip()
+            detail = clean_cli_stderr(proc.stderr or proc.stdout or "")
             record.stderr_excerpt = detail[:400]
             record.error = f"{explain_exit(proc.returncode)}: {detail[:200]}"
 
     except subprocess.TimeoutExpired:
-        record.latency_sec = time.perf_counter() - start
-        record.completed_at = utc_now_iso()
+        _stop()
         record.exit_code = 124
-        record.error = f"the CLI did not return within {timeout_sec}s"
+        record.error = f"the CLI did not return within {cli_timeout:.0f}s"
     except OSError as e:
-        record.latency_sec = time.perf_counter() - start
-        record.completed_at = utc_now_iso()
+        _stop()
         record.exit_code = -1
         record.error = f"could not start the CLI: {e}"
 
@@ -192,6 +234,9 @@ def run_worker(
     inter_request_delay_sec: float = 0.0,
     cli_options: dict[str, Any] | None = None,
     abort: threading.Event | None = None,
+    *,
+    router: QueryRouter,
+    e2e_timeout_sec: float | None = None,
 ) -> list[RequestRecord]:
     """Run one worker thread through warmup and measurement.
 
@@ -203,6 +248,7 @@ def run_worker(
         return _run_worker(
             worker_id, query_set, query_plans, run_config, vss_cmd, warmup_rounds,
             budget, barrier, timeout_sec, inter_request_delay_sec, cli_options, abort,
+            router, e2e_timeout_sec,
         )
     except BaseException:
         if abort is not None:
@@ -224,6 +270,8 @@ def _run_worker(
     inter_request_delay_sec: float,
     cli_options: dict[str, Any] | None,
     abort: threading.Event | None,
+    router: QueryRouter,
+    e2e_timeout_sec: float | None,
 ) -> list[RequestRecord]:
     records: list[RequestRecord] = []
     num_queries = len(query_set)
@@ -241,6 +289,8 @@ def _run_worker(
             is_warmup=warmup,
             timeout_sec=timeout_sec,
             cli_options=cli_options,
+            router=router,
+            e2e_timeout_sec=e2e_timeout_sec,
         )
         # An unknown flag, an unreachable backend, a CLI pointed at the wrong
         # origin, a missing index: none of these get better by sending the
@@ -261,7 +311,7 @@ def _run_worker(
     # Hold every worker until all have warmed up, so the measured window runs
     # at the full concurrency under test from its first request.
     try:
-        barrier.wait(timeout=max(timeout_sec, 60))
+        barrier.wait(timeout=max(e2e_timeout_sec or timeout_sec, 60))
     except threading.BrokenBarrierError:
         logger.warning("Worker %s: warmup barrier broken, continuing", worker_id)
         # The barrier action never ran, so the duration floor would otherwise

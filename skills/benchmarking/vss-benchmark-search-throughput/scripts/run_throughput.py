@@ -26,9 +26,11 @@
 
 """Throughput and latency sweep over VSS search, driven through the ``vss`` CLI.
 
-Measures how fast ``vss search run`` answers, and what the cluster spends doing
-it, across a matrix of (critic on/off, top_k, concurrency, path): each run
-measures one search path with only the queries that route there. It does not score accuracy -- the
+Measures how fast a question gets answered end to end -- the LLM decomposes it,
+``route()`` picks the path, ``vss search run`` retrieves -- and what the cluster
+spends doing it, across a matrix of (critic on/off, top_k, concurrency, path):
+each run measures one search path with only the queries that route there, and
+reports the decomposition, the CLI and the sum separately. It does not score accuracy -- the
 ``benchmark-video-search`` skill next door does that, against a different
 corpus.
 
@@ -55,8 +57,8 @@ Exit codes, which a wrapper script needs to tell apart:
        (includes a cli.service_urls address that does not answer, and
        critic-on runs planned against a deployment with no RT-VLM)
     4  the corpus gate failed; nothing was measured
-    5  a query could not be decomposed, or a swept path has no query
-       routing to it
+    5  the route check failed (a query could not be decomposed, or missed
+       its path on some call), or a swept path has no query routing to it
     6  the sweep aborted deliberately, remaining runs skipped
     7  another benchmark holds this namespace
 """
@@ -65,12 +67,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 # sys.path[0] is this script's directory, so `bench` resolves without an install
 # step. Nothing here is importable as a library on purpose: the entrypoint is
@@ -126,7 +130,8 @@ from bench.run import (
     capture_deployment_metadata,
     execute_single_run,
     log_es_counts,
-    resolve_query_plans,
+    build_router,
+    route_check,
     run_health_gate,
     wait_for_cooldown,
 )
@@ -137,6 +142,98 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "config.yaml"
 # Measured requests per smoke run: a few per run proves the path repeats.
 SMOKE_REQUESTS = 6
+
+
+def refresh_direct_service_endpoints(config: dict[str, Any]) -> None:
+    """Refresh direct endpoints after a Kubernetes redeploy."""
+    services = config.setdefault("services", {})
+    cluster_ip_discovery = services.get("cluster_ip_discovery") or {}
+    discovery = services.get("elasticsearch_discovery") or {}
+    if not discovery.get("enabled", False) and not cluster_ip_discovery.get("enabled", False):
+        return
+
+    namespace = (config.get("deployment") or {}).get("namespace", "vss-search")
+    cli_urls = config.setdefault("cli", {}).setdefault("service_urls", {})
+    for key, endpoint in (discovery.get("endpoints") or {}).items():
+        service = endpoint.get("service")
+        port = int(endpoint.get("port", 80))
+        if not service:
+            raise ValueError(f"service discovery entry {key!r} has no service name")
+        try:
+            result = subprocess.run(
+                [
+                    "kubectl", "get", "endpoints", service, "-n", namespace,
+                    "-o", "jsonpath={.subsets[0].addresses[0].ip}",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            raise ValueError(
+                f"cannot discover endpoint for service {service!r} in namespace "
+                f"{namespace!r}: {e}"
+            ) from e
+        pod_ip = result.stdout.strip()
+        if not pod_ip:
+            raise ValueError(
+                f"service {service!r} has no ready endpoint; wait for its pod"
+            )
+
+        configured_url = str(
+            services.get("elasticsearch_url", "")
+            if key == "elasticsearch" else cli_urls.get(key, "")
+        )
+        parsed = urlsplit(configured_url or f"http://{pod_ip}:{port}")
+        direct_url = urlunsplit(
+            (parsed.scheme or "http", f"{pod_ip}:{port}",
+             parsed.path, parsed.query, parsed.fragment)
+        )
+        if key == "elasticsearch":
+            services["elasticsearch_url"] = direct_url
+        cli_urls[key] = direct_url
+        say(f"  {key} endpoint refreshed: {direct_url}")
+
+    for key, endpoint in (cluster_ip_discovery.get("endpoints") or {}).items():
+        service = endpoint.get("service")
+        service_namespace = endpoint.get("namespace", namespace)
+        port = int(endpoint.get("port", 80))
+        config_key = endpoint.get("config_key")
+        if not service or not config_key:
+            raise ValueError(
+                f"cluster IP discovery entry {key!r} needs service and config_key"
+            )
+        try:
+            result = subprocess.run(
+                [
+                    "kubectl", "get", "svc", service, "-n", service_namespace,
+                    "-o", "jsonpath={.spec.clusterIP}",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            raise ValueError(
+                f"cannot discover ClusterIP for service {service!r} in namespace "
+                f"{service_namespace!r}: {e}"
+            ) from e
+        cluster_ip = result.stdout.strip()
+        if not cluster_ip or cluster_ip == "None":
+            raise ValueError(
+                f"service {service!r} in namespace {service_namespace!r} has no "
+                "usable ClusterIP"
+            )
+
+        configured_url = str(services.get(config_key, ""))
+        parsed = urlsplit(configured_url or f"http://{cluster_ip}:{port}")
+        services[config_key] = urlunsplit(
+            (parsed.scheme or "http", f"{cluster_ip}:{port}",
+             parsed.path, parsed.query, parsed.fragment)
+        )
+        say(f"  {key} ClusterIP refreshed: {services[config_key]}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -162,8 +259,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resume", type=Path,
         help="continue into an existing results directory, skipping the runs "
-             "that already have a run_summary.json. Reuses its query_plans.json "
-             "and skips ingest unless --ingest is given",
+             "that already have a run_summary.json. Re-runs the route check and "
+             "refuses a query whose target path changed; skips ingest unless "
+             "--ingest is given",
     )
     parser.add_argument(
         "--smoke", action="store_true",
@@ -236,8 +334,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cli_group.add_argument(
         "--llm-url", metavar="URL",
-        help="OpenAI-compatible endpoint used to decompose each query once "
-             "before the sweep (default: services.llm_url)",
+        help="OpenAI-compatible endpoint every measured request decomposes "
+             "against, and the route check uses (default: services.llm_url)",
     )
     cli_group.add_argument(
         "--skip-vss-configure", action="store_true",
@@ -478,8 +576,18 @@ def _print_dry_run(
         llm_url = require_llm_url(config.get("services", {}) or {})
     except DecompositionError as e:
         llm_url = f"NOT SET -- {str(e).splitlines()[0]}"
-    say(f"    Resolve paths:         1 LLM call per query at {llm_url}"
+    calls = int(decompose_config.get("route_check_calls", 10))
+    say(f"    Route check:           {calls} LLM call(s) per query at {llm_url}"
         + (f" ({len(pinned)} pinned, not routed)" if pinned else ""))
+    exec_config = config.get("execution", {}) or {}
+    llm_timeout = (decompose_config.get("request_timeout_sec")
+                   or decompose_config.get("timeout_sec") or 60)
+    stability = float(exec_config.get("min_path_stability", 0.95))
+    say("    Measured request:      decompose (LLM) -> route -> CLI, every request; "
+        f"timeouts LLM {llm_timeout}s, "
+        f"CLI {exec_config.get('request_timeout_sec', 300)}s, "
+        f"e2e {exec_config.get('e2e_timeout_sec', 360)}s; "
+        f"cell valid at path stability >= {stability:.0%}")
 
     settings = lock_config(config)
     say("    Single-run lock:       "
@@ -587,6 +695,8 @@ def _fail(code: int, message: str) -> _Stop:
 class _Outcome:
     completed: list[RunSummary] = field(default_factory=list)
     failed_runs: list[str] = field(default_factory=list)
+    #: Completed, but stopped early because the backend timed out under load.
+    overloaded_runs: list[str] = field(default_factory=list)
     aborted: str = ""
     not_attempted: int = 0
 
@@ -833,21 +943,21 @@ def _resolve_paths(
     config: dict[str, Any],
     args: argparse.Namespace,
     output_dir: Path,
-    repo_root: Path,
+    router: Any,
     query_set: list,
     runs: list,
     corpus_state: Any,
 ) -> tuple[dict, dict[str, str]]:
     try:
-        query_plans = resolve_query_plans(
-            config, query_set, output_dir, repo_root,
-            video_sources=[u.upload_filename for u in corpus_state.uploads
-                           if u.success] or None,
-            reuse=bool(args.resume),
+        router.video_sources = [
+            u.upload_filename for u in corpus_state.uploads if u.success
+        ] or None
+        query_plans = route_check(
+            config, query_set, output_dir, router, reuse=bool(args.resume),
         )
         resolved_paths = {qid: plan.path for qid, plan in query_plans.items()}
         # The plan was checked against expected_path, which is a guess; this
-        # checks it against what decomposition produced.
+        # checks it against what the route check produced.
         swept = [p for p in dict.fromkeys(r.path for r in runs) if p]
         if swept:
             validate_path_selection(swept, query_set, resolved_paths)
@@ -867,6 +977,7 @@ def _run_sweep(
     vss_cmd: list[str],
     spawn_cost: float,
     lock: RunLock | None,
+    router: Any,
 ) -> _Outcome:
     cli_config = config.get("cli", {}) or {}
     gate_timeout, abort_on_empty = _guard_settings(config, args)
@@ -885,10 +996,10 @@ def _run_sweep(
         if gate_timeout > 0:
             gate = run_health_gate(
                 run_config, run_queries, query_plans, vss_cmd, gate_timeout,
-                cli_options=cli_config,
+                cli_options=cli_config, router=router,
             )
             if not gate.succeeded:
-                say(f"  Health gate: FAILED after {gate.latency_sec:.1f}s "
+                say(f"  Health gate: FAILED after {gate.e2e_latency_sec:.1f}s "
                     f"(exit={gate.exit_code}, {gate.error or 'no error text'})")
                 outcome.aborted = (f"the health gate before {run_config.run_id} got "
                                    f"no usable answer in {gate_timeout}s")
@@ -897,8 +1008,9 @@ def _run_sweep(
                 _capture_wedge(config, output_dir, outcome.aborted)
                 _log_abort_guidance(config, outcome.aborted)
                 break
-            gate_sec = gate.latency_sec
-            say(f"  Health gate: ok in {gate_sec:.1f}s")
+            gate_sec = gate.e2e_latency_sec
+            say(f"  Health gate: ok in {gate_sec:.1f}s "
+                f"(decompose {gate.decompose_sec:.1f}s + CLI {gate.latency_sec:.1f}s)")
 
         # After the gate rather than before it, because the gate is itself a real
         # search and leaves real work behind -- on the attribute path a single
@@ -929,6 +1041,7 @@ def _run_sweep(
                 skip_pod_logs=args.skip_pod_logs,
                 health_gate_sec=gate_sec,
                 cooldown=cooldown,
+                router=router,
             )
             append_run_summary(output_dir, summary, query_plans)
             outcome.completed.append(summary)
@@ -943,6 +1056,10 @@ def _run_sweep(
             logger.error("Run %s failed: %s", run_config.run_id, e, exc_info=True)
             outcome.failed_runs.append(run_config.run_id)
             say(f"  Run FAILED: {e}")
+            continue
+
+        if summary.stopped_reason:
+            outcome.overloaded_runs.append(summary.run_id)
             continue
 
         # A run with no successful request is not a slow data point, it is the
@@ -1001,16 +1118,19 @@ def _print_summary(
         say(f"  Not attempted:        {outcome.not_attempted} run(s)")
     if outcome.failed_runs:
         say(f"  Failed:               {', '.join(outcome.failed_runs)}")
+    if outcome.overloaded_runs:
+        say(f"  Overloaded (stopped): {', '.join(outcome.overloaded_runs)}")
     say(f"  Output:               {output_dir.resolve()}")
     say("  Files:")
     say("    summary.csv            -- one row per run (appended)")
     say("    summary.jsonl          -- same, JSON lines")
     say("    per_query_summary.csv  -- one row per (run, query_id)")
     say("    resources_summary.csv  -- CPU/GPU/memory per (run, service)")
-    say("    query_plans.json       -- each query's decomposition, path and argv")
+    say("    stage_summary.csv      -- latency per step: decompose, CLI, KNN, critic, RT-VLM")
+    say("    query_plans.json       -- route check: each query's target path and calls")
     say("    corpus_state.json      -- what was ingested and what ES held")
     say("    vss_config/            -- the CLI config every request used")
-    say("    <run_id>/per_query_latency.csv  -- raw measured latencies")
+    say("    <run_id>/per_query_latency.csv  -- decompose / CLI / e2e latency per request")
     say("    <run_id>/request_records.jsonl  -- all requests incl. warmup")
     say("  Plot them with:")
     say(f"    uv run scripts/plot_results.py {output_dir.resolve()}")
@@ -1048,6 +1168,10 @@ def _execute(args: argparse.Namespace, lock: RunLock | None) -> int:
         config = load_config(args.config, args.dataset)
     except (OSError, ValueError) as e:
         raise _fail(2, str(e)) from e
+    try:
+        refresh_direct_service_endpoints(config)
+    except ValueError as e:
+        raise _fail(2, str(e)) from e
     apply_setup_overrides(config, args)
     query_set, runs = _build_plan(config, args)
     output_dir = _output_dir(config, args)
@@ -1076,6 +1200,12 @@ def _execute(args: argparse.Namespace, lock: RunLock | None) -> int:
     say("[1/6] Checking the vss CLI")
     vss_cmd, repo_root, spawn_cost = _prepare_cli(config, args, output_dir, pending)
     _write_effective_config(config, output_dir)
+    # Here rather than at the route check: an LLM that is down should stop the
+    # sweep before ingest spends an hour, not after.
+    try:
+        router = build_router(config, query_set, repo_root)
+    except DecompositionError as e:
+        raise _fail(5, str(e)) from e
 
     say("")
     say("[2/6] Preparing corpus")
@@ -1089,16 +1219,16 @@ def _execute(args: argparse.Namespace, lock: RunLock | None) -> int:
         log_es_counts(capture_deployment_metadata(config, output_dir))
 
     say("")
-    say("[4/6] Resolving each query's search path")
+    say("[4/6] Route check: each query's path must be stable before measuring")
     query_plans, resolved_paths = _resolve_paths(
-        config, args, output_dir, repo_root, query_set, runs, corpus_state
+        config, args, output_dir, router, query_set, runs, corpus_state
     )
 
     say("")
     say(f"[5/6] Executing {len(pending)} benchmark run(s)")
     outcome = _run_sweep(
         config, args, output_dir, pending, query_set, query_plans,
-        resolved_paths, vss_cmd, spawn_cost, lock,
+        resolved_paths, vss_cmd, spawn_cost, lock, router,
     )
     _report_after_sweep(config, output_dir, lock)
 
@@ -1137,6 +1267,11 @@ def main(argv: list[str] | None = None) -> int:
         try:
             lock_probe_config = load_config(args.config, args.dataset)
         except (OSError, ValueError) as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 2
+        try:
+            refresh_direct_service_endpoints(lock_probe_config)
+        except ValueError as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return 2
 

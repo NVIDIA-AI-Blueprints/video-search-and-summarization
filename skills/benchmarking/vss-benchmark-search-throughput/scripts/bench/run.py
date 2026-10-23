@@ -29,13 +29,14 @@ from pathlib import Path
 from typing import Any
 
 from .budget import SampleBudget
-from .cli import EnvironmentFault
+from .cli import EnvironmentFault, is_environment_fault, is_overload
 from .console import RULE, say
-from .decompose import DecompositionError, LiveDecomposer
+from .decompose import DecompositionError, LiveDecomposer, QueryRouter
 from .models import (
     LATENCY_FIELDS,
     PER_QUERY_FIELDS,
     RESOURCE_FIELDS,
+    STAGE_FIELDS,
     SUMMARY_FIELDS,
     QueryItem,
     QueryPlan,
@@ -45,16 +46,26 @@ from .models import (
 )
 from .plan import read_pin_paths, samples_per_query
 from .resources import (
+    HostSampler,
     PodLogStreamer,
     capture_es_index_counts,
     collect_pod_logs,
     collect_run_metrics,
     query_prometheus_instant,
+    rt_vlm_window_stats,
     scan_pod_log_errors,
+    host_resource_rows,
+    scrape_rt_vlm_histograms,
 )
-from .routing import EVENT, path_distribution, pinned_plan, plan_for, route
-from .stats import compute_per_query_stats, compute_run_stats, format_duration
-from .worker import run_worker, send_search_request, utc_now_iso
+from .routing import EVENT, path_distribution, plan_for
+from .stats import (
+    compute_per_query_stats,
+    compute_run_stats,
+    compute_stage_stats,
+    format_duration,
+    latency_samples,
+)
+from .worker import DECOMPOSE_ERROR_EXIT, run_worker, send_search_request, utc_now_iso
 
 
 def _start_pod_log_stream(
@@ -95,6 +106,8 @@ def execute_single_run(
     skip_pod_logs: bool = False,
     health_gate_sec: float | None = None,
     cooldown: dict[str, Any] | None = None,
+    *,
+    router: QueryRouter,
 ) -> RunSummary:
     """Execute one sweep cell = (critic, top_k, concurrency[, path]).
 
@@ -108,6 +121,8 @@ def execute_single_run(
         exec_config, run_config.concurrency, len(query_set)
     )
     timeout_sec = int(exec_config.get("request_timeout_sec", 300))
+    e2e_timeout_sec = e2e_timeout(config)
+    min_stability = float(exec_config.get("min_path_stability", 0.95))
     inter_delay = float(exec_config.get("inter_request_delay_sec", 0) or 0)
     min_duration = float(exec_config.get("min_run_duration_sec", 0) or 0)
     cli_options = config.get("cli", {}) or {}
@@ -164,9 +179,17 @@ def execute_single_run(
         min_duration_sec=min_duration,
     )
     measurement_start_mono: list[float] = []
+    rt_vlm_url = (config.get("services", {}) or {}).get("rt_vlm_metrics_url", "")
+    rt_vlm_before: list[dict[str, Any] | None] = []
+    host_sampler = HostSampler()
 
     def _on_barrier_release() -> None:
         measurement_start_mono.append(time.perf_counter())
+        host_sampler.start()
+        # Read as the window opens: every worker has finished warmup and none
+        # has sent a measured request, so the difference is the window alone.
+        if rt_vlm_url and run_config.critic:
+            rt_vlm_before.append(scrape_rt_vlm_histograms(rt_vlm_url))
         # The duration floor measures the same window the throughput does, so it
         # starts here and not at run start: warmup would otherwise eat into it,
         # and at c20 warmup is a fifth of a 300 s floor.
@@ -203,6 +226,8 @@ def execute_single_run(
                     inter_request_delay_sec=inter_delay,
                     cli_options=cli_options,
                     abort=abort,
+                    router=router,
+                    e2e_timeout_sec=e2e_timeout_sec,
                 )
                 for wid in range(1, run_config.concurrency + 1)
             ]
@@ -214,20 +239,40 @@ def execute_single_run(
                 )
                 say(f"    Worker done [{i}/{run_config.concurrency}]: "
                     f"total={len(worker_records)} measured={measured}")
+        # Before the log streamer stops: its kubectl children would otherwise
+        # be reaped into the CLI's CPU figure.
+        host_resources = host_sampler.stop()
     finally:
         if streamer is not None:
             streamer.__exit__(None, None, None)
             streamed_files = set(streamer.streamed)
 
+    rt_vlm_stats = rt_vlm_window_stats(
+        rt_vlm_before[0] if rt_vlm_before else None,
+        scrape_rt_vlm_histograms(rt_vlm_url) if rt_vlm_before else None,
+    )
+
+    stopped_reason = ""
     if abort.is_set():
-        # The records are kept for debugging, but no run_summary.json: that
-        # would mark the cell complete and --resume would skip it forever.
-        _write_records(run_output_dir, all_records)
         culprit = next(
             (r for r in all_records if r.error and r.exit_code > 0),
             None,
         )
         detail = culprit.error if culprit is not None else "unknown CLI fault"
+        fault_codes = {r.exit_code for r in all_records if is_environment_fault(r.exit_code)}
+        backend_was_up = health_gate_sec is not None or any(r.succeeded for r in all_records)
+        if is_overload(fault_codes, backend_was_up):
+            faults = sum(1 for r in all_records if r.exit_code in fault_codes)
+            stopped_reason = (f"overloaded: {faults} request(s) failed with "
+                              f"{detail}")
+            say(f"  !! {run_config.run_id} overloaded the backend and was stopped: "
+                f"{faults}/{len(all_records)} request(s) failed with {detail}")
+            say("     Recorded as a failed cell; the sweep continues, and the next "
+                "health gate stops it if the backend is really down.")
+    if abort.is_set() and not stopped_reason:
+        # The records are kept for debugging, but no run_summary.json: that
+        # would mark the cell complete and --resume would skip it forever.
+        _write_records(run_output_dir, all_records)
         raise EnvironmentFault(
             f"{run_config.run_id} stopped: the CLI reported a state no retry "
             f"fixes -- {detail}\n"
@@ -243,7 +288,7 @@ def execute_single_run(
     # list means the barrier broke and there is no honest measured window to
     # divide by; fall back to the whole run but mark the run as not comparable
     # instead of publishing a throughput that quietly includes warmup.
-    window_clean = bool(measurement_start_mono)
+    window_clean = bool(measurement_start_mono) and not stopped_reason
     measurement_wall = (
         end_mono - measurement_start_mono[0] if window_clean else wall_clock
     )
@@ -288,12 +333,71 @@ def execute_single_run(
             f"{unverified} left unverified")
 
     per_query_stats = compute_per_query_stats(all_records)
+    per_query_e2e = compute_per_query_stats(all_records, "e2e_latency_sec")
+    per_query_decompose = compute_per_query_stats(all_records, "decompose_sec")
+    for qid, stats in per_query_stats.items():
+        e2e = per_query_e2e[qid]
+        stats.update({f"e2e_{k}": e2e[k] for k in ("p50", "p95", "p99", "mean")})
+        stats["decompose_mean"] = per_query_decompose[qid]["mean"]
     for qid, stats in sorted(per_query_stats.items()):
         path = query_plans[qid].path if qid in query_plans else "unknown"
         say(f"    {qid} [{path}]: n={stats['count']:.0f} "
-            f"p50={stats['p50'] * 1000:.0f}ms p95={stats['p95'] * 1000:.0f}ms "
-            f"p99={stats['p99'] * 1000:.0f}ms")
+            f"e2e p50={stats['e2e_p50'] * 1000:.0f}ms p95={stats['e2e_p95'] * 1000:.0f}ms "
+            f"p99={stats['e2e_p99'] * 1000:.0f}ms | "
+            f"decompose mean={stats['decompose_mean'] * 1000:.0f}ms | "
+            f"CLI p50={stats['p50'] * 1000:.0f}ms")
 
+    e2e_stats = compute_run_stats(all_records, "e2e_latency_sec")
+    decompose_stats = compute_run_stats(all_records, "decompose_sec")
+    llm_share = (
+        decompose_stats["mean"] / e2e_stats["mean"]
+        if e2e_stats and e2e_stats["mean"] > 0 else None
+    )
+    routed = [r for r in measured_records if r.resolved_path]
+    off_target = [r for r in routed if not r.on_target]
+    decompose_errors = sum(1 for r in measured_records if r.exit_code == DECOMPOSE_ERROR_EXIT)
+    path_stability = (len(routed) - len(off_target)) / len(routed) if routed else None
+    cell_valid = path_stability is not None and path_stability >= min_stability
+    if llm_share is not None:
+        say(f"  LLM share of e2e latency: {llm_share:.0%} "
+            f"(decompose mean {decompose_stats['mean']:.2f}s of {e2e_stats['mean']:.2f}s)")
+    stage_stats = compute_stage_stats(all_records)
+    wall_steps = [("decompose", "decompose"), ("cli overhead", "cli overhead"),
+                  ("search: retrieval", "retrieval"), ("critic: verify", "verify")]
+    shown = [f"{name} {stage_stats[label]['mean']:.2f}s"
+             for label, name in wall_steps if label in stage_stats]
+    if shown:
+        say("  Steps (mean wall per request): " + " | ".join(shown)
+            + " -- every stage in stage_summary.csv")
+    if host_resources.get("cli_cpu_cores") is not None:
+        say(f"  Load generator: CLI processes used {host_resources['cli_cpu_cores']:.1f} cores"
+            + (f"; host {host_resources['host_cpu_cores_avg']:.1f}/"
+               f"{host_resources['host_cores']:.0f} cores avg, "
+               f"{host_resources['host_cpu_cores_peak']:.1f} peak"
+               if "host_cpu_cores_avg" in host_resources else ""))
+    if rt_vlm_stats:
+        say("  RT-VLM per clip (mean): " + " | ".join(
+            f"{step.replace(' (RT-VLM)', '')} {st['per_clip_mean']:.2f}s"
+            for step, st in rt_vlm_stats.items())
+            + f" over {rt_vlm_stats[next(iter(rt_vlm_stats))]['clips']:.0f} clip(s)")
+    elif rt_vlm_url and run_config.critic:
+        say("  !! RT-VLM per-clip split unavailable: services.rt_vlm_metrics_url "
+            "gave no reading, or no clip was verified in the window")
+    if path_stability is not None:
+        say(f"  Path stability: {path_stability:.1%} "
+            f"({len(off_target)} of {len(routed)} measured request(s) routed off target)")
+        if off_target:
+            where = sorted({r.resolved_path for r in off_target})
+            say(f"    off target went to: {', '.join(where)} -- counted in throughput, "
+                "left out of this cell's latency")
+    if not cell_valid:
+        say(f"  !! Cell INVALID: path stability below {min_stability:.0%}. It mixes "
+            "pipelines and is left out of the comparisons (cell_valid=false).")
+    if decompose_errors:
+        say(f"  !! {decompose_errors} measured request(s) failed to decompose "
+            "(decompose_error); the CLI was not run for them.")
+
+    on_target_count = len(latency_samples(all_records))
     if len(success_records) < measured_target:
         say(f"  !! Only {len(success_records)}/{measured_target} measured samples "
             f"collected -- percentiles are below the target of {min_samples}/query")
@@ -307,13 +411,14 @@ def execute_single_run(
             f"({len(success_records) / measured_target:.1f}x)")
 
     qps = len(success_records) / measurement_wall if measurement_wall > 0 else 0.0
-    say(f"  Throughput: {qps:.2f} queries/sec")
+    say(f"  Throughput: {qps:.2f} queries/sec end-to-end "
+        f"({on_target_count} on-target sample(s) in the latency figures)")
     # Every query here is a Python interpreter start. When the measured latency
     # is within a few multiples of that, the number describes this host's
     # ability to fork processes at least as much as it describes the cluster,
     # and nobody reading a throughput table later would guess it.
     if cli_spawn_cost_sec > 0 and success_records:
-        median = sorted(r.latency_sec for r in success_records)[
+        median = sorted(r.e2e_latency_sec for r in success_records)[
             len(success_records) // 2
         ]
         share = cli_spawn_cost_sec / median if median > 0 else 0.0
@@ -418,14 +523,25 @@ def execute_single_run(
         critic_rejected=rejected,
         critic_unverified=unverified,
         latency_stats=compute_run_stats(all_records),
+        e2e_latency_stats=e2e_stats,
+        decompose_stats=decompose_stats,
+        llm_share=llm_share,
+        off_target_count=len(off_target),
+        decompose_error_count=decompose_errors,
+        path_stability=path_stability,
+        cell_valid=cell_valid,
         resolved_paths=";".join(
             f"{q.id}={query_plans[q.id].path}" for q in query_set if q.id in query_plans
         ),
         health_gate_sec=health_gate_sec,
         per_query_stats=per_query_stats,
+        stage_stats=stage_stats,
+        rt_vlm_stats=rt_vlm_stats,
+        host_resources=host_resources,
         prometheus_metrics=prometheus_metrics,
         pod_log_errors=pod_log_errors,
         cooldown=cooldown or {},
+        stopped_reason=stopped_reason,
     )
 
     write_run_artifacts(run_output_dir, summary, all_records, prometheus_metrics)
@@ -480,7 +596,10 @@ def write_run_artifacts(
                 **row,
                 **_cell_columns(r),
                 "path": r.path,
+                "on_target": r.on_target,
+                "decompose_sec": f"{r.decompose_sec:.6f}",
                 "latency_sec": f"{r.latency_sec:.6f}",
+                "e2e_latency_sec": f"{r.e2e_latency_sec:.6f}",
             })
 
 
@@ -520,6 +639,8 @@ def summary_row(summary: RunSummary) -> dict[str, Any]:
     """One ``summary.csv`` row: every scalar field, plus the flattened ones."""
     scalars = {k: v for k, v in asdict(summary).items() if k in SUMMARY_FIELDS}
     stats = summary.latency_stats
+    e2e = summary.e2e_latency_stats
+    decompose = summary.decompose_stats
     return {
         **scalars,
         **_cell_columns(summary),
@@ -531,6 +652,10 @@ def summary_row(summary: RunSummary) -> dict[str, Any]:
         "p95_sec": _fmt(stats.get("p95")),
         "p99_sec": _fmt(stats.get("p99")),
         "mean_sec": _fmt(stats.get("mean")),
+        **{f"e2e_{k}_sec": _fmt(e2e.get(k)) for k in ("p50", "p95", "p99", "mean")},
+        **{f"decompose_{k}_sec": _fmt(decompose.get(k)) for k in ("p50", "p95", "p99", "mean")},
+        "llm_share": _fmt(summary.llm_share, 4),
+        "path_stability": _fmt(summary.path_stability, 4),
         "health_gate_sec": _fmt(summary.health_gate_sec, 2),
         "pod_log_error_count": summary.pod_log_errors.get("total_errors", ""),
         "cooldown_reason": summary.cooldown.get("reason") or summary.cooldown.get("skipped", ""),
@@ -567,7 +692,42 @@ def resource_rows(summary: RunSummary) -> list[dict[str, Any]]:
             rows.append({**cell, "metric": f"{metric}:mean_rate",
                          "service": service_of(series), "series": series,
                          "avg": values.get("mean_rate"), "peak": ""})
+    rows.extend({**cell, **row} for row in host_resource_rows(summary.host_resources))
     return rows
+
+
+def stage_rows(summary: RunSummary) -> list[dict[str, Any]]:
+    """Flatten ``stage_stats`` into one row per stage, steps in request order."""
+    order = ["decompose", "cli overhead", "search total", "retrieval (wall)", "encode",
+             "knn", "frame lookups", "verify (wall)", "resolve clip url",
+             "download clip (client)", "verify clip (VLM)", "download clip (RT-VLM)",
+             "decode clip (RT-VLM)", "vlm inference (RT-VLM)", "clip total (RT-VLM)",
+             "other", "e2e"]
+    cell = _cell_columns(summary)
+    rows = []
+    for label, st in summary.stage_stats.items():
+        rows.append({
+            **cell, "step": st["step"], "stage": label, "requests": int(st["count"]),
+            "calls_per_request": _fmt(st["calls_per_request"], 2),
+            "per_call_mean_sec": _fmt(st["per_call_mean"]),
+            **{f"{k}_sec": _fmt(st[k]) for k in ("p50", "p95", "p99", "mean")},
+            "concurrent": st["concurrent"],
+            "source": "cli" if st["step"] not in ("decompose", "cli overhead", "e2e")
+                      else "benchmark",
+        })
+    measured = summary.measured_requests or 0
+    for step, st in summary.rt_vlm_stats.items():
+        rows.append({
+            **cell, "step": step, "stage": step, "requests": measured,
+            "calls_per_request": _fmt(st["clips"] / measured, 2) if measured else "",
+            "per_call_mean_sec": _fmt(st["per_clip_mean"]),
+            "per_call_p50_sec": _fmt(st["per_clip_p50"]),
+            "per_call_p95_sec": _fmt(st["per_clip_p95"]),
+            "mean_sec": _fmt(st["sum"] / measured) if measured else "",
+            "concurrent": False, "source": "rt-vlm /v1/metrics",
+        })
+    rank = {step: i for i, step in enumerate(order)}
+    return sorted(rows, key=lambda r: (rank.get(r["step"], len(order)), r["stage"]))
 
 
 def append_run_summary(
@@ -589,13 +749,16 @@ def append_run_summary(
             "query_id": qid,
             "resolved_path": query_plans[qid].path if qid in query_plans else "unknown",
             "count": int(stats["count"]),
-            **{f"{k}_sec": _fmt(stats[k])
-               for k in ("p50", "p95", "p99", "mean", "min", "max", "std")},
+            **{f"{k}_sec": _fmt(stats.get(k))
+               for k in ("p50", "p95", "p99", "mean", "min", "max", "std",
+                         "e2e_p50", "e2e_p95", "e2e_p99", "e2e_mean", "decompose_mean")},
         }
         for qid, stats in sorted(summary.per_query_stats.items())
     ])
     _append_csv_rows(output_dir / "resources_summary.csv", RESOURCE_FIELDS,
                      resource_rows(summary))
+    _append_csv_rows(output_dir / "stage_summary.csv", STAGE_FIELDS,
+                     stage_rows(summary))
 
     with (output_dir / "summary.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(asdict(summary), default=str, sort_keys=True) + "\n")
@@ -738,129 +901,162 @@ def capture_deployment_metadata(
     return metadata
 
 
-def resolve_query_plans(
+def e2e_timeout(config: dict[str, Any]) -> float | None:
+    """``execution.e2e_timeout_sec``: the cap on one whole request, or None."""
+    value = (config.get("execution", {}) or {}).get("e2e_timeout_sec", 360)
+    return float(value) if value else None
+
+
+def build_router(
+    config: dict[str, Any],
+    query_set: list[QueryItem],
+    repo_root: Path,
+    video_sources: list[str] | None = None,
+) -> QueryRouter:
+    """The router every request of the sweep decomposes through.
+
+    Connects to the LLM only when some query is not pinned, so a tag-only
+    sweep needs no ``services.llm_url``.
+    """
+    decompose_config = config.get("decomposition", {}) or {}
+    pinned = read_pin_paths(config, query_set)
+    router = QueryRouter(
+        video_sources=video_sources,
+        source_type=config.get("source_type", "video_file"),
+        pinned=pinned,
+    )
+    if any(q.id not in pinned for q in query_set):
+        from .decompose import require_llm_url
+
+        llm_url = require_llm_url(config.get("services", {}) or {})
+        router.decomposer = LiveDecomposer(
+            llm_url=llm_url,
+            repo_root=repo_root,
+            model=decompose_config.get("model") or None,
+            timeout_sec=float(
+                decompose_config.get("request_timeout_sec")
+                or decompose_config.get("timeout_sec")
+                or 60
+            ),
+        )
+        router.decomposer.probe()
+        say(f"  LLM: {llm_url} serves {router.decomposer.model}; every measured "
+            "request decomposes against it")
+    return router
+
+
+def route_check(
     config: dict[str, Any],
     query_set: list[QueryItem],
     output_dir: Path,
-    repo_root: Path,
-    video_sources: list[str] | None = None,
+    router: QueryRouter,
     reuse: bool = False,
 ) -> dict[str, QueryPlan]:
-    """Decompose every query once, and fix the search path it will run on.
+    """Decompose each query ``route_check_calls`` times; refuse an unstable one.
 
-    This replaces what used to be a log-scraping probe. The agent used to pick
-    the path internally and announce it only in an INFO line carrying no
-    request id, so attribution needed a serialized run at concurrency 1 and
-    still came out ambiguous whenever two replicas disagreed. Driving the CLI
-    means the benchmark makes the choice itself, so the path is simply known,
-    at any concurrency, for every request.
+    Every measured request decomposes again, so this does not fix the path a
+    request runs. It checks that each query is stable enough to be measured
+    as the path it targets: a single call that routes elsewhere stops the
+    sweep before anything is measured, rather than leaving a cell to be
+    marked invalid afterwards. The target is ``expected_path`` when set, else
+    what the first call produced.
 
-    Resolved once for the whole sweep rather than per request. The LLM runs at
-    temperature 0 but is not contractually deterministic, and a query that
-    routed to ``fusion`` on one request and ``attribute`` on the next would mix
-    two pipelines into one latency distribution with nothing saying so.
-
-    For the same reason a resumed sweep reuses the plans an earlier invocation
-    wrote to ``query_plans.json`` (``reuse=True``) and decomposes only queries
-    it has no plan for. A query whose text changed since is refused: its
-    finished runs measured a different question.
+    A resumed sweep (``reuse=True``) re-runs the check -- it is a few dozen
+    LLM calls -- and refuses a query whose text or target path changed since
+    ``query_plans.json`` was written: its finished runs measured something
+    else.
     """
     decompose_config = config.get("decomposition", {}) or {}
-    source_type = config.get("source_type", "video_file")
-    pinned = read_pin_paths(config, query_set)
+    calls = max(1, int(decompose_config.get("route_check_calls", 10)))
+    previous = _load_query_plans(output_dir / "query_plans.json") if reuse else {}
 
     plans: dict[str, QueryPlan] = {}
-    previous = _load_query_plans(output_dir / "query_plans.json") if reuse else {}
     for item in query_set:
         old = previous.get(item.id)
-        if old is None:
-            continue
-        if old.query_text != item.query:
+        if old is not None and old.query_text != item.query:
             raise DecompositionError(
                 f"{item.id} changed since this sweep started "
                 f"({old.query_text!r} -> {item.query!r}); its finished runs "
                 "measured the old text. Resume into a new output directory."
             )
-        plans[item.id] = old
-        say(f"  == {item.id}: {old.path} (reused from query_plans.json)")
-
-    decomposer: LiveDecomposer | None = None
-    needs_llm = any(q.id not in pinned and q.id not in plans for q in query_set)
-
-    if needs_llm:
-        from .decompose import require_llm_url
-
-        llm_url = require_llm_url(config.get("services", {}) or {})
-        decomposer = LiveDecomposer(
-            llm_url=llm_url,
-            repo_root=repo_root,
-            model=decompose_config.get("model") or None,
-            timeout_sec=float(decompose_config.get("timeout_sec", 120)),
-        )
-        say(f"  Decomposing against {llm_url} ({decomposer.model})")
-
-    for item in query_set:
-        if item.id in plans:
-            continue
         plan = QueryPlan(
             query_id=item.id,
             query_text=item.query,
             expected_path=item.expected_path,
         )
-        if item.id in pinned:
+        plans[item.id] = plan
+        if item.id in router.pinned:
             # The only way to reach `tag`: nothing in the decomposition
             # contract asks for keyword retrieval over VLM tag documents, so a
             # tag run has to be requested explicitly.
-            plan.path = pinned[item.id]
-            plan.plan = pinned_plan(item.query, plan.path, source_type)
+            plan.path = router.pinned[item.id]
+            plan.plan = router.plan(item.id, item.query)
             plan.routed = False
             plan.status = "pinned"
             say(f"  -- {item.id}: {plan.path} (pinned, not routed)")
-        else:
-            assert decomposer is not None
-            try:
-                decomposition, elapsed = decomposer.decompose(
-                    item.query, video_sources
-                )
-                plan.plan = plan_for(item.query, decomposition, source_type)
-            except (DecompositionError, ValueError) as e:
-                plan.status = "failed"
-                plan.error = str(e)
-                say(f"  !! {item.id}: {e}")
-                plans[item.id] = plan
-                continue
-            plan.decomposition = decomposition
-            plan.decompose_sec = elapsed
-            plan.path = route(decomposition)
-            plan.status = "ok"
-            expected = (
-                f" (expected {item.expected_path})" if item.expected_path else ""
-            )
-            say(f"  OK {item.id}: {plan.path}{expected} in {elapsed:.1f}s")
-            if item.expected_path and item.expected_path != plan.path:
-                say("       Routed somewhere other than the configured "
-                    "expectation -- analysis groups by the resolved path, so "
-                    "update expected_path or accept the grouping as measured")
-        plans[item.id] = plan
+            continue
 
-    failed = [p for p in plans.values() if p.status == "failed"]
-    if failed:
-        raise DecompositionError(
-            f"{len(failed)} of {len(query_set)} queries could not be decomposed: "
-            + "; ".join(f"{p.query_id} ({p.error[:80]})" for p in failed)
-            + "\n  Every query needs a path before the sweep starts, because the "
-            "CLI takes decomposed arguments rather than a question."
-        )
+        assert router.decomposer is not None
+        try:
+            for _ in range(calls):
+                decomposition, elapsed = router.decomposer.decompose(
+                    item.query, router.video_sources
+                )
+                routed = plan_for(item.query, decomposition, router.source_type)
+                plan.route_check_paths.append(routed["path"])
+                if not plan.plan:
+                    plan.plan, plan.decomposition, plan.decompose_sec = (
+                        routed, decomposition, elapsed
+                    )
+        except (DecompositionError, ValueError) as e:
+            plan.status, plan.error = "failed", str(e)
+            say(f"  !! {item.id}: {e}")
+            continue
+
+        target = item.expected_path or plan.route_check_paths[0]
+        plan.path = target
+        misses = [p for p in plan.route_check_paths if p != target]
+        if misses:
+            counts = {p: plan.route_check_paths.count(p)
+                      for p in sorted(set(plan.route_check_paths))}
+            plan.status = "failed"
+            plan.error = (f"{len(misses)}/{calls} call(s) missed {target}: "
+                          + ", ".join(f"{p}={n}" for p, n in counts.items()))
+            say(f"  !! {item.id}: {plan.error}")
+            continue
+        if old is not None and old.path != target:
+            raise DecompositionError(
+                f"{item.id} targeted {old.path} when this sweep started and now "
+                f"routes to {target}; its finished runs measured another path. "
+                "Resume into a new output directory."
+            )
+        plan.status = "ok"
+        say(f"  OK {item.id}: {target} on {calls}/{calls} call(s), "
+            f"first in {plan.decompose_sec:.1f}s")
 
     payload = {
         "resolved_at": utc_now_iso(),
-        "decomposer": decomposer.describe() if decomposer is not None else None,
-        "distribution": path_distribution({k: v.plan for k, v in plans.items()}),
+        "decomposer": (router.decomposer.describe()
+                       if router.decomposer is not None else None),
+        "route_check_calls": calls,
+        "distribution": path_distribution(
+            {k: v.plan for k, v in plans.items() if v.status != "failed"}
+        ),
         "plans": [asdict(p) for p in plans.values()],
     }
     (output_dir / "query_plans.json").write_text(
         json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8"
     )
+
+    failed = [p for p in plans.values() if p.status == "failed"]
+    if failed:
+        raise DecompositionError(
+            f"route check failed for {len(failed)} of {len(query_set)} queries: "
+            + "; ".join(f"{p.query_id} ({p.error[:120]})" for p in failed)
+            + "\n  A query that does not route to its path on every call would "
+            "mix pipelines into its cell. Fix expected_path, reword the query, "
+            "or check the LLM (details in query_plans.json)."
+        )
 
     mix = payload["distribution"]
     say("  Path distribution: "
@@ -897,6 +1093,8 @@ def run_health_gate(
     vss_cmd: list[str],
     timeout_sec: int,
     cli_options: dict[str, Any] | None = None,
+    *,
+    router: QueryRouter,
 ) -> RequestRecord:
     """One search, alone, to check the service still answers before a run starts.
 
@@ -909,6 +1107,8 @@ def run_health_gate(
     something cheaper, because the critic is what reaches the VLM: a gate that
     skipped it cannot observe a wedged VLM at all, which is the failure this
     exists to catch. At concurrency 1 that costs a few seconds when healthy.
+    It decomposes first, like every measured request, so a down LLM fails it
+    too.
 
     The deadline is deliberately separate from and shorter than
     ``request_timeout_sec``. Measurement should give the service every chance;
@@ -927,6 +1127,8 @@ def run_health_gate(
         is_warmup=True,
         timeout_sec=timeout_sec,
         cli_options=cli_options,
+        router=router,
+        e2e_timeout_sec=timeout_sec,
     )
 
 

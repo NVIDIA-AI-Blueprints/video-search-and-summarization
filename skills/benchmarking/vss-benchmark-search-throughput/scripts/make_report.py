@@ -50,6 +50,12 @@ RESOURCE_PICTURES = (
     ("resources_memory.png", "Memory"),
     ("resources_gpu.png", "GPU utilisation"),
     ("resources_gpu_memory.png", "GPU memory"),
+    ("resources_gpu_power.png", "GPU power"),
+    ("resources_network_rx.png", "Network received"),
+    ("resources_network_tx.png", "Network sent"),
+    ("resources_disk_read.png", "Disk read"),
+    ("resources_disk_write.png", "Disk write"),
+    ("resources_host_cpu.png", "Host CPU (máy chạy benchmark)"),
 )
 
 
@@ -69,6 +75,15 @@ def _f(v: str | None) -> float | None:
 
 def _num(v: float | None, digits: int = 2) -> str:
     return "-" if v is None else f"{v:.{digits}f}"
+
+
+def _lat(r: dict[str, str], q: str) -> float | None:
+    """End-to-end ``q`` percentile, or the CLI's for a sweep that predates it."""
+    return _f(r.get(f"e2e_{q}_sec")) if r.get(f"e2e_{q}_sec") else _f(r.get(f"{q}_sec"))
+
+
+def _pct(v: float | None) -> str:
+    return "-" if v is None else f"{v:.0%}"
 
 
 def _planned(results: Path) -> tuple[list, list[int], list[int], list[str]]:
@@ -191,7 +206,7 @@ def build(results: Path) -> str:
                 r = rows[0]
                 out.append(
                     f"| {path} | {critic} | **{_num(_f(r['queries_per_sec']))}** | "
-                    f"{_num(_f(r['p50_sec']))} s | {_num(_f(r['p95_sec']))} s | "
+                    f"{_num(_lat(r, 'p50'))} s | {_num(_lat(r, 'p95'))} s | "
                     f"{_top_usage(resources, r['run_id'])} |"
                 )
                 continue
@@ -202,7 +217,7 @@ def build(results: Path) -> str:
             not_sat = sat == max(concs) and int(peak["concurrency"]) == max(concs)
             out.append(
                 f"| {path} | {critic} | **{top:.2f}** | {peak['concurrency']} | "
-                f"{'chưa bão hòa' if not_sat else sat} | {_num(_f(peak['p50_sec']))} s | "
+                f"{'chưa bão hòa' if not_sat else sat} | {_num(_lat(peak, 'p50'))} s | "
                 f"{_top_usage(resources, peak['run_id'])} |"
             )
     if not single:
@@ -232,7 +247,7 @@ def build(results: Path) -> str:
                 out.append(f"| {path} | {k} | " + " | ".join(vals) + " |")
         out.append("")
 
-    out += ["## Latency p50 / p95 (giây)", "", "![latency](latency.png)", ""]
+    out += ["## Latency end-to-end p50 / p95 (giây)", "", "![latency](latency.png)", ""]
     for critic in critics:
         out += [f"### Critic {critic}", "", header, sep]
         for path in paths:
@@ -240,10 +255,37 @@ def build(results: Path) -> str:
                 vals = []
                 for c in concs:
                     r = cell.get((critic, path, k, c))
-                    vals.append(f"{_num(_f(r['p50_sec']))} / {_num(_f(r['p95_sec']))}"
+                    vals.append(f"{_num(_lat(r, 'p50'))} / {_num(_lat(r, 'p95'))}"
                                 if r else "-")
                 out.append(f"| {path} | {k} | " + " | ".join(vals) + " |")
         out.append("")
+
+    if any(r.get("llm_share") for r in cell.values()):
+        out += [
+            "## Decompose (LLM) / path stability",
+            "",
+            "Mỗi ô: decompose mean (s) / LLM share của e2e latency / path stability. "
+            "**invalid** = path stability dưới ngưỡng, cell bị loại khỏi so sánh.",
+            "",
+        ]
+        for critic in critics:
+            out += [f"### Critic {critic}", "", header, sep]
+            for path in paths:
+                for k in top_ks:
+                    vals = []
+                    for c in concs:
+                        r = cell.get((critic, path, k, c))
+                        if r is None:
+                            vals.append("-")
+                            continue
+                        text = (f"{_num(_f(r.get('decompose_mean_sec')))} / "
+                                f"{_pct(_f(r.get('llm_share')))} / "
+                                f"{_pct(_f(r.get('path_stability')))}")
+                        if r.get("cell_valid") == "False":
+                            text += " **invalid**"
+                        vals.append(text)
+                    out.append(f"| {path} | {k} | " + " | ".join(vals) + " |")
+            out.append("")
 
     report = results / "report"
     pictures = [(n, title) for n, title in RESOURCE_PICTURES if (report / n).exists()]
@@ -280,10 +322,11 @@ def build(results: Path) -> str:
         ]
     else:
         out += [
-            "Thời gian trung bình mỗi request cho từng bước (self time, giây). "
-            "\"other\" = tổng latency trừ thời gian CLI tự đo: khởi động process, đọc "
-            "config, tạo client. Các bước chạy song song (hai nhánh của fusion, VLM "
-            "verify từng hit) có thể cộng lại lớn hơn tổng latency (vạch đen).",
+            "Thời gian trung bình mỗi request cho từng bước (giây): decompose, "
+            "\"other\" (CLI overhead: khởi động process, đọc config, tạo client), "
+            "retrieval và critic verify theo wall clock. Vạch đen là e2e. Chi tiết "
+            "từng stage và RT-VLM (download/decode/inference mỗi clip) ở "
+            "`stage_summary.csv`.",
             "",
         ]
         out += [line for path in paths

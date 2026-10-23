@@ -41,21 +41,31 @@ The agent does not shell out to it either: they are separate surfaces onto the
 same `search_core` library. So three things the agent used to do internally now
 happen inside this script, and each changes what a number here means:
 
-- **Decomposition.** Each query is sent to the deployment's own LLM once,
-  before the sweep, using the prompt read out of the agent source at run time.
-  The resulting arguments are what the CLI is given. The LLM call is therefore
-  *not* in the measured latency; its cost is in `query_plans.json`.
+- **Decomposition, on every request.** Each measured request sends its query
+  to the deployment's own LLM (t0), routes the result and spawns the CLI with
+  it (t1), and stops when the CLI exits (t2), using the prompt read out of the
+  agent source at run time. Every request records `decompose_sec` (t1−t0),
+  `latency_sec` (the CLI, t2−t1) and `e2e_latency_sec` (t2−t0). The headline
+  latency is e2e; throughput is end-to-end queries/sec. A decomposition that
+  fails (error, timeout, not JSON) fails the request as `decompose_error`, and
+  no CLI runs.
   Reasoning is turned off for it, the way the agent turns it off: the chat
   template defaults `enable_thinking` to true, and a request that leaves it
   that way comes back as pure reasoning with `content: null`. Which models
   need which mechanism is decided by calling the agent's own
   `reasoning_utils.py`, loaded from source, rather than by a copy here that
   would fall behind the next model a profile ships.
-- **Path selection.** The script routes the decomposition to one of five
-  paths — `event`, `attribute`, `tag`, `fusion`, `object` — and the path is
-  fixed for the whole sweep. `event` is the CLI's `vss search embed`
-  subcommand; every file and column here calls it `event`. Nothing has to be scraped out of a log, and a
-  path is known per request at any concurrency.
+- **Path selection.** The script routes each request's decomposition to one
+  of five paths — `event`, `attribute`, `tag`, `fusion`, `object` — and
+  records it as `resolved_path`. `event` is the CLI's `vss search embed`
+  subcommand; every file and column here calls it `event`. A cell is still
+  one path: it cycles only the query targeting that path. A request that
+  routes elsewhere is **off target**: counted in throughput and in
+  `path_stability`, left out of the cell's latency. Below
+  `execution.min_path_stability` (0.95) the cell is `cell_valid=false` and
+  is left out of comparisons. Before the sweep a **route check** decomposes
+  each query `decomposition.route_check_calls` (10) times; one call off its
+  path stops the sweep with exit 5.
 - **A process per query.** Every measured request is a `vss search run`
   subprocess, so each latency includes a Python interpreter start. Measured at
   the start of every sweep and published as `cli_spawn_cost_sec`. At
@@ -213,15 +223,17 @@ A Kubernetes install puts the unified prefixes behind the profile's **HAProxy
 Ingress** at `global.externalHost`, and gives the LLM its own ClusterIP
 Service created by the NIM Operator and named after the deployed model. So
 neither endpoint is a port on the agent's Service, and the model-dependent
-name is not guessable from here. **Both must be configured, and the runner
-never infers either one** rather than hand the sweep an address nothing
-listens on and discover that only after ingest.
+name is not guessable from here. **Both must be configured.** The runner uses
+the configured Service name to refresh the LLM ClusterIP before the sweep,
+rather than hand it an address nothing listens on and discover that only
+after ingest.
 
 A second reason the shipped values are raw addresses: the benchmark runs on
 the cluster node, and the host's resolver is not CoreDNS, so
 `*.svc.cluster.local` does not resolve. ClusterIP addresses do work, because
-kube-proxy's rules apply to locally-originated traffic. Re-read them after
-anything recreates a Service — a stale one fails loudly at stage 1.
+kube-proxy's rules apply to locally-originated traffic. The runner refreshes
+the configured Service addresses with `kubectl` before stage 1, so a clean
+redeploy does not require manually copying new ClusterIPs.
 
 ```bash
 kubectl get svc -n vss-search
@@ -251,9 +263,11 @@ Two Kubernetes-specific traps this configuration already avoids:
   Worth doing: this benchmark looks for a saturation point, and a ceiling
   imposed by a shared proxy would read as a ceiling of the services — and
   from inside the cluster the ingress host hairpins out to the node and back.
-  **ClusterIPs change on every clean redeploy.** Stage 1 opens a TCP
-  connection to each one and exits 3 if any does not answer; refresh them
-  from `kubectl get svc -n vss-search`.
+  **ClusterIPs change on every clean redeploy.** The runner refreshes
+  Elasticsearch, RT-Embed and RT-CV from ready pod endpoints, and refreshes
+  the LLM, RT-VLM metrics and Prometheus URLs from their Services before
+  stage 1. Stage 1 still opens a TCP connection to each configured CLI URL
+  and exits 3 if one does not answer.
 - `services.prometheus_url` — optional. Leave it empty and the sweep still
   produces every latency and throughput number, and says in the log that it has
   nothing to explain them with.
@@ -353,7 +367,7 @@ Read the four things it prints:
 
 1. **The cell list.** `critic_all_topk_5_c5_event` is one run. Each lists the
    query it will cycle, chosen by `expected_path` (marked `(expected)`); the
-   real routing is checked after decomposition. The critic
+   route check confirms the real routing before measuring. The critic
    setting is the outermost loop on purpose — an abort then still leaves one
    complete critic setting rather than fragments of several.
 2. **The request budget per concurrency.** The per-query sample target grows
@@ -361,8 +375,8 @@ Read the four things it prints:
    spends too much of its window draining at falling concurrency.
 3. **The search interface.** Which CLI will be invoked and at which origin.
    A `--path` given here is checked against the config's `expected_path`,
-   which is a guess; it is re-checked against the resolved path after
-   decomposition, and a path nothing routes to fails then.
+   which is a guess; it is re-checked against the route check's result, and
+   a path nothing routes to fails then.
 4. **The guards.** Health gate, abort-on-empty, cooldown, single-run lock,
    corpus gate. Every one of them exists because its absence produced a
    plausible-looking wrong number at least once. Do not disable one to make a
@@ -379,8 +393,11 @@ tail -f "$(ls -td results/search_throughput_* | head -1)/benchmark.log"
 ```
 
 An interrupted sweep continues with `--resume <dir>`: finished runs are
-skipped, `query_plans.json` is reused (so every run keeps the same
-decomposition), and ingest is skipped unless `--ingest` is given.
+skipped, the route check runs again and refuses a query whose target path
+moved since `query_plans.json` was written, and ingest is skipped unless
+`--ingest` is given. A directory written before end-to-end measurement cannot
+be resumed: its CSV columns differ, and its finished runs measured the CLI
+alone.
 
 ## Step 4 — Read the results
 
@@ -388,23 +405,24 @@ Everything lands in `results/search_throughput_<timestamp>/`:
 
 | File | What it holds |
 |---|---|
-| `summary.csv` | One row per run: critic, path, throughput, p50/p95/p99, request counts, critic counts, health gate, cooldown, window cleanliness |
-| `per_query_summary.csv` | One row per (run, query): p50/p95/p99, mean, min, max, std |
+| `summary.csv` | One row per run: critic, path, end-to-end throughput, `e2e_*`, `decompose_*` and CLI p50/p95/p99, `llm_share`, `path_stability`, `off_target_count`, `decompose_error_count`, `cell_valid`, request counts, critic counts, health gate, cooldown, window cleanliness |
+| `per_query_summary.csv` | One row per (run, query): e2e p50/p95/p99/mean, decompose mean, CLI p50/p95/p99, mean, min, max, std |
 | `resources_summary.csv` | One row per (run, metric, pod/GPU) with its `service`: CPU, GPU, memory, avg and peak |
+| `stage_summary.csv` | One row per (run, stage): decompose, CLI overhead, encode, KNN, frame lookups, resolve clip URL, verify (wall and per clip), and RT-VLM's download / decode / inference per clip — see `references/reading-results.md` |
 | `plots/` | Written by `scripts/plot_results.py`, not by the sweep |
 | `vss_config/`, `vss_config_critic_off/` | The CLI config every request ran with |
 | `summary.jsonl` | The same runs as JSON, including the Prometheus summaries |
-| `query_plans.json` | Each query's decomposition, the path it resolved to, and what the LLM call cost |
+| `query_plans.json` | The route check: each query's target path, the path of every check call, the first decomposition, and the LLM it ran against |
 | `corpus_state.json` | What was ingested, what ES held at the gate and at the end |
 | `benchmark.log` | Everything the console said |
 | `<run_id>/request_records.jsonl` | Every request, warmup included |
-| `<run_id>/per_query_latency.csv` | Every measured latency, one row each |
+| `<run_id>/per_query_latency.csv` | Every measured request: `decompose_sec`, `latency_sec`, `e2e_latency_sec`, `resolved_path`, `on_target`, t0/t1/t2 |
 | `<run_id>/prometheus_metrics.json` | Raw and summarised resource series |
 | `<run_id>/pod_logs/` | Logs followed live during the run |
 
-Group by **`resolved_path`**, never by the config's `expected_path`. The config
-labels are expectations; decomposition decides, and the two disagree often
-enough that it matters.
+Group by the cell's **`path`** and quote only cells with `cell_valid=true`.
+The config's `expected_path` is an expectation the route check enforces;
+per request, `resolved_path` says what decomposition actually chose.
 
 See `references/reading-results.md` for what each number means and which ones
 are safe to quote.

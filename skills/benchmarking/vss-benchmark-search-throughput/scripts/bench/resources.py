@@ -25,8 +25,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import resource
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -668,3 +671,242 @@ def capture_wedge_state(
         json.dumps(result, indent=2) + "\n", encoding="utf-8"
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# RT-VLM's own histograms
+# ---------------------------------------------------------------------------
+#
+# The CLI sends the critic's clips as ``video_url``, so RT-VLM downloads and
+# decodes each clip itself, inside what the CLI can only time as
+# ``vlm: inference``. RT-VLM publishes the split on ``/v1/metrics``, which
+# Prometheus does not scrape in this profile, so it is read directly at the
+# edges of the measured window and differenced.
+
+#: Step name -> RT-VLM histogram. One observation per verified clip.
+RT_VLM_HISTOGRAMS = {
+    "download clip (RT-VLM)": "asset_download_duration_seconds",
+    "decode clip (RT-VLM)": "decode_latency_seconds",
+    "vlm inference (RT-VLM)": "vlm_latency_seconds",
+    "clip total (RT-VLM)": "chunk_latency_seconds",
+}
+
+_SAMPLE = re.compile(r'^([A-Za-z_:][\w:]*)(?:\{(.*)\})?\s+(\S+)')
+_LE = re.compile(r'le="([^"]+)"')
+
+
+def scrape_rt_vlm_histograms(url: str, timeout_sec: float = 3.0) -> dict[str, Any] | None:
+    """Cumulative ``sum``, ``count`` and ``buckets`` per histogram; None if unreadable.
+
+    Series that differ only in labels other than ``le`` are added together.
+    """
+    if not url:
+        return None
+    try:
+        resp = requests.get(url, timeout=timeout_sec)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning("RT-VLM metrics at %s unreadable: %s", url, e)
+        return None
+    wanted = set(RT_VLM_HISTOGRAMS.values())
+    out: dict[str, Any] = {
+        name: {"sum": 0.0, "count": 0.0, "buckets": {}} for name in wanted
+    }
+    out["asset_download_bytes_total"] = 0.0
+    for line in resp.text.splitlines():
+        match = _SAMPLE.match(line)
+        if match is None:
+            continue
+        name, labels, raw = match.groups()
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        if name == "asset_download_bytes_total":
+            out[name] += value
+            continue
+        for suffix in ("_sum", "_count", "_bucket"):
+            base = name[: -len(suffix)]
+            if name.endswith(suffix) and base in wanted:
+                if suffix == "_bucket":
+                    le = _LE.search(labels or "")
+                    if le:
+                        buckets = out[base]["buckets"]
+                        buckets[le.group(1)] = buckets.get(le.group(1), 0.0) + value
+                else:
+                    out[base][suffix[1:]] += value
+    return out
+
+
+def _bucket_quantile(buckets: list[tuple[float, float]], q: float) -> float | None:
+    """``histogram_quantile`` over cumulative ``(upper bound, count)`` pairs."""
+    if not buckets or buckets[-1][1] <= 0:
+        return None
+    rank = q * buckets[-1][1]
+    lower, below = 0.0, 0.0
+    for upper, cumulative in buckets:
+        if cumulative >= rank:
+            if upper == float("inf"):
+                return lower
+            inside = cumulative - below
+            return lower + (upper - lower) * ((rank - below) / inside if inside else 0.0)
+        lower, below = upper, cumulative
+    return lower
+
+
+def rt_vlm_window_stats(
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    """Per step: clips observed in the window, and seconds per clip.
+
+    Server-wide: it counts every client of RT-VLM in the window, which on a
+    dedicated deployment is this sweep alone.
+    """
+    if not before or not after:
+        return {}
+    stats: dict[str, dict[str, Any]] = {}
+    for step, name in RT_VLM_HISTOGRAMS.items():
+        b, a = before.get(name) or {}, after.get(name) or {}
+        count = a.get("count", 0.0) - b.get("count", 0.0)
+        if count <= 0:
+            continue
+        total = a.get("sum", 0.0) - b.get("sum", 0.0)
+        bounds = sorted(
+            (float(le), a["buckets"][le] - b.get("buckets", {}).get(le, 0.0))
+            for le in a.get("buckets", {})
+        )
+        stats[step] = {
+            "clips": count,
+            "sum": total,
+            "per_clip_mean": total / count,
+            "per_clip_p50": _bucket_quantile(bounds, 0.50),
+            "per_clip_p95": _bucket_quantile(bounds, 0.95),
+        }
+    download = stats.get("download clip (RT-VLM)")
+    if download:
+        moved = after.get("asset_download_bytes_total", 0.0) - before.get(
+            "asset_download_bytes_total", 0.0)
+        download["bytes_per_clip"] = moved / download["clips"]
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# The load generator itself
+# ---------------------------------------------------------------------------
+#
+# Every measured request is a CLI process on this host, outside any pod, so
+# cAdvisor never sees it. Two readings cover it: the CPU the CLI processes
+# actually used (getrusage over reaped children -- exact, and nothing else
+# this script spawns during the window), and the whole host's CPU and memory
+# from /proc, sampled across the window.
+
+#: Service name the load generator's rows carry in ``resources_summary.csv``.
+LOAD_GENERATOR = "load-generator (vss CLI)"
+HOST = "host (whole node)"
+
+
+def _proc_cpu() -> tuple[float, float] | None:
+    """(busy, total) jiffies since boot, from /proc/stat."""
+    try:
+        with open("/proc/stat", encoding="ascii") as f:
+            fields = [float(x) for x in f.readline().split()[1:]]
+    except (OSError, ValueError):
+        return None
+    idle = fields[3] + (fields[4] if len(fields) > 4 else 0.0)
+    return sum(fields) - idle, sum(fields)
+
+
+def _proc_mem_used() -> float | None:
+    """Bytes in use (MemTotal - MemAvailable), from /proc/meminfo."""
+    try:
+        with open("/proc/meminfo", encoding="ascii") as f:
+            info = {line.split(":")[0]: float(line.split()[1]) * 1024 for line in f}
+        return info["MemTotal"] - info["MemAvailable"]
+    except (OSError, ValueError, KeyError, IndexError):
+        return None
+
+
+class HostSampler:
+    """Samples this host between :meth:`start` and :meth:`stop`."""
+
+    def __init__(self, interval_sec: float = 2.0) -> None:
+        import threading
+
+        self._interval = interval_sec
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._cpu: list[float] = []
+        self._mem: list[float] = []
+        self._started = 0.0
+        self._children_cpu = 0.0
+        self._cores = float(os.cpu_count() or 1)
+
+    @staticmethod
+    def _children_cpu_sec() -> float:
+        usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+        return usage.ru_utime + usage.ru_stime
+
+    def _loop(self) -> None:
+        last = _proc_cpu()
+        while not self._stop.wait(self._interval):
+            now = _proc_cpu()
+            if last and now and now[1] > last[1]:
+                self._cpu.append((now[0] - last[0]) / (now[1] - last[1]))
+            last = now
+            mem = _proc_mem_used()
+            if mem is not None:
+                self._mem.append(mem)
+
+    def start(self) -> None:
+        self._started = time.perf_counter()
+        self._children_cpu = self._children_cpu_sec()
+        self._thread.start()
+
+    def stop(self) -> dict[str, Any]:
+        """Figures over the sampled window; {} if never started."""
+        if not self._started:
+            return {}
+        elapsed = time.perf_counter() - self._started
+        cli_cpu = self._children_cpu_sec() - self._children_cpu
+        self._stop.set()
+        self._thread.join(timeout=self._interval + 1)
+        out: dict[str, Any] = {
+            "window_sec": elapsed,
+            "cli_cpu_cores": cli_cpu / elapsed if elapsed > 0 else None,
+            # Largest single CLI process this script has ever reaped, not only
+            # this window's: getrusage keeps a high-water mark.
+            "cli_peak_rss_bytes": resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss * 1024,
+            "host_cores": self._cores,
+        }
+        if self._cpu:
+            out["host_cpu_cores_avg"] = sum(self._cpu) / len(self._cpu) * self._cores
+            out["host_cpu_cores_peak"] = max(self._cpu) * self._cores
+        if self._mem:
+            out["host_memory_used_avg"] = sum(self._mem) / len(self._mem)
+            out["host_memory_used_peak"] = max(self._mem)
+        return out
+
+
+def host_resource_rows(host: dict[str, Any]) -> list[dict[str, Any]]:
+    """``resources_summary.csv`` rows for the load generator and its host.
+
+    The CLI's CPU is filed under the same metric as the pods' window-mean CPU,
+    so the per-service CPU plot shows the load generator beside the services
+    it is loading.
+    """
+    if not host:
+        return []
+    rows = []
+    if host.get("cli_cpu_cores") is not None:
+        rows.append({"metric": "cpu_core_seconds_total:mean_rate", "service": LOAD_GENERATOR,
+                     "series": LOAD_GENERATOR, "avg": host["cli_cpu_cores"], "peak": ""})
+        rows.append({"metric": "cli_peak_rss_bytes", "service": LOAD_GENERATOR,
+                     "series": LOAD_GENERATOR, "avg": host["cli_peak_rss_bytes"], "peak": ""})
+    if "host_cpu_cores_avg" in host:
+        rows.append({"metric": "host_cpu_cores", "service": HOST, "series": HOST,
+                     "avg": host["host_cpu_cores_avg"], "peak": host["host_cpu_cores_peak"]})
+    if "host_memory_used_avg" in host:
+        rows.append({"metric": "host_memory_used_bytes", "service": HOST, "series": HOST,
+                     "avg": host["host_memory_used_avg"], "peak": host["host_memory_used_peak"]})
+    return rows

@@ -53,7 +53,9 @@ from bench.cli import (  # noqa: E402
     CliNotFoundError,
     prepare_sweep_config,
     build_argv,
+    clean_cli_stderr,
     is_environment_fault,
+    is_overload,
     parse_cli_output,
     require_origin,
 )
@@ -564,6 +566,31 @@ def test_a_failed_query_does_not_abort(code):
     assert not is_environment_fault(code)
 
 
+def test_unreachable_after_a_live_backend_is_overload():
+    """Fusion at top_k 20, c20: requests time out while the gate passed."""
+    assert is_overload({3}, backend_was_up=True)
+
+
+@pytest.mark.parametrize("codes,up", [
+    ({3}, False),        # nothing ever answered: the backend is down
+    ({2}, True),         # an unknown flag fails every cell the same way
+    ({3, 4}, True),      # a config fault mixed in still aborts
+    (set(), True),
+])
+def test_other_faults_still_abort_the_sweep(codes, up):
+    assert not is_overload(codes, backend_was_up=up)
+
+
+def test_uv_environment_warning_is_dropped_from_cli_errors():
+    stderr = (
+        "warning: `VIRTUAL_ENV=/tmp/env` does not match the project environment "
+        "path `/repo/libs/vss/.venv` and will be ignored; use `--active` to target "
+        "the active environment instead\n"
+        "Frame lookup failed for object=1506: Cannot send a request"
+    )
+    assert clean_cli_stderr(stderr) == "Frame lookup failed for object=1506: Cannot send a request"
+
+
 # --- deriving sibling endpoints -------------------------------------------
 #
 # Both ports below are host-level: 7777 is HAProxy on a node, 30081 is the
@@ -840,13 +867,30 @@ def test_percentile_of_nothing_is_an_error_not_a_zero():
 
 
 def _record(qid: str, latency: float, warmup=False, exit_code=0, error="",
-            hits=1):
+            hits=1, resolved="event", decompose=0.0):
     return RequestRecord(
         run_id="r", query_id=qid, query_text="", worker_id=1, iteration=0,
         is_warmup=warmup, critic_eval_count=None, top_k=5, concurrency=1,
-        path="event", latency_sec=latency, exit_code=exit_code, error=error,
-        result_count=hits,
+        path="event", resolved_path=resolved, latency_sec=latency,
+        decompose_sec=decompose, e2e_latency_sec=decompose + latency,
+        exit_code=exit_code, error=error, result_count=hits,
     )
+
+
+def test_an_off_target_request_counts_as_a_success_but_not_as_latency():
+    records = [_record("q1", 1.0), _record("q1", 50.0, resolved="fusion")]
+    assert all(r.succeeded for r in records)
+    assert not records[1].on_target
+    assert compute_per_query_stats(records)["q1"]["count"] == 1
+
+
+def test_e2e_stats_add_the_decomposition_to_the_cli():
+    from bench.stats import compute_run_stats
+
+    records = [_record("q1", 2.0, decompose=0.5), _record("q1", 4.0, decompose=1.5)]
+    assert compute_run_stats(records, "e2e_latency_sec")["mean"] == pytest.approx(4.0)
+    assert compute_run_stats(records, "decompose_sec")["mean"] == pytest.approx(1.0)
+    assert compute_run_stats(records)["mean"] == pytest.approx(3.0)
 
 
 def test_stats_exclude_warmup_and_failures():
@@ -1228,26 +1272,132 @@ def test_pod_log_scan_reads_the_written_files(tmp_path):
     assert scan_pod_log_errors(tmp_path / "none", ["ERROR"])["scan_status"] == "no_logs"
 
 
-def _send(monkeypatch, run_config, cli_options):
+class _FakeDecomposer:
+    """Answers ``decompose`` from a list, one decomposition (or error) per call."""
+
+    def __init__(self, answers, delay=0.0):
+        self.answers = list(answers)
+        self.delay = delay
+        self.calls = 0
+        self.model = "fake"
+
+    def decompose(self, query, video_sources=None):
+        self.calls += 1
+        time.sleep(self.delay)
+        answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer, self.delay
+
+    def describe(self):
+        return {"model": self.model}
+
+
+#: A decomposition ``route()`` sends to event, and one it sends to fusion.
+EVENT_DEC = {"query": "x"}
+FUSION_DEC = {"query": "x", "attributes": ["red"], "has_action": True}
+
+
+def _send(monkeypatch, run_config, cli_options, decomposer=None, e2e_timeout_sec=None):
     import subprocess as sp
 
     from bench import worker
+    from bench.decompose import QueryRouter
     from bench.models import QueryPlan
 
-    seen = {}
+    seen = {"calls": 0}
 
     def fake_run(argv, **kwargs):
+        seen["calls"] += 1
         seen["argv"], seen["env"] = argv, kwargs.get("env")
-        return sp.CompletedProcess(argv, 0, stdout="[]", stderr="")
+        seen["timeout"] = kwargs.get("timeout")
+        return sp.CompletedProcess(argv, 0, stdout='{"data": []}', stderr="")
 
     monkeypatch.setattr(worker.subprocess, "run", fake_run)
     plan = QueryPlan("q2", "x", path="event", plan={"path": "event", "query": "x"})
+    router = QueryRouter(decomposer=decomposer or _FakeDecomposer([EVENT_DEC]))
     record = worker.send_search_request(
         vss_cmd=["vss"], query_item=QueryItem(id="q2", query="x"), query_plan=plan,
         run_config=run_config, worker_id=0, iteration=0, is_warmup=False,
-        cli_options=cli_options,
+        cli_options=cli_options, router=router, e2e_timeout_sec=e2e_timeout_sec,
     )
     return seen, record
+
+
+def test_every_request_decomposes_then_runs_the_routed_path(monkeypatch):
+    run = RunConfig(critic_eval_count=1, top_k=5, concurrency=1)
+    decomposer = _FakeDecomposer([FUSION_DEC], delay=0.02)
+    seen, record = _send(monkeypatch, run, {}, decomposer)
+    assert decomposer.calls == 1
+    assert "fusion" in seen["argv"]
+    assert record.resolved_path == "fusion" and not record.on_target
+    assert record.succeeded
+    assert record.decompose_sec >= 0.02
+    assert record.e2e_latency_sec == pytest.approx(
+        record.decompose_sec + record.latency_sec, abs=1e-3)
+    assert record.started_at <= record.cli_started_at <= record.completed_at
+
+
+def test_a_failed_decomposition_fails_the_request_without_running_the_cli(monkeypatch):
+    from bench.decompose import DecompositionError
+    from bench.worker import DECOMPOSE_ERROR_EXIT
+
+    run = RunConfig(critic_eval_count=1, top_k=5, concurrency=1)
+    seen, record = _send(monkeypatch, run, {},
+                         _FakeDecomposer([DecompositionError("was not JSON")]))
+    assert seen["calls"] == 0
+    assert record.exit_code == DECOMPOSE_ERROR_EXIT
+    assert record.error.startswith("decompose_error")
+    assert not record.succeeded and not record.resolved_path
+
+
+def test_the_cli_gets_what_the_e2e_timeout_leaves(monkeypatch):
+    run = RunConfig(critic_eval_count=1, top_k=5, concurrency=1)
+    seen, _ = _send(monkeypatch, run, {}, _FakeDecomposer([EVENT_DEC], delay=0.05),
+                    e2e_timeout_sec=100)
+    assert seen["timeout"] < 100
+    seen, _ = _send(monkeypatch, run, {}, e2e_timeout_sec=1000)
+    assert seen["timeout"] == 300
+
+
+def _route_check(tmp_path, answers, expected="event", calls=3, reuse=False):
+    from bench.decompose import QueryRouter
+    from bench.run import route_check
+
+    decomposer = _FakeDecomposer(answers)
+    config = {"decomposition": {"route_check_calls": calls}}
+    plans = route_check(
+        config, [QueryItem(id="q2", query="x", expected_path=expected)], tmp_path,
+        QueryRouter(decomposer=decomposer), reuse=reuse,
+    )
+    return plans, decomposer
+
+
+def test_route_check_passes_a_query_that_routes_the_same_on_every_call(tmp_path):
+    plans, decomposer = _route_check(tmp_path, [EVENT_DEC])
+    assert decomposer.calls == 3
+    assert plans["q2"].path == "event"
+    assert plans["q2"].route_check_paths == ["event"] * 3
+    saved = json.loads((tmp_path / "query_plans.json").read_text())
+    assert saved["decomposer"] == {"model": "fake"}
+    assert saved["route_check_calls"] == 3
+
+
+def test_route_check_stops_on_a_single_miss(tmp_path):
+    from bench.decompose import DecompositionError
+
+    with pytest.raises(DecompositionError, match="1/3 call"):
+        _route_check(tmp_path, [EVENT_DEC, FUSION_DEC, EVENT_DEC])
+    saved = json.loads((tmp_path / "query_plans.json").read_text())
+    assert saved["plans"][0]["status"] == "failed"
+
+
+def test_route_check_refuses_a_resume_whose_target_path_moved(tmp_path):
+    from bench.decompose import DecompositionError
+
+    _route_check(tmp_path, [EVENT_DEC], expected="")
+    with pytest.raises(DecompositionError, match="targeted event"):
+        _route_check(tmp_path, [FUSION_DEC], expected="", reuse=True)
 
 
 def test_a_critic_off_request_runs_against_the_critic_off_config(monkeypatch):
@@ -1268,3 +1418,123 @@ def test_a_critic_off_request_without_a_prepared_config_is_refused(monkeypatch):
     run = RunConfig(critic_eval_count=None, top_k=5, concurrency=1, critic=False)
     with pytest.raises(ValueError, match="critic-off config"):
         _send(monkeypatch, run, {})
+
+
+# --- per-stage latency ------------------------------------------------------
+
+def _staged(latency, total, timings, decompose=0.5):
+    r = _record("q1", latency, decompose=decompose)
+    r.search_total_sec = total
+    r.stage_timings = timings
+    return r
+
+
+def test_stage_stats_cover_the_derived_steps_and_every_cli_stage():
+    from bench.stats import compute_stage_stats
+
+    vlm = {"total_s": 12.0, "self_s": 12.0, "calls": 4}
+    records = [
+        _staged(10.0, 9.0, {"critic: verify": {"total_s": 8.0, "self_s": 0.0, "calls": 1,
+                                               "concurrent_children": 1.0},
+                            "vlm: inference": vlm}),
+        _staged(6.0, 5.0, {"vlm: inference": {"total_s": 4.0, "self_s": 4.0, "calls": 4}}),
+    ]
+    stats = compute_stage_stats(records)
+    assert stats["cli overhead"]["mean"] == pytest.approx(1.0)
+    assert stats["decompose"]["step"] == "decompose"
+    inference = stats["vlm: inference"]
+    assert inference["step"] == "verify clip (VLM)"
+    assert inference["calls_per_request"] == 4
+    assert inference["per_call_mean"] == pytest.approx(2.0)
+    assert stats["critic: verify"]["concurrent"] is True
+    assert stats["critic: verify"]["count"] == 1
+
+
+def test_breakdown_bars_use_wall_clock_phases_when_present():
+    pytest.importorskip("matplotlib")
+    from plot_results import RETRIEVAL_WALL, VERIFY_WALL, _stage_bars
+
+    sequential = _stage_bars({
+        "search: retrieval": {"total_s": 1.0, "self_s": 0.1, "calls": 1},
+        "embed_search: ES search execution": {"total_s": 0.9, "self_s": 0.9, "calls": 1},
+        "critic: verify": {"total_s": 5.0, "self_s": 0.0, "calls": 1},
+        "vlm: inference": {"total_s": 20.0, "self_s": 20.0, "calls": 10},
+    })
+    assert sequential == pytest.approx({"embed_search: ES search execution": 0.9,
+                                        "search: retrieval": 0.1, VERIFY_WALL: 5.0})
+    concurrent = _stage_bars({
+        "search: retrieval": {"total_s": 3.0, "self_s": 0.0, "calls": 1,
+                              "concurrent_children": 1.0},
+        "attribute_search: frame lookups": {"total_s": 50.0, "self_s": 50.0, "calls": 10},
+    })
+    assert concurrent == {RETRIEVAL_WALL: 3.0}
+
+
+RT_VLM_TEXT = """# HELP x
+asset_download_duration_seconds_bucket{source="http",status="success",le="0.5"} %(d05)s
+asset_download_duration_seconds_bucket{source="http",status="success",le="1.0"} %(d1)s
+asset_download_duration_seconds_bucket{source="http",status="success",le="+Inf"} %(d1)s
+asset_download_duration_seconds_sum{source="http",status="success"} %(dsum)s
+asset_download_duration_seconds_count{source="http",status="success"} %(d1)s
+asset_download_bytes_total{source="http",status="success"} %(bytes)s
+decode_latency_seconds_sum{otel_scope_name="rtvi-vlm"} %(dsum)s
+decode_latency_seconds_count{otel_scope_name="rtvi-vlm"} %(d1)s
+"""
+
+
+def _scrape(monkeypatch, **values):
+    from bench import resources
+
+    class _Resp:
+        text = RT_VLM_TEXT % values
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(resources.requests, "get", lambda url, timeout: _Resp())
+    return resources.scrape_rt_vlm_histograms("http://vlm/v1/metrics")
+
+
+def test_rt_vlm_window_stats_difference_the_counters(monkeypatch):
+    from bench.resources import rt_vlm_window_stats
+
+    before = _scrape(monkeypatch, d05=10, d1=10, dsum=2.0, bytes=1000)
+    after = _scrape(monkeypatch, d05=13, d1=14, dsum=4.0, bytes=5000)
+    stats = rt_vlm_window_stats(before, after)
+    download = stats["download clip (RT-VLM)"]
+    assert download["clips"] == 4
+    assert download["per_clip_mean"] == pytest.approx(0.5)
+    assert download["bytes_per_clip"] == pytest.approx(1000)
+    assert download["per_clip_p50"] == pytest.approx(0.5 * 2 / 3)
+    assert stats["decode clip (RT-VLM)"]["clips"] == 4
+
+
+def test_rt_vlm_window_stats_need_both_readings():
+    from bench.resources import rt_vlm_window_stats
+
+    assert rt_vlm_window_stats(None, {"x": 1}) == {}
+
+
+def test_host_sampler_reports_the_cli_processes_it_reaped():
+    import subprocess as sp
+
+    from bench.resources import LOAD_GENERATOR, HostSampler, host_resource_rows
+
+    sampler = HostSampler(interval_sec=0.05)
+    sampler.start()
+    sp.run([sys.executable, "-c", "sum(range(3_000_000))"], check=True)
+    time.sleep(0.15)
+    host = sampler.stop()
+    assert host["cli_cpu_cores"] > 0
+    assert host["host_cpu_cores_avg"] >= 0
+    rows = host_resource_rows(host)
+    cpu = next(r for r in rows if r["service"] == LOAD_GENERATOR
+               and r["metric"] == "cpu_core_seconds_total:mean_rate")
+    assert cpu["avg"] == host["cli_cpu_cores"]
+
+
+def test_a_sampler_that_never_started_reports_nothing():
+    from bench.resources import HostSampler, host_resource_rows
+
+    assert HostSampler().stop() == {}
+    assert host_resource_rows({}) == []

@@ -19,16 +19,18 @@ The agent decomposes every query before retrieving. This benchmark drives the
 CLI, which takes the decomposed arguments directly, so the decomposition has to
 happen here instead.
 
-Done **once per query, before the measured window**, not once per request.
-That is a deliberate trade and it cuts both ways:
+Done **on every measured request**, because that is what a user of the product
+pays for: the agent decomposes each question before it retrieves. A worker
+calls :meth:`QueryRouter.plan` and then spawns the CLI, and the run reports the
+LLM's share (``decompose_sec``), the CLI's (``latency_sec``) and the sum
+(``e2e_latency_sec``) side by side.
 
-* It leaves the LLM call out of the measured latency, so what the sweep reports
-  is retrieval, not retrieval plus a chat completion. Decomposition cost is
-  recorded separately in ``query_plans.json``.
-* It makes the path stable. The LLM is called at ``temperature=0`` but is not
-  guaranteed deterministic, and a query that routes to ``fusion`` on one
-  request and ``attribute`` on the next would put two different pipelines in
-  one latency distribution with nothing in the output saying so.
+The LLM runs at ``temperature=0`` but is not guaranteed deterministic, so a
+request can route to a path other than its query's. Such a request is kept --
+it is part of what the product does -- and counted in throughput and path
+stability, but not in its cell's per-path latency. The route check before the
+sweep (:func:`bench.run.route_check`) refuses a query that is not stable to
+begin with.
 
 The prompt is read out of the product source at run time rather than copied
 here. A vendored copy drifts silently, and then the benchmark measures routing
@@ -42,9 +44,12 @@ import json
 import re
 import time
 from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any
 
 import requests
+
+from .routing import pinned_plan, plan_for
 
 #: Where the agent's decomposition contract lives, relative to the repo root.
 PROMPT_SOURCE = "services/agent/packages/vss_agents/src/vss_agents/tools/search.py"
@@ -242,6 +247,23 @@ class LiveDecomposer:
             )
         return str(first["id"])
 
+    def probe(self) -> None:
+        """Check the endpoint answers and serves this model, before any ingest."""
+        try:
+            resp = requests.get(f"{self._url}/v1/models", timeout=min(self._timeout, 15))
+            resp.raise_for_status()
+            served = {str(m.get("id")) for m in resp.json()["data"] if isinstance(m, dict)}
+        except (requests.RequestException, KeyError, TypeError, ValueError) as e:
+            raise DecompositionError(
+                f"the LLM at {self._url} did not answer /v1/models: {e}"
+            ) from e
+        if self._model not in served:
+            raise DecompositionError(
+                f"{self._url} does not serve {self._model!r} "
+                f"(serves: {', '.join(sorted(served)) or 'nothing'}); "
+                "check decomposition.model"
+            )
+
     def describe(self) -> dict[str, Any]:
         return {
             "llm_url": self._url,
@@ -328,3 +350,31 @@ class LiveDecomposer:
                 f"{type(decomposition).__name__}, expected an object"
             )
         return decomposition, elapsed
+
+
+@dataclass
+class QueryRouter:
+    """What a worker needs to turn a query into a plan, once per request.
+
+    ``decomposer`` is shared across worker threads: each call is one
+    independent ``requests.post`` and holds no state between calls.
+    """
+
+    decomposer: Any = None
+    video_sources: list[str] | None = None
+    source_type: str = "video_file"
+    #: Query id -> path for queries pinned by ``decomposition.pin_paths``. A
+    #: pinned query never calls the LLM.
+    pinned: dict[str, str] = field(default_factory=dict)
+
+    def plan(self, query_id: str, query: str) -> dict[str, Any]:
+        """The plan for one request. Raises :class:`DecompositionError`."""
+        if query_id in self.pinned:
+            return pinned_plan(query, self.pinned[query_id], self.source_type)
+        if self.decomposer is None:
+            raise DecompositionError(f"{query_id} is not pinned and no LLM is configured")
+        decomposition, _ = self.decomposer.decompose(query, self.video_sources)
+        try:
+            return plan_for(query, decomposition, self.source_type)
+        except ValueError as e:
+            raise DecompositionError(str(e)) from e

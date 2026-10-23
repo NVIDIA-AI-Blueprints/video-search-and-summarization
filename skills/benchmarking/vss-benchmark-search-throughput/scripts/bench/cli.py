@@ -87,6 +87,30 @@ def is_environment_fault(code: int) -> bool:
     return code in {2, 3, 4, 5}
 
 
+#: Exit codes a cell can also produce by overloading a healthy backend: the CLI
+#: reports a client timeout under load as "backend unreachable".
+OVERLOAD_EXIT_CODES = frozenset({3})
+
+
+def is_overload(codes: set[int], backend_was_up: bool) -> bool:
+    """Whether a cell's faults read as overload rather than a dead backend.
+
+    Only when every fault is a backend-unreachable exit and something showed
+    the backend answering this cell -- a passed health gate or a request that
+    succeeded. A backend that really died is then caught by the next cell's
+    health gate, which aborts the sweep.
+    """
+    return bool(codes) and codes <= OVERLOAD_EXIT_CODES and backend_was_up
+
+
+def clean_cli_stderr(text: str) -> str:
+    """Drop ``uv`` environment warnings that precede the CLI's own message."""
+    return "\n".join(
+        line for line in text.splitlines()
+        if not (line.startswith("warning: `VIRTUAL_ENV=") or "use `--active`" in line)
+    ).strip()
+
+
 # ---------------------------------------------------------------------------
 # Finding and checking the CLI
 # ---------------------------------------------------------------------------

@@ -30,7 +30,7 @@ Writes PNGs into ``<dir>/plots/`` (or ``--out``):
     throughput.png   queries/sec vs concurrency; one row per path, one
                      column per critic setting, one colour per top_k
     latency.png      p50 (solid) and p95 (dashed), same grid
-    resources_{cpu,memory,gpu,gpu_memory}.png
+    resources_{cpu,memory,gpu,gpu_memory,gpu_power,network_rx,network_tx,disk_read,disk_write,host_cpu}.png
                      per-service load vs concurrency; one row per path, one
                      column per critic setting, one line style per top_k
     resources_timeline.png
@@ -62,12 +62,23 @@ from matplotlib.patches import Patch  # noqa: E402
 
 CPU_METRICS = ("cpu_core_seconds_total:mean_rate", "cpu_cores")
 GIB = 1 / 2**30
+MIB = 1 / 2**20
 #: (file key, metrics in preference order, title, unit, scale to unit)
 RESOURCE_PLOTS = (
     ("cpu", CPU_METRICS, "CPU cores per service", "cores", 1.0),
     ("memory", ("memory_working_set_bytes",), "Memory (working set) per service", "GiB", GIB),
     ("gpu", ("gpu_utilization",), "GPU utilisation per service, summed over GPUs", "%", 1.0),
     ("gpu_memory", ("gpu_memory_used",), "GPU memory used per service", "GiB", 1 / 1024),
+    ("gpu_power", ("gpu_power_watts",), "GPU power per service", "W", 1.0),
+    ("network_rx", ("network_receive_bytes_total:mean_rate", "network_receive_bytes_per_sec"),
+     "Network received per service", "MiB/s", MIB),
+    ("network_tx", ("network_transmit_bytes_total:mean_rate", "network_transmit_bytes_per_sec"),
+     "Network sent per service", "MiB/s", MIB),
+    ("disk_read", ("fs_read_bytes_total:mean_rate", "fs_read_bytes_per_sec"),
+     "Disk read per service", "MiB/s", MIB),
+    ("disk_write", ("fs_write_bytes_total:mean_rate", "fs_write_bytes_per_sec"),
+     "Disk write per service", "MiB/s", MIB),
+    ("host_cpu", ("host_cpu_cores",), "Whole host CPU (load generator's node)", "cores", 1.0),
 )
 #: (file key, raw Prometheus metric, title, unit, scale to unit)
 TIMELINE_PLOTS = (
@@ -75,6 +86,7 @@ TIMELINE_PLOTS = (
     ("memory", "memory_working_set_bytes", "Memory (working set)", "GiB", GIB),
     ("gpu", "gpu_utilization", "GPU utilisation", "%", 1.0),
     ("gpu_memory", "gpu_memory_used", "GPU memory used", "GiB", 1 / 1024),
+    ("network_rx", "network_receive_bytes_per_sec", "Network received", "MiB/s", MIB),
 )
 TOP_SERVICES = 6
 CELL_SERVICES = 3
@@ -158,11 +170,22 @@ def plot_summary(summary: list[dict[str, str]], out: Path) -> None:
     for r in summary:
         cells[(r["path"] or "mix", _critic(r), int(r["top_k"]))].append(r)
 
+    # Sweeps from before end-to-end measurement have only the CLI's latency.
+    e2e = "e2e_p50_sec" in summary[0]
+    latency_series = (
+        (("e2e_p50_sec", "-", "p50"), ("e2e_p95_sec", "--", "p95"),
+         ("p50_sec", ":", "CLI p50"))
+        if e2e else (("p50_sec", "-", "p50"), ("p95_sec", "--", "p95"))
+    )
+    latency_title = (
+        "E2E latency: p50 solid, p95 dashed, CLI p50 dotted"
+        if e2e else "Latency per path: p50 (solid), p95 (dashed)"
+    )
     for name, title, series, unit in (
-        ("throughput.png", "Throughput per path (queries/sec)",
+        ("throughput.png", "End-to-end throughput per path (queries/sec)"
+         if e2e else "Throughput per path (queries/sec)",
          (("queries_per_sec", "-", ""),), "queries/sec"),
-        ("latency.png", "Latency per path: p50 (solid), p95 (dashed)",
-         (("p50_sec", "-", "p50"), ("p95_sec", "--", "p95")), "seconds"),
+        ("latency.png", latency_title, latency_series, "seconds"),
     ):
         fig, axes = _grid(paths, critics, title, concurrencies)
         for (path, critic, top_k), rows in cells.items():
@@ -175,7 +198,12 @@ def plot_summary(summary: list[dict[str, str]], out: Path) -> None:
                 ax.plot(xs, ys, style, color=colours[top_k], label=label,
                         alpha=1.0 if style == "-" else 0.6)
                 for x, y, r in zip(xs, ys, rows):
-                    clean = r.get("measurement_window_clean", "True") == "True"
+                    if y is None:
+                        continue
+                    # Hollow: not comparable -- a broken window, or a cell
+                    # whose path stability fell below the threshold.
+                    clean = (r.get("measurement_window_clean", "True") == "True"
+                             and r.get("cell_valid", "True") != "False")
                     ax.plot(x, y, "o", color=colours[top_k],
                             fillstyle="full" if clean else "none")
         for ax in axes.flat:
@@ -413,11 +441,45 @@ def plot_timeline(results_dir: Path, summary: list[dict[str, str]], out: Path) -
     print(f"  wrote {target}")
 
 
+DECOMPOSE_STAGE = "decompose (LLM)"
+RETRIEVAL_WALL = "retrieval (wall; legs ran concurrently)"
+VERIFY_WALL = "critic: verify (wall)"
+
+
+def _stage_bars(timings: dict[str, dict]) -> dict[str, float]:
+    """Seconds per bar segment for one request, summing to its elapsed time.
+
+    With the ``search: retrieval`` / ``critic: verify`` phases (CLIs that have
+    them), verification is one wall-clock segment -- its per-hit VLM calls
+    overlap -- and retrieval is split into its stages only when none of them
+    overlapped. Older records fall back to every stage's self time.
+    """
+    retrieval = timings.get("search: retrieval")
+    if retrieval is None:
+        return {label: e.get("self_s") or 0.0 for label, e in timings.items()}
+    bars: dict[str, float] = {}
+    inner = {label: e for label, e in timings.items()
+             if label not in ("search: retrieval", "critic: verify")
+             and not label.startswith(("vlm:", "critic:"))}
+    if retrieval.get("concurrent_children") or any(
+            e.get("concurrent_children") or (e.get("calls") or 0) > 1 for e in inner.values()):
+        bars[RETRIEVAL_WALL] = retrieval.get("total_s") or 0.0
+    else:
+        bars.update({label: e.get("self_s") or 0.0 for label, e in inner.items()})
+        bars["search: retrieval"] = retrieval.get("self_s") or 0.0
+    verify = timings.get("critic: verify")
+    if verify is not None:
+        bars[VERIFY_WALL] = verify.get("total_s") or 0.0
+    return bars
+
+
 def latency_breakdown(results_dir: Path, summary: list[dict[str, str]]) -> list[dict]:
     """Mean seconds per stage for each run, from ``request_records.jsonl``.
 
-    ``other`` is wall clock minus the CLI's own ``total_s``: process startup,
-    config load and client setup. Only measured, successful requests count.
+    ``other`` is the CLI's wall clock minus its own ``total_s``: process
+    startup, config load and client setup. ``decompose`` is the LLM call before
+    the CLI, and the wall clock is end to end when the records carry it. Only
+    measured, successful, on-target requests count.
     """
     rows: list[dict] = []
     for run, run_dir in _run_dirs(results_dir, summary):
@@ -434,11 +496,14 @@ def latency_breakdown(results_dir: Path, summary: list[dict[str, str]]) -> list[
                     continue
                 if rec.get("search_total_sec") is None:
                     continue
+                if rec.get("resolved_path") and rec["resolved_path"] != rec.get("path"):
+                    continue
                 count += 1
-                wall += rec["latency_sec"]
+                wall += rec.get("e2e_latency_sec") or rec["latency_sec"]
                 other += max(0.0, rec["latency_sec"] - rec["search_total_sec"])
-                for label, entry in (rec.get("stage_timings") or {}).items():
-                    stages[label] += entry.get("self_s") or 0.0
+                stages[DECOMPOSE_STAGE] += rec.get("decompose_sec") or 0.0
+                for label, value in _stage_bars(rec.get("stage_timings") or {}).items():
+                    stages[label] += value
         if not count:
             continue
         rows.append({
@@ -469,7 +534,10 @@ def plot_latency_breakdown(results_dir: Path, summary: list[dict[str, str]],
     for r in rows:
         for label, value in r["stages"].items():
             totals[label] += value
-    labels = [lbl for lbl, v in sorted(totals.items(), key=lambda kv: -kv[1]) if v > 0]
+    labels = [lbl for lbl, v in sorted(totals.items(), key=lambda kv: -kv[1])
+              if v > 0 and lbl != DECOMPOSE_STAGE]
+    if totals.get(DECOMPOSE_STAGE):
+        labels.insert(0, DECOMPOSE_STAGE)
     labels.append("other (CLI startup, config, clients)")
     colours = {lbl: plt.get_cmap("tab20")(i % 20) for i, lbl in enumerate(labels)}
     critics = _ordered(r["critic"] for r in rows)
@@ -482,7 +550,7 @@ def plot_latency_breakdown(results_dir: Path, summary: list[dict[str, str]],
         fig, axes = plt.subplots(1, len(top_ks), figsize=(4.5 * len(top_ks) + 5, 4.8),
                                  squeeze=False, sharey=True)
         fig.suptitle(f"Latency per stage — path {path}\nmean seconds per request; "
-                     "black tick = wall clock; hatched = critic on")
+                     "black tick = end-to-end wall clock; hatched = critic on")
         for ax, k in zip(axes[0], top_ks):
             ax.set_title(f"top_k {k}")
             ax.set_xlabel("concurrency\n(bars left to right: " + " | ".join(critics) + ")")

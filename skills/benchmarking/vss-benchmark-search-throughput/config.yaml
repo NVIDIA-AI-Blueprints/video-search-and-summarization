@@ -13,8 +13,7 @@
 # NOT resolve here. ClusterIP addresses do work, because kube-proxy's rules
 # apply to locally-originated traffic. Hence raw addresses where the CLI and
 # this script connect directly, and the ingress host where a name is needed.
-# Re-read them after anything recreates a Service:
-#   kubectl get svc -n vss-search
+# The runner refreshes them with kubectl before the CLI preflight.
 services:
   # The agent's own origin, used only for ingest (POST /api/v1/videos). NOT
   # for search: POST /api/v1/search no longer exists in services/agent, so
@@ -27,8 +26,8 @@ services:
   # outside the measured window, so the hop costs nothing that is reported.
   vss_agent_url: "http://vss-search.10.86.7.90.nip.io"
 
-  # OpenAI-compatible endpoint used to decompose each query once before the
-  # sweep.
+  # OpenAI-compatible endpoint every measured request decomposes against, and
+  # the route check uses.
   #
   # REQUIRED, and never inferred. A sibling skill derives this as port 30081
   # on the agent's host, the NIM's NodePort under Docker Compose. Here the NIM
@@ -38,7 +37,28 @@ services:
   # nemotron-3.5-..., which is how the model is written everywhere else.
   #
   #   kubectl get svc -n vss-search | grep -iE 'nemotron|nim|llm'
-  llm_url: "http://10.105.154.19:8000"
+  llm_url: "http://10.96.219.133:8000"
+  # ClusterIPs are allocated again after a clean redeploy. Refresh these
+  # service-backed URLs before the CLI preflight, otherwise route check fails
+  # on a stale LLM address before any benchmark request runs.
+  cluster_ip_discovery:
+    enabled: true
+    endpoints:
+      llm:
+        service: "nemotron-35-lightning-30b-a3b"
+        namespace: "vss-search"
+        port: 8000
+        config_key: "llm_url"
+      rt_vlm_metrics:
+        service: "vss-rtvi-vlm"
+        namespace: "vss-search"
+        port: 8000
+        config_key: "rt_vlm_metrics_url"
+      prometheus:
+        service: "kube-prometheus-stack-prometheus"
+        namespace: "monitoring"
+        port: 9090
+        config_key: "prometheus_url"
 
   # Read outside the measured window.
   #
@@ -46,11 +66,32 @@ services:
   # guarded against PUT and DELETE, and purge_before_ingest deletes indices.
   # Through the ingress the purge fails and the sweep then measures the
   # previous corpus alongside the new one, which no later count can separate.
-  elasticsearch_url: "http://10.108.105.199:9200"
+  elasticsearch_url: "http://10.108.189.216:9200"
+  # Pod IPs change after an Elasticsearch redeploy. Refresh both the lock/count
+  # endpoint and the direct bypass endpoint from this StatefulSet before a run.
+  elasticsearch_discovery:
+    enabled: true
+    endpoints:
+      elasticsearch:
+        service: "elasticsearch"
+        port: 9200
+      rt_embed:
+        service: "vss-rtvi-embed"
+        port: 8000
+      rtvi_cv:
+        service: "vss-rtvi-cv"
+        port: 9000
   # Blank disables resource collection; the run still produces latency numbers
   # and says in the log that it has nothing to explain them with -- which is
   # half of what this skill exists to report, so fill it in.
   prometheus_url: "http://10.107.183.71:9090"
+  # RT-VLM's own metrics, read at the edges of each critic-on run's measured
+  # window. The CLI sends clips as video_url, so RT-VLM downloads and decodes
+  # each clip itself, inside what the CLI can only time as `vlm: inference`;
+  # this is the only place that split exists (Prometheus does not scrape it).
+  # Server-wide: keep other RT-VLM clients off during a sweep. Blank disables.
+  #   kubectl get svc -n vss-search vss-rtvi-vlm
+  rt_vlm_metrics_url: "http://10.105.169.162:8000/v1/metrics"
 
 # ---------------------------------------------------------------------------
 # The search interface under test
@@ -118,9 +159,9 @@ cli:
   # the k8s ones: agent, vst, video_analytics, elasticsearch, rt_embed,
   # rtvi_cv, rt_vlm, lvs.
   service_urls:
-    elasticsearch: "http://10.108.105.199:9200"
-    rt_embed: "http://10.106.86.166:8000"
-    rtvi_cv: "http://10.109.99.42:9000"
+    elasticsearch: "http://10.108.189.216:9200"
+    rt_embed: "http://10.100.220.181:8000"
+    rtvi_cv: "http://10.108.90.163:9000"
 
   # Off matches what the agent's search returned, and keeps the hit count
   # comparable with the top_k that was asked for. On, the CLI collapses
@@ -139,13 +180,18 @@ cli:
 # Query decomposition
 # ---------------------------------------------------------------------------
 # The agent decomposes a query before retrieving; the CLI takes the decomposed
-# arguments directly, so this script has to do it. Run once per query before
-# the measured window -- not per request -- which keeps the LLM call out of the
-# reported latency and keeps each query on one path for the whole sweep.
+# arguments directly, so this script has to do it. Done on every measured
+# request (decompose -> route -> CLI), so the reported e2e latency is what a
+# user of the product waits for; decompose_sec and the CLI's latency_sec are
+# reported beside it.
 decomposition:
   # Blank discovers the first model the endpoint serves.
   model: ""
-  timeout_sec: 120
+  # One LLM call. The CLI has its own, execution.request_timeout_sec.
+  request_timeout_sec: 60
+  # Before the sweep, each query is decomposed this many times; one call that
+  # routes away from the query's path stops the sweep (exit 5).
+  route_check_calls: 10
 
   # query id -> CLI path, skipping the LLM for that query. The only way to
   # measure `tag`: nothing in the decomposition contract asks for keyword
@@ -312,11 +358,13 @@ corpus:
       #  "mdx-raw-*": 54000
       #  "mdx-embed-filtered-*": 360
 
-      # Fraction of the expected count that counts as complete. 1.0 means all
-      # of it, which is what "ingest finished" should mean. Lower it only for
-      # a pipeline you know drops a frame or two at a boundary, and expect to
-      # explain the number in the report.
-      min_ratio: 1.0
+      # Fraction of the expected count that counts as complete. The raw
+      # pipeline does drop a boundary frame non-deterministically: five copies
+      # of one file settled at 53,997 / 53,998 and never moved, and at 1.0 the
+      # gate waited out its whole timeout on a finished corpus. 0.9999 allows
+      # ~5 frames per 54k and still requires 360/360 embed documents
+      # (int(360 * 0.9999) = 359, so at most one missing).
+      min_ratio: 0.9999
 
       # Which of the gated indices the foreign-document check runs against.
       embed_index_pattern: "mdx-embed-filtered-*"
@@ -445,7 +493,14 @@ execution:
   # budget.
   min_run_duration_sec: 300
 
+  # The CLI alone. The whole request (decompose + CLI) is capped by
+  # e2e_timeout_sec: the CLI gets whichever leaves less.
   request_timeout_sec: 300
+  e2e_timeout_sec: 360
+  # Share of a cell's measured requests that must route to the cell's path.
+  # Off-target requests count in throughput but not in the cell's latency;
+  # below this the cell is marked cell_valid=false and left out of comparisons.
+  min_path_stability: 0.95
   inter_request_delay_sec: 0
 
   # Stop the sweep rather than measure a service that has stopped answering.
@@ -516,6 +571,16 @@ metrics:
     cpu_cores: 'sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="vss-search",container!="",container!="POD"}[30s]))'
     memory_working_set_bytes: 'sum by (pod) (container_memory_working_set_bytes{namespace="vss-search",container!="",container!="POD"})'
     cpu_limit_cores: 'sum by (pod) (kube_pod_container_resource_limits{namespace="vss-search",resource="cpu"})'
+    # Headroom for memory_working_set_bytes. Empty for pods with no limit.
+    memory_limit_bytes: 'sum by (pod) (kube_pod_container_resource_limits{namespace="vss-search",resource="memory"})'
+    # Pod network and disk. Network is where the critic's clips move: RT-VLM
+    # downloads every verified clip from VST (about 3.4 MB each), so its rx
+    # tracks critic load. Disk is mostly Elasticsearch's page-cache misses.
+    # Pods on hostNetwork report the host's interfaces instead.
+    network_receive_bytes_per_sec: 'sum by (pod) (rate(container_network_receive_bytes_total{namespace="vss-search"}[30s]))'
+    network_transmit_bytes_per_sec: 'sum by (pod) (rate(container_network_transmit_bytes_total{namespace="vss-search"}[30s]))'
+    fs_read_bytes_per_sec: 'sum by (pod) (rate(container_fs_reads_bytes_total{namespace="vss-search",container!="",container!="POD"}[30s]))'
+    fs_write_bytes_per_sec: 'sum by (pod) (rate(container_fs_writes_bytes_total{namespace="vss-search",container!="",container!="POD"}[30s]))'
     # A throttled container stalls for the rest of its 100 ms period, which
     # lands in p95/p99 and in nothing else. Derived from the period counters
     # because container_cpu_cfs_throttled_seconds_total does not exist on every
@@ -547,6 +612,10 @@ metrics:
   # draws a timeline and finds a peak.
   counter_queries:
     cpu_core_seconds_total: 'sum by (pod) (container_cpu_usage_seconds_total{namespace="vss-search",container!="",container!="POD"})'
+    network_receive_bytes_total: 'sum by (pod) (container_network_receive_bytes_total{namespace="vss-search"})'
+    network_transmit_bytes_total: 'sum by (pod) (container_network_transmit_bytes_total{namespace="vss-search"})'
+    fs_read_bytes_total: 'sum by (pod) (container_fs_reads_bytes_total{namespace="vss-search",container!="",container!="POD"})'
+    fs_write_bytes_total: 'sum by (pod) (container_fs_writes_bytes_total{namespace="vss-search",container!="",container!="POD"})'
 
 # ---------------------------------------------------------------------------
 # Pod logs
