@@ -245,6 +245,45 @@ Edit **`values-lvs.yaml`** and set at least:
 | **`global.llmName`** / **`global.vlmName`** (remote) | NGC-style model ids for **both** **vss-agent** and **vss-summarization**; must match remote endpoints. Defaults in **`values-lvs.yaml`** match common NGC models. |
 | **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, and (when enabled) **Kibana**, **Phoenix**, and **NVStreamer** on **`kibana.<host>`** / **`phoenix.<host>`** / **`streamer.<host>`**. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Sample **`values-lvs.yaml`** enables this by default. |
 
+#### RT-VLM GPU-memory configuration
+
+Configure the memory budget before installing an integrated local RT-VLM.
+Use the [Video Summarization Docker Compose hardware tabs](https://docs.nvidia.com/vss/vision-agent/agent-workflows/video-summarization#manually)
+([source in this checkout](../../../../docs/agent-workflow-lvs.mdx#manually)).
+Select your hardware and deployment layout, using documentation for the same
+release as your checkout. The links above also include the source for this checkout.
+
+Map the reference's `RTVI_VLLM_GPU_MEMORY_UTILIZATION` to the Helm override below.
+If the selected tab omits the variable, use its default from this profile's
+[Docker environment template](../../../docker/developer-profiles/dev-profile-lvs/overrides.env).
+An empty Compose value maps to `""` in Helm, preserving the RT-VLM runtime fallback;
+omitting the Helm override instead retains this chart's environment default.
+Merge this block into `values-lvs.yaml`, preserving any existing
+`rtvi` settings and `envOverrides` entries:
+
+```yaml
+rtvi:
+  vss-rtvi-vlm:
+    envOverrides:
+      VLLM_GPU_MEMORY_UTILIZATION: "<value-from-profile-reference>"
+```
+
+Replace the placeholder with the selected value and keep it quoted. Use
+`envOverrides` rather than replacing the complete `env` list. For an installation
+using inline flags, pass
+`--set-string rtvi.vss-rtvi-vlm.envOverrides.VLLM_GPU_MEMORY_UTILIZATION='<value-from-profile-reference>'`.
+
+`nims.gpuType` selects NIM tuning only; it does not adjust RT-VLM's memory budget
+or select a GPU node. With standard exclusive GPU allocation, this chart's
+separate GPU requests give RT-VLM its own GPU; use the reference's dedicated-GPU
+layout. If you enable GPU sharing, select a supported matching layout and budget
+for all workloads on the device. Compose device-ID variables are not needed:
+Kubernetes assigns the devices. On clusters with multiple GPU types, also set
+workload node selectors or affinity for the intended hardware.
+
+This override applies only when RT-VLM loads a model locally. For an external
+VLM, configure the memory budget at that model's serving deployment.
+
 #### `values-lvs.yaml` vs chart `values.yaml`
 
 | File | Role |
