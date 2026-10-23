@@ -3,7 +3,7 @@ global:
   minio:
     endpoint: "10.111.52.248:9000"
     bucket: "perf-results-dev"
-    service: "behavior-analytics"
+    service: "Behavior-Analytics"
 
 scenarios: &scenarios
   quick_test:
