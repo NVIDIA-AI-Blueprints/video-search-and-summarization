@@ -267,8 +267,12 @@ the better option for latency — see
   tag to its `-sbsa` variant (the commented
   `# …-sbsa` line in the profile's `.env`): `VSS_RT_VLM_TAG` (RT-VLM),
   `VSS_RT_CV_TAG` (RT-CV), and `LVS_TAG` (LVS).
-- **The FP8 fallback is raw vLLM, not a NIM.** This applies only if you select
-  it with `--llm`; the default Lightning NIM reads its `NIM_*` keys normally. On
+- **The FP8 fallback is raw vLLM, not a NIM.** This applies when the build
+  override (`_builds/<name>/override.env`) selects
+  `LLM_NAME=nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` and
+  `LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2-fp8`, with the corresponding
+  service-profile selection described above. The default Lightning NIM reads
+  its `NIM_*` keys normally. On
   the FP8 build those keys are inert — the effective knobs are the flags in the
   compose `command:` block (`--gpu-memory-utilization`, …) and the health path is
   `/health`, not `/v1/health/ready`.
