@@ -20,7 +20,7 @@ version: '3.8'
 
 services:
   minio:
-    image: minio/minio:latest
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     container_name: alert-bridge-minio
     ports:
       - "9000:9000"      # S3 API
@@ -41,7 +41,7 @@ services:
 
   # Optional: Create default bucket on startup
   minio-setup:
-    image: minio/mc:latest
+    image: pgsty/mc:RELEASE.2026-08-04T00-00-00Z
     container_name: alert-bridge-minio-setup
     depends_on:
       minio:
