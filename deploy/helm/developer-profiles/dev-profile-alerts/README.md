@@ -158,10 +158,8 @@ using inline flags, pass
 `--set-string rtvi.vss-rtvi-vlm.envOverrides.VLLM_GPU_MEMORY_UTILIZATION='<value-from-profile-reference>'`.
 
 `nims.gpuType` selects NIM tuning only; it does not adjust RT-VLM's memory budget
-or select a GPU node. With standard exclusive GPU allocation, this chart's
-separate GPU requests give RT-VLM its own GPU; use the reference's dedicated-GPU
-layout. If you enable GPU sharing, select a supported matching layout and budget
-for all workloads on the device. Compose device-ID variables are not needed:
+or select a GPU node. Each GPU workload requests its own GPU, so use the
+reference's dedicated-GPU layout. Compose device-ID variables are not needed:
 Kubernetes assigns the devices. On clusters with multiple GPU types, also set
 workload node selectors or affinity for the intended hardware.
 
