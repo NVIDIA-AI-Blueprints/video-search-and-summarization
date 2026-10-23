@@ -6,7 +6,7 @@ Operational reference for Workflow E (Slack / webhook notifications) on the VSS 
 
 This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workflow E). The parent routes here only when the user **explicitly mentions Slack or the webhook relay**. The word "notify" alone is not sufficient — it must co-occur with `slack`, `webhook`, or `bot token`.
 
-**Precondition: VLM real-time mode only.** Parent SKILL verifies the deployed mode before invoking this playbook; assume the VLM (`-m real-time` / `MODE=2d_vlm`) profile is up. The parent's previous "Workflow E skips deployment probe" exception has been removed — E is now mode-gated like D. CV-mode deployments do not invoke this playbook (parent SKILL refuses with a redeploy hint).
+**Precondition: VLM real-time mode only.** Parent SKILL verifies the deployed mode before invoking this playbook; assume the VLM (real-time / `MODE=2d_vlm`) profile is up. The parent's previous "Workflow E skips deployment probe" exception has been removed — E is now mode-gated like D. CV-mode deployments do not invoke this playbook (parent SKILL refuses with a redeploy hint).
 
 - "Set up Slack notifications for incident alerts"
 - "Start the alert Slack webhook"

@@ -2,7 +2,7 @@
 
 Operational reference for **Workflow G**: checking whether always-on alerting is active, querying its incidents, and troubleshooting missing always-on alerts.
 
-> **Operate, don't author.** This workflow never creates, edits, or deletes always-on rule configuration. Authoring `always_on_rules` entries and rule lifecycle redesign are **out of scope in this pass** — when asked, say so. Enabling/disabling the feature is a **deploy-mode choice** (`-m real-time` vs `-m verification`), not a runtime config edit.
+> **Operate, don't author.** This workflow never creates, edits, or deletes always-on rule configuration. Authoring `always_on_rules` entries and rule lifecycle redesign are **out of scope in this pass** — when asked, say so. Enabling/disabling the feature is a **deploy-mode choice** (real-time / `MODE=2d_vlm` vs verification / `MODE=2d_cv`), not a runtime config edit.
 
 ## How always-on works
 
@@ -22,11 +22,9 @@ VIOS webhook ──POST /api/v1/realtime/always-on──▶ Alert Bridge
 
 There is **no `/always-on/health` endpoint** — never invent one. Two signals, in preference order:
 
-1. **Config gate (zero side effects).** The feature is gated by `ALERT_AGENT_ALWAYS_ON` in the alerts profile env (substituted into `alert_agent.always_on` in the mounted verifier config). On a Docker compose deploy via `dev-profile.sh`, real-time (`MODE=2d_vlm`) sets it **true**; verification (`MODE=2d_cv`) sets it **false**. Check the env or the resolved config. On Kubernetes, skip these local-file and `docker exec` checks; ask the operator or use the endpoint probe below.
+1. **Config gate (zero side effects).** The feature is gated by `ALERT_AGENT_ALWAYS_ON` in the alerts profile env (substituted into `alert_agent.always_on` in the mounted verifier config). For Docker Compose, the build workflow requires **true** for real-time (`MODE=2d_vlm`) and **false** for verification (`MODE=2d_cv`), recorded in the build override before resolution. Inspect the running container's rendered config to establish the actual state; an undeployed source env file is not evidence. On Kubernetes, skip these local-file and `docker exec` checks; ask the operator or use the endpoint probe below.
    ```bash
    if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-     grep -E '^ALERT_AGENT_ALWAYS_ON=' deploy/docker/developer-profiles/dev-profile-alerts/generated.env 2>/dev/null \
-       || grep -E '^ALERT_AGENT_ALWAYS_ON=' deploy/docker/developer-profiles/dev-profile-alerts/overrides.env
      docker exec vss-alert-bridge sh -c 'grep -A1 -E "^\s*always_on" /app/runtime/config.yml' 2>/dev/null
    fi
    ```
@@ -40,7 +38,7 @@ There is **no `/always-on/health` endpoint** — never invent one. Two signals, 
    # 200-range / REMOVE_* reason           → feature on (real-time / 2d_vlm)
    ```
 
-Report the state you actually observed. If the user wants it enabled on a Docker verification deploy, tell them to redeploy with `the `/vss-build-vision-ai` stock Alerts workflow in real-time mode` (do **not** hand-edit config and restart). That redeploy sets `ALERT_AGENT_ALWAYS_ON=true` and `MODE=2d_vlm`. On Kubernetes there is **no supported way to enable it**, and saying otherwise sends the operator on a dead end: `deploy/helm/services/alert/configs/config.yml` pins `always_on: false` as a literal (with an explicit "Helm keeps this disabled for the dev alerts real-time profile … do not align them" note), and no `values.yaml` key or pod env maps to `alert_agent.always_on`. The chart wires only `ALWAYS_ON_RULES_CONFIG=/app/configs/realtime-config.yml` and already ships a non-empty `always_on_rules` YAML, so the rules are never the missing piece; a config change also restarts the pod on its own through the `checksum/config` annotation. Report that always-on is off on this deployment and that the chart offers no operator switch for it — do **not** describe a set-the-gate-and-restart path.
+Report the state you actually observed. If the user wants it enabled on a Docker verification deploy, tell them to redeploy with the `/vss-build-vision-ai` stock Alerts workflow in real-time mode (do **not** hand-edit config and restart). That redeploy sets `ALERT_AGENT_ALWAYS_ON=true` and `MODE=2d_vlm`. On Kubernetes there is **no supported way to enable it**, and saying otherwise sends the operator on a dead end: `deploy/helm/services/alert/configs/config.yml` pins `always_on: false` as a literal (with an explicit "Helm keeps this disabled for the dev alerts real-time profile … do not align them" note), and no `values.yaml` key or pod env maps to `alert_agent.always_on`. The chart wires only `ALWAYS_ON_RULES_CONFIG=/app/configs/realtime-config.yml` and already ships a non-empty `always_on_rules` YAML, so the rules are never the missing piece; a config change also restarts the pod on its own through the `checksum/config` annotation. Report that always-on is off on this deployment and that the chart offers no operator switch for it — do **not** describe a set-the-gate-and-restart path.
 
 ## Response envelope & reason codes
 
