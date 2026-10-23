@@ -1,0 +1,121 @@
+{
+  "schema_version": "0.1",
+  "metadata": {
+    "service": "alert-verification",
+    "run_info": {
+      "run_id": "alert-verification_spark-1-rtdetr-cr3-bf16_20261016_143012",
+      "timestamp": "2026-10-16T14:43:20Z",
+      "duration_seconds": 788.4,
+      "triggered_by": "artifact_promotion",
+      "release": "nightly-20261010"
+    },
+    "platform": {
+      "gpu": {
+        "model": "GB10",
+        "full_name": "NVIDIA GB10",
+        "count": 1,
+        "memory_gb": 119.7,
+        "driver_version": "580.95.05",
+        "cuda_version": "13.0",
+        "topology": "shared"
+      },
+      "cpu": {
+        "model": "Cortex-X925",
+        "cores": 20
+      },
+      "memory_gb": 119.7,
+      "os": "Ubuntu 24.04.3 LTS"
+    },
+    "config": {
+      "config_id": "spark-1-rtdetr-cr3-bf16",
+      "hardware_profile": "DGX-SPARK",
+      "cv_model": "RTDETR",
+      "cv_gpus": "0",
+      "vlm_model": "cosmos3-nano-reasoner",
+      "vlm_gpus": "0",
+      "vlm_precision": "bf16",
+      "llm_mode": "local_shared",
+      "alerts_mode": "verification",
+      "artifact_ref": "nvcr.io/<org>/<team>/vss-alert-ms:nightly-20261010-sbsa"
+    },
+    "benchmark_name": "quick_test",
+    "benchmark_mode": "live_streams"
+  },
+  "summary": {
+    "total_tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "pass_rate": 100.0,
+    "overall_status": "PASS"
+  },
+  "test_cases": [
+    {
+      "test_case_id": "live_streams_warehouse-ladder-1080p-10fps_1streams",
+      "success": true,
+      "metrics": {
+        "latency": {
+          "e2e_avg_seconds": 0.95,
+          "e2e_p50_seconds": 0.81,
+          "e2e_p90_seconds": 0.94,
+          "e2e_p99_seconds": 2.21,
+          "e2e_samples": 5,
+          "upstream_avg_seconds": 0.31,
+          "upstream_p50_seconds": 0.29,
+          "upstream_p90_seconds": 0.45,
+          "upstream_p99_seconds": 0.62,
+          "kafka_lag_avg_seconds": 0.02,
+          "kafka_lag_p50_seconds": 0.01,
+          "kafka_lag_p90_seconds": 0.05,
+          "kafka_lag_p99_seconds": 0.09,
+          "queue_wait_avg_seconds": 0.01,
+          "queue_wait_p50_seconds": 0.01,
+          "queue_wait_p90_seconds": 0.02,
+          "queue_wait_p99_seconds": 0.05,
+          "vst_avg_seconds": 0.21,
+          "vst_p50_seconds": 0.2,
+          "vst_p90_seconds": 0.24,
+          "vst_p99_seconds": 0.25,
+          "vlm_avg_seconds": 0.62,
+          "vlm_p50_seconds": 0.58,
+          "vlm_p90_seconds": 0.95,
+          "vlm_p99_seconds": 1.1,
+          "worker_avg_seconds": 0.9,
+          "worker_p50_seconds": 0.85,
+          "worker_p90_seconds": 1.2,
+          "worker_p99_seconds": 1.6,
+          "clipped_quantiles": []
+        },
+        "throughput": {
+          "verified_events": 5,
+          "verified_per_min": 0.5,
+          "verified_per_min_per_stream": 0.5,
+          "confirmed_events": 1,
+          "rejected_events": 4,
+          "events_after_dedup": 5,
+          "events_dropped": 2
+        },
+        "reliability": {
+          "verification_failed_events": 0,
+          "verification_failures": 0,
+          "verification_failure_rate": 0.0
+        },
+        "gpu": {
+          "cv_gpu_usage_mean": 41.7,
+          "cv_gpu_usage_max": 63.0,
+          "vlm_gpu_usage_mean": 41.7,
+          "vlm_gpu_usage_max": 63.0
+        },
+        "cpu": {
+          "cpu_usage_mean": 18.4,
+          "cpu_usage_max": 35.2
+        },
+        "window": {
+          "start": "2026-10-16T14:33:12Z",
+          "end": "2026-10-16T14:43:18Z",
+          "seconds": 600,
+          "num_streams": 1
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+requests>=2.31
+PyYAML>=6.0
+# vss_perf_common (shared result schema + MinIO upload)
+pydantic>=2.12.5
+minio>=7.2.20
+nvidia-ml-py>=12.535.77   # provides the pynvml module (the pynvml package is deprecated)
