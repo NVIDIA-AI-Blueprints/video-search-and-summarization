@@ -171,5 +171,119 @@
       "Hands off to /vss-summarize-video instead of running `vss vlm run` itself.",
       "Does not stop to ask the user for a shorter window."
     ]
+  },
+  {
+    "id": "explicit-second-look",
+    "question": "Inspect dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a helmet? Use a second look from 2026-08-13T20:00:12Z to 2026-08-13T20:00:16Z.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Use one vss vlm run with both original and narrower window flags; the CLI owns the two reads.",
+    "expected_behavior": [
+      "Passes --sensor dock_cam, --start-time and --end-time for the original scope, and --relook-start-time and --relook-end-time for the requested narrower scope.",
+      "Does not issue separate VLM commands or call the model endpoint directly.",
+      "Returns the selected answer and available job handles."
+    ]
+  },
+  {
+    "id": "hedged-answer-no-automatic-second-look",
+    "question": "The requested single inspection completed successfully with answer \"A helmet may be visible, but the image is unclear.\" No narrower event interval is known. Return the result.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Return the answer with its uncertainty; do not reread.",
+    "expected_behavior": [
+      "Preserves the uncertainty in the completed answer.",
+      "Does not call VLM again or enable relook automatically."
+    ]
+  },
+  {
+    "id": "second-look-fallback",
+    "question": "The user requested a second look. The CLI exited 6 and returned the first answer \"The worker wears a helmet\" with second_look.fallback_reason indicating the narrower read failed. Return the result.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Return the retained first answer and disclose the failed second look.",
+    "expected_behavior": [
+      "Reports the first answer and the optional-read failure without claiming the reread confirmed it.",
+      "Does not retry the second read or start another inspection."
+    ]
+  },
+  {
+    "id": "second-look-located-event",
+    "question": "Inspect dock_cam from 2026-08-13T12:00:00Z to 2026-08-13T12:30:00Z: did the worker hand the box to another person? A grounded prior observation locates the complete handoff at 2026-08-13T12:10:12Z through 2026-08-13T12:10:18Z.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "A targeted read is sufficient; the agent may retain a broader first read for comparison and fallback, without treating its context as input to the target.",
+    "expected_behavior": [
+      "Uses the known self-sufficient interval, padded to 2026-08-13T12:10:11.500Z through 2026-08-13T12:10:18.500Z within the recorded segment.",
+      "Can make one targeted read, or select bounded second look without requiring the user to name that strategy.",
+      "Keeps the question and essential scene context intact, without adding shell/tool history, a prior answer, or invented multiple-choice options to the answer request.",
+      "Does not claim the narrower read receives the first answer or broader visual context; does not add a third read."
+    ]
+  },
+  {
+    "id": "second-look-whole-recording-count",
+    "question": "How many trucks entered during the entire supplied 40-minute recording? Use second look only if useful; the only located event is one truck at minute 12.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Do not narrow the total-count question to one located truck.",
+    "expected_behavior": [
+      "Preserves the whole-recording scope and follows existing whole-recording routing.",
+      "Does not enable relook on an interval that cannot answer the total-count question."
+    ]
+  },
+  {
+    "id": "second-look-capability-limit",
+    "question": "A completed exact-window read saw a clearly visible device but could not recognize its specialist connector. The answer is uncertain; should we repeat the same evidence?",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Report the unresolved recognition limitation; uncertainty alone does not justify a reread.",
+    "expected_behavior": [
+      "Does not invent a narrower interval or invoke the VLM again.",
+      "Explains that relook supplies temporal evidence and is not a remedy for every recognition error."
+    ]
+  },
+  {
+    "id": "second-look-disagreement",
+    "question": "The authorized second-look command completed. Its first answer is E, second answer D, selected answer D, with no fallback. Return the result.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Report the selected answer and the disagreement; execution success is not evidence of correctness.",
+    "expected_behavior": [
+      "States that the narrower read selected D but the original read answered E.",
+      "Does not claim the reread confirmed D or that accuracy improved.",
+      "Does not launch another inspection."
+    ]
+  },
+  {
+    "id": "named-instant-long-video",
+    "question": "In dock_recording, a VIOS-registered file-backed sensor recorded continuously from source second 0 to 235, what color is the box at 02:00?",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Inspect source seconds 118.5 to 121.5 once; the known instant makes a broad read unnecessary.",
+    "expected_behavior": [
+      "Uses vss vlm run --sensor dock_recording with --start-time 118.5 --end-time 121.5, allowing equivalent numeric formatting.",
+      "Does not enable relook or route to summarization merely because the source video exceeds 120 seconds."
+    ]
+  },
+  {
+    "id": "named-instant-clamp-padding",
+    "question": "In dock_recording, a VIOS-registered file-backed sensor recorded continuously from source second 0 to 30, what is on the desk at source second 0.5?",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Clamp the instant padding to source seconds 0 to 2 and inspect once.",
+    "expected_behavior": [
+      "Uses the known recording boundary to avoid a negative start offset.",
+      "Does not shift the window to preserve its nominal width or add a broad first read."
+    ]
+  },
+  {
+    "id": "named-range-clamp-padding",
+    "question": "In dock_recording, a VIOS-registered file-backed sensor recorded continuously from source second 0 to 30, what does the worker pick up during source seconds 28 to 30?",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Inspect source seconds 27.5 to 30 once; only the available padding is added.",
+    "expected_behavior": [
+      "Adds 0.5 seconds before the named event range and clamps its end to the recording boundary.",
+      "Does not request media past the recording end or add relook unnecessarily."
+    ]
+  },
+  {
+    "id": "named-camera-time-ambiguous",
+    "question": "On live camera dock_cam, what was the worker holding at 10:14? No date or timezone is supplied or known.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Ask for the date and timezone before constructing an absolute inspection window.",
+    "expected_behavior": [
+      "Does not interpret the clock time as a file offset or infer today and a local timezone.",
+      "Does not call VLM with an invented window."
+    ]
   }
 ]

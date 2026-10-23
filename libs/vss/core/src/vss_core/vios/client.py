@@ -222,6 +222,53 @@ async def get_timelines_map(
     return {}  # unreachable; satisfies mypy
 
 
+async def _clip_time_bounds(
+    stream_id: str,
+    start_time: float | str | None,
+    end_time: float | str | None,
+    vst_internal_url: str,
+    timeout_seconds: float,
+) -> tuple[str, str]:
+    """Keep ISO bounds or resolve optional offsets against the stream timeline."""
+    if isinstance(start_time, str) != isinstance(end_time, str):
+        raise VSTError("start_time and end_time must both be ISO strings or both be second offsets")
+    if isinstance(start_time, str) and isinstance(end_time, str):
+        return start_time, end_time
+
+    start_timestamp, end_timestamp = await get_timeline(stream_id, vst_internal_url, timeout_seconds=timeout_seconds)
+    start_dt = datetime.datetime.fromisoformat(start_timestamp.replace("Z", "+00:00"))
+    end_dt = datetime.datetime.fromisoformat(end_timestamp.replace("Z", "+00:00"))
+    start_ms = start_dt.timestamp() * 1000
+    end_ms = end_dt.timestamp() * 1000
+
+    if start_time is not None and not isinstance(start_time, str):
+        clip_start_ms = min(float(start_time) * 1000 + start_ms, end_ms)
+    else:
+        clip_start_ms = start_ms
+    if end_time is not None and not isinstance(end_time, str):
+        clip_end_ms = min(float(end_time) * 1000 + start_ms, end_ms)
+    else:
+        clip_end_ms = end_ms
+
+    if clip_start_ms < start_ms or clip_end_ms > end_ms or clip_end_ms < clip_start_ms:
+        raise VSTError(
+            f"Clip times must be within the stream timeline {start_timestamp}..{end_timestamp} "
+            f"and start <= end, got {clip_start_ms}..{clip_end_ms}"
+        )
+
+    start_time_iso = (
+        datetime.datetime.fromtimestamp(clip_start_ms / 1000, tz=datetime.UTC)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+    end_time_iso = (
+        datetime.datetime.fromtimestamp(clip_end_ms / 1000, tz=datetime.UTC)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+    return start_time_iso, end_time_iso
+
+
 async def get_video_clip_url(
     *,
     stream_id: str,
@@ -229,6 +276,8 @@ async def get_video_clip_url(
     end_time: float | str | None = None,
     vst_internal_url: str,
     disable_audio: bool = True,
+    transcode: Literal["none", "full"] | None = None,
+    container: Literal["mp4", "mkv"] | None = None,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> str:
     """Return a temporary VST clip URL for a stream and optional time range.
@@ -236,57 +285,23 @@ async def get_video_clip_url(
     NAT's ``vst.video_clip`` tool owns this in the agent path. This reusable
     helper keeps critic/VLM verification usable without importing NAT or
     invoking the agent. ``start_time`` / ``end_time`` may be ISO strings or
-    second offsets from the stream timeline.
+    second offsets from the stream timeline. ``transcode='full'`` avoids
+    remuxing from an earlier keyframe when precise clip boundaries matter.
     """
-    if isinstance(start_time, str) != isinstance(end_time, str):
-        raise VSTError("start_time and end_time must both be ISO strings or both be second offsets")
-
-    if isinstance(start_time, str) and isinstance(end_time, str):
-        start_time_iso = start_time
-        end_time_iso = end_time
-    else:
-        start_timestamp, end_timestamp = await get_timeline(
-            stream_id, vst_internal_url, timeout_seconds=timeout_seconds
-        )
-        start_dt = datetime.datetime.fromisoformat(start_timestamp.replace("Z", "+00:00"))
-        end_dt = datetime.datetime.fromisoformat(end_timestamp.replace("Z", "+00:00"))
-        start_ms = start_dt.timestamp() * 1000
-        end_ms = end_dt.timestamp() * 1000
-
-        if start_time is not None and not isinstance(start_time, str):
-            clip_start_ms = min(float(start_time) * 1000 + start_ms, end_ms)
-        else:
-            clip_start_ms = start_ms
-        if end_time is not None and not isinstance(end_time, str):
-            clip_end_ms = min(float(end_time) * 1000 + start_ms, end_ms)
-        else:
-            clip_end_ms = end_ms
-
-        if clip_start_ms < start_ms or clip_end_ms > end_ms or clip_end_ms < clip_start_ms:
-            raise VSTError(
-                f"Clip times must be within the stream timeline {start_timestamp}..{end_timestamp} "
-                f"and start <= end, got {clip_start_ms}..{clip_end_ms}"
-            )
-
-        start_time_iso = (
-            datetime.datetime.fromtimestamp(clip_start_ms / 1000, tz=datetime.UTC)
-            .isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z")
-        )
-        end_time_iso = (
-            datetime.datetime.fromtimestamp(clip_end_ms / 1000, tz=datetime.UTC)
-            .isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z")
-        )
-
-    query_params = urllib.parse.urlencode(
-        {
-            "startTime": start_time_iso,
-            "endTime": end_time_iso,
-            "blocking": "true",
-            "disableAudio": "true" if disable_audio else "false",
-        }
+    start_time_iso, end_time_iso = await _clip_time_bounds(
+        stream_id, start_time, end_time, vst_internal_url, timeout_seconds
     )
+    params = {
+        "startTime": start_time_iso,
+        "endTime": end_time_iso,
+        "blocking": "true",
+        "disableAudio": "true" if disable_audio else "false",
+    }
+    if transcode is not None:
+        params["transcode"] = transcode
+    if container is not None:
+        params["container"] = container
+    query_params = urllib.parse.urlencode(params)
     stream_seg = quote_path_segment(stream_id)
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{stream_seg}/url?{query_params}"
 
@@ -528,6 +543,9 @@ class VSTClient:
     All methods accept URLs and timeouts explicitly; no runtime, environment,
     or NAT state is read. resolve_stream_id and get_timeline forward to the
     free helpers above.
+
+    ``exact_clips=True`` transcodes partial windows to avoid keyframe preroll;
+    whole recorded segments retain the default remux.
     """
 
     def __init__(
@@ -537,11 +555,13 @@ class VSTClient:
         external_url: str,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         rewrite_internal_clip_url: bool = False,
+        exact_clips: bool = False,
     ) -> None:
         self._internal_url = internal_url
         self._external_url = external_url
         self._timeout_seconds = timeout_seconds
         self._rewrite_internal_clip_url = rewrite_internal_clip_url
+        self._exact_clips = exact_clips
 
     def build_screenshot_url(
         self,
@@ -590,9 +610,22 @@ class VSTClient:
         reach only the public VIOS endpoint.
         """
         stream_id = await self.resolve_stream_id(sensor_id)
-        if time_format == "offset":
-            start: float | str | None = float(start_timestamp)
-            end: float | str | None = float(end_timestamp)
+        transcode: Literal["full"] | None = None
+        start: float | str | None
+        end: float | str | None
+        if self._exact_clips:
+            segments = await recorded_segments(self._internal_url, stream_id, self._timeout_seconds)
+            if not segments:
+                raise VIOSInvalidInputError("exact clips require a recorded segment")
+            start, end = resolve_window(
+                segments, start_timestamp, end_timestamp, "video" if time_format == "offset" else "stream"
+            )
+            window = tuple(iso8601_to_datetime(value) for value in (start, end))
+            if not any(window == tuple(iso8601_to_datetime(value) for value in segment) for segment in segments):
+                transcode = "full"
+        elif time_format == "offset":
+            start = float(start_timestamp)
+            end = float(end_timestamp)
         else:
             start = start_timestamp
             end = end_timestamp
@@ -603,6 +636,7 @@ class VSTClient:
             end_time=end,
             vst_internal_url=self._internal_url,
             disable_audio=disable_audio,
+            transcode=transcode,
             timeout_seconds=self._timeout_seconds,
         )
         if internal and not self._rewrite_internal_clip_url:
