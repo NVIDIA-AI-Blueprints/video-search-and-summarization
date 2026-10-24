@@ -144,4 +144,30 @@ describe('useChatSidebarMainTabBridge', () => {
     expect(callerInfo).toContain('#vss-mt-search');
     expect(callerInfo).toContain('#vss-mt-alerts');
   });
+
+  it('links only Alerts when a chat rule mutation updates that tab', () => {
+    const { result } = renderHook(() =>
+      useChatSidebarMainTabBridge({
+        activeTab: 'video-management',
+        sidebarCollapsed: false,
+      }),
+    );
+
+    act(() => {
+      result.current.registerSearchTabChatAnswer(() => false);
+      result.current.registerAlertsTabChatAnswer(() => true);
+    });
+
+    let callerInfo: string | void;
+    act(() => {
+      callerInfo = result.current.handleSidebarAnswerCompleteWithContent(
+        'Real-time VLM alert successfully started for sensor warehouse_sample.',
+      );
+    });
+
+    expect(callerInfo).toContain('See all results in:');
+    expect(callerInfo).toContain('#vss-mt-alerts');
+    expect(callerInfo).toContain('data-testid="vss-caller-info-tab-link-alerts"');
+    expect(callerInfo).not.toContain('#vss-mt-search');
+  });
 });
