@@ -27,13 +27,9 @@ takes, which is otherwise invisible in a latency breakdown that starts at
 a wrong decomposition shows up as a retrieval regression. That is the intended
 behaviour: the eval reports the deployment, not an idealised version of it.
 
-The prompt is read from the product source at run time rather than copied::
-
-    services/agent/packages/vss_agents/src/vss_agents/tools/search.py
-
-This skill ships inside that repo, so the file is always present and always the
-version this checkout would send. A vendored copy would silently diverge the
-first time someone edited the prompt.
+The prompt and few-shot examples are owned by this benchmark flow. This keeps
+experiments with ``vss search`` isolated from the product agent prompt. The
+model endpoint and request settings still match the deployed LLM configuration.
 
 Not deterministic. This model returns different attributes for the same query
 between runs even at ``temperature=0``, so two runs can route the same query
@@ -55,13 +51,10 @@ import requests
 if TYPE_CHECKING:
     from pathlib import Path
 
-#: Where the agent's decomposition contract lives, relative to the repo root.
-PROMPT_SOURCE = "services/agent/packages/vss_agents/src/vss_agents/tools/search.py"
-
 #: From the search profile's ``llms`` block (dev-profile-search config.yml):
 #: nim/openai profiles both pin these, so a run matches the deployment.
 TEMPERATURE = 0.0
-MAX_TOKENS = 4096
+MAX_TOKENS = 32768
 
 #: The agent decomposes with reasoning off (``reasoning_utils``). Nemotron chat
 #: templates default ``enable_thinking`` to true, and a thinking reply is
@@ -103,27 +96,43 @@ _SYSTEM = (
 )
 
 
+QUERY_DECOMPOSITION_PROMPT = """Convert a video search request into JSON search parameters.
+
+Available video sources:
+{video_sources}
+
+Fields:
+- query (string): what to look for in the video, without source names, times, or result counts.
+- attributes (list of strings): how a person looks, as stated in the query: clothing, colors, hair, eyewear, worn accessories, or bags. Write each as a phrase about a person, e.g. "person wearing a red jacket". Test: an attribute would still describe the person somewhere else, doing something else. Actions, poses, roles or jobs, gender or age alone, locations, camera viewpoint, and objects or vehicles are not attributes, and appearance is never inferred from a role. Use [] when there are none. If removing actions, places, and objects from a phrase leaves no appearance words, drop it.
+- has_action (boolean): true if the query describes something done or a body posture (an action, activity, interaction, event, holding or carrying something, or a pose such as standing, sitting, or lying, including "a standing person"); otherwise false.
+- video_sources (list of strings): names from the available sources that the query mentions; [] if none.
+- source_type (string): "rtsp" only for an explicitly named live stream or camera; otherwise omit it.
+- timestamp_start, timestamp_end (string): only if the query gives a time, as ISO 8601 UTC on 2025-01-01, e.g. "2025-01-01T13:00:00Z".
+- object_ids (list of integers or null): object IDs the query explicitly mentions; otherwise null.
+- top_k (integer): only if the query asks for a number of results.
+
+Always return query, attributes (as a list), has_action (as a boolean), and object_ids: give the exact integer IDs when mentioned, otherwise null. Return top_k only when a result count is explicit. Return video_sources only when a source is named, timestamps only when a time is explicit, and source_type only when the user specifies a live stream or camera; omit these metadata fields otherwise. Never omit information that the query explicitly gives, and never invent metadata.
+
+Return only the JSON object.
+
+User query: {user_query}"""
+
+#: Keep this prompt zero-shot. Examples increased routing errors and risk overlap
+#: with evaluation data; the typed field contract keeps output parseable.
+DEFAULT_FEW_SHOT_EXAMPLES = ""
+
+
 class DecompositionError(RuntimeError):
     """The LLM was unreachable, or returned something that was not a decomposition."""
 
 
-def load_prompt(repo_root: Path) -> tuple[str, str]:
-    """Return ``(prompt_template, few_shot_examples)`` from the product source."""
-    src = repo_root / PROMPT_SOURCE
-    if not src.exists():
-        raise DecompositionError(
-            f"cannot read the decomposition prompt: {src} not found. "
-            "This skill must run from inside a VSS checkout."
-        )
-    text = src.read_text()
-    template_match = re.search(r'QUERY_DECOMPOSITION_PROMPT = """(.*?)"""', text, re.DOTALL)
-    examples_match = re.search(r'DEFAULT_FEW_SHOT_EXAMPLES = """(.*?)"""', text, re.DOTALL)
-    if template_match is None or examples_match is None:
-        raise DecompositionError(
-            f"QUERY_DECOMPOSITION_PROMPT / DEFAULT_FEW_SHOT_EXAMPLES not found in {src}; "
-            "the product source may have been restructured."
-        )
-    return template_match.group(1), examples_match.group(1)
+def load_prompt(repo_root: Path | None = None) -> tuple[str, str]:
+    """Return this benchmark flow's decomposition prompt and examples.
+
+    ``repo_root`` is accepted for API compatibility; the benchmark prompt is
+    intentionally independent of the product agent prompt.
+    """
+    return QUERY_DECOMPOSITION_PROMPT, DEFAULT_FEW_SHOT_EXAMPLES
 
 
 def _strip_fences(text: str) -> str:
@@ -194,7 +203,7 @@ class LiveDecomposer:
             "temperature": TEMPERATURE,
             "chat_template_kwargs": thinking_kwargs(self._model) or None,
             "system_thinking_tag": thinking_off_tag(self._model),
-            "prompt_source": PROMPT_SOURCE,
+            "prompt_source": "benchmark-video-search/scripts/flows/decompose.py",
         }
 
     def decompose(self, query: str, video_sources: list[str] | None = None) -> tuple[dict[str, Any], float]:

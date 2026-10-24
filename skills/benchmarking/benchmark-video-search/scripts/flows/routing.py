@@ -24,8 +24,8 @@ an already-structured request. So an eval that feeds raw natural language to
 This module closes that gap. Given the decomposition the agent would have
 produced, it derives the retrieval path and the CLI arguments.
 
-The decomposition contract is ``QUERY_DECOMPOSITION_PROMPT`` in
-``vss_agents/tools/search.py``::
+The benchmark decomposition contract is ``QUERY_DECOMPOSITION_PROMPT`` in
+``benchmark-video-search/scripts/flows/decompose.py``::
 
     query            rewritten description, actions AND attributes
     attributes       person-appearance attributes ONLY; never bare "person"

@@ -76,8 +76,7 @@ Live decomposition uses the deployed LLM and replaces a stored decomposition
 for that query. Run with `--no-decompose` to replay the dataset's stored route
 for comparisons; use `--fixed-search-path` to ignore stored routes and apply
 the same `--search-path` to every query. The contract is
-`QUERY_DECOMPOSITION_PROMPT` in
-`services/agent/packages/vss_agents/src/vss_agents/tools/search.py`:
+`QUERY_DECOMPOSITION_PROMPT` in `scripts/flows/decompose.py`:
 
 | field | meaning |
 |---|---|

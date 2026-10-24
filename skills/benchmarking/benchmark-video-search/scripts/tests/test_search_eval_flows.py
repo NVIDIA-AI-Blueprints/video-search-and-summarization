@@ -626,7 +626,7 @@ def test_an_inline_think_block_is_stripped_before_parsing(monkeypatch: pytest.Mo
 def test_routing_rule_matches_the_four_cli_paths() -> None:
     """Derived from the paths' input models, not invented.
 
-    See QUERY_DECOMPOSITION_PROMPT in vss_agents/tools/search.py.
+    See QUERY_DECOMPOSITION_PROMPT in flows/decompose.py.
     """
     assert flows.route({"attributes": [], "has_action": True}) == "embed"
     assert flows.route({"attributes": ["person in red"], "has_action": True}) == "fusion"
