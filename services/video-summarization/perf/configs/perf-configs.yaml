@@ -1,0 +1,163 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ci/perf-configs.yaml — EngSQA 3.2.0 GA platform profiles (hand-maintained).
+#
+# Each entry is one platform×topology row for CI or Perf-LAB/SQA benchmarking.
+# Configs sharing a nodeLabel are batched on one Jenkins bare-metal node.
+#
+# Fields:
+#   id          - Canonical config_id in benchmark JSON (PERF_CONFIG_IDS / CONFIG_ID).
+#   composePath - Docker compose file, relative to the repo root.
+#   nodeLabel   - Jenkins lockable-resource label.
+#   imageArch   - LVS image architecture tag (amd64, arm64-sbsa, arm64-igpu).
+#   enabled     - false skips the row in CI when PERF_CONFIG_IDS=all.
+#   vlmModel, llmModel, vlmGpus, llmGpus, vision_input_tokens - JSON metadata.
+#
+# Perf-LAB/SQA: metadata resolves from composePath + nvidia-smi GPU family (id prefix).
+# CI: sets CONFIG_ID from the id field.
+#
+# To run a subset: PERF_CONFIG_IDS=<comma-separated ids>
+# To run all enabled: PERF_CONFIG_IDS=all (default)
+
+perf_configs:
+
+  # --- H100 ---
+  - id: "h100-2-1x1-cr3-nano-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_2gpu.yaml"
+    nodeLabel: "H100-SXM"
+    imageArch: "amd64"
+    enabled: true
+    description: "H100 1x1: CR3 Nano VLM (GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0"
+    llmGpus: "1"
+    vision_input_tokens: "9k"
+
+  - id: "h100-4-2x2-cr3-nano-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_4gpu.yaml"
+    nodeLabel: "H100-SXM"
+    imageArch: "amd64"
+    enabled: true
+    description: "H100 2x2: CR3 Nano VLM (GPUs 0,1) + Nemotron-3-Nano LLM (GPUs 2,3)"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0,1"
+    llmGpus: "2,3"
+    vision_input_tokens: "9k"
+
+  # --- L40S ---
+  - id: "l40s-2-1x1-cr3-nano-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_2gpu.yaml"
+    nodeLabel: "L40S"
+    imageArch: "amd64"
+    enabled: true
+    description: "L40S 1x1: CR3 Nano VLM (GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0"
+    llmGpus: "1"
+    vision_input_tokens: "9k"
+
+  # --- RTX PRO 6000 ---
+  - id: "rtxpro6000-2-1x1-cr3-nano-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_2gpu.yaml"
+    nodeLabel: "RTXPRO6000BW-SE"
+    imageArch: "amd64"
+    enabled: true
+    description: "RTX PRO 6000 1x1: CR3 Nano VLM (GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0"
+    llmGpus: "1"
+    vision_input_tokens: "9k"
+
+  - id: "rtxpro6000-1-1-cr3-nano-rtvi-nemonano9b-9k"
+    composePath: "compose/x86-rtvi-cr-nemotron-9b_1gpu.yaml"
+    nodeLabel: "RTXPRO6000BW-SE"
+    imageArch: "amd64"
+    enabled: true
+    description: "RTX PRO 6000 1: CR3 Nano VLM + Nemotron-Nano-9B-v2 LLM (shared GPU 0)"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
+
+  # --- DGX Spark ---
+  - id: "spark-1-1-cr3-nano-rtvi-nemonano9b-9k"
+    composePath: "compose/spark-rtvi-cr-nemotron-9b.yaml"
+    nodeLabel: "DGX-SPARK"
+    imageArch: "arm64-sbsa"
+    enabled: true
+    description: "Spark 1: CR3 Nano VLM (RTVI) + Nemotron-Nano-9B-v2 LLM"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
+
+  # --- Thor AGX ---
+  - id: "thor-1-1-cr3-nano-rtvi-nemonano9b-9k"
+    composePath: "compose/thor-rtvi-cr-nemotron-9b.yaml"
+    nodeLabel: "AGX-THOR"
+    imageArch: "arm64-igpu"
+    enabled: true
+    description: "Thor AGX 1: CR3 Nano VLM (RTVI) + Nemotron-Nano-9B-v2 LLM"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
+
+  # --- GB200 (EngSQA; enable when node is in pool) ---
+  - id: "gb200-1-1-cr3-nano-rtvi-nemonano9b-9k"
+    composePath: "compose/x86-rtvi-cr-nemotron-9b_1gpu.yaml"
+    nodeLabel: "GB200"
+    imageArch: "amd64"
+    enabled: false
+    description: "GB200 1: CR3 Nano VLM (RTVI) + Nemotron-Nano-9B-v2 LLM"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
+
+  # --- B200 (EngSQA; enable when node is in pool) ---
+  - id: "b200-2-1x1-cr3-nano-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_2gpu.yaml"
+    nodeLabel: "B200"
+    imageArch: "amd64"
+    enabled: false
+    description: "B200 1x1: CR3 Nano VLM (GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0"
+    llmGpus: "1"
+    vision_input_tokens: "9k"
+
+  # --- RTX PRO 4500 (EngSQA; enable when node is in pool) ---
+  - id: "rtxpro4500-1-1-cr3-nano-rtvi-nemonano9b-9k"
+    composePath: "compose/x86-rtvi-cr-nemotron-9b_1gpu.yaml"
+    nodeLabel: "RTXPRO4500"
+    imageArch: "amd64"
+    enabled: false
+    description: "RTX PRO 4500 1: CR3 Nano VLM (RTVI) + Nemotron-Nano-9B-v2 LLM"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
