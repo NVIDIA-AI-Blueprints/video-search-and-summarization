@@ -102,16 +102,16 @@ Available video sources:
 {video_sources}
 
 Fields:
-- query (string): what to look for in the video, without source names, times, or result counts.
-- attributes (list of strings): how a person looks, as stated in the query: clothing, colors, hair, eyewear, worn accessories, or bags. Write each as a phrase about a person, e.g. "person wearing a red jacket". Test: an attribute would still describe the person somewhere else, doing something else. Actions, poses, roles or jobs, gender or age alone, locations, camera viewpoint, and objects or vehicles are not attributes, and appearance is never inferred from a role. Use [] when there are none. If removing actions, places, and objects from a phrase leaves no appearance words, drop it.
+- attributes (list of strings): how a person looks, as stated in the query: clothing, colors, hair, eyewear, worn accessories, or bags. Write each as a phrase that starts with "person wearing" or "person with". A query that only names clothing or accessories, with or without a person, is a search for a person wearing them: list them as attributes. Test: an attribute would still describe the person somewhere else, doing something else. Actions, poses, roles or jobs, gender or age alone, locations, camera viewpoint, and objects or vehicles are not attributes, and appearance is never inferred from a role. Each attribute must reuse appearance words from the query; if the query names no garment, color, hair, eyewear, or carried item, attributes is []. Use [] when there are none. If removing actions, places, and objects from a phrase leaves no appearance words, drop it.
+- query (string): the full visual description from the query, keeping every action, appearance, and scene detail; remove only source names, times, and result counts.
 - has_action (boolean): true if the query describes something done or a body posture (an action, activity, interaction, event, holding or carrying something, or a pose such as standing, sitting, or lying, including "a standing person"); otherwise false.
-- video_sources (list of strings): names from the available sources that the query mentions; [] if none.
-- source_type (string): "rtsp" only for an explicitly named live stream or camera; otherwise omit it.
-- timestamp_start, timestamp_end (string): only if the query gives a time, as ISO 8601 UTC on 2025-01-01, e.g. "2025-01-01T13:00:00Z".
-- object_ids (list of integers or null): object IDs the query explicitly mentions; otherwise null.
-- top_k (integer): only if the query asks for a number of results.
+- video_sources (list of strings or null): the available sources that the query names.
+- source_type (string or null): "rtsp" only when the query says live (live stream, live feed, live camera).
+- timestamp_start, timestamp_end (string or null): the time range the query gives, as ISO 8601 UTC on 2025-01-01, e.g. "2025-01-01T13:00:00Z". If only one bound is given, set only that one: "after 10pm" is a start, "before 9am" is an end.
+- top_k (integer or null): the number of results the query asks for, such as "top 5" or "first 10 clips".
+- object_ids (list of integers or null): object IDs the query names.
 
-Always return query, attributes (as a list), has_action (as a boolean), and object_ids: give the exact integer IDs when mentioned, otherwise null. Return top_k only when a result count is explicit. Return video_sources only when a source is named, timestamps only when a time is explicit, and source_type only when the user specifies a live stream or camera; omit these metadata fields otherwise. Never omit information that the query explicitly gives, and never invent metadata.
+Return every field. Use null for any field the query does not give; never guess.
 
 Return only the JSON object.
 
