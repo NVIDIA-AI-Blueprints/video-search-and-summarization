@@ -152,7 +152,7 @@ Kafka or index into Elasticsearch.
 Request the capabilities as one custom build; do not bring up the stock alerts
 and LVS profiles separately:
 
-```text title="Combined deployment prompt"
+```text title="Paste into your coding agent: Combined deployment prompt"
 Use the vss-build-vision-ai skill to build and deploy one VSS stack that combines
 real-time VLM alerting (2d_vlm) with long-video summarization. Show the resolved
 services, GPU placement, and teardown impact before deploying.
@@ -184,7 +184,7 @@ in-stack VSS Agent.
 From the repository root, after the Skill reports the build name, inspect the
 exact generated plan and the services started from it:
 
-```bash
+```bash title="Run in the deployment host terminal"
 set -o pipefail
 BUILD_DIR="_builds/<name>"
 grep -E '^(FOUNDATION|COMPOSE_PROFILES)=' "$BUILD_DIR/override.env"
@@ -269,10 +269,10 @@ NemoClaw, which runs outside the Docker Compose project and operates the
 deployed stack through its public ingress URL.
 
 For a NemoClaw build with the VSS Web UI, the UI starts with the stack. Its
-chat surfaces wait for a gateway token. After NemoClaw onboarding, run
-`nemoclaw <sandbox> gateway-token --quiet` on the deployment host and enter the
-token in **Connect NemoClaw chat**. The UI checks gateway access at runtime;
-the container does not need to be restarted.
+chat surfaces wait for a gateway token. Follow the Quickstart's
+[NemoClaw handoff](/getting-started/quickstart#continue-in-nemoclaw) to connect
+using the returned sandbox name and chat URL, then copy videos into the sandbox.
+The UI checks gateway access at runtime; the container does not need to be restarted.
 
 If you choose no harness, operate the deployment from the host with the `vss`
 CLI. If you explicitly request the in-stack VSS Agent, the Skill preserves that
@@ -310,40 +310,44 @@ readiness checks before returning.
 
 ## Example prompts
 
-```text title="Deploy the quickstart profile"
+```text title="Paste into your coding agent: Deploy the quickstart profile"
 Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
 ```
 
-```text title="Deploy search"
+```text title="Paste into your coding agent: Deploy search"
 Use the vss-build-vision-ai skill to deploy the VSS search profile with remote LLM and VLM endpoints.
 ```
 
-```text title="Deploy warehouse"
+```text title="Paste into your coding agent: Deploy warehouse"
 Use the vss-build-vision-ai skill to deploy a warehouse 3D profile with behavior analytics.
 ```
 
-```text title="Build a custom stack"
+```text title="Paste into your coding agent: Build a custom stack"
 Use the vss-build-vision-ai skill to build a custom VSS stack for streaming object detection, video embeddings, and semantic search.
 ```
 
-```text title="Deploy with a nightly harness"
+```text title="Paste into your coding agent: Deploy with a nightly harness"
 Use the vss-build-vision-ai skill to deploy the VSS base profile with the NemoClaw harness at nightly-20260928.
 ```
 
-```text title="Pin images and harness to one release"
+```text title="Paste into your coding agent: Pin images and harness to one release"
 Use the vss-build-vision-ai skill to deploy the VSS base profile with image tag 3.4.0 and the NemoClaw harness at v3.4.0.
 ```
 
-```text title="Tear down"
+```text title="Paste into your coding agent: Tear down"
 Use the vss-build-vision-ai skill to tear down the VSS build.
 ```
 
 ## After deployment
 
-After the Skill returns the deployment URL, configure the checkout-local `vss`
-CLI against that origin. Run this from the VSS Blueprint checkout:
+If NemoClaw was provisioned, continue in its chat using the Quickstart's
+[handoff](/getting-started/quickstart#continue-in-nemoclaw). The sandbox
+already contains the operations Skills and configured `vss` CLI.
 
-```bash
+To operate from the host terminal instead, configure the checkout-local `vss`
+CLI against the returned deployment origin. Run this from the VSS Blueprint checkout:
+
+```bash title="Run in the deployment host terminal"
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$PWD}"
 vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
 vss --version
