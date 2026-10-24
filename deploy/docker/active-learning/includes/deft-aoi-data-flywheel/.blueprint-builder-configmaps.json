@@ -1,0 +1,10 @@
+[
+  "service-configs/data-flywheel-api/configs/config.deft.yaml",
+  "service-configs/data-flywheel-api/render_config.py",
+  "service-configs/data-flywheel-beat/configs/config.deft.yaml",
+  "service-configs/data-flywheel-beat/render_config.py",
+  "service-configs/data-flywheel-parent-worker/configs/config.deft.yaml",
+  "service-configs/data-flywheel-parent-worker/render_config.py",
+  "service-configs/data-flywheel-worker/configs/config.deft.yaml",
+  "service-configs/data-flywheel-worker/render_config.py"
+]

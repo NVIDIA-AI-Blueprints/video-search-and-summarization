@@ -1,0 +1,41 @@
+@startuml
+start
+:Start Workflow;
+:Pull data from Elasticsearch for workload ID;
+
+if (More than 2,000 records?) then (yes)
+  :Create Eval Dataset;
+  :Create Customization Dataset;
+else (no)
+  :Create Eval Dataset only;
+endif
+
+fork
+  :For each available NIM -> Run in parallel;
+
+  fork
+    group NIM Workflow (for each NIM)
+    :Check if NIM is remote;
+    if (Remote?) then (yes)
+    else (no)
+      :Spin up NIM;
+      :Wait for NIM to be ready;
+    endif
+
+    fork
+      :Run Eval on base NIM;
+      :Run ICL Eval on base NIM;
+    fork again
+      if (Local NIM?) then (yes)
+        :Run Customization;
+        :Run Eval on Customized NIM;
+      endif
+    end fork
+    end group
+  end fork
+
+end fork
+
+:Aggregate and Report Results;
+stop
+@enduml

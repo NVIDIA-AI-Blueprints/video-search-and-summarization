@@ -1,0 +1,326 @@
+# ============================================================================
+# DEFT (VSS-AOI) backend configuration.
+# Loaded when BACKEND=deft (see src/config/base.py). The NMP backend uses
+# config.yaml; this file holds only the deft-relevant blocks.
+# ============================================================================
+
+backend:
+  kind: deft
+
+# Logging configuration
+logging_config:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# MLflow (experiment tracking + model registry). REQUIRED for the DEFT/AOI
+# loop — candidate registration, the alias trail, baseline resolution and HITL
+# approval detection all run through the registry — so it is pinned on here
+# (the deft compose profile also starts the mlflow service by default).
+# Complete ${NAME} scalars are resolved when the application loads this file.
+# The :- fallback preserves this source deployment's defaults, while |bool and
+# |nullable-string retain the YAML scalar types expected by the config models.
+mlflow_config:
+  enabled: true
+  # localhost, not 0.0.0.0: this is a CLIENT connect address (0.0.0.0 is a
+  # bind-only address — connecting to it is undefined off-Linux).
+  tracking_uri: "${DFW_MLFLOW_URL:-http://localhost:5000}"
+  experiment_name_prefix: "data-flywheel-aoi"
+  artifact_location: "${DFW_MLFLOW_ARTIFACT_LOCATION:-./mlruns}"
+
+# DEFT-loop service endpoints DFW drives (all consumed, never built).
+# Values are placeholders/defaults — override per deployment. Credentials are
+# referenced by env-var name, never inlined.
+deft_config:
+  # Automatic rollout advancement needs online verdicts: the evaluator
+  # collects samples via the Storage Backend eval-set flow at
+  # storage_backend_url (POST /v1/results -> poll GET /v1/eval/{id} ->
+  # retrieve; design §4.3). If that yields no samples (and HITL is off) a
+  # promotion holds in shadow until approved via the promotions API.
+  # aoi_results_url remains a LEGACY override for direct inline-results GETs.
+  # DEFT fine-tune service (/v1/fine-tune).
+  deft_base_url: "${DFW_DEFT_BASE_URL:-http://deft:8000}"
+  # AOI Storage Backend (/v1/snapshot, /v1/kpi, /v1/results).
+  storage_backend_url: "${DFW_STORAGE_BACKEND_URL:-http://storage-backend:8080}"
+  # SeaweedFS/S3 snapshots + artifacts + results.
+  object_store_uri: "${DFW_OBJECT_STORE_URI:-s3://aoi-artifacts}"
+  api_key_env: "DEFT_API_KEY"
+  storage_api_key_env: "STORAGE_BACKEND_API_KEY"
+  # Per-use-case endpoint overrides, keyed by a job config's `use_case` (NOT by
+  # job type — storage is routed by use_case alone). An entry states only what
+  # differs; unset fields inherit the values above verbatim, and unknown keys are
+  # rejected at startup (extra="forbid") because a dropped typo would silently
+  # point one use case at another's store.
+  #
+  # ONCE THIS MAP IS NON-EMPTY IT IS EXHAUSTIVE. `DEFTConfig.for_use_case` fails
+  # CLOSED on a use_case that is absent from a non-empty map — snapshot, presign
+  # and promotion all resolve endpoints through that one call, so they inherit
+  # one rule instead of each carrying its own guard. So EVERY use case that runs
+  # in this deployment needs an entry here, including the ones that change
+  # nothing: an empty `aoi: {}` is the deliberate "inherits everything above"
+  # declaration, and it is what distinguishes "shares the store on purpose" from
+  # "nobody ever declared this use case".
+  #
+  # Adding a use case to this deployment therefore means adding a line here too.
+  # That is the point: the alternative is a run that starts, succeeds, and
+  # snapshots someone else's data.
+  use_case_endpoints:
+    # AOI reads and writes the top-level endpoints. Stated, not omitted — see
+    # above; an omitted `aoi` would now REFUSE every AOI run.
+    aoi: {}
+    # ITS shares the same Storage Backend, so it declares nothing and inherits
+    # the top-level triple — stated and not omitted, for the same reason
+    # `aoi: {}` is. DFW is deployed PER USE CASE, so a deployment has exactly ONE
+    # Storage Backend at deploy time regardless; and the Storage Backend is
+    # growing multi-use-case support, so a second host is not the thing that
+    # separates ITS data. Separation stays where it belongs: distinct PREFIXES
+    # inside the shared bucket (see its_job_config.kpi below), which need no
+    # endpoint override.
+    #
+    # The entry stays even though it is empty. It is NOT a leftover: the map is
+    # exhaustive once non-empty, so deleting `its` makes `for_use_case` fail
+    # closed and REFUSE every ITS run at snapshot, presign and promotion. Empty
+    # is the deliberate "shares the store on purpose" declaration.
+    #
+    # A deployment that DOES front ITS with its own store overrides the whole
+    # triple together — storage_api_key_env included, because unset fields
+    # inherit and repointing only the URL would send this Storage Backend's
+    # bearer to another host.
+    its: {}
+
+# Infer Model Manager (AOI promotion control plane).
+model_manager:
+  base_url: "${DFW_MODEL_MANAGER_URL:-http://localhost:8090}"
+  timeout: 30.0
+  # pull is the long verb: it downloads the weights AND waits out the serving
+  # stack's ONNX export + TensorRT engine build (~5-6 min for a cold version,
+  # against the Model Manager's own 600s build budget). Stated explicitly rather
+  # than left to the code default so the budget is visible where it is tuned.
+  pull_timeout: 900.0
+
+# ============================================================================
+# AOI (DEFT-loop) DEFAULT JOB CONFIG.
+# The no-config_name path loads this as settings.job_configs["aoi_job"].
+# ============================================================================
+aoi_job_config:
+  use_case: "aoi"                     # evaluator plugin + KPI-set key
+  model_name: "${DFW_MODEL_NAME:-changenet-aoi}" # Registry model name.
+  selection:
+    mode: "query"
+    filters:
+      # AOI Storage Backend /v1/snapshot requires selection.created_after.
+      # This broad default keeps the no-config_name path valid and selects all
+      # indexed AOI records unless a deployment narrows the time window.
+      created_after: "1970-01-01T00:00:00Z"
+      # Required AOI inspection tag used to exclude KPI records from training.
+      tag: "${AOI_SELECTION_TAG}"
+  kpi:
+    # Source of DEFT's kpi/testing eval set (the data DEFT judges the model on
+    # DURING training → FAR_pct). Distinct from `eval` below (DFW's promotion
+    # gate). When unset, DEFT carves the kpi split from the training snapshot.
+    pull_from_storage: true    # DFW creates a KPI set via POST /v1/kpi (false → DEFT carves the kpi split, or use `uri`)
+    # Or a static KPI-set prefix (which becomes DEFT config.kpi.path).
+    uri: "${DFW_KPI_SET_URI|nullable-string:-null}"
+  eval:
+    # DFW's deterministic offline-gate criteria (structured — no expression
+    # parsing). Metric names + units MATCH what DEFT returns in ResultsResponse.
+    # PINNED CONTRACT (deft-service app/execution/kpi.py, `KpiResult.to_metrics`):
+    #   "FAR_pct" = far_pct_100 = FAR (%) at the threshold that yields recall=100%
+    #   (i.e. `far_at_recall(..., 1.00)`). So recall=100% is INHERENT in FAR_pct —
+    #   "FAR < 0.1% at recall=100%" == `FAR_pct < 0.1`, and DEFT emits no `recall`
+    #   key (a `recall >= 1.0` constraint would fail-closed on every candidate).
+    # If DEFT ever changes FAR_pct's operating point, revisit this gate.
+    # Same convention as the deft e2e configs.
+    kpi_target:
+      - {metric: "FAR_pct", op: "<", threshold: 0.1}
+  deft:
+    # DEFT-shaped FineTuneRequest body, passed through VERBATIM (DFW injects
+    # the snapshot data_pool.path + model.name, and resolves model.checkpoint
+    # from the MLflow @production baseline when unset). pipeline.kpi_target is
+    # DEFT's own convergence stop-condition (a string DEFT parses itself) —
+    # distinct from eval.kpi_target above, which DFW verifies after training.
+    config:
+      model:
+        # REQUIRED for the FIRST rollout (no promoted baseline to resolve from):
+        # the checkpoint DEFT fine-tunes FROM. Subsequent runs resolve it from
+        # the promoted baseline automatically; an explicit value always wins.
+        checkpoint: "${DFW_BASELINE_MODEL_CHECKPOINT:-s3://aoi-models/baseline/1.0.0/model.pt}"
+      pipeline:
+        kpi_target: "FAR < 0.1% at recall=100%"
+      training:
+        epochs: 50
+        num_gpus: 2
+      mining:
+        topn: 5
+  # Promotion policy consumed by the Promotion Controller (gates: pull ->
+  # deploy(shadow) -> canary steps -> full). HITL toggles pause a gate until
+  # an approval (MLflow tag/alias) is detected by the hitl beat.
+  promotion_policy:
+    hitl:
+      pull: false
+      deploy: false
+      canary: "${DFW_HITL_CANARY|bool:-true}"
+      full: "${DFW_HITL_FULL|bool:-true}"
+    # Which optional serving stages the rollout traverses. pull and full are
+    # mandatory; these two are optional so the ladder can match what the
+    # serving backend actually supports. A backend with no partial-traffic
+    # routing sets canary: false and goes shadow -> full.
+    #
+    # NOTE: disabling a stage also removes its HITL gate above — with
+    # canary: false the hitl.canary toggle is dead config, so a rollout that
+    # required two approvals now requires only the one at full.
+    deployment_stages:
+      shadow: "${DFW_STAGE_SHADOW|bool:-true}" # Candidate shadow-serves before the switch.
+      canary: "${DFW_STAGE_CANARY|bool:-true}" # Step through partial-traffic weights.
+    # Only consulted when deployment_stages.canary is true. Must be non-empty.
+    canary_steps:
+      steps: [5, 25, 50]
+    eval_harness:
+      # ONLINE gate: FAR only (the metric the DEFT loop validates), same
+      # metric/op/threshold form as kpi_target. Empty is fail-closed.
+      #
+      # enabled: false skips the online gate entirely and promotes on the
+      # offline KPI gate alone — for use cases with no live labelled feedback.
+      # It must be stated explicitly; it is never inferred from an absent target.
+      enabled: true
+      online_target:
+        - {metric: FAR_pct, op: "<", threshold: 0.1}
+      # Minimum GOOD units (the FAR denominator) before a non-hold verdict.
+      min_sample_size: 100
+      # How long one shadow/canary phase may run without a decisive verdict
+      # before on_timeout applies. null = no deadline (a starved promotion then
+      # holds indefinitely). The clock restarts on each serving-role transition.
+      max_observation_window_s: null
+      # escalate -> hand it to a human (pending_approval) | rollback | advance
+      on_timeout: escalate
+    poll_interval_s: 10.0
+    # 10.0 * 90 = 900s (15 min). This poller does NOT have to absorb the engine
+    # build: a cold candidate compiles its TensorRT engine during pull, which has
+    # its own budget (model_manager.pull_timeout above), because the serving stack
+    # refuses to route traffic to a version that is not READY yet. What this
+    # budget covers is the swap settling after the routing change.
+    #
+    # It is generous anyway because the Model Manager's inline post-apply
+    # readiness check is only ~30s and deliberately non-terminal: a swap it has
+    # not seen converge is left `progressing` for this poller to reconcile, so
+    # this budget — not the Model Manager's — is what decides a swap's fate. A
+    # poller that gave up sooner would just re-drive the gate and reload the model.
+    poll_max_attempts: 90
+    auto_rollback_on_regression: true
+
+# ============================================================================
+# ITS (DEFT-loop) DEFAULT JOB CONFIG.
+# `POST /jobs {"job_type": "its_job"}` with no config_name resolves this block
+# directly. ITS is its own JOB TYPE (which pipeline the dispatcher builds) but
+# runs the SAME DAG off the SAME schema as aoi_job_config. Storage is not
+# declared here: `use_case: its` routes through the `its:` entry in
+# deft_config.use_case_endpoints above.
+# ============================================================================
+its_job_config:
+  use_case: "its"          # routes evaluator, storage endpoints, promotion policy
+  # MLflow registry key AND the serving model-catalog key. The model builder
+  # refuses a name absent from its catalog — at the `pull` gate, after a full
+  # training run has already cleared the offline gate.
+  model_name: "${DFW_ITS_MODEL_NAME:-GDINO}"
+  # Rides as PullRequest.format and names the artifact DEFT HANDS OVER, not the
+  # format the serving stack ends up running. DEFT publishes a training
+  # checkpoint (gdino_model_latest.pth), so "pth" is the truthful value: the
+  # Model Manager stages it as model.pth and the builder picks the `gdino_pth`
+  # handler off that extension, which exports ONNX and compiles the engine.
+  # "onnx" would describe an artifact DEFT never produces, and "tensorrt" would
+  # tell the backend NOT to build at all, expecting a prebuilt .engine (pinning
+  # the artifact to one GPU/driver/TensorRT triple).
+  model_format: "pth"
+
+  selection:
+    mode: "query"
+    # Facets ride FLAT. Every name must exist in the catalogue's index template
+    # (`dynamic: strict`), but the selection object itself is OPEN — an unknown
+    # name is ACCEPTED and matches nothing, giving an empty training pool
+    # reported as a successful snapshot.
+    #
+    # So `created_after` ships ALONE. `jobType`, `location` and `machineId` all
+    # used to ship here and none of the three is in the ITS index template
+    # (checked live against a 24,593-doc `sc_*` index: 0 documents carry any of
+    # them). `use_case: its` already routes to the ITS catalogue, so there are no
+    # AOI rows in it for a `jobType` term to separate out.
+    filters:
+      created_after: "1970-01-01T00:00:00Z"   # required by /v1/snapshot
+      # Narrowing knob that DOES exist in the template: `tag`, the value the ITS
+      # loader stamps on an ingest. Ships commented — a live value is a
+      # deployment's own, and a wrong VALUE fails exactly like a wrong NAME.
+      # tag: "its-2026-09-08"
+      # ⚠️ MEDIA RETENTION — field name unconfirmed, so shipped commented out.
+      #    The catalogue outlives the media it indexes, so a time-window
+      #    selection mixes rows that still have a frame with rows that only
+      #    remember having one. Agree the name with the ITS store team first.
+      # media_present: true
+
+  kpi:
+    # A branch, not a pair: `true` mints the set via POST /v1/kpi and makes
+    # `uri` unreachable. OFF for ITS because the mint is AOI-SHAPED —
+    # create_kpi_set sends a hardcoded {'tag': 'kpi'} and refuses any other — so
+    # against an ITS store it returns an EMPTY set rather than an error. Off,
+    # DEFT carves the kpi split out of the training snapshot instead.
+    pull_from_storage: false
+    # Set DFW_ITS_KPI_SET_URI for a FROZEN set, which is what makes two runs
+    # comparable. Must name ONE object: a .tar.gz of images/<site>/ + labels/ +
+    # mapping.yaml. A prefix yields the manifest mirror with no labels.
+    uri: "${DFW_ITS_KPI_SET_URI|nullable-string:-null}"
+
+  deft:
+    # Profile mode: the profile owns architecture, classes, mining and
+    # hyper-parameters. Restating them here fights it rather than merging.
+    profile: smart-city-object-detection
+    # `overrides` is the sanctioned way to bend the profile. model.checkpoint is
+    # near-mandatory: the profile's fallback baseline names ITS's own bucket,
+    # and the Storage Backend presigns only keys inside the bucket it owns, so a
+    # deployment whose store differs must repoint it or fail in `materialize`.
+    #
+    # These values are the ones driven end to end on a live stack. Both the
+    # checkpoint bucket and DFW_OBJECT_STORE_URI/AWS_BUCKET must name the SAME
+    # bucket: the backend strips only its OWN bucket from a URI, so another
+    # bucket's name folds into the key and fails the prefix allowlist with a
+    # misleading "key must start with..." error.
+    overrides:
+      # Per-class decision thresholds. Not a tuning knob to copy blindly -- they
+      # were fitted against this deployment's class balance.
+      classes: {road_sign: 0.22, car: 0.65, person: 0.05, bicycle: 0.5}
+      # Mine 3x the selected pool before ranking.
+      mining: {multiplier: 3}
+      model: {checkpoint: "s3://its-samples/models/baseline/grounding_dino.pth"}
+      training: {epochs: 5}
+
+  eval:
+    kpi_target:
+      # macro_ap is the mean of the per-class AP50 column (deft-service
+      # its_adapter._collect_kpi_metrics). A key that does not match what DEFT
+      # emits counts as UNMET, so a wrong one rejects every candidate forever
+      # while every stage reports success.
+      # ⚠️ Confirmed against deft-service MR !15, still a DRAFT — re-check at merge.
+      - {metric: "macro_ap", op: ">=", threshold: 0.55}
+
+  promotion_policy:
+    hitl:
+      pull: false
+      deploy: false
+      canary: true      # dead while canary is off; kept so re-enabling restores the gate
+      full: true
+    deployment_stages:
+      # A shadow is by definition RELATIVE to something already serving: with no
+      # default version the Model Manager refuses the routing write rather than
+      # guess (`_primary`, adapters/unified), so on a fresh stack the deploy gate
+      # fails `registry_unreachable` every attempt. Off until one version is
+      # promoted; flip to true after that to soak the next candidate.
+      shadow: false
+      canary: false     # no partial-traffic routing exists: pull -> shadow -> full
+    eval_harness:
+      # ITS has no live labelled feedback, and a gate with no evidence HOLDS
+      # forever. Must be stated: an absent `enabled` reads as ON.
+      enabled: false
+    poll_interval_s: 10.0
+    poll_max_attempts: 90            # swap-settle budget, NOT the engine-build knob
+    # Only acts on an online regression verdict, which v1 never produces.
+    auto_rollback_on_regression: false
+
+  # 120 x 5s = 10min, double the AOI default: POST /v1/snapshot may have to
+  # decode video into sampled frames before it reports ready.
+  snapshot_poll_max_attempts: 120

@@ -1,0 +1,28 @@
+---
+{{- if .Values.mongodb.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.mongodb.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.mongodb.fullnameOverride }}-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.mongodb.fullnameOverride }}-deployment
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.mongodb.fullnameOverride }}-deployment
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: mongodb
+          image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+          imagePullPolicy: Always
+          resources:
+            {{- toYaml .Values.mongodb.resources | nindent 12 }}
+          ports:
+            - containerPort: {{ .Values.mongodb.service.port }}
+{{- end }}

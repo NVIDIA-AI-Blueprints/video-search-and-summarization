@@ -1,0 +1,70 @@
+---
+{{- if not .Values.profile.production.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.foundationalFlywheelServer.deployments.flower.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.foundationalFlywheelServer.deployments.flower.fullnameOverride }}-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.foundationalFlywheelServer.deployments.flower.fullnameOverride }}-deployment
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.foundationalFlywheelServer.deployments.flower.fullnameOverride }}-deployment
+    spec:
+      {{- with .Values.foundationalFlywheelServer.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      containers:
+        - name: flower
+          image: "{{ .Values.foundationalFlywheelServer.image.repository }}:{{ .Values.foundationalFlywheelServer.image.tag }}"
+          imagePullPolicy: Always
+          resources:
+            {{- toYaml .Values.foundationalFlywheelServer.deployments.flower.resources | nindent 12 }}
+          ports:
+            - containerPort: {{ .Values.foundationalFlywheelServer.deployments.flower.service.port }}
+          env:
+            - name: ELASTICSEARCH_URL
+              value: {{ .Values.foundationalFlywheelServer.deployments.flower.env.ELASTICSEARCH_URL | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.foundationalFlywheelServer.deployments.flower.env.REDIS_URL | quote }}
+            - name: MONGODB_URL
+              value: {{ .Values.foundationalFlywheelServer.deployments.flower.env.MONGODB_URL | quote }}
+            - name: MONGODB_DB
+              value: {{ .Values.foundationalFlywheelServer.deployments.flower.env.MONGODB_DB | quote }}
+            - name: ES_COLLECTION_NAME
+              value: {{ .Values.foundationalFlywheelServer.deployments.flower.env.ES_COLLECTION_NAME | quote }}
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.nvidiaApiSecret.name | default "nvidia-api" }}
+                  key: {{ .Values.nvidiaApiSecret.key | default "NVIDIA_API_KEY" }}
+            - name: LLM_JUDGE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  {{ if .Values.secrets.llmJudgeApiKey }}
+                  name: {{ .Values.llmJudgeSecret.name | default "llm-judge-api" }}
+                  key: {{ .Values.llmJudgeSecret.key | default "LLM_JUDGE_API_KEY" }}
+                  {{ else }}
+                  name: {{ .Values.nvidiaApiSecret.name | default "nvidia-api" }}
+                  key: {{ .Values.nvidiaApiSecret.key | default "NVIDIA_API_KEY" }}
+                  {{ end }}
+            - name: EMB_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  {{ if .Values.secrets.embApiKey }}
+                  name: {{ .Values.embSecret.name | default "emb-api" }}
+                  key: {{ .Values.embSecret.key | default "EMB_API_KEY" }}
+                  {{ else }}
+                  name: {{ .Values.nvidiaApiSecret.name | default "nvidia-api" }}
+                  key: {{ .Values.nvidiaApiSecret.key | default "NVIDIA_API_KEY" }}
+                  {{ end }}
+          command:
+            {{- toYaml .Values.foundationalFlywheelServer.deployments.flower.command | nindent 12 }}
+{{- end }}

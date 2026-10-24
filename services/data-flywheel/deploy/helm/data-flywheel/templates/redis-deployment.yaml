@@ -1,0 +1,28 @@
+---
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.redis.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.redis.fullnameOverride }}-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.redis.fullnameOverride }}-deployment
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.redis.fullnameOverride }}-deployment
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: redis
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: Always
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          ports:
+            - containerPort: {{ .Values.redis.service.port }}
+{{- end }}

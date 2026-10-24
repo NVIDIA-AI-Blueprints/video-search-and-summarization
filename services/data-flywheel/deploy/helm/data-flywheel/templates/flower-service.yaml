@@ -1,0 +1,13 @@
+---
+{{- if not .Values.profile.production.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.foundationalFlywheelServer.deployments.flower.fullnameOverride }}-service
+spec:
+  selector:
+    app: {{ .Values.foundationalFlywheelServer.deployments.flower.fullnameOverride }}-deployment
+  type: {{ .Values.foundationalFlywheelServer.deployments.flower.service.type }}
+  ports:
+    - port: {{ .Values.foundationalFlywheelServer.deployments.flower.service.port }}
+{{- end }}

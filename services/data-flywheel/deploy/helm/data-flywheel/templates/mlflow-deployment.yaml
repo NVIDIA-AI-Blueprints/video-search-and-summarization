@@ -1,0 +1,47 @@
+---
+{{- if .Values.profile.mlflow.COMPOSE_PROFILES | eq "mlflow" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.foundationalFlywheelServer.deployments.mlflow.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.foundationalFlywheelServer.deployments.mlflow.fullnameOverride }}-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.foundationalFlywheelServer.deployments.mlflow.fullnameOverride }}-deployment
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.foundationalFlywheelServer.deployments.mlflow.fullnameOverride }}-deployment
+    spec:
+      {{- with .Values.foundationalFlywheelServer.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      initContainers:
+        - name: create-mlflow-data-folder
+          image: busybox:1.37
+          command: ['sh', '-c', 'mkdir -p /mlruns && chmod 755 /mlruns']
+          volumeMounts:
+            - name: mlflow-data-volume
+              mountPath: /mlruns
+      containers:
+        - name: mlflow
+          image: "{{ .Values.foundationalFlywheelServer.deployments.mlflow.image }}"
+          imagePullPolicy: Always
+          resources:
+            {{- toYaml .Values.foundationalFlywheelServer.deployments.mlflow.resources | nindent 12 }}
+          ports:
+            - containerPort: 5000
+          command:
+            {{- toYaml .Values.foundationalFlywheelServer.deployments.mlflow.command | nindent 12 }}
+          volumeMounts:
+            - name: mlflow-data-volume
+              mountPath: /mlruns
+      volumes:
+        - name: mlflow-data-volume
+          emptyDir: {}
+{{- end }}

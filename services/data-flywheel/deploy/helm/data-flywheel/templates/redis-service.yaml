@@ -1,0 +1,13 @@
+---
+{{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.redis.fullnameOverride }}-service
+spec:
+  selector:
+    app: {{ .Values.redis.fullnameOverride }}-deployment
+  type: {{ .Values.redis.service.type }}
+  ports:
+    - port: {{ .Values.redis.service.port }}
+{{- end }}
