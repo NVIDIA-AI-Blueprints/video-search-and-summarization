@@ -49,6 +49,7 @@ jest.mock('@nvidia/foundations-react-core', () => {
 });
 
 jest.mock('common', () => ({
+  ...jest.requireActual('common'),
   VideoModal: jest.fn(() => null),
   useVideoModal: jest.fn(() => ({
     videoModal: { isOpen: false, videoUrl: '', title: '' },
@@ -292,6 +293,88 @@ describe('AlertsComponent sub-views', () => {
       'data-realtime-enabled',
       'false',
     );
+  });
+
+  it('opens Manage Alerts when chat reports a successful rule mutation', async () => {
+    sessionStorage.setItem('alertsTabView', JSON.stringify('view'));
+    let answerHandler: ((answer: string) => boolean | void) | undefined;
+    const registerChatAnswerHandler = jest.fn((handler) => {
+      answerHandler = handler;
+      return jest.fn();
+    });
+
+    render(
+      <AlertsComponent
+        theme="light"
+        isActive
+        registerChatAnswerHandler={registerChatAnswerHandler}
+        alertsData={{
+          systemStatus: 'active',
+          apiUrl: 'http://alerts.example',
+          vstApiUrl: 'http://vst.example',
+          alertsApiUrl: 'http://bridge.example/api/v1',
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(sessionStorage.setItem).toHaveBeenCalledWith(
+        'alertsTabView',
+        JSON.stringify('view'),
+      ),
+    );
+    expect(screen.queryByTestId('create-alert-rules-view-stub')).not.toBeInTheDocument();
+
+    act(() => {
+      const handled = answerHandler?.(
+        'Real-time VLM alert successfully started for sensor warehouse_sample.\nAlert Rule ID: f190b51f-e8b7-40c9-9b6e-739f461ba925',
+      );
+      expect(handled).toBe(true);
+    });
+
+    const editor = screen.getByTestId('create-alert-rules-view-stub');
+    expect(editor).toHaveAttribute('data-kind', 'real-time');
+    expect(document.getElementById('alerts-panel-create')).toHaveStyle({ display: 'flex' });
+  });
+
+  it('keeps View Alerts when chat delivers an incident artifact', async () => {
+    sessionStorage.setItem('alertsTabView', JSON.stringify('view'));
+    let answerHandler: ((answer: string) => boolean | void) | undefined;
+    const registerChatAnswerHandler = jest.fn((handler) => {
+      answerHandler = handler;
+      return jest.fn();
+    });
+
+    render(
+      <AlertsComponent
+        theme="light"
+        isActive
+        registerChatAnswerHandler={registerChatAnswerHandler}
+        alertsData={{
+          systemStatus: 'active',
+          apiUrl: 'http://alerts.example',
+          vstApiUrl: 'http://vst.example',
+          alertsApiUrl: 'http://bridge.example/api/v1',
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(sessionStorage.setItem).toHaveBeenCalledWith(
+        'alertsTabView',
+        JSON.stringify('view'),
+      ),
+    );
+
+    act(() => {
+      const handled = answerHandler?.(
+        '<vss-ui-artifact>{"version":"1.0","kind":"vss.alert.incidents","payload":{"incidents":[]}}</vss-ui-artifact>',
+      );
+      expect(handled).toBe(true);
+    });
+
+    expect(screen.queryByTestId('create-alert-rules-view-stub')).not.toBeInTheDocument();
+    expect(document.getElementById('alerts-panel-view')).toHaveStyle({ display: 'flex' });
   });
 
   it('does not mount Manage Alerts when both rule kinds are disabled', () => {

@@ -30,6 +30,7 @@ import { AlertsTable } from './components/AlertsTable';
 import { AlertsSidebarControls, ALERTS_VIEW_PANEL_ID } from './components/AlertsSidebarControls';
 import { CreateAlertRulesView, triggerRealtimeAddDraft } from './components/CreateAlertRulesView';
 import { triggerVerificationAddDraft } from './components/CvAlertsVerificationTab';
+import { isSuccessfulAlertRuleMutation } from './utils/alertRuleMutation';
 
 const readSessionState = <T,>(key: string, fallback: T): T => {
   if (typeof window === 'undefined') return fallback;
@@ -289,8 +290,21 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     const hasAlertArtifact = extractVssUiArtifacts(answer).some(
       (artifact) => artifact.kind === 'vss.alert.incidents',
     );
-    if (!hasAlertArtifact) return false;
-    refetch({ includeSensorList: true });
+    if (hasAlertArtifact) {
+      refetch({ includeSensorList: true });
+      return true;
+    }
+    // Rule CRUD has no UI artifact (see agent adapter: do not publish
+    // alert-rule mutation). Returning true still attaches the "See all
+    // results in: Alerts Tab" caller-info link, matching Search.
+    if (!isSuccessfulAlertRuleMutation(answer)) return false;
+    if (manageAlertsEnabled) {
+      setHasOpenedManageAlerts(true);
+      setAlertsView('create');
+      if (enableRealtimeAlerts) {
+        setAlertRulesKind('real-time');
+      }
+    }
     return true;
   };
   const forwardAgentAnswer = React.useCallback(
