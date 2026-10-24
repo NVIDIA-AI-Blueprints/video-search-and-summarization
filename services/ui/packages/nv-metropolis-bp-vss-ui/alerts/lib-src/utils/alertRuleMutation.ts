@@ -23,6 +23,11 @@ const FAILURE_PATTERNS = [
   /\bexperiencing issues\b/i,
   /\brequest was rejected\b/i,
   /\bis required\b/i,
+  // "The real-time alert was not started" otherwise matches SUCCESS_PATTERNS
+  // because the gap before `started` consumes "was not".
+  /\b(?:was|were|is|are|has|have)\s+not\b/i,
+  /\b(?:hasn'?t|haven'?t|isn'?t|aren'?t|wasn'?t|weren'?t|didn'?t|did\s+not)\b/i,
+  /\bnot\s+(?:been\s+)?(?:successfully\s+)?(?:started|stopped|created|deleted|removed|updated|modified)\b/i,
 ];
 
 /** Stop/delete confirmation is a question, not a completed mutation. */
@@ -36,7 +41,8 @@ const SUCCESS_PATTERNS = [
   // OpenClaw Workflow D create: "Realtime alert <id> is live on **sensor**"
   /realtime alert\b[\s\S]{0,120}\bis live\b/i,
   // OpenClaw Workflow D delete: "Alert `ppe` on **sensor** has been stopped"
-  /\balert\b[\s\S]{0,120}has been stopped\b/i,
+  // Require the tagged type so "Alert Slack webhook has been stopped" does not match.
+  /\balert\s+`[^`]+`[\s\S]{0,120}has been stopped\b/i,
   /\balready stopped\b/i,
   /realtime alert rule (?:created|deleted)/i,
 ];

@@ -46,6 +46,9 @@ describe('isSuccessfulAlertRuleMutation', () => {
     ['nothing to stop', 'That rule is no longer active — nothing to stop.'],
     ['declined stop', 'OK, the rule stays active.'],
     ['no matching rule', 'No matching rule found for ppe on **warehouse-dock-1**.'],
+    ['Slack webhook stop', 'Alert Slack webhook has been stopped.'],
+    ['negated start', 'The real-time alert was not started.'],
+    ['negated has not been', 'The real-time VLM alert has not been started.'],
   ])('rejects %s', (_label, answer) => {
     expect(isSuccessfulAlertRuleMutation(answer)).toBe(false);
   });

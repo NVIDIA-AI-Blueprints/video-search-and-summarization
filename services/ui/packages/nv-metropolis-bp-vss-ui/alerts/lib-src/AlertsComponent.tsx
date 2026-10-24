@@ -292,6 +292,10 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     );
     if (hasAlertArtifact) {
       refetch({ includeSensorList: true });
+      // A prior rule mutation may have left Manage Alerts selected. Incident
+      // caller-info only selects the Alerts main tab, so switch back to View
+      // Alerts here or the incident link would show rules.
+      setAlertsView('view');
       return true;
     }
     // Rule CRUD has no UI artifact (see agent adapter: do not publish
