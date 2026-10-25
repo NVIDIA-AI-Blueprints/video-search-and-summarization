@@ -623,6 +623,16 @@ def test_an_inline_think_block_is_stripped_before_parsing(monkeypatch: pytest.Mo
     assert decomposer.decompose("a forklift")[0] == {"query": "forklift"}
 
 
+def test_prompt_requests_one_complete_attribute_sentence_in_a_json_array() -> None:
+    prompt = flows.decompose.QUERY_DECOMPOSITION_PROMPT
+    assert "exactly one list item" in prompt
+    assert "must always be a JSON array, never a string" in prompt
+    assert "Never return [] for a bare clothing or accessory mention" in prompt
+    assert "Ignore viewpoint words (front/side/back view)" in prompt
+    # A posture with clothing is still an action ("a standing person in a red shirt" -> fusion).
+    assert 'including "a standing person"' in prompt
+
+
 def test_routing_rule_matches_the_four_cli_paths() -> None:
     """Derived from the paths' input models, not invented.
 

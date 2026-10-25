@@ -102,7 +102,7 @@ Available video sources:
 {video_sources}
 
 Fields:
-- attributes (list of strings): how a person looks, as stated in the query: clothing, colors, hair, eyewear, worn accessories, or bags. Write each as a phrase that starts with "person wearing" or "person with". A query that only names clothing or accessories, with or without a person, is a search for a person wearing them: list them as attributes. Test: an attribute would still describe the person somewhere else, doing something else. Actions, poses, roles or jobs, gender or age alone, locations, camera viewpoint, and objects or vehicles are not attributes, and appearance is never inferred from a role. Each attribute must reuse appearance words from the query; if the query names no garment, color, hair, eyewear, or carried item, attributes is []. Use [] when there are none. If removing actions, places, and objects from a phrase leaves no appearance words, drop it.
+- attributes (list of strings): how a person looks, as stated in the query: clothing, colors, hair, eyewear, worn accessories, or bags. When appearance details are present, return exactly one list item: one concise, person-centered sentence that combines every explicit appearance detail, including all garments, colors, and personal accessories. Start it with "Person wearing" or "Person with". Do not split details across multiple list items. A query that only names clothing or accessories, with or without a person, is a search for a person wearing them: list them as attributes. Never return [] for a bare clothing or accessory mention; even a single word such as "shorts" or "sunglasses" is an attribute. Test: an attribute would still describe the person somewhere else, doing something else. Actions, poses, roles or jobs, gender or age alone, locations, camera viewpoint, and objects or vehicles are not attributes. Ignore viewpoint words (front/side/back view) but keep any nearby clothing or accessory details. Never infer appearance from a role. Each attribute must reuse appearance words from the query; if the query names no garment, color, hair, eyewear, or carried item, attributes is []. Use [] when there are none. If removing actions, places, and objects from a phrase leaves no appearance words, drop it.
 - query (string): the full visual description from the query, keeping every action, appearance, and scene detail; remove only source names, times, and result counts.
 - has_action (boolean): true if the query describes something done or a body posture (an action, activity, interaction, event, holding or carrying something, or a pose such as standing, sitting, or lying, including "a standing person"); otherwise false.
 - video_sources (list of strings or null): the available sources that the query names.
@@ -111,7 +111,7 @@ Fields:
 - top_k (integer or null): the number of results the query asks for, such as "top 5" or "first 10 clips".
 - object_ids (list of integers or null): object IDs the query names.
 
-Return every field. Use null for any field the query does not give; never guess.
+Return every field. Use null for any field the query does not give; never guess. The attributes value must always be a JSON array, never a string. When any appearance detail is stated, attributes must contain exactly one sentence string with all of those details. Use [] only when the query states no person appearance detail.
 
 Return only the JSON object.
 

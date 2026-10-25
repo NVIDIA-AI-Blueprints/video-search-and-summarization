@@ -28,7 +28,7 @@ The benchmark decomposition contract is ``QUERY_DECOMPOSITION_PROMPT`` in
 ``benchmark-video-search/scripts/flows/decompose.py``::
 
     query            rewritten description, actions AND attributes
-    attributes       person-appearance attributes ONLY; never bare "person"
+    attributes       one person-appearance sentence in a one-item list; [] if none
     has_action       true when an action/event is described
     video_sources    named sources, empty when none mentioned
     source_type      "video_file" | "rtsp"
