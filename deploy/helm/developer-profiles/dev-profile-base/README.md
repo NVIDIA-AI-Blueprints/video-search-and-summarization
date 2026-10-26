@@ -74,25 +74,25 @@ this server limit.
   - **Driver (x86 Ubuntu 24.04)** recorded for this profile: **595.58.03**.
 
 - **NVIDIA GPU Operator**
-  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html) **v25.10.1+** on the cluster so nodes advertise `nvidia.com/gpu`. For x86 Ubuntu 24.04, use a release that supports driver **595.58.03** and set that driver in the GPU Operator driver settings. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html).
+  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html) **v25.10.1 or above** on the cluster so nodes advertise `nvidia.com/gpu`. For x86 Ubuntu 24.04, use a release that supports driver **595.58.03** and set that driver in the GPU Operator driver settings. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html).
 
 - **NVIDIA NIM Operator**
-  - [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html) **3.1.0+** when deploying in-cluster LLM or VLM models (`nims` subcharts, `NIMCache` / `NIMService`). Install it after the GPU Operator.
+  - [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html) **3.1.0 or above** when deploying in-cluster LLM or VLM models (`nims` subcharts, `NIMCache` / `NIMService`). Install it after the GPU Operator.
 
 - **StorageClass**
   - A **StorageClass** for PVC provisioning. Set **`global.storageClass`** to that class’s **`metadata.name`**. The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile. Change the default only for other workloads that omit `storageClassName`.
-  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner) **v0.0.35+**. The shared VST claims are `ReadWriteOnce`. **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** both mount `vst-data` and `vst-video`, so on a multi-node cluster they must run on a node that can mount those volumes — for local-path, the same node. Set **`nodeSelector`** on **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`**, and confirm the node has capacity for the claims. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage).
-  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner) **v0.0.35+** and use the StorageClass it creates.
+  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner) **v0.0.35 or above**. The shared VST claims are `ReadWriteOnce`. **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** both mount `vst-data` and `vst-video`, so on a multi-node cluster they must run on a node that can mount those volumes — for local-path, the same node. Set **`nodeSelector`** on **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`**, and confirm the node has capacity for the claims. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage).
+  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner) **v0.0.35 or above** and use the StorageClass it creates.
 
 ### Chart / tooling
 
-- **Helm** 3.7+
+- **Helm** 3.7 or above
 - **Kubectl**
 - **Curl** and **jq** (to discover model IDs from remote endpoints)
 - **GPUs**: see [GPU requirements](#gpu-requirements) (3 with local defaults, 2 on the documented remote path).
-- **NVIDIA NIM** (if using NIM subcharts): NIM Operator **3.1.0+** on the cluster (see [Prerequisites](#prerequisites) above).
+- **NVIDIA NIM** (if using NIM subcharts): NIM Operator **3.1.0 or above** on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
-- **StorageClass**: a StorageClass must exist on the cluster to create PVCs. If you use local-path-provisioner, use **v0.0.35+**.
+- **StorageClass**: a StorageClass must exist on the cluster to create PVCs. If you use local-path-provisioner, use **v0.0.35 or above**.
 
 
 ## Quick start
