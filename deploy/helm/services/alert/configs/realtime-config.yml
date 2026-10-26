@@ -51,6 +51,7 @@ always_on_rules:
       vlm_input_width: 256                         # default: 256  — VLM input frame width (pixels)
       vlm_input_height: 256                        # default: 256  — VLM input frame height (pixels)
       enable_reasoning: false                       # default: true — ask the VLM to emit reasoning alongside alerts
+      inference_mode: "chunked"                     # default: "chunked" — "chunked" | "streaming_vlm"
 
   # ── Rule 2 (minimal) ────────────────────────────────────────────────────
   # Everything except `prompt` is optional; omit anything you want to keep at
@@ -69,3 +70,4 @@ always_on_rules:
       vlm_input_width: 256                         # default: 256  — VLM input frame width (pixels)
       vlm_input_height: 256                        # default: 256  — VLM input frame height (pixels)
       enable_reasoning: false                       # default: true — ask the VLM to emit reasoning alongside alerts
+      inference_mode: "chunked"                     # default: "chunked" — "chunked" | "streaming_vlm"

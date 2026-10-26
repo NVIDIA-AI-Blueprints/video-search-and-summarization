@@ -324,6 +324,44 @@ env:
   # Override path for vLLM patch script.
   - name: VLLM_ROOT
     value: "/usr/local/lib/python3.12/dist-packages/vllm"
+  # Enable vLLM eager mode (disables CUDA graphs); empty leaves the vLLM default.
+  - name: VLLM_ENFORCE_EAGER
+    value: ""
+  # Native StreamingVLM controls; stock images ignore these.
+  - name: RTVI_STREAMING_VLM_ENABLED
+    value: "false"
+  - name: RTVI_STREAMING_VLM_RETAIN_GENERATED_TEXT
+    value: "false"
+  - name: RTVI_STREAMING_VLM_EXACT_VIDEO_COMPACTION
+    value: "false"
+  - name: VLLM_STREAMING_VLM_RAW_KEY_SHADOW
+    value: "false"
+  - name: RTVI_STREAMING_VLM_MAX_SESSIONS
+    value: "1"
+  - name: RTVI_STREAMING_VLM_MAX_VIDEO_SEGMENTS
+    value: "8"
+  - name: RTVI_STREAMING_VLM_MAX_TOTAL_VIDEO_SEGMENTS
+    value: "8"
+  - name: RTVI_STREAMING_VLM_MAX_SESSION_TOKENS
+    value: "14000"
+  - name: RTVI_STREAMING_VLM_MAX_TEXT_TOKENS
+    value: "64"
+  - name: RTVI_STREAMING_VLM_STATE_HISTORY_RUNS
+    value: "6"
+  - name: RTVI_STREAMING_VLM_STATE_HISTORY_MIN_RUN
+    value: "1"
+  - name: RTVI_STREAMING_VLM_STATE_HISTORY_INTERVAL
+    value: "1"
+  - name: RTVI_STREAMING_VLM_STATE_HISTORY_INCLUDE_COLLISION
+    value: "true"
+  - name: RTVI_STREAMING_VLM_LOGPROBS
+    value: "5"
+  # vLLM KV-cache dtype override; empty leaves the vLLM default.
+  - name: RTVI_VLLM_KV_CACHE_DTYPE
+    value: ""
+  # Skip pipeline warm-up on cold start (streaming VLM / NIM-backed modes).
+  - name: SKIP_PIPELINE_WARMUP
+    value: "false"
 
 nodeSelector: {}
 tolerations: []
