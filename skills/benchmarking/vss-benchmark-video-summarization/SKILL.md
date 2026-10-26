@@ -131,6 +131,7 @@ Set your deployment's values, then run the pre-flight check:
 ```bash
 : "${LVS_BACKEND:?Set to your deployed LVS endpoint}"
 : "${LVS_CONTAINER_NAME:?Set to your deployed LVS container}"
+export LVS_BACKEND LVS_CONTAINER_NAME
 export VLM_GPUS=<VLM_GPU>                                           # GPU(s) your VLM uses
 export LLM_GPUS=<LLM_GPU>                                           # GPU(s) your LLM uses
 export VSS_PUBLIC_URL=http://localhost:8000                         # origin serving the VSS agent
