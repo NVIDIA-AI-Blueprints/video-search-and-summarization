@@ -13,7 +13,7 @@ include = ["/src/vss", "/README.md"]
 
 [project]
 name = "vss"
-version = "0.1.0"
+version = "0.1.0rc1"
 description = "Core video processing and storage libraries for VSS workflows"
 readme = "README.md"
 requires-python = ">=3.13,<3.15"
@@ -33,7 +33,7 @@ telemetry = [
 ]
 mcp = [
     "mcp>=1.20,<2",
-    "vss-summarization[openai]==0.1.0",
+    "vss-summarization[openai]==0.1.0rc1",
 ]
 mcp-core = [
     "mcp>=1.20,<2",

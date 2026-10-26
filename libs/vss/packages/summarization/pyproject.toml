@@ -1,11 +1,11 @@
 [project]
 name = "vss-summarization"
-version = "0.1.0"
+version = "0.1.0rc1"
 description = "Video summarization and aggregation for VSS"
 requires-python = ">=3.13"
 dependencies = [
-    "vss==0.1.0",
-    "vss-ingestion==0.1.0",
+    "vss==0.1.0rc1",
+    "vss-ingestion==0.1.0rc1",
 ]
 
 [project.optional-dependencies]

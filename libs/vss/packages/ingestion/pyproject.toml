@@ -1,6 +1,6 @@
 [project]
 name = "vss-ingestion"
-version = "0.1.0"
+version = "0.1.0rc1"
 description = "Video ingestion backends and orchestration for VSS"
 requires-python = ">=3.13"
 dependencies = [
@@ -9,7 +9,7 @@ dependencies = [
     "opentelemetry-api",
     "opentelemetry-sdk",
     "opentelemetry-exporter-otlp",
-    "vss==0.1.0",
+    "vss==0.1.0rc1",
 ]
 
 [project.optional-dependencies]

@@ -79,10 +79,10 @@ def test_wheel_check_rejects_stale_duplicate_distributions(tmp_path, monkeypatch
     dist = tmp_path / "dist"
     dist.mkdir()
     for name in (
-        "vss-0.1.0",
+        "vss-0.1.0rc1",
         "vss-0.2.0",
-        "vss_ingestion-0.1.0",
-        "vss_summarization-0.1.0",
+        "vss_ingestion-0.1.0rc1",
+        "vss_summarization-0.1.0rc1",
     ):
         (dist / (name + "-py3-none-any.whl")).touch()
     monkeypatch.chdir(tmp_path)

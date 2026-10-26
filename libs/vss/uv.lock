@@ -2329,7 +2329,7 @@ wheels = [
 
 [[package]]
 name = "vss"
-version = "0.1.0"
+version = "0.1.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
@@ -2417,7 +2417,7 @@ docs = [{ name = "nvidia-sphinx-theme", specifier = ">=0.0.9.post1,<0.1" }]
 
 [[package]]
 name = "vss-ingestion"
-version = "0.1.0"
+version = "0.1.0rc1"
 source = { editable = "packages/ingestion" }
 dependencies = [
     { name = "httpx" },
@@ -2447,7 +2447,7 @@ provides-extras = ["rtvi-cv"]
 
 [[package]]
 name = "vss-summarization"
-version = "0.1.0"
+version = "0.1.0rc1"
 source = { editable = "packages/summarization" }
 dependencies = [
     { name = "vss" },
