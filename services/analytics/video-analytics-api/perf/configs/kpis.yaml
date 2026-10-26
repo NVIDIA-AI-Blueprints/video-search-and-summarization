@@ -1,0 +1,68 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Video Analytics API query KPI thresholds.
+# required_endpoints: spec_gets expands to dump-backed OpenAPI GETs plus the
+# Kartikay P0 writes this Kafka-off stack can HTTP 201 (calibration file and
+# calibration images). Skipped: POST /config/update and GET update/status
+# (need Kafka + Behavior Analytics), path-parameter GETs, IDs we do not have
+# (segmentInfo, endFrameId, behaviorTimeInterval, referenceId), city/corridor
+# travel-time, behavior-locations IDs, nvstreamer PTS, missing road-network
+# and usd-assets.
+#
+# Original five gates are a best estimate from Jenkins benchmark-perf-test/69.
+# New GET endpoints use default 0.10 / 0.20 s. P0 POSTs use a looser write
+# budget until an owner publishes SLOs.
+
+schema_version: "0.1"
+service: video-analytics-api
+source:
+  setup: warehouse_2d_es_dump
+  estimate: jenkins-benchmark-perf-test-69
+  spec: src/app/specification/openapi.json
+
+scenarios:
+  quick_test:
+    warehouse-es-dump:
+      required_endpoints:
+        - spec_gets
+      default:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.10
+        max_p99_s: 0.20
+      livez:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.005
+        max_p99_s: 0.02
+      frames:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.05
+        max_p99_s: 0.10
+      behavior:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      events:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      incidents:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      config_upload_file_calibration:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+      config_calibration_images:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
