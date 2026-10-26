@@ -13,17 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Manual equivalent of what this chart's templates/vss-ingress.yaml renders, for a
-# cluster where you apply the Ingress yourself. Regenerate after changing routes:
+# Prefix-stripping routes for verification mode, default
+# global.useReleaseNamePrefix=false. Service names are unprefixed.
+# This object is <RELEASE_NAME>-vss-ingress-rewrites, a second Ingress.
+# It does not replace the Helm-owned <RELEASE_NAME>-vss-ingress.
+# Set vssIngress.enabled=false before applying either file.
 #
-#   helm template <RELEASE_NAME> ./dev-profile-alerts --set global.externalHost=<HOST> \
-#     --set global.useReleaseNamePrefix=true --show-only templates/vss-ingress.yaml
+# Main host matches the quick start: vss-alerts.<EXTERNAL_HOST>.nip.io.
+# /rtvi-cv is verification only; real-time disables vss-rtvi-cv, so delete
+# that path and its rewrite lines before a real-time apply.
+# /llm exists only while nims.nemotron35 is enabled.
+# /rtvi-vlm is enabled in both mode files.
 #
-# Mounts come from the canonical route table in deploy/helm/services/common; keep
-# them in step with it and with the Docker edge (haproxy.cfg.template).
+# Regenerate rather than hand-editing:
+#   helm template <RELEASE_NAME> ./dev-profile-alerts \
+#     -f ./dev-profile-alerts/values-verification.yaml \
+#     --set-string global.externalHost=vss-alerts.<EXTERNAL_HOST>.nip.io \
+#     --show-only templates/vss-ingress.yaml
 #
-# Routes whose prefix is stripped before the backend sees it. The rest are in
-# vss-ingress-example.yaml — apply both.
+# As-is routes are in vss-ingress-example.yaml. Apply both only when the
+# chart Ingress is disabled.
 
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -44,6 +53,8 @@ metadata:
       /elasticsearch /
       /rtvi-cv/(.*) /\1
       /rtvi-cv /
+      /rtvi-vlm/(.*) /\1
+      /rtvi-vlm /
       /phoenix/(.*) /\1
       /phoenix /
       /llm/(.*) /\1
@@ -51,56 +62,65 @@ metadata:
 spec:
   ingressClassName: haproxy
   rules:
-  - host: vss.<EXTERNAL_HOST>.nip.io
+  - host: vss-alerts.<EXTERNAL_HOST>.nip.io
     http:
       paths:
       - path: /storage
         pathType: Prefix
         backend:
           service:
-            name: <RELEASE_NAME>-vss-vios-ingress
+            name: vss-vios-ingress
             port:
               number: 30888
       - path: /va-mcp
         pathType: Prefix
         backend:
           service:
-            name: <RELEASE_NAME>-vss-va-mcp
+            name: vss-va-mcp
             port:
               number: 9901
       - path: /alert-bridge
         pathType: Prefix
         backend:
           service:
-            name: <RELEASE_NAME>-vss-alert-bridge
+            name: vss-alert-bridge
             port:
               number: 9080
       - path: /video-analytics-api
         pathType: Prefix
         backend:
           service:
-            name: <RELEASE_NAME>-vss-video-analytics-api
+            name: vss-video-analytics-api
             port:
               number: 8081
       - path: /elasticsearch
         pathType: Prefix
         backend:
           service:
-            name: <RELEASE_NAME>-elasticsearch
+            name: elasticsearch
             port:
               number: 9200
+      # Verification only. Real-time disables vss-rtvi-cv; delete this path
+      # and the /rtvi-cv rewrite lines before a real-time apply.
       - path: /rtvi-cv
         pathType: Prefix
         backend:
           service:
-            name: <RELEASE_NAME>-vss-rtvi-cv
+            name: vss-rtvi-cv
             port:
               number: 9010
+      - path: /rtvi-vlm
+        pathType: Prefix
+        backend:
+          service:
+            name: vss-rtvi-vlm
+            port:
+              number: 8000
       - path: /phoenix
         pathType: Prefix
         backend:
           service:
-            name: <RELEASE_NAME>-phoenix
+            name: phoenix
             port:
               number: 6006
       # Only present when this profile runs its own LLM NIM (nims.nemotron35).
@@ -110,6 +130,6 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: <RELEASE_NAME>-nemotron-35-lightning-30b-a3b
+            name: nemotron-35-lightning-30b-a3b
             port:
               number: 8000

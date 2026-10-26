@@ -32,20 +32,21 @@ Switch to **external-service mode** only when the model endpoints already run ou
 
 ## Performance profile (`values-perf.yaml`, opt-in)
 
-`values-perf.yaml` runs the LVS profile with its highest-performance model configuration for dedicated-GPU deployments: the `nemotron-35-lightning-30b-a3b` (30B) LLM with reasoning disabled and the integrated Cosmos VLM quantized to the precision that matches the GPU (FP8 or NVFP4). Apply it explicitly on top of the base values:
+`values-perf.yaml` is an opt-in overlay for the integrated VLM checkpoint. It does **not** change the Nemotron NIM's engine settings. Those still come from `nims.gpuProfiles[<nims.gpuType>].nemotron35` in `deploy/helm/services/nims/values.yaml`: reasoning stays **enabled** (`enable_thinking:true`), and `NIM_MODEL_PROFILE` stays the same pinned INT4 profile (`vllm-int4-tp1-pp1-32.0`) on every listed GPU, including Blackwell. KV-cache percent, GPU memory fraction, context length, and concurrency are the explicit values in that profile. They are not auto-sized, and they are not NVFP4.
+
+What the overlay does change is the integrated Cosmos Reason3 Nano checkpoint and `nims.gpuType` (default **`H100`** in the overlay). `vlmPrecision.byGpuType` maps **`H100`** and **`L40S`** to **FP8**, and **`RTXPRO6000BW`** to **NVFP4**. `templates/validate-vlm-precision.yaml` fails `helm template` / `helm install` when `global.vlmName` or `rtvi.vss-rtvi-vlm.modelPath` disagrees with that map. The guard is skipped for external VLM (`rtvi.vss-rtvi-vlm.useSharedNim=true`) and when this overlay is not applied (`vlmPrecision` absent).
+
+Apply it after your install values, and set **`nims.gpuType`** to the GPU you are actually installing on:
 
 ```bash
-helm upgrade --install vss . -f values-lvs.yaml -f values-perf.yaml -n vss --create-namespace
+helm upgrade --install <RELEASE_NAME> ./dev-profile-lvs \
+  -f dev-profile-lvs/values-lvs.yaml \
+  -f dev-profile-lvs/values-perf.yaml \
+  --set nims.gpuType=<GPU> \
+  -n <NAMESPACE> --create-namespace
 ```
 
-The overlay switches the LVS profile to:
-
-| Component | With `values-perf.yaml` |
-|-----------|--------------------------|
-| LLM | **`nemotron-35-lightning-30b-a3b`** (30B), reasoning disabled (`NIM_PASSTHROUGH_ARGS=--default-chat-template-kwargs {"enable_thinking":false}`); auto-sizes its own KV/concurrency per GPU. The engine profile is pinned per platform by `nims.gpuType` (`NIM_MODEL_PROFILE`: INT4 on H100/L40S, NVFP4 on Blackwell), so only that profile is served. |
-| VLM | integrated Cosmos Reason3 Nano, precision selected by `nims.gpuType`: **FP8** on `H100`/`L40S`, **NVFP4** on `RTXPRO6000BW` |
-
-The overlay defaults to `nims.gpuType: H100`. The LLM engine profile follows `nims.gpuType` automatically; only the VLM precision strings need overriding. For **Blackwell (`RTXPRO6000BW`)**, set the platform and the VLM precision strings to **NVFP4** — the render-time guard (`templates/validate-vlm-precision.yaml`) fails `helm template`/`install` if they disagree with `nims.gpuType`:
+The overlay file itself bakes the **FP8** VLM strings and `nims.gpuType: H100`. For **Blackwell (`RTXPRO6000BW`)**, also set the platform and the NVFP4 VLM strings — the guard fails if they disagree:
 
 ```yaml
 # values-perf-blackwell.yaml — apply after values-perf.yaml
@@ -58,11 +59,9 @@ rtvi:
     modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix"
 ```
 
-The guard is skipped for external-VLM deployments (`rtvi.vss-rtvi-vlm.useSharedNim=true`) and when the overlay is not applied.
-
 ## GPU requirements
 
-With default **`values.yaml`** and typical LVS install (LLM NIM enabled, **`vss-vios-streamprocessing`**, **`vss-rtvi-vlm`**), the stack requests **3 GPUs** (`nvidia.com/gpu: 1` each). **`vss-summarization`** does not request a GPU because it delegates VLM inference to **`vss-rtvi-vlm`**. Pod names include the Helm release name and a replica hash; the table lists the **workload** substring from `kubectl get pods`.
+With default **`values.yaml`** and typical LVS install (LLM NIM enabled, **`vss-vios-streamprocessing`**, **`vss-rtvi-vlm`**), the stack requests **3 GPUs** (`nvidia.com/gpu: 1` each). **`vss-summarization`** does not request a GPU because it delegates VLM inference to **`vss-rtvi-vlm`**. With default **`global.useReleaseNamePrefix: false`**, the **`vss-rtvi-vlm`** Deployment pod gets the workload name plus a replica hash, and the **`vss-vios-streamprocessing`** StatefulSet pod gets the workload name plus a numeric ordinal (`-0`); the table lists the **workload** substring from `kubectl get pods`.
 
 | Workload | GPU |
 |----------|-----|
@@ -71,7 +70,7 @@ With default **`values.yaml`** and typical LVS install (LLM NIM enabled, **`vss-
 | `vss-rtvi-vlm` (integrated Cosmos checkpoint) | 1 |
 | **Total** | **3** |
 
-To run the RTVI-VLM against a shared/remote VLM endpoint instead of the integrated checkpoint, set `rtvi.vss-rtvi-vlm.useSharedNim=true` and configure the target VLM endpoint/model values.
+To run the RTVI-VLM against a shared/remote VLM endpoint instead of the integrated checkpoint, set `rtvi.vss-rtvi-vlm.useSharedNim=true` and configure the target VLM endpoint/model values. With **`nims.enabled=false`** (remote LLM, no in-cluster Nemotron NIM), the total drops to **2 GPUs** (**`vss-vios-streamprocessing`** and **`vss-rtvi-vlm`**).
 
 ### Optional GPU monitoring
 
@@ -80,7 +79,7 @@ Operator commonly installs one cluster-wide. On clusters without an existing
 exporter, enable the bundled component explicitly:
 
 ```bash
-helm upgrade --install <RELEASE NAME> ./dev-profile-lvs \
+helm upgrade --install <RELEASE_NAME> ./dev-profile-lvs \
   -f dev-profile-lvs/values-lvs.yaml \
   --set monitoring.enabled=true \
   --set monitoring.dcgmExporter.enabled=true \
@@ -91,18 +90,20 @@ helm upgrade --install <RELEASE NAME> ./dev-profile-lvs \
 
 The chart requests **one GPU per enabled NIM**, but the repo does **not** encode an exact minimum GPU memory size for each profile. Treat the **`nims.gpuType`** values as tuning profiles, not a certified capacity statement. Use only a profile that matches the GPU class you have validated on the cluster.
 
-| `nims.gpuType` | Nemotron 3.5 settings | Notes |
-|----------------|-----------------------|-------|
-| `H100`, `GB300`, `L40S`, `RTXPRO4500BW`, `RTXPRO6000BW`, `OTHER` | `NIM_PASSTHROUGH_ARGS=--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder` | The NIM Operator selects the compatible single-GPU model profile. No Compose shared-GPU memory limits are applied because Helm requests a dedicated GPU for this NIM. |
+| `nims.gpuType` | Pinned `NIM_MODEL_PROFILE` | Explicit limits in `gpuProfiles` (not auto-selected) |
+|----------------|----------------------------|------------------------------------------------------|
+| `H100`, `GB300`, `RTXPRO6000BW`, `OTHER` | `2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4` (`vllm-int4-tp1-pp1-32.0`) | `NIM_KVCACHE_PERCENT=0.3`, `NIM_GPU_MEM_FRACTION=0.3`, `NIM_MAX_MODEL_LEN=65536`, `--max-num-seqs 8`, `MAX_JOBS=4`. Passthrough keeps `enable_thinking:true`. |
+| `L40S` | same INT4 pin | `NIM_KVCACHE_PERCENT=0.8` and `NIM_GPU_MEM_FRACTION=0.8` (0.3 of a 48 GB card cannot hold the ~21 GB INT4 weights). No `NIM_MAX_MODEL_LEN` on this entry. Passthrough keeps `enable_thinking:true`. |
+| `RTXPRO4500BW` | same INT4 pin | No memory-fraction or context keys on the `nemotron35` entry. Passthrough keeps `enable_thinking:true`. |
 
-Choose the `nims.gpuType` matching the cluster GPU. Capacity and available NIM profiles still depend on the target hardware; use a remote endpoint if the model has no compatible profile for that GPU.
+`NIM_MODEL_PROFILE` is pinned so the container cannot auto-select the >=66 GB BF16 profile it advertises as runnable. A dedicated `nvidia.com/gpu: 1` request does not remove these limits. Inspect the rendered `<nim>-nim-env` ConfigMap after install and confirm the card can hold that profile before relying on it. Use a remote endpoint when it cannot.
 
 ## RTVI-VLM integration (always on)
 
 The LVS profile always deploys **`vss-rtvi-vlm`**. VLM calls from both HTTP clients are routed through this in-cluster service, and VIOS registers cameras with it on VST lifecycle events:
 
 - **`vss-agent`**: `video_understanding` picks the `rtvi_vlm` LLM profile (`configs/vss-agent/config.yml`) because `VLM_MODEL_TYPE=rtvi`. `RTVI_VLM_BASE_URL` resolves to the in-cluster `vss-rtvi-vlm` Service via `agent.vss-agent.rtviVlmServiceName` (default `vss-rtvi-vlm`).
-- **`vss-summarization`**: receives `RTVI_VLM_URL=http://vss-rtvi-vlm:8000` by default (`http://<release>-vss-rtvi-vlm:8000` only when `global.useReleaseNamePrefix=true`), plus `RTVI_VLM_URL_PASSTHROUGH=true` via `vss-summarization.extraEnv` — LVS backend forwards `/generate_captions` to the RTVI pod.
+- **`vss-summarization`**: receives `RTVI_VLM_URL=http://vss-rtvi-vlm:8000` by default (`http://<RELEASE_NAME>-vss-rtvi-vlm:8000` only when `global.useReleaseNamePrefix=true`), plus `RTVI_VLM_URL_PASSTHROUGH=true` via `vss-summarization.extraEnv` — LVS backend forwards `/generate_captions` to the RTVI pod.
 - **VIOS** (sensor and stream-processing): `global.vios.notificationConfig` enables `camera_add` / `camera_streaming` / `camera_remove` webhooks to `http://<rtvi>/v1/stream/add` and `/v1/stream/remove`, matching Compose. The usable stream URL arrives on `camera_streaming`; `camera_add` may have an empty URL.
 
 Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` list):
@@ -164,36 +165,30 @@ this server limit.
 
 - **Kubernetes cluster**
   - Running cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
-  - **Server version** validated for this profile: **1.34** — use a different minor/patch only if your platform or release notes require it; confirm compatibility with the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html) and [NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html) versions you deploy.
+  - **Server version** recorded for this profile: **1.34.2**.
 
 - **NVIDIA GPU Operator**
-  - Install the GPU Operator on the cluster. Follow [GPU Operator getting started](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html).
+  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1** on the cluster. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
   - **Driver (x86 Ubuntu 24.04)** — pin **595.58.03** via GPU Operator driver settings.
 
 - **NVIDIA NIM Operator**
   - Required **before deploying this profile with defaults**. The default **`nims.enabled: true`** path creates **`NIMCache`** and **`NIMService`** custom resources for the LLM NIM, so the NIM Operator and its CRDs must already exist on the cluster before `helm upgrade --install`.
-  - Install **after** the GPU Operator. See [NIM Operator installation](https://docs.nvidia.com/nim-operator/latest/install.html).
+  - Install **after** the GPU Operator. See [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0**.
   - If you intentionally run with **`nims.enabled=false`** and all LLM/VLM traffic goes to external endpoints, the NIM CRDs are not created by this chart.
 
 - **Volume provisioner (e.g. local-path)**
-  - A **StorageClass** must exist on the cluster (VST, Elasticsearch, and related volumes). Set **`global.storageClass`** in your Helm values override to that class’s **`metadata.name`** (see [Prepare the values file](#1-prepare-the-values-file)).
-  - **Bare-metal clusters:** Install **local-path** (see [rancher/local-path-provisioner](https://github.com/rancher/local-path-provisioner/tree/master)).
-  - **Default StorageClass:** If your class (for example **`local-path`**) is not already the default, set it as the default StorageClass:
-
-    ```bash
-    kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-    ```
-
-    Replace **`local-path`** with your StorageClass **`metadata.name`** if it differs.
+  - A **StorageClass** must exist on the cluster (VST, Elasticsearch, and related volumes). Set **`global.storageClass`** in your Helm values override to that class's **`metadata.name`** (see [Prepare the values file](#1-prepare-the-values-file)). The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile.
+  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35**. Node-local volumes are not portable between nodes, and **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`** mount the same three shared VST PVCs (see **`vios.vstStorage.*`** below) -- set **`nodeSelector`** on both so Kubernetes schedules them onto the same node, and confirm that node has capacity for the claims.
+  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35** and use the StorageClass it creates. Changing the cluster's *default* StorageClass is optional and only matters for other workloads that omit `storageClassName`; it is not required for this chart.
 
 ### Chart / tooling
 
-- **Helm** 3.7+
+- **Helm** [3.7 or above](https://github.com/helm/helm/blob/v3.7.0/README.md#install)
 - **Kubectl**
 - **GPUs**: see [GPU requirements](#gpu-requirements) (3 with defaults).
-- **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
+- **NVIDIA NIM** (if using NIM subcharts): NIM Operator **3.1.0** on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
-- **StorageClass** for PVCs: set **`global.storageClass`** to a class that exists on the cluster (see [Prerequisites](#prerequisites) above—**Volume provisioner**).
+- **StorageClass** for PVCs: set **`global.storageClass`** to a class that exists on the cluster (see [Prerequisites](#prerequisites) above--**Volume provisioner**). If you use local-path-provisioner, use **v0.0.35**.
 
 ### Required NGC secrets
 
@@ -240,10 +235,10 @@ Edit **`values-lvs.yaml`** and set at least:
 | **`global.kibanaPublicUrl`** | Public Kibana base URL for the Dashboard tab (no **`/kibana`** path suffix), e.g. **`http://kibana.vss.YOUR_IP.nip.io`**. Align with DNS or **`nip.io`** so it matches how users open Kibana (often the same pattern as **`vssIngress`** **`kibana.<host>`**). |
 | **`llmNameSlug`** | Reserved compatibility value; leave empty. LVS selects its LLM through **`nims.*.enabled`**, **`global.llmName`**, and the workload service settings. |
 | **`vlmNameSlug`** | Use **`none`** for the default LVS flow; RT-VLM loads the integrated checkpoint instead of deploying a VLM NIM subchart. |
-| **`nims`** | **`nims.enabled`**: umbrella for all NIM subcharts. Use **`nims.gpuType`** to select model settings and **`nims.<model>.enabled`** to choose models. Default LVS enables **`nims.nemotron35`** and disables the other bundled NIMs because RT-VLM loads the integrated VLM checkpoint. Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
+| **`nims`** | **`nims.enabled`**: umbrella for all NIM subcharts. Use **`nims.gpuType`** to select model settings and **`nims.<model>.enabled`** to choose models. Chart **`values.yaml`** defaults **`nims.gpuType`** to **`H100`**. Sample **`values-lvs.yaml`** sets **`RTXPRO6000BW`**. Set **`nims.gpuType`** to the GPU you are installing on before rendering or installing; a mismatched value selects the wrong `gpuProfiles` entry. Default LVS enables **`nims.nemotron35`** and disables the other bundled NIMs because RT-VLM loads the integrated VLM checkpoint. Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
 | **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) service-root base URLs when LLM/VLM are **not** deployed by this chart, for example **`http://host:31081`** without a trailing **`/v1`**. Use with **`nims.enabled: false`**. Shared by **vss-agent** and **vss-summarization**; must be reachable from those pods. Leave **`""`** for in-cluster **NIM** services. |
-| **`global.llmName`** / **`global.vlmName`** (remote) | NGC-style model ids for **both** **vss-agent** and **vss-summarization**; must match remote endpoints. Defaults in **`values-lvs.yaml`** match common NGC models. |
-| **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, and (when enabled) **Kibana**, **Phoenix**, and **NVStreamer** on **`kibana.<host>`** / **`phoenix.<host>`** / **`streamer.<host>`**. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Sample **`values-lvs.yaml`** enables this by default. |
+| **`global.llmName`** / **`global.vlmName`** (remote) | NGC-style model IDs for **both** **vss-agent** and **vss-summarization**; must match remote endpoints. Defaults in **`values-lvs.yaml`** match common NGC models. |
+| **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`**. Phoenix is served at **`/phoenix`** on the main host. A separate **`phoenix.<host>`** rule is added only when **`vssIngress.phoenixHost`** is set. Kibana, when enabled, is on **`kibana.<host>`**. NVStreamer, when enabled, is on **`streamer.<host>`**. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Sample **`values-lvs.yaml`** enables this by default. |
 
 #### RT-VLM GPU-memory configuration
 
@@ -277,7 +272,7 @@ using inline flags, pass
 or select a GPU node. Each GPU workload requests its own GPU, so use the
 reference's dedicated-GPU layout. Compose device-ID variables are not needed:
 Kubernetes assigns the devices. On clusters with multiple GPU types, also set
-workload node selectors or affinity for the intended hardware.
+a **`nodeSelector`** on the GPU workloads for the intended hardware. The RT-VLM and NIM charts read **`nodeSelector`** only.
 
 This override applies only when RT-VLM loads a model locally. For an external
 VLM, configure the memory budget at that model's serving deployment.
@@ -309,7 +304,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`global.kibanaPublicUrl`** | **`""`** | Public Kibana base URL (no **`/kibana`** path suffix). Prefer this over duplicating **`infra.kibana.kibanaPublicUrl`** unless Kibana must use a different host than the main UI. |
 | **`global.llmBaseUrl`** | **`""`** | **Single place** for remote LLM base URL shared by **vss-agent** and **vss-summarization** ( **`LLM_BASE_URL`**, **`LVS_LLM_BASE_URL`** ). Use the service root without trailing **`/v1`** (e.g. **`http://host:31081`**): **vss-agent** appends **`/v1`** in its config, and **vss-summarization** adds **`/v1`** when missing. Subchart **`agent.vss-agent.llmBaseUrl`** or **`vss-summarization.llmBaseUrl`** overrides when set. |
 | **`global.vlmBaseUrl`** | **`""`** | Same for VLM (**`VLM_BASE_URL`**, **`VIA_VLM_ENDPOINT`**). Use the same service-root convention without trailing **`/v1`** for compatibility with **vss-agent** and RT-VLM proxying. |
-| **`global.llmName`** | **`nvidia/nemotron-3.5-lightning-30b-a3b`** | NGC model id for **both** **vss-agent** (**`LLM_NAME`**) and **vss-summarization** (**`LVS_LLM_MODEL_NAME`**). Override with **`agent.vss-agent.llmName`** or **`vss-summarization.llmName`** when a workload needs a different id (e.g. remote NIM). |
+| **`global.llmName`** | **`nvidia/nemotron-3.5-lightning-30b-a3b`** | NGC model ID for **both** **vss-agent** (**`LLM_NAME`**) and **vss-summarization** (**`LVS_LLM_MODEL_NAME`**). Override with **`agent.vss-agent.llmName`** or **`vss-summarization.llmName`** when a workload needs a different ID (e.g. remote NIM). |
 | **`global.vlmName`** | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | Same for VLM (**`VLM_NAME`**, **`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**). |
 | **`global.storageClass`** | unset in repo **`values.yaml`** | Set in **`values-lvs.yaml`**; used for **Elasticsearch**, **`vios.vstStorage`** PVCs, and other subcharts that inherit **`global.storageClass`**. |
 | **`vios.vstStorage.createSharedPvcs`** | **`true`** | **`true`:** the **`vios`** umbrella creates **PersistentVolumeClaims** so **sensor** and **streamprocessing** share on-disk folders for VST data and video; data survives pod restarts but your cluster must have a working **StorageClass** (see **`global.storageClass`**). **`false`:** no shared PVCs from **`vios`**; behavior depends on **`vios.vss-vios-*`** persistence settings. |
@@ -328,7 +323,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vios.vss-vios-streamprocessing.persistence`** | **`vstData`**, **`vstVideo`**, **`streamerVideos`**: same idea as sensor | **Streamprocessing** mounts up to **three** shared folders: VST **data**, VST **video**, and **streamer** uploads. Use blank **`existingClaim`** to use the shared PVCs from **`vios`** when **`vios.vstStorage.createSharedPvcs`** is **`true`**, or set **`existingClaim`** / **`enabled`** per volume the same way as for **sensor**. |
 | **`vios.vss-vios-ingress.enabled`** | **`true`** | Deploys the in-cluster **VST ingress** (nginx). |
 | **`vios.vss-vios-ingress.externallyAccessibleIp`** | **`""`** | Hostname or IP address advertised to VST/nginx for external access. If unset, the subchart uses **`global.externalHost`**; if that is unset, it defaults to **`127.0.0.1`**. Override this value only when the VST ingress must use a hostname or IP that differs from **`global.externalHost`**. |
-| **`vssIngress.enabled`** | **`false`** in chart **`values.yaml`**; **`true`** in sample **`values-lvs.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: paths on the main host from the [canonical route table](../../services/common/README.md), including **vss-agent-ui** at **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, and **`/api/proxy`**; **vss-agent**; **vss-vios-ingress** (**`/vst`**, **`/storage`**); **`/lvs`** to the summarization API; **`/rtvi-vlm`** to RT-VLM; **`/elasticsearch`**; and **`/phoenix`**. LVS readiness and summarize are **`/lvs/v1/live`** and **`/lvs/v1/summarize`**; RT-VLM is **`/rtvi-vlm/v1/models`** and **`/rtvi-vlm/v1/chat/completions`**. Neither owns the origin root any more, so **`/v1/*`** no longer resolves. Optional hosts **`kibana.<host>`**, **`phoenix.<host>`**, and **`streamer.<host>`** are added when those subcharts are enabled. No **`Ingress`** if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
+| **`vssIngress.enabled`** | **`false`** in chart **`values.yaml`**; **`true`** in sample **`values-lvs.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: paths on the main host from the [canonical route table](../../services/common/README.md), including **vss-agent-ui** at **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, and **`/api/proxy`**; **vss-agent** at **`/api`**, **`/chat`**, **`/websocket`**, **`/static`**, **`/docs`**, **`/redoc`**, **`/generate`**, and **`/openapi.json`**; **vss-vios-ingress** (**`/vst`**, **`/storage`**); **`/lvs`** to the summarization API; **`/rtvi-vlm`** to RT-VLM; **`/llm`** to the in-cluster Nemotron NIM when it is enabled (omitted entirely with **`nims.enabled=false`**); **`/elasticsearch`**; and **`/phoenix`** on the main host. The chart's summarization readiness probe is **`/v1/ready`**; through this Ingress that check is **`/lvs/v1/ready`** (the **`/lvs`** prefix is stripped). Summarize is **`/lvs/v1/summarize`**. RT-VLM is **`/rtvi-vlm/v1/models`** and **`/rtvi-vlm/v1/chat/completions`**. Do not use **`/lvs/v1/live`** as the readiness check; this README does not claim **`/v1/live`** is absent from the container. Neither owns the origin root any more, so **`/v1/*`** no longer resolves. **`kibana.<host>`** is added when Kibana is enabled. **`phoenix.<host>`** is added only when **`vssIngress.phoenixHost`** is non-empty. **`streamer.<host>`** is added when VIOS and NVStreamer are enabled. No **`Ingress`** if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
 | **`vssIngress.ingressClassName`** | **`haproxy`** | **`spec.ingressClassName`** on the **`Ingress`**. Must match an **`IngressClass`** on the cluster (e.g. from **HAProxy Kubernetes Ingress**). |
 | **`vssIngress.host`** | **`""`** | Ingress hostname for the main rules; if empty, **`global.externalHost`** is used. |
 | **`vssIngress.vssUiPort`** | **`3000`** | Backend port for **vss-agent-ui** paths. |
@@ -339,16 +334,16 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vssIngress.elasticsearchPort`** | **`9200`** | Backend port for **`/elasticsearch`**, mounted whenever **`infra.elasticsearch`** is deployed. The edge guard is on the **`elasticsearch`** **`Service`** (**`infra.elasticsearch.ingressGuard`**): guarded at the edge: PUT/DELETE, cluster-admin paths and the two-segment mutating operations are denied, but **POST still reaches Elasticsearch** (`_bulk`, `_reindex`, `/<index>/_doc`) — the same grant the Docker edge makes, not a read-only endpoint. |
 | **`vssIngress.timeoutClient`** | **`3600s`** | Rendered for continuity, but **inert**: this controller reads **`timeout-client`** only from its own ConfigMap, never from an Ingress annotation. Raising it means a cluster-wide controller setting. Server-side timeouts *do* work per backend and are set on **vss-summarization**, **vss-rtvi-vlm** and **vss-agent**; set **`vssIngress.timeoutServer`** only to impose an ingress-wide floor on every route. |
 | **`vssIngress.kibanaHost`** | **`""`** | Host rule for Kibana; default **`kibana.<global.externalHost or vssIngress.host>`**. |
-| **`vssIngress.phoenixHost`** | **`""`** | Host rule for Phoenix; default **`phoenix.<global.externalHost or vssIngress.host>`**. |
+| **`vssIngress.phoenixHost`** | **`""`** | Empty by default: Phoenix stays at **`/phoenix`** on the main host. Set this to add a separate host rule (for example **`phoenix.<main-host>`**). |
 | **`vssIngress.kibanaPort`** | **`5601`** | Kibana **Service** port when Kibana is enabled. |
 | **`vssIngress.phoenixPort`** | **`6006`** | Phoenix **Service** port when Phoenix is enabled. |
 | **`vssIngress.streamerHost`** | **`""`** | NVStreamer HTTP hostname; defaults to **`streamer.<main-host>`**, where **`<main-host>`** is **`vssIngress.host`**, falling back to **`global.externalHost`**. |
 | **`vios.vss-vios-nvstreamer.service.port`** | **`31000`** | NVStreamer HTTP **Service** port; the NVStreamer ingress backend uses this same value. |
 | **`vss-summarization.enabled`** | **`true`** | Set **`false`** to disable the **LVS** summarization service. |
-| **`vss-summarization.elasticsearchHost`** | **`""`** | Elasticsearch hostname for **vss-summarization** **`ES_HOST`**. When empty, defaults to **`<release>-elasticsearch`**. |
+| **`vss-summarization.elasticsearchHost`** | **`""`** | Elasticsearch hostname for **vss-summarization** **`ES_HOST`**. When empty and **`global.useReleaseNamePrefix`** is **`false`** (the default), the Service is **`elasticsearch`**. With the flag **`true`**, it is **`<RELEASE_NAME>-elasticsearch`**. |
 | **`vss-summarization.elasticsearchPort`** | **`9200`** | Elasticsearch HTTP port (**`ES_PORT`**). |
-| **`vss-summarization.llmService`** | **`nemotron-35-lightning-30b-a3b`** | NIM subchart **name segment** used to build **`LVS_LLM_BASE_URL`** as **`http://<release>-<value>:8000/v1`** when **`global.llmBaseUrl`** and **`vss-summarization.llmBaseUrl`** are empty. Keep it aligned with the enabled LLM NIM. |
-| **`vss-summarization.vlmService`** | **`vss-rtvi-vlm`** | Service segment used to build **`VIA_VLM_ENDPOINT`** when **`global.vlmBaseUrl`** and **`vss-summarization.vlmBaseUrl`** are empty. Default LVS points this at RT-VLM, not a Cosmos NIM service. |
+| **`vss-summarization.llmService`** | **`nemotron-35-lightning-30b-a3b`** | NIM subchart **name segment** used to build **`LVS_LLM_BASE_URL`** when **`global.llmBaseUrl`** and **`vss-summarization.llmBaseUrl`** are empty. Default (**`useReleaseNamePrefix: false`**) is **`http://nemotron-35-lightning-30b-a3b:8000/v1`**. With the flag **`true`**, the host is **`<RELEASE_NAME>-<value>`**. Keep it aligned with the enabled LLM NIM. |
+| **`vss-summarization.vlmService`** | **`vss-rtvi-vlm`** | Service segment used to build **`VIA_VLM_ENDPOINT`** when **`global.vlmBaseUrl`** and **`vss-summarization.vlmBaseUrl`** are empty. Default host is **`vss-rtvi-vlm`** (**`<RELEASE_NAME>-vss-rtvi-vlm`** only when **`useReleaseNamePrefix`** is **`true`**). Default LVS points this at RT-VLM, not a Cosmos NIM service. |
 | **`vss-summarization.llmBaseUrl`** | **`""`** | Optional **LVS-only** override of **`global.llmBaseUrl`**. |
 | **`vss-summarization.vlmBaseUrl`** | **`""`** | Optional **LVS-only** override of **`global.vlmBaseUrl`**. |
 | **`vss-summarization.llmName`** | **`""`** | Optional **LVS-only** override of **`global.llmName`** (**`LVS_LLM_MODEL_NAME`**). |
@@ -358,13 +353,13 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`infra.elasticsearch.persistence.logs.size`** | **5Gi** | PVC size for Elasticsearch **logs** volume (LVS chart exposes both **data** and **logs** sizes). |
 | **`infra.elasticsearch.persistence.storageClass`** | **`""`** | **StorageClass** for Elasticsearch PVCs; leave empty to inherit **`global.storageClass`**, or set explicitly. |
 | **`infra.kibana.enabled`** | **`true`** | Set **`false`** to disable the in-cluster **Kibana** deployment. |
-| **`infra.kibana.elasticsearchHosts`** | **`""`** | Elasticsearch URL list **Kibana** connects to. When empty, defaults to **`http://<release>-elasticsearch:9200`**. |
-| **`infra.kibana.kibanaPublicUrl`** | **`""`** | Browser-facing **Kibana** base URL. When empty, templates use **`global.kibanaPublicUrl`** if set, else **`http://<release>-kibana:5601`**. |
+| **`infra.kibana.elasticsearchHosts`** | **`""`** | Elasticsearch URL list **Kibana** connects to. When empty, defaults to **`http://elasticsearch:9200`** (**`http://<RELEASE_NAME>-elasticsearch:9200`** only when **`global.useReleaseNamePrefix`** is **`true`**). |
+| **`infra.kibana.kibanaPublicUrl`** | **`""`** | Browser-facing **Kibana** base URL. When empty, templates use **`global.kibanaPublicUrl`** if set, else **`http://kibana:5601`** (**`http://<RELEASE_NAME>-kibana:5601`** only when release-name prefixing is on). |
 | **`infra.elasticsearch.init.enabled`** | **`true`** | Set **`false`** to skip the **Job** that runs Elasticsearch index/ILM setup for this profile. |
-| **`infra.elasticsearch.init.elasticsearchUrl`** | **`""`** | Elasticsearch URL the init **Job** targets. When empty, defaults to **`http://<release>-elasticsearch:9200`**. |
+| **`infra.elasticsearch.init.elasticsearchUrl`** | **`""`** | Elasticsearch URL the init **Job** targets. When empty, defaults to **`http://elasticsearch:9200`** (release-prefixed only when **`global.useReleaseNamePrefix`** is **`true`**). |
 | **`infra.kibana.init.enabled`** | **`true`** | Set **`false`** to skip the **Job** that applies Kibana saved objects / dashboards for LVS. |
-| **`infra.kibana.init.kibanaUrl`** | **`""`** | **Kibana** URL the init **Job** calls. When empty, defaults to **`http://<release>-kibana:5601`**. |
-| **`infra.kibana.init.elasticsearchUrl`** | **`""`** | **Elasticsearch** URL the init **Job** uses. When empty, defaults to **`http://<release>-elasticsearch:9200`**. |
+| **`infra.kibana.init.kibanaUrl`** | **`""`** | **Kibana** URL the init **Job** calls. When empty, defaults to **`http://kibana:5601`** (release-prefixed only when **`global.useReleaseNamePrefix`** is **`true`**). |
+| **`infra.kibana.init.elasticsearchUrl`** | **`""`** | **Elasticsearch** URL the init **Job** uses. When empty, defaults to **`http://elasticsearch:9200`** (release-prefixed only when **`global.useReleaseNamePrefix`** is **`true`**). |
 | **`agent.enabled`** | **`true`** | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**). |
 | **`agent.vss-agent.enabled`** | **`true`** | Set **`false`** to disable the **vss-agent** deployment only. |
 | **`agent.vss-agent.profile`** | **`lvs`** | Passed to the **vss-agent** subchart for LVS-specific deployment/env behavior. ConfigMap data is **`configs/vss-agent/config.yml`** (flat path under this chart). |
@@ -377,7 +372,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`agent.vss-agent.vlmName`** | **`""`** | Optional **vss-agent-only** override of **`global.vlmName`** (**`VLM_NAME`**). |
 | **`agent.vss-agent.llmBaseUrl`** | **`""`** | Optional **vss-agent-only** override of **`global.llmBaseUrl`**. |
 | **`agent.vss-agent.vlmBaseUrl`** | **`""`** | Optional **vss-agent-only** override of **`global.vlmBaseUrl`**. |
-| **`agent.vss-agent.evalLlmJudgeName`** | **`""`** | Optional eval judge model id. When empty, the **vss-agent** subchart defaults to **`llmName`**. |
+| **`agent.vss-agent.evalLlmJudgeName`** | **`""`** | Optional eval judge model ID. When empty, the **vss-agent** subchart defaults to **`llmName`**. |
 | **`agent.vss-agent.evalLlmJudgeBaseUrl`** | **`""`** | Optional base URL for the eval judge endpoint. When empty, the subchart defaults alongside **`llmBaseUrl`**. |
 | **`agent.vss-agent.reportsBaseUrl`** | **`""`** | Base URL for report links. When empty, templates derive a value from **`global.external*`** and in-cluster defaults. |
 | **`agent.vss-agent.vstExternalUrl`** | **`""`** | External **VST** URL passed to the agent. When empty, derived from **`global.external*`** and in-cluster defaults. |
@@ -386,32 +381,52 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`agent.vss-agent.extraEnv`** | *(omit)* | Optional **`{ name, value }`** appended last. |
 | **`vss-agent-ui.enabled`** | **`true`** | Set **`false`** to disable the **vss-agent-ui** deployment. |
 | **`vss-agent-ui.envOverrides`** | (see **`values.yaml`**) | Full **`NEXT_PUBLIC_*`** defaults aligned with **dev-profile-base**; LVS sets subtitle (**`Vision (LVS)`**) and **`NEXT_PUBLIC_ENABLE_DASHBOARD_TAB`**. |
-| **`vss-agent-ui.agentApiUrlBase`** | **`""`** | Base URL for the **vss-agent** HTTP API (browser **`NEXT_PUBLIC_AGENT_API_URL_BASE`**, typically ends with **`/api/v1`**). If unset, built from **`global.externalScheme`** / **`externalHost`** / **`externalPort`** as **`<global>/api/v1`**, else defaults to in-cluster **`http://<release>-vss-agent:8000/api/v1`**. |
-| **`vss-agent-ui.vstApiUrl`** | **`""`** | **VST** HTTP API URL for the browser (**`NEXT_PUBLIC_VST_API_URL`**). If unset, built as **`<global>/vst/api`**, else **`http://<release>-vss-vios-ingress:30888/vst/api`**. |
+| **`vss-agent-ui.agentApiUrlBase`** | **`""`** | Base URL for the **vss-agent** HTTP API (browser **`NEXT_PUBLIC_AGENT_API_URL_BASE`**, typically ends with **`/api/v1`**). If unset and **`global.externalHost`** is set, built as **`<global>/api/v1`**. If both are empty, the in-cluster default is **`http://vss-agent:8000/api/v1`** (**`http://<RELEASE_NAME>-vss-agent:8000/api/v1`** only when **`global.useReleaseNamePrefix`** is **`true`**). |
+| **`vss-agent-ui.vstApiUrl`** | **`""`** | **VST** HTTP API URL for the browser (**`NEXT_PUBLIC_VST_API_URL`**). If unset and **`global.externalHost`** is set, built as **`<global>/vst/api`**. Otherwise **`http://vss-vios-ingress:30888/vst/api`** (release-prefixed only when **`global.useReleaseNamePrefix`** is **`true`**). |
 | **`vss-agent-ui.proxyBaseUrl`** | **`""`** | Server-only media-proxy target (**`VSS_PROXY_BASE_URL`**). If unset, uses the in-cluster **vss-vios-ingress** Service. |
-| **`vss-agent-ui.chatCompletionUrl`** | **`""`** | HTTP chat completion URL (**`NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL`**). If unset, built as **`<global>/chat/stream`**, else **`http://<release>-vss-agent:8000/chat/stream`**. |
+| **`vss-agent-ui.chatCompletionUrl`** | **`""`** | HTTP chat completion URL (**`NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL`**). If unset and **`global.externalHost`** is set, built as **`<global>/v1/chat/stream`**. Otherwise **`http://vss-agent:8000/v1/chat/stream`** (release-prefixed only when **`global.useReleaseNamePrefix`** is **`true`**). |
 | **`vss-agent-ui.chatBackendUrl`**, **`sidebarChatBackendUrl`** | **`""`** | Server-only chat proxy targets. If unset, use an explicit **`chatCompletionUrl`**, otherwise the in-cluster **vss-agent** Service. |
 | **`vss-agent-ui.websocketChatUrl`** | **`""`** | WebSocket chat URL (**`NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL`**). If unset and **`global.externalHost`** is set, built as **`<ws-scheme>://<host>[:port]/websocket`** (**`ws`** / **`wss`** from **`global.externalScheme`**). If both this and **`global.externalHost`** are empty, the chart may omit WebSocket env vars; set explicitly for port-forward or custom routing. |
 | **`vss-agent-ui.dashboardKibanaBaseUrl`** | **`""`** | Override Kibana base URL for the Dashboard tab when **`global.kibanaPublicUrl`** / **`infra.kibana.kibanaPublicUrl`** are not used. |
 | **`nims.enabled`** | **`true`** | Master switch for the **`nims`** umbrella subchart. When **`false`**, no **NIM** model workloads or **`NIMService`** / **`NIMCache`** objects are installed. Use **`false`** with **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`**, and **`global.vlmName`** for remote-only LLM/VLM (**vss-agent** and **vss-summarization**). |
 | **`nims.<model>.enabled`** | per model in **`values.yaml`** | Enables or disables one bundled **NIM** model. Default LVS enables **`nemotron35`** and disables the other LLM and Cosmos NIMs because RT-VLM loads the integrated VLM checkpoint. |
-| **`nims.gpuType`** | **`H100`** | Selects **`gpuProfiles`** tuning for enabled NIM ConfigMaps. Supported values are **`H100`**, **`GB300`**, **`L40S`**, **`RTXPRO4500BW`**, **`RTXPRO6000BW`**, and **`OTHER`**. |
+| **`nims.gpuType`** | **`H100`** in chart **`values.yaml`**; **`RTXPRO6000BW`** in sample **`values-lvs.yaml`** | Selects **`gpuProfiles`** tuning for enabled NIM ConfigMaps. Set this to the GPU you are installing on. Supported values are **`H100`**, **`GB300`**, **`L40S`**, **`RTXPRO4500BW`**, **`RTXPRO6000BW`**, and **`OTHER`**. See [NIM GPU profile guidance](#nim-gpu-profile-guidance). |
 
 ### Remote LLM and VLM
 
-When LLM and VLM run **outside** this release, set **`nims.enabled`** to **`false`** and configure **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`**, and **`global.vlmName`** in **`values-lvs.yaml`** (or **`--set`**). Use service-root base URLs without a trailing **`/v1`**; **vss-agent** appends **`/v1`** in its config, and the LVS/RT-VLM templates add **`/v1`** where their containers require it. **vss-summarization** and **vss-agent** both consume these globals unless overridden with **`vss-summarization.llmBaseUrl`**, **`agent.vss-agent.llmBaseUrl`**, etc. Endpoints must be reachable from pods in the release namespace.
+When LLM and VLM run **outside** this release, set **`nims.enabled`** to **`false`** and configure **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`**, and **`global.vlmName`** in **`values-lvs.yaml`** (or **`--set`**). Use service-root base URLs without a trailing **`/v1`**; **vss-agent** appends **`/v1`** in its config, and the LVS/RT-VLM templates add **`/v1`** where their containers require it. **vss-summarization** and **vss-agent** both consume these globals unless overridden with **`vss-summarization.llmBaseUrl`**, **`agent.vss-agent.llmBaseUrl`**, etc. Endpoints must be reachable from pods in the release namespace. **`vss-vios-streamprocessing`** and **`vss-rtvi-vlm`** still request one GPU each (**2** total).
+
+Discover the model IDs from each endpoint's **`/v1/models`**. Do not reuse the in-cluster IDs unless that endpoint advertises them. Endpoint authentication is separate from the NGC registry secret (**`ngc-secret`**) used for image pull:
+
+- **RT-VLM** sends **`VIA_VLM_API_KEY`** from **`global.ngcApiSecret`** (default secret **`ngc-api`**, key **`NGC_API_KEY`**, filled from **`ngc.apiKey`**). If the remote VLM expects a different token, point **`rtvi.vss-rtvi-vlm.ngcApiSecret.name`** and **`.key`** at that Secret. **`rtvi.vss-rtvi-vlm.useSharedNim`** must be **`true`**, or the pod loads the integrated checkpoint and ignores **`global.vlmBaseUrl`**.
+- **vss-agent** does not copy **`ngc.apiKey`** into **`NVIDIA_API_KEY`**. This profile's env list sets **`NVIDIA_API_KEY`** to empty. If the remote LLM requires a bearer token, set **`NVIDIA_API_KEY`** on **`agent.vss-agent.env`** to that endpoint's credential.
+- **vss-summarization** calls the remote LLM on its own. Its chart default sets **`NVIDIA_API_KEY`** to empty, and **`configs/config.yaml`** sends that value as **`api_key`**. **`vss-summarization.extraEnv`** is applied last and overrides that name. Add the entry below to the existing **`extraEnv`** list. Do not replace the list: it already carries **`RTVI_VLM_URL`** and **`RTVI_VLM_URL_PASSTHROUGH`**. This chart's **`extraEnv`** entries are **`name`** and **`value`** only.
+
+```yaml
+vss-summarization:
+  extraEnv:
+    - name: NVIDIA_API_KEY
+      value: "<REMOTE_LLM_TOKEN>"
+```
 
 ### 2. Install
 
 ```bash
-# Clone the repository. For a specific branch or tag, add: -b <name-or-tag> (before the URL).
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
-cd video-search-and-summarization/deploy/helm/developer-profiles
+# The URL alone checks out the default branch. Pin the release you intend.
+# For VSS 3.3.0:
+git clone --branch v3.3.0 --single-branch https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git rev-parse HEAD
+cd deploy/helm/developer-profiles
 
 helm dependency build ./dev-profile-lvs
 
+# values-lvs.yaml sets nims.gpuType=RTXPRO6000BW. Chart values.yaml defaults to H100.
+# Set nims.gpuType to the GPU you are installing on before this command.
+# Replace <RELEASE_NAME> and <NAMESPACE> before running.
+
 # Update the values-lvs.yaml and install the chart
-helm upgrade --install <RELEASE NAME> ./dev-profile-lvs \
+helm upgrade --install <RELEASE_NAME> ./dev-profile-lvs \
   -f dev-profile-lvs/values-lvs.yaml \
   -n <NAMESPACE> --create-namespace
 
@@ -434,6 +449,13 @@ helm upgrade --install vss-lvs ./dev-profile-lvs \
 export LLM_BASE_URL='<REMOTE LLM SERVICE ROOT, no trailing /v1>'
 export VLM_BASE_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
 
+# Discover the exact model IDs the remote endpoints advertise — do not assume
+# they match the in-cluster defaults.
+curl -sf "$LLM_BASE_URL/v1/models" | jq -r '.data[].id'
+curl -sf "$VLM_BASE_URL/v1/models" | jq -r '.data[].id'
+export LLM_NAME='<LLM MODEL ID FROM ABOVE>'
+export VLM_NAME='<VLM MODEL ID FROM ABOVE>'
+
 helm upgrade --install vss-lvs ./dev-profile-lvs \
   -f dev-profile-lvs/values-lvs.yaml \
   -n vss-lvs --create-namespace \
@@ -443,10 +465,12 @@ helm upgrade --install vss-lvs ./dev-profile-lvs \
   --set global.storageClass="$STORAGE_CLASS" \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
   --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
-  --set-string global.llmName="nvidia/nemotron-3.5-lightning-30b-a3b" \
-  --set-string global.vlmName="nim_nvidia_cosmos3-nano-reasoner_bf16-final" \
+  --set-string global.llmName="$LLM_NAME" \
+  --set-string global.vlmName="$VLM_NAME" \
   --set rtvi.vss-rtvi-vlm.useSharedNim=true
 ```
+
+**Important:** `rtvi.vss-rtvi-vlm.useSharedNim=true` is required for a remote VLM — without it, RT-VLM ignores `global.vlmBaseUrl` and loads its integrated checkpoint instead of proxying to the remote endpoint.
 
 ### 3. Post-deploy validation
 
@@ -491,11 +515,13 @@ curl -f http://127.0.0.1:30081/v1/models
 
 **Note:** After install or upgrade, wait until **all** pods in your namespace are **Ready** before using the application in the browser. When **in-cluster NIM** is enabled (**`nims.enabled: true`**), **NIM** model pods need **extra time** (image pull, **`NIMService`** / **`NIMCache`**, warm-up)—this is **common to both base and LVS** profiles. On **LVS**, the **`vss-summarization`** pod also often needs **additional time** (Elasticsearch, backends, NIM reachability). Opening **vss-agent-ui** while NIM or other dependencies are still starting can produce **transient errors** (failed API calls, timeouts, or empty screens). Check progress with **`kubectl get pods -n <NAMESPACE>`** (or **`kubectl get pods -n <NAMESPACE> -w`**) until every workload shows **`Running`** and **`READY`** matches the expected column (e.g. **`1/1`**). With **remote** LLM/VLM only (**`nims.enabled: false`**), NIM startup is skipped, but still wait for **`vss-summarization`** and the rest of the stack.
 
+This chart also renders one-time Kubernetes **`Job`**s for setup (Elasticsearch and Kibana index/dashboard init, and NIM-Operator cache preparation when the LLM NIM is enabled). Their pods run to **`Completed`** and exit — do not expect them to show **`Running`** or **`Ready`** like a Deployment/StatefulSet pod; only wait for the long-running workload pods to reach **`Running`**/**`Ready`**.
+
 Set **`global.externalHost`**, **`global.kibanaPublicUrl`** (and scheme/port as needed) in **`values-lvs.yaml`** so **vss-agent-ui**, **vss-agent**, **vss-vios-ingress**, and Kibana links resolve for browsers.
 
 ### VSS Ingress (`vssIngress`)
 
-The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`**) so one main hostname serves UI, API, and VST, with optional hostnames for **Kibana**, **Phoenix**, and **NVStreamer** when those subcharts are enabled.
+The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`**) so one main hostname serves UI, API, VST, summarization (**`/lvs`**), RT-VLM, Elasticsearch, the in-cluster LLM (**`/llm`**, when enabled), and Phoenix at **`/phoenix`**. Kibana gets its own hostname when that subchart is enabled. Phoenix gets a separate hostname only when **`vssIngress.phoenixHost`** is set. NVStreamer gets **`streamer.<host>`** when VIOS and NVStreamer are enabled.
 
 **Prerequisites**
 
@@ -505,11 +531,11 @@ The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`*
 
 **What gets created**
 
-- **`Ingress`** **`<release>-vss-ingress`** in the release namespace.
+- **`Ingress`** **`<RELEASE_NAME>-vss-ingress`** in the release namespace.
 - **`spec.ingressClassName`**: **`vssIngress.ingressClassName`** (default **`haproxy`**).
-- Main host: **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, **`/api/proxy`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** → **vss-agent**; **`/vst`** → **vss-vios-ingress**.
+- Main host, when the matching backend is deployed: **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, **`/api/proxy`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`**, **`/docs`**, **`/redoc`**, **`/generate`**, **`/openapi.json`** → **vss-agent**; **`/vst`** and **`/storage`** → **vss-vios-ingress**; **`/lvs`** → **vss-summarization** (readiness through the Ingress is **`/lvs/v1/ready`**); **`/rtvi-vlm`** → **vss-rtvi-vlm**; **`/llm`** → the in-cluster Nemotron NIM when enabled; **`/elasticsearch`** when Elasticsearch is enabled; **`/phoenix`** on this same host when Phoenix is enabled. HAProxy strips the prefixes that the [canonical route table](../../services/common/README.md) marks for rewrite.
 - If **Kibana** is enabled: host **`kibana.<main-host>`** (or **`vssIngress.kibanaHost`**) → **Kibana** (**`vssIngress.kibanaPort`**).
-- If **Phoenix** is enabled: host **`phoenix.<main-host>`** (or **`vssIngress.phoenixHost`**) → **Phoenix**.
+- If **`vssIngress.phoenixHost`** is set: that host → **Phoenix**. Leaving it empty does not create **`phoenix.<main-host>`**.
 - If **VIOS** and **NVStreamer** are enabled: host **`streamer.<main-host>`** (or **`vssIngress.streamerHost`**) → **NVStreamer** HTTP (**`vios.vss-vios-nvstreamer.service.port`**, default **`31000`**).
 
 The NVStreamer hostname must resolve to the ingress controller's externally reachable address. For example, with `global.externalHost: vss.YOUR_IP.nip.io`, open `http://streamer.vss.YOUR_IP.nip.io/`. The NVStreamer Service stays **ClusterIP**; ingress provides HTTP access. To verify access, open the URL from your workstation, confirm that the UI and its API requests load, and upload a test video.
@@ -617,15 +643,28 @@ helm upgrade <RELEASE_NAME> ./dev-profile-lvs -f dev-profile-lvs/values-lvs.yaml
 helm upgrade <RELEASE_NAME> ./dev-profile-lvs -f dev-profile-lvs/values-lvs.yaml -n <NAMESPACE>
 ```
 
-**Uninstall**:
+**Uninstall**
+
+Back up uploaded media and Postgres metadata before `helm uninstall`. Those claims have no `helm.sh/resource-policy: keep` annotation, so the release delete removes them. Copy the volumes with your storage provider first, and read each PV's reclaim policy. A `Delete` policy removes the disk with the claim.
+
+| Resource | Helm uninstall behavior | Notes |
+|----------|-------------------------|-------|
+| Shared VST PVCs (`<RELEASE_NAME>-vst-data`, `<RELEASE_NAME>-vst-video`, `<RELEASE_NAME>-vst-streamer-videos`) | Removed with the release | Names always include the release, including when `global.useReleaseNamePrefix` is `false`. This is the uploaded and streamed media. |
+| Postgres PVC | Removed with the release | Default name `vss-vios-postgres-data`. With `global.useReleaseNamePrefix: true` it is `<RELEASE_NAME>-vss-vios-postgres-data`. Database files are on that claim at `postgresql/db`. |
+| Elasticsearch PVCs | Removed with the release | The StatefulSet sets `persistentVolumeClaimRetentionPolicy.whenDeleted: Delete`. Default claims are `es-data-elasticsearch-0` and `es-logs-elasticsearch-0`. With the prefix flag they are `es-data-<RELEASE_NAME>-elasticsearch-0` and `es-logs-<RELEASE_NAME>-elasticsearch-0`. |
+| `NIMCache` (namespaced; default name `nemotron-35-lightning-30b-a3b`) | Retained | Templates set `helm.sh/resource-policy: keep`. `NIMCache` is a namespaced CRD object, not cluster-scoped, and not a PVC. |
 
 ```bash
+kubectl get pvc -n <NAMESPACE>
+kubectl get nimcache -n <NAMESPACE>
+
+# After the media and Postgres backup:
 helm uninstall <RELEASE_NAME> -n <NAMESPACE>
 ```
 
-Note: PVCs and any cluster-scoped resources are not removed by `helm uninstall`; delete them manually if needed.
+Do **not** run namespace-wide deletes such as `kubectl delete nimcache --all` or `kubectl delete pvc --all`. Those commands remove every matching object in the namespace, including leftovers from other releases. Inspect ownership, confirm you intend to discard the data, then delete only the selected leftovers for this release:
 
 ```bash
-kubectl delete nimcache --all -n <NAMESPACE>
-kubectl delete pvc --all -n <NAMESPACE>
+# Example for the default Nemotron NIMCache (kept by Helm):
+kubectl delete nimcache nemotron-35-lightning-30b-a3b -n <NAMESPACE>
 ```

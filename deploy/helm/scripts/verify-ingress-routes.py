@@ -58,10 +58,13 @@ TABLE = HELM / "services" / "common" / "templates" / "_ingress-routes.tpl"
 CLI_CONFIG = REPO / "libs/vss/cli/src/vss_cli/config.py"
 
 # Profiles whose vssIngress is off by default need it switched on to render.
+# Alerts manual examples are the verification-mode snapshot. Chart values.yaml
+# leaves rtvi.vss-rtvi-vlm disabled, so render that mode file or /rtvi-vlm
+# looks like an extra route.
 ON = ["--set", "vssIngress.enabled=true"]
 PROFILES = {
     "dev-profile-base": ON,
-    "dev-profile-alerts": [],
+    "dev-profile-alerts": ["-f", "dev-profile-alerts/values-verification.yaml"],
     "dev-profile-lvs": ON,
     "dev-profile-search": [],
 }

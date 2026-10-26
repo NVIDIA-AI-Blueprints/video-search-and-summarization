@@ -21,7 +21,6 @@
 
 profile: base
 mode: ""
-llmNameSlug: ""
 vlmNameSlug: ""
 
 # NGC: when using nvcr.io images, set ngc.createSecrets and ngc.apiKey (or use -f values-ngc-secrets.yaml).

@@ -54,8 +54,15 @@ The critic agent is available by default and controlled per request with `use_cr
 > **Note:** The VLM (used by the critic and `video_understanding`) is served in-pod by
 > `rtvi.vss-rtvi-vlm` (not the standalone `nvidia-cosmos3-reasoner` NIM, which is disabled by
 > default). It requests **1 full GPU** (`nvidia.com/gpu: "1"`), scheduled on any free GPU. To use
-> the standalone NIM instead, set `nims.cosmos3.enabled=true`, `rtvi.vss-rtvi-vlm.enabled=false`,
-> and flip the agent `VLM_MODEL_TYPE` back to `nim`.
+> the standalone NIM instead, set all of the following. The three flags alone leave
+> `VLM_BASE_URL` on `http://vss-rtvi-vlm:8000` and `VLM_NAME` on the integrated RT-VLM id
+> after that workload is disabled. `configs/vss-agent/config.yml` appends `/v1` to
+> `VLM_BASE_URL` when `VLM_MODEL_TYPE=nim`.
+>
+> - `nims.cosmos3.enabled=true` and `rtvi.vss-rtvi-vlm.enabled=false`
+> - `agent.vss-agent.vlmBaseUrl=http://nvidia-cosmos3-reasoner:8000` (release-prefixed when `global.useReleaseNamePrefix=true`)
+> - `agent.vss-agent.extraEnv` entry `VLM_MODEL_TYPE=nim` (the chart env list sets `rtvi`; `extraEnv` wins on the same name)
+> - `agent.vss-agent.vlmName` from `curl -sf http://nvidia-cosmos3-reasoner:8000/v1/models` — do not reuse the RT-VLM model id
 
 ### With Remote LLM and VLM Endpoints (Option B)
 
@@ -67,33 +74,39 @@ The critic agent is available by default and controlled per request with `use_cr
 | `vss-rtvi-vlm` (proxy) | 1 | Forwards VLM calls to the remote endpoint and loads no local model, but still requests `nvidia.com/gpu: 1` from the `rtvi-vlm` subchart defaults |
 | **Total** | **4** | |
 
-### GPU Time-Slicing (Limited GPU Environments)
+### GPU time-slicing
 
-If you have limited GPUs, you can enable **time-slicing** to share a single physical GPU between multiple pods. This allows workloads to share GPU memory and compute without requiring dedicated GPUs for each pod.
+Time-slicing is a device-plugin scheduling mode. Each share is advertised as another `nvidia.com/gpu`. It does not reserve a full physical GPU, isolate GPU memory, or split compute in proportion to the request. A request of 2 is two shares. The GPU Operator can reject a request greater than 1 when `failRequestsGreaterThanOne` is enabled. See [Time-slicing GPUs in Kubernetes](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/gpu-sharing.html) for the operator you installed.
 
-For setup instructions, refer to [Time-Slicing GPUs in Kubernetes](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html).
+This profile does not ship a tested time-slicing configuration. The active Nemotron key is `nims.nemotron35` (`nims.nemotron` is ignored). The Nemotron `NIMCache` sets `tensorParallelism` from `nims.nemotron35.resources.limits["nvidia.com/gpu"]`, so changing that limit also changes the cache, not only the scheduler.
 
-When time-slicing is enabled, each time-sliced partition appears as a separate `nvidia.com/gpu` resource. Adjust the GPU resource requests in `values.yaml` to match your time-slicing configuration:
+Put the literal key in a values file and confirm the rendered `NIMService` still has `nvidia.com/gpu` at the share count you tested:
 
-```bash
-# Example: Nemotron NIM needs 1 full GPU but with 2x time-slicing per GPU
---set nims.nemotron.resources.limits."nvidia.com/gpu"="2" \
---set nims.nemotron.resources.requests."nvidia.com/gpu"="2"
+```yaml
+nims:
+  nemotron35:
+    resources:
+      limits:
+        nvidia.com/gpu: "<shares>"
+      requests:
+        nvidia.com/gpu: "<shares>"
 ```
+
+`--set nims.nemotron35.resources.limits.nvidia.com/gpu=2` is parsed as a nested `nvidia.com` map and leaves `nvidia.com/gpu` at 1. Prefer the YAML file. If you must use `--set`, escape the dot and quote the whole argument: `--set 'nims.nemotron35.resources.limits.nvidia\.com/gpu=<shares>'`.
 
 ## Prerequisites
 
 - **Kubernetes cluster**
   - Running cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
-  - **Server version** validated for this profile: **1.34** — use a different minor/patch only if your platform or release notes require it; confirm compatibility with the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html) and [NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html) versions you deploy.
+  - **Server version** recorded for this profile: **1.34.2**.
 
 - **NVIDIA GPU Operator**
-  - Install the GPU Operator on the cluster. Follow [GPU Operator getting started](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html).
+  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1** on the cluster. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
   - **Driver (x86 Ubuntu 24.04)** — pin **595.58.03** via GPU Operator driver settings.
 
 - **NVIDIA NIM Operator** (required only for [Option A: Local NIMs](#option-a-deploy-with-local-nims))
   - Required when `nims` subcharts are enabled (`NIMCache` / `NIMService`).
-  - Install **after** the GPU Operator. See [NIM Operator installation](https://docs.nvidia.com/nim-operator/latest/install.html).
+  - Install **after** the GPU Operator. See [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0**.
   - Install the NIM Operator:
 
 ```bash
@@ -104,16 +117,16 @@ kubectl create namespace nim-operator
 
 helm upgrade --install nim-operator nvidia/k8s-nim-operator \
   -n nim-operator \
-  --version=3.0.2
+  --version=3.1.0
 
 # Verify the operator pod is running
 kubectl get pods -n nim-operator
 ```
 
 - **Volume provisioner (e.g. local-path)**
-  - A **StorageClass** must exist on the cluster. Set **`global.storageClass`** in your Helm values override to that class’s **`metadata.name`** (this profile’s install examples use **`--set global.storageClass=…`**).
-  - **Bare-metal clusters:** Install **local-path** (see [rancher/local-path-provisioner](https://github.com/rancher/local-path-provisioner/tree/master)), or use the Helm-based install in [Step 1](#step-1-volume-provisioner-bare-metal-optional) if you prefer that packaging.
-  - **Default StorageClass:** If your class (for example **`local-path`**) is not already the default, set it as the default StorageClass:
+  - A **StorageClass** must exist on the cluster. Set **`global.storageClass`** in your Helm values override to that class's **`metadata.name`** (this profile's install examples use **`--set global.storageClass=…`**). The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile.
+  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35**, or the Helm-based install in [Step 1](#step-1-volume-provisioner-bare-metal-optional). The shared VST claims are `ReadWriteOnce`. **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`** share them, and streamprocessing also requests a GPU. **`vios.vss-vios-nvstreamer`** mounts the streamer-videos claim as well. Node-local volumes are not portable between nodes, and ReadWriteOnce allows those pods only on the same node. Set the same `nodeSelector` on sensor, streamprocessing, and NVStreamer, and confirm that node has the GPU and capacity for the claims.
+  - **Default StorageClass (optional):** changing the cluster's *default* StorageClass is not required for this chart -- setting **`global.storageClass`** is enough. It only matters for other workloads that omit `storageClassName`. If you still want to make a class the cluster default, run:
 
     ```bash
     kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
@@ -123,11 +136,11 @@ kubectl get pods -n nim-operator
 
 ### Chart / tooling
 
-- **Helm** 3.7+
+- **Helm** [3.7 or above](https://github.com/helm/helm/blob/v3.7.0/README.md#install)
 - **kubectl**
 - **GPUs**: see [GPU Requirements](#gpu-requirements)
 - **NGC**: API key for image pull, model downloads, and NIM access
-- **StorageClass**: set **`global.storageClass`** to a class on the cluster (see [Prerequisites](#prerequisites)—**Volume provisioner**).
+- **StorageClass**: set **`global.storageClass`** to a class on the cluster (see [Prerequisites](#prerequisites)—**Volume provisioner**). If you use local-path-provisioner, use **v0.0.35**.
 
 ## Environment Setup
 
@@ -135,14 +148,14 @@ kubectl get pods -n nim-operator
 export NODE_EXTERNAL_IP='<your node IP>'
 export NGC_CLI_API_KEY='<your NGC API key>'
 export STORAGE_CLASS='<Storage Class Name>'
-export GPU_NAME='H100'  # One of: H100, L40S, RTXPRO6000BW
+export GPU_NAME='H100'  # One of: H100, GB300, L40S, RTXPRO4500BW, RTXPRO6000BW, OTHER
 ```
 
 > **Critic behavior** is controlled per request with `use_critic` and defaults to enabled. RT-VLM remains available for both critic verification and `video_understanding`.
 
 ## Step 1: Volume provisioner (bare metal, optional)
 
-Use this **only** when you want to install **local-path** with Helm on bare metal. If the cluster already has a suitable StorageClass, set **`global.storageClass`** per [Prerequisites](#prerequisites)—**Volume provisioner** and skip this step.
+Use this **only** when you want to install **local-path** with Helm on bare metal. If the cluster already has a suitable StorageClass, set **`global.storageClass`** per [Prerequisites](#prerequisites)—**Volume provisioner** and skip this step. The RTX cluster runs provisioner image **`v0.0.35`**. Helm chart **`0.0.36`** is the chart that contains that image. Chart **`0.0.35`** ships provisioner **`v0.0.34`**.
 
 ```bash
 helm repo add containeroo https://charts.containeroo.ch
@@ -151,7 +164,7 @@ helm repo update
 helm upgrade --namespace default --install \
   local-path-provisioner-default \
   containeroo/local-path-provisioner \
-  --version '0.0.32'
+  --version '0.0.36'
 ```
 
 Verify the StorageClass exists:
@@ -160,7 +173,7 @@ Verify the StorageClass exists:
 kubectl get storageclass
 ```
 
-If **`local-path`** is listed but is **not** the default (no **`(default)`** marker), run the **`kubectl patch storageclass`** command under [Prerequisites](#prerequisites)—**Volume provisioner** (**Default StorageClass**) to set it as the default StorageClass.
+A missing `(default)` marker is fine. This chart writes `storageClassName` from `global.storageClass`. Patching the cluster default is optional and is only for other workloads that omit `storageClassName`. The optional patch is under [Prerequisites](#prerequisites)—**Volume provisioner**.
 
 ## Step 2: Install Ingress Controller (HAProxy)
 
@@ -201,9 +214,12 @@ The `global.rtviInternalIngress.controllerService` default (`haproxy-kubernetes-
 **Note:** The Helm install can take several minutes while dependent services start; wait for workloads to become Ready before using the UI. Use **`global.ngcApiKey`** (and **`nims.global.ngcApiKey`** for [Option A](#option-a-deploy-with-local-nims)) as in the examples below—Helm creates the needed NGC and registry secrets from those values.
 
 ```bash
-# Clone the repository. For a specific branch or tag, add: -b <name-or-tag> (before the URL).
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
-cd video-search-and-summarization/deploy/helm/developer-profiles
+# The URL alone checks out the default branch. Pin the release you intend.
+# For VSS 3.3.0:
+git clone --branch v3.3.0 --single-branch https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git rev-parse HEAD
+cd deploy/helm/developer-profiles
 
 helm dependency build ./dev-profile-search
 ```
@@ -238,7 +254,7 @@ Replace the placeholder with the selected value and keep it quoted. Use
 or select a GPU node. Each GPU workload requests its own GPU, so use the
 reference's dedicated-GPU layout. Compose device-ID variables are not needed:
 Kubernetes assigns the devices. On clusters with multiple GPU types, also set
-workload node selectors or affinity for the intended hardware.
+a **`nodeSelector`** on the GPU workloads for the intended hardware. The RT-VLM and NIM charts read **`nodeSelector`** only.
 
 This override applies only when RT-VLM loads a model locally. For an external
 VLM, configure the memory budget at that model's serving deployment.
@@ -311,8 +327,7 @@ the VLM through the RT-VLM proxy:
 | `global.vlmBaseUrl` / `global.vlmName` | The remote VLM that RT-VLM forwards to (`VIA_VLM_ENDPOINT`). Overriding only `agent.vss-agent.vlmBaseUrl` leaves the proxy pointed at this file's Cosmos3 default and the critic still fails. |
 | `agent.vss-agent.vlmName` | The model id the agent asks RT-VLM for. Must match `global.vlmName`, or RT-VLM rejects the request. |
 
-Include a path prefix in the base URLs if your service requires one, and keep every model id aligned
-with what the endpoints actually advertise on `/v1/models`.
+`configs/vss-agent/config.yml` appends `/v1` to `LLM_BASE_URL` (`nim_llm` / `openai_llm`) and to `VLM_BASE_URL` (`nim_vlm` / `openai_vlm`). Leave the trailing `/v1` off `agent.vss-agent.llmBaseUrl`. That file does not reference `EVAL_LLM_JUDGE_BASE_URL`, so the search agent does not append `/v1` to the judge URL. The benchmark client in `skills/benchmarking/vss-benchmark-vlm-qa/scripts/benchmark_vlm_qa.py` (`judge_completions_url`) keeps an existing `/v1` and adds `/v1` when the root has none, so a judge root with or without `/v1` both reach `/v1/chat/completions`. A URL that already ends in `/v1` is valid for that client and is not valid for `llmBaseUrl`. RT-VLM's `VIA_VLM_ENDPOINT` keeps a `/v1` suffix when `global.vlmBaseUrl` already has one, and adds `/v1` when it does not. The examples below use a root with no trailing `/v1`. Read the model id from each endpoint's `/v1/models` list.
 
 This profile lists the **full** **`agent.vss-agent.env`** block for Search deployments. Search behavior is driven by **`general.front_end.streaming_ingest`** in `configs/vss-agent/config.yml`; the chart wires the agent for remote VLM mode and the default Elasticsearch index **`mdx-embed-filtered-2025-01-01`**. Critic verification is controlled per request with `use_critic`. Override **`agent.vss-agent.elasticsearchUrl`** or **`agent.vss-agent.elasticsearchIndex`** when you need a different Elasticsearch endpoint or index.
 
@@ -341,9 +356,9 @@ helm upgrade --install vss-search ./dev-profile-search \
   --wait=false
 ```
 
-> **Option B note:** `values-build-endpoint.yaml` disables local Nemotron and Cosmos3 NIM
-> deployments (`nims.nemotron.enabled=false`, `nims.cosmos3.enabled=false`). Its `global.vlmBaseUrl`
-> and `global.vlmName` defaults still point at Cosmos3 on NVIDIA Build, which does not serve that
+> **Option B note:** `values-build-endpoint.yaml` sets `nims.enabled=false` (the umbrella) and
+> `nims.nemotron35.enabled=false` plus `nims.cosmos3.enabled=false`. `nims.nemotron.enabled` is not a key.
+> Its `global.vlmBaseUrl` and `global.vlmName` defaults still point at Cosmos3 on NVIDIA Build, which does not serve that
 > model — override them as shown above.
 
 > **VLM endpoint credentials:** RT-VLM authenticates to the remote VLM with `VIA_VLM_API_KEY`, which
@@ -398,16 +413,26 @@ Its VLM is served in-pod by **`rtvi.vss-rtvi-vlm`** (Cosmos3 checkpoint) in [Opt
 
 ## Verify Deployment
 
-```bash
-kubectl get pods -n <NAMESPACE>
-kubectl get deployments -n <NAMESPACE>
-kubectl get statefulsets -n <NAMESPACE>
-kubectl get svc -n <NAMESPACE>
-kubectl get ingress -n <NAMESPACE>
+`helm template` and a successful `helm upgrade` do not mean the stack can search. The install examples use `--wait=false`, so Helm returns before workloads are ready. Use `<NAMESPACE>` on every command (the install examples use `vss-search`). `kubectl` otherwise uses the current-context namespace.
 
-# Check RTVI Embed model loading (may take 5-10 minutes)
-kubectl logs -f deployment/vss-rtvi-embed # <RELEASE_NAME>-vss-rtvi-embed if global.useReleaseNamePrefix=true
+```bash
+kubectl rollout status deployment/vss-agent -n <NAMESPACE>
+kubectl rollout status deployment/vss-agent-ui -n <NAMESPACE>
+kubectl rollout status deployment/vss-rtvi-embed -n <NAMESPACE>
+kubectl get pods,pvc,nimservice -n <NAMESPACE>
+kubectl logs -n <NAMESPACE> -f deployment/vss-rtvi-embed
 ```
+
+With `global.useReleaseNamePrefix=true`, prefix those Deployment names with `<RELEASE_NAME>-`. Wait until PVCs are `Bound` and, for Option A, the Nemotron `NIMService` is ready. Embed model load can take several minutes.
+
+Then exercise the product, not only the resource list:
+
+1. Open the UI at the URL that matches how you exposed it (Ingress, NodePort, or port-forward). The browser must be calling the agent and VST URLs from the overlay for that mode.
+2. Upload a clip on **Video Management**.
+3. Run a search on the **Search** tab.
+4. Run one search with `use_critic` enabled and confirm the critic returns, and one with it disabled.
+
+A rollout that never becomes ready, a PVC stuck in `Pending`, or a search that cannot reach the agent is a failed deploy.
 
 ## Access the Services
 
@@ -423,12 +448,13 @@ When deployed with `vssIngress.enabled=true` (the default), services are accessi
 | RT-VLM (OpenAI)   | `http://vss-search.<NODE_IP>.nip.io/rtvi-vlm/v1`           |
 | RT-Embed          | `http://vss-search.<NODE_IP>.nip.io/rtvi-embed/v1`         |
 | RT-CV             | `http://vss-search.<NODE_IP>.nip.io/rtvi-cv/api/v1`        |
+| LLM (NIM, [Option A](#option-a-deploy-with-local-nims) only) | `http://vss-search.<NODE_IP>.nip.io/llm/v1` |
 | Elasticsearch     | `http://vss-search.<NODE_IP>.nip.io/elasticsearch`         |
 | NVStreamer HTTP    | `http://streamer.<NODE_IP>.nip.io`                     |
 | Kibana Dashboards | `http://kibana.<NODE_IP>.nip.io`                       |
-| Phoenix Tracing   | `http://phoenix.<NODE_IP>.nip.io`                      |
+| Phoenix Tracing   | `http://vss-search.<NODE_IP>.nip.io/phoenix`           |
 
-Replace `<NODE_IP>` with the value of `$NODE_EXTERNAL_IP`.
+Replace `<NODE_IP>` with the value of `$NODE_EXTERNAL_IP`. Phoenix is on the main host at `/phoenix`. A separate `phoenix.<NODE_IP>.nip.io` rule is added only when `vssIngress.hosts.phoenix` is set. The Phoenix Deployment sets `PHOENIX_HOST_ROOT_PATH=/phoenix`.
 
 Verify the Ingress is configured:
 
@@ -438,7 +464,32 @@ kubectl get ingress -n <NAMESPACE>
 
 ### Access via NodePort
 
-When deployed with `values-nodeport.yaml`, services are accessible directly on the node IP.
+`values-nodeport.yaml` turns Ingress off and sets Service types to NodePort. It does not change the URLs the UI or the agent publish. With the install `--set global.externalHost=vss-search.$NODE_EXTERNAL_IP.nip.io`, the UI still renders `http://vss-search.<NODE_IP>.nip.io/api/v1` on port 80, and agent media and report URLs keep that origin. The NodePort table below is how you reach each Service. Pass this overlay as well so the browser and the agent use those ports. `chatBackendUrl` stays on the in-cluster agent; `chatCompletionUrl` is the browser URL and must not be the only chat setting, because an empty `chatBackendUrl` falls back to it.
+
+```yaml
+global:
+  externalScheme: http
+  externalHost: "<NODE_IP>"
+  kibanaPublicUrl: "http://<NODE_IP>:31560"
+agent:
+  vss-agent:
+    vstPublicBaseUseNipIo: false
+    vssAgentExternalUrl: "http://<NODE_IP>:30800"
+    reportsBaseUrl: "http://<NODE_IP>:30800/static/"
+    extraEnv:
+      - name: VST_EXTERNAL_URL
+        value: "http://<NODE_IP>:30888"
+vss-agent-ui:
+  agentApiUrlBase: "http://<NODE_IP>:30800/api/v1"
+  vstApiUrl: "http://<NODE_IP>:30888/vst/api"
+  chatCompletionUrl: "http://<NODE_IP>:30800/v1/chat/stream"
+  chatBackendUrl: "http://vss-agent:8000/v1/chat/stream"
+  sidebarChatBackendUrl: "http://vss-agent:8000/v1/chat/stream"
+  websocketChatUrl: "ws://<NODE_IP>:30800/websocket"
+  dashboardKibanaBaseUrl: "http://<NODE_IP>:31560"
+```
+
+`vssAgentExternalUrl` is also the first choice for `VST_EXTERNAL_URL`, so the overlay sets that name again in `extraEnv` on port **30888**. `extraEnv` is applied last and replaces the agent-port value. In-cluster VST calls still use `VST_INTERNAL_URL` (`http://vss-vios-ingress:30888`). The UI VST tab uses `vstApiUrl`. Agent and report URLs stay on port **30800**.
 
 | Service           | URL                                    |
 |-------------------|----------------------------------------|
@@ -447,7 +498,7 @@ When deployed with `values-nodeport.yaml`, services are accessible directly on t
 | VST API           | `http://<NODE_IP>:30888/vst/api`       |
 | NVStreamer HTTP    | `http://<NODE_IP>:30900`               |
 | Kibana Dashboards | `http://<NODE_IP>:31560`               |
-| Phoenix Tracing   | `http://<NODE_IP>:30606`               |
+| Phoenix Tracing   | `http://<NODE_IP>:30606/phoenix`       |
 | NVStreamer RTSP    | not exposed by default (port-forward to pod; see `vst_config.json` `rtsp_server_port`) |
 
 With default **`values.yaml`**, NVStreamer is **ClusterIP** on port **31000** (use [port-forward](#access-via-port-forward) to reach it). The **30900** NodePort row applies when you install with **`values-nodeport.yaml`**.
@@ -460,24 +511,37 @@ When using the default ClusterIP services (no Ingress or NodePort), use `kubectl
 
 These names match the default **`global.useReleaseNamePrefix=false`**. If you set it to **`true`**, prefix service names with **`<RELEASE_NAME>-`**.
 
+Run each forward in its own terminal. Add `-n <NAMESPACE>`. A port-forward does not change the URLs baked into the UI. Set the browser-facing keys to localhost and leave the server-side chat backends on the cluster Service, or the UI server will try to call `localhost` from inside the pod.
+
+```yaml
+agent:
+  vss-agent:
+    vstPublicBaseUseNipIo: false
+    vssAgentExternalUrl: "http://localhost:8000"
+    reportsBaseUrl: "http://localhost:8000/static/"
+    extraEnv:
+      - name: VST_EXTERNAL_URL
+        value: "http://localhost:30888"
+vss-agent-ui:
+  agentApiUrlBase: "http://localhost:8000/api/v1"
+  vstApiUrl: "http://localhost:30888/vst/api"
+  chatCompletionUrl: "http://localhost:8000/v1/chat/stream"
+  chatBackendUrl: "http://vss-agent:8000/v1/chat/stream"
+  sidebarChatBackendUrl: "http://vss-agent:8000/v1/chat/stream"
+  dashboardKibanaBaseUrl: "http://localhost:5601"
+global:
+  kibanaPublicUrl: "http://localhost:5601"
+```
+
+`extraEnv` sets `VST_EXTERNAL_URL` to the VST port-forward (`localhost:30888`). `vssAgentExternalUrl` would otherwise copy the agent port `8000` into that variable. Agent and report URLs stay on `8000`.
+
 ```bash
-# VSS UI
-kubectl port-forward svc/vss-agent-ui 3000:3000
-
-# VSS Agent API
-kubectl port-forward svc/vss-agent 8000:8000
-
-# VST API (via vss-vios-ingress; service listens on 30888)
-kubectl port-forward svc/vss-vios-ingress 30888:30888
-
-# NVStreamer HTTP (ClusterIP service port 31000; matches bundled vst_config.json)
-kubectl port-forward svc/vss-vios-nvstreamer 31000:31000
-
-# Kibana
-kubectl port-forward svc/kibana 5601:5601
-
-# Phoenix (Service metadata name is `phoenix` when release-name prefixing is off)
-kubectl port-forward svc/phoenix 6006:6006
+kubectl port-forward -n <NAMESPACE> svc/vss-agent-ui 3000:3000
+kubectl port-forward -n <NAMESPACE> svc/vss-agent 8000:8000
+kubectl port-forward -n <NAMESPACE> svc/vss-vios-ingress 30888:30888
+kubectl port-forward -n <NAMESPACE> svc/vss-vios-nvstreamer 31000:31000
+kubectl port-forward -n <NAMESPACE> svc/kibana 5601:5601
+kubectl port-forward -n <NAMESPACE> svc/phoenix 6006:6006
 ```
 
 | Service           | Port-Forward URL                     |
@@ -487,7 +551,7 @@ kubectl port-forward svc/phoenix 6006:6006
 | VST API           | `http://localhost:30888/vst/api`      |
 | NVStreamer HTTP    | `http://localhost:31000`              |
 | Kibana Dashboards | `http://localhost:5601`              |
-| Phoenix Tracing   | `http://localhost:6006`              |
+| Phoenix Tracing   | `http://localhost:6006/phoenix`      |
 | NVStreamer RTSP    | not exposed by default (port-forward to pod) |
 
 ## Upload Videos
@@ -501,7 +565,7 @@ Upload video files through the VSS UI **Video Management** tab:
 
 ## Ingress Configuration
 
-The chart creates a Kubernetes Ingress resource when `vssIngress.enabled=true`. All HTTP services use ClusterIP and are routed through the Ingress controller. Its mounts come from the [canonical route table](../../services/common/README.md), shared with the other developer profiles and with the Docker edge, so `/rtvi-vlm`, `/elasticsearch` and the rest resolve the same way on any VSS deployment. RTSP (NVStreamer) is not routed through HTTP Ingress; by default it is not exposed as a separate NodePort service.
+The chart creates a Kubernetes Ingress resource when `vssIngress.enabled=true`. All HTTP services use ClusterIP and are routed through the Ingress controller. Its mounts come from the [canonical route table](../../services/common/README.md), shared with the other developer profiles and with the Docker edge, so `/rtvi-vlm`, `/elasticsearch` and the rest resolve the same way on any VSS deployment. `/llm` is also mounted whenever the in-cluster Nemotron NIM is enabled ([Option A](#option-a-deploy-with-local-nims)); it is omitted entirely with `nims.enabled=false`. RTSP (NVStreamer) is not routed through HTTP Ingress; by default it is not exposed as a separate NodePort service.
 
 `ingress:` is the former name of the `vssIngress:` block. Keys still read from it: `enabled`, `className`, `hosts.*`, `annotations`, `tls`. Its removed `cliRoutes.*` keys are ignored — Elasticsearch and the RTVI mounts are no longer toggled. Set one block or the other, not both.
 
@@ -515,70 +579,103 @@ The chart creates a Kubernetes Ingress resource when `vssIngress.enabled=true`. 
 | `vssIngress.hosts.main`      | `""` (auto: `vss-search.<IP>.nip.io`) | VSS UI + Agent + VST API host |
 | `vssIngress.hosts.streamer`  | `""` (auto: `streamer.<IP>.nip.io`)   | NVStreamer HTTP API host      |
 | `vssIngress.hosts.kibana`    | `""` (auto: `kibana.<IP>.nip.io`)     | Kibana dashboards host        |
-| `vssIngress.hosts.phoenix`   | `""` (auto: `phoenix.<IP>.nip.io`)    | Phoenix tracing UI host       |
+| `vssIngress.hosts.phoenix`   | `""` | Empty keeps Phoenix at `/phoenix` on the main host. Set this to add a separate Phoenix host. |
 | `vssIngress.tls`             | `[]`                             | TLS configuration (secretName + hosts) |
 | `vssIngress.elasticsearchPort` | `9200`                         | Backend port for `/elasticsearch`. The edge guard is on the `elasticsearch` Service (`infra.elasticsearch.ingressGuard`): denies PUT/DELETE, cluster-admin and two-segment mutating paths, but POST still reaches Elasticsearch |
 | `vssIngress.rtviVlmPort` / `rtviCvPort` / `rtviEmbedPort` | `8000` / `9000` / `8000` | Backend ports for `/rtvi-vlm`, `/rtvi-cv`, `/rtvi-embed` |
 | `vssIngress.timeoutClient` / `timeoutTunnel` | `3600s`          | Rendered for continuity, but **inert**: this controller reads both only from its own ConfigMap, never from an Ingress annotation. Server-side timeouts do work per backend and are set on the rtvi and agent Services |
 
-When host values are left empty (default), they are auto-constructed from `global.externalHost` using `nip.io` wildcard DNS.
+When `hosts.main`, `hosts.streamer`, and `hosts.kibana` are empty, they are built as `vss-search.<IP>.nip.io`, `streamer.<IP>.nip.io`, and `kibana.<IP>.nip.io` from `global.externalHost`. `hosts.phoenix` is not. Kibana and streamer hosts are automatic. Phoenix stays on the main host until `hosts.phoenix` is set.
+
+Browser URLs do not follow `vssIngress.hosts.*`. With `agent.vss-agent.vstPublicBaseUseNipIo` left at its default `true`, agent public URLs are built as `http://vss-search.<IP>.nip.io` from `global.externalHost`. The UI uses `global.externalScheme` and `global.externalHost`. Kibana's public URL is `global.kibanaPublicUrl`, or `kibana.<global.externalHost>` when that is empty.
 
 ### Custom Ingress Hostnames
 
-To use custom DNS names instead of `nip.io`:
+Set the Ingress hosts and the public URL keys together. Leaving `global.externalHost` as the bare node IP while only changing `vssIngress.hosts.*` updates the Ingress rules and leaves the UI on `http://<NODE_IP>/api/v1` and the agent on `vss-search.<NODE_IP>.nip.io`.
+
+```yaml
+global:
+  externalScheme: http
+  externalHost: vss-search.example.com
+  kibanaPublicUrl: http://kibana.example.com
+  ngcApiKey: "<NGC_CLI_API_KEY>"
+  storageClass: "<STORAGE_CLASS>"
+agent:
+  vss-agent:
+    vstPublicBaseUseNipIo: false
+vssIngress:
+  hosts:
+    main: vss-search.example.com
+    streamer: streamer.example.com
+    kibana: kibana.example.com
+    # phoenix: phoenix.example.com   # optional separate host; default is /phoenix on main
+vss-agent-ui:
+  dashboardKibanaBaseUrl: http://kibana.example.com
+```
 
 ```bash
 helm upgrade --install vss-search ./dev-profile-search \
   -n vss-search \
-  --set global.externalHost=$NODE_EXTERNAL_IP \
-  --set global.ngcApiKey=$NGC_CLI_API_KEY \
-  --set global.storageClass=$STORAGE_CLASS \
-  --set vssIngress.hosts.main=vss-search.example.com \
-  --set vssIngress.hosts.streamer=streamer.example.com \
-  --set vssIngress.hosts.kibana=kibana.example.com \
-  --set vssIngress.hosts.phoenix=phoenix.example.com \
+  -f dev-profile-search/values-custom-host.yaml \
   --wait=false
 ```
 
+Save that YAML as `dev-profile-search/values-custom-host.yaml` (it is an example, not a file in this chart).
+
 ### TLS
 
-To enable TLS, create a Kubernetes secret with your certificate and reference it:
+Create the TLS secret in the same namespace as the Ingress, then confirm it is there. Unquoted `tls[0]` in zsh is a glob and fails before Helm runs. Put TLS in the values file.
 
 ```bash
 kubectl create secret tls vss-search-tls \
   --cert=path/to/tls.crt \
-  --key=path/to/tls.key
-
-helm upgrade --install vss-search ./dev-profile-search \
-  -n vss-search \
-  --set global.externalHost=$NODE_EXTERNAL_IP \
-  --set global.ngcApiKey=$NGC_CLI_API_KEY \
-  --set global.storageClass=$STORAGE_CLASS \
-  --set vssIngress.hosts.main=vss-search.example.com \
-  --set vssIngress.tls[0].secretName=vss-search-tls \
-  --set vssIngress.tls[0].hosts[0]=vss-search.example.com \
-  --wait=false
+  --key=path/to/tls.key \
+  -n vss-search
+kubectl get secret vss-search-tls -n vss-search
 ```
+
+```yaml
+global:
+  externalScheme: https
+  externalHost: vss-search.example.com
+  kibanaPublicUrl: https://kibana.example.com
+agent:
+  vss-agent:
+    vstPublicBaseUseNipIo: false
+vssIngress:
+  hosts:
+    main: vss-search.example.com
+    kibana: kibana.example.com
+    streamer: streamer.example.com
+  tls:
+    - secretName: vss-search-tls
+      hosts:
+        - vss-search.example.com
+        - kibana.example.com
+        - streamer.example.com
+vss-agent-ui:
+  dashboardKibanaBaseUrl: https://kibana.example.com
+```
+
+A certificate on the Ingress does not switch `http` URLs to `https`. Set `global.externalScheme=https` and the public URL keys above. Add a host to `tls` for each auxiliary hostname you serve over HTTPS. Phoenix on the main host is covered by the main host entry. A separate `hosts.phoenix` needs its own TLS host.
 
 ## Teardown
 
+Back up media and metadata before `helm uninstall`. The shared VST PVCs are chart-managed and have no `helm.sh/resource-policy: keep` annotation, so uninstall deletes those claims. Whether the bytes remain depends on the PV reclaim policy. PostgreSQL and Elasticsearch claims created by this release go with it too. `NIMCache` is namespaced, has `helm.sh/resource-policy: keep`, and stays after uninstall. It is not a PVC.
+
 ```bash
-# Uninstall the search profile
+kubectl get pvc -n <NAMESPACE>
+kubectl get nimcache -n <NAMESPACE>
+helm get manifest vss-search -n <NAMESPACE> | kubectl get -f - -n <NAMESPACE>
+
+# After the backup, uninstall the search release only.
 helm uninstall vss-search -n <NAMESPACE>
 
-# Clean up PVCs (includes database, video storage, model caches)
-kubectl delete pvc -l app.kubernetes.io/instance=vss-search
-
-# If you installed additional Helm releases for NIMs or other add-ons, uninstall them by release name, for example:
-# helm uninstall <OTHER_RELEASE_NAME> -n <NAMESPACE>
-
-# Uninstall HAProxy Ingress controller
-helm uninstall haproxy-kubernetes-ingress -n haproxy-controller
-
-# Uninstall local-path provisioner (if installed in namespace default)
-helm uninstall local-path-provisioner-default -n default
-
-# Cleanup remaining storage
-kubectl delete nimcache --all -n <NAMESPACE>
-kubectl delete pvc --all -n <NAMESPACE>
+# Leftover claims for this release, after you have decided the data can go.
+# Do not use `kubectl delete pvc --all` or `kubectl delete nimcache --all`.
+kubectl get pvc -n <NAMESPACE> -l app.kubernetes.io/instance=vss-search
+kubectl delete pvc -n <NAMESPACE> -l app.kubernetes.io/instance=vss-search
+kubectl delete nimcache nemotron-35-lightning-30b-a3b -n <NAMESPACE>
 ```
+
+HAProxy (`haproxy-kubernetes-ingress` in `haproxy-controller`) and local-path-provisioner (`local-path-provisioner-default` in `default`) are cluster prerequisites. This chart does not own them. Leave them installed when any other application uses them. Uninstall one only after you have confirmed it has no other users.
