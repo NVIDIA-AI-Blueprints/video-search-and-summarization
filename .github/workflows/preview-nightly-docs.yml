@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Each nightly tag gets a stable preview, stamped with its checkout ref and
-# develop-<commit SHA12> GHCR image tags. The URL is in the job summary.
+# nightly-* / nightly-*-sbsa image aliases. The URL is in the job summary.
 # Requires the DOCS_FERN_TOKEN repo secret.
 name: Preview Nightly Docs
 

@@ -104,7 +104,7 @@ def release_values(release: str) -> dict[str, str]:
 
 
 def nightly_values(source: Path, nightly: str) -> dict[str, str]:
-    """Pin nightly docs to the selected tag and its immutable GHCR candidate."""
+    """Use the selected nightly tag and the image aliases published for it."""
     if not NIGHTLY_TAG_PATTERN.fullmatch(nightly):
         raise BuildError(f"--nightly {nightly!r} is not a flat nightly-* tag")
     if not tag_exists(source, nightly):
@@ -113,11 +113,10 @@ def nightly_values(source: Path, nightly: str) -> dict[str, str]:
     head = git(source, "rev-parse", "HEAD").stdout.strip()
     if commit != head:
         raise BuildError(f"{nightly}: checkout HEAD must match the nightly tag")
-    image_tag = f"develop-{commit[:12]}"
     return {
         GIT_REF: nightly,
-        IMAGE_TAG: image_tag,
-        SBSA_IMAGE_TAG: f"{image_tag}-sbsa",
+        IMAGE_TAG: nightly,
+        SBSA_IMAGE_TAG: f"{nightly}-sbsa",
     }
 
 
