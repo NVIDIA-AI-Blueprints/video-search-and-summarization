@@ -143,6 +143,12 @@ class SelectProjectsTest(unittest.TestCase):
         include = dsp.matrix_for([ui], "push")
         self.assertEqual([(row["name"], row["scan"]) for row in include], [("ui", "true")])
 
+    def test_push_without_changes_uses_a_noop_matrix_entry(self):
+        self.assertEqual(
+            dsp.matrix_for([], "push"),
+            [{"name": "no changes", "scan": "false", "runner": dsp.SKIP_RUNNER}],
+        )
+
     def test_project_names_are_unique(self):
         names = [project["name"] for project in dsp.PROJECTS]
         self.assertEqual(names, list(dict.fromkeys(names)))
@@ -168,13 +174,24 @@ class PlanTest(unittest.TestCase):
             commit_change(repo, "docs/readme.md", "v2\n", "docs")
             result = dsp.plan(repo, "push", "develop", "", base_sha)
             self.assertEqual(result["projects"], [])
+            self.assertEqual(
+                result["matrix"]["include"],
+                [{"name": "no changes", "scan": "false", "runner": dsp.SKIP_RUNNER}],
+            )
 
-    def test_push_without_reachable_before_scans_everything(self):
+    def test_push_with_zero_before_scans_everything(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(tmp)
             result = dsp.plan(repo, "push", "develop", "", "0" * 40)
             self.assertEqual(result["count"], len(dsp.PROJECTS))
             self.assertIn("initial push", result["reason"])
+
+    def test_push_with_missing_before_scans_everything(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            result = dsp.plan(repo, "push", "develop", "", "f" * 40)
+            self.assertEqual(result["count"], len(dsp.PROJECTS))
+            self.assertIn("unreachable", result["reason"])
 
     def test_workflow_dispatch_scans_all(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -19,6 +19,8 @@ Diff-range rules:
   ``<event.before>..HEAD`` and scan only changed projects.
 * ``workflow_dispatch`` → scan every project. A manual scan must not
   silently drop a leg.
+* A push with no affected project emits one no-op matrix entry. GitHub Actions
+  requires a non-empty matrix even when no scan is needed.
 * Unresolvable PR base, or a failed ``git diff`` → **scan everything**.
   Scanning too much is safe; skipping a project that changed is the
   failure mode this replaces.
@@ -240,6 +242,11 @@ def matrix_entry(project: dict[str, Any], *, scan: bool) -> dict[str, Any]:
     return entry
 
 
+def no_op_matrix_entry() -> dict[str, str]:
+    """Return the valid matrix entry used when a push changes no project."""
+    return {"name": "no changes", "scan": "false", "runner": SKIP_RUNNER}
+
+
 def to_matrix(entries: list[dict[str, Any]]) -> dict[str, Any]:
     return {"include": entries}
 
@@ -254,7 +261,11 @@ def matrix_for(
             matrix_entry(project, scan=project["name"] in selected_names)
             for project in PROJECTS
         ]
-    return [matrix_entry(project, scan=True) for project in selected]
+    return (
+        [matrix_entry(project, scan=True) for project in selected]
+        if selected
+        else [no_op_matrix_entry()]
+    )
 
 
 def contract_changed(changed: list[str]) -> bool:
