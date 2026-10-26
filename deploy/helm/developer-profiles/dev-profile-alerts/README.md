@@ -74,7 +74,7 @@ With [remote LLM/VLM](#remote-llm-and-vlm) (`nims.enabled=false`), the total dro
 
 - **Kubernetes cluster**
   - Running cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
-  - **Server version** recorded for this profile: **1.34**. The operator and Helm floors below are the documented minimums for this chart (GPU Operator **v25.10.1 or above**, NIM Operator **3.1.0 or above**, local-path-provisioner **v0.0.35 or above**, Helm **3.7 or above**, driver **595.58.03** on x86 Ubuntu 24.04). They are not a full retest of every **`nims.gpuType`**. Confirm a different Kubernetes minor with the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html) and [NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) versions you deploy.
+  - **Server version** recorded for this profile: **1.34** on x86 Ubuntu 24.04, with driver **595.58.03**. The operator and Helm floors below are the documented minimums for this chart (GPU Operator **v25.10.1 or above**, NIM Operator **3.1.0 or above**, local-path-provisioner **v0.0.35 or above**, Helm **3.7 or above**). Chart **`values.yaml`** selects **`nims.gpuType: H100`**; both mode files select **`RTXPRO6000BW`**. This README does not publish a pass/fail result for those GPU and model pairs, and it does not add version pins beyond the floors above. Confirm a different Kubernetes minor with the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html) and [NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) versions you deploy.
 
 - **NVIDIA GPU Operator**
   - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1 or above** on the cluster. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
@@ -132,7 +132,7 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 |-------------|---------|-------------|
 | **`profile`** | **`alerts`** | Must stay **`alerts`** for this chart. |
 | **`mode`** | **`verification`** | Valid values are **`verification`** and **`real-time`**. Set this to the mode you are deploying. |
-| **`ngc.createSecrets`** | **`true`** | When **`true`** and **`ngc.apiKey`** is set, the chart creates two secrets (see **`templates/ngc-secrets.yaml`**): **`ngc-api`** (Opaque: **`NGC_API_KEY`** / **`NGC_CLI_API_KEY`**) for NGC API access, and **`ngc-secret`** (**dockerconfigjson**) for pulling images from nvcr.io. Set **`false`** only if you create both secrets yourself; then set **`global.ngcApiSecret`** and **`global.imagePullSecrets`** to match your names. |
+| **`ngc.createSecrets`** | **`true`** | When **`true`** and **`ngc.apiKey`** is set, the chart creates two secrets (see **`templates/ngc-secrets.yaml`**): **`ngc-api`** (Opaque data keys **`NGC_API_KEY`** and **`NGC_CLI_API_KEY`**) and **`ngc-secret`** (**dockerconfigjson**) for nvcr.io. Set **`false`** only if you create both yourself. Renaming them is not done by **`global.ngcApiSecret`** and **`global.imagePullSecrets`** alone. Also set **`nims.global.authSecretName`** (default **`ngc-api`**), **`nims.global.pullSecretName`** (default **`ngc-secret`**), and **`rtvi.vss-rtvi-cv.ngcApiKeySecretName`** (default **`ngc-api`**, key **`NGC_CLI_API_KEY`**). The generated data keys stay **`NGC_API_KEY`** and **`NGC_CLI_API_KEY`**. |
 | **`ngc.apiKey`** | **`""`** | With **`ngc.createSecrets: true`**, set your NGC API key here. The generated Opaque secret still uses data keys **`NGC_API_KEY`** and **`NGC_CLI_API_KEY`**. Renaming the Secret objects is not done by **`global.ngcApiSecret`** and **`global.imagePullSecrets`** alone. Also set **`nims.global.authSecretName`** (default **`ngc-api`**), **`nims.global.pullSecretName`** (default **`ngc-secret`**), and **`rtvi.vss-rtvi-cv.ngcApiKeySecretName`** (default **`ngc-api`**, key **`NGC_CLI_API_KEY`**). With **`createSecrets: false`**, create secrets that use those names and data keys, or point every consumer above at the names you created. |
 | **`global.imagePullSecrets`** | **`[{ name: ngc-secret }]`** | Pod **image pull** credentials for nvcr.io. Must reference the **Docker registry** secret (default **`ngc-secret`**, i.e. **`ngc.dockerSecretName`**). This is separate from the NGC **API** key secret. |
 | **`global.ngcApiSecret`** | **`name: ngc-api`**, **`key: NGC_API_KEY`** | Opaque secret for NGC API access used by RT-VLM (**`NGC_API_KEY`** and **`VIA_VLM_API_KEY`**). NIM Operator resources use **`nims.global.authSecretName`** / **`nims.global.pullSecretName`**, not this field alone. RT-CV uses **`rtvi.vss-rtvi-cv.ngcApiKeySecretName`** and key **`NGC_CLI_API_KEY`**. |
@@ -193,9 +193,9 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`agent.vss-agent.reportsBaseUrl`** | **`""`** | Base URL for report links. When empty, templates derive a value from **`global.external*`** and in-cluster defaults. |
 | **`agent.vss-agent.vstExternalUrl`** | **`""`** | External **VST** URL passed to the agent. When empty, derived from **`global.external*`** and in-cluster defaults. |
 | **`agent.vss-agent.externalIp`** | **`""`** | Hostname or IP override for agent-facing external access when **`global.external*`** is not sufficient. |
-| **`agent.vss-agent.env`** | *(see **`values.yaml`**)* | Full **`env`** list (Option B), including **`VSS_ES_PORT=9200`** and **`waitForDependencies`** for startup ordering. **`VSS_AGENT_TEMPLATE_*`** stay empty while **`reportTemplates.enabled`** is **`false`**. **`NVIDIA_API_KEY`** is an empty string; **`OPENAI_API_KEY`** is **`NOAPIKEYSET`**. The docker pull secret **`ngc-secret`** does not fill those keys. For a remote LLM, set **`NVIDIA_API_KEY`** on this list. |
+| **`agent.vss-agent.env`** | *(see **`values.yaml`**)* | Full **`env`** list (Option B), including **`VSS_ES_PORT=9200`** and **`waitForDependencies`** for startup ordering. **`VSS_AGENT_TEMPLATE_*`** stay empty while **`reportTemplates.enabled`** is **`false`**. **`NVIDIA_API_KEY`** is an empty string; **`OPENAI_API_KEY`** is **`NOAPIKEYSET`**. The docker pull secret **`ngc-secret`** does not fill those keys. A remote LLM key belongs in **`agent.vss-agent.extraEnv`**, which overrides this empty **`NVIDIA_API_KEY`**. |
 | **`agent.vss-agent.waitForDependencies.enabled`** | **`true`** in **`values.yaml`** | When **`true`**, an **initContainer** waits until the **vss-va-mcp** workload (TCP **9901**) accepts connections before **vss-agent** starts when **MCP** is enabled, avoiding **`ConnectError`** during FastAPI startup. Set **`false`** to skip. Override **`waitForDependencies.vaMcpHost`** / **`vaMcpPort`** if **`VIDEO_ANALYSIS_MCP_URL`** uses a different host. |
-| **`agent.vss-agent.extraEnv`** | *(omit)* | Optional **`{ name, value }`** appended last. |
+| **`agent.vss-agent.extraEnv`** | *(omit)* | Optional entries appended last. A repeated name overrides **`env`**. **`valueFrom`** is supported, including **`secretKeyRef`**, so a remote LLM key does not have to be written into the values file. |
 | **`vss-agent-ui.enabled`** | **`true`** | Set **`false`** to disable the **vss-agent-ui** deployment. |
 | **`vss-agent-ui.fillAlertBridgeUrlFromGlobal`** | **`true`** | Keeps the Alerts tab wired to **vss-alert-bridge** in both launcher modes. |
 | **`vss-agent-ui.agentApiUrlBase`** | **`""`** | Base URL for the **vss-agent** HTTP API (browser **`NEXT_PUBLIC_AGENT_API_URL_BASE`**, typically ends with **`/api/v1`**). If unset, built from **`global.externalScheme`** / **`externalHost`** / **`externalPort`** as **`<global>/api/v1`**. With no external host and default **`global.useReleaseNamePrefix: false`**, the fallback is **`http://vss-agent:8000/api/v1`**. The release-prefixed name is used only when that flag is **`true`**. |
@@ -270,7 +270,26 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 
 When LLM and VLM run **outside** this release, set **`nims.enabled`** to **`false`**, **`rtvi.vss-rtvi-vlm.useSharedNim`** to **`true`**, and set **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`**, and **`global.vlmName`**. **`useSharedNim`** is what switches RT-VLM off its integrated checkpoint (`MODEL_PATH=none`, `VLM_MODEL_TO_USE=openai-compat`). **`global.vlmBaseUrl`** then supplies **`VIA_VLM_ENDPOINT`**. Parent **`nims.enabled`** does not alias **`rtvi.vss-rtvi-vlm.nims.enabled`**.
 
-**`vss-agent`** **`NVIDIA_API_KEY`** is an empty string in this profile. Set it on **`agent.vss-agent.env`** for a remote LLM that requires a key. RT-VLM **`NGC_API_KEY`** and **`VIA_VLM_API_KEY`** both come from **`global.ngcApiSecret`** (default secret **`ngc-api`**, key **`NGC_API_KEY`**). The docker secret **`ngc-secret`** is image-pull only.
+**`vss-agent`** **`NVIDIA_API_KEY`** is an empty string in this profile, and **`OPENAI_API_KEY`** is **`NOAPIKEYSET`**. The NIM client reads **`NVIDIA_API_KEY`**. Put a remote LLM credential in **`agent.vss-agent.extraEnv`** so it overrides that empty value. **`valueFrom.secretKeyRef`** keeps the token out of the values file:
+
+```yaml
+agent:
+  vss-agent:
+    extraEnv:
+      - name: NVIDIA_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: remote-llm-api
+            key: NVIDIA_API_KEY
+```
+
+RT-VLM **`NGC_API_KEY`** and **`VIA_VLM_API_KEY`** both come from **`global.ngcApiSecret`** (default secret **`ngc-api`**, key **`NGC_API_KEY`**). A remote VLM that expects a different token needs **`rtvi.vss-rtvi-vlm.ngcApiSecret.name`** and **`.key`** pointed at that Secret. The docker secret **`ngc-secret`** is image-pull only.
+
+After the pod is up, confirm the LLM accepts that key. The agent image is distroless, so run Python directly. A 200 means the credential reached the endpoint; an auth error means it did not:
+
+```bash
+kubectl exec -n <NAMESPACE> deploy/vss-agent -- /usr/local/bin/python3 -c 'import os,urllib.request; url=os.environ["LLM_BASE_URL"].rstrip("/")+"/v1/models"; req=urllib.request.Request(url, headers={"Authorization":"Bearer "+os.environ["NVIDIA_API_KEY"]}); print(urllib.request.urlopen(req).status)'
+```
 
 **`global.vlmName`** does not replace **`agent.vss-agent.vlmName`** or **`vss-alert-bridge.vlmName`**. Both mode files set the agent key, and chart **`values.yaml`** sets the bridge key, each to **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`**. Set both to the remote model ID. URLs must be reachable from pods in the release namespace.
 
@@ -457,9 +476,16 @@ helm upgrade --install haproxy-kubernetes-ingress haproxytech/kubernetes-ingress
 
 **2. Install or upgrade this chart** with **`vssIngress.enabled: true`**, **`vssIngress.ingressClassName: haproxy`**, and **`global.externalHost`** set.
 
-**3. Optional — manual Ingress:** prefer the chart-managed Ingress. **`dev-profile-alerts/vss-ingress-example.yaml`** and **`dev-profile-alerts/vss-ingress-example-rewrites.yaml`** (paths are relative to **`deploy/helm/developer-profiles`**) are a static snapshot generated with **`global.useReleaseNamePrefix=true`** and host **`vss.<EXTERNAL_HOST>.nip.io`**. Default installs use unprefixed Service names and the quick start uses **`vss-alerts.<IP>.nip.io`**. The snapshot keeps verification routes (including behavior analytics and **`/llm`**) and omits **`/rtvi-vlm`** plus the Kibana and NVStreamer hosts. Its name is **`<RELEASE_NAME>-vss-ingress`**, the same object Helm owns. Set **`vssIngress.enabled=false`** before applying it, and regenerate it from the mode you install:
+**3. Optional — manual Ingress:** prefer the chart-managed Ingress. The two example files are a split of that one object, for verification mode with the default **`global.useReleaseNamePrefix: false`**. Service names are unprefixed. The main host is **`vss-alerts.<EXTERNAL_HOST>.nip.io`**, Kibana is **`kibana.vss-alerts.<EXTERNAL_HOST>.nip.io`**, and NVStreamer is **`streamer.vss-alerts.<EXTERNAL_HOST>.nip.io`**.
+
+**`dev-profile-alerts/vss-ingress-example.yaml`** is named **`<RELEASE_NAME>-vss-ingress`**. That is the same object Helm owns (`templates/vss-ingress.yaml` always prefixes the Ingress name with the release, even when Services are unprefixed). Set **`vssIngress.enabled=false`** before applying it, or the two controllers fight over one Ingress.
+
+**`dev-profile-alerts/vss-ingress-example-rewrites.yaml`** is a second Ingress, **`<RELEASE_NAME>-vss-ingress-rewrites`**. It does not replace the Helm object. It only exists so the HAProxy rewrite annotation is not applied to the as-is routes. Apply it only together with the first file, and only after the chart Ingress is disabled.
+
+Verification routes include behavior analytics, **`/rtvi-cv`**, **`/rtvi-vlm`**, and **`/llm`**. Real-time disables behavior analytics and **`vss-rtvi-cv`**; remove those paths before applying this snapshot to a real-time install. Drop **`/llm`** when **`nims.enabled=false`**. Regenerate from the mode you install rather than editing placeholders:
 
 ```bash
+# Verification. For real-time, use values-realtime.yaml instead.
 helm template <RELEASE_NAME> ./dev-profile-alerts \
   -f ./dev-profile-alerts/values-verification.yaml \
   --set-string global.externalHost=vss-alerts.<EXTERNAL_HOST>.nip.io \
@@ -487,7 +513,7 @@ helm uninstall <RELEASE_NAME> -n <NAMESPACE>
 | Resource | Helm uninstall behavior | Notes |
 |----------|-------------------------|-------|
 | Shared VST PVCs (`<RELEASE_NAME>-vst-data`, `<RELEASE_NAME>-vst-video`, `<RELEASE_NAME>-vst-streamer-videos`) | Removed with the release | No `helm.sh/resource-policy: keep` annotation. Uploaded/streamed media can be lost. |
-| Elasticsearch PVCs | Removed with the release | The StatefulSet sets `persistentVolumeClaimRetentionPolicy.whenDeleted: Delete`. Alert Bridge stores durable state here: index prefix `ab-`, plus sinks `mdx-vlm-incidents` and `mdx-vlm-alerts`. Back up that state before uninstall. |
+| Elasticsearch PVCs | Removed with the release | The StatefulSet sets `persistentVolumeClaimRetentionPolicy.whenDeleted: Delete`. Default claim names are `es-data-elasticsearch-0` and `es-logs-elasticsearch-0`. With `global.useReleaseNamePrefix: true` the StatefulSet name is prefixed, so the claims are `es-data-<RELEASE_NAME>-elasticsearch-0` and `es-logs-<RELEASE_NAME>-elasticsearch-0`. Alert Bridge stores durable state here: index prefix `ab-`, plus sinks `mdx-vlm-incidents` and `mdx-vlm-alerts`. This chart does not configure an Elasticsearch snapshot repository. Snapshot these volumes, and the shared VST and Postgres claims, with your storage provider before uninstall. |
 | Other release-owned PVCs (Kafka, Postgres, etc.) | Removed with the release | Confirm reclaim policy / provisioner before assuming data remains on disk. |
 | `NIMCache` (namespaced; default name `nemotron-35-lightning-30b-a3b`) | Retained | Templates set `helm.sh/resource-policy: keep`. `NIMCache` is a namespaced CRD object, not cluster-scoped. |
 
@@ -497,6 +523,12 @@ Do **not** run namespace-wide deletes such as `kubectl delete nimcache --all` or
 kubectl get nimcache -n <NAMESPACE>
 kubectl get pvc -n <NAMESPACE>
 
+# Inventory Alert Bridge indices before uninstall. Save this output.
+kubectl port-forward svc/elasticsearch 9200:9200 -n <NAMESPACE>
+curl -fsS 'http://127.0.0.1:9200/_cat/indices/ab-*,mdx-vlm-*?h=index,docs.count'
+
 # Example for the default Nemotron NIMCache (kept by Helm):
 kubectl delete nimcache nemotron-35-lightning-30b-a3b -n <NAMESPACE>
 ```
+
+After a restore onto a new install, run the same `_cat/indices` call. Restoration of Alert Bridge state is complete when `docs.count` for the `ab-*`, `mdx-vlm-incidents`, and `mdx-vlm-alerts` indices matches the list you saved. A new install with no restored volume starts empty.
