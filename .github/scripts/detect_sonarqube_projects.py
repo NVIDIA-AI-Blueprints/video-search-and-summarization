@@ -44,6 +44,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from detect_changed_images import (  # noqa: E402
+    ZERO_SHA,
     changed_paths,
     commit_exists,
     paths_changed_under,
@@ -55,7 +56,6 @@ CONTRACT_PATHS = (
     ".github/scripts/detect_sonarqube_projects.py",
     ".github/scripts/detect_changed_images.py",
 )
-ZERO_SHA = "0" * 40
 
 SONAR_RUNNER = "sonarqube-workflows-bp-sre"
 SKIP_RUNNER = "ubuntu-latest"
