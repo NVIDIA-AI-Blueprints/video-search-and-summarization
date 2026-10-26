@@ -98,15 +98,15 @@ nims:
 
 - **Kubernetes cluster**
   - Running cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
-  - **Server version** validated for this profile: **1.34** — use a different minor/patch only if your platform or release notes require it; confirm compatibility with the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html) and [NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) versions you deploy.
+  - **Server version** recorded for this profile: **1.34.2**.
 
 - **NVIDIA GPU Operator**
-  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1 or above** on the cluster. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
+  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1** on the cluster. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
   - **Driver (x86 Ubuntu 24.04)** — pin **595.58.03** via GPU Operator driver settings.
 
 - **NVIDIA NIM Operator** (required only for [Option A: Local NIMs](#option-a-deploy-with-local-nims))
   - Required when `nims` subcharts are enabled (`NIMCache` / `NIMService`).
-  - Install **after** the GPU Operator. See [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0 or above**.
+  - Install **after** the GPU Operator. See [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0**.
   - Install the NIM Operator:
 
 ```bash
@@ -125,7 +125,7 @@ kubectl get pods -n nim-operator
 
 - **Volume provisioner (e.g. local-path)**
   - A **StorageClass** must exist on the cluster. Set **`global.storageClass`** in your Helm values override to that class's **`metadata.name`** (this profile's install examples use **`--set global.storageClass=…`**). The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile.
-  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35 or above**, or the Helm-based install in [Step 1](#step-1-volume-provisioner-bare-metal-optional). The shared VST claims are `ReadWriteOnce`. **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`** share them, and streamprocessing also requests a GPU. **`vios.vss-vios-nvstreamer`** mounts the streamer-videos claim as well. Node-local volumes are not portable between nodes, and ReadWriteOnce allows those pods only on the same node. Set the same `nodeSelector` on sensor, streamprocessing, and NVStreamer, and confirm that node has the GPU and capacity for the claims.
+  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35**, or the Helm-based install in [Step 1](#step-1-volume-provisioner-bare-metal-optional). The shared VST claims are `ReadWriteOnce`. **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`** share them, and streamprocessing also requests a GPU. **`vios.vss-vios-nvstreamer`** mounts the streamer-videos claim as well. Node-local volumes are not portable between nodes, and ReadWriteOnce allows those pods only on the same node. Set the same `nodeSelector` on sensor, streamprocessing, and NVStreamer, and confirm that node has the GPU and capacity for the claims.
   - **Default StorageClass (optional):** changing the cluster's *default* StorageClass is not required for this chart -- setting **`global.storageClass`** is enough. It only matters for other workloads that omit `storageClassName`. If you still want to make a class the cluster default, run:
 
     ```bash
@@ -140,7 +140,7 @@ kubectl get pods -n nim-operator
 - **kubectl**
 - **GPUs**: see [GPU Requirements](#gpu-requirements)
 - **NGC**: API key for image pull, model downloads, and NIM access
-- **StorageClass**: set **`global.storageClass`** to a class on the cluster (see [Prerequisites](#prerequisites)—**Volume provisioner**). If you use local-path-provisioner, use **v0.0.35 or above**.
+- **StorageClass**: set **`global.storageClass`** to a class on the cluster (see [Prerequisites](#prerequisites)—**Volume provisioner**). If you use local-path-provisioner, use **v0.0.35**.
 
 ## Environment Setup
 
@@ -155,7 +155,7 @@ export GPU_NAME='H100'  # One of: H100, GB300, L40S, RTXPRO4500BW, RTXPRO6000BW,
 
 ## Step 1: Volume provisioner (bare metal, optional)
 
-Use this **only** when you want to install **local-path** with Helm on bare metal. If the cluster already has a suitable StorageClass, set **`global.storageClass`** per [Prerequisites](#prerequisites)—**Volume provisioner** and skip this step.
+Use this **only** when you want to install **local-path** with Helm on bare metal. If the cluster already has a suitable StorageClass, set **`global.storageClass`** per [Prerequisites](#prerequisites)—**Volume provisioner** and skip this step. The RTX cluster runs provisioner image **`v0.0.35`**. Helm chart **`0.0.36`** is the chart that contains that image. Chart **`0.0.35`** ships provisioner **`v0.0.34`**.
 
 ```bash
 helm repo add containeroo https://charts.containeroo.ch
@@ -164,7 +164,7 @@ helm repo update
 helm upgrade --namespace default --install \
   local-path-provisioner-default \
   containeroo/local-path-provisioner \
-  --version '0.0.35'
+  --version '0.0.36'
 ```
 
 Verify the StorageClass exists:
@@ -214,9 +214,12 @@ The `global.rtviInternalIngress.controllerService` default (`haproxy-kubernetes-
 **Note:** The Helm install can take several minutes while dependent services start; wait for workloads to become Ready before using the UI. Use **`global.ngcApiKey`** (and **`nims.global.ngcApiKey`** for [Option A](#option-a-deploy-with-local-nims)) as in the examples below—Helm creates the needed NGC and registry secrets from those values.
 
 ```bash
-# Clone the repository. For a specific branch or tag, add: -b <name-or-tag> (before the URL).
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
-cd video-search-and-summarization/deploy/helm/developer-profiles
+# The URL alone checks out the default branch. Pin the release you intend.
+# For VSS 3.3.0:
+git clone --branch v3.3.0 --single-branch https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git rev-parse HEAD
+cd deploy/helm/developer-profiles
 
 helm dependency build ./dev-profile-search
 ```

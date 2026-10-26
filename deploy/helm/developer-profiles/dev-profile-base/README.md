@@ -70,19 +70,19 @@ this server limit.
 ## Prerequisites
 
 - **Kubernetes cluster**
-  - A Kubernetes cluster, version **1.34 or greater**, whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
+  - A Kubernetes cluster, version **1.34.2**, whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
   - **Driver (x86 Ubuntu 24.04)** recorded for this profile: **595.58.03**.
 
 - **NVIDIA GPU Operator**
-  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1 or above** on the cluster so nodes advertise `nvidia.com/gpu`. For x86 Ubuntu 24.04, set driver **595.58.03** in the GPU Operator driver settings. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
+  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1** on the cluster so nodes advertise `nvidia.com/gpu`. For x86 Ubuntu 24.04, set driver **595.58.03** in the GPU Operator driver settings. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
 
 - **NVIDIA NIM Operator**
-  - [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0 or above** when deploying in-cluster LLM or VLM models (`nims` subcharts, `NIMCache` / `NIMService`). Install it after the GPU Operator.
+  - [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0** when deploying in-cluster LLM or VLM models (`nims` subcharts, `NIMCache` / `NIMService`). Install it after the GPU Operator.
 
 - **StorageClass**
   - A **StorageClass** for PVC provisioning. Set **`global.storageClass`** to that class’s **`metadata.name`**. The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile. Change the default only for other workloads that omit `storageClassName`.
-  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35 or above**. The shared VST claims are `ReadWriteOnce`. **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** both mount `vst-data` and `vst-video`, so on a multi-node cluster they must run on a node that can mount those volumes — for local-path, the same node. Set **`nodeSelector`** on **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`**, and confirm the node has capacity for the claims. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage).
-  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35 or above** and use the StorageClass it creates.
+  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35**. The shared VST claims are `ReadWriteOnce`. **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** both mount `vst-data` and `vst-video`, so on a multi-node cluster they must run on a node that can mount those volumes — for local-path, the same node. Set **`nodeSelector`** on **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`**, and confirm the node has capacity for the claims. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage).
+  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35** and use the StorageClass it creates.
 
 ### Chart / tooling
 
@@ -90,9 +90,9 @@ this server limit.
 - **Kubectl**
 - **Curl** and **jq** (to discover model IDs from remote endpoints)
 - **GPUs**: see [GPU requirements](#gpu-requirements) (3 with local defaults, 2 on the documented remote path).
-- **NVIDIA NIM** (if using NIM subcharts): NIM Operator **3.1.0 or above** on the cluster (see [Prerequisites](#prerequisites) above).
+- **NVIDIA NIM** (if using NIM subcharts): NIM Operator **3.1.0** on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
-- **StorageClass**: a StorageClass must exist on the cluster to create PVCs. If you use local-path-provisioner, use **v0.0.35 or above**.
+- **StorageClass**: a StorageClass must exist on the cluster to create PVCs. If you use local-path-provisioner, use **v0.0.35**.
 
 
 ## Quick start
@@ -144,7 +144,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`global.llmName`** | e.g. **`nvidia/nemotron-3.5-lightning-30b-a3b`** | Catalog-style model ID passed to the agent; must match the model served at **`global.llmBaseUrl`**. |
 | **`global.vlmName`** | e.g. **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | RT-VLM `/v1/models` basename (or remote model ID); must match the model served at **`global.vlmBaseUrl`** / RT-VLM. |
 | **`vios.vstStorage.createSharedPvcs`** | `true` | **`true`:** the **`vios`** umbrella creates **PersistentVolumeClaims** so **sensor** and **streamprocessing** share on-disk folders for VST data and video; data survives pod restarts but your cluster must have a working **`StorageClass`** (see **`global.storageClass`**). **`false`:** no shared PVCs from **`vios`**—pods use emptyDir or per-subchart PVCs depending on **`vios.vss-vios-*`** persistence. **`false`** avoids disk provisioning but **uploaded video and VST cache are lost** when pods are rescheduled if nothing else persists them. |
-| **`vios.vstStorage.accessMode`** | **`ReadWriteOnce`** | Access mode for the three shared VST PVCs (see **`helm/services/vios/templates/vst-storage-pvc.yaml`**). **`vss-vios-sensor`** mounts **`<RELEASE_NAME>-vst-data`** and **`<RELEASE_NAME>-vst-video`**. **`vss-vios-streamprocessing`** mounts those two plus **`<RELEASE_NAME>-vst-streamer-videos`**. `ReadWriteOnce` allows those pods on one node. On node-local storage such as local-path, a volume stays on the node where it was created, and this chart does not co-locate the two workloads. On more than one node, set the same **`nodeSelector`** or **`affinity`** on both. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage). |
+| **`vios.vstStorage.accessMode`** | **`ReadWriteOnce`** | Access mode for the three shared VST PVCs (see **`helm/services/vios/templates/vst-storage-pvc.yaml`**). **`vss-vios-sensor`** mounts **`<RELEASE_NAME>-vst-data`** and **`<RELEASE_NAME>-vst-video`**. **`vss-vios-streamprocessing`** mounts those two plus **`<RELEASE_NAME>-vst-streamer-videos`**. `ReadWriteOnce` allows those pods on one node. On node-local storage such as local-path, a volume stays on the node where it was created, and this chart does not co-locate the two workloads. On more than one node, set the same **`nodeSelector`** on both. The sensor and streamprocessing charts read **`nodeSelector`** only. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage). |
 | **`vios.vstStorage.vstData`** | **`size`:** **10Gi**, **`storageClass`:** `""` | Claim size for the shared **VST data** volume. Leave **`storageClass`** empty to inherit **`global.storageClass`**; set it only if this volume needs a different class than the rest of the chart. |
 | **`vios.vstStorage.vstVideo`** | **`size`:** **20Gi**, **`storageClass`:** `""` | Claim size for the shared **VST video** volume; same **`storageClass`** rules as **`vstData`**. |
 | **`vios.vstStorage.streamerVideos`** | **`size`:** **20Gi**, **`storageClass`:** `""` | Claim size for the shared **streamer upload** video volume; same **`storageClass`** rules as **`vstData`**. |
@@ -245,9 +245,12 @@ Do not disable `rtvi` for the normal migration path. The agent remains configure
 ### 2. Install
 
 ```bash
-# Clone the repository. For a specific branch or tag, add: -b <name-or-tag> (before the URL).
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
-cd video-search-and-summarization/deploy/helm/developer-profiles
+# The URL alone checks out the default branch. Pin the release you intend.
+# For VSS 3.3.0:
+git clone --branch v3.3.0 --single-branch https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git rev-parse HEAD
+cd deploy/helm/developer-profiles
 
 helm dependency build ./dev-profile-base
 

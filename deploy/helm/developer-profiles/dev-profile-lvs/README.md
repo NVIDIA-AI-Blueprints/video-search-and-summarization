@@ -165,30 +165,30 @@ this server limit.
 
 - **Kubernetes cluster**
   - Running cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
-  - **Server version** validated for this profile: **1.34** — use a different minor/patch only if your platform or release notes require it; confirm compatibility with the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html) and [NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) versions you deploy.
+  - **Server version** recorded for this profile: **1.34.2**.
 
 - **NVIDIA GPU Operator**
-  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1 or above** on the cluster. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
+  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1** on the cluster. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
   - **Driver (x86 Ubuntu 24.04)** — pin **595.58.03** via GPU Operator driver settings.
 
 - **NVIDIA NIM Operator**
   - Required **before deploying this profile with defaults**. The default **`nims.enabled: true`** path creates **`NIMCache`** and **`NIMService`** custom resources for the LLM NIM, so the NIM Operator and its CRDs must already exist on the cluster before `helm upgrade --install`.
-  - Install **after** the GPU Operator. See [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0 or above**.
+  - Install **after** the GPU Operator. See [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0**.
   - If you intentionally run with **`nims.enabled=false`** and all LLM/VLM traffic goes to external endpoints, the NIM CRDs are not created by this chart.
 
 - **Volume provisioner (e.g. local-path)**
   - A **StorageClass** must exist on the cluster (VST, Elasticsearch, and related volumes). Set **`global.storageClass`** in your Helm values override to that class's **`metadata.name`** (see [Prepare the values file](#1-prepare-the-values-file)). The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile.
-  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35 or above**. Node-local volumes are not portable between nodes, and **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`** mount the same three shared VST PVCs (see **`vios.vstStorage.*`** below) -- set **`nodeSelector`** on both so Kubernetes schedules them onto the same node, and confirm that node has capacity for the claims.
-  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35 or above** and use the StorageClass it creates. Changing the cluster's *default* StorageClass is optional and only matters for other workloads that omit `storageClassName`; it is not required for this chart.
+  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35**. Node-local volumes are not portable between nodes, and **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`** mount the same three shared VST PVCs (see **`vios.vstStorage.*`** below) -- set **`nodeSelector`** on both so Kubernetes schedules them onto the same node, and confirm that node has capacity for the claims.
+  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35** and use the StorageClass it creates. Changing the cluster's *default* StorageClass is optional and only matters for other workloads that omit `storageClassName`; it is not required for this chart.
 
 ### Chart / tooling
 
 - **Helm** [3.7 or above](https://github.com/helm/helm/blob/v3.7.0/README.md#install)
 - **Kubectl**
 - **GPUs**: see [GPU requirements](#gpu-requirements) (3 with defaults).
-- **NVIDIA NIM** (if using NIM subcharts): NIM Operator **3.1.0 or above** on the cluster (see [Prerequisites](#prerequisites) above).
+- **NVIDIA NIM** (if using NIM subcharts): NIM Operator **3.1.0** on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
-- **StorageClass** for PVCs: set **`global.storageClass`** to a class that exists on the cluster (see [Prerequisites](#prerequisites) above--**Volume provisioner**). If you use local-path-provisioner, use **v0.0.35 or above**.
+- **StorageClass** for PVCs: set **`global.storageClass`** to a class that exists on the cluster (see [Prerequisites](#prerequisites) above--**Volume provisioner**). If you use local-path-provisioner, use **v0.0.35**.
 
 ### Required NGC secrets
 
@@ -361,13 +361,24 @@ Discover the model IDs from each endpoint's **`/v1/models`**. Do not reuse the i
 
 - **RT-VLM** sends **`VIA_VLM_API_KEY`** from **`global.ngcApiSecret`** (default secret **`ngc-api`**, key **`NGC_API_KEY`**, filled from **`ngc.apiKey`**). If the remote VLM expects a different token, point **`rtvi.vss-rtvi-vlm.ngcApiSecret.name`** and **`.key`** at that Secret. **`rtvi.vss-rtvi-vlm.useSharedNim`** must be **`true`**, or the pod loads the integrated checkpoint and ignores **`global.vlmBaseUrl`**.
 - **vss-agent** does not copy **`ngc.apiKey`** into **`NVIDIA_API_KEY`**. This profile's env list sets **`NVIDIA_API_KEY`** to empty. If the remote LLM requires a bearer token, set **`NVIDIA_API_KEY`** on **`agent.vss-agent.env`** to that endpoint's credential.
+- **vss-summarization** calls the remote LLM on its own. Its chart default sets **`NVIDIA_API_KEY`** to empty, and **`configs/config.yaml`** sends that value as **`api_key`**. **`vss-summarization.extraEnv`** is applied last and overrides that name. Add the entry below to the existing **`extraEnv`** list. Do not replace the list: it already carries **`RTVI_VLM_URL`** and **`RTVI_VLM_URL_PASSTHROUGH`**. This chart's **`extraEnv`** entries are **`name`** and **`value`** only.
+
+```yaml
+vss-summarization:
+  extraEnv:
+    - name: NVIDIA_API_KEY
+      value: "<REMOTE_LLM_TOKEN>"
+```
 
 ### 2. Install
 
 ```bash
-# Clone the repository. For a specific branch or tag, add: -b <name-or-tag> (before the URL).
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
-cd video-search-and-summarization/deploy/helm/developer-profiles
+# The URL alone checks out the default branch. Pin the release you intend.
+# For VSS 3.3.0:
+git clone --branch v3.3.0 --single-branch https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git rev-parse HEAD
+cd deploy/helm/developer-profiles
 
 helm dependency build ./dev-profile-lvs
 

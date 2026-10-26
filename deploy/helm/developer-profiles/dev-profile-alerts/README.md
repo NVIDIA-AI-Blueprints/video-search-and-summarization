@@ -74,29 +74,29 @@ With [remote LLM/VLM](#remote-llm-and-vlm) (`nims.enabled=false`), the total dro
 
 - **Kubernetes cluster**
   - Running cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
-  - **Server version** recorded for this profile: **1.34** on x86 Ubuntu 24.04, with driver **595.58.03**. The operator and Helm floors below are the documented minimums for this chart (GPU Operator **v25.10.1 or above**, NIM Operator **3.1.0 or above**, local-path-provisioner **v0.0.35 or above**, Helm **3.7 or above**). Chart **`values.yaml`** selects **`nims.gpuType: H100`**; both mode files select **`RTXPRO6000BW`**. This README does not publish a pass/fail result for those GPU and model pairs, and it does not add version pins beyond the floors above. Confirm a different Kubernetes minor with the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html) and [NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) versions you deploy.
+  - **Server version** recorded for this profile: **1.34.2** on x86 Ubuntu 24.04, with driver **595.58.03**, GPU Operator **v25.10.1**, NIM Operator **3.1.0**, and local-path-provisioner **v0.0.35**. Chart **`values.yaml`** selects **`nims.gpuType: H100`**; both mode files select **`RTXPRO6000BW`**.
 
 - **NVIDIA GPU Operator**
-  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1 or above** on the cluster. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
+  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1** on the cluster. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
   - **Driver (x86 Ubuntu 24.04)** — pin **595.58.03** via GPU Operator driver settings.
 
 - **NVIDIA NIM Operator**
-  - [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0 or above** when **`nims`** subcharts are enabled (`NIMCache` / `NIMService`).
+  - [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0** when **`nims`** subcharts are enabled (`NIMCache` / `NIMService`).
   - Install **after** the GPU Operator.
 
 - **Volume provisioner (e.g. local-path)**
   - A **StorageClass** must exist on the cluster. Set **`global.storageClass`** in your Helm values override to that class's **`metadata.name`** (see [Prepare the values file](#1-prepare-the-values-file)). The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile.
-  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35 or above**. The shared VST claims are **`ReadWriteOnce`**. **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`** share **`<RELEASE_NAME>-vst-data`** and **`<RELEASE_NAME>-vst-video`**. **`vios.vss-vios-streamprocessing`** and **`vios.vss-vios-nvstreamer`** share **`<RELEASE_NAME>-vst-streamer-videos`**. Node-local volumes are not portable between nodes, and ReadWriteOnce allows multiple pods only on the same node. Set the same **`nodeSelector`** on sensor, streamprocessing, and NVStreamer, and confirm that node has capacity for the three claims.
-  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35 or above** and use the StorageClass it creates. Changing the cluster's *default* StorageClass is optional and only matters for other workloads that omit `storageClassName`; it is not required for this chart.
+  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35**. The shared VST claims are **`ReadWriteOnce`**. **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`** share **`<RELEASE_NAME>-vst-data`** and **`<RELEASE_NAME>-vst-video`**. **`vios.vss-vios-streamprocessing`** and **`vios.vss-vios-nvstreamer`** share **`<RELEASE_NAME>-vst-streamer-videos`**. Node-local volumes are not portable between nodes, and ReadWriteOnce allows multiple pods only on the same node. Set the same **`nodeSelector`** on sensor, streamprocessing, and NVStreamer, and confirm that node has capacity for the three claims.
+  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35** and use the StorageClass it creates. Changing the cluster's *default* StorageClass is optional and only matters for other workloads that omit `storageClassName`; it is not required for this chart.
 
 ### Chart / tooling
 
 - **Helm** [3.7 or above](https://github.com/helm/helm/blob/v3.7.0/README.md#install)
 - **Kubectl**
 - **GPUs**: see [GPU requirements](#gpu-requirements) (4 for verification and 3 for real-time with defaults).
-- **NVIDIA NIM** (if using NIM subcharts): NIM Operator **3.1.0 or above** on the cluster (see [Prerequisites](#prerequisites) above).
+- **NVIDIA NIM** (if using NIM subcharts): NIM Operator **3.1.0** on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
-- **StorageClass**: a StorageClass must exist on the cluster for PVC creation. If you use local-path-provisioner, use **v0.0.35 or above**.
+- **StorageClass**: a StorageClass must exist on the cluster for PVC creation. If you use local-path-provisioner, use **v0.0.35**.
 
 ## Quick start
 
