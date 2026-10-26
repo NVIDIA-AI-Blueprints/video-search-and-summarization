@@ -569,7 +569,7 @@ jobs:
 
       - name: Build and test NAT-free base distribution
         run: |
-          uv sync --frozen
+          uv sync --frozen --all-packages
           uv run --no-sync mypy \
             core/src/vss_core/_foundation \
             core/src/vss_core/search_core \
@@ -578,11 +578,33 @@ jobs:
             cli/src/vss_cli
           uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
             --cov=core/src --cov=cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+          # Connection-free unit and pipeline tests only. Live RTVI/Embed/VLM,
+          # native Elasticsearch, and end-to-end suites run in owning lanes.
+          uv run --no-sync pytest \
+            tests/storage \
+            tests/video_processing \
+            tests/test_*.py \
+            tests/integration/test_ingestion_summarization.py \
+            tests/integration/test_vlm_decode_pipeline.py \
+            --ignore=tests/storage/test_elasticsearch_native.py \
+            --ignore=tests/storage/test_native_pipeline.py \
+            -m "not functional and not integration"
+          uv run --no-sync pyright
+          uv run --no-sync ruff check \
+            src packages/ingestion/src packages/summarization/src \
+            tests
+          uv run --no-sync ruff format --check \
+            src packages/ingestion/src packages/summarization/src \
+            tests
+          uv run --no-sync lint-imports
           uv run --no-sync python ../../.github/osrb/test_osrb_scan.py
           uv run --no-sync python ../../.github/osrb/test_osrb_summary.py
           rm -rf dist
           uv build --package nvidia-vss-core
           uv build --package nvidia-vss-cli
+          uv build --package vss
+          uv build --package vss-ingestion
+          uv build --package vss-summarization
 
       - name: Smoke-test built wheel in a clean environment
         run: |
@@ -621,6 +643,27 @@ jobs:
           assert vss_core.vlm is not None and vss_core.vios is not None
           PY
           .wheel-smoke/bin/vss --help >/dev/null
+
+      - name: Smoke-test public library wheels
+        run: |
+          set -- dist/vss-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          vss_whl="$1"
+          set -- dist/vss_ingestion-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          ingestion_whl="$1"
+          set -- dist/vss_summarization-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          summarization_whl="$1"
+          uv pip install --python .wheel-smoke/bin/python --no-cache \
+            "$vss_whl" "$ingestion_whl" "$summarization_whl"
+          uv pip check --python .wheel-smoke/bin/python
+          .wheel-smoke/bin/python -I - <<'PY'
+          import vss.ingestion
+          import vss.storage
+          import vss.summarization
+          import vss.video_processing
+          PY
 
       - name: Upload lib coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -672,13 +715,17 @@ jobs:
       - name: Smoke-test built wheels in a clean environment
         run: |
           rm -rf dist .wheel-smoke
+          uv build --project ../vss --package vss --wheel --out-dir dist
+          uv build --project ../vss --package vss-ingestion --wheel --out-dir dist
+          uv build --project ../vss --package vss-summarization --wheel --out-dir dist
           uv build --all-packages --out-dir dist
           uv venv --python 3.13 .wheel-smoke
           uv pip install --python .wheel-smoke/bin/python dist/*.whl
           .wheel-smoke/bin/vision-ai --help
           .wheel-smoke/bin/vision-ai vlm --help
+          .wheel-smoke/bin/vision-ai vss --help
           .wheel-smoke/bin/python -I -c "import importlib.util as u, sys;
-          import nvidia_vision_ai_cli.app, nvidia_vision_ai.vlm, nvidia_vision_ai.memory, nvidia_vision_ai.knowledge;
+          import nvidia_vision_ai_cli.app, nvidia_vision_ai.vlm, nvidia_vision_ai.memory, nvidia_vision_ai.knowledge, vss_vision_ai;
           bad = [m for m in ('vss_core', 'vss_cli', 'aiohttp', 'elasticsearch', 'cv2') if m in sys.modules or u.find_spec(m)];
           sys.exit(f'unexpected modules: {bad}' if bad else 0)"
 

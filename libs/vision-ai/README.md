@@ -6,6 +6,7 @@ Tools for agent harnesses over NVIDIA Cosmos and VSS models. This directory is t
 |------|--------------|--------|------------|
 | `.` (`src/`) | `nvidia-vision-ai` | `nvidia_vision_ai` | Library: pydantic in, pydantic out. No config files, no default paths. |
 | `packages/cli` | `nvidia-vision-ai-cli` | `nvidia_vision_ai_cli` | The `vision-ai` command: per-tool config, plugins, and a local job store. |
+| `packages/vss` | `nvidia-vss-vision-ai` | `vss_vision_ai` | Optional VSS ingestion and summarization tool plugin. |
 
 The first tool is `vlm`. It sends one question about one video to an OpenAI-compatible VLM
 (RT-VLM, vLLM, Cosmos Reason NIM or a plain OpenAI endpoint).

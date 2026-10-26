@@ -1,0 +1,48 @@
+# Copy and edit this recipe. Paths resolve relative to the recipe file.
+# Services must already be running; this runner never provisions infrastructure.
+schema_version = "perf_matrix.1"
+profiles = ["normal-es", "library-rtvi-memory", "library-rtvi-file", "library-rtvi-elasticsearch"]
+placements = ["local-local"] # VLM placement, then LLM placement
+chunk_durations = [30]
+frames_per_chunk = [8]
+streams = [1]
+repetitions = 10
+warmups = 1
+run_timeout_s = 7200
+max_trials = 500
+observation = "resources"
+caption_max_tokens = 1024
+summary_max_tokens = 1024
+caption_generation = {temperature = 0, top_p = 1, enable_reasoning = false}
+summary_generation = {temperature = 0, top_p = 1, enable_reasoning = false}
+es_url_env = "PERF_ES_URL"
+# es_key_env = "PERF_ES_API_KEY"
+
+[[media]]
+name = "demo"
+video = "../../../demo_videos/replace-with-your-video.mp4"
+duration_s = 60.0
+# sha256 = "<optional pinned media SHA256>"
+
+[vlms.local]
+model = "REPLACE_WITH_DEPLOYED_VLM"
+revision = "REPLACE_WITH_PINNED_REVISION"
+url_env = "PERF_LOCAL_VLM_URL" # OpenAI-compatible /v1 base, for CPU/GPU frame workflows
+rtvi_url_env = "PERF_LOCAL_RTVI_URL" # RTVI connected to that same VLM
+# key_env = "PERF_LOCAL_VLM_API_KEY"
+
+[llms.local]
+model = "REPLACE_WITH_DEPLOYED_LLM"
+revision = "REPLACE_WITH_PINNED_REVISION"
+url_env = "PERF_LOCAL_LLM_URL" # OpenAI-compatible /v1 base
+# key_env = "PERF_LOCAL_LLM_API_KEY"
+
+[normal.local-local]
+url_env = "PERF_NORMAL_LOCAL_LOCAL_URL" # Already configured with these VLM/LLM services
+# deployment_manifest = "normal-local-local.json" # Optional hashed deployment evidence
+
+# To enable remote model combinations, configure vlms.remote, llms.remote and
+# normal.local-remote / normal.remote-local / normal.remote-remote explicitly.
+# A remote VLM's RTVI path needs its own correctly configured RTVI connector.
+# API keys stay in environment variables, never in this recipe or command line.
+# Provider.generation can override the global controls for model-specific APIs.
