@@ -504,29 +504,32 @@ helm upgrade <RELEASE_NAME> ./dev-profile-alerts -f dev-profile-alerts/values-ve
 
 Use **`-f dev-profile-alerts/values-realtime.yaml`** if you installed **real-time** mode.
 
-**Uninstall**:
+**Uninstall**
 
-```bash
-helm uninstall <RELEASE_NAME> -n <NAMESPACE>
-```
+Save Alert Bridge state, uploaded media, and Postgres metadata before `helm uninstall`. Those claims have no `helm.sh/resource-policy: keep` annotation, so the release delete removes them. This chart does not configure an Elasticsearch snapshot repository. Copy the volumes with your storage provider, and read each PV's reclaim policy. A `Delete` policy removes the disk with the claim.
 
 | Resource | Helm uninstall behavior | Notes |
 |----------|-------------------------|-------|
-| Shared VST PVCs (`<RELEASE_NAME>-vst-data`, `<RELEASE_NAME>-vst-video`, `<RELEASE_NAME>-vst-streamer-videos`) | Removed with the release | No `helm.sh/resource-policy: keep` annotation. Uploaded/streamed media can be lost. |
-| Elasticsearch PVCs | Removed with the release | The StatefulSet sets `persistentVolumeClaimRetentionPolicy.whenDeleted: Delete`. Default claim names are `es-data-elasticsearch-0` and `es-logs-elasticsearch-0`. With `global.useReleaseNamePrefix: true` the StatefulSet name is prefixed, so the claims are `es-data-<RELEASE_NAME>-elasticsearch-0` and `es-logs-<RELEASE_NAME>-elasticsearch-0`. Alert Bridge stores durable state here: index prefix `ab-`, plus sinks `mdx-vlm-incidents` and `mdx-vlm-alerts`. This chart does not configure an Elasticsearch snapshot repository. Snapshot these volumes, and the shared VST and Postgres claims, with your storage provider before uninstall. |
-| Other release-owned PVCs (Kafka, Postgres, etc.) | Removed with the release | Confirm reclaim policy / provisioner before assuming data remains on disk. |
-| `NIMCache` (namespaced; default name `nemotron-35-lightning-30b-a3b`) | Retained | Templates set `helm.sh/resource-policy: keep`. `NIMCache` is a namespaced CRD object, not cluster-scoped. |
+| Shared VST PVCs (`<RELEASE_NAME>-vst-data`, `<RELEASE_NAME>-vst-video`, `<RELEASE_NAME>-vst-streamer-videos`) | Removed with the release | Names always include the release, including when `global.useReleaseNamePrefix` is `false`. This is the uploaded and streamed media. |
+| Elasticsearch PVCs | Removed with the release | The StatefulSet sets `persistentVolumeClaimRetentionPolicy.whenDeleted: Delete`. Default claim names are `es-data-elasticsearch-0` and `es-logs-elasticsearch-0`. With `global.useReleaseNamePrefix: true` the StatefulSet name is prefixed, so the claims are `es-data-<RELEASE_NAME>-elasticsearch-0` and `es-logs-<RELEASE_NAME>-elasticsearch-0`. Alert Bridge stores durable state here: index prefix `ab-`, plus sinks `mdx-vlm-incidents` and `mdx-vlm-alerts`. |
+| Postgres PVC | Removed with the release | Default name `vss-vios-postgres-data`. With `global.useReleaseNamePrefix: true` it is `<RELEASE_NAME>-vss-vios-postgres-data`. Database files are on that claim at `postgresql/db`. |
+| `NIMCache` (namespaced; default name `nemotron-35-lightning-30b-a3b`) | Retained | Templates set `helm.sh/resource-policy: keep`. `NIMCache` is a namespaced CRD object, not cluster-scoped, and not a PVC. |
+
+```bash
+kubectl get pvc -n <NAMESPACE>
+kubectl get nimcache -n <NAMESPACE>
+
+# Save this index list before uninstall. Stop the port-forward when it returns.
+kubectl port-forward svc/elasticsearch 9200:9200 -n <NAMESPACE>
+curl -fsS 'http://127.0.0.1:9200/_cat/indices/ab-*,mdx-vlm-*?h=index,docs.count'
+
+# After the snapshot of Elasticsearch, VST, and Postgres volumes:
+helm uninstall <RELEASE_NAME> -n <NAMESPACE>
+```
 
 Do **not** run namespace-wide deletes such as `kubectl delete nimcache --all` or `kubectl delete pvc --all`. Those commands remove every matching object in the namespace, including leftovers from other releases. Inspect ownership, confirm you intend to discard the data, then delete only the selected leftovers for this release:
 
 ```bash
-kubectl get nimcache -n <NAMESPACE>
-kubectl get pvc -n <NAMESPACE>
-
-# Inventory Alert Bridge indices before uninstall. Save this output.
-kubectl port-forward svc/elasticsearch 9200:9200 -n <NAMESPACE>
-curl -fsS 'http://127.0.0.1:9200/_cat/indices/ab-*,mdx-vlm-*?h=index,docs.count'
-
 # Example for the default Nemotron NIMCache (kept by Helm):
 kubectl delete nimcache nemotron-35-lightning-30b-a3b -n <NAMESPACE>
 ```
