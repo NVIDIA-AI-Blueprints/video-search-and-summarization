@@ -64,7 +64,6 @@ paths:
       operationId: postProxyStreamAdd
       security:
         - bearerAuth: []
-      parameters:
       requestBody:
         required: true
         content:
@@ -244,6 +243,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /v1/proxy/version:
+    get:
+      tags:
+        - v1
+      summary: Get RTSP Proxy service version
+      operationId: getProxyVersion
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceVersion'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
 
   securitySchemes:
@@ -252,6 +271,23 @@ components:
       scheme: bearer
 
   schemas:
+    ServiceVersion:
+      type: object
+      required:
+        - type
+        - version
+      properties:
+        type:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 64
+          description: Device type hosting the RTSP Proxy service.
+        version:
+          type: string
+          pattern: "^[a-zA-Z0-9._+-]+$"
+          maxLength: 128
+          description: Build version for the device type hosting the RTSP Proxy service.
+
     ProxyInfo:
       type: object
       description: >

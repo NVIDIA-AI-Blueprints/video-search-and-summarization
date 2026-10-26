@@ -84,11 +84,10 @@ Feature: VST Sensor Management Service API Unit Tests
     When I request timelines for the first sensor
     Then the sensor response status is 200
 
-  # Regression for NVBug 6164112: /sensor/{id}/network must not 500 for RTSP sensors
-  Scenario: Network info for an RTSP sensor returns a structured response, not a 500
+  Scenario: Network info for a local RTSP sensor returns a structured unsupported response
     Given the VST sensor management API is accessible
     And I have added an RTSP sensor and captured its identity
     When I request network info for that sensor
-    Then the network response status is not 500
-    And the network response error_code is not VMSInternalError
+    Then the network response status is 501
+    And the network response contains a structured unsupported error
     And I clean up the network-info test sensor

@@ -16,7 +16,7 @@
 """
 Unit tests for the VST RTSP Proxy Stream Service API.
 
-Tests: streams list, configuration, proxy info.
+Tests: streams list, configuration, proxy info, version.
 """
 import logging
 
@@ -48,6 +48,16 @@ def rtsp_proxy_api_accessible(api_config: dict) -> None:
 # ---------------------------------------------------------------------------
 # When
 # ---------------------------------------------------------------------------
+
+@when("I request the RTSP proxy service version")
+def request_proxy_version(context: UnitTestContext, api_config: dict, unit_test_params: dict) -> None:
+    context.response = api_get(
+        api_config["base_url"],
+        "/vst/api/v1/proxy/version",
+        verify_ssl=api_config.get("verify_ssl", False),
+        timeout=unit_test_params.get("timeout", 30),
+    )
+
 
 @when("I request the list of proxy streams")
 def request_proxy_streams(context: UnitTestContext, api_config: dict, unit_test_params: dict) -> None:
@@ -85,6 +95,16 @@ def request_proxy_info(context: UnitTestContext, api_config: dict, unit_test_par
 # ---------------------------------------------------------------------------
 # Then
 # ---------------------------------------------------------------------------
+
+@then("the proxy response contains a device type and build version")
+def check_proxy_version(context: UnitTestContext) -> None:
+    data = validate_dict_response(context.response)
+    for field in ("type", "version"):
+        value = data.get(field)
+        assert isinstance(value, str) and value.strip(), (
+            f"Expected a non-empty {field} string, got {value!r}"
+        )
+
 
 @then("the proxy response status is 200")
 def check_proxy_status_200(context: UnitTestContext) -> None:
