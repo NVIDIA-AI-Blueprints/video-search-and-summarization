@@ -16,6 +16,9 @@
 # values-nodeport.yaml
 # Override file for exposing services via NodePort instead of Ingress.
 # No Ingress controller is required.
+# This file changes Service types only. Browser and agent public URLs still
+# follow global.externalHost (nip.io on port 80) until you also set the
+# NodePort URL overlay in the chart README.
 #
 # Usage (with Local NIMs):
 #   helm upgrade --install vss-search ./dev-profile-search \
