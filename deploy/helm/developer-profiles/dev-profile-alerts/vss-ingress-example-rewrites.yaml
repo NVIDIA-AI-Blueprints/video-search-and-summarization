@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Prefix-stripping routes for verification mode, default
+# Prefix-stripping routes for chart values.yaml, default
 # global.useReleaseNamePrefix=false. Service names are unprefixed.
 # This object is <RELEASE_NAME>-vss-ingress-rewrites, a second Ingress.
 # It does not replace the Helm-owned <RELEASE_NAME>-vss-ingress.
@@ -23,11 +23,13 @@
 # /rtvi-cv is verification only; real-time disables vss-rtvi-cv, so delete
 # that path and its rewrite lines before a real-time apply.
 # /llm exists only while nims.nemotron35 is enabled.
-# /rtvi-vlm is enabled in both mode files.
+# This snapshot matches chart values.yaml, with no mode file.
+# rtvi.vss-rtvi-vlm.enabled is false there, so /rtvi-vlm is omitted.
+# Both mode files set that flag true; regenerate from the mode file
+# before applying a mode install, or the route is missing.
 #
-# Regenerate rather than hand-editing:
+# Regenerate this snapshot with:
 #   helm template <RELEASE_NAME> ./dev-profile-alerts \
-#     -f ./dev-profile-alerts/values-verification.yaml \
 #     --set-string global.externalHost=vss-alerts.<EXTERNAL_HOST>.nip.io \
 #     --show-only templates/vss-ingress.yaml
 #
@@ -53,8 +55,6 @@ metadata:
       /elasticsearch /
       /rtvi-cv/(.*) /\1
       /rtvi-cv /
-      /rtvi-vlm/(.*) /\1
-      /rtvi-vlm /
       /phoenix/(.*) /\1
       /phoenix /
       /llm/(.*) /\1
@@ -109,13 +109,6 @@ spec:
             name: vss-rtvi-cv
             port:
               number: 9010
-      - path: /rtvi-vlm
-        pathType: Prefix
-        backend:
-          service:
-            name: vss-rtvi-vlm
-            port:
-              number: 8000
       - path: /phoenix
         pathType: Prefix
         backend:
