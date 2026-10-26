@@ -77,23 +77,25 @@ When time-slicing is enabled, each time-sliced partition appears as a separate `
 
 ```bash
 # Example: Nemotron NIM needs 1 full GPU but with 2x time-slicing per GPU
---set nims.nemotron.resources.limits."nvidia.com/gpu"="2" \
---set nims.nemotron.resources.requests."nvidia.com/gpu"="2"
+# (the enabled alias is "nemotron35", not "nemotron"; dots inside a key must
+# be escaped with a backslash or --set splits them into nested maps)
+--set nims.nemotron35.resources.limits.nvidia\.com/gpu=2 \
+--set nims.nemotron35.resources.requests.nvidia\.com/gpu=2
 ```
 
 ## Prerequisites
 
 - **Kubernetes cluster**
   - Running cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
-  - **Server version** validated for this profile: **1.34** — use a different minor/patch only if your platform or release notes require it; confirm compatibility with the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/platform-support.html) and [NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html) versions you deploy.
+  - **Server version** validated for this profile: **1.34** — use a different minor/patch only if your platform or release notes require it; confirm compatibility with the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html) and [NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) versions you deploy.
 
 - **NVIDIA GPU Operator**
-  - Install the GPU Operator on the cluster. Follow [GPU Operator getting started](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html).
+  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1 or above** on the cluster. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
   - **Driver (x86 Ubuntu 24.04)** — pin **595.58.03** via GPU Operator driver settings.
 
 - **NVIDIA NIM Operator** (required only for [Option A: Local NIMs](#option-a-deploy-with-local-nims))
   - Required when `nims` subcharts are enabled (`NIMCache` / `NIMService`).
-  - Install **after** the GPU Operator. See [NIM Operator installation](https://docs.nvidia.com/nim-operator/latest/install.html).
+  - Install **after** the GPU Operator. See [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0 or above**.
   - Install the NIM Operator:
 
 ```bash
@@ -104,16 +106,16 @@ kubectl create namespace nim-operator
 
 helm upgrade --install nim-operator nvidia/k8s-nim-operator \
   -n nim-operator \
-  --version=3.0.2
+  --version=3.1.0
 
 # Verify the operator pod is running
 kubectl get pods -n nim-operator
 ```
 
 - **Volume provisioner (e.g. local-path)**
-  - A **StorageClass** must exist on the cluster. Set **`global.storageClass`** in your Helm values override to that class’s **`metadata.name`** (this profile’s install examples use **`--set global.storageClass=…`**).
-  - **Bare-metal clusters:** Install **local-path** (see [rancher/local-path-provisioner](https://github.com/rancher/local-path-provisioner/tree/master)), or use the Helm-based install in [Step 1](#step-1-volume-provisioner-bare-metal-optional) if you prefer that packaging.
-  - **Default StorageClass:** If your class (for example **`local-path`**) is not already the default, set it as the default StorageClass:
+  - A **StorageClass** must exist on the cluster. Set **`global.storageClass`** in your Helm values override to that class's **`metadata.name`** (this profile's install examples use **`--set global.storageClass=…`**). The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile.
+  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35 or above**, or the Helm-based install in [Step 1](#step-1-volume-provisioner-bare-metal-optional). Node-local volumes are not portable between nodes, and this profile's **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`** mount the same shared VST PVCs -- set **`nodeSelector`** on both so Kubernetes schedules them onto the same node, and confirm that node has capacity for the claims.
+  - **Default StorageClass (optional):** changing the cluster's *default* StorageClass is not required for this chart -- setting **`global.storageClass`** is enough. It only matters for other workloads that omit `storageClassName`. If you still want to make a class the cluster default, run:
 
     ```bash
     kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
@@ -123,11 +125,11 @@ kubectl get pods -n nim-operator
 
 ### Chart / tooling
 
-- **Helm** 3.7+
+- **Helm** [3.7 or above](https://github.com/helm/helm/blob/v3.7.0/README.md#install)
 - **kubectl**
 - **GPUs**: see [GPU Requirements](#gpu-requirements)
 - **NGC**: API key for image pull, model downloads, and NIM access
-- **StorageClass**: set **`global.storageClass`** to a class on the cluster (see [Prerequisites](#prerequisites)—**Volume provisioner**).
+- **StorageClass**: set **`global.storageClass`** to a class on the cluster (see [Prerequisites](#prerequisites)—**Volume provisioner**). If you use local-path-provisioner, use **v0.0.35 or above**.
 
 ## Environment Setup
 
@@ -135,7 +137,7 @@ kubectl get pods -n nim-operator
 export NODE_EXTERNAL_IP='<your node IP>'
 export NGC_CLI_API_KEY='<your NGC API key>'
 export STORAGE_CLASS='<Storage Class Name>'
-export GPU_NAME='H100'  # One of: H100, L40S, RTXPRO6000BW
+export GPU_NAME='H100'  # One of: H100, GB300, L40S, RTXPRO4500BW, RTXPRO6000BW, OTHER
 ```
 
 > **Critic behavior** is controlled per request with `use_critic` and defaults to enabled. RT-VLM remains available for both critic verification and `video_understanding`.
@@ -388,6 +390,7 @@ When deployed with `vssIngress.enabled=true` (the default), services are accessi
 | RT-VLM (OpenAI)   | `http://vss-search.<NODE_IP>.nip.io/rtvi-vlm/v1`           |
 | RT-Embed          | `http://vss-search.<NODE_IP>.nip.io/rtvi-embed/v1`         |
 | RT-CV             | `http://vss-search.<NODE_IP>.nip.io/rtvi-cv/api/v1`        |
+| LLM (NIM, [Option A](#option-a-deploy-with-local-nims) only) | `http://vss-search.<NODE_IP>.nip.io/llm/v1` |
 | Elasticsearch     | `http://vss-search.<NODE_IP>.nip.io/elasticsearch`         |
 | NVStreamer HTTP    | `http://streamer.<NODE_IP>.nip.io`                     |
 | Kibana Dashboards | `http://kibana.<NODE_IP>.nip.io`                       |
@@ -466,7 +469,7 @@ Upload video files through the VSS UI **Video Management** tab:
 
 ## Ingress Configuration
 
-The chart creates a Kubernetes Ingress resource when `vssIngress.enabled=true`. All HTTP services use ClusterIP and are routed through the Ingress controller. Its mounts come from the [canonical route table](../../services/common/README.md), shared with the other developer profiles and with the Docker edge, so `/rtvi-vlm`, `/elasticsearch` and the rest resolve the same way on any VSS deployment. RTSP (NVStreamer) is not routed through HTTP Ingress; by default it is not exposed as a separate NodePort service.
+The chart creates a Kubernetes Ingress resource when `vssIngress.enabled=true`. All HTTP services use ClusterIP and are routed through the Ingress controller. Its mounts come from the [canonical route table](../../services/common/README.md), shared with the other developer profiles and with the Docker edge, so `/rtvi-vlm`, `/elasticsearch` and the rest resolve the same way on any VSS deployment. `/llm` is also mounted whenever the in-cluster Nemotron NIM is enabled ([Option A](#option-a-deploy-with-local-nims)); it is omitted entirely with `nims.enabled=false`. RTSP (NVStreamer) is not routed through HTTP Ingress; by default it is not exposed as a separate NodePort service.
 
 `ingress:` is the former name of the `vssIngress:` block. Keys still read from it: `enabled`, `className`, `hosts.*`, `annotations`, `tls`. Its removed `cliRoutes.*` keys are ignored — Elasticsearch and the RTVI mounts are no longer toggled. Set one block or the other, not both.
 
@@ -527,12 +530,24 @@ helm upgrade --install vss-search ./dev-profile-search \
 
 ## Teardown
 
+`helm uninstall` removes the PVCs this chart creates (no `helm.sh/resource-policy: keep` annotation on them), so uninstalling **deletes that stored data** (database, video storage, model caches). The **`NIMCache`** custom resource (namespaced, not cluster-scoped) carries `helm.sh/resource-policy: keep` and is **not** removed by `helm uninstall`; delete it explicitly by name if you no longer need the cached model.
+
 ```bash
 # Uninstall the search profile
 helm uninstall vss-search -n <NAMESPACE>
 
-# Clean up PVCs (includes database, video storage, model caches)
-kubectl delete pvc -l app.kubernetes.io/instance=vss-search
+# Confirm whether any PVCs/NIMCache for this release are still around
+kubectl get pvc -n <NAMESPACE> -l app.kubernetes.io/instance=vss-search
+kubectl get nimcache -n <NAMESPACE>
+
+# If leftover PVCs for this release remain and you no longer need the data,
+# delete them scoped by release label (do NOT use `kubectl delete pvc --all`,
+# which removes every PVC in the namespace, including other releases'):
+kubectl delete pvc -n <NAMESPACE> -l app.kubernetes.io/instance=vss-search
+
+# If a NIMCache (e.g. nemotron-35-lightning-30b-a3b) is still present and you
+# no longer need the cached model, delete it by name (do NOT use `--all`):
+kubectl delete nimcache <NIMCACHE_NAME> -n <NAMESPACE>
 
 # If you installed additional Helm releases for NIMs or other add-ons, uninstall them by release name, for example:
 # helm uninstall <OTHER_RELEASE_NAME> -n <NAMESPACE>
@@ -542,8 +557,4 @@ helm uninstall haproxy-kubernetes-ingress -n haproxy-controller
 
 # Uninstall local-path provisioner (if installed in namespace default)
 helm uninstall local-path-provisioner-default -n default
-
-# Cleanup remaining storage
-kubectl delete nimcache --all -n <NAMESPACE>
-kubectl delete pvc --all -n <NAMESPACE>
 ```
