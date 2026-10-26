@@ -5,9 +5,11 @@ root_package = vss
 name = VSS capability dependency direction
 type = layers
 layers =
+    vss.mcp
     vss.summarization
     vss.ingestion
     vss.video_processing
+    vss.observability
 
 [importlinter:contract:storage-independence]
 name = Storage has no capability or transport dependencies

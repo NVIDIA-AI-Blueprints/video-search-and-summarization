@@ -1,7 +1,7 @@
 # Ingestion guide
 
-`vss.ingestion` sends a local video to one caption or embedding pipeline and
-returns validated response chunks.
+`vss.ingestion` sends a source to selected caption, embedding or CV backends and
+returns validated responses keyed by the requested backend names.
 
 ## Install
 
@@ -28,19 +28,19 @@ from vss.ingestion import RequestSource, ingest
 
 
 async def main() -> None:
-    chunks = await ingest(
+    results = await ingest(
         RequestSource.for_file("/path/to/video.mp4"),
-        pipeline="cpu_vlm",
+        backends=["cpu_vlm"],
         chunk_duration=30,
     )
-    for chunk in chunks:
+    for chunk in results["cpu_vlm"]:
         print(chunk.vlm_response)
 
 
 asyncio.run(main())
 ```
 
-Use `pipeline="gpu_vlm"` for NVIDIA GPU decoding.
+Use `backends=["gpu_vlm"]` for NVIDIA GPU decoding.
 
 ## Configure RTVI
 
@@ -50,14 +50,14 @@ export RTVI_MODEL=your-rtvi-model
 export RTVI_API_KEY=your-optional-api-key
 ```
 
-Select `pipeline="rtvi"` for captions. RTVI-Embed uses
+Select `backends=["rtvi"]` for captions. RTVI-Embed uses
 `RTVI_EMBED_BASE_URL`, `RTVI_EMBED_MODEL`, and `RTVI_EMBED_API_KEY`; select
-`pipeline="rt_embed"` to create an `IngestionJob`, then await that job for its
+`backends=["rt_embed"]` to create an `IngestionJob`, then await that job for its
 embedding chunks:
 
 ```python
-embedding_job = ingest(source, pipeline="rt_embed")
-embeddings = await embedding_job
+embedding_job = ingest(source, backends=["rt_embed"])
+embeddings = (await embedding_job)["rt_embed"]
 ```
 
 `ingest()` returns an `IngestionJob`. Await the job for its result, call

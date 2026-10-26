@@ -23,6 +23,9 @@ from typing import Literal
 
 import numpy as np
 
+from vss.observability import record
+from vss.observability.instrumentation import stage
+
 from .contracts import EncodedFrame, FrameMetadata
 from .exceptions import DecodeError, DecoderUnavailableError
 
@@ -93,6 +96,7 @@ class Frame:
         """
         return self.to_encoded(format=format).data_base64
 
+    @stage("processing.encode", library="processing")
     def to_encoded(self, *, format: Literal["jpeg", "png"] = "jpeg") -> EncodedFrame:
         """Return an explicit JSON-safe encoded-frame envelope.
 
@@ -131,6 +135,7 @@ class Frame:
             ) from exc
         if not ok:
             raise DecodeError(f"OpenCV could not encode this frame as {format}")
+        record("processing.encoded_bytes", encoded.nbytes, library="processing")
         return EncodedFrame(
             metadata=self.metadata,
             mime_type=mime,

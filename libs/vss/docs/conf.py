@@ -42,4 +42,5 @@ html_theme = "nvidia_sphinx_theme"
 html_title = f"{project} {release}"
 html_show_sourcelink = False
 
-exclude_patterns = ["_build", "video_processing_validation.rst"]
+# Benchmark plans/results are repository working documents, outside the API site.
+exclude_patterns = ["_build", "video_processing_validation.rst", "m8_*.rst"]

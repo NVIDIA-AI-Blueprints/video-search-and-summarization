@@ -20,6 +20,8 @@ from __future__ import annotations
 import json
 from typing import Any, Protocol
 
+from vss.observability import metric_scope, record
+
 from ..exceptions import SummaryConfigurationError, SummaryGenerationError
 from .base import GeneratedSummary, SummaryGenerator, register_generator
 from .config import OpenAIAPIType, OpenAIConfig
@@ -96,7 +98,8 @@ class OpenAISummaryGenerator(SummaryGenerator):
                 from openai import AsyncOpenAI
             except ImportError as error:
                 raise RuntimeError(
-                    "OpenAI summary generation requires the 'summarization' extra"
+                    "OpenAI summary generation requires pip install "
+                    '"vss-summarization[openai]"'
                 ) from error
             client = AsyncOpenAI(
                 base_url=self._config.base_url,
@@ -158,6 +161,12 @@ class OpenAISummaryGenerator(SummaryGenerator):
             max_output_tokens=self._config.max_output_tokens,
         )
         usage = response.usage
+        _record_usage(
+            usage,
+            "input_tokens",
+            "output_tokens",
+            getattr(response, "model", model),
+        )
         incomplete = getattr(response, "incomplete_details", None)
         return GeneratedSummary(
             text=response.output_text or "",
@@ -181,6 +190,7 @@ class OpenAISummaryGenerator(SummaryGenerator):
     ) -> GeneratedSummary:
         response = await self._client.chat.completions.create(
             model=model,
+            max_tokens=self._config.max_output_tokens,
             messages=[
                 {
                     "role": "system",
@@ -188,10 +198,15 @@ class OpenAISummaryGenerator(SummaryGenerator):
                 },
                 {"role": "user", "content": user_input},
             ],
-            max_tokens=self._config.max_output_tokens,
         )
         choice = response.choices[0]
         usage = response.usage
+        _record_usage(
+            usage,
+            "prompt_tokens",
+            "completion_tokens",
+            getattr(response, "model", model),
+        )
         return GeneratedSummary(
             text=choice.message.content or "",
             model=getattr(response, "model", model),
@@ -203,6 +218,22 @@ class OpenAISummaryGenerator(SummaryGenerator):
             else 0,
             finish_reason=choice.finish_reason or "stop",
         )
+
+
+def _record_usage(usage: Any, input_field: str, output_field: str, model: str) -> None:
+    with metric_scope(model=model, backend="openai"):
+        for metric, field in (
+            ("input_tokens", input_field),
+            ("output_tokens", output_field),
+        ):
+            value = getattr(usage, field, None)
+            record(
+                "summarization." + metric,
+                value,
+                library="summarization",
+                origin="provider",
+                availability="measured" if value is not None else "not_reported",
+            )
 
 
 register_generator(OpenAISummaryGenerator.name, OpenAISummaryGenerator)

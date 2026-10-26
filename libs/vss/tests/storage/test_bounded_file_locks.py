@@ -100,9 +100,9 @@ async def child(script: str, *args: str) -> asyncio.subprocess.Process:
     )
 
 
-async def line(process: asyncio.subprocess.Process) -> str:
+async def line(process: asyncio.subprocess.Process, *, timeout: float = 10) -> str:
     assert process.stdout is not None
-    result = await asyncio.wait_for(process.stdout.readline(), timeout=10)
+    result = await asyncio.wait_for(process.stdout.readline(), timeout=timeout)
     if not result:
         assert process.stderr is not None
         error = await asyncio.wait_for(process.stderr.read(), timeout=3)
@@ -443,6 +443,7 @@ from vss.storage import FileStorageAdapter
 original = os.replace
 def interrupted_replace(source, destination):
     if Path(destination).name == "mode.json":
+        print("publishing-marker", flush=True)
         os._exit(17)
     return original(source, destination)
 os.replace = interrupted_replace
@@ -458,6 +459,9 @@ async def test_repeated_marker_publication_crashes_keep_pending_files_bounded(tm
     for _ in range(3):
         process = await child(MARKER_CRASH_CHILD, str(tmp_path))
         try:
+            # Interpreter startup and durable claim setup can be slow on shared
+            # runners. Start the crash-exit watchdog only at the injection point.
+            assert await line(process, timeout=30) == "publishing-marker"
             assert await asyncio.wait_for(process.wait(), 5) == 17
         finally:
             await reap(process)

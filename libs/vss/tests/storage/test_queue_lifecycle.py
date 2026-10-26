@@ -24,6 +24,27 @@ import pytest
 from vss.ingestion import IngestionJobState, IngestionQueue
 
 
+async def test_late_completion_callback_cannot_close_replayed_job():
+    queue = IngestionQueue(max_concurrency=1)
+    first = queue.submit(lambda: asyncio.sleep(0, result=1))
+    assert await first == 1
+    await first.wait_closed()
+    release = asyncio.Event()
+
+    async def replay_work():
+        await release.wait()
+        return 2
+
+    replay = queue.submit(replay_work, job_id=first.id)
+    # Deterministically deliver the old completion after the ID is reused.
+    queue._finish_entry(first)
+    assert not replay._closed.done()
+    release.set()
+    assert await asyncio.wait_for(replay, 1) == 2
+    await asyncio.wait_for(replay.wait_closed(), 1)
+    assert queue.pending_count == queue.running_count == 0
+
+
 async def test_cancelled_pending_waiter_is_closed_when_drain_beats_future_callback():
     queue = IngestionQueue(max_concurrency=1)
     release = asyncio.Event()

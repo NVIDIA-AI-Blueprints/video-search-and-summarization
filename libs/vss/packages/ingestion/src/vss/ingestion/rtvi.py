@@ -21,6 +21,7 @@ import asyncio
 import json
 import mimetypes
 import os
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,6 +29,10 @@ from typing import Any
 
 import httpx
 from httpx_sse import aconnect_sse
+
+from vss.observability import record
+from vss.observability.context import current_scope
+from vss.observability.instrumentation import async_stage
 
 from .contracts import RequestSource, VlmModelInfo
 
@@ -178,6 +183,7 @@ class _RTVITransport:
         model.api_type = model_data.get("api_type", "")
         return model
 
+    @async_stage("ingestion.upload", library="ingestion")
     async def upload_video(self, path: str | Path) -> RequestSource:
         """Upload a local video and return its ingestion source."""
 
@@ -221,17 +227,34 @@ class _RTVITransport:
         if source.source_id not in self._prepared_uploads:
             return
         deletion = asyncio.create_task(self.delete_video(source))
-        cancellation: asyncio.CancelledError | None = None
-        while not deletion.done():
+        cancelled = False
+        try:
+            while not deletion.done():
+                try:
+                    await asyncio.shield(deletion)
+                except asyncio.CancelledError:
+                    cancelled = True
+                except BaseException:
+                    if deletion.done():
+                        break
+                    raise
             try:
-                await asyncio.shield(deletion)
-            except asyncio.CancelledError as error:
-                cancellation = cancellation or error
-        deletion.result()
-        self._prepared_uploads.discard(source.source_id)
-        if cancellation is not None:
-            raise cancellation
+                deletion.result()
+            except BaseException:
+                if cancelled:
+                    raise asyncio.CancelledError from None
+                raise
+        finally:
+            if (
+                deletion.done()
+                and not deletion.cancelled()
+                and deletion.exception() is None
+            ):
+                self._prepared_uploads.discard(source.source_id)
+        if cancelled:
+            raise asyncio.CancelledError
 
+    @async_stage("ingestion.cleanup", library="ingestion")
     async def delete_video(
         self,
         source: RequestSource | str,
@@ -244,19 +267,24 @@ class _RTVITransport:
         if attempts < 1:
             raise ValueError("attempts must be at least 1")
         source_id = source.source_id if isinstance(source, RequestSource) else source
-        for attempt in range(attempts):
-            try:
-                await self._request("DELETE", f"/v1/files/{source_id}")
-                return
-            except _RTVITransportError as error:
-                cause = error.__cause__
-                is_conflict = (
-                    isinstance(cause, httpx.HTTPStatusError)
-                    and cause.response.status_code == httpx.codes.CONFLICT
-                )
-                if not is_conflict or attempt == attempts - 1:
-                    raise
-                await asyncio.sleep(retry_delay_s)
+        retries = 0
+        try:
+            for attempt in range(attempts):
+                retries = attempt
+                try:
+                    await self._request("DELETE", f"/v1/files/{source_id}")
+                    return
+                except _RTVITransportError as error:
+                    cause = error.__cause__
+                    is_conflict = (
+                        isinstance(cause, httpx.HTTPStatusError)
+                        and cause.response.status_code == httpx.codes.CONFLICT
+                    )
+                    if not is_conflict or attempt == attempts - 1:
+                        raise
+                    await asyncio.sleep(retry_delay_s)
+        finally:
+            record("ingestion.cleanup_retries", retries, library="ingestion")
 
     @asynccontextmanager
     async def uploaded_video(self, path: str | Path) -> AsyncIterator[RequestSource]:
@@ -423,6 +451,9 @@ class _RTVITransport:
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield validated JSON objects from an RTVI data-only SSE response."""
 
+        measured = current_scope() is not None
+        started = time.perf_counter_ns() if measured else 0
+        first_result = True
         try:
             async with aconnect_sse(
                 self._client,
@@ -432,6 +463,12 @@ class _RTVITransport:
                 headers={**self._headers, "x-stream-id": source_id},
             ) as event_source:
                 event_source.response.raise_for_status()
+                if measured:
+                    record(
+                        "ingestion.dispatch",
+                        (time.perf_counter_ns() - started) / 1e9,
+                        library="ingestion",
+                    )
                 async for event in event_source.aiter_sse():
                     data = event.data.strip()
                     if not data or data in {"[DONE]", "ping", ": ping"}:
@@ -448,6 +485,14 @@ class _RTVITransport:
                         )
                     if body.get("error"):
                         raise _RTVITransportError(str(body["error"]))
+                    if first_result:
+                        if measured:
+                            record(
+                                "ingestion.first_result",
+                                (time.perf_counter_ns() - started) / 1e9,
+                                library="ingestion",
+                            )
+                        first_result = False
                     yield body
         except httpx.HTTPStatusError as error:
             detail = _safe_error_detail(error.response)
@@ -457,6 +502,7 @@ class _RTVITransport:
         except httpx.HTTPError as error:
             raise _RTVITransportError(f"RTVI request failed: {error}") from error
 
+    @async_stage("ingestion.http", library="ingestion")
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:
             headers = {**self._headers, **kwargs.pop("headers", {})}

@@ -44,13 +44,14 @@ def native_case(request: pytest.FixtureRequest, tmp_path: Path) -> Any:
         pytest.skip(f"set {flag}=1 to validate the installed {decoder} decoder")
     cv2 = importlib.import_module("cv2")
     path = tmp_path / "known_colors.avi"
-    writer = cv2.VideoWriter(str(path), cv2.VideoWriter.fourcc(*"MJPG"), 5.0, (64, 48))
+    # The Blackwell H.264 decoder reports a minimum height of 64 pixels.
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter.fourcc(*"MJPG"), 5.0, (64, 64))
     assert writer.isOpened(), "OpenCV fixture writer could not open MJPEG/AVI"
     try:
         for index in range(10):
             # Input is BGR. Public processing output must be RGB.
             color = (10 + index * 2, 30, 180 + index * 5)
-            pixels = np.empty((48, 64, 3), dtype=np.uint8)
+            pixels = np.empty((64, 64, 3), dtype=np.uint8)
             pixels[:] = color
             writer.write(pixels)
     finally:
@@ -92,13 +93,21 @@ def native_case(request: pytest.FixtureRequest, tmp_path: Path) -> Any:
 async def test_native_probe_matches_known_fixture(
     processing: Any, native_case: Any
 ) -> None:
-    _, path, _ = native_case
-    facts = await processing.probe_video(path, source_id="known-video")
+    decoder, path, _ = native_case
+    facts = await processing.probe_video(
+        path,
+        source_id="known-video",
+        options=processing.DecodeOptions(decoder=decoder),
+    )
     assert facts.source_id == "known-video"
     assert facts.width == 64
-    assert facts.height == 48
+    assert facts.height == 64
     assert facts.fps == pytest.approx(5.0, abs=0.01)
-    assert facts.duration_s == pytest.approx(2.0, abs=0.2)
+    if decoder == "opencv":
+        assert facts.duration_s == pytest.approx(2.0, abs=0.2)
+    else:
+        assert facts.duration_s is None and facts.duration_quality == "unknown"
+        assert facts.frame_count is None
 
 
 async def test_native_sequential_decode_rgb_pts_and_ownership(
@@ -123,7 +132,7 @@ async def test_native_sequential_decode_rgb_pts_and_ownership(
     )
     assert all(frame.source_id == "known-video" for frame in frames)
     first = frames[0].tensor
-    assert first.shape == (48, 64, 3)
+    assert first.shape == (64, 64, 3)
     assert first.dtype == np.uint8
     assert first.flags.c_contiguous
     red, green, blue = first.mean(axis=(0, 1))

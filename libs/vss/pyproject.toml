@@ -26,6 +26,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+telemetry = [
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp",
+]
+mcp = [
+    "mcp>=1.20,<2",
+    "vss-summarization[openai]==0.1.0",
+]
+mcp-core = [
+    "mcp>=1.20,<2",
+]
 storage = [
     "elasticsearch[async]>=8.17,<9",
 ]
@@ -79,8 +91,17 @@ vss-ingestion = { workspace = true }
 vss-summarization = { workspace = true }
 
 [dependency-groups]
+benchmarks = [
+    "elasticsearch[async]>=8.17,<9",
+    "nvidia-ml-py>=12,<14",
+    "openai>=1.0",
+    "psutil>=7.2,<8",
+    "requests>=2.34.2,<3",
+    "xlsxwriter>=3.2,<4",
+]
 dev = [
     "import-linter",
+    "mcp>=1.20,<2",
     "mypy>=1.15.0",
     "pyright>=1.1.414",
     "pytest>=8.4.1",
@@ -96,6 +117,7 @@ docs = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+pythonpath = ["."]
 testpaths = [
     "core/tests/unit_test",
     "cli/tests/unit_test",
@@ -134,6 +156,7 @@ show_missing = true
 target-version = "py313"
 line-length = 88
 src = [
+    "benchmarks",
     "core/src",
     "cli/src",
     "src",
@@ -145,13 +168,14 @@ src = [
 select = ["B", "E", "F", "I", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["vss", "vss_cli", "vss_core"]
+known-first-party = ["benchmarks", "vss", "vss_cli", "vss_core"]
 
 [tool.pyright]
 include = [
     "src",
     "packages/ingestion/src",
     "packages/summarization/src",
+    "tests/mcp",
 ]
 extraPaths = [
     "src",

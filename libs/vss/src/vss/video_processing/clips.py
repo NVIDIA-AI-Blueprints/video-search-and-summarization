@@ -27,6 +27,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from vss.observability.instrumentation import async_stage
+
 from .contracts import SourceInput
 from .exceptions import ClipError
 from .sources import resolve_source
@@ -402,6 +404,7 @@ def _verify_mapping(
     return actual_start, actual_end, actual_start, duration_s, container, audio
 
 
+@async_stage("processing.materialize", library="processing")
 async def materialize_clip(
     source: SourceInput,
     start: float,

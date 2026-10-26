@@ -26,6 +26,7 @@ import ctypes
 import importlib
 import platform
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from functools import wraps
@@ -34,10 +35,15 @@ from typing import Any, Literal
 
 import numpy as np
 
+from vss.observability import metric_scope, record
+from vss.observability.context import current_scope, defer_observations
+from vss.observability.instrumentation import stage
+
 from ..contracts import DecodeOptions, MediaFacts
 from ..exceptions import DecodeError, DecoderUnavailableError, TimestampUnavailableError
 
 _NATIVE_LOCK = threading.RLock()
+_LOCK_DEPTH = threading.local()
 
 
 def _serialized[**P, R](fn: Callable[P, R]) -> Callable[P, R]:
@@ -49,8 +55,19 @@ def _serialized[**P, R](fn: Callable[P, R]) -> Callable[P, R]:
 
     @wraps(fn)
     def invoke(*args: P.args, **kwargs: P.kwargs) -> R:
-        with _NATIVE_LOCK:
-            return fn(*args, **kwargs)
+        if current_scope() is None or getattr(_LOCK_DEPTH, "value", 0):
+            with _NATIVE_LOCK:
+                return fn(*args, **kwargs)
+        with metric_scope(backend="pynv", device="gpu"), defer_observations():
+            started = time.perf_counter_ns()
+            with _NATIVE_LOCK:
+                waited = (time.perf_counter_ns() - started) / 1e9
+                _LOCK_DEPTH.value = 1
+                try:
+                    return fn(*args, **kwargs)
+                finally:
+                    _LOCK_DEPTH.value = 0
+                    record("processing.native.lock_wait", waited, library="processing")
 
     return invoke
 
@@ -138,6 +155,7 @@ class PyNvBackend:
                 **_decoder_arguments(nvc, demuxer.GetNvCodecId(), options)
             )
             phase = "metadata"
+            record("processing.native.sessions", 1, library="processing")
             session = PyNvSession(
                 nvc, decoder, demuxer, time_num, time_den, path, options
             )
@@ -154,7 +172,8 @@ class PyNvBackend:
                 failure = TimestampUnavailableError(str(exc))
             elif phase == "decoder" and _device_unavailable(nvc, exc):
                 failure = DecoderUnavailableError(
-                    "PyNvVideoCodec GPU/driver or codec support is unavailable; "
+                    "PyNvVideoCodec GPU/driver or codec support "
+                    "is unavailable; "
                     "check the selected GPU, driver, codec and bit depth"
                 )
             else:
@@ -327,6 +346,12 @@ class PyNvSession:
         # presentation-frame index. Read from the first PTS and let the facade
         # select a half-open window/targets from observed display-order output.
         if self.positioned:
+            record("processing.native.resets", 1, library="processing")
+            record(
+                "processing.native.discarded_frames",
+                len(self.pending),
+                library="processing",
+            )
             self.pending.clear()
             self.packets = self.decoder = self.demuxer = None
             self.demuxer = self.nvc.CreateDemuxer(filename=str(self.path))
@@ -334,93 +359,147 @@ class PyNvSession:
                 **_decoder_arguments(self.nvc, self.codec_id, self.options)
             )
             self.packets = iter(self.demuxer)
+            record("processing.native.sessions", 1, library="processing")
             self.cursor, self.eof = 0, False
         self.positioned = True
 
     @_serialized
+    @stage("processing.native.read", library="processing")
     def read_frames(self, batch_size: int) -> list[Any]:
         if self.closed or self.decoder is None:
             raise DecodeError("PyNvVideoCodec session is already closed")
         output: list[_RawFrame] = []
-        while len(output) < batch_size:
-            if self.pending:
-                output.append(self.pending.popleft())
-                continue
-            if self.eof:
-                break
-            try:
-                packet = next(self.packets)
-            except StopIteration as exc:
-                raise DecodeError(
-                    "PyNvVideoCodec demuxer omitted its EOF flush packet"
-                ) from exc
-            self.eof = int(packet.bsl) == 0
-            try:
-                if not self.eof:
-                    pts = getattr(packet, "pts", None)
-                    if pts is None or isinstance(pts, bool) or int(pts) == -(2**63):
-                        raise TimestampUnavailableError(
-                            "PyNvVideoCodec packet has no presentation PTS"
-                        )
-                # The terminal zero-length packet flushes delayed display frames.
-                # Demux reuses packet storage: decode before advancing it again.
-                values = self.decoder.Decode(packet)
-                for value in values:
-                    pts = getattr(value, "timestamp", None)
-                    if pts is None or isinstance(pts, bool) or int(pts) == -(2**63):
-                        raise TimestampUnavailableError(
-                            "PyNvVideoCodec supplied no presentation PTS"
-                        )
-                    pts = int(pts)
-                    if self.options.frame_transport == "cuda_ipc":
-                        interface = getattr(value, "__cuda_array_interface__", None)
-                        shape = tuple(getattr(value, "shape", ()))
-                        if not isinstance(interface, dict) or shape != (
-                            self.height * 3 // 2,
-                            self.width,
-                        ):
-                            raise DecodeError(
-                                "PyNvVideoCodec returned unsupported device "
-                                "NV12 geometry"
-                            )
-                        pixels = value
-                    else:
-                        pixels = np.from_dlpack(value).reshape(tuple(value.shape))
-                        if pixels.dtype != np.uint8 or pixels.shape != (
-                            self.height,
-                            self.width,
-                            3,
-                        ):
-                            raise DecodeError(
-                                "PyNvVideoCodec returned unsupported host RGB geometry"
-                            )
-                        # A contiguous native array is still a borrowed surface.
-                        pixels = np.array(pixels, copy=True, order="C")
-                    if self.origin_pts is None:
-                        self.origin_pts = pts
-                    self.pending.append(
-                        _RawFrame(pixels, self._ticks_to_ns(pts), self.cursor, "pts")
-                    )
-                    self.cursor += 1
-                # Release borrowed frames before the next Decode can recycle them.
-                values = packet = value = None
-            except (DecodeError, TimestampUnavailableError):
-                raise
-            except Exception as exc:
-                if self.initializing and _device_unavailable(self.nvc, exc):
-                    raise DecoderUnavailableError(
-                        "PyNvVideoCodec GPU/driver or codec support is unavailable; "
-                        "check the selected GPU, driver, codec and bit depth"
+        measured = current_scope() is not None
+        decode_ns = copy_ns = produced = flushes = 0
+        complete = False
+        try:
+            while len(output) < batch_size:
+                if self.pending:
+                    output.append(self.pending.popleft())
+                    continue
+                if self.eof:
+                    break
+                try:
+                    packet = next(self.packets)
+                except StopIteration as exc:
+                    raise DecodeError(
+                        "PyNvVideoCodec demuxer omitted its EOF flush packet"
                     ) from exc
-                raise DecodeError(
-                    "PyNvVideoCodec failed while decoding a packet"
-                ) from exc
-        return output
+                self.eof = int(packet.bsl) == 0
+                if measured and self.eof:
+                    flushes += 1
+                try:
+                    if not self.eof:
+                        pts = getattr(packet, "pts", None)
+                        if pts is None or isinstance(pts, bool) or int(pts) == -(2**63):
+                            raise TimestampUnavailableError(
+                                "PyNvVideoCodec packet has no presentation PTS"
+                            )
+                    # The terminal zero-length packet flushes delayed display frames.
+                    # Demux reuses packet storage: decode before advancing it again.
+                    clock = time.perf_counter_ns() if measured else 0
+                    try:
+                        values = self.decoder.Decode(packet)
+                    finally:
+                        if measured:
+                            decode_ns += time.perf_counter_ns() - clock
+                    for value in values:
+                        if measured:
+                            produced += 1
+                        pts = getattr(value, "timestamp", None)
+                        if pts is None or isinstance(pts, bool) or int(pts) == -(2**63):
+                            raise TimestampUnavailableError(
+                                "PyNvVideoCodec supplied no presentation PTS"
+                            )
+                        pts = int(pts)
+                        if self.options.frame_transport == "cuda_ipc":
+                            interface = getattr(value, "__cuda_array_interface__", None)
+                            shape = tuple(getattr(value, "shape", ()))
+                            if not isinstance(interface, dict) or shape != (
+                                self.height * 3 // 2,
+                                self.width,
+                            ):
+                                raise DecodeError(
+                                    "PyNvVideoCodec returned unsupported device "
+                                    "NV12 geometry"
+                                )
+                            pixels = value
+                        else:
+                            pixels = np.from_dlpack(value).reshape(tuple(value.shape))
+                            if pixels.dtype != np.uint8 or pixels.shape != (
+                                self.height,
+                                self.width,
+                                3,
+                            ):
+                                raise DecodeError(
+                                    "PyNvVideoCodec returned unsupported "
+                                    "host RGB geometry"
+                                )
+                            # A contiguous native array is still a borrowed surface.
+                            clock = time.perf_counter_ns() if measured else 0
+                            try:
+                                pixels = np.array(pixels, copy=True, order="C")
+                            finally:
+                                if measured:
+                                    copy_ns += time.perf_counter_ns() - clock
+                        if self.origin_pts is None:
+                            self.origin_pts = pts
+                        self.pending.append(
+                            _RawFrame(
+                                pixels, self._ticks_to_ns(pts), self.cursor, "pts"
+                            )
+                        )
+                        self.cursor += 1
+                    # Release borrowed frames before the next Decode can recycle them.
+                    values = packet = value = None
+                except (DecodeError, TimestampUnavailableError):
+                    raise
+                except Exception as exc:
+                    if self.initializing and _device_unavailable(self.nvc, exc):
+                        raise DecoderUnavailableError(
+                            "PyNvVideoCodec GPU/driver or codec support "
+                            "is unavailable; "
+                            "check the selected GPU, driver, codec and bit depth"
+                        ) from exc
+                    raise DecodeError(
+                        "PyNvVideoCodec failed while decoding a packet"
+                    ) from exc
+            complete = True
+            return output
+        finally:
+            if measured:
+                for name, value in (
+                    ("decode", decode_ns / 1e9),
+                    (
+                        "copy",
+                        None
+                        if self.options.frame_transport == "cuda_ipc"
+                        else copy_ns / 1e9,
+                    ),
+                    ("produced_frames", produced),
+                    ("delivered_frames", len(output) if complete else 0),
+                    ("pending_frames", len(self.pending)),
+                    ("flushes", flushes),
+                ):
+                    record(
+                        "processing.native." + name,
+                        value,
+                        library="processing",
+                        status="ok" if complete else "error",
+                        availability="not_applicable"
+                        if name == "copy" and self.options.frame_transport == "cuda_ipc"
+                        else "measured",
+                    )
 
     @_serialized
     def close(self) -> None:
         # All fields owning native objects are cleared on the serialized worker.
         try:
+            record(
+                "processing.native.discarded_frames",
+                len(self.pending),
+                library="processing",
+            )
             self.pending.clear()
         finally:
             self.packets = None

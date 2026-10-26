@@ -495,3 +495,53 @@ async def test_vlm_encoding_is_bounded_and_does_not_block_event_loop(
         await task
     assert max_active_encoders == 1
     await client.aclose()
+
+
+@pytest.mark.parametrize("usage", [{}, {"prompt_tokens": 0, "completion_tokens": 0}])
+async def test_vlm_metrics_preserve_raw_usage_presence_and_stage_lineage(usage):
+    from vss.observability import collect_vss_metrics
+
+    async def handler(_request):
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "fixture"}}], "usage": usage}
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        backend = OpenAICompatibleVLMBackend(model="fixture-model", client=client)
+        with collect_vss_metrics() as metrics:
+            result = await backend.infer(_chunk(), prompt="private prompt")
+    assert result.vlm_stats == {"input_tokens": 0, "output_tokens": 0}
+    assert metrics.complete
+    usage_events = [
+        e
+        for e in metrics.observations
+        if e.name in {"ingestion.vlm.input_tokens", "ingestion.vlm.output_tokens"}
+    ]
+    assert len(usage_events) == 2
+    assert all(
+        e.availability == ("measured" if usage else "not_reported")
+        for e in usage_events
+    )
+    assert {e.name for e in metrics.observations} >= {
+        "ingestion.vlm.prepare",
+        "ingestion.vlm.http",
+        "ingestion.vlm.infer",
+    }
+    assert len({e.source_id for e in metrics.observations}) == 1
+
+
+async def test_vlm_http_status_failure_is_measured_as_error():
+    from vss.observability import collect_vss_metrics
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(503))
+    ) as client:
+        backend = OpenAICompatibleVLMBackend(model="fixture-model", client=client)
+        with collect_vss_metrics() as metrics:
+            with pytest.raises(VLMBackendError):
+                await backend.infer(_chunk(), prompt="prompt")
+    assert metrics.complete
+    assert (
+        next(e for e in metrics.observations if e.name == "ingestion.vlm.http").status
+        == "error"
+    )

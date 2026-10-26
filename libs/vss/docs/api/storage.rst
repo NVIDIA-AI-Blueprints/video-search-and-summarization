@@ -52,7 +52,7 @@ decoder, caller-maintained pipeline revision, and stable source identity:
        async with create_storage(config) as storage:
            job = ingest(
                source,
-               backends=["cpu_vlm"],
+               pipeline="cpu_vlm",
                model=os.environ["VLM_MODEL"],
                decoder="opencv",
                pipeline_revision="demo-v1",

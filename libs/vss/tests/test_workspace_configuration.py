@@ -29,12 +29,13 @@ def test_coverage_source_lists_every_namespace_package_portion(tmp_path: Path) -
     config = tomllib.loads((root / "pyproject.toml").read_text())
     sources = config["tool"]["coverage"]["run"]["source"]
 
-    expected = {
+    assert sources == [
+        "core/src",
+        "cli/src",
         "src/vss",
         "packages/ingestion/src/vss",
         "packages/summarization/src/vss",
-    }
-    assert expected <= set(sources)
+    ]
     assert all((root / source).is_dir() for source in sources)
 
     script = """

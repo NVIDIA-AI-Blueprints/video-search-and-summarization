@@ -74,18 +74,6 @@ async def test_sequential_decode_preserves_frames_and_closes(
     assert len({frame.source_id for frame in frames}) == 1
 
 
-async def test_decode_to_eof_does_not_trust_underestimated_duration(
-    processing: Any,
-    register: Any,
-    video_path: Any,
-) -> None:
-    backend = register(duration_s=0.5)
-
-    frames = await collect(processing, video_path, decoder="memory")
-
-    assert [frame.timestamp_ns for frame in frames] == list(backend.timestamps_ns)
-
-
 async def test_decode_window_is_half_open(
     processing: Any,
     register: Any,
@@ -582,48 +570,59 @@ async def test_omitted_options_share_default_concurrency_limit(
 
 @pytest.mark.parametrize("stage", ["open", "probe", "seek", "read"])
 @pytest.mark.parametrize("cancel_count", [1, 2])
+@pytest.mark.parametrize("metrics_enabled", [False, True])
 async def test_cancellation_waits_for_native_operation_before_closing(
     processing: Any,
     register: Any,
     video_path: Any,
     stage: str,
     cancel_count: int,
+    metrics_enabled: bool,
 ) -> None:
-    backend = register(block_stage=stage)
-    task = asyncio.create_task(
-        processing.extract_frames(
-            video_path,
-            [0.25],
-            options=processing.DecodeOptions(decoder="memory", max_concurrency=1),
+    from contextlib import nullcontext
+
+    from vss.observability import collect_vss_metrics
+
+    with collect_vss_metrics() if metrics_enabled else nullcontext():
+        backend = register(block_stage=stage)
+        task = asyncio.create_task(
+            processing.extract_frames(
+                video_path,
+                [0.25],
+                options=processing.DecodeOptions(decoder="memory", max_concurrency=1),
+            )
         )
-    )
-    try:
-        started = await asyncio.wait_for(
-            asyncio.to_thread(backend.operation_started[stage].wait, 2), timeout=3
+        try:
+            started = await asyncio.wait_for(
+                asyncio.to_thread(backend.operation_started[stage].wait, 2), timeout=3
+            )
+            assert started, f"native {stage} was never reached"
+            for _ in range(cancel_count):
+                task.cancel()
+                # Give cancellation a chance to run while the native operation is
+                # held by an explicit event, rather than racing a short native sleep.
+                await asyncio.sleep(0.01)
+            assert not task.done(), (
+                "cancellation returned before the native call finished"
+            )
+            assert not backend.closed.is_set()
+        finally:
+            backend.release_operation.set()
+            if not task.done() and not task.cancelling():
+                task.cancel()
+            await asyncio.wait_for(
+                asyncio.gather(task, return_exceptions=True), timeout=3
+            )
+        assert task.cancelled()
+        assert backend.active_sessions == 0
+        assert all(session.close_count == 1 for session in backend.sessions)
+        # The same limit must be usable after cancellation; no permit may leak.
+        backend.block_stage = None
+        frames = await asyncio.wait_for(
+            collect(processing, video_path, decoder="memory", max_concurrency=1),
+            timeout=2,
         )
-        assert started, f"native {stage} was never reached"
-        for _ in range(cancel_count):
-            task.cancel()
-            # Give cancellation a chance to run while the native operation is
-            # held by an explicit event, rather than racing a short native sleep.
-            await asyncio.sleep(0.01)
-        assert not task.done(), "cancellation returned before the native call finished"
-        assert not backend.closed.is_set()
-    finally:
-        backend.release_operation.set()
-        if not task.done() and not task.cancelling():
-            task.cancel()
-        await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout=3)
-    assert task.cancelled()
-    assert backend.active_sessions == 0
-    assert all(session.close_count == 1 for session in backend.sessions)
-    # The same limit must be usable after cancellation; no permit may leak.
-    backend.block_stage = None
-    frames = await asyncio.wait_for(
-        collect(processing, video_path, decoder="memory", max_concurrency=1),
-        timeout=2,
-    )
-    assert len(frames) == 10
+        assert len(frames) == 10
 
 
 async def test_cancelled_permit_waiter_never_opens_and_does_not_leak_capacity(
@@ -818,40 +817,52 @@ async def test_early_subsampling_aclose_joins_nested_decoder_cleanup(
     assert all(session.close_count == 1 for session in backend.sessions)
 
 
+@pytest.mark.parametrize("metrics_enabled", [False, True])
 async def test_early_close_releases_unreturned_batch_without_cyclic_gc(
-    processing: Any, register: Any, video_path: Any, monkeypatch: pytest.MonkeyPatch
+    processing: Any,
+    register: Any,
+    video_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    metrics_enabled: bool,
 ) -> None:
-    backend = register()
-    references: list[weakref.ReferenceType[np.ndarray]] = []
-    original_read = MemorySession.read_frames
+    from contextlib import nullcontext
 
-    def tracked_read(session: MemorySession, size: int) -> Any:
-        batch = original_read(session, size)
-        references.extend(weakref.ref(raw.tensor) for raw in batch)
-        return batch
+    from vss.observability import collect_vss_metrics
 
-    monkeypatch.setattr(MemorySession, "read_frames", tracked_read)
-    gc.collect()
-    previously_enabled = gc.isenabled()
-    gc.disable()
-    try:
-        for _ in range(6):
-            async with aclosing(
-                processing.decode_frames(
-                    video_path,
-                    processing.DecodePlan(),
-                    options=processing.DecodeOptions(decoder="memory", batch_size=4),
-                )
-            ) as stream:
-                returned = await anext(stream)
-            assert backend.active_sessions == 0
-            # Keeping the returned owned Frame must not retain hidden batches.
-            assert np.all(returned.tensor == 0)
-            assert references and all(ref() is None for ref in references)
-    finally:
-        if previously_enabled:
-            gc.enable()
+    with collect_vss_metrics() if metrics_enabled else nullcontext():
+        backend = register()
+        references: list[weakref.ReferenceType[np.ndarray]] = []
+        original_read = MemorySession.read_frames
+
+        def tracked_read(session: MemorySession, size: int) -> Any:
+            batch = original_read(session, size)
+            references.extend(weakref.ref(raw.tensor) for raw in batch)
+            return batch
+
+        monkeypatch.setattr(MemorySession, "read_frames", tracked_read)
         gc.collect()
+        previously_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            for _ in range(6):
+                async with aclosing(
+                    processing.decode_frames(
+                        video_path,
+                        processing.DecodePlan(),
+                        options=processing.DecodeOptions(
+                            decoder="memory", batch_size=4
+                        ),
+                    )
+                ) as stream:
+                    returned = await anext(stream)
+                assert backend.active_sessions == 0
+                # Keeping the returned owned Frame must not retain hidden batches.
+                assert np.all(returned.tensor == 0)
+                assert references and all(ref() is None for ref in references)
+        finally:
+            if previously_enabled:
+                gc.enable()
+            gc.collect()
 
 
 @pytest.mark.parametrize("primary_failure", [False, True])

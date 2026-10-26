@@ -3,11 +3,6 @@
 Python libraries for video processing, ingestion and summarization. Python 3.13
 or newer is required.
 
-This directory is the combined VSS library workspace. The existing
-`nvidia-vss-core` and `nvidia-vss-cli` projects remain in `core/` and `cli/`.
-The public `vss` namespace is provided by this root project and the
-`packages/ingestion` and `packages/summarization` feature wheels.
-
 ## Installation
 
 For a checkout:
@@ -22,22 +17,10 @@ For an installed distribution:
 pip install vss vss-ingestion "vss-summarization[openai]"
 ```
 
-## Vision AI tool adapter
-
-`../vision-ai/packages/vss` provides the `nvidia-vss-vision-ai` adapter. It
-registers the `vss` entry point through the shared `vision_ai.tools` contract
-and calls only public `vss.ingestion` and `vss.summarization` APIs.
-
-```bash
-uv run --project ../vision-ai vision-ai vss \
-  --source /path/to/video.mp4 \
-  --backends vlm \
-  --decoder opencv \
-  --summarize
-```
-
-Backend service URLs, credentials, GPU placement, and transport endpoints stay
-in deployment configuration; they are not tool inputs or result fields.
+Install the complete agent transport with `pip install "vss[mcp]"`. This includes
+ingestion and summarization with its OpenAI-compatible generator. For a selective
+deployment, install `vss[mcp-core]` and add `vss-ingestion`,
+`vss-summarization[openai]`, or both.
 
 Local processing uses caller-installed OpenCV >=4.13 for CPU decoding, probing
 and image encoding, or PyNvVideoCodec >=2.2 on supported NVIDIA Linux/Windows
@@ -218,6 +201,46 @@ summarize stored captions in a later process without the source video. See the
 [storage README](src/vss/storage/README.md) for contracts and integration, and the
 [test and usage guide](tests/storage/README.rst) for configuration and validation.
 
+## Cosmos Harness MCP adapter
+
+The MCP server is a thin transport over the public ingestion and summarization
+APIs without maintaining a second pipeline implementation. At startup it tries
+to import each optional capability. Core installs always register `probe_video`,
+`extract_frames`, `storage_read`, and `storage_write`. Storage tools use the
+workspace-scoped `.vss` file store. Installing `vss-ingestion` additionally
+registers `ingest` and `ingest_status`; installing `vss-summarization` registers
+`summarize` and `summarize_from_store`. Missing capability packages are skipped,
+while import failures inside an installed package remain visible. Structured
+frames, captions, embeddings, detections, events, and backend errors remain JSON
+objects in tool results. The server retains at most 128 completed ingestion jobs
+for status lookup and does not keep a second copy of their result payloads.
+
+Configure the Cosmos Harness to start the server over stdio:
+
+```json
+{
+  "mcp_servers": {
+    "cosmos": {
+      "command": "python",
+      "args": [
+        "-m",
+        "vss.mcp",
+        "--namespace",
+        "cosmos",
+        "--workspace",
+        "{workspace}"
+      ]
+    }
+  }
+}
+```
+
+Relative local media paths resolve below `--workspace`; paths outside that root
+are rejected. Remote URLs pass through to the selected ingestion backend.
+Credentials and endpoint configuration remain in the existing VSS environment
+variables. Job status is process-local and covers jobs submitted through the
+same running MCP server.
+
 The InferenceHub Qwen endpoint can be selected with `VLM_BASE_URL`, `VLM_MODEL`,
 and `VLM_API_KEY`; summary generation uses `VSS_SUMMARIZATION_*` settings and
 `VSS_SUMMARIZATION_API=chat_completions`. Qwen completed the traffic video: five
@@ -225,3 +248,8 @@ caption chunks were persisted, then a separate process aggregated seven events
 and generated a summary. Capacity-related HTTP 429s were recovered through
 checkpoint resume. Deterministic tests need no credentials. Windows file-lock/
 durability and GPU pipeline integration remain platform gates.
+
+## Performance benchmarks
+
+See the [M8 benchmark guide](benchmarks/README.rst) for setup, runnable commands,
+experiment profiles, measurement contracts and outstanding qualification work.

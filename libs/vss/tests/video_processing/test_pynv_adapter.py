@@ -378,32 +378,44 @@ async def test_native_unsupported_gpu_format_allows_cpu_fallback(
 
 
 @pytest.mark.parametrize("phase", ["first_timestamp", "metadata"])
+@pytest.mark.parametrize("metrics_enabled", [False, True])
 async def test_failed_gpu_initialization_releases_resources_on_opening_worker(
-    processing: Any, native_api: Any, video_path: Path, phase: str
+    processing: Any,
+    native_api: Any,
+    video_path: Path,
+    phase: str,
+    metrics_enabled: bool,
 ) -> None:
-    gc.collect()
-    was_enabled = gc.isenabled()
-    gc.disable()
-    try:
-        if phase == "first_timestamp":
-            native_api.first_timestamp_available = False
-            with pytest.raises(processing.TimestampUnavailableError):
-                await processing.extract_frames(video_path, [0])
-            assert not native_api.cpu.open_paths
-        else:
-            native_api.metadata_error = RuntimeError("Invalid stream metadata")
-            with pytest.raises(processing.DecodeError):
-                await processing.extract_frames(video_path, [0])
-        assert native_api.decoder_refs
-        assert all(ref() is None for ref in native_api.decoder_refs)
-        opening_thread = next(
-            thread for operation, thread in native_api.lifecycle if operation == "open"
-        )
-        assert opening_thread != threading.get_ident()
-        assert ("destroy", opening_thread) in native_api.lifecycle
-    finally:
-        if was_enabled:
-            gc.enable()
+    from contextlib import nullcontext
+
+    from vss.observability import collect_vss_metrics
+
+    with collect_vss_metrics() if metrics_enabled else nullcontext():
+        gc.collect()
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            if phase == "first_timestamp":
+                native_api.first_timestamp_available = False
+                with pytest.raises(processing.TimestampUnavailableError):
+                    await processing.extract_frames(video_path, [0])
+                assert not native_api.cpu.open_paths
+            else:
+                native_api.metadata_error = RuntimeError("Invalid stream metadata")
+                with pytest.raises(processing.DecodeError):
+                    await processing.extract_frames(video_path, [0])
+            assert native_api.decoder_refs
+            assert all(ref() is None for ref in native_api.decoder_refs)
+            opening_thread = next(
+                thread
+                for operation, thread in native_api.lifecycle
+                if operation == "open"
+            )
+            assert opening_thread != threading.get_ident()
+            assert ("destroy", opening_thread) in native_api.lifecycle
+        finally:
+            if was_enabled:
+                gc.enable()
 
 
 @pytest.mark.parametrize("decoder", ["auto", "pynv"])
@@ -909,3 +921,137 @@ async def test_native_reset_and_close_serialize_concurrent_sessions(
             await _native(worker, session.close)
         for worker in workers:
             await worker.close_executor()
+
+
+async def test_metric_prefetch_flush_counts_and_sink_outside_native_lock(
+    processing, native_api, video_path
+):
+    from vss.observability import collect_vss_metrics
+    from vss.video_processing.decoders import pynv
+
+    delivered = []
+
+    def sink(event):
+        assert not pynv._NATIVE_LOCK._is_owned()
+        delivered.append(event)
+
+    native_api.delay_until_eof = True
+    with collect_vss_metrics(sink=sink) as metrics:
+        frames = [
+            frame
+            async for frame in processing.decode_frames(
+                video_path,
+                processing.DecodePlan(),
+                source_id="metric-source",
+                options=processing.DecodeOptions(decoder="pynv", batch_size=2),
+            )
+        ]
+    assert metrics.complete and delivered
+    produced = sum(
+        e.value
+        for e in metrics.observations
+        if e.name == "processing.native.produced_frames"
+    )
+    flushes = sum(
+        e.value for e in metrics.observations if e.name == "processing.native.flushes"
+    )
+    assert produced == len(frames) == len(native_api.offsets)
+    assert flushes == 1
+    assert all(
+        e.device == "gpu"
+        for e in metrics.observations
+        if e.name.startswith("processing.native.")
+    )
+
+
+async def test_failed_prefetch_marks_partial_native_metrics_unsuccessful(
+    processing, native_api, video_path
+):
+    from vss.observability import collect_vss_metrics
+
+    native_api.first_timestamp_available = False
+    with collect_vss_metrics() as metrics:
+        with pytest.raises(processing.TimestampUnavailableError):
+            await processing.extract_frames(video_path, [0])
+    assert metrics.complete
+    partial = [
+        e
+        for e in metrics.observations
+        if e.name
+        in {
+            "processing.native.decode",
+            "processing.native.copy",
+            "processing.native.produced_frames",
+            "processing.native.delivered_frames",
+            "processing.native.pending_frames",
+        }
+    ]
+    assert partial and all(e.status == "error" for e in partial)
+    assert (
+        next(e for e in partial if e.name == "processing.native.produced_frames").value
+        == 1
+    )
+    assert (
+        next(e for e in partial if e.name == "processing.native.delivered_frames").value
+        == 0
+    )
+
+
+def test_cuda_ipc_metrics_do_not_materialize_host_rgb(
+    native_api, video_path, monkeypatch
+):
+    from vss.observability import collect_vss_metrics
+    from vss.video_processing import DecodeOptions
+    from vss.video_processing.decoders.pynv import PyNvBackend
+
+    original = native_api.module.CreateDecoder
+    monkeypatch.setattr(
+        native_api.module.OutputColorType, "NV12", "nv12", raising=False
+    )
+
+    def device_decoder(**kwargs):
+        decoder = original(**kwargs)
+        decode = decoder.Decode
+
+        def device_frames(packet):
+            values = decode(packet)
+            for value in values:
+                value.shape = (3, 4)
+                value.__cuda_array_interface__ = {
+                    "shape": (3, 4),
+                    "typestr": "|u1",
+                    "data": (1234, False),
+                    "version": 3,
+                    "stream": None,
+                }
+            return values
+
+        decoder.Decode = device_frames
+        return decoder
+
+    def reject_host_conversion(*args, **kwargs):
+        raise AssertionError("device frame was converted through CPU DLPack")
+
+    monkeypatch.setattr(native_api.module, "CreateDecoder", device_decoder)
+    monkeypatch.setattr(np, "from_dlpack", reject_host_conversion)
+    with collect_vss_metrics() as metrics:
+        session = PyNvBackend().open(
+            video_path, DecodeOptions(decoder="pynv", frame_transport="cuda_ipc")
+        )
+        try:
+            frames = session.read_frames(8)
+        finally:
+            session.close()
+    assert len(frames) == len(native_api.offsets)
+    assert all(hasattr(frame.tensor, "__cuda_array_interface__") for frame in frames)
+    assert native_api.raw_constructors[0]["usedevicememory"] is True
+    copies = [e for e in metrics.observations if e.name == "processing.native.copy"]
+    assert copies and all(
+        e.value is None and e.availability == "not_applicable" for e in copies
+    )
+    assert sum(
+        e.value
+        for e in metrics.observations
+        if e.name == "processing.native.produced_frames"
+    ) == len(frames)
+    assert metrics.complete

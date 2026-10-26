@@ -97,3 +97,31 @@ async def test_missing_fourcc_property_does_not_break_probe(
     facts = await processing.probe_video(video_path)
     assert facts.codec is None
     assert native_probe.released
+
+
+def test_failed_color_copy_keeps_production_and_failed_status(tmp_path):
+    import numpy as np
+
+    from vss.observability import collect_vss_metrics
+    from vss.video_processing.decoders.opencv import OpenCVSession
+
+    def broken(*args):
+        raise RuntimeError("conversion failed")
+
+    capture = SimpleNamespace(read=lambda: (True, np.zeros((2, 2, 3), np.uint8)))
+    cv2 = SimpleNamespace(COLOR_BGR2RGB=1, cvtColor=broken)
+    with collect_vss_metrics() as metrics:
+        with pytest.raises(RuntimeError, match="conversion failed"):
+            OpenCVSession(cv2, capture, tmp_path / "fixture").read_frames(2)
+    assert metrics.complete
+    partial = [e for e in metrics.observations if e.name != "processing.native.read"]
+    assert all(e.status == "error" for e in partial)
+    assert (
+        next(e for e in partial if e.name == "processing.native.produced_frames").value
+        == 1
+    )
+    assert (
+        next(e for e in partial if e.name == "processing.native.delivered_frames").value
+        == 0
+    )
+    assert next(e for e in partial if e.name == "processing.native.copy").value > 0

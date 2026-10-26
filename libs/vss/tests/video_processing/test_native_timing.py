@@ -16,7 +16,8 @@
 """Real VFR and nonzero-origin PTS acceptance, using ffprobe as the oracle.
 
 Enable RUN_VSS_TIMING_TESTS=1 plus RUN_VSS_CPU_TESTS=1 or RUN_VSS_GPU_TESTS=1.
-These fixtures also require external FFmpeg/ffprobe and an H.264 encoder. They
+These fixtures also require external FFmpeg/ffprobe and an H.264 encoder. Their
+64-pixel height meets the observed Blackwell H.264 decoder minimum. They
 compare returned times with the file's actual decoded-frame PTS, not N / FPS.
 """
 
@@ -56,7 +57,7 @@ def timing_video(request: pytest.FixtureRequest, tmp_path: Path) -> Any:
         "-f",
         "lavfi",
         "-i",
-        "testsrc2=size=64x48:rate=5:duration=2",
+        "testsrc2=size=64x64:rate=5:duration=2",
         "-an",
     ]
     if request.param == "vfr":
@@ -188,7 +189,7 @@ def long_gap_video(tmp_path: Path) -> Any:
             "-f",
             "lavfi",
             "-i",
-            "testsrc2=size=64x48:rate=10:duration=4",
+            "testsrc2=size=64x64:rate=10:duration=4",
             "-vf",
             r"setpts=if(lt(N\,20)\,N/(10*TB)\,(N+30)/(10*TB))",
             "-fps_mode",
@@ -375,7 +376,7 @@ async def test_native_long_gop_bframes_clip_keeps_contiguous_video_and_audio(
             "-f",
             "lavfi",
             "-i",
-            "testsrc2=size=64x48:rate=30000/1001:duration=20",
+            "testsrc2=size=64x64:rate=30000/1001:duration=20",
             "-f",
             "lavfi",
             "-i",

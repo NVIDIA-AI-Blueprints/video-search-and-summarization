@@ -19,13 +19,15 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
 import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, Literal, Protocol
 from uuid import uuid4
 
+from vss.observability import measure
+from vss.observability.context import correlate_source, resolve_current
+from vss.observability.instrumentation import async_stage
 from vss.video_processing.cuda_ipc import CudaIpcFrameSource
 from vss.video_processing.frames import Frame
 from vss.video_processing.shared_decode import (
@@ -33,6 +35,7 @@ from vss.video_processing.shared_decode import (
     SharedFrameCapability,
 )
 
+from ._metrics import ChunkMetrics
 from ._plan import IngestionPlan
 from .contracts import (
     ChunkInfo,
@@ -70,8 +73,13 @@ class IngestionBackend(ABC):
     async def __aenter__(self) -> IngestionBackend:
         return self
 
-    async def __aexit__(self, *_: object) -> None:
-        await self.aclose()
+    async def __aexit__(self, exc_type: object, *_: object) -> None:
+        try:
+            with measure("ingestion.cleanup", library="ingestion"):
+                await self.aclose()
+        except BaseException:
+            if exc_type is None:
+                raise
 
     async def aclose(self) -> None:
         """Release resources owned by the backend."""
@@ -366,7 +374,10 @@ class VLMIngestionBackend(IngestionBackend):
         try:
             from .vlm import _process_video, _processing_limiter
 
-            async with _processing_limiter():
+            limiter = _processing_limiter()
+            with measure("ingestion.vlm.capacity_wait", library="ingestion"):
+                await limiter.acquire()
+            try:
                 return await _process_video(
                     source,
                     source_id=source.source_id,
@@ -377,6 +388,8 @@ class VLMIngestionBackend(IngestionBackend):
                     generation_config=generation_config,
                     backend=self.vlm_backend,
                 )
+            finally:
+                limiter.release()
         finally:
             self._active_sources.pop(source.source_id, None)
 
@@ -501,8 +514,13 @@ class RTVIBackend(IngestionBackend):
     async def __aenter__(self) -> RTVIBackend:
         return self
 
-    async def __aexit__(self, *_: object) -> None:
-        await self.aclose()
+    async def __aexit__(self, exc_type: object, *_: object) -> None:
+        try:
+            with measure("ingestion.cleanup", library="ingestion"):
+                await self.aclose()
+        except BaseException:
+            if exc_type is None:
+                raise
 
     async def aclose(self) -> None:
         for task in tuple(self._active_sources.values()):
@@ -512,6 +530,7 @@ class RTVIBackend(IngestionBackend):
         if self._owns_transport:
             await self._transport.aclose()
 
+    @async_stage("ingestion.backend", library="ingestion")
     async def ingest(
         self,
         source: RequestSource,
@@ -533,11 +552,19 @@ class RTVIBackend(IngestionBackend):
         self._active_sources[source.source_id] = current_task
         responses: dict[int, VlmChunkResponse] = {}
         prepared_source: RequestSource | None = None
-        primary_failure = False
+        primary_failed = False
+        complete = False
+        metrics = ChunkMetrics(embedding=self.name == "rtvi_embed")
+        selected_metric_model = model
         try:
-            prepared_source = await self._transport.prepare_source(source)
-            if model is None:
-                model = (await self._transport.get_model_info()).id
+            with measure("ingestion.prepare", library="ingestion"):
+                prepared_source = await self._transport.prepare_source(source)
+            correlate_source(source.source_id, prepared_source.source_id)
+            with measure("ingestion.model_resolution", library="ingestion"):
+                if model is None:
+                    model = (await self._transport.get_model_info()).id
+            selected_metric_model = model
+            resolve_current(model=model, backend=self.name)
             plan = IngestionPlan(
                 source=prepared_source,
                 prompt=prompt,
@@ -562,31 +589,43 @@ class RTVIBackend(IngestionBackend):
                     response = _to_chunk_response(plan.source, chunk_payload)
                     assert response.chunk is not None
                     responses[response.chunk.chunkIdx] = response
+                    metrics.observe(
+                        str(response.chunk.chunkIdx),
+                        response.chunk.chunkIdx,
+                        chunk_payload,
+                    )
+            complete = True
         except _RTVITransportError:
-            primary_failure = True
-            # Provider bodies and SSE errors can echo credentials. Preserve the
-            # public error category without exposing transport text or chains.
+            primary_failed = True
             raise RTVIBackendError("RTVI request failed; check the provider") from None
         except (ValueError, TypeError, KeyError):
-            primary_failure = True
+            primary_failed = True
             raise RTVIBackendError(
                 "RTVI returned an invalid caption response"
             ) from None
         except BaseException:
-            primary_failure = True
+            primary_failed = True
             raise
         finally:
             self._active_sources.pop(source.source_id, None)
             if prepared_source is not None:
                 try:
-                    await self._transport.release_source(prepared_source)
+                    with measure("ingestion.release", library="ingestion"):
+                        await self._transport.release_source(prepared_source)
                 except _RTVITransportError:
-                    # A secondary delete failure must not replace cancellation
-                    # or a primary inference failure with a raw transport error.
-                    if not primary_failure:
+                    if not primary_failed:
+                        metrics.finish(complete=False, model=selected_metric_model)
                         raise RTVIBackendError("RTVI upload cleanup failed") from None
+                except BaseException:
+                    if not primary_failed:
+                        metrics.finish(complete=False, model=selected_metric_model)
+                        raise
+            if not complete:
+                metrics.finish(complete=False, model=selected_metric_model)
 
-        ordered = [responses[index] for index in sorted(responses)]
+        with measure("ingestion.assemble", library="ingestion"):
+            ordered = [responses[index] for index in sorted(responses)]
+        metrics.finish(complete=True, model=selected_metric_model)
         if ordered:
             assert ordered[-1].chunk is not None
             ordered[-1].chunk.is_last = True
@@ -838,8 +877,13 @@ class RTEmbedBackend(IngestionBackend):
     async def __aenter__(self) -> RTEmbedBackend:
         return self
 
-    async def __aexit__(self, *_: object) -> None:
-        await self.aclose()
+    async def __aexit__(self, exc_type: object, *_: object) -> None:
+        try:
+            with measure("ingestion.cleanup", library="ingestion"):
+                await self.aclose()
+        except BaseException:
+            if exc_type is None:
+                raise
 
     async def aclose(self) -> None:
         for task in tuple(self._active_sources.values()):
@@ -849,6 +893,7 @@ class RTEmbedBackend(IngestionBackend):
         if self._owns_transport:
             await self._transport.aclose()
 
+    @async_stage("ingestion.backend", library="ingestion")
     async def ingest(
         self,
         source: RequestSource,
@@ -875,9 +920,18 @@ class RTEmbedBackend(IngestionBackend):
         self._active_sources[source.source_id] = current_task
         chunks: dict[tuple[str, str], dict[str, Any]] = {}
         prepared_source: RequestSource | None = None
+        primary_failed = False
+        complete = False
+        metrics = ChunkMetrics(embedding=self.name == "rtvi_embed")
+        selected_metric_model = model
         try:
-            prepared_source = await self._transport.prepare_source(source)
-            selected_model = model or (await self._transport.get_model_info()).id
+            with measure("ingestion.prepare", library="ingestion"):
+                prepared_source = await self._transport.prepare_source(source)
+            correlate_source(source.source_id, prepared_source.source_id)
+            with measure("ingestion.model_resolution", library="ingestion"):
+                selected_model = model or (await self._transport.get_model_info()).id
+            selected_metric_model = selected_model
+            resolve_current(model=selected_model, backend=self.name)
             if not selected_model:
                 raise RTEmbedBackendError("RTVI-Embed returned no model information")
             async for payload in self._transport.generate_video_embeddings_stream(
@@ -897,29 +951,57 @@ class RTEmbedBackend(IngestionBackend):
                         str(chunk_payload.get("end_time", "")),
                     )
                     chunks[key] = chunk_payload
+                    metrics.observe("\x00".join(key), len(chunks) - 1, chunk_payload)
+            complete = True
         except _RTVITransportError:
+            primary_failed = True
             raise RTEmbedBackendError(
                 "RTVI-Embed request failed; check the provider"
             ) from None
+        except BaseException:
+            primary_failed = True
+            raise
         finally:
-            primary_error = sys.exception()
             self._active_sources.pop(source.source_id, None)
             if prepared_source is not None:
                 try:
-                    await self._transport.release_source(prepared_source)
+                    with measure("ingestion.release", library="ingestion"):
+                        await self._transport.release_source(prepared_source)
                 except _RTVITransportError:
-                    if primary_error is None:
+                    if not primary_failed:
+                        metrics.finish(complete=False, model=selected_metric_model)
                         raise RTEmbedBackendError("RTVI-Embed cleanup failed") from None
+                except BaseException:
+                    if not primary_failed:
+                        metrics.finish(complete=False, model=selected_metric_model)
+                        raise
+            if not complete:
+                metrics.finish(complete=False, model=selected_metric_model)
 
-        ordered_payloads = sorted(chunks.values(), key=_embedding_chunk_sort_key)
-        if not ordered_payloads:
-            raise RTEmbedBackendError(
-                "RTVI-Embed completed without producing an embedding chunk"
+        try:
+            with measure("ingestion.assemble", library="ingestion"):
+                ordered_payloads = sorted(
+                    chunks.values(), key=_embedding_chunk_sort_key
+                )
+                if not ordered_payloads:
+                    raise RTEmbedBackendError(
+                        "RTVI-Embed completed without producing an embedding chunk"
+                    )
+                responses = [
+                    _to_embedding_response(source, payload, index)
+                    for index, payload in enumerate(ordered_payloads)
+                ]
+        except BaseException:
+            metrics.finish(complete=False, model=selected_metric_model)
+            raise
+        for index, payload in enumerate(ordered_payloads):
+            key = (
+                str(payload.get("start_time", ""))
+                + "\x00"
+                + str(payload.get("end_time", ""))
             )
-        responses = [
-            _to_embedding_response(source, payload, index)
-            for index, payload in enumerate(ordered_payloads)
-        ]
+            metrics.reindex(key, index)
+        metrics.finish(complete=True, model=selected_metric_model)
         if responses:
             responses[-1].chunk.is_last = True
         return responses

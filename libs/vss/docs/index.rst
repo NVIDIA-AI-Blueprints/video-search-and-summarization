@@ -18,3 +18,4 @@ API reference
    api/ingestion
    api/storage
    api/summarize_video
+   api/mcp

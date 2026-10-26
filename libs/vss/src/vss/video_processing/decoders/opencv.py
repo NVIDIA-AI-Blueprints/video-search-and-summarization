@@ -18,10 +18,15 @@
 from __future__ import annotations
 
 import importlib
+import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from vss.observability import record
+from vss.observability.context import current_scope
+from vss.observability.instrumentation import stage
 
 from ..contracts import DecodeOptions, MediaFacts
 from ..exceptions import DecodeError, DecoderUnavailableError
@@ -89,6 +94,7 @@ class OpenCVBackend:
         except BaseException:
             capture.release()
             raise
+        record("processing.native.sessions", 1, library="processing")
         return OpenCVSession(cv2, capture, path)
 
 
@@ -149,27 +155,61 @@ class OpenCVSession:
         self._index = 0
         self._last_ms = None
 
+    @stage("processing.native.read", library="processing")
     def read_frames(self, batch_size: int) -> list[Any]:
         frames = []
-        for _ in range(batch_size):
-            ok, bgr = self.capture.read()
-            if not ok:
-                break
-            rgb = self.cv2.cvtColor(bgr, self.cv2.COLOR_BGR2RGB)
-            after_ms = float(self.capture.get(self.cv2.CAP_PROP_POS_MSEC))
-            position = after_ms if np.isfinite(after_ms) and after_ms >= 0 else None
-            quality = "backend"
-            timestamp_ns = round(position * 1_000_000) if position is not None else None
-            frames.append(
-                _RawFrame(
-                    rgb,
-                    timestamp_ns,
-                    self._index,
-                    quality if timestamp_ns is not None else "estimated",
+        measured = current_scope() is not None
+        decode_ns = copy_ns = produced = 0
+        complete = False
+        try:
+            for _ in range(batch_size):
+                clock = time.perf_counter_ns() if measured else 0
+                try:
+                    ok, bgr = self.capture.read()
+                finally:
+                    if measured:
+                        decode_ns += time.perf_counter_ns() - clock
+                if not ok:
+                    break
+                produced += 1
+                clock = time.perf_counter_ns() if measured else 0
+                try:
+                    rgb = self.cv2.cvtColor(bgr, self.cv2.COLOR_BGR2RGB)
+                finally:
+                    if measured:
+                        copy_ns += time.perf_counter_ns() - clock
+                after_ms = float(self.capture.get(self.cv2.CAP_PROP_POS_MSEC))
+                position = after_ms if np.isfinite(after_ms) and after_ms >= 0 else None
+                quality = "backend"
+                timestamp_ns = (
+                    round(position * 1_000_000) if position is not None else None
                 )
-            )
-            self._index += 1
-        return frames
+                frames.append(
+                    _RawFrame(
+                        rgb,
+                        timestamp_ns,
+                        self._index,
+                        quality if timestamp_ns is not None else "estimated",
+                    )
+                )
+                self._index += 1
+            complete = True
+            return frames
+        finally:
+            if measured:
+                for name, value in (
+                    ("decode", decode_ns / 1e9),
+                    ("copy", copy_ns / 1e9),
+                    ("produced_frames", produced),
+                    ("delivered_frames", len(frames) if complete else 0),
+                    ("pending_frames", 0),
+                ):
+                    record(
+                        "processing.native." + name,
+                        value,
+                        library="processing",
+                        status="ok" if complete else "error",
+                    )
 
     def close(self) -> None:
         if not self.closed:

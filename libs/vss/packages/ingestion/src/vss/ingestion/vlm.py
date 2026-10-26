@@ -30,6 +30,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import httpx
 
+from vss.observability import measure, metric_scope, record
+from vss.observability.context import resolve_current
+from vss.observability.instrumentation import async_stage
 from vss.video_processing.contracts import (
     DecodeOptions,
     DecodePlan,
@@ -284,6 +287,7 @@ class OpenAICompatibleVLMBackend(VLMBackend):
         if self._owns_client:
             await self._client.aclose()
 
+    @async_stage("ingestion.vlm.infer", library="ingestion")
     async def infer(
         self,
         chunk: VLMFrameChunk,
@@ -310,22 +314,34 @@ class OpenAICompatibleVLMBackend(VLMBackend):
                     f"generation_config cannot override reserved fields: {names}"
                 )
 
+        resolve_current(
+            source_id=chunk.source.source_id, model=selected_model, backend=self.name
+        )
         self._active.setdefault(chunk.source.source_id, set()).add(current_task)
         started = time.time()
         try:
             payload: dict[str, Any] = {
                 "model": selected_model,
-                "messages": await self._messages(chunk, prompt),
+                "messages": await self._observed_messages(
+                    chunk, prompt, selected_model
+                ),
                 "max_tokens": 1024,
             }
             if generation_config:
                 payload.update(generation_config)
-            response = await self._client.post(
-                self._chat_completions_url,
-                json=payload,
-                headers=self._headers,
-            )
-            response.raise_for_status()
+            with metric_scope(
+                source_id=chunk.source.source_id,
+                model=selected_model,
+                backend=self.name,
+                chunk_idx=chunk.chunk_idx,
+            ):
+                with measure("ingestion.vlm.http", library="ingestion"):
+                    response = await self._client.post(
+                        self._chat_completions_url,
+                        json=payload,
+                        headers=self._headers,
+                    )
+                    response.raise_for_status()
             body = response.json()
             content = _completion_text(body)
         except httpx.HTTPStatusError as error:
@@ -347,6 +363,24 @@ class OpenAICompatibleVLMBackend(VLMBackend):
         completed = time.time()
         usage = body.get("usage") if isinstance(body, dict) else None
         usage = usage if isinstance(usage, dict) else {}
+        with metric_scope(
+            source_id=chunk.source.source_id,
+            model=selected_model,
+            backend=self.name,
+            chunk_idx=chunk.chunk_idx,
+        ):
+            for metric, field in (
+                ("input_tokens", "prompt_tokens"),
+                ("output_tokens", "completion_tokens"),
+            ):
+                value = usage.get(field)
+                record(
+                    "ingestion.vlm." + metric,
+                    value,
+                    library="ingestion",
+                    origin="provider",
+                    availability="measured" if value is not None else "not_reported",
+                )
         return VlmChunkResponse(
             chunk=ChunkInfo(
                 sourceId=chunk.source.source_id,
@@ -399,6 +433,18 @@ class OpenAICompatibleVLMBackend(VLMBackend):
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
 
+    async def _observed_messages(
+        self, chunk: VLMFrameChunk, prompt: str, model: str
+    ) -> list[dict[str, Any]]:
+        with metric_scope(
+            source_id=chunk.source.source_id,
+            model=model,
+            backend=self.name,
+            chunk_idx=chunk.chunk_idx,
+        ):
+            with measure("ingestion.vlm.prepare", library="ingestion"):
+                return await self._messages(chunk, prompt)
+
     async def _messages(
         self,
         chunk: VLMFrameChunk,
@@ -444,6 +490,7 @@ class OpenAICompatibleVLMBackend(VLMBackend):
             return await asyncio.to_thread(frame.to_base64, format="jpeg")
 
 
+@async_stage("ingestion.vlm.total", library="ingestion")
 async def _process_video(
     source: SourceInput,
     *,

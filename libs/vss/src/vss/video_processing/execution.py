@@ -20,13 +20,26 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import math
+import time
 import weakref
 from collections.abc import AsyncGenerator, Callable
 from contextlib import aclosing
+from contextvars import copy_context
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+
+from vss.observability import measure, metric_scope, record
+from vss.observability.context import (
+    DetachedMeasurement,
+    Measurement,
+    bind_scope,
+    current_scope,
+    track_work,
+)
+from vss.observability.contracts import Status
+from vss.observability.instrumentation import async_stage
 
 from .contracts import (
     DecodeOptions,
@@ -144,6 +157,25 @@ class _Worker:
 
     def submit(self, fn: Callable[..., Any], *args: Any) -> asyncio.Future[Any]:
         loop = asyncio.get_running_loop()
+        if current_scope() is not None:
+            context = copy_context()
+            lease = track_work()
+            try:
+                native_future = self.executor.submit(
+                    context.run, _measured_invoke, fn, *args
+                )
+            except BaseException:
+                if lease is not None:
+                    lease.close()
+                raise
+            if lease is not None:
+                # Track queued work immediately and release on *native* completion;
+                # cancellation of an asyncio wrapper cannot certify native release.
+                native_future.add_done_callback(lambda _: lease.close())
+            return asyncio.wrap_future(
+                native_future,
+                loop=loop,
+            )
         return asyncio.wrap_future(self.executor.submit(_invoke, fn, *args), loop=loop)
 
     async def close_executor(self) -> bool:
@@ -152,6 +184,16 @@ class _Worker:
         )
         _, cancelled = await _settle(shutdown)
         return cancelled
+
+
+def _measured_invoke(fn: Callable[..., Any], *args: Any) -> Any:
+    with measure("processing.native.call", library="processing") as observed:
+        result = _invoke(fn, *args)
+        if isinstance(result, _Failure) and isinstance(observed, Measurement):
+            observed.status = (
+                "cancelled" if result.category == "CancelledError" else "error"
+            )
+    return result
 
 
 async def _settle(future: asyncio.Future[Any]) -> tuple[Any, bool]:
@@ -203,10 +245,12 @@ def _backend_order(name: str) -> list[str]:
     ]
 
 
+@async_stage("processing.open", library="processing")
 async def _open(source: ResolvedSource, options: DecodeOptions) -> _Opened:
     loop = asyncio.get_running_loop()
     permit = _limiter(loop, options.max_concurrency)
-    await permit.acquire()
+    with measure("processing.capacity_wait", library="processing"):
+        await permit.acquire()
     errors: list[str] = []
     try:
         names = _backend_order(options.decoder)
@@ -222,8 +266,16 @@ async def _open(source: ResolvedSource, options: DecodeOptions) -> _Opened:
                 return backend, session
 
             try:
-                future = worker.submit(make_open)
-                result, cancelled = await _settle(future)
+                with metric_scope(
+                    backend=name,
+                    device="gpu"
+                    if name == "pynv"
+                    else "cpu"
+                    if name == "opencv"
+                    else "unknown",
+                ):
+                    future = worker.submit(make_open)
+                    result, cancelled = await _settle(future)
                 if cancelled:
                     if not isinstance(result, _Failure):
                         _, session = result
@@ -251,7 +303,15 @@ async def _open(source: ResolvedSource, options: DecodeOptions) -> _Opened:
             # availability failures may switch backends; probe/read failures
             # from a successfully initialized backend must remain visible.
             try:
-                facts = await _native(worker, session.probe)
+                with metric_scope(
+                    backend=name,
+                    device="gpu"
+                    if name == "pynv"
+                    else "cpu"
+                    if name == "opencv"
+                    else "unknown",
+                ):
+                    facts = await _native(worker, session.probe)
             except BaseException as primary_error:
                 try:
                     close_future = worker.submit(session.close)
@@ -263,6 +323,21 @@ async def _open(source: ResolvedSource, options: DecodeOptions) -> _Opened:
                 except BaseException:
                     pass
                 raise primary_error
+            with metric_scope(
+                backend=name,
+                device="gpu"
+                if name == "pynv"
+                else "cpu"
+                if name == "opencv"
+                else "unknown",
+                selection_reason="availability_fallback"
+                if errors
+                else "auto"
+                if options.decoder == "auto"
+                else "explicit",
+            ):
+                record("processing.select", 1, library="processing")
+                record("processing.sessions", 1, library="processing")
             return _Opened(
                 source,
                 options,
@@ -283,6 +358,7 @@ async def _open(source: ResolvedSource, options: DecodeOptions) -> _Opened:
         raise
 
 
+@async_stage("processing.close", library="processing")
 async def _close(opened: _Opened, primary_failure: bool = False) -> None:
     error: BaseException | None = None
     cancelled = False
@@ -331,11 +407,22 @@ async def probe_video(
     and malformed or remote locators raise ``UnsupportedSourceError``.
     """
     resolved = resolve_source(source, source_id)
-    opened = await _open(resolved, options or DecodeOptions(decoder="opencv"))
-    try:
-        return opened.facts
-    finally:
-        await _close(opened)
+    with metric_scope(source_id=resolved.source_id, pipeline="processing"):
+        with measure("processing.probe", library="processing") as observed:
+            opened = await _open(resolved, options or DecodeOptions(decoder="opencv"))
+            observed.resolve(backend=opened.backend_name)
+            try:
+                return opened.facts
+            finally:
+                with metric_scope(
+                    backend=opened.backend_name,
+                    device="gpu"
+                    if opened.backend_name == "pynv"
+                    else "cpu"
+                    if opened.backend_name == "opencv"
+                    else "unknown",
+                ):
+                    await _close(opened)
 
 
 def probe_video_sync(
@@ -407,8 +494,98 @@ async def _decode_stream(
     facts_callback: Callable[[MediaFacts], None] | None = None,
 ) -> AsyncGenerator[Frame]:
     resolved = resolve_source(source, source_id)
+    with metric_scope(source_id=resolved.source_id, pipeline="processing"):
+        lifetime = DetachedMeasurement(
+            "processing.decode.lifetime", library="processing"
+        )
+    stream = _decode_body(
+        resolved,
+        plan,
+        options=options,
+        generated=generated,
+        deduplicate=deduplicate,
+        observer=lifetime,
+        facts_callback=facts_callback,
+    )
+    status: Status = "ok"
+    active_ns = wait_ns = selected = 0
+    measured = lifetime.scope is not None
+    frame = None
+    try:
+        while True:
+            started = time.perf_counter_ns() if measured else 0
+            try:
+                with bind_scope(lifetime.child_scope):
+                    frame = await anext(stream)
+            except StopAsyncIteration:
+                break
+            finally:
+                if measured:
+                    active_ns += time.perf_counter_ns() - started
+            selected += 1
+            paused = time.perf_counter_ns() if measured else 0
+            try:
+                yield frame
+            finally:
+                if measured:
+                    wait_ns += time.perf_counter_ns() - paused
+    except asyncio.CancelledError:
+        status = "cancelled"
+        raise
+    except GeneratorExit:
+        status = "closed"
+        raise
+    except BaseException:
+        status = "error"
+        raise
+    finally:
+        frame = None
+        try:
+            with bind_scope(lifetime.child_scope):
+                await stream.aclose()
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        except BaseException:
+            status = "error"
+            raise
+        finally:
+            if lifetime.scope is not None:
+                for name, value in (
+                    ("processing.decode", active_ns / 1e9),
+                    ("processing.consumer_wait", wait_ns / 1e9),
+                    ("processing.selected_frames", selected),
+                ):
+                    record(
+                        name,
+                        value,
+                        library="processing",
+                        scope=lifetime.child_scope,
+                        status=status,
+                    )
+            lifetime.finish(status)
+
+
+async def _decode_body(
+    resolved: ResolvedSource,
+    plan: DecodePlan,
+    *,
+    options: DecodeOptions | None,
+    generated: bool,
+    deduplicate: bool,
+    observer: DetachedMeasurement,
+    facts_callback: Callable[[MediaFacts], None] | None = None,
+) -> AsyncGenerator[Frame]:
     opts = options or DecodeOptions()
     opened = await _open(resolved, opts)
+    observer.resolve(
+        backend=opened.backend_name,
+        device="gpu"
+        if opened.backend_name == "pynv"
+        else "cpu"
+        if opened.backend_name == "opencv"
+        else "unknown",
+    )
     primary_failure = False
     try:
         facts = opened.facts
@@ -416,11 +593,18 @@ async def _decode_stream(
             facts_callback(facts)
         origin = facts.timestamp_origin_ns or 0
         window = plan.window
-        # Reported duration is metadata, not a reliable EOF boundary. In
-        # particular, OpenCV derives it from frame count / FPS, which can
-        # underestimate variable-rate media. Only an explicit caller window
-        # may stop continuous decoding before the decoder reports native EOF.
+        duration_end = (
+            round(facts.duration_s * 1_000_000_000)
+            if facts.duration_s is not None
+            else None
+        )
         effective_end = window.end_ns
+        if duration_end is not None:
+            effective_end = (
+                min(effective_end, duration_end)
+                if effective_end is not None
+                else duration_end
+            )
         targets = plan.sample_timestamps_ns
         if targets is not None and facts.duration_s is not None:
             duration_ns = round(facts.duration_s * 1_000_000_000)
@@ -429,15 +613,31 @@ async def _decode_stream(
         if targets == ():
             return
         seek_target = targets[0] if targets is not None and targets else window.start_ns
-        await _native(opened.worker, opened.session.seek, origin + seek_target)
+        with metric_scope(
+            backend=opened.backend_name,
+            device="gpu"
+            if opened.backend_name == "pynv"
+            else "cpu"
+            if opened.backend_name == "opencv"
+            else "unknown",
+        ):
+            await _native(opened.worker, opened.session.seek, origin + seek_target)
         target_index = 0
         last_raw_time: int | None = None
         last_frame_key: object = object()
         generated_identity = generated
         while True:
-            batch = await _native(
-                opened.worker, opened.session.read_frames, opts.batch_size
-            )
+            with metric_scope(
+                backend=opened.backend_name,
+                device="gpu"
+                if opened.backend_name == "pynv"
+                else "cpu"
+                if opened.backend_name == "opencv"
+                else "unknown",
+            ):
+                batch = await _native(
+                    opened.worker, opened.session.read_frames, opts.batch_size
+                )
             if not batch:
                 if (
                     targets is not None
@@ -451,15 +651,29 @@ async def _decode_stream(
                 break
             # Copy every member before issuing another native operation. A batch
             # is the only decoder output retained ahead of the consumer.
-            snapshots = [
-                (
-                    np.array(raw.tensor, copy=True, order="C"),
-                    raw.timestamp_ns,
-                    raw.index,
-                    raw.timestamp_quality,
+            with metric_scope(
+                backend=opened.backend_name,
+                device="gpu"
+                if opened.backend_name == "pynv"
+                else "cpu"
+                if opened.backend_name == "opencv"
+                else "unknown",
+            ):
+                with measure("processing.copy", library="processing"):
+                    snapshots = [
+                        (
+                            np.array(raw.tensor, copy=True, order="C"),
+                            raw.timestamp_ns,
+                            raw.index,
+                            raw.timestamp_quality,
+                        )
+                        for raw in batch
+                    ]
+                record(
+                    "processing.copied_bytes",
+                    sum(s[0].nbytes for s in snapshots),
+                    library="processing",
                 )
-                for raw in batch
-            ]
             for pixels, raw_ns, index, quality in snapshots:
                 if raw_ns is None:
                     if facts.fps is None or index is None:
@@ -555,9 +769,18 @@ async def _decode_stream(
         primary_failure = True
         raise
     finally:
-        await _close(opened, primary_failure)
+        with metric_scope(
+            backend=opened.backend_name,
+            device="gpu"
+            if opened.backend_name == "pynv"
+            else "cpu"
+            if opened.backend_name == "opencv"
+            else "unknown",
+        ):
+            await _close(opened, primary_failure)
 
 
+@async_stage("processing.extract", library="processing")
 async def extract_frames(
     source: SourceInput,
     timestamps: list[float] | tuple[float, ...],
@@ -648,6 +871,85 @@ def extract_frames_sync(
 
 
 async def subsample_frames(
+    source: SourceInput,
+    policy: SamplingPolicy,
+    *,
+    window: TimeWindow | None = None,
+    source_id: str | None = None,
+    options: DecodeOptions | None = None,
+) -> AsyncGenerator[Frame]:
+    """Lazily sample owned frames; scopes are restored before each yield."""
+    resolved = resolve_source(source, source_id)
+    with metric_scope(source_id=resolved.source_id, pipeline="processing"):
+        lifetime = DetachedMeasurement("processing.sample", library="processing")
+    stream = _subsample_body(
+        resolved.path,
+        policy,
+        window=window,
+        source_id=resolved.source_id,
+        options=options,
+    )
+    status: Status = "ok"
+    active_ns = wait_ns = selected = 0
+    measured = lifetime.scope is not None
+    frame = None
+    try:
+        while True:
+            started = time.perf_counter_ns() if measured else 0
+            try:
+                with bind_scope(lifetime.child_scope):
+                    frame = await anext(stream)
+            except StopAsyncIteration:
+                break
+            finally:
+                if measured:
+                    active_ns += time.perf_counter_ns() - started
+            lifetime.resolve(backend=frame.decoder, device=frame.device)
+            selected += 1
+            paused = time.perf_counter_ns() if measured else 0
+            try:
+                yield frame
+            finally:
+                if measured:
+                    wait_ns += time.perf_counter_ns() - paused
+    except asyncio.CancelledError:
+        status = "cancelled"
+        raise
+    except GeneratorExit:
+        status = "closed"
+        raise
+    except BaseException:
+        status = "error"
+        raise
+    finally:
+        frame = None
+        try:
+            with bind_scope(lifetime.child_scope):
+                await stream.aclose()
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        except BaseException:
+            status = "error"
+            raise
+        finally:
+            if lifetime.scope is not None:
+                for name, value in (
+                    ("processing.sample.active", active_ns / 1e9),
+                    ("processing.sample.consumer_wait", wait_ns / 1e9),
+                    ("processing.sampled_frames", selected),
+                ):
+                    record(
+                        name,
+                        value,
+                        library="processing",
+                        scope=lifetime.child_scope,
+                        status=status,
+                    )
+            lifetime.finish(status)
+
+
+async def _subsample_body(
     source: SourceInput,
     policy: SamplingPolicy,
     *,
@@ -773,3 +1075,6 @@ async def subsample_frames(
     async with aclosing(stream):
         async for frame in stream:
             yield frame
+
+
+subsample_frames.__doc__ = _subsample_body.__doc__

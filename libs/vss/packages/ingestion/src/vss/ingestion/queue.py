@@ -19,14 +19,19 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 import uuid
 import weakref
 from collections import deque
 from collections.abc import Awaitable, Callable, Generator
+from contextvars import Context, copy_context
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
+
+from vss.observability import measure, metric_scope, record
+from vss.observability.context import WorkLease, track_work
 
 from .exceptions import IngestionQueueFullError
 
@@ -58,7 +63,7 @@ class IngestionJob[T](Awaitable[T]):
         self._queue = queue
         self._state = IngestionJobState.PENDING
         self._task: asyncio.Task[None] | None = None
-        self._closed: asyncio.Future[None] = queue._loop.create_future()
+        self._closed: asyncio.Future[None] = future.get_loop().create_future()
 
     @property
     def id(self) -> UUID:
@@ -114,6 +119,9 @@ class IngestionJob[T](Awaitable[T]):
 class _QueuedWork[T]:
     job: IngestionJob[T]
     factory: Callable[[], Awaitable[T]]
+    context: Context | None
+    lease: WorkLease | None
+    submitted_ns: int
 
 
 class IngestionQueue:
@@ -186,7 +194,14 @@ class IngestionQueue:
             raise ValueError("job_id is already pending or running")
         future = self._loop.create_future()
         job = IngestionJob(selected_id, future, self)
-        entry = _QueuedWork(job=job, factory=factory)
+        with metric_scope(request_id=job.id.hex):
+            entry = _QueuedWork(
+                job=job,
+                factory=factory,
+                context=copy_context(),
+                lease=track_work(),
+                submitted_ns=time.perf_counter_ns(),
+            )
         self._entries[job.id] = entry
         self._pending.append(entry)
         future.add_done_callback(
@@ -218,8 +233,7 @@ class IngestionQueue:
                 self._pending.remove(entry)
             except ValueError:
                 pass
-            self._entries.pop(job.id, None)
-            job._closed.set_result(None)
+            self._finish_entry(job)
         job._future.cancel()
         self._drain()
         return True
@@ -228,28 +242,33 @@ class IngestionQueue:
         while self._pending and len(self._running) < self._max_concurrency:
             entry = self._pending.popleft()
             if entry.job.cancelled():
-                # An awaiting task can cancel this result Future before its
-                # callback gets a turn. Complete pending-job cleanup here rather
-                # than leaving wait_closed dependent on an entry we just removed.
                 entry.job._state = IngestionJobState.CANCELLED
-                self._entries.pop(entry.job.id, None)
-                if not entry.job._closed.done():
-                    entry.job._closed.set_result(None)
+                self._finish_entry(entry.job)
                 continue
             entry.job._state = IngestionJobState.RUNNING
-            task = self._loop.create_task(self._execute(entry))
+            task = self._loop.create_task(self._execute(entry), context=entry.context)
+            entry.context = None
             entry.job._task = task
             self._running[entry.job.id] = task
-            # A task cancelled before its first instruction never enters its
-            # coroutine's finally block; the callback still releases ownership.
+            # A task cancelled before its coroutine starts never reaches finally.
             task.add_done_callback(
-                lambda completed, submitted=entry.job: self._finished(submitted)
+                lambda completed, submitted=entry.job: self._task_closed(
+                    submitted, completed
+                )
             )
 
     async def _execute[T](self, entry: _QueuedWork[T]) -> None:
         job = entry.job
+        record(
+            "ingestion.queue.wait",
+            (time.perf_counter_ns() - entry.submitted_ns) / 1e9,
+            library="ingestion",
+        )
+        record("ingestion.queue.running", self.running_count, library="ingestion")
+        record("ingestion.queue.pending", self.pending_count, library="ingestion")
         try:
-            result = await entry.factory()
+            with measure("ingestion.queue.execute", library="ingestion"):
+                result = await entry.factory()
         except asyncio.CancelledError:
             job._state = IngestionJobState.CANCELLED
             if not job._future.done():
@@ -263,17 +282,43 @@ class IngestionQueue:
             if not job._future.done():
                 job._future.set_result(result)
         finally:
-            self._finished(job)
-
-    def _finished(self, job: IngestionJob[Any]) -> None:
-        entry = self._entries.get(job.id)
-        if entry is not None and entry.job is job:
-            job._task = None
-            self._running.pop(job.id, None)
-            self._entries.pop(job.id, None)
-            if not job._closed.done():
-                job._closed.set_result(None)
+            self._finish_entry(job)
             self._drain()
+
+    def _finish_entry(self, job: IngestionJob[Any]) -> None:
+        entry = self._entries.get(job.id)
+        # A completed task's callback may run after a replay has reused its ID.
+        # Only the job that owns this entry may release it or its metric lease.
+        if entry is None or entry.job is not job:
+            return
+        self._entries.pop(job.id)
+        job._task = None
+        self._running.pop(job.id, None)
+        if entry.lease is not None:
+            record(
+                "ingestion.queue.total",
+                (time.perf_counter_ns() - entry.submitted_ns) / 1e9,
+                library="ingestion",
+                scope=entry.lease.scope,
+                status=(
+                    "cancelled"
+                    if job.state is IngestionJobState.CANCELLED
+                    else "error"
+                    if job.state is IngestionJobState.FAILED
+                    else "ok"
+                ),
+            )
+            entry.lease.close()
+            entry.lease = None
+        entry.context = None
+        job._closed.set_result(None)
+
+    def _task_closed(self, job: IngestionJob[Any], task: asyncio.Task[None]) -> None:
+        if task.cancelled() and not job._future.done():
+            job._state = IngestionJobState.CANCELLED
+            job._future.cancel()
+        self._finish_entry(job)
+        self._drain()
 
     def _future_completed(
         self,

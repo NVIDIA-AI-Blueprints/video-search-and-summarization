@@ -15,6 +15,7 @@
 
 """Storage integrates with main's separated processing and ingestion APIs."""
 
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -24,6 +25,42 @@ import vss.ingestion.backend as backends
 import vss.ingestion.vlm as processing
 from vss.ingestion import IngestionQueue, RequestSource, ingest
 from vss.storage import InMemoryStorageAdapter
+
+# These tests assert ordering and permit ownership, not disk latency. This is a
+# watchdog for shared CI runners, including checkpoint flushes and cancellation.
+CHECKPOINT_TIMEOUT_S = 30
+
+
+@pytest.fixture(params=[False, True], ids=["normal-io", "delayed-checkpoint-io"])
+def checkpoint_storage(request, monkeypatch):
+    from vss.storage import FileStorageAdapter
+
+    if request.param:
+        original_read = FileStorageAdapter.read
+        original_write = FileStorageAdapter.write
+
+        async def read(storage, namespace, key):
+            if namespace == "checkpoints":
+                await asyncio.sleep(2.1)
+            return await original_read(storage, namespace, key)
+
+        async def write(storage, namespace, key, records, **kwargs):
+            if (
+                namespace == "checkpoints"
+                and records[0].get("completion_state") == "complete"
+            ):
+                await asyncio.sleep(5.1)
+            return await original_write(storage, namespace, key, records, **kwargs)
+
+        monkeypatch.setattr(FileStorageAdapter, "read", read)
+        monkeypatch.setattr(FileStorageAdapter, "write", write)
+    return FileStorageAdapter
+
+
+async def _settle_checkpoint_job(job):
+    if not job.done():
+        job.cancel()
+    await asyncio.wait_for(job.wait_closed(), CHECKPOINT_TIMEOUT_S)
 
 
 async def _run_private_processing(*args, **kwargs):
@@ -75,11 +112,9 @@ def test_vlm_contracts_and_errors_are_owned_by_ingestion():
 
 
 async def test_checkpointed_jobs_obey_main_processing_concurrency_limit(
-    tmp_path, pipeline, monkeypatch
+    tmp_path, pipeline, monkeypatch, checkpoint_storage
 ):
     from test_checkpoint_pipeline import submit
-
-    from vss.storage import FileStorageAdapter
 
     source, requests, _state = pipeline
     limiter = processing._processing_limiter()
@@ -89,40 +124,38 @@ async def test_checkpointed_jobs_obey_main_processing_concurrency_limit(
     while not limiter.locked():
         await limiter.acquire()
         permits += 1
+    reached_limit = asyncio.Event()
+    original = limiter.acquire
+
+    async def acquire():
+        reached_limit.set()
+        return await original()
+
+    monkeypatch.setattr(limiter, "acquire", acquire)
     try:
-        async with FileStorageAdapter(root=tmp_path / "store") as storage:
+        async with checkpoint_storage(root=tmp_path / "store") as storage:
             queue = IngestionQueue()
             job = submit(source, storage, queue=queue, job_id=uuid4())
-            import asyncio
-
-            reached_limit = asyncio.Event()
-            original = limiter.acquire
-
-            async def acquire():
-                reached_limit.set()
-                return await original()
-
-            monkeypatch.setattr(limiter, "acquire", acquire)
-            await asyncio.wait_for(reached_limit.wait(), 2)
-            assert not requests
-            assert not job.done()
-            limiter.release()
-            permits -= 1
-            assert await asyncio.wait_for(job, 5)
-            await job.wait_closed()
+            try:
+                await asyncio.wait_for(reached_limit.wait(), CHECKPOINT_TIMEOUT_S)
+                assert not requests
+                assert not job.done()
+                limiter.release()
+                permits -= 1
+                assert await asyncio.wait_for(job, CHECKPOINT_TIMEOUT_S)
+            finally:
+                # Settle the job before storage teardown even if an assertion or
+                # timeout fails, so an active claim cannot mask the real error.
+                await _settle_checkpoint_job(job)
     finally:
         for _ in range(permits):
             limiter.release()
 
 
 async def test_waiting_checkpoint_cancel_releases_claim_without_processing(
-    tmp_path, pipeline, monkeypatch
+    tmp_path, pipeline, monkeypatch, checkpoint_storage
 ):
-    import asyncio
-
     from test_checkpoint_pipeline import submit
-
-    from vss.storage import FileStorageAdapter
 
     source, requests, _ = pipeline
     monkeypatch.setenv("VSS_PROCESSING_MAX_CONCURRENCY", "1")
@@ -144,23 +177,28 @@ async def test_waiting_checkpoint_cancel_releases_claim_without_processing(
     monkeypatch.setattr(limiter, "acquire", acquire)
     monkeypatch.setattr(processing, "probe_video", probe)
     queue = IngestionQueue()
-    async with FileStorageAdapter(root=tmp_path / "store") as storage:
+    async with checkpoint_storage(root=tmp_path / "store") as storage:
         job = submit(source, storage, queue=queue)
         try:
-            await asyncio.wait_for(arrived.wait(), 2)
+            await asyncio.wait_for(arrived.wait(), CHECKPOINT_TIMEOUT_S)
             assert not probe_calls
             assert not requests
             job.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await job
-            await asyncio.wait_for(job.wait_closed(), 2)
+            await asyncio.wait_for(job.wait_closed(), CHECKPOINT_TIMEOUT_S)
             assert not probe_calls
             assert not requests
         finally:
-            limiter.release()
+            try:
+                await _settle_checkpoint_job(job)
+            finally:
+                limiter.release()
         retried = submit(source, storage, queue=queue, job_id=job.id)
-        assert await asyncio.wait_for(retried, 5)
-        await retried.wait_closed()
+        try:
+            assert await asyncio.wait_for(retried, CHECKPOINT_TIMEOUT_S)
+        finally:
+            await _settle_checkpoint_job(retried)
 
 
 async def test_completed_replay_never_acquires_processing_permit(
@@ -208,13 +246,9 @@ async def test_fractional_final_window_keeps_exact_checkpoint_nanoseconds(
 
 
 async def test_direct_processing_and_checkpoint_job_share_one_permit(
-    tmp_path, pipeline, monkeypatch
+    tmp_path, pipeline, monkeypatch, checkpoint_storage
 ):
-    import asyncio
-
     from test_checkpoint_pipeline import submit
-
-    from vss.storage import FileStorageAdapter
 
     source, _requests, _state = pipeline
     monkeypatch.setenv("VSS_PROCESSING_MAX_CONCURRENCY", "1")
@@ -248,9 +282,9 @@ async def test_direct_processing_and_checkpoint_job_share_one_permit(
         )
     )
     job = None
-    async with FileStorageAdapter(root=tmp_path / "store") as storage:
+    async with checkpoint_storage(root=tmp_path / "store") as storage:
         try:
-            await asyncio.wait_for(entered.wait(), 2)
+            await asyncio.wait_for(entered.wait(), CHECKPOINT_TIMEOUT_S)
             limiter = processing._processing_limiter()
             original_acquire = limiter.acquire
 
@@ -260,24 +294,24 @@ async def test_direct_processing_and_checkpoint_job_share_one_permit(
 
             monkeypatch.setattr(limiter, "acquire", acquire)
             job = submit(source, storage)
-            await asyncio.wait_for(contended.wait(), 2)
+            await asyncio.wait_for(contended.wait(), CHECKPOINT_TIMEOUT_S)
             assert len(probes) == 1
             assert len(constructions) == 1
             assert not job.done()
             release.set()
-            assert await asyncio.wait_for(direct, 5)
-            assert await asyncio.wait_for(job, 5)
+            assert await asyncio.wait_for(direct, CHECKPOINT_TIMEOUT_S)
+            assert await asyncio.wait_for(job, CHECKPOINT_TIMEOUT_S)
             await job.wait_closed()
             assert len(probes) == 2
             assert len(constructions) == 2
         finally:
             release.set()
             direct.cancel()
+            if job is not None and not job.done():
+                job.cancel()
             await asyncio.gather(direct, return_exceptions=True)
             if job is not None:
-                if not job.done():
-                    job.cancel()
-                await job.wait_closed()
+                await _settle_checkpoint_job(job)
 
 
 @pytest.mark.parametrize("failure", ["probe-error", "probe-cancel", "sampling-error"])

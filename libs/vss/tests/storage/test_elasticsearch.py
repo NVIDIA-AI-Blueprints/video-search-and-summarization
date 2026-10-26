@@ -197,6 +197,8 @@ def adapter(tmp_path: Path, client: Client, **kwargs):
 
 async def test_es_domain_work_uses_adapter_admission_for_checkpoint_and_summary(
     tmp_path,
+    monkeypatch,
+    worker_gate,
 ):
     from test_persistence_workers import _checkpoint_records
 
@@ -205,43 +207,51 @@ async def test_es_domain_work_uses_adapter_admission_for_checkpoint_and_summary(
 
     store = adapter(tmp_path, Client(State()), max_in_flight=1)
     manifest = persistence.CheckpointManifest.model_validate(_checkpoint_records())
-    entered, release = threading.Event(), threading.Event()
     original = persistence.checkpoint_records
     summary_started = threading.Event()
 
     def checkpoint_codec(*args):
-        entered.set()
-        if not release.wait(3):
-            raise TimeoutError("test did not release checkpoint codec")
+        worker_gate.block()
         return original(*args)
 
     def summary_codec(*args):
         summary_started.set()
         return persistence.observation_records(*args)
 
-    first = asyncio.create_task(
-        persistence.domain_work(store, checkpoint_codec, manifest, {})
-    )
-    second = None
+    first = second = None
     try:
-        async with asyncio.timeout(2):
-            while not entered.is_set():
-                await asyncio.sleep(0.005)
-        second = asyncio.create_task(
-            persistence.domain_work(store, summary_codec, "job", [])
-        )
-        await asyncio.sleep(0.05)
-        assert not summary_started.is_set(), "ES max_in_flight was bypassed"
-        with pytest.raises(StorageBusyError):
-            async with store.exclusive("jobs", "job"):
-                await store.aclose()
+        # Finish disk-backed claim admission before starting the blocked codec;
+        # filesystem latency must not consume the worker gate's release budget.
+        async with store.exclusive("jobs", "job"):
+            first = asyncio.create_task(
+                persistence.domain_work(store, checkpoint_codec, manifest, {})
+            )
+            try:
+                await worker_gate.wait_until_blocked(first)
+                waiting = asyncio.Event()
+                original_acquire = store._admission.acquire
+
+                async def acquire():
+                    waiting.set()
+                    return await original_acquire()
+
+                monkeypatch.setattr(store._admission, "acquire", acquire)
+                second = asyncio.create_task(
+                    persistence.domain_work(store, summary_codec, "job", [])
+                )
+                await asyncio.wait_for(waiting.wait(), 10)
+                assert not summary_started.is_set(), "ES max_in_flight was bypassed"
+                with pytest.raises(StorageBusyError):
+                    await store.aclose()
+            finally:
+                worker_gate.release.set()
+                await asyncio.gather(
+                    *[task for task in (first, second) if task is not None],
+                    return_exceptions=True,
+                )
     finally:
-        release.set()
-        await asyncio.gather(
-            *([first, second] if second is not None else [first]),
-            return_exceptions=True,
-        )
         await store.aclose()
+    assert first is not None
     assert first.result()[0]["record_type"] == "checkpoint"
     assert second is not None
     assert second.result()[0]["record_type"] == "observation"
@@ -809,7 +819,9 @@ async def test_cancelled_write_settles_before_releasing_claim(tmp_path):
 
         task = asyncio.create_task(work())
         try:
-            await asyncio.wait_for(state.entered.wait(), 2)
+            # This notification follows local durable claim setup and encoding;
+            # its watchdog is not an assertion about network or storage speed.
+            await asyncio.wait_for(state.entered.wait(), 30)
             task.cancel()
             await asyncio.sleep(0)
             task.cancel()
@@ -818,6 +830,9 @@ async def test_cancelled_write_settles_before_releasing_claim(tmp_path):
                     pytest.fail("claim released while request was in flight")
         finally:
             state.release.set()
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         with pytest.raises(asyncio.CancelledError):
             await task
         async with second.exclusive("jobs", "job"):
