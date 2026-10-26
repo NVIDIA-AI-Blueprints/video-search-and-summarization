@@ -109,11 +109,12 @@ export VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 | `${VSS_DOCS_IMAGE_TAG:-develop-latest}` | `develop-latest` | `X.Y.Z` |
 | `${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}` | `develop-latest-sbsa` | `X.Y.Z-sbsa` |
 
-Nightly previews use the selected `nightly-*` tag for `VSS_DOCS_GIT_REF`,
-`develop-<SHA12>` for `VSS_DOCS_IMAGE_TAG`, and `develop-<SHA12>-sbsa` for
-`VSS_DOCS_SBSA_IMAGE_TAG`. SHA12 is the first 12 characters of the tagged
-commit, matching the immutable GHCR candidate selected by the nightly.
-Annotated tags are resolved to their commit before deriving these values.
+Nightly previews use the selected `nightly-*` tag for both `VSS_DOCS_GIT_REF`
+and `VSS_DOCS_IMAGE_TAG`, and append `-sbsa` for `VSS_DOCS_SBSA_IMAGE_TAG`.
+For example, `nightly-20261025` renders `nightly-20261025` /
+`nightly-20261025` / `nightly-20261025-sbsa`, matching the image aliases
+published by the nightly pipeline. Annotated tags are resolved to their
+commit when checking that the checkout matches the selected tag.
 
 These markers are the only text the build replaces. Fern's own `${...}`
 substitution is turned off (`substitute-env-vars: false`), so every other

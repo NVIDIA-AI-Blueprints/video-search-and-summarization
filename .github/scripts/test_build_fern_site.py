@@ -148,17 +148,16 @@ def test_nightly_preview_pins_tag_and_images_and_keeps_other_versions() -> None:
             make_repo(source, release_entry("1.2.0") + DEV_ENTRY + STATIC_ENTRY)
             tag_release(source, "1.2.0", "RELEASE-ONLY")
             add_static_version(source)
-            nightly = "nightly-20261025-1"
+            nightly = "nightly-20261025-1" if annotated else "nightly-20261025"
             args = ("-a", "-m", "nightly build") if annotated else ()
             run_git(source, "tag", *args, nightly)
-            commit = BUILD.git(source, "rev-parse", "HEAD").stdout.strip()
 
             summary = BUILD.build(source, output, nightly=nightly)
 
             page = read(output / "docs/page.mdx")
             assert f"git checkout {nightly}\n" in page
-            assert f"image: vss:develop-{commit[:12]}\n" in page
-            assert f"VSS_RT_VLM_TAG=develop-{commit[:12]}-sbsa\n" in page
+            assert f"image: vss:{nightly}\n" in page
+            assert f"VSS_RT_VLM_TAG={nightly}-sbsa\n" in page
             assert "${VSS_DATA_DIR}" in page
             assert "RELEASE-ONLY" not in page
             assert "VSS_DOCS_" not in page
@@ -168,7 +167,7 @@ def test_nightly_preview_pins_tag_and_images_and_keeps_other_versions() -> None:
             assert 'slug: "dev"' not in versions
             assert "image: vss:1.2.0\n" in read(output / "fern/releases/v1.2.0/docs/page.mdx")
             assert read(output / "fern/versions/archives.mdx") == STATIC_PAGE
-            assert summary[0].startswith(f"{nightly} (preview) (default): {nightly} / develop-")
+            assert summary[0] == f"{nightly} (preview) (default): {nightly} / {nightly} / {nightly}-sbsa"
             assert read(source / "docs/page.mdx") == PAGE
 
 
