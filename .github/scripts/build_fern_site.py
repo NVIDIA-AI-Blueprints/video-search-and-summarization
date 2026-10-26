@@ -64,6 +64,7 @@ DEV_VALUES = {
 }
 
 RELEASE_PATTERN = re.compile(r"\d+\.\d+\.\d+")
+NIGHTLY_TAG_PATTERN = re.compile(r"nightly-[A-Za-z0-9][A-Za-z0-9._-]*")
 # A release tag, or a docs refresh of a release (a later commit on its release
 # branch). Docs tags are not `v*` tags, so no version tooling ever reads them.
 RELEASE_TAG_PATTERN = re.compile(
@@ -99,6 +100,24 @@ def release_values(release: str) -> dict[str, str]:
         GIT_REF: f"v{release}",
         IMAGE_TAG: release,
         SBSA_IMAGE_TAG: f"{release}-sbsa",
+    }
+
+
+def nightly_values(source: Path, nightly: str) -> dict[str, str]:
+    """Pin nightly docs to the selected tag and its immutable GHCR candidate."""
+    if not NIGHTLY_TAG_PATTERN.fullmatch(nightly):
+        raise BuildError(f"--nightly {nightly!r} is not a flat nightly-* tag")
+    if not tag_exists(source, nightly):
+        raise BuildError(f"{nightly}: tag is not available locally")
+    commit = git(source, "rev-parse", f"refs/tags/{nightly}^{{commit}}").stdout.strip()
+    head = git(source, "rev-parse", "HEAD").stdout.strip()
+    if commit != head:
+        raise BuildError(f"{nightly}: checkout HEAD must match the nightly tag")
+    image_tag = f"develop-{commit[:12]}"
+    return {
+        GIT_REF: nightly,
+        IMAGE_TAG: image_tag,
+        SBSA_IMAGE_TAG: f"{image_tag}-sbsa",
     }
 
 
@@ -398,6 +417,7 @@ def plan_versions(
     *,
     release: str | None,
     available: set[str],
+    nightly: str | None = None,
 ) -> list[Version]:
     """The versions to build, in order; the first is the default."""
     planned: list[Version] = []
@@ -405,8 +425,9 @@ def plan_versions(
         if is_static(version):
             planned.append(version)
         elif version.path is not None:
-            if release is not None:
-                preview = replace(version, display_name=f"{release} (preview)", slug=release)
+            if release is not None or nightly is not None:
+                label = release if release is not None else nightly
+                preview = replace(version, display_name=f"{label} (preview)", slug=label)
                 planned.insert(0, preview)
             else:
                 planned.append(version)
@@ -423,6 +444,7 @@ def build(
     fetch: bool = False,
     include_releases: bool = True,
     require_tag: str | None = None,
+    nightly: str | None = None,
 ) -> list[str]:
     """Build the output tree; return the summary lines."""
     source = source.resolve()
@@ -433,6 +455,14 @@ def build(
         raise BuildError("output path must be outside the source repository")
     if release is not None and not RELEASE_PATTERN.fullmatch(release):
         raise BuildError(f"--release {release!r} is not X.Y.Z")
+    if release is not None and nightly is not None:
+        raise BuildError("--release and --nightly are mutually exclusive")
+    if nightly is not None:
+        checkout_values = nightly_values(source, nightly)
+    elif release is not None:
+        checkout_values = release_values(release)
+    else:
+        checkout_values = DEV_VALUES
     if require_tag is not None and release_of(require_tag) is None:
         raise BuildError(f"--require-tag {require_tag!r} is not vX.Y.Z or docs-vX.Y.Z-N")
 
@@ -462,7 +492,7 @@ def build(
             f"add a `ref: {require_tag}` entry on develop"
         )
 
-    planned = plan_versions(listed, release=release, available=available)
+    planned = plan_versions(listed, release=release, available=available, nightly=nightly)
 
     copy_checkout(source, output)
     rendered: list[Version] = []
@@ -478,7 +508,7 @@ def build(
             continue
         if version.ref is None:
             root = output
-            values = release_values(release) if release is not None else DEV_VALUES
+            values = checkout_values
             rendered.append(version)
         else:
             root = output / RELEASES_DIR / version.ref
@@ -524,8 +554,12 @@ def main() -> int:
     parser.add_argument(
         "--output", type=Path, required=True, help="new directory for the Fern input tree"
     )
-    parser.add_argument(
+    preview = parser.add_mutually_exclusive_group()
+    preview.add_argument(
         "--release", help="build the checkout as release X.Y.Z (preview), the default version"
+    )
+    preview.add_argument(
+        "--nightly", help="build a checked-out nightly-* tag as the default preview version"
     )
     parser.add_argument(
         "--fetch", action="store_true", help="fetch listed release tags missing locally"
@@ -545,6 +579,7 @@ def main() -> int:
             args.source,
             args.output,
             release=args.release,
+            nightly=args.nightly,
             fetch=args.fetch,
             include_releases=not args.no_releases,
             require_tag=args.require_tag,

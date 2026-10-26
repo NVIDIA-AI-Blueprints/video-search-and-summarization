@@ -140,6 +140,75 @@ def test_dev_only_build_stamps_develop_values() -> None:
         assert "${VSS_DOCS_GIT_REF:-develop}" in read(source / "docs/page.mdx")
 
 
+def test_nightly_preview_pins_tag_and_images_and_keeps_other_versions() -> None:
+    for annotated in (False, True):
+        with tempfile.TemporaryDirectory() as directory:
+            source, output = Path(directory) / "repo", Path(directory) / "out"
+            source.mkdir()
+            make_repo(source, release_entry("1.2.0") + DEV_ENTRY + STATIC_ENTRY)
+            tag_release(source, "1.2.0", "RELEASE-ONLY")
+            add_static_version(source)
+            nightly = "nightly-20261025-1"
+            args = ("-a", "-m", "nightly build") if annotated else ()
+            run_git(source, "tag", *args, nightly)
+            commit = BUILD.git(source, "rev-parse", "HEAD").stdout.strip()
+
+            summary = BUILD.build(source, output, nightly=nightly)
+
+            page = read(output / "docs/page.mdx")
+            assert f"git checkout {nightly}\n" in page
+            assert f"image: vss:develop-{commit[:12]}\n" in page
+            assert f"VSS_RT_VLM_TAG=develop-{commit[:12]}-sbsa\n" in page
+            assert "${VSS_DATA_DIR}" in page
+            assert "RELEASE-ONLY" not in page
+            assert "VSS_DOCS_" not in page
+            versions = read(output / "fern/docs.yml")
+            assert versions.index(f'"{nightly} (preview)"') < versions.index('"1.2.0"')
+            assert f'slug: "{nightly}"' in versions
+            assert 'slug: "dev"' not in versions
+            assert "image: vss:1.2.0\n" in read(output / "fern/releases/v1.2.0/docs/page.mdx")
+            assert read(output / "fern/versions/archives.mdx") == STATIC_PAGE
+            assert summary[0].startswith(f"{nightly} (preview) (default): {nightly} / develop-")
+            assert read(source / "docs/page.mdx") == PAGE
+
+
+def test_nightly_preview_requires_matching_tag_and_exclusive_mode() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        source, output = Path(directory) / "repo", Path(directory) / "out"
+        source.mkdir()
+        make_repo(source, DEV_ENTRY)
+        nightly = "nightly-20261025"
+        expect_error("tag is not available locally", lambda: BUILD.build(source, output, nightly=nightly))
+        run_git(source, "tag", nightly)
+        expect_error(
+            "mutually exclusive",
+            lambda: BUILD.build(source, output, nightly=nightly, release="1.2.0"),
+        )
+        for invalid in ("develop", "docs/nightly-20261025", "nightly-", "nightly-test/nested"):
+            expect_error("not a flat nightly-* tag", lambda: BUILD.build(source, output, nightly=invalid))
+        run_git(source, "commit", "--allow-empty", "-q", "-m", "later commit")
+        # A same-named branch must not hide a mismatch with the tag.
+        run_git(source, "branch", nightly)
+        expect_error("HEAD must match", lambda: BUILD.build(source, output, nightly=nightly))
+        assert not output.exists()
+
+
+def test_nightly_preview_cli_builds_only_checkout() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        source, output = Path(directory) / "repo", Path(directory) / "out"
+        source.mkdir()
+        make_repo(source, release_entry("1.2.0") + DEV_ENTRY)
+        run_git(source, "tag", "nightly-20261025")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--source", str(source), "--output", str(output),
+             "--nightly", "nightly-20261025", "--no-releases"],
+            text=True, capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "nightly-20261025 (preview) (default)" in result.stdout
+        assert "./releases/" not in read(output / "fern/docs.yml")
+
+
 def test_release_tags_become_prepared_path_versions() -> None:
     with tempfile.TemporaryDirectory() as directory:
         source, output = Path(directory) / "repo", Path(directory) / "out"
@@ -536,6 +605,9 @@ def test_rejects_existing_output_and_tags_without_index() -> None:
 
 if __name__ == "__main__":
     test_dev_only_build_stamps_develop_values()
+    test_nightly_preview_pins_tag_and_images_and_keeps_other_versions()
+    test_nightly_preview_requires_matching_tag_and_exclusive_mode()
+    test_nightly_preview_cli_builds_only_checkout()
     test_release_tags_become_prepared_path_versions()
     test_missing_tag_is_skipped_and_dev_becomes_default()
     test_no_releases_builds_only_the_checkout()
