@@ -30,16 +30,17 @@ const Select = ({ onValueChange, items, value, ...rest }) =>
 const Tag = ({ children, ...rest }) =>
   React.createElement('span', rest, children);
 
-const Switch = ({ slotLabel, checked, onCheckedChange, disabled, ...rest }) =>
+const Switch = ({ slotLabel, labelSide, checked, onCheckedChange, disabled, ...rest }) =>
   React.createElement(
     'label',
-    rest,
+    null,
     React.createElement('button', {
       type: 'button',
       role: 'switch',
       'aria-checked': Boolean(checked),
       disabled,
       onClick: () => onCheckedChange?.(!checked),
+      ...rest,
     }),
     slotLabel
   );

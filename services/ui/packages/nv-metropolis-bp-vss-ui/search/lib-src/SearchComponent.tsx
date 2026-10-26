@@ -50,7 +50,7 @@ const SearchByImageOverlayComponent = dynamic(loadSearchByImageOverlay, {
 
 export const SearchComponent: React.FC<SearchComponentProps> = ({
   theme = 'light',
-  onThemeChange,
+  onThemeChange: _onThemeChange,
   isActive = true,
   searchData,
   renderControlsInLeftSidebar = false,
@@ -201,7 +201,6 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       <SearchSidebarControls
         isDark={isDark}
         theme={isDark ? 'dark' : 'light'}
-        compactLayout={renderControlsInLeftSidebar}
         outerPadding={renderControlsInLeftSidebar ? '8px 8px 12px' : 0}
         streams={streams}
         filterParams={filterParams}
@@ -317,10 +316,9 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       data-testid="search-component"
       className={`flex min-h-0 min-w-0 max-w-full flex-col h-full max-h-full ${isDark ? 'bg-black text-gray-100' : 'bg-gray-50 text-gray-900'}`}
     >
-      {/* Source type + filters live in the left sidebar when the parent app renders them
+      {/* Filters live in the left sidebar when the parent app renders them
           there; the in-tab header is the standalone-only alternative. Rendering
-          both would mount two copies of the same controls, each with its own
-          sourceType state. */}
+          both would mount two copies of the same controls. */}
       {!renderControlsInLeftSidebar && (
         <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
           <SearchHeader

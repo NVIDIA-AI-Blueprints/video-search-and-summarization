@@ -58,6 +58,15 @@ from .base import (
     resolve_vss_cmd,
     vss_origin_for,
 )
+from .cleanup import (
+    WIPE_POLL_S,
+    WIPE_TIMEOUT_S,
+    check_cleanup_hosts,
+    clear_all_videos,
+    file_sources,
+    is_rtsp,
+    wipe_index,
+)
 from .dataset import (
     DATASETS,
     DEFAULT_DATA_DIR,
@@ -234,6 +243,8 @@ __all__ = [
     "UPLOAD_URL_TIMEOUT",
     "VERIFICATION_ABSENT",
     "VST_LIST_TIMEOUT",
+    "WIPE_POLL_S",
+    "WIPE_TIMEOUT_S",
     "AgentThreeStepIngest",
     "CliExitError",
     "CliQueryBackend",
@@ -251,7 +262,9 @@ __all__ = [
     "aggregate_ingest_stats",
     "aggregate_upload_stats",
     "align_ts_to_segment",
+    "check_cleanup_hosts",
     "classify_complete_failure",
+    "clear_all_videos",
     "cli_supports_flag",
     "compare_inventory",
     "configured_base_url",
@@ -261,6 +274,7 @@ __all__ = [
     "effective_attributes",
     "ensure_vss_configured",
     "evaluate_query",
+    "file_sources",
     "filter_rejected",
     "for_scoring",
     "format_ingest_failure",
@@ -271,6 +285,7 @@ __all__ = [
     "inventory_snapshot",
     "is_fatal_exit",
     "is_registered",
+    "is_rtsp",
     "list_sensor_names",
     "list_sensor_sources",
     "list_sensor_streams",
@@ -306,4 +321,5 @@ __all__ = [
     "vst_url_for",
     "wait_for_ingest_complete",
     "wait_for_sources",
+    "wipe_index",
 ]

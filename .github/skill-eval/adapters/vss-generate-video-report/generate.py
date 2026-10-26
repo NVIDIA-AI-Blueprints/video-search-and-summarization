@@ -237,16 +237,9 @@ def generate_task(
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "evals" / spec_name
-        if not spec_src.exists():
-            legacy = skill_dir / "eval" / spec_name
-            if legacy.exists():
-                spec_src = legacy
-        if spec_src.exists():
-            shutil.copy(spec_src, tests_dir / spec_name)
-        else:
-            # Fallback: write the in-memory spec so tests/ is complete
-            (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+        # The judge must see the same platform substitution as the agent.
+        rendered_spec = json.loads(json.dumps(spec).replace("{{platform}}", platform))
+        (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
 
         # solution/
         solution_dir = step_dir / "solution"

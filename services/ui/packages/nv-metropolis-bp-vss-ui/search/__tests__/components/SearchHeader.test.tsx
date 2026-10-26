@@ -8,14 +8,11 @@ const defaultProps = {
   theme: 'light' as const,
   streams: [],
   filterParams: {
-    startDate: null,
-    endDate: null,
     videoSources: [],
     similarity: 0,
     agentMode: false,
     query: '',
     topK: 10,
-    sourceType: 'video_file',
   },
   setFilterParams: jest.fn(),
   addFilter: jest.fn(),
@@ -30,7 +27,7 @@ describe('SearchHeader', () => {
 
   it('renders without crashing', () => {
     render(<SearchHeader {...defaultProps} />);
-    expect(screen.getByText('Source Type:')).toBeInTheDocument();
+    expect(screen.getByText('Filter')).toBeInTheDocument();
   });
 
   it('does not render a query input or Search button', () => {
@@ -39,11 +36,6 @@ describe('SearchHeader', () => {
     expect(screen.queryByTestId('search-input')).not.toBeInTheDocument();
     expect(screen.queryByTestId('search-button')).not.toBeInTheDocument();
     expect(screen.queryByText('Search')).not.toBeInTheDocument();
-  });
-
-  it('renders Source Type selector', () => {
-    render(<SearchHeader {...defaultProps} />);
-    expect(screen.getByText('Source Type:')).toBeInTheDocument();
   });
 
   it('renders Filter button', () => {
@@ -63,28 +55,7 @@ describe('SearchHeader', () => {
     expect(screen.getByText('0.75')).toBeInTheDocument();
   });
 
-  it('renders Clear All button when multiple filter tags exist', () => {
-    const filterTags = [
-      { key: 'topK', title: 'Show top K Results', value: '10' },
-      { key: 'similarity', title: 'Similarity', value: '0.75' },
-    ];
-
-    render(<SearchHeader {...defaultProps} filterTags={filterTags} />);
-    expect(screen.getByText('Clear All')).toBeInTheDocument();
-  });
-
-  it('does not render Clear All when only one tag exists', () => {
-    const filterTags = [
-      { key: 'topK', title: 'Show top K Results', value: '10' },
-    ];
-
-    render(<SearchHeader {...defaultProps} filterTags={filterTags} />);
-    expect(screen.queryByText('Clear All')).not.toBeInTheDocument();
-  });
-
-  it('calls removeFilterTag and setFilterParams when a tag is closed', () => {
-    const removeFilterTag = jest.fn();
-    const setFilterParams = jest.fn();
+  it('renders Clear All when filters are not at defaults', () => {
     const filterTags = [
       { key: 'topK', title: 'Show top K Results', value: '10' },
       { key: 'similarity', title: 'Similarity', value: '0.75' },
@@ -93,27 +64,60 @@ describe('SearchHeader', () => {
     render(
       <SearchHeader
         {...defaultProps}
+        filterParams={{ ...defaultProps.filterParams, similarity: 0.75 }}
         filterTags={filterTags}
-        removeFilterTag={removeFilterTag}
-        setFilterParams={setFilterParams}
-      />
+      />,
     );
-
-    // Click the close button on the Similarity tag (topK is not closable)
-    const closeButtons = document.querySelectorAll('.rs-tag .rs-tag-btn-close, .rs-btn-close');
-    if (closeButtons.length > 0) {
-      fireEvent.click(closeButtons[0]);
-      expect(removeFilterTag).toHaveBeenCalled();
-    }
+    expect(screen.getByText('Clear All')).toBeInTheDocument();
   });
 
-  it('disables source type when contentDisabled is true', () => {
+  it('does not render Clear All when filters are at defaults', () => {
+    const filterTags = [
+      { key: 'topK', title: 'Show top K Results', value: '10' },
+      { key: 'similarity', title: 'Similarity', value: '0.00' },
+    ];
+
+    render(<SearchHeader {...defaultProps} filterTags={filterTags} />);
+    expect(screen.queryByText('Clear All')).not.toBeInTheDocument();
+  });
+
+  it('does not dismiss the Similarity tag', () => {
+    const removeFilterTag = jest.fn();
+    const filterTags = [
+      { key: 'topK', title: 'Show top K Results', value: '10' },
+      { key: 'similarity', title: 'Similarity', value: '0.00' },
+    ];
+
+    render(
+      <SearchHeader
+        {...defaultProps}
+        filterTags={filterTags}
+        removeFilterTag={removeFilterTag}
+      />,
+    );
+
+    expect(screen.getByTestId('search-similarity-filter-tag').querySelector('svg')).toBeNull();
+    fireEvent.click(screen.getByTestId('search-similarity-filter-tag'));
+    expect(removeFilterTag).not.toHaveBeenCalled();
+  });
+
+  it('disables the filter button when contentDisabled is true', () => {
     render(<SearchHeader {...defaultProps} contentDisabled={true} />);
-    expect(screen.getByTestId('search-source-type')).toBeInTheDocument();
+    expect(screen.getByTestId('search-filter-button')).toBeDisabled();
+  });
+
+  it('keeps the top K tag visible when content is disabled', () => {
+    const filterTags = [
+      { key: 'topK', title: 'Show top K Results', value: '10' },
+      { key: 'similarity', title: 'Similarity', value: '0.75' },
+    ];
+    render(<SearchHeader {...defaultProps} contentDisabled filterTags={filterTags} />);
+    expect(screen.getByText(/Show top K Results/)).toBeInTheDocument();
+    expect(screen.getByText('0.75')).toBeInTheDocument();
   });
 
   it('renders dark theme correctly', () => {
     render(<SearchHeader {...defaultProps} theme="dark" />);
-    expect(screen.getByText('Source Type:')).toBeInTheDocument();
+    expect(screen.getByText('Filter')).toBeInTheDocument();
   });
 });

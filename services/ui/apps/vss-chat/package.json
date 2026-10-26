@@ -8,11 +8,12 @@
     "build": "next build",
     "start": "next start -p 3100",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "clean": "rm -rf .next node_modules"
   },
   "dependencies": {
     "@nv-metropolis-bp-vss-ui/chat": "*",
-    "next": "16.4.0",
+    "next": "16.4.2",
     "next-runtime-env": "^1.8.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

@@ -109,7 +109,7 @@ describe('AlertsComponent sidebar controls', () => {
     });
     await settle(1200);
 
-    const toggle = screen.getByTestId('vlm-verified-toggle');
+    const toggle = screen.getByRole('switch', { name: 'VLM Verified' });
     expect(toggle.getAttribute('aria-checked')).toBe('false');
 
     await act(async () => {
@@ -118,7 +118,18 @@ describe('AlertsComponent sidebar controls', () => {
     await settle(1200);
 
     expect(pushCount).toBeLessThanOrEqual(PUSH_BUDGET);
-    expect(screen.getByTestId('vlm-verified-toggle').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('switch', { name: 'VLM Verified' }).getAttribute('aria-checked')).toBe('true');
     expect(screen.getByTestId('vlm-verdict-select')).toBeTruthy();
+  });
+
+  it('mounts Kaizen Select triggers for Fetch Settings dropdowns', async () => {
+    await act(async () => {
+      render(<SidebarHost />);
+    });
+    await settle(1200);
+
+    fireEvent.click(screen.getByTestId('alerts-settings-toggle'));
+    expect(screen.getByTestId('period-select')).toBeTruthy();
+    expect(screen.getByTestId('fetch-size-select')).toBeTruthy();
   });
 });

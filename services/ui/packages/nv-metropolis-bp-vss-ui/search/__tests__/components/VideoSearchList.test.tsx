@@ -403,7 +403,7 @@ describe('VideoSearchList', () => {
           criteria_met: { 'motion detected': true, 'face visible': false },
         },
       });
-      const { container } = render(<VideoSearchList {...defaultProps} data={[item]} />);
+      render(<VideoSearchList {...defaultProps} data={[item]} />);
 
       const metTag = screen.getByText(/motion detected/);
       expect(metTag.textContent).toContain('✓');
@@ -419,7 +419,7 @@ describe('VideoSearchList', () => {
           criteria_met: { 'passed check': true, 'failed check': false },
         },
       });
-      const { container } = render(<VideoSearchList {...defaultProps} data={[item]} />);
+      render(<VideoSearchList {...defaultProps} data={[item]} />);
 
       const metTag = screen.getByText(/passed check/);
       expect(metTag.className).toContain('text-green-');

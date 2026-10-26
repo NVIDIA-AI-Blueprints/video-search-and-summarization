@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next && rm -rf node_modules",
     "format": "prettier --write .",
-    "lint": "eslint . --ext .ts,.tsx",
+    "lint": "eslint .",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
@@ -22,7 +22,7 @@
     "@tabler/icons-react": "^3.46.0",
     "@tanstack/react-query": "^5.102.8",
     "jsdom": "27.4.0",
-    "next": "16.4.0",
+    "next": "16.4.2",
     "next-i18next": "^16.0.11",
     "next-runtime-env": "^1.8.0",
     "react": "^19.2.8",

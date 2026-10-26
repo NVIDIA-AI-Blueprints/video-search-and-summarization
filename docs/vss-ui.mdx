@@ -49,7 +49,7 @@ that provides direct access to the Agentic backend service without navigating aw
 * Context-aware queries — attach video clips from search results or alert metadata as context using the **"+ Chat"** button on video cards or the **"Generate Report"** button in alert rows
 * Agentic query results are reflected directly in the current tab's content area (e.g., search results populate the Search Tab grid), if applicable.
 * Chat history with new-conversation and folder-organization support
-* Unseen response indicator (the **Chat** button turns orange) when responses arrive while the sidebar is collapsed
+* Unseen response indicator (the **Chat** button turns orange) when responses arrive while the sidebar is collapsed, with a cancel/dismiss control to mark the response as seen without opening the sidebar
 * Send applicable agent parameters (supported based on the deployed blueprint/profile) along with the query to the agentic backend service.
 * Preserve the conversation context while working across multiple app tabs.
 
@@ -119,7 +119,10 @@ The Chat Sidebar integrates with different tabs: Example flows are:
 
 ### Unseen Response Indicator
 
-When a response arrives while the Chat Sidebar is collapsed, the round **Chat** button turns orange to indicate unseen content. Opening the Chat Sidebar marks the content as seen.
+When a response arrives while the Chat Sidebar is collapsed, the round **Chat** button turns orange to indicate unseen content. Clear the indicator by:
+
+* Opening the Chat Sidebar — viewing the content marks it as seen.
+* Clicking the **cancel** / **dismiss** (**Mark as seen**) button on the highlighted Chat button — marks content as seen without opening the sidebar.
 
 ## Tabs
 
@@ -636,7 +639,10 @@ When the Chat Sidebar is **collapsed** and no query is in flight, filters and fi
 
 **Unseen response indicator:**
 
-When a response to a query is unseen and the Chat Sidebar was closed, the round **Chat** button at the bottom right turns orange and pulses once the new response is generated to indicate unseen content. Opening the Chat Sidebar marks the content as seen and the button returns to its usual color.
+When a response to a query is unseen and the Chat Sidebar was closed, the round **Chat** button at the bottom right turns orange and pulses once the new response is generated to indicate unseen content. You can clear the indicator (mark as seen) in either of these ways:
+
+* Open the Chat Sidebar — viewing the content marks it as seen and the button returns to its usual color.
+* Click the **cancel** / **dismiss** (**Mark as seen**) button on the highlighted Chat button — marks the new content as seen and removes the indicator without opening the sidebar.
 
 ##### Agentic Query Results
 
@@ -960,9 +966,6 @@ No known issues.
 
 * Ignore the **Source Type** filter under **Search Controls**. Its options are **Video** and **RTSP**.
 * When a live RTSP stream is removed directly from NVStreamer, the VSS Search UI may still display the stream as active.
-* The Search Tab **From** and **To** timestamp filters may not be relevant for results from uploaded videos. They may apply to RTSP stream based results.
-* A completed Chat Sidebar search may show matching clips in the chat response while the Search Tab main content area stays empty without video card results.
- This may happen intermittently. Start a new chat and submit the same query again.
 
 ### Video Management Tab
 

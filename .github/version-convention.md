@@ -45,6 +45,7 @@ immutable release tree disagreeing with its own tag forever, which is worse.
 |---|---|---|
 | `vX.Y.Z` | a release | maintainers, manually, **after** stamping (below) |
 | `vX.Y.ZrcN` (also `aN`, `bN`) | develop now targets X.Y.Z; annotated, on develop | maintainers, once per line, when the line starts |
+| `docs-vX.Y.Z-N` | a docs refresh of release X.Y.Z, on its release branch (`docs/README.md`) | the product team, when the refreshed docs are validated; not a version input |
 | `nightly-*`, `dev-*`, `pr*`, anything else | bookmarks for other jobs | not a version input; **invisible to every rule here** |
 
 Everything derives from `git describe --tags --match 'v[0-9]*'`: the nearest
@@ -250,6 +251,12 @@ stamped into the committed docs, so docs need no stamp PR. Only bare `vX.Y.Z`
 tags become docs versions; pre-releases name no published image and are
 skipped. These are checkout refs and registry tags, not package versions — the
 rc marker never appears in docs. See `docs/README.md`.
+
+Separately, a `nightly-*` tag push runs `preview-nightly-docs.yml`, producing
+a named preview with the nightly checkout as its default version. Its docs
+values are `nightly-*` / `nightly-*` / `nightly-*-sbsa`, using the image aliases
+published by the nightly pipeline. Nightlies remain outside the package-version
+rules and production docs version list.
 
 ## What is deliberately out of scope
 

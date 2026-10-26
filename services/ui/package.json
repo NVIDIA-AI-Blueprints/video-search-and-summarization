@@ -21,18 +21,24 @@
         "clean": "turbo run clean"
     },
     "dependencies": {
-        "next": "16.4.0",
+        "next": "16.4.2",
         "postcss": "8.5.26"
     },
     "devDependencies": {
-        "turbo": "^2.11.10"
+        "@eslint/js": "9.39.5",
+        "eslint": "9.39.5",
+        "eslint-plugin-react": "7.37.5",
+        "eslint-plugin-react-hooks": "5.2.0",
+        "globals": "15.15.0",
+        "turbo": "^2.11.10",
+        "typescript-eslint": "8.66.0"
     },
     "overrides": {
         "preact": "10.29.8",
         "react": "19.2.8",
         "react-dom": "19.2.8",
         "next": {
-            ".": "16.4.0",
+            ".": "16.4.2",
             "postcss": "8.5.26"
         },
         "postcss": "8.5.26",
@@ -41,7 +47,7 @@
         "lodash": "4.18.1",
         "lodash-es": "4.18.1",
         "i18next-fs-backend": "2.6.7",
-        "dompurify": "3.4.16",
+        "dompurify": "3.4.17",
         "undici": "7.30.0",
         "ws": "8.21.3",
         "sharp": "0.35.5",

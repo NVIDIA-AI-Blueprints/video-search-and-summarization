@@ -117,6 +117,49 @@ Edit **`values-verification.yaml`** or **`values-realtime.yaml`** (use **one** *
 | **`global.llmName`** / **`global.vlmName`** (remote) | Model IDs. **`global.llmName`** reaches **vss-agent** **`LLM_NAME`**. **`global.vlmName`** reaches RT-VLM when **`useSharedNim`** is **`true`**. It does **not** replace **`agent.vss-agent.vlmName`** (set in both mode files) or **`vss-alert-bridge.vlmName`** (set in chart **`values.yaml`**). Both stay **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** until you set them to the ID the remote endpoint advertises. |
 | **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`**. Phoenix is at **`/phoenix`** on the main host unless **`vssIngress.phoenixHost`** is set. Kibana and NVStreamer get **`kibana.<host>`** and **`streamer.<host>`** when those workloads are enabled. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`vssIngress.host`** can stand in for **`global.externalHost`** for the Ingress rule only. Browser URLs still need **`global.externalHost`**. Mode sample files enable this by default. |
 
+#### RT-VLM GPU-memory configuration
+
+Configure the memory budget before installing an integrated local RT-VLM.
+Use the Docker Compose reference for the mode you are installing:
+
+- **Verification:** [Alert Verification hardware tabs](https://docs.nvidia.com/vss/vision-agent/agent-workflows/alert-verification#direct-docker-compose-overrides)
+  ([source in this checkout](../../../../docs/agent-workflow-alert-verification.mdx#direct-docker-compose-overrides)).
+- **Real-time:** [Real-Time Alerts hardware tabs](https://docs.nvidia.com/vss/vision-agent/agent-workflows/real-time-alerts#direct-docker-compose-overrides)
+  ([source in this checkout](../../../../docs/agent-workflow-rt-alert.mdx#direct-docker-compose-overrides)).
+
+Select your hardware and deployment layout, using documentation for the same
+release as your checkout. The links above also include the source for this checkout.
+
+Map the reference's `RTVI_VLLM_GPU_MEMORY_UTILIZATION` to the Helm override below.
+If the selected tab omits the variable, use its default from this profile's
+[Docker environment template](../../../docker/developer-profiles/dev-profile-alerts/overrides.env).
+An empty Compose value maps to `""` in Helm, preserving the RT-VLM runtime fallback;
+omitting the Helm override instead retains this chart's environment default.
+Merge this block into the selected `values-verification.yaml` or
+`values-realtime.yaml`, preserving any existing `rtvi` settings and
+`envOverrides` entries:
+
+```yaml
+rtvi:
+  vss-rtvi-vlm:
+    envOverrides:
+      VLLM_GPU_MEMORY_UTILIZATION: "<value-from-profile-reference>"
+```
+
+Replace the placeholder with the selected value and keep it quoted. Use
+`envOverrides` rather than replacing the complete `env` list. For an installation
+using inline flags, pass
+`--set-string rtvi.vss-rtvi-vlm.envOverrides.VLLM_GPU_MEMORY_UTILIZATION='<value-from-profile-reference>'`.
+
+`nims.gpuType` selects NIM tuning only; it does not adjust RT-VLM's memory budget
+or select a GPU node. Each GPU workload requests its own GPU, so use the
+reference's dedicated-GPU layout. Compose device-ID variables are not needed:
+Kubernetes assigns the devices. On clusters with multiple GPU types, also set
+a **`nodeSelector`** on the GPU workloads for the intended hardware. The RT-VLM and NIM charts read **`nodeSelector`** only.
+
+This override applies only when RT-VLM loads a model locally. For an external
+VLM, configure the memory budget at that model's serving deployment.
+
 #### Mode values files vs chart `values.yaml`
 
 | File | Role |

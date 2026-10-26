@@ -18,12 +18,14 @@
 {{- $host := default .Values.global.externalHost $vi.host }}
 {{- $kibanaHost := default (printf "kibana.%s" $host) $vi.kibanaHost }}
 {{- $phoenixHost := $vi.phoenixHost | default "" | trim }}
+{{- $streamerHost := default (printf "streamer.%s" $host) $vi.streamerHost }}
 {{- $infra := .Values.infra | default dict }}
 {{- $fk := index $infra "kibana" | default dict }}
 {{- $fp := index $infra "phoenix" | default dict }}
 {{- $fes := index $infra "elasticsearch" | default dict }}
 {{- $vios := .Values.vios | default dict }}
 {{- $viosIngress := index $vios "vss-vios-ingress" | default dict }}
+{{- $nvstreamer := index $vios "vss-vios-nvstreamer" | default dict }}
 {{- $agentRoot := .Values.agent | default dict }}
 {{- $agent := index $agentRoot "vss-agent" | default dict }}
 {{- $vaMcp := index $agentRoot "vss-va-mcp" | default dict }}
@@ -35,6 +37,7 @@
        treats an explicit `false` as empty and would hand back the default,
        mounting a route at a Service that was never created. */}}
 {{- $en := "vss.ingress.enabled" }}
+{{- $streamerEnabled := and (include $en (dict "vals" $vios "default" true)) (include $en (dict "vals" $nvstreamer "default" false)) }}
 {{- $infraOn := include $en (dict "vals" $infra "default" true) }}
 {{- $agentUmbrellaOn := include $en (dict "vals" $agentRoot "default" true) }}
 {{- $rtviOn := include $en (dict "vals" $rtvi "default" true) }}
@@ -150,6 +153,18 @@ spec:
                 name: {{ (index $b "phoenix").service }}
                 port:
                   number: {{ (index $b "phoenix").port }}
+{{- end }}
+{{- if $streamerEnabled }}
+    - host: {{ $streamerHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.vios.objectName" (dict "root" . "chart" "vss-vios-nvstreamer") }}
+                port:
+                  number: {{ ($nvstreamer.service | default dict).port | default 31000 }}
 {{- end }}
 {{- end }}
 {{- end }}

@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
+import requests
 
 # scripts/tests -> scripts
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -1719,7 +1720,7 @@ def _wipe_fakes(monkeypatch: Any, states: list[tuple[dict[str, str], dict[str, i
     Any POST fails the test: the ingress answers ``_delete_by_query`` with 403,
     so the wipe must only delete sources and wait.
     """
-    import run_eval_flows as rf
+    from flows import cleanup
 
     calls: dict[str, Any] = {"cleared": 0, "reads": 0}
 
@@ -1731,17 +1732,17 @@ def _wipe_fakes(monkeypatch: Any, states: list[tuple[dict[str, str], dict[str, i
         calls["cleared"] += 1
         return {"found": 2, "deleted": 2, "failed": [], "names": ["a", "b"]}
 
-    monkeypatch.setattr(rf, "_index_state", _state)
-    monkeypatch.setattr(rf, "clear_all_videos", _clear)
-    monkeypatch.setattr(rf.requests, "post", lambda *_a, **_k: pytest.fail("the ingress refuses deletes"))
+    monkeypatch.setattr(cleanup, "_index_state", _state)
+    monkeypatch.setattr(cleanup, "clear_all_videos", _clear)
+    monkeypatch.setattr(cleanup.requests, "post", lambda *_a, **_k: pytest.fail("the ingress refuses deletes"))
     return calls
 
 
 def test_wipe_deletes_nothing_when_the_index_is_already_clean(monkeypatch: Any) -> None:
-    import run_eval_flows as rf
+    from flows import cleanup
 
     calls = _wipe_fakes(monkeypatch, [({}, dict(_EMPTY_COUNTS))])
-    out = rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
+    out = cleanup.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
 
     assert out["clean_before"] is True
     assert calls["cleared"] == 0
@@ -1749,11 +1750,11 @@ def test_wipe_deletes_nothing_when_the_index_is_already_clean(monkeypatch: Any) 
 
 def test_wipe_aborts_at_once_on_documents_no_source_owns(monkeypatch: Any) -> None:
     """No webhook will ever delete them, so waiting would only delay the abort."""
-    import run_eval_flows as rf
+    from flows import cleanup
 
     calls = _wipe_fakes(monkeypatch, [({}, {**_EMPTY_COUNTS, "raw": 40})])
     with pytest.raises(SystemExit, match="no source") as exc:
-        rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
+        cleanup.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
 
     assert "raw=40" in str(exc.value)
     assert "mdx-raw-2025-01-01" in str(exc.value)
@@ -1762,14 +1763,14 @@ def test_wipe_aborts_at_once_on_documents_no_source_owns(monkeypatch: Any) -> No
 
 def test_wipe_deletes_sources_and_waits_for_their_webhooks(monkeypatch: Any) -> None:
     """Documents drain after the sources go; a late write resets the count."""
-    import run_eval_flows as rf
+    from flows import cleanup
 
     dirty = (_fake_streams(), {**_EMPTY_COUNTS, "embed": 9})
     draining = ({}, {**_EMPTY_COUNTS, "embed": 4})
     empty = ({}, dict(_EMPTY_COUNTS))
     late = ({}, {**_EMPTY_COUNTS, "tags": 3})
     calls = _wipe_fakes(monkeypatch, [dirty, draining, empty, late, empty, empty])
-    out = rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
+    out = cleanup.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
 
     assert calls["cleared"] == 1
     assert calls["reads"] == 6
@@ -1779,45 +1780,45 @@ def test_wipe_deletes_sources_and_waits_for_their_webhooks(monkeypatch: Any) -> 
 
 
 def test_wipe_names_leftover_documents_when_they_never_drain(monkeypatch: Any) -> None:
-    import run_eval_flows as rf
+    from flows import cleanup
 
     _wipe_fakes(monkeypatch, [(_fake_streams(), dict(_EMPTY_COUNTS)), ({}, {**_EMPTY_COUNTS, "raw": 1})])
     clock = _FakeClock()
     with pytest.raises(SystemExit, match="documents with no source"):
-        rf.wipe_index(
+        cleanup.wipe_index(
             "https://h:8000", "https://h:30888", "https://h:7777",
             timeout_s=30, poll_s=5, clock=clock, sleep=clock.sleep,
         )
 
 
 def test_wipe_aborts_when_sources_keep_registering(monkeypatch: Any) -> None:
-    import run_eval_flows as rf
+    from flows import cleanup
 
     _wipe_fakes(monkeypatch, [(_fake_streams(), dict(_EMPTY_COUNTS))])
     clock = _FakeClock()
     with pytest.raises(SystemExit, match="still registered"):
-        rf.wipe_index(
+        cleanup.wipe_index(
             "https://h:8000", "https://h:30888", "https://h:7777",
             timeout_s=30, poll_s=5, clock=clock, sleep=clock.sleep,
         )
 
 
 def test_wipe_aborts_when_a_source_will_not_delete(monkeypatch: Any) -> None:
-    import run_eval_flows as rf
+    from flows import cleanup
 
     _wipe_fakes(monkeypatch, [(_fake_streams(), dict(_EMPTY_COUNTS))])
     monkeypatch.setattr(
-        rf, "clear_all_videos", lambda *_a: {"found": 4, "deleted": 3, "failed": ["x"], "names": []}
+        cleanup, "clear_all_videos", lambda *_a: {"found": 4, "deleted": 3, "failed": ["x"], "names": []}
     )
     with pytest.raises(SystemExit, match="could not be deleted"):
-        rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
+        cleanup.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
 
 
 def test_the_wipe_deletes_uploaded_files_and_never_an_rtsp_camera(monkeypatch: Any) -> None:
     """Deleting a camera also deletes its VST storage, and this eval never reads its indexes."""
-    import run_eval_flows as rf
+    from flows import cleanup
 
-    monkeypatch.setattr(rf.flows, "list_sensor_sources", lambda _u: {
+    monkeypatch.setattr(cleanup, "list_sensor_sources", lambda _u: {
         "f1": {"name": "1219", "url": "/storage/1219.mp4"},
         "c1": {"name": "dock_cam", "url": "rtsp://cam/dock"},
         "f2": {"name": "video_00570.mp4", "url": ""},
@@ -1834,32 +1835,43 @@ def test_the_wipe_deletes_uploaded_files_and_never_an_rtsp_camera(monkeypatch: A
         deleted.append(url.rsplit("/", 1)[-1])
         return _Ok()
 
-    monkeypatch.setattr(rf.requests, "delete", _delete)
-    out = rf.clear_all_videos("https://h:8000", "https://h:30888")
+    monkeypatch.setattr(cleanup.requests, "delete", _delete)
+    out = cleanup.clear_all_videos("https://h:8000", "https://h:30888")
 
     assert sorted(deleted) == ["f1", "f2"]
     assert out["deleted"] == 2
     assert out["kept_rtsp"] == ["dock_cam"]
-    files, rtsp = rf.file_sources("https://h:30888")
+    files, rtsp = cleanup.file_sources("https://h:30888")
     assert set(files) == {"f1", "f2"} and rtsp == ["dock_cam"]
 
 
 def test_wipe_refuses_endpoints_on_different_hosts() -> None:
-    import run_eval_flows as rf
+    from flows import cleanup
 
-    rf.check_cleanup_hosts("https://h:8000", "https://h:30888", "https://h:7777")
+    cleanup.check_cleanup_hosts("https://h:8000", "https://h:30888", "https://h:7777")
     with pytest.raises(SystemExit, match="--ingress-url"):
-        rf.check_cleanup_hosts("https://h:8000", "https://h:30888", "https://other:7777")
+        cleanup.check_cleanup_hosts("https://h:8000", "https://h:30888", "https://other:7777")
     with pytest.raises(SystemExit, match="--vst-url"):
-        rf.check_cleanup_hosts("https://h:8000", "https://other:30888", "https://h:7777")
+        cleanup.check_cleanup_hosts("https://h:8000", "https://other:30888", "https://h:7777")
 
 
 def test_every_loopback_spelling_is_one_host_to_the_wipe() -> None:
-    import run_eval_flows as rf
+    from flows import cleanup
 
-    rf.check_cleanup_hosts("https://localhost:8000", "https://[::1]:30888", "https://127.0.0.1:7777")
+    cleanup.check_cleanup_hosts("https://localhost:8000", "https://[::1]:30888", "https://127.0.0.1:7777")
     with pytest.raises(SystemExit, match="--ingress-url"):
-        rf.check_cleanup_hosts("https://localhost:8000", "https://127.0.0.1:30888", "https://other:7777")
+        cleanup.check_cleanup_hosts("https://localhost:8000", "https://127.0.0.1:30888", "https://other:7777")
+
+
+@pytest.mark.parametrize("endpoint", ["localhost:8000", "h:8000", "https:///api", ""])
+def test_wipe_refuses_an_endpoint_with_no_hostname(endpoint: str) -> None:
+    """Host-less URLs all parse to hostname None, so None == None would pass the host check."""
+    from flows import cleanup
+
+    with pytest.raises(SystemExit, match="no hostname"):
+        cleanup.check_cleanup_hosts(endpoint, "other:30888", "other:7777")
+    with pytest.raises(SystemExit, match="no hostname"):
+        cleanup.check_cleanup_hosts(endpoint, endpoint, endpoint)
 
 
 def test_skip_ingest_aborts_when_a_dataset_video_is_not_registered(monkeypatch: Any) -> None:
@@ -1996,6 +2008,74 @@ def test_indexed_counts_rejects_a_malformed_response(monkeypatch: Any) -> None:
     monkeypatch.setattr(ir.requests, "get", lambda *_a, **_k: _EsResp({"error": "nope"}))
     with pytest.raises(ir.IngestPollError):
         ir.indexed_counts("https://h:7777")
+
+
+@pytest.mark.parametrize(
+    ("counts", "exit_code", "embed_only_warning"),
+    [
+        ({"embed": 5, "raw": 7, "behavior": 3}, 0, False),
+        ({"embed": 5, "raw": 7, "behavior": 0}, 0, True),
+        ({"embed": 0, "raw": 7, "behavior": 3}, 1, False),
+    ],
+)
+def test_check_indices_exit_code_tracks_the_embed_index(
+    monkeypatch: Any, capsys: Any, counts: dict[str, int], exit_code: int, embed_only_warning: bool
+) -> None:
+    """Require embed documents; warn, but pass, when attribute/fusion have no behavior documents."""
+    import run_eval_flows as rf
+
+    monkeypatch.setattr(rf.flows, "indexed_counts", lambda _url: counts)
+    assert rf.check_indices("https://h:7777") == exit_code
+    out = capsys.readouterr()
+    for index in flows.SEARCHED_INDEXES.values():
+        assert index in out.out
+    assert ("Step 4" in out.err) is bool(exit_code)
+    assert ("only the embed path" in out.err) is embed_only_warning
+
+
+@pytest.mark.parametrize("error", [requests.ConnectionError("refused"), ValueError("malformed")])
+def test_check_indices_reports_a_failed_read_as_exit_1(monkeypatch: Any, capsys: Any, error: Exception) -> None:
+    import run_eval_flows as rf
+
+    def _fail(_url: str) -> dict[str, int]:
+        raise error
+
+    monkeypatch.setattr(rf.flows, "indexed_counts", _fail)
+    assert rf.check_indices("https://h:7777") == 1
+    assert str(error) in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("extra_argv", "expected_url"),
+    [
+        ([], "https://h:7777"),
+        (["--vss-origin-port", "9999"], "https://h:9999"),
+        (["--ingress-url", "https://ingress.example"], "https://ingress.example"),
+    ],
+)
+def test_check_indices_reads_the_gate_ingress_and_exits_before_anything_else(
+    monkeypatch: Any, extra_argv: list[str], expected_url: str
+) -> None:
+    """The same ingress the wipe and the ingest gate read; nothing is listed, deleted or uploaded."""
+    import run_eval_flows as rf
+
+    seen: list[str] = []
+    monkeypatch.setattr(rf, "check_indices", lambda url: seen.append(url) or 0)
+    monkeypatch.setattr(rf.flows, "wipe_index", lambda *_a, **_k: pytest.fail("--check-indices must not wipe"))
+    monkeypatch.setattr(sys, "argv", ["run_eval_flows.py", "--endpoint", "https://h:8000", "--check-indices", *extra_argv])
+    with pytest.raises(SystemExit) as exc:
+        rf.main()
+    assert exc.value.code == 0
+    assert seen == [expected_url]
+
+
+def test_check_indices_refuses_dry_run(capsys: Any) -> None:
+    import run_eval_flows as rf
+
+    with pytest.raises(SystemExit) as exc:
+        rf.parse_args(["--endpoint", "https://h:8000", "--check-indices", "--dry-run"])
+    assert exc.value.code == 2
+    assert "cannot be combined with --dry-run" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

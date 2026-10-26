@@ -43,8 +43,6 @@ describe('useFilter', () => {
     const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
 
     expect(result.current.filterParams).toEqual({
-      startDate: null,
-      endDate: null,
       videoSources: [],
       similarity: 0,
       agentMode: false,
@@ -53,6 +51,7 @@ describe('useFilter', () => {
     });
 
     expect(result.current.filterTags).toEqual([
+      { key: 'similarity', title: 'Similarity', value: '0.00' },
       { key: 'topK', title: 'Show top K Results', value: DEFAULT_TOP_K.toString() },
     ]);
   });
@@ -120,8 +119,6 @@ describe('useFilter', () => {
 
       act(() => {
         result.current.addFilter({
-          startDate: new Date(2024, 0, 1),
-          endDate: new Date(2024, 0, 31),
           videoSources: ['cam-1', 'cam-2'],
           similarity: 0.75,
           topK: 5,
@@ -129,22 +126,18 @@ describe('useFilter', () => {
       });
 
       const tagKeys = result.current.filterTags.map((t: FilterTag) => t.key);
-      expect(tagKeys).toContain('startDate');
-      expect(tagKeys).toContain('endDate');
       expect(tagKeys).toContain('videoSources');
       expect(tagKeys).toContain('similarity');
       expect(tagKeys).toContain('topK');
     });
 
-    it('creates only topK tag when no other filters set', () => {
+    it('keeps the similarity tag when the threshold is zero', () => {
       global.fetch = mockFetchResponse([]);
 
       const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
 
       act(() => {
         result.current.addFilter({
-          startDate: null,
-          endDate: null,
           videoSources: [],
           similarity: 0,
           topK: 10,
@@ -152,6 +145,7 @@ describe('useFilter', () => {
       });
 
       expect(result.current.filterTags).toEqual([
+        { key: 'similarity', title: 'Similarity', value: '0.00' },
         { key: 'topK', title: 'Show top K Results', value: '10' },
       ]);
     });
@@ -166,6 +160,7 @@ describe('useFilter', () => {
       });
 
       expect(result.current.filterTags).toEqual([
+        { key: 'similarity', title: 'Similarity', value: '0.00' },
         { key: 'topK', title: 'Show top K Results', value: DEFAULT_TOP_K.toString() },
       ]);
     });
@@ -192,20 +187,20 @@ describe('useFilter', () => {
 
       act(() => {
         result.current.addFilter({
-          startDate: new Date(2024, 0, 1),
+          videoSources: ['cam-1'],
           similarity: 0.5,
           topK: 10,
         });
       });
 
-      const startTag = result.current.filterTags.find((t: FilterTag) => t.key === 'startDate');
+      const sourcesTag = result.current.filterTags.find((t: FilterTag) => t.key === 'videoSources');
 
       act(() => {
-        result.current.removeFilterTag(startTag);
+        result.current.removeFilterTag(sourcesTag);
       });
 
       const tagKeys = result.current.filterTags.map((t: FilterTag) => t.key);
-      expect(tagKeys).not.toContain('startDate');
+      expect(tagKeys).not.toContain('videoSources');
       expect(tagKeys).toContain('similarity');
     });
 
@@ -221,8 +216,7 @@ describe('useFilter', () => {
 
       act(() => {
         result.current.addFilter({
-          startDate: new Date(2024, 0, 1),
-          endDate: new Date(2024, 0, 31),
+          videoSources: ['cam-1'],
           topK: 20,
         });
       });
@@ -233,6 +227,7 @@ describe('useFilter', () => {
 
       // removeFilterTag(null) reads filterParams.topK which is now 20
       expect(result.current.filterTags).toEqual([
+        { key: 'similarity', title: 'Similarity', value: '0.00' },
         { key: 'topK', title: 'Show top K Results', value: '20' },
       ]);
     });

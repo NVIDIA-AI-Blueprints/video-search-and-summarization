@@ -1,8 +1,41 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { AlertsSidebarControls } from '../../lib-src/components/AlertsSidebarControls';
+
+jest.mock('@nvidia/foundations-react-core', () => {
+  const React = require('react');
+  return {
+    Select: React.forwardRef(({ items, onValueChange, value, ...rest }: any, ref: any) =>
+      React.createElement(
+        'select',
+        {
+          ...rest,
+          ref,
+          value,
+          onChange: (e: any) => onValueChange?.(e.target.value),
+        },
+        items?.map((item: any) =>
+          React.createElement('option', { key: item.value, value: item.value }, item.children),
+        ),
+      ),
+    ),
+    Switch: React.forwardRef(({ checked, onCheckedChange, slotLabel, labelSide: _labelSide, ...rest }: any, ref: any) =>
+      React.createElement('input', {
+        ...rest,
+        ref,
+        type: 'checkbox',
+        checked,
+        'aria-label': slotLabel,
+        onChange: (e: any) => onCheckedChange?.(e.target.checked),
+      }),
+    ),
+    Tag: React.forwardRef(({ children, ...rest }: any, ref: any) =>
+      React.createElement('button', { ...rest, ref, type: 'button' }, children),
+    ),
+  };
+});
 
 const defaultViewProps = {
   isDark: false,

@@ -22,6 +22,111 @@ _SESSION_PATH = re.compile(
 )
 
 
+class NativeInferenceError(RuntimeError):
+    """Carry only classified, non-secret failure metadata across the handoff."""
+
+    def __init__(self, reason: str, **metadata: int | bool) -> None:
+        self.reason = reason
+        self.metadata = metadata
+        # Private operational evidence, never included in readiness metadata
+        # or the exception string. Filled only after a trusted session read.
+        self._session_evidence: tuple[dict[str, Any], str] | None = None
+        super().__init__(f"native inference failed: {reason}")
+
+
+def _native_error(detail: str, default: str, **metadata: int | bool) -> NativeInferenceError:
+    detail = detail.lower()
+    reason = default
+    for category, markers in (
+        ("compaction_timeout", ("compaction timed out", "compaction timeout")),
+        ("rate_limited", ("too many requests", "rate limit", "status 429", "http 429")),
+        ("authentication_failed", ("unauthorized", "authentication failed", "invalid api key")),
+        ("policy_denied", ("policy_denied", "policy denied", "connect tunnel failed, response 403")),
+        ("context_limit", ("maximum context length", "context length exceeded", "context window exceeded")),
+        ("transport_reset", ("connection reset", "broken pipe", "connection closed")),
+        ("request_timeout", ("timed out", "deadline exceeded")),
+        ("invalid_request", ("bad request", "invalid_request_error")),
+    ):
+        if any(marker in detail for marker in markers):
+            reason = category
+            break
+    status = re.search(r"\b(?:http(?:/[\d.]+)?|status(?:_code)?)\s*[:=]?\s*([45]\d\d)\b", detail)
+    if not status:
+        # OpenClaw's provider errorMessage often starts with the HTTP code.
+        status = re.match(r"\s*([45]\d\d)\b", detail)
+    if status:
+        metadata["http_status"] = int(status[1])
+    return NativeInferenceError(reason, **metadata)
+
+
+def _native_command_failure(result: subprocess.CompletedProcess[str]) -> NativeInferenceError:
+    return _native_error(
+        (result.stderr or "") + "\n" + (result.stdout or ""),
+        "command_failed", command_exit_code=result.returncode,
+    )
+
+
+def _policy_denials(raw: str) -> list[dict[str, Any]]:
+    """Reduce OpenShell audit lines to metadata, never commands or raw reasons."""
+    rows: list[dict[str, Any]] = []
+    categories = {
+        "identity_resolution": ("resolve peer binary", "identity binding"),
+        "binary_integrity": ("binary integrity", "ancestor integrity"),
+        "binary_policy": ("not allowed in policy",),
+        "policy_changed": ("policy generation changed", "policy changed"),
+        "endpoint_policy": ("no matching endpoint", "no matching policy"),
+        "destination_policy": ("allowed_ips", "internal IP without"),
+    }
+    for line in raw.splitlines():
+        if "DENIED" not in line:
+            continue
+        row: dict[str, Any] = {}
+        target = re.search(
+            r"(?:->\s*(?:(?:GET|POST|PUT|DELETE|HEAD|CONNECT)\s+)?(?:https?://)?|CONNECT\s+)"
+            r"([a-zA-Z0-9.-]+):([0-9]{1,5})\b", line,
+        )
+        if target and 1 <= int(target[2]) <= 65535:
+            row.update(host=target[1], port=int(target[2]))
+        binary = re.search(r"DENIED (/usr/(?:local/)?(?:bin|vss/bin)/[a-zA-Z0-9_.+-]+)\([0-9]+\)", line)
+        if binary:
+            row["binary"] = binary[1]
+        policy = re.search(r"\[policy:([a-zA-Z0-9_-]+) engine:", line)
+        if policy:
+            row["policy"] = policy[1] if policy[1] in {
+                "vss-backend", "vss-k8s-ingress", "inference", "default-egress", "bypass-detect",
+            } else "other"
+        if not row:
+            continue
+        row["reason"] = next(
+            (name for name, markers in categories.items() if any(marker in line for marker in markers)),
+            "unspecified",
+        )
+        if row not in rows:
+            rows.append(row)
+    return rows[-20:]
+
+
+def _capture_policy_denials(sandbox: str, agent_log_dir: Path) -> None:
+    """Best-effort bounded diagnostics before the sandbox is cleaned up."""
+    report: dict[str, Any] = {"scope": "recent sandbox history; may include earlier trials"}
+    try:
+        result = subprocess.run(
+            ["openshell", "logs", sandbox, "--source", "all", "-n", "200"],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, errors="replace", timeout=20, check=False,
+        )
+        report["exit_code"] = result.returncode
+        if result.returncode == 0:
+            report["denials"] = _policy_denials(result.stdout)
+    except Exception as exc:
+        report["exception_type"] = type(exc).__name__
+    artifact = agent_log_dir.parent / "artifacts" / "nemoclaw" / "network-denials.json"
+    try:
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        pass  # Diagnostics must not replace the original trial result.
+
+
 def _load_env_file(path: Path) -> None:
     if not path.exists():
         return
@@ -153,17 +258,31 @@ def _wait_sandbox_ready(sandbox: str, row: dict[str, Any]) -> None:
         time.sleep(min(3, max(0, deadline - time.monotonic())))
 
 
-def _probe_local_inference(sandbox: str, row: dict[str, Any]) -> None:
+def _probe_inference(sandbox: str, row: dict[str, Any]) -> None:
     expected = os.environ["NEMOCLAW_MODEL"]
-    envelope, _ = _run_openclaw(
-        sandbox, "Reply with OK only. Do not use tools or change any files.", 120,
-    )
-    meta = envelope.get("meta", {})
-    agent_meta = meta.get("agentMeta", {})
-    if meta.get("aborted") is not False or agent_meta.get("model") != expected:
-        raise RuntimeError("sandbox inference did not complete through the selected local model")
-    if not any(payload.get("text") for payload in envelope.get("payloads", []) if isinstance(payload, dict)):
-        raise RuntimeError("sandbox inference returned no assistant response")
+    started = time.monotonic()
+    try:
+        envelope, _ = _run_openclaw(
+            sandbox, "Reply with OK only. Do not use tools or change any files.", 120,
+        )
+        meta = envelope.get("meta")
+        if not isinstance(meta, dict) or not isinstance(meta.get("agentMeta"), dict):
+            raise NativeInferenceError("invalid_metadata")
+        agent_meta = meta["agentMeta"]
+        row["model_matches"] = agent_meta.get("model") == expected
+        if meta.get("aborted") is not False:
+            raise NativeInferenceError("aborted" if meta.get("aborted") is True else "abort_status_missing")
+        if not row["model_matches"]:
+            raise NativeInferenceError("model_mismatch")
+        payloads = envelope.get("payloads") or []
+        if not any(isinstance(p, dict) and isinstance(p.get("text"), str) and p["text"].strip() for p in payloads):
+            raise NativeInferenceError("empty_response")
+    except NativeInferenceError as exc:
+        row["reason"] = exc.reason
+        row.update(exc.metadata)
+        raise
+    finally:
+        row["elapsed_seconds"] = round(time.monotonic() - started, 3)
     row["model"] = expected
     row["provider"] = agent_meta.get("provider")
     row["usage"] = {key: _int(agent_meta.get("usage", {}).get(key)) for key in ("input", "cacheRead", "output")}
@@ -182,16 +301,16 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
     ]
     if setup:
         probes.insert(0, ("sandbox_phase", None))
-        if os.environ.get("SKILL_EVAL_LOCAL_NIM_API_KEY"):
-            probes.append(("local_inference", None))
+        inference_stage = "local_inference" if os.environ.get("SKILL_EVAL_LOCAL_NIM_API_KEY") else "hosted_inference"
+        probes.append((inference_stage, None))
     for stage, command in probes:
         row: dict[str, Any] = {"stage": stage, "status": "failed"}
         stages.append(row)
         try:
             if stage == "sandbox_phase":
                 _wait_sandbox_ready(sandbox, row)
-            elif stage == "local_inference":
-                _probe_local_inference(sandbox, row)
+            elif stage in ("local_inference", "hosted_inference"):
+                _probe_inference(sandbox, row)
             elif command is None:
                 if setup:
                     if not _gateway_healthy(sandbox):
@@ -199,10 +318,13 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
                 else:
                     _ensure_gateway(sandbox)
             else:
+                if stage != "sandbox_access":
+                    row["execution_environment"] = "nemoclaw_runtime"
                 # Canonical device scope approval can settle asynchronously.
                 # Wait only for that explicit state; bad credentials and other
                 # failures are not disguised as slow gateway startup.
                 deadline = time.monotonic() + 90
+                pairing_recovery_attempted = False
                 while True:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -211,7 +333,8 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
                     timeout = min(30 if stage == "gateway_authentication" else 90, remaining)
                     row["attempts"] = row.get("attempts", 0) + 1
                     try:
-                        result = _sandbox_exec(sandbox, command, timeout=timeout)
+                        execute = _sandbox_exec if stage == "sandbox_access" else _nemoclaw_exec
+                        result = execute(sandbox, command, timeout=timeout)
                     except subprocess.TimeoutExpired:
                         if row.get("reason") != "pairing_pending":
                             raise
@@ -229,10 +352,32 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
                         row.pop("reason", None)
                     remaining = deadline - time.monotonic()
                     if not pending or remaining <= 0:
+                        if pending:
+                            row["reason"] = "pairing_deadline"
                         break
-                    time.sleep(min(3, remaining))
+                    if not pairing_recovery_attempted:
+                        # The watcher did not settle this explicit request.
+                        # NemoClaw owns allowlisted device approval; its probe
+                        # path repairs pending pairing without opening SSH.
+                        # Never approve raw requests or rewrite auth stores.
+                        pairing_recovery_attempted = True
+                        try:
+                            recovery = subprocess.run(
+                                ["nemoclaw", sandbox, "connect", "--probe-only"],
+                                stdin=subprocess.DEVNULL, capture_output=True,
+                                text=True, timeout=min(30, remaining), check=False,
+                            )
+                            row["pairing_recovery_exit_code"] = recovery.returncode
+                        except subprocess.TimeoutExpired:
+                            row["pairing_recovery_timeout"] = True
+                        remaining = deadline - time.monotonic()
+                    time.sleep(min(3, max(0, remaining)))
                 row["exit_code"] = result.returncode
                 if result.returncode != 0:
+                    if stage == "vss_configuration":
+                        output = ((result.stderr or "") + (result.stdout or "")).lower()
+                        if "403" in output and "tunnel" in output:
+                            row["reason"] = "proxy_tunnel_denied"
                     raise RuntimeError(f"NemoClaw readiness failed at {stage} (exit {result.returncode})")
                 if stage == "gateway_authentication" and _json_object(result.stdout).get("ok") is not True:
                     row["reason"] = "invalid_health_response"
@@ -241,7 +386,8 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
         except Exception as exc:
             row["exception_type"] = type(exc).__name__
             if setup:
-                raise RuntimeError(f"NemoClaw readiness failed at {stage}: {type(exc).__name__}") from exc
+                reason = f" ({row['reason']})" if row.get("reason") else ""
+                raise RuntimeError(f"NemoClaw readiness failed at {stage}: {type(exc).__name__}{reason}") from exc
             raise
         finally:
             # Metadata only: never store gateway tokens, config or raw output.
@@ -370,15 +516,15 @@ def _session_file(envelope: dict[str, Any]) -> str:
 
 def _set_native_usage(envelope: dict[str, Any], totals: dict[str, int]) -> None:
     if totals["turns"] < 1:
-        raise RuntimeError("OpenClaw session contained no assistant turns")
+        raise NativeInferenceError("session_no_assistant", assistant_turns=totals["turns"])
     if totals["input"] + totals["cacheRead"] < 1:
-        raise RuntimeError("OpenClaw session contained no native token usage")
+        raise NativeInferenceError("session_no_usage", assistant_turns=totals["turns"])
     meta = envelope.setdefault("meta", {})
     if not isinstance(meta, dict):
-        raise RuntimeError("OpenClaw result metadata is invalid")
+        raise NativeInferenceError("invalid_metadata")
     agent_meta = meta.setdefault("agentMeta", {})
     if not isinstance(agent_meta, dict):
-        raise RuntimeError("OpenClaw agent metadata is invalid")
+        raise NativeInferenceError("invalid_metadata")
     usage = agent_meta.setdefault("usage", {})
     if not isinstance(usage, dict):
         usage = {}
@@ -386,6 +532,43 @@ def _set_native_usage(envelope: dict[str, Any], totals: dict[str, int]) -> None:
     for key in ("input", "cacheRead", "output"):
         if _int(usage.get(key)) == 0:
             usage[key] = totals[key]
+
+
+def _check_native_session(envelope: dict[str, Any], session_jsonl: str, totals: dict[str, int]) -> None:
+    """Preserve a provider failure before zero usage can hide its cause.
+
+    OpenClaw can return exit 0 and a JSON result after its agent timeout,
+    recording the provider error only in the last assistant session message.
+    Never retain that raw message: it may contain request data or credentials.
+    """
+    metadata: dict[str, int | bool] = {
+        "assistant_turns": totals["turns"],
+        "input_tokens": totals["input"],
+        "cache_read_tokens": totals["cacheRead"],
+        "output_tokens": totals["output"],
+    }
+    meta = envelope.get("meta")
+    if isinstance(meta, dict) and isinstance(meta.get("aborted"), bool):
+        metadata["aborted"] = meta["aborted"]
+    last_assistant: dict[str, Any] = {}
+    for raw in session_jsonl.splitlines():
+        try:
+            record = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        message = record.get("message") if isinstance(record, dict) else None
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            last_assistant = message
+    stop = last_assistant.get("stopReason")
+    if stop in ("error", "aborted"):
+        metadata["session_error"] = stop == "error"
+        detail = last_assistant.get("errorMessage")
+        raise _native_error(
+            detail if isinstance(detail, str) else "",
+            "provider_error" if stop == "error" else "aborted", **metadata,
+        )
+    if metadata.get("aborted") is True:
+        raise NativeInferenceError("aborted", **metadata)
 
 
 def _run_openclaw(
@@ -406,21 +589,61 @@ def _run_openclaw(
         f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(prompt)}"
     )
-    result = _nemoclaw_exec(sandbox, command, timeout=timeout + 120)
+    try:
+        result = _nemoclaw_exec(sandbox, command, timeout=timeout + 120)
+    except subprocess.TimeoutExpired as exc:
+        raise NativeInferenceError("client_timeout", timeout_seconds=timeout + 120) from exc
     if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "")[-1000:]
-        raise RuntimeError(f"OpenClaw agent exited {result.returncode}: {detail}")
-    envelope = _json_object(result.stdout)
-    session = _sandbox_exec(
-        sandbox,
-        f"cat -- {shlex.quote(_session_file(envelope))}",
-        timeout=60,
-    )
+        raise _native_command_failure(result)
+    try:
+        envelope = _json_object(result.stdout)
+        session_path = _session_file(envelope)
+    except (ValueError, TypeError, KeyError, RuntimeError) as exc:
+        raise NativeInferenceError("invalid_response") from exc
+    try:
+        session = _sandbox_exec(sandbox, f"cat -- {shlex.quote(session_path)}", timeout=60)
+    except subprocess.TimeoutExpired as exc:
+        raise NativeInferenceError("session_timeout", timeout_seconds=60) from exc
     if session.returncode != 0:
-        raise RuntimeError("OpenClaw session could not be collected")
+        raise NativeInferenceError("session_read_failed", command_exit_code=session.returncode)
     normalized, totals = _normalize_session(session.stdout)
-    _set_native_usage(envelope, totals)
+    try:
+        _check_native_session(envelope, session.stdout, totals)
+        _set_native_usage(envelope, totals)
+    except NativeInferenceError as exc:
+        # A provider failure can follow useful tools/results. Preserve that
+        # history for the operational verifier; setup retains metadata only.
+        exc._session_evidence = envelope, normalized
+        raise
     return envelope, normalized
+
+
+def _write_session_evidence(agent_log_dir: Path, envelope: dict[str, Any], session: str) -> None:
+    # Both paths use the normal agent artifact names consumed by Harbor and
+    # the environment's existing artifact redaction/copyback pipeline.
+    (agent_log_dir / "openclaw.txt").write_text(
+        json.dumps(envelope, separators=(",", ":")) + "\n", encoding="utf-8",
+    )
+    (agent_log_dir / "openclaw.session.jsonl").write_text(session, encoding="utf-8")
+
+
+def _refresh_local_nim_diagnostics() -> None:
+    """Refresh owned NIM state after application work, without changing its outcome."""
+    raw = os.environ.get("SKILL_EVAL_LOCAL_NIM_PLAN")
+    if not raw:
+        return
+    try:
+        plan = json.loads(raw)
+        owner = plan.get("owner") if isinstance(plan, dict) else None
+        if not isinstance(owner, str) or re.fullmatch(r"[a-f0-9]{24}", owner) is None:
+            return
+        subprocess.run(
+            [sys.executable, f"/tmp/skill-eval-nim-{owner}.py", "collect", "--owner", owner],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=30, check=False,
+        )
+    except Exception:  # noqa: BLE001
+        pass  # A missing helper or failed diagnostic transport cannot replace the trial.
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -454,25 +677,28 @@ def main(argv: list[str] | None = None) -> int:
         # Onboarding owns the provider binding. The job's local proxy needs
         # no credential refresh; the native agent turn verifies inference.
         envelope, session = _run_openclaw(sandbox, prompt, args.timeout)
-        (agent_log_dir / "openclaw.txt").write_text(
-            json.dumps(envelope, separators=(",", ":")) + "\n",
-            encoding="utf-8",
-        )
-        (agent_log_dir / "openclaw.session.jsonl").write_text(
-            session,
-            encoding="utf-8",
-        )
+        _write_session_evidence(agent_log_dir, envelope, session)
+        if "policy_denied" in session or re.search(r"\b403\b", session):
+            _capture_policy_denials(sandbox, agent_log_dir)
         return 0
     except Exception as exc:  # noqa: BLE001
         failure = f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}"
+        if not args.setup_check and isinstance(exc, NativeInferenceError) and exc._session_evidence is not None:
+            try:
+                _write_session_evidence(agent_log_dir, *exc._session_evidence)
+            except OSError:
+                pass  # Preserve the native failure if evidence copyback fails.
         # No session exists when gateway/inference fails before an answer.
         # Give Harbor and the judge this trial's failure evidence instead of
         # leaving them to discover a previous coding or operational raw log.
         (agent_log_dir / "agent.log").write_text(failure + "\n", encoding="utf-8")
+        _capture_policy_denials(sandbox, agent_log_dir)
         # Readiness failures name only the stage and exception type, so setup
         # never echoes a chained subprocess exception or raw gateway config.
         print(failure, file=sys.stderr)
         return 1
+    finally:
+        _refresh_local_nim_diagnostics()
 
 
 if __name__ == "__main__":

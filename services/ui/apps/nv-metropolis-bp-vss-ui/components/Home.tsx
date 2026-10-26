@@ -23,10 +23,8 @@ import {
   IconMoon,
   IconMenu2
 } from '@tabler/icons-react';
-import { getTabChatInitialStateOverride, getTabChatWorkflow } from '../utils/tabChatEnv';
 import {
   CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX,
-  SIDEBAR_CHAT_ENV_TAB_KEY,
   getChatSidebarEnabled,
 } from '../utils/tabChatSidebarConfig';
 
@@ -958,7 +956,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
               <div className="px-2 pt-3 pb-2 flex-shrink-0">
               </div>
               <div 
-                className="space-y-1 px-2 pb-4"
+                className="flex flex-col gap-1 px-2 pb-4"
               >
                 {visibleTabs.map((tab) => {
                   const isActive = activeTab === tab.id;
@@ -969,11 +967,11 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
                       onClick={() => setActiveTab(tab.id)}
                       title={tab.alt}
                       className={`
-                        w-full flex items-center px-3 py-1.5 text-sm rounded
+                        w-full flex items-center px-3 py-1.5 text-sm rounded border
                         transition-all duration-200 ease-in-out
                         ${isActive
-                          ? 'bg-neutral-300 dark:bg-neutral-700 text-neutral-900 dark:text-white hover:bg-neutral-400 dark:hover:bg-neutral-600 font-medium ring-1 ring-[#76b900]'
-                          : 'text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800'
+                          ? 'relative z-10 bg-neutral-300 dark:bg-neutral-700 text-neutral-900 dark:text-white hover:bg-neutral-400 dark:hover:bg-neutral-600 font-medium border-[#76b900]'
+                          : 'border-transparent text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800'
                         }
                       `}
                     >

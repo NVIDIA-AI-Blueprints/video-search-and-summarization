@@ -1,16 +1,22 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
+import { DEFAULT_TOP_K } from '../hooks/useFilter';
 import type { SearchData, SearchParams, StreamInfo } from '../types';
-import { parseDateAsLocal } from './Formatter';
 
-function sourceTypeToStreamType(sourceType?: string): string | null {
-  if (sourceType === 'rtsp') return 'sensor_rtsp';
-  if (sourceType === 'video_file') return 'sensor_file';
-  return null;
+export const SIMILARITY_TAG_TOOLTIP =
+  'Minimum cosine similarity. Results scoring below this value are hidden. 0.00 shows every result.';
+
+export function isDefaultSearchFilters(params: SearchParams): boolean {
+  const sources = params.videoSources ?? [];
+  const similarity = Number(params.similarity);
+  const topK = Number(params.topK ?? DEFAULT_TOP_K);
+  const similarityIsDefault = !Number.isFinite(similarity) || similarity === 0;
+  const topKIsDefault = !Number.isFinite(topK) || topK === DEFAULT_TOP_K;
+  return sources.length === 0 && similarityIsDefault && topKIsDefault;
 }
 
 /**
- * Apply Search-tab source/filter controls to Chat-derived result cards so the
+ * Apply Search-tab filter controls to Chat-derived result cards so the
  * visible grid matches the filters the user set.
  */
 export function applySearchResultFilters(
@@ -18,13 +24,11 @@ export function applySearchResultFilters(
   params: SearchParams,
   streams: StreamInfo[] = [],
 ): SearchData[] {
-  const { startDate, endDate, videoSources, similarity, topK, sourceType } = params;
+  const { videoSources, similarity, topK } = params;
   const minSimilarity = Number(similarity);
   const hasMinSimilarity = Number.isFinite(minSimilarity) && minSimilarity !== 0;
   const sourceNames = new Set((videoSources || []).filter(Boolean));
   const streamById = new Map(streams.map((s) => [s.sensorId, s]));
-  const streamByName = new Map(streams.map((s) => [s.name, s]));
-  const requiredStreamType = sourceTypeToStreamType(sourceType);
 
   const filtered = results.filter((item) => {
     if (hasMinSimilarity && Number(item.similarity) < minSimilarity) return false;
@@ -36,26 +40,6 @@ export function applySearchResultFilters(
         sourceNames.has(item.sensor_id) ||
         (stream != null && sourceNames.has(stream.name));
       if (!matchesName) return false;
-    }
-
-    if (requiredStreamType && streams.length > 0) {
-      const stream = streamById.get(item.sensor_id) || streamByName.get(item.video_name);
-      if (stream?.type && stream.type !== requiredStreamType) return false;
-    }
-
-    if (startDate || endDate) {
-      const parsedStart = parseDateAsLocal(item.start_time);
-      const parsedEnd = parseDateAsLocal(item.end_time);
-      // Nothing parseable means no determinable overlap, so the result cannot
-      // satisfy an active range. One usable endpoint stands in for the other.
-      if (!parsedStart && !parsedEnd) return false;
-      const segmentStart = parsedStart ?? (parsedEnd as Date);
-      const segmentEnd = parsedEnd ?? (parsedStart as Date);
-
-      // Keep any segment overlapping the window, not just fully contained
-      // ones: a clip straddling a boundary is still a result for that range.
-      if (startDate && segmentEnd < startDate) return false;
-      if (endDate && segmentStart > endDate) return false;
     }
 
     return true;

@@ -24,6 +24,13 @@ def isolate_host_firewall(monkeypatch):
     monkeypatch.setattr(nim, "proxy_network_policy", lambda *args, **kwargs: None)
 
 
+@pytest.fixture(autouse=True)
+def isolate_spark_reachability(monkeypatch):
+    monkeypatch.setattr(run_leg, "_probe_spark_ssh", Mock(
+        side_effect=AssertionError("unit tests must stub Spark reachability"),
+    ))
+
+
 DIGEST = "sha256:" + "a" * 64
 
 
@@ -137,6 +144,181 @@ def test_exited_nim_reports_oom_without_waiting_for_timeout(monkeypatch):
     monkeypatch.setattr(nim, "docker", docker)
     with pytest.raises(nim.NimError, match="CUDA out of memory"):
         nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 1800, "nim")
+
+
+def test_readiness_request_cannot_outlive_reuse_deadline(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(nim.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(nim.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+    monkeypatch.setattr(nim, "_START_DEADLINE", None)
+
+    def blocked(url, headers, *, timeout):
+        assert timeout <= 30
+        now[0] += timeout
+        raise TimeoutError()
+
+    monkeypatch.setattr(nim, "request_json", blocked)
+    with pytest.raises(nim.NimError, match="last probe: TimeoutError"):
+        nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 30)
+    assert now[0] == 30
+
+
+def test_stalled_docker_inspection_uses_readiness_deadline(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(nim.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(nim, "_START_DEADLINE", None)
+    monkeypatch.setattr(nim, "request_json", Mock(side_effect=urllib.error.URLError(ConnectionRefusedError())))
+
+    def inspect(*args, timeout, **kwargs):
+        assert args[0] == "inspect"
+        assert timeout == 7
+        now[0] += timeout
+        raise subprocess.TimeoutExpired(args, timeout)
+
+    monkeypatch.setattr(nim, "docker", inspect)
+    with pytest.raises(nim.NimError, match="ConnectionRefusedError; Docker inspection timed out"):
+        nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 7, "nim")
+    assert now[0] == 7
+
+
+@pytest.mark.parametrize("recover", [True, False])
+def test_readiness_retries_unavailable_http_and_retains_last_status(monkeypatch, recover):
+    now, calls = [0.0], []
+    monkeypatch.setattr(nim.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(nim.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+    monkeypatch.setattr(nim, "_START_DEADLINE", None)
+
+    def request(url, headers, *, timeout):
+        calls.append(timeout)
+        if recover and len(calls) == 2:
+            return {"ready": True}, {}
+        raise urllib.error.HTTPError(url, 503, "unavailable", {}, None)
+
+    monkeypatch.setattr(nim, "request_json", request)
+    if recover:
+        assert nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 7) == {"ready": True}
+    else:
+        with pytest.raises(nim.NimError, match="last probe: HTTP 503"):
+            nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 7)
+        assert now[0] == 7
+    assert calls == ([7, 4] if recover else [7, 4, 1])
+
+
+def test_container_diagnostics_keep_routing_and_oom_without_credentials(monkeypatch, tmp_path):
+    local_plan = plan()
+    name = "skill-eval-nim-" + local_plan["owner"] + "-0"
+    target = tmp_path / "artifacts"
+    target.mkdir()
+    original_path = Path
+    monkeypatch.setattr(nim, "Path", lambda value: target if value == "/logs/artifacts/local-nim" else original_path(value))
+    monkeypatch.setattr(nim, "owner_paths", lambda _, **kw: tmp_path)
+    monkeypatch.setattr(nim, "publish", lambda _: None)
+    monkeypatch.setenv("NGC_API_KEY", "secret-ngc")
+    ports = {"8000/tcp": [{"HostIp": "127.0.0.1", "HostPort": "18410"}]}
+
+    def docker(*args, **kwargs):
+        if args[0] == "ps":
+            output = name
+        elif args[0] == "logs":
+            output = "credential secret-ngc"
+        else:
+            output = json.dumps([{"Config": {"Env": ["NGC_API_KEY=secret-ngc"], "Image": "pinned-image"},
+                "State": {"OOMKilled": True, "Error": "secret-ngc", "Health": {"Status": "unhealthy", "Log": ["secret-ngc"]}},
+                "RestartCount": 2, "NetworkSettings": {"Ports": ports}, "HostConfig": {"PortBindings": ports}}])
+        return subprocess.CompletedProcess(args, 0, output, "")
+
+    monkeypatch.setattr(nim, "docker", docker)
+    nim.collect_logs(local_plan)
+    snapshot = json.loads((target / f"{name}.state.json").read_text())
+    assert snapshot["restart_count"] == 2
+    assert snapshot["state"]["OOMKilled"] is True
+    assert snapshot["published_ports"] == ports
+    assert snapshot["health"] == "unhealthy"
+    assert all("secret-ngc" not in path.read_text() for path in target.iterdir())
+
+
+@pytest.mark.parametrize("cv_state", ["present", "absent", "unavailable"])
+def test_cv_diagnostics_capture_internal_oom_without_credentials_or_mutation(monkeypatch, tmp_path, cv_state):
+    target = tmp_path / "artifacts"
+    target.mkdir()
+    (target / "vss-rtvi-cv.log").write_text("stale CUDA error")
+    monkeypatch.setattr(nim, "Path", lambda value: target if value == "/logs/artifacts/local-nim" else Path(value))
+    monkeypatch.setattr(nim, "owner_paths", lambda *a, **kw: tmp_path)
+    monkeypatch.setattr(nim, "publish", lambda _: None)
+    monkeypatch.setenv("NGC_API_KEY", "ngc-private")
+    monkeypatch.setenv("NGC_CLI_API_KEY", "cli-private")
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvidia-private")
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args)
+        if args[0] == "ps":
+            return subprocess.CompletedProcess(args, 0, "", "")
+        assert args[-1] == "vss-rtvi-cv"
+        if args[0] == "inspect":
+            if cv_state != "present":
+                return subprocess.CompletedProcess(args, 1, "", "No such object" if cv_state == "absent" else "Docker unavailable")
+            return subprocess.CompletedProcess(args, 0, json.dumps([{
+                "Config": {"Image": "rt-cv-image", "Env": ["NVIDIA_API_KEY=nvidia-private"]},
+                "State": {"Running": True, "OOMKilled": False, "Error": "nvidia-private", "Health": {"Status": "healthy"}},
+                "RestartCount": 0,
+            }]), "")
+        assert args == ("logs", "--tail", "150", "vss-rtvi-cv")
+        return subprocess.CompletedProcess(args, 0, "CUDA out of memory; ngc-private cli-private nvidia-private", "")
+    monkeypatch.setattr(nim, "docker", docker)
+    nim.collect_logs({"owner": "d" * 24})
+    receipt = json.loads((target / "vss-rtvi-cv.state.json").read_text())
+    assert receipt["collected_at_unix"] > 0
+    if cv_state == "present":
+        assert receipt["state"]["Running"] is True
+        assert receipt["state"]["OOMKilled"] is False  # CUDA allocator OOM need not kill the container.
+        assert "CUDA out of memory" in (target / "vss-rtvi-cv.log").read_text()
+    else:
+        assert receipt["present"] == (False if cv_state == "absent" else None)
+        assert not (target / "vss-rtvi-cv.log").exists()
+    assert all(command[0] in {"ps", "inspect", "logs"} for command in calls)
+    assert all(secret not in path.read_text() for path in target.iterdir() for secret in ("ngc-private", "cli-private", "nvidia-private"))
+
+
+@pytest.mark.parametrize("enumeration_exit_code", [0, 1])
+def test_collect_cli_reads_owned_state_without_starting_or_cleaning(monkeypatch, tmp_path, enumeration_exit_code):
+    owner = "a" * 24
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    target = tmp_path / "artifacts"
+    target.mkdir()
+    stale = target / f"skill-eval-nim-{owner}-0.state.json"
+    stale.write_text('{"state":{"Running":true}}')
+    class DiagnosticPaths:
+        home = staticmethod(lambda: tmp_path)
+        def __new__(cls, value):
+            return target if value == "/logs/artifacts/local-nim" else Path(value)
+    monkeypatch.setattr(nim, "Path", DiagnosticPaths)
+    monkeypatch.setattr(sys, "argv", ["local_nim.py", "collect", "--owner", owner])
+    monkeypatch.setattr(nim, "start", Mock(side_effect=AssertionError("must not start")))
+    monkeypatch.setattr(nim, "cleanup", Mock(side_effect=AssertionError("must not clean")))
+    monkeypatch.setattr(nim, "publish", Mock())
+    def inspect_or_list(*args, **kwargs):
+        if args[0] == "ps":
+            return subprocess.CompletedProcess(args, enumeration_exit_code, "", "")
+        assert args == ("inspect", "vss-rtvi-cv")
+        return subprocess.CompletedProcess(args, 1, "", "No such object")
+    monkeypatch.setattr(nim, "docker", Mock(side_effect=inspect_or_list))
+    nim.main()
+    assert [call.args[0] for call in nim.docker.call_args_list] == ["ps", "inspect"]
+    assert not (tmp_path / ".cache/skill-eval-nim" / owner).exists()
+    inventory = json.loads((target / "container-inventory.json").read_text())
+    assert inventory["containers"] == []
+    assert inventory["enumeration_exit_code"] == enumeration_exit_code
+    assert inventory["collected_at_unix"] > 0
+    assert json.loads(stale.read_text())["state"]["Running"] is True  # Fresh inventory, not old snapshots, is authoritative.
+
+
+@pytest.mark.parametrize("owner", ["../other", "b" * 23, "C" * 24, None])
+def test_collect_cli_rejects_invalid_owner_before_docker(monkeypatch, owner):
+    args = ["local_nim.py", "collect"] + (["--owner", owner] if owner is not None else [])
+    monkeypatch.setattr(sys, "argv", args)
+    monkeypatch.setattr(nim, "docker", Mock(side_effect=AssertionError("must not inspect")))
+    with pytest.raises(nim.NimError, match="Invalid local NIM owner"):
+        nim.main()
 
 
 @pytest.mark.parametrize(
@@ -500,8 +682,11 @@ def test_spark_resolves_registered_node_id_even_if_renamed(monkeypatch):
 def test_spark_never_falls_back_to_other_workers(monkeypatch, nodes):
     monkeypatch.setattr(run_leg, "_list_registered_nodes", lambda: nodes)
     monkeypatch.setattr(run_leg.subprocess, "run", Mock(side_effect=AssertionError("must not probe an unidentified worker")))
+    probe = Mock(side_effect=ValueError("Spark is unreachable"))
+    monkeypatch.setattr(run_leg, "_probe_spark_ssh", probe)
     with pytest.raises(ValueError):
         run_leg.spark_instance()
+    probe.assert_not_called()
 
 
 

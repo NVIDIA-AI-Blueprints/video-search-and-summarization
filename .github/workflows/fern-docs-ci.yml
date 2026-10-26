@@ -27,6 +27,11 @@
 # release/X.Y.Z), plus every release tag listed in fern/docs.yml. Every Fern
 # command runs in that built tree, never in the checkout.
 #
+# The sticky PR comment must not use the unversioned site URL. Fern's first
+# listed version is the latest release, so /vss is that release, not the PR
+# checkout. Develop-targeted PRs link /vss/dev; release-targeted PRs keep /vss
+# because the checkout is inserted as the default version.
+#
 # Requires the DOCS_FERN_TOKEN repo secret.
 
 name: Fern Docs CI
@@ -77,9 +82,9 @@ jobs:
             if git diff --name-only "$BEFORE" HEAD | grep -qE \
               -e '^(docs/|fern/)' \
               -e '^services/analytics/video-analytics-api/src/app/specification/openapi\.json$' \
-              -e '^\.github/scripts/((test_)?build_fern_site\.py|test_publish_fern_docs\.py|resolve_fern_docs_context\.sh|(check_fern_site|publish_fern_docs)\.sh)$' \
+              -e '^\.github/scripts/((test_)?build_fern_site\.py|test_publish_fern_docs\.py|(test_)?preview_docs_href\.py|resolve_fern_docs_context\.sh|(check_fern_site|publish_fern_docs)\.sh)$' \
               -e '^\.github/actions/setup-fern/' \
-              -e '^\.github/workflows/(fern-docs-ci|preview-release-docs|publish-fern-docs)\.yml$'; then
+              -e '^\.github/workflows/(fern-docs-ci|preview-release-docs|preview-nightly-docs|publish-fern-docs)\.yml$'; then
               DOCS=true
             else
               DOCS=false
@@ -107,6 +112,7 @@ jobs:
         run: |
           python3 .github/scripts/test_build_fern_site.py
           python3 .github/scripts/test_publish_fern_docs.py
+          python3 .github/scripts/test_preview_docs_href.py
 
       - name: Resolve PR context
         id: pr
@@ -179,13 +185,25 @@ jobs:
             echo "::warning::Failed to generate a preview URL. Fern Check still passed."
           fi
 
+      - name: Resolve preview href
+        id: href
+        if: steps.generate-docs.outputs.url != ''
+        env:
+          PREVIEW_URL: ${{ steps.generate-docs.outputs.url }}
+          RELEASE: ${{ steps.pr.outputs.release }}
+        run: |
+          href="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/preview_docs_href.py" \
+            "$PREVIEW_URL" "${RELEASE:-}")"
+          echo "href=$href" >> "$GITHUB_OUTPUT"
+
       - name: Build page links for changed files
         id: page-links
-        if: steps.pr.outputs.number != '' && steps.generate-docs.outputs.url != ''
+        if: steps.pr.outputs.number != '' && steps.href.outputs.href != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
           PREVIEW_URL: ${{ steps.generate-docs.outputs.url }}
+          PREVIEW_HREF: ${{ steps.href.outputs.href }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           CHANGED_FILES=$(gh pr view "$PR_NUMBER" --json files -q '.files[].path' \
@@ -195,7 +213,6 @@ jobs:
             echo "page_links=" >> "$GITHUB_OUTPUT"; exit 0
           fi
 
-          BASE_URL="${PREVIEW_URL%/}"
           FILES_PARAM=$(printf '%s' "$CHANGED_FILES" \
             | python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().strip(), safe=',/'))")
           RESPONSE=$(curl -sf -H "FERN_TOKEN: $FERN_TOKEN" \
@@ -203,7 +220,7 @@ jobs:
             echo "page_links=" >> "$GITHUB_OUTPUT"; exit 0
           }
 
-          PAGE_LINKS=$(echo "$RESPONSE" | jq -r --arg url "$BASE_URL" \
+          PAGE_LINKS=$(echo "$RESPONSE" | jq -r --arg url "${PREVIEW_HREF%/}" \
             '.mappings[] | select(.slug != null) | "- [\(.slug)](\($url)/\(.slug))"')
 
           if [ -n "$PAGE_LINKS" ]; then
@@ -213,18 +230,18 @@ jobs:
           fi
 
       - name: Post or update PR comment
-        if: steps.pr.outputs.number != '' && steps.generate-docs.outputs.url != ''
+        if: steps.pr.outputs.number != '' && steps.href.outputs.href != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
-          PREVIEW_URL: ${{ steps.generate-docs.outputs.url }}
+          PREVIEW_HREF: ${{ steps.href.outputs.href }}
           PAGE_LINKS: ${{ steps.page-links.outputs.page_links }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           MARKER="<!-- preview-docs -->"
           {
-            printf ':herb: **Preview your docs:** <%s>\n' "$PREVIEW_URL"
+            printf ':herb: **Preview your docs:** <%s>\n' "$PREVIEW_HREF"
             if [ -n "${PAGE_LINKS:-}" ]; then
               printf '\nPages you changed:\n%s\n' "$PAGE_LINKS"
             fi

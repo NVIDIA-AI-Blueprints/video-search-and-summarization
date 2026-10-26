@@ -19,6 +19,7 @@
     "dev": "swc lib-src -d lib --config-file .swcrc -w",
     "clean": "rm -rf lib && rm -rf node_modules",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"

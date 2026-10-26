@@ -521,10 +521,27 @@ def main() -> int:
         changed = list_skill_file_paths()
     else:
         changed = list_changed_files()
+    specs_filter = os.environ.get("MANUAL_SPECS_FILTER", "").strip()
+    setup_only = os.environ.get("SKILLS_EVAL_SETUP_ONLY") == "true"
+    if specs_filter or setup_only:
+        if not os.environ.get("MANUAL_SKILLS_FILTER") or DAILY_RUN:
+            raise ValueError("specs/setup_only are manual-dispatch options only")
+        if specs_filter:
+            requested = {stem.strip() for stem in specs_filter.split(",")}
+            if any(not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_-]*", stem) for stem in requested):
+                raise ValueError("specs must be comma-separated spec filename stems")
+            unknown = requested - {Path(path).stem for path in changed}
+            if unknown:
+                raise ValueError(f"unknown specs for selected skills: {', '.join(sorted(unknown))}")
+            changed = [path for path in changed if Path(path).stem in requested]
+        if setup_only and any(not path.startswith("skills/operations/") for path in changed):
+            raise ValueError("setup_only requires operational specs; select skills=operations or an operational skill")
     print(f"changed files ({len(changed)}):", file=sys.stderr)
     for f in changed:
         print(f"  {f}", file=sys.stderr)
     matrix = build_matrix(changed)
+    # Adapter-creation blockers have no spec path and must remain dispatchable.
+    planned_specs = {row["spec_path"] for row in matrix if row.get("spec_path")}
     if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
         matrix = [row for row in matrix if row.get("platform") == "DGX-SPARK"
                   or (not row.get("platform") and row.get("kind") in {"missing_adapter", "missing_platform"})]
@@ -534,6 +551,16 @@ def main() -> int:
         # Platform support is not permission to use the operator's Spark box.
         # Push runs and unchecked manual sweeps use only the normal fleet.
         matrix = [row for row in matrix if row.get("platform") != "DGX-SPARK"]
+    if (specs_filter or setup_only) and not matrix:
+        raise ValueError("no eval targets match the selected specs/platform")
+    if specs_filter:
+        surviving_specs = {row["spec_path"] for row in matrix if row.get("spec_path")}
+        dropped_specs = planned_specs - surviving_specs
+        if dropped_specs:
+            raise ValueError(
+                "requested specs have no targets after platform filtering: "
+                + ", ".join(sorted(dropped_specs))
+            )
     emit(matrix)
     return 0
 

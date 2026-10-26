@@ -108,4 +108,5 @@ than carrying its own copy.
 |------|--------------------|-------|
 | `vss` CLI internals | changing the CLI or its library | [`libs/vss/cli/AGENTS.md`](libs/vss/cli/AGENTS.md) |
 | Video Analytics API | working on the analytics service | [`services/analytics/video-analytics-api/AGENTS.md`](services/analytics/video-analytics-api/AGENTS.md) |
+| Documentation site | editing `docs/`, its navigation, or redirects (page URLs come from titles in `docs/index.yml`; a retitle needs a redirect) | [`docs/README.md`](docs/README.md) |
 

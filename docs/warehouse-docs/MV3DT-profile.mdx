@@ -7,7 +7,7 @@ position: 4
 
 ### Introduction
 
-The **VSS Warehouse Blueprint's MV3DT Vision AI Profile** is a comprehensive guide to building a 3D intelligent video analytics system using RT-DETR object detection and Multi-View 3D Tracking (MV3DT). Unlike the [3D Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile), which uses the Sparse4D end-to-end 3D perception model, this profile pipelines a 2D detector (RT-DETR) with a distributed multi-view 3D tracking framework (MV3DT) to produce 3D Bird's Eye View (BEV) outputs from multiple overlapping cameras. It provides a detailed overview of the system architecture, data flow, and key components.
+The **VSS Warehouse Blueprint's MV3DT Vision AI Profile** is a comprehensive guide to building a 3D intelligent video analytics system using RT-DETR object detection and Multi-View 3D Tracking (MV3DT). Unlike the [3D Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile), which uses the Sparse4D end-to-end 3D perception model, this profile pipelines a 2D detector (RT-DETR) with a distributed multi-view 3D tracking framework (MV3DT) to produce 3D Bird's Eye View (BEV) outputs from multiple overlapping cameras. It provides a detailed overview of the system architecture, data flow, and key components.
 
 ## Deployment Architecture
 
@@ -20,16 +20,16 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
 1. **Input Source**
 
    - **Videos**: Raw video data stored in a filesystem, serving as input for processing.
-   - **NvStreamer** ([NVStreamer](/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
+   - **NvStreamer** ([NVStreamer](/system-components/middleware/video-io-storage-vios/nv-streamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
 
 2. **Video IO & Storage (VIOS)** ([VIOS Microservices](/system-components/middleware/video-io-storage-vios/vios-microservices))
 
    - VIOS ingests video streams from NvStreamer via RTSP.
    - It records the streams and forwards them (via RTSP) to the **DeepStream** microservice for further processing.
 
-3. **DeepStream (RT-DETR + MV3DT)** ([3D Multi Camera Detection and Tracking (MV3DT)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
+3. **DeepStream (RT-DETR + MV3DT)** ([3D Multi Camera Detection and Tracking (MV3DT)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-mv-3-dt))
 
-   - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, combining the RT-DETR detector ([RT-DETR (2D warehouse detection)](/system-components/models/rt-detr-2d-warehouse-detection)) with the MV3DT distributed tracking module.
+   - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, combining the RT-DETR detector ([RT-DETR (2D warehouse detection)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/model-finetuning/rt-detr)) with the MV3DT distributed tracking module.
    - RT-DETR generates 2D bounding boxes for warehouse-relevant object classes. The MV3DT module back-projects these 2D detections into 3D world coordinates using each camera's projection matrix and 3D object models, and fuses measurements across cameras with overlapping fields of view.
    - Cameras exchange 3D tracklets with their vision neighbors through an **MQTT Broker** for decentralized ID negotiation, cross-camera ID propagation, and multi-view measurement fusion.
    - It sends per-camera frame data, including detected and tracked object IDs with 3D foot locations, in Protobuf format to the message broker via the `mdx-raw` topic. When appearance ReID is on, those payloads also carry CLIP-ReID embeddings.
@@ -41,13 +41,13 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
    - Each camera publishes its 3D tracklets to a dedicated MQTT topic and subscribes to topics from its vision neighbors (cameras with overlapping fields of view).
    - This enables decentralized, globally unique ID assignment and cross-camera handover without a central coordinator.
 
-5. **Appearance ReID (`reid-embed` + Milvus)** ([3D Multi Camera Detection and Tracking (MV3DT)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
+5. **Appearance ReID (`reid-embed` + Milvus)** ([3D Multi Camera Detection and Tracking (MV3DT)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-mv-3-dt))
 
    - `reid-embed` consumes `mdx-raw`, stores CLIP-ReID (1280-D) features in a Milvus gallery (etcd + MinIO), and answers HTTP queries from the tracker. This helps re-associate people across gaps in camera coverage or when they reappear after an extended period. Re-association is **Person only**.
    - Warehouse deployments also run a secondary SigLIP 2 encoder (`siglip_v2_vdeployable_v2.0`) and publish `mdx-compressed-embeddings` on the same Kafka or Redis broker. SigLIP runs only on selected high-quality samples of each object, at regular intervals, so each object still gets a strong appearance embedding without putting SigLIP on every DeepStream frame. BEV Fusion still consumes only `mdx-raw`.
    - Gallery backends are ephemeral. CLIP-ReID and SigLIP 2 weights persist under `$VSS_DATA_DIR/models/reid` (Compose) or the RT-CV models PVC (Helm). Perception waits on `GET /health/ready` after the init container and Milvus are up. The health-check start grace period is 300s; first-boot engine build can take longer.
 
-6. **BEV Fusion** ([3D Multi Camera Detection and Tracking (MV3DT)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
+6. **BEV Fusion** ([3D Multi Camera Detection and Tracking (MV3DT)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-mv-3-dt))
 
    - This microservice consumes per-camera `mdx-raw` data (Protobuf) from the message broker.
    - It fuses 3D measurements from multiple cameras into unified Bird's Eye View (BEV) frames.
@@ -72,8 +72,8 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
 
 10. **Visualization**
 
-   - **Kibana UI** ([Kibana UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
-   - **VIOS UI** ([VIOS UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from the message broker.
+   - **Kibana UI** ([Kibana UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv-3-dt-vision-ai-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
+   - **VIOS UI** ([VIOS UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv-3-dt-vision-ai-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from the message broker.
 
 11. **External Interfaces**
 
@@ -95,7 +95,7 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
 
 <Note>
 For standalone RTVI-CV-3D/MV3DT deployment, follow the
-[Agents skills walkthrough](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough) below. For the
+[Agents skills walkthrough](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv-3-dt-vision-ai-profile#agent-skills-walkthrough) below. For the
 complete Warehouse Blueprint MV3DT deployment, follow the
 [Skill section in the Quickstart Guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#warehouse-blueprint-skill).
 </Note>
@@ -409,7 +409,7 @@ Each `rtsp_url` in `camera_info.json` must be reachable from the machine where y
 </Note>
 
 <Tip>
-You do not have to assign `group_id` by hand. The `spatialai_data_utils` (SDU) camera grouping tools derive the camera-to-BEV-group partition directly from your camera calibration. Run [create_camera_clusters.py](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#camera-clustering) to partition cameras into non-overlapping BEV groups; cameras placed in the same cluster share a `group_id` (the generated group name, such as `bev-sensor-1`). The warehouse MV3DT compose setup uses a single BEV group, so run the clustering tool with `--n_clusters 1` to place every camera in `bev-sensor-1`. These tools also populate the matching per-sensor `group` and `region` blocks (origin, dimensions, place level) in `calibration.json` that must be filled in before deployment (see the [note under Step 3](#calibration-group-region-note-mv3dt)). For installation and the full command reference, see [Camera Grouping Utilities](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#camera-grouping-utilities).
+You do not have to assign `group_id` by hand. The `spatialai_data_utils` (SDU) camera grouping tools derive the camera-to-BEV-group partition directly from your camera calibration. Run [create_camera_clusters.py](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv-3-dt-vision-ai-profile#camera-clustering) to partition cameras into non-overlapping BEV groups; cameras placed in the same cluster share a `group_id` (the generated group name, such as `bev-sensor-1`). The warehouse MV3DT compose setup uses a single BEV group, so run the clustering tool with `--n_clusters 1` to place every camera in `bev-sensor-1`. These tools also populate the matching per-sensor `group` and `region` blocks (origin, dimensions, place level) in `calibration.json` that must be filled in before deployment (see the [note under Step 3](#calibration-group-region-note-mv3dt)). For installation and the full command reference, see [Camera Grouping Utilities](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv-3-dt-vision-ai-profile#camera-grouping-utilities).
 </Tip>
 
     (ii) **Configure VSS Configurator environment variables**: Set the following in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env`, which is loaded after warehouse `.env` and takes precedence:
@@ -525,15 +525,15 @@ After the MV3DT calibration file is generated and placed in the deployment sampl
 
 When adding new cameras to the MV3DT profile, you must update the following MV3DT-specific configuration files:
 
-1. **Camera Information Files** (`camInfo/<sensor_id>.yml`): Each camera requires a `camInfo` file containing the 3x4 projection matrix and per-class object model dimensions. Generate these from your `calibration.json` using the provided utility script. See [Update Camera Information Configuration](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#update-camera-information-configuration) for details.
+1. **Camera Information Files** (`camInfo/<sensor_id>.yml`): Each camera requires a `camInfo` file containing the 3x4 projection matrix and per-class object model dimensions. Generate these from your `calibration.json` using the provided utility script. See [Update Camera Information Configuration](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-mv-3-dt#update-camera-information-configuration) for details.
 
-2. **MQTT Publish/Subscribe Configuration** (`pub_sub_info_config.yml`): Defines the inter-camera communication graph for MV3DT. Generate a vision-neighbor graph from camera calibration data. See [3D Multi Camera Detection and Tracking (MV3DT)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#update-publish-subscribe-configuration) for details.
+2. **MQTT Publish/Subscribe Configuration** (`pub_sub_info_config.yml`): Defines the inter-camera communication graph for MV3DT. Generate a vision-neighbor graph from camera calibration data. See [3D Multi Camera Detection and Tracking (MV3DT)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-mv-3-dt#update-publish-subscribe-configuration) for details.
 
 3. **Tracker Configuration** (`ds-mv3dt-tracker-config.yml`): Update the `ObjectModelProjection.cameraModelFilepath` section to map each new sensor ID to its corresponding `camInfo` file.
 
 #### Step 5: Camera Clustering
 
-After the MV3DT-specific configuration files are updated, use `create_camera_clusters.py` to partition cameras into non-overlapping groups for separate 3D model instances. The warehouse MV3DT compose setup uses one BEV group, so run the clustering tool with `--n_clusters 1` and verify that `sensors[].group` is present in `calibration.json`. For command examples and available options, see [Camera Clustering](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#camera-clustering).
+After the MV3DT-specific configuration files are updated, use `create_camera_clusters.py` to partition cameras into non-overlapping groups for separate 3D model instances. The warehouse MV3DT compose setup uses one BEV group, so run the clustering tool with `--n_clusters 1` and verify that `sensors[].group` is present in `calibration.json`. For command examples and available options, see [Camera Clustering](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv-3-dt-vision-ai-profile#camera-clustering).
 
 #### Step 6: Redeploy the stack to apply the new calibration
 
@@ -830,10 +830,10 @@ Key options:
 
 The MV3DT profile uses RT-DETR (Real-Time Detection Transformer) as its 2D perception model and the MV3DT module for 3D multi-camera tracking. To customize:
 
-1. Fine-tune RT-DETR using TAO ([RT-DETR model page](/system-components/models/rt-detr-2d-warehouse-detection))
-2. Configure DeepStream to use your custom model ([model configuration guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#integrating-a-new-rt-detr-model))
+1. Fine-tune RT-DETR using TAO ([RT-DETR model page](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/model-finetuning/rt-detr))
+2. Configure DeepStream to use your custom model ([model configuration guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-mv-3-dt#integrating-a-new-rt-detr-model))
 
-For detailed instructions on integrating a new RT-DETR model with the MV3DT pipeline, including model compatibility requirements and configuration steps, refer to the [MV3DT Perception Microservice documentation](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt).
+For detailed instructions on integrating a new RT-DETR model with the MV3DT pipeline, including model compatibility requirements and configuration steps, refer to the [MV3DT Perception Microservice documentation](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-mv-3-dt).
 
 ### Application Customization
 
@@ -869,7 +869,7 @@ For detailed information about customizing specific analytics microservices, ref
 * [Behavior Analytics](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/behavior-analytics)
 * [VSS Video Analytics API](/system-components/middleware/api-gateway-mcp/video-analytics-api)
 
-For detailed information about customizing the MV3DT perception pipeline, including DeepStream configuration, tracker parameters, camera information files, and MQTT publish/subscribe topology, refer to the [MV3DT Perception Microservice documentation](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt).
+For detailed information about customizing the MV3DT perception pipeline, including DeepStream configuration, tracker parameters, camera information files, and MQTT publish/subscribe topology, refer to the [MV3DT Perception Microservice documentation](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-mv-3-dt).
 
 ### Hardware Config Customization
 

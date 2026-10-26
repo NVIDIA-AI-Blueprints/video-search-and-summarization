@@ -89,13 +89,10 @@ export interface SearchComponentProps {
 
 export interface SearchParams {
   query?: string;
-  startDate?: Date | null;
-  endDate?: Date | null;
   videoSources?: string[];
   similarity?: number;
   agentMode?: boolean;
   topK?: number;
-  sourceType?: string;
 }
 
 export interface FilterTag {

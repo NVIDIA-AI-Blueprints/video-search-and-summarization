@@ -58,7 +58,7 @@ It supports both video and text input for embedding generation.
 | **Cosmos-Embed1-224p** | 224p | [Cosmos-Embed1-224p](https://huggingface.co/nvidia/Cosmos-Embed1-224p) | Lowest-resolution variant |
 | **Cosmos-Embed1-448p-anomaly-detection** | 448p | [Cosmos-Embed1-448p-anomaly-detection](https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection) | Anomaly detection; default for [search workflow](/vision-agent/agent-workflows/search) |
 
-To fine-tune Cosmos-Embed1 with NVIDIA TAO and integrate custom checkpoints, see [Model customization overview](/system-components/models/model-customization-overview) and [Cosmos-Embed1 (video embedding)](/system-components/models/cosmos-embed1-video-embedding).
+To fine-tune Cosmos-Embed1 with NVIDIA TAO and integrate custom checkpoints, see [Model customization overview](/system-components/models/model-customization-overview) and [Cosmos-Embed1 (video embedding)](/system-components/models/cosmos-embed-1-video-embedding).
 
 ## Supported Inputs
 
@@ -441,7 +441,7 @@ When you deploy with the compose file (`services/rtvi/rt-embed/docker/compose.ya
 RTVI-Embed sends Kafka messages containing generated embeddings for video input.
 The messages are sent to the `mdx-embed` topic.
 The microservice sends the Kafka messages as Protobuf messages with the `nv.VisionLLM` message type.
-Please refer to the [Protobuf-Schema](/system-components/middleware/nvschema/protobuf-schema) documentation for more details on the Kafka message schema.
+Please refer to the [Protobuf-Schema](/system-components/middleware/nv-schema/protobuf-schema) documentation for more details on the Kafka message schema.
 
 Note: Kafka messages are not sent for the text embeddings.
 

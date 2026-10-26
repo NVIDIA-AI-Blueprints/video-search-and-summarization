@@ -71,6 +71,7 @@ except ModuleNotFoundError as exc:
     raise
 
 from spatialai_data_utils.configs.eval.detection import DET_CONFIG_IOU3D
+from spatialai_data_utils.eval.common.box_conventions import nusc_boxes_to_box_dims
 from spatialai_data_utils.eval.common.loaders import load_gt
 from spatialai_data_utils.eval.common.preprocessing import split_files_by_sensor
 from spatialai_data_utils.eval.detection.data_classes import (
@@ -343,6 +344,7 @@ class AIC24DetEval:
             DetectionBox,
             verbose=verbose,
         )
+        nusc_boxes_to_box_dims(self.pred_boxes)  # nuScenes wlh -> gt_boxes order
         self.gt_boxes = load_gt(self.data_infos, DetectionBox, verbose=verbose)
 
         assert set(self.pred_boxes.sample_tokens) == set(self.gt_boxes.sample_tokens), (

@@ -49,6 +49,8 @@ BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
 
 # Timeout for brev copy commands.
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
+TRANSPORT_REAP_TIMEOUT_SEC = 10
+TRANSPORT_WAIT_TIMEOUT_SEC = 1
 
 # Artifact-collection (download_*) resilience. A stalled transfer that is
 # killed can orphan its ssh child and wedge the box for the next step;
@@ -472,6 +474,7 @@ class BrevEnvironment(BaseEnvironment):
             "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
             "SKILL_EVAL_LOCAL_NIM_API_KEY",
+            "SKILL_EVAL_LOCAL_NIM_PLAN",
             "NEMOCLAW_INFERENCE_PROXY",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
@@ -645,12 +648,15 @@ class BrevEnvironment(BaseEnvironment):
         if not re.fullmatch(r"[a-f0-9]{24}", plan["owner"]):
             raise ValueError("Invalid local NIM owner")
         remote = f"/tmp/skill-eval-nim-{plan['owner']}"
-        await self.upload_file(Path(__file__).resolve().parents[1] / "local_nim.py", remote + ".py")
+        await self.upload_file(
+            Path(__file__).resolve().parents[1] / "local_nim.py", remote + ".py",
+            reuse_if_identical=True,
+        )
         with tempfile.TemporaryDirectory() as directory:
             local = Path(directory) / "plan.json"
             local.write_text(json.dumps(plan))
             local.chmod(0o600)
-            await self.upload_file(local, remote + ".json")
+            await self.upload_file(local, remote + ".json", reuse_if_identical=True)
         # Send NGC_API_KEY on command stdin. A staged worker file could
         # survive if the coordinator died before the startup shell ran.
         ngc_key = os.environ.get("NGC_API_KEY")
@@ -669,7 +675,8 @@ class BrevEnvironment(BaseEnvironment):
             input_data=(ngc_key + "\n").encode() if ngc_key else None,
         )
         if result.return_code:
-            raise RuntimeError(f"Local NIM deployment failed: {(result.stderr or result.stdout or '')[-2000:]}")
+            reason = _transport_failure_category(result)
+            raise RuntimeError(f"Local NIM deployment failed (exit {result.return_code}; reason {reason})")
 
     async def _claim_nemoclaw_gateway(self) -> None:
         """Claim only this leg's isolated NemoClaw host namespace."""
@@ -999,7 +1006,9 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         )
         self._started = False
 
-    async def upload_file(self, source_path: Path | str, target_path: str) -> None:
+    async def upload_file(
+        self, source_path: Path | str, target_path: str, *, reuse_if_identical: bool = False,
+    ) -> None:
         assert self._instance_name
         source = Path(source_path)
         def fingerprint():
@@ -1008,6 +1017,23 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         try:
             async with asyncio.timeout(BREV_TRANSFER_ACTIVE_TIMEOUT_SEC):
                 digest, size = await asyncio.to_thread(fingerprint)
+                marker = f"__UPLOAD_ATTEST_{uuid.uuid4().hex}__"
+                if reuse_if_identical:
+                    # Local NIM launchers/plans are shared across fresh task
+                    # environments. Reuse only attested bytes; still run the
+                    # launcher and its model-readiness checks on every task.
+                    existing = await _run_brev_exec(
+                        self._instance_name, _upload_attestation_command(target_path, marker),
+                        timeout=30,
+                    )
+                    if existing.return_code == 0:
+                        rows = [line[len(marker):] for line in (existing.stdout or "").splitlines() if line.startswith(marker)]
+                        try:
+                            report = json.loads(rows[0]) if len(rows) == 1 else {}
+                        except ValueError:
+                            report = {}
+                        if isinstance(report, dict) and report.get("state") == "present" and report.get("bytes") == size and report.get("sha256") == digest:
+                            return
                 # Ensure parent directory exists with correct ownership
                 parent = str(Path(target_path).parent)
                 if parent and parent != ".":
@@ -1019,7 +1045,6 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                     )
                     if prepared.return_code != 0:
                         raise RuntimeError("Upload parent-directory preparation failed")
-                marker = f"__UPLOAD_ATTEST_{uuid.uuid4().hex}__"
                 for attempt in range(3):
                     # One retry loop for copy + attestation, within the shared
                     # transfer deadline. A successful Brev exit is insufficient.
@@ -1051,7 +1076,8 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                             failure = "Uploaded file verification transport failed"
                             retry = _transient_transport_failure(result)
                     if not retry or attempt == 2:
-                        raise RuntimeError(f"{failure} (exit {result.return_code})")
+                        reason = _transport_failure_category(result)
+                        raise RuntimeError(f"{failure} (exit {result.return_code}; reason {reason})")
                     logger.warning("%s; retrying upload %s/2", failure, attempt + 1)
                     await _transport_backoff(attempt)
         except TimeoutError as exc:
@@ -1900,27 +1926,35 @@ async def _communicate_with_cancellation_cleanup(
             timeout=timeout,
         )
     except asyncio.CancelledError:
-        _kill_proc_group(proc)
-        try:
-            await asyncio.wait_for(proc.communicate(), timeout=10)
-        except (
-            asyncio.CancelledError,
-            TimeoutError,
-            BrokenPipeError,
-            ConnectionResetError,
-            ProcessLookupError,
-        ) as exc:
-            # SIGKILL was already sent to the stable PGID. Do not replace the
-            # Harbor cancellation with a secondary pipe/reap error or wait
-            # forever on an uninterruptible local transport.
-            logger.warning("Subprocess reap after cancellation was incomplete: %r", exc)
-            with contextlib.suppress(
-                asyncio.CancelledError,
-                TimeoutError,
-                ProcessLookupError,
-            ):
-                await asyncio.wait_for(proc.wait(), timeout=1)
+        await _reap_transport_process(proc)
         raise
+
+
+async def _reap_transport_process(
+    proc: asyncio.subprocess.Process,
+) -> tuple[bytes | None, bytes | None]:
+    """Kill the owned group and collect it within a separate cleanup budget.
+
+    A transport can exit while a descendant still holds its stdout/stderr
+    pipes, so even ``communicate()`` after SIGKILL needs a deadline. Otherwise
+    a 300-second repo-sync timeout can consume Harbor's entire startup budget
+    while waiting in this cleanup path, preventing the bounded retry.
+    """
+    _kill_proc_group(proc)
+    try:
+        return await asyncio.wait_for(
+            proc.communicate(), timeout=TRANSPORT_REAP_TIMEOUT_SEC,
+        )
+    except (
+        TimeoutError,
+        BrokenPipeError,
+        ConnectionResetError,
+        ProcessLookupError,
+    ) as exc:
+        logger.warning("Subprocess reap was incomplete: %r", exc)
+        with contextlib.suppress(TimeoutError, ProcessLookupError):
+            await asyncio.wait_for(proc.wait(), timeout=TRANSPORT_WAIT_TIMEOUT_SEC)
+        return None, None
 
 
 async def _run_local_transfer_command(
@@ -1945,9 +1979,7 @@ async def _run_local_transfer_command(
             timeout=timeout,
         )
     except TimeoutError as exc:
-        _kill_proc_group(proc)
-        with contextlib.suppress(TimeoutError, ProcessLookupError):
-            await asyncio.wait_for(proc.wait(), timeout=1)
+        await _reap_transport_process(proc)
         raise subprocess.TimeoutExpired(args, timeout) from exc
     if proc.returncode != 0:
         raise subprocess.CalledProcessError(
@@ -2038,8 +2070,7 @@ async def _run_ssh_exec(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await _reap_transport_process(proc)
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
             stderr="SSH command timed out",
@@ -2083,8 +2114,7 @@ async def _run_scp(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await _reap_transport_process(proc)
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
             stderr="scp timed out",
@@ -2144,8 +2174,7 @@ async def _run_brev_exec(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await _reap_transport_process(proc)
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
             stderr=(stderr.decode() if stderr else "")[-2000:] + "\nCommand timed out",
@@ -2159,6 +2188,20 @@ async def _run_brev_exec(
     )
 
 
+def _transport_failure_category(result: ExecResult) -> str:
+    """Keep failure provenance without logging paths, commands or credentials."""
+    detail = ((result.stderr or "") + "\n" + (result.stdout or "")).lower()
+    for category, markers in (
+        ("authentication", ("authentication failed", "invalid token", "unauthorized", "publickey")),
+        ("permission", ("permission denied",)),
+        ("storage", ("no space left", "disk quota exceeded", "read-only file system")),
+        ("missing_path", ("no such file or directory",)),
+    ):
+        if any(marker in detail for marker in markers):
+            return category
+    return "transient_transport" if _transient_transport_failure(result) else "unknown"
+
+
 def _transient_transport_failure(result: ExecResult) -> bool:
     """Retry only transport failures, never authentication or command errors."""
     detail = ((result.stderr or "") + "\n" + (result.stdout or "")).lower()
@@ -2166,7 +2209,8 @@ def _transient_transport_failure(result: ExecResult) -> bool:
         "permission denied", "authentication failed", "invalid token", "unauthorized",
     )):
         return False
-    return result.return_code == 124 or any(term in detail for term in (
+    ssh_liveness_timeout = "timeout, server " in detail and " not responding" in detail
+    return result.return_code == 124 or ssh_liveness_timeout or any(term in detail for term in (
         "deadline_exceeded", "context deadline exceeded", "rate limit", "too many requests",
         "connection reset", "connection refused", "connection timed out",
         "connection closed", "connection lost", "broken pipe",
@@ -2251,8 +2295,7 @@ async def _run_brev_copy_once(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await _reap_transport_process(proc)
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
             stderr="Copy timed out",
@@ -2290,14 +2333,7 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
-        if stdout and stdout.strip():
-            return ExecResult(
-                stdout=stdout.decode(),
-                stderr=stderr.decode() if stderr else None,
-                return_code=0,
-            )
+        stdout, stderr = await _reap_transport_process(proc)
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
             stderr="brev command timed out",

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-import { applySearchResultFilters } from '../../lib-src/utils/searchFilters';
+import { applySearchResultFilters, isDefaultSearchFilters } from '../../lib-src/utils/searchFilters';
+import { DEFAULT_TOP_K } from '../../lib-src/hooks/useFilter';
 import type { SearchData, StreamInfo } from '../../lib-src/types';
 
 const clip = (overrides: Partial<SearchData> = {}): SearchData => ({
@@ -37,15 +38,6 @@ describe('applySearchResultFilters', () => {
     expect(filtered.map((r) => r.video_name)).toEqual(['warehouse.mp4']);
   });
 
-  it('filters by source type via stream metadata', () => {
-    const results = [
-      clip({ video_name: 'warehouse.mp4', sensor_id: 'sensor-1' }),
-      clip({ video_name: 'gate.mp4', sensor_id: 'sensor-2' }),
-    ];
-    const filtered = applySearchResultFilters(results, { sourceType: 'rtsp' }, streams);
-    expect(filtered.map((r) => r.video_name)).toEqual(['gate.mp4']);
-  });
-
   it('slices to topK', () => {
     const results = [
       clip({ video_name: 'a.mp4', similarity: 0.9 }),
@@ -55,66 +47,16 @@ describe('applySearchResultFilters', () => {
     const filtered = applySearchResultFilters(results, { topK: 2 }, streams);
     expect(filtered).toHaveLength(2);
   });
+});
 
-  it('filters by start/end window', () => {
-    const results = [
-      clip({ video_name: 'early.mp4', start_time: '2024-01-01T00:00:00', end_time: '2024-01-01T00:05:00' }),
-      clip({ video_name: 'late.mp4', start_time: '2024-06-01T00:00:00', end_time: '2024-06-01T00:05:00' }),
-    ];
-    const filtered = applySearchResultFilters(
-      results,
-      { startDate: new Date(2024, 5, 1, 0, 0, 0), endDate: new Date(2024, 5, 1, 23, 59, 59) },
-      streams,
-    );
-    expect(filtered.map((r) => r.video_name)).toEqual(['late.mp4']);
+describe('isDefaultSearchFilters', () => {
+  it('is true for empty sources, zero similarity, and default top K', () => {
+    expect(isDefaultSearchFilters({ videoSources: [], similarity: 0, topK: DEFAULT_TOP_K })).toBe(true);
   });
 
-  it('keeps segments overlapping the window at either boundary', () => {
-    const results = [
-      // Starts before the window, ends inside it.
-      clip({ video_name: 'straddles-start.mp4', start_time: '2024-06-01T08:50:00', end_time: '2024-06-01T09:10:00' }),
-      // Starts inside the window, ends after it.
-      clip({ video_name: 'straddles-end.mp4', start_time: '2024-06-01T09:50:00', end_time: '2024-06-01T10:10:00' }),
-      // Spans the whole window.
-      clip({ video_name: 'spans.mp4', start_time: '2024-06-01T08:00:00', end_time: '2024-06-01T11:00:00' }),
-      clip({ video_name: 'before.mp4', start_time: '2024-06-01T07:00:00', end_time: '2024-06-01T07:30:00' }),
-      clip({ video_name: 'after.mp4', start_time: '2024-06-01T12:00:00', end_time: '2024-06-01T12:30:00' }),
-    ];
-
-    const filtered = applySearchResultFilters(
-      results,
-      { startDate: new Date(2024, 5, 1, 9, 0, 0), endDate: new Date(2024, 5, 1, 10, 0, 0) },
-      streams,
-    );
-
-    expect(filtered.map((r) => r.video_name)).toEqual([
-      'straddles-start.mp4',
-      'straddles-end.mp4',
-      'spans.mp4',
-    ]);
-  });
-
-  it('drops results with unparseable timestamps while a time range is active', () => {
-    const results = [
-      clip({ video_name: 'ok.mp4', start_time: '2024-06-01T09:10:00', end_time: '2024-06-01T09:20:00' }),
-      clip({ video_name: 'blank.mp4', start_time: '', end_time: '' }),
-      clip({ video_name: 'garbage.mp4', start_time: 'not-a-date', end_time: 'also-not-a-date' }),
-      // A single usable endpoint still gates both sides of the window.
-      clip({ video_name: 'end-only-inside.mp4', start_time: '', end_time: '2024-06-01T09:30:00' }),
-      clip({ video_name: 'end-only-after.mp4', start_time: '', end_time: '2024-06-01T18:00:00' }),
-    ];
-
-    const filtered = applySearchResultFilters(
-      results,
-      { startDate: new Date(2024, 5, 1, 9, 0, 0), endDate: new Date(2024, 5, 1, 10, 0, 0) },
-      streams,
-    );
-
-    expect(filtered.map((r) => r.video_name)).toEqual(['ok.mp4', 'end-only-inside.mp4']);
-  });
-
-  it('keeps results with unparseable timestamps when no time range is set', () => {
-    const results = [clip({ video_name: 'blank.mp4', start_time: '', end_time: '' })];
-    expect(applySearchResultFilters(results, {}, streams).map((r) => r.video_name)).toEqual(['blank.mp4']);
+  it('is false when similarity, sources, or top K differ from defaults', () => {
+    expect(isDefaultSearchFilters({ videoSources: [], similarity: 0.75, topK: DEFAULT_TOP_K })).toBe(false);
+    expect(isDefaultSearchFilters({ videoSources: ['cam-1'], similarity: 0, topK: DEFAULT_TOP_K })).toBe(false);
+    expect(isDefaultSearchFilters({ videoSources: [], similarity: 0, topK: 20 })).toBe(false);
   });
 });

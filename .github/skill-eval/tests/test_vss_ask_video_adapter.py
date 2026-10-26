@@ -115,7 +115,7 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
 
     # Recall of what an earlier step persisted, rather than a supplied note.
     assert "answers from what VSS unified memory already holds" in contract
-    assert "It does not run vss vlm run a second time" in contract
+    assert "It does not invoke vss vlm run anywhere in this task's trajectory" in contract
 
     # The two introspection states are now stated as deployment facts.
     assert "Introspection is turned off on this deployment" in contract
@@ -210,6 +210,9 @@ def test_operational_setup_is_spec_owned(spec_path, platform, tmp_path):
         assert query.split("\n\n")[-1] in instruction
         assert "Use `/vss-build-vision-ai`" in instruction
         assert "{{platform}}" not in instruction
+        verifier_spec = json.loads((instruction_path.parent / "tests" / spec_path.name).read_text())
+        assert "{{platform}}" not in verifier_spec["expects"][0]["query"]
+        assert platform in verifier_spec["expects"][0]["query"]
         build_skill = instruction_path.parent / "skills/vss-build-vision-ai"
         assert (build_skill / "SKILL.md").read_bytes() == (REPO_ROOT / "skills/vss-build-vision-ai/SKILL.md").read_bytes()
         assert "## Selected agent harness: NemoClaw" not in instruction

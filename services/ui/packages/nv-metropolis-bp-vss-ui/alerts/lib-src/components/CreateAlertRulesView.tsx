@@ -225,8 +225,6 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
   vstApiUrl,
   streamFilter: streamFilterProp,
   typeFilter: typeFilterProp,
-  onStreamFilterChange,
-  onTypeFilterChange,
   inputClass,
   readOnlyCellClass,
   thClass,
@@ -240,12 +238,10 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
   const [liveStreams, setLiveStreams] = useState<VstLiveStream[]>([]);
   const [liveStreamsLoading, setLiveStreamsLoading] = useState(false);
   const [liveStreamsError, setLiveStreamsError] = useState<string | null>(null);
-  const [internalStreamFilter, setInternalStreamFilter] = useState('');
-  const [internalTypeFilter, setInternalTypeFilter] = useState('');
+  const [internalStreamFilter] = useState('');
+  const [internalTypeFilter] = useState('');
   const streamFilter = streamFilterProp ?? internalStreamFilter;
   const typeFilter = typeFilterProp ?? internalTypeFilter;
-  const setStreamFilter = onStreamFilterChange ?? setInternalStreamFilter;
-  const setTypeFilter = onTypeFilterChange ?? setInternalTypeFilter;
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Two-step delete confirmation: clicking trash on a saved rule sets this to

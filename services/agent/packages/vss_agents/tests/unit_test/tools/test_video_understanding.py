@@ -16,9 +16,11 @@
 
 import base64
 
+from pydantic import ValidationError
 import pytest
 
 from vss_agents.tools.video_understanding import VideoUnderstandingConfig
+from vss_agents.tools.video_understanding import VideoUnderstandingInput
 from vss_agents.tools.video_understanding import VideoUnderstandingOffsetInput
 from vss_agents.tools.video_understanding import _build_vlm_messages
 from vss_agents.tools.video_understanding import _effective_system_prompt
@@ -27,6 +29,34 @@ from vss_agents.tools.video_understanding import _is_omni_audio_model
 from vss_agents.tools.video_understanding import _parse_thinking_from_content
 from vss_agents.tools.video_understanding import _should_use_video_base64
 from vss_agents.tools.video_understanding import _should_use_video_file_base64
+
+
+class TestVideoUnderstandingInput:
+    def test_user_query_is_rejected_as_extra_input(self):
+        """Alerts prompts used to teach user_query; the schema requires user_prompt."""
+        with pytest.raises(ValidationError) as exc_info:
+            VideoUnderstandingInput.model_validate(
+                {
+                    "sensor_id": "vss-sample-warehouse-4min",
+                    "start_timestamp": "2026-01-07T02:15:15.674Z",
+                    "end_timestamp": "2026-01-07T02:16:15.674Z",
+                    "user_query": "Describe this incident in detail.",
+                }
+            )
+        message = str(exc_info.value)
+        assert "user_prompt" in message
+        assert "user_query" in message
+
+    def test_user_prompt_is_accepted(self):
+        model = VideoUnderstandingInput.model_validate(
+            {
+                "sensor_id": "vss-sample-warehouse-4min",
+                "start_timestamp": "2026-01-07T02:15:15.674Z",
+                "end_timestamp": "2026-01-07T02:16:15.674Z",
+                "user_prompt": "Describe this incident in detail.",
+            }
+        )
+        assert model.user_prompt == "Describe this incident in detail."
 
 
 class TestVideoUnderstandingOffsetInput:

@@ -9,10 +9,12 @@ the CLI's hatch-vcs install), staging is exact-set, and — the drift guard —
 the real Dockerfiles never consume a /opt/vss-src path outside STAGE_ROOTS.
 """
 
+import datetime
 import re
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -138,7 +140,23 @@ def test_marker_provenance_clean_tree(repo):
     assert m["sha"] == head
     assert m["dirty"] == "false"
     assert m["version"] == "1.2.3"  # exactly on the release tag, clean
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", m["staged_at"])
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", m["source_timestamp"])
+
+
+def test_restage_unchanged_source_preserves_build_marker(repo, monkeypatch):
+    class AdvancingClock(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls.fromtimestamp(next(instants), tz)
+
+    instants = iter((1_900_000_000, 1_900_000_100))
+    monkeypatch.setattr(stage_vss_src, "datetime", SimpleNamespace(
+        datetime=AdvancingClock, timezone=datetime.timezone,
+    ))
+    assert run(repo, ".openclaw") == 0
+    first = read_marker(repo / ".openclaw")
+    assert run(repo, ".openclaw") == 0
+    assert read_marker(repo / ".openclaw") == first
 
 
 def test_marker_dirty_tree_gets_local_version(repo):
@@ -175,9 +193,9 @@ def test_not_a_git_checkout_exits_one(tmp_path):
 
 def test_dockerfiles_consume_only_staged_paths():
     """Every /opt/vss-src/<path> a harness Dockerfile touches must be covered
-    by STAGE_ROOTS (or be the STAGED marker / the COPY-anchor Dockerfile) —
+    by STAGE_ROOTS (or be the STAGED marker / a fallback COPY anchor) —
     otherwise a pre-staged build silently diverges from a pinned one."""
-    allowed_files = {"STAGED", "Dockerfile"}
+    allowed_files = {"STAGED", "Dockerfile", "README.md"}
     refs = set()
     for df in (REPO_ROOT / ".openclaw" / "Dockerfile", REPO_ROOT / ".hermes" / "Dockerfile"):
         for m in re.finditer(r"/opt/vss-src/([^\s\"'();]+)", df.read_text()):

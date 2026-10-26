@@ -51,6 +51,7 @@ sys.modules["harbor.environments.base"] = _base
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import envs.brev_env as brev_env  # noqa: E402
+from envs.nemoclaw_brev_env import NemoClawBrevEnvironment  # noqa: E402
 
 
 def _async_ok(*_a, **_kw):
@@ -146,6 +147,31 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
             any("MARKER_RE=" in command for command in self.remote_commands),
             "a fresh first step must still clean up agents from older runs",
         )
+
+    async def test_native_task_fixture_runs_after_host_start_and_fails_closed(self):
+        variables = {
+            'NEMOCLAW_SANDBOX_NAME': 'se-current',
+            'SKILL_EVAL_NEMOCLAW_HOST_FIXTURE': '{"nvstreamer_scan_file":"warehouse_sample.mp4"}',
+        }
+        for exit_code in (0, 1):
+            env = NemoClawBrevEnvironment()
+            async def prepare(*args, **kwargs):
+                start.assert_awaited_once()
+                return _ExecResult(return_code=exit_code)
+            with (
+                mock.patch.dict(brev_env.os.environ, variables, clear=True),
+                mock.patch.object(brev_env.BrevEnvironment, 'start', new_callable=mock.AsyncMock) as start,
+                mock.patch.object(env, 'exec', new=mock.AsyncMock(side_effect=prepare)) as execute,
+            ):
+                if exit_code:
+                    with self.assertRaisesRegex(RuntimeError, 'fixture preparation failed'):
+                        await env.start(False)
+                    self.assertFalse(env._nemoclaw_ready)
+                else:
+                    await env.start(False)
+                    await env.start(False)
+                    execute.assert_awaited_once()
+                self.assertIn('--sandbox se-current --nvstreamer-scan-file warehouse_sample.mp4', execute.call_args.args[0])
 
 if __name__ == "__main__":
     unittest.main()

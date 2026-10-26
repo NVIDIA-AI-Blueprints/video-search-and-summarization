@@ -87,6 +87,14 @@ on:
         description: "Run on the registered Brev Spark-ba-WiFi worker."
         type: boolean
         default: false
+      setup_only:
+        description: "Operational specs: evaluate deployment/setup (step 1) only, including NemoClaw readiness."
+        type: boolean
+        default: false
+      specs:
+        description: "Optional comma-separated spec filename stems; empty runs all selected skills' specs."
+        type: string
+        default: ""
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -189,6 +197,8 @@ jobs:
           # the old behavior — never blank, which would fall through to the
           # diff path and silently produce an empty matrix.
           MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
+          MANUAL_SPECS_FILTER: ${{ github.event_name == 'workflow_dispatch' && inputs.specs || '' }}
+          SKILLS_EVAL_SETUP_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.setup_only && 'true' || 'false' }}
           SKILLS_EVAL_SPARK_RUNNER: ${{ inputs.spark_runner && 'true' || 'false' }}
         run: python3 .github/skill-eval/plan_matrix.py
 
@@ -266,6 +276,7 @@ jobs:
           CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
           OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
           SPARK_RUNNER_INPUT: ${{ inputs.spark_runner && 'true' || 'false' }}
+          SETUP_ONLY_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.setup_only && 'true' || 'false' }}
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'nemoclaw' }}
           OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
@@ -293,6 +304,7 @@ jobs:
           coding_deployment="$CODING_DEPLOYMENT_INPUT"
           operational_deployment="$OPERATIONAL_DEPLOYMENT_INPUT"
           spark_runner="$SPARK_RUNNER_INPUT"
+          setup_only="$SETUP_ONLY_INPUT"
           coding_harness="$CODING_HARNESS_INPUT"
           coding_model="$CODING_MODEL_INPUT"
           operational_harness="$OPERATIONAL_HARNESS_INPUT"
@@ -310,6 +322,7 @@ jobs:
           export SKILLS_EVAL_CODING_DEPLOYMENT="$coding_deployment"
           export SKILLS_EVAL_OPERATIONAL_DEPLOYMENT="$operational_deployment"
           export SKILLS_EVAL_SPARK_RUNNER="$spark_runner"
+          export SKILLS_EVAL_SETUP_ONLY="$setup_only"
           export EVAL_AGENT="$operational_harness"
           export SKILLS_EVAL_CODING_HARNESS="$coding_harness"
           if [ -n "$coding_model" ]; then
@@ -360,6 +373,7 @@ jobs:
           export PR_HEAD_SHA="${{ github.sha }}"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
+          export GITHUB_RUN_ATTEMPT="${{ github.run_attempt }}"
           # Single-spec mode — plan already decided this leg's target, so
           # the agent skips the diff and processes exactly one (skill, spec).
           export EVAL_KIND="${{ matrix.kind }}"
@@ -382,6 +396,9 @@ jobs:
         if: always()
         env:
           EVAL_SLUG: ${{ matrix.slug }}
+          EVAL_SPEC_PATH: ${{ matrix.spec_path }}
+          OPERATIONAL_HARNESS: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'nemoclaw' }}
+          CLEANUP_JOB_STATUS: ${{ job.status }}
         run: |
           # This leg's harbor output lives under its own scratch scope,
           # /tmp/skill-eval/results/<slug>/<run_id>/, so the artifact
@@ -391,6 +408,27 @@ jobs:
           if [ ! -d "$LEG_RESULTS" ]; then
             echo "no results dir for this leg — blocked before running a trial (expected for blocker outcomes)"
             exit 0
+          fi
+          # Cancelling the outer SDK agent can kill run_leg's Bash tool before
+          # its finally runs. Reconcile only this leg's receipt, under the same
+          # worker lock, as a separate always() workflow step.
+          if [ "$OPERATIONAL_HARNESS" = nemoclaw ] && [[ "$EVAL_SPEC_PATH" == skills/operations/* ]]; then
+            cleanup_python="$SKILL_EVAL_VENV/bin/python"
+            cleanup_pythonpath="$PWD/.github/skill-eval"
+            cleanup_slug="$EVAL_SLUG"
+            cleanup_run_id="$GITHUB_RUN_ID"
+            cleanup_attempt="$GITHUB_RUN_ATTEMPT"
+            cleanup_status="$CLEANUP_JOB_STATUS"
+            set -a
+            source /home/ubuntu/eval-coordinator/.env
+            set +a
+            export EVAL_SLUG="$cleanup_slug" GITHUB_RUN_ID="$cleanup_run_id" GITHUB_RUN_ATTEMPT="$cleanup_attempt"
+            eval "$(ssh-agent -s)" > /dev/null
+            trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
+            cleanup_code='import sys; from pathlib import Path; from run_leg import cleanup_after_agent_exit'
+            cleanup_code+='; print("Gateway cleanup:", cleanup_after_agent_exit(Path(sys.argv[1]), cancelled=sys.argv[2] == "cancelled"))'
+            PYTHONPATH="$cleanup_pythonpath:${PYTHONPATH:-}" "$cleanup_python" -c "$cleanup_code" "$LEG_RESULTS" "$cleanup_status" || \
+              echo 'Gateway cleanup failed; continuing result collection'
           fi
           # Exclude per-trial agent/ trajectory subdirs from the tarball
           # (NOT from the on-disk tree the Harbor viewer serves). Those

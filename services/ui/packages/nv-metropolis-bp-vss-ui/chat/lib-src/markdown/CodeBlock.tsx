@@ -1,17 +1,21 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import { IconCheck, IconClipboard, IconDownload } from '@tabler/icons-react';
-import React, { Suspense, lazy, memo, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, memo, useEffect, useRef, useState } from 'react';
 import { copyToClipboard as copyToClipboardUtil } from 'common';
+
+import { shouldHighlightCode } from './highlight';
 
 /**
  * Syntax highlighting, loaded on demand.
  *
  * react-syntax-highlighter pulls in refractor and the whole Prism grammar set —
  * several hundred kilobytes for a feature that only fires when an answer
- * contains a fenced code block, and never during streaming (see the stability
- * gate below). Loading it lazily keeps it out of the chat chunk entirely for
- * the common case, and the plain-text renderer is the Suspense fallback, so
+ * contains a fenced block that has stopped streaming and is under
+ * `CODE_HIGHLIGHT_MAX_CHARS`. Larger JSON is rendered as plain text (see
+ * `shouldHighlightCode`): Prism would otherwise emit a span per token and stall
+ * the sidebar. Loading the highlighter lazily keeps it out of the chat chunk
+ * for the common case, and the plain-text renderer is the Suspense fallback, so
  * nothing flashes empty while it arrives.
  */
 const LazyHighlighter = lazy(async () => {
@@ -59,9 +63,7 @@ const EXTENSIONS: Record<string, string> = {
   xml: '.xml',
 };
 
-// Highlighting a large block costs more than it is worth, and re-running it on
-// every token during a stream stutters the chat.
-const VERY_LARGE_CONTENT_THRESHOLD = 50_000;
+// Re-running highlight on every token during a stream stutters the chat.
 const CONTENT_STABLE_DELAY_MS = 500;
 
 export interface CodeBlockProps {
@@ -77,18 +79,14 @@ export const CodeBlock: React.FC<CodeBlockProps> = memo(({ language, value }) =>
   const lastValueRef = useRef(value);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const formattedValue = useMemo(() => {
-    // Agents commonly emit near-JSON with single quotes; pretty-print when we
-    // can and fall back to the raw text when we cannot.
-    const candidate = language === 'json' ? value.replaceAll("'", '"') : value;
-    try {
-      return JSON.stringify(JSON.parse(candidate), null, 2);
-    } catch {
-      return value;
-    }
-  }, [language, value]);
+  // Do not rewrite fenced answer code here. Tool Input/Output is already
+  // pretty-printed in parseStepPayload before it reaches CodeBlock; converting
+  // again would turn answer Python (`True`/`None`) into JSON on copy/download.
+  const displayLanguage = language || 'text';
+  const canHighlight = shouldHighlightCode(value);
 
   useEffect(() => {
+    if (!canHighlight) return;
     if (lastValueRef.current !== value) {
       lastValueRef.current = value;
       setContentStable(false);
@@ -98,20 +96,22 @@ export const CodeBlock: React.FC<CodeBlockProps> = memo(({ language, value }) =>
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [value]);
+  }, [value, canHighlight]);
 
   // Mark a block that never changes (restored from history) stable immediately.
+  // Large payloads skip this: colouring them is more expensive than it is worth.
   useEffect(() => {
+    if (!canHighlight) return;
     const initial = setTimeout(() => setContentStable(true), CONTENT_STABLE_DELAY_MS);
     return () => clearTimeout(initial);
-  }, []);
+  }, [canHighlight]);
 
-  const usePlainText = formattedValue.length > VERY_LARGE_CONTENT_THRESHOLD || !contentStable;
+  const usePlainText = !canHighlight || !contentStable;
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (await copyToClipboardUtil(formattedValue)) {
+    if (await copyToClipboardUtil(value)) {
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     }
@@ -120,8 +120,8 @@ export const CodeBlock: React.FC<CodeBlockProps> = memo(({ language, value }) =>
   const handleDownload = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const extension = EXTENSIONS[language] || '.txt';
-    const blob = new Blob([formattedValue], { type: 'text/plain' });
+    const extension = EXTENSIONS[displayLanguage] || '.txt';
+    const blob = new Blob([value], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -132,14 +132,17 @@ export const CodeBlock: React.FC<CodeBlockProps> = memo(({ language, value }) =>
 
   const plain = (
     <pre className="m-0 overflow-x-auto p-4 text-[#abb2bf]">
-      <code>{formattedValue}</code>
+      <code>{value}</code>
     </pre>
   );
 
   return (
-    <div className="codeblock relative my-2 rounded-md bg-[#282c34] font-mono text-sm">
+    <div
+      className="codeblock relative my-2 rounded-md bg-[#282c34] font-mono text-sm"
+      data-highlighted={usePlainText ? 'false' : 'true'}
+    >
       <div className="flex items-center justify-between px-4 py-1.5 text-xs text-gray-300">
-        <span className="lowercase">{language}</span>
+        <span className="lowercase">{displayLanguage}</span>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -165,7 +168,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = memo(({ language, value }) =>
         plain
       ) : (
         <Suspense fallback={plain}>
-          <LazyHighlighter language={language || 'text'}>{formattedValue}</LazyHighlighter>
+          <LazyHighlighter language={displayLanguage}>{value}</LazyHighlighter>
         </Suspense>
       )}
     </div>
