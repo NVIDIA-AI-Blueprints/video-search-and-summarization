@@ -576,24 +576,28 @@ helm upgrade <RELEASE_NAME> ./dev-profile-lvs -f dev-profile-lvs/values-lvs.yaml
 helm upgrade <RELEASE_NAME> ./dev-profile-lvs -f dev-profile-lvs/values-lvs.yaml -n <NAMESPACE>
 ```
 
-**Uninstall**:
+**Uninstall**
 
-```bash
-helm uninstall <RELEASE_NAME> -n <NAMESPACE>
-```
+Back up uploaded media and Postgres metadata before `helm uninstall`. Those claims have no `helm.sh/resource-policy: keep` annotation, so the release delete removes them. Copy the volumes with your storage provider first, and read each PV's reclaim policy. A `Delete` policy removes the disk with the claim.
 
 | Resource | Helm uninstall behavior | Notes |
 |----------|-------------------------|-------|
-| Shared VST PVCs (`<RELEASE_NAME>-vst-data`, `<RELEASE_NAME>-vst-video`, `<RELEASE_NAME>-vst-streamer-videos`) | Removed with the release | No `helm.sh/resource-policy: keep` annotation. Uploaded/streamed media can be lost. |
-| Other release-owned PVCs (Elasticsearch, Postgres, etc.) | Removed with the release | Confirm reclaim policy / provisioner before assuming data remains on disk. |
-| `NIMCache` (namespaced; default name `nemotron-35-lightning-30b-a3b`) | Retained | Templates set `helm.sh/resource-policy: keep`. `NIMCache` is a namespaced CRD object, not cluster-scoped. |
+| Shared VST PVCs (`<RELEASE_NAME>-vst-data`, `<RELEASE_NAME>-vst-video`, `<RELEASE_NAME>-vst-streamer-videos`) | Removed with the release | Names always include the release, including when `global.useReleaseNamePrefix` is `false`. This is the uploaded and streamed media. |
+| Postgres PVC | Removed with the release | Default name `vss-vios-postgres-data`. With `global.useReleaseNamePrefix: true` it is `<RELEASE_NAME>-vss-vios-postgres-data`. Database files are on that claim at `postgresql/db`. |
+| Elasticsearch PVCs | Removed with the release | The StatefulSet sets `persistentVolumeClaimRetentionPolicy.whenDeleted: Delete`. Default claims are `es-data-elasticsearch-0` and `es-logs-elasticsearch-0`. With the prefix flag they are `es-data-<RELEASE_NAME>-elasticsearch-0` and `es-logs-<RELEASE_NAME>-elasticsearch-0`. |
+| `NIMCache` (namespaced; default name `nemotron-35-lightning-30b-a3b`) | Retained | Templates set `helm.sh/resource-policy: keep`. `NIMCache` is a namespaced CRD object, not cluster-scoped, and not a PVC. |
+
+```bash
+kubectl get pvc -n <NAMESPACE>
+kubectl get nimcache -n <NAMESPACE>
+
+# After the media and Postgres backup:
+helm uninstall <RELEASE_NAME> -n <NAMESPACE>
+```
 
 Do **not** run namespace-wide deletes such as `kubectl delete nimcache --all` or `kubectl delete pvc --all`. Those commands remove every matching object in the namespace, including leftovers from other releases. Inspect ownership, confirm you intend to discard the data, then delete only the selected leftovers for this release:
 
 ```bash
-kubectl get nimcache -n <NAMESPACE>
-kubectl get pvc -n <NAMESPACE>
-
 # Example for the default Nemotron NIMCache (kept by Helm):
 kubectl delete nimcache nemotron-35-lightning-30b-a3b -n <NAMESPACE>
 ```
