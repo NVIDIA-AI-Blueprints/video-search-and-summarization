@@ -269,10 +269,16 @@ frontend fe_http
     # Two denies rather than `http-request allow`: allow also skips the
     # backend's replace-path rules, so the request would reach Elasticsearch
     # with the /elasticsearch prefix still on it.
+    # Exact scans need the clear-scroll operation. Permit only that endpoint,
+    # not DELETE on indices or documents. Context authorization belongs to ES;
+    # this path exception does not inspect scroll IDs. Keep path stripping.
+    acl es_scroll_release method DELETE
+    acl es_scroll_path path /elasticsearch/_search/scroll
     acl es_memory_write method PUT
     acl es_memory_doc_path path_reg ^/elasticsearch/vss-memory(-[^/]+)?/_doc/[^/]+$
-    http-request deny status 405 if h_main p_elasticsearch !es_read_method !es_memory_doc_path
+    http-request deny status 405 if h_main p_elasticsearch !es_read_method !es_memory_doc_path !es_scroll_path
     http-request deny status 405 if h_main p_elasticsearch !es_read_method es_memory_doc_path !es_memory_write
+    http-request deny status 405 if h_main p_elasticsearch !es_read_method es_scroll_path !es_scroll_release
     http-request deny status 403 if h_main p_elasticsearch es_admin_path
     http-request deny status 403 if h_main p_elasticsearch es_mutating_op
     use_backend bk_elasticsearch_strip if h_main p_elasticsearch

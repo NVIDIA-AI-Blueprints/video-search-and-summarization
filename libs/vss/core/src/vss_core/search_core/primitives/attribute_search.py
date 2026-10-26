@@ -25,6 +25,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from vss_core.vios._metadata_cache import metadata_scope
+
 from ..models.attribute_search import AttributeSearchInput
 from ..models.attribute_search import AttributeSearchOutput
 from . import _attribute_helpers
@@ -79,6 +81,11 @@ class AttributeSearch:
         return self._embed
 
     async def run(self, inp: AttributeSearchInput) -> AttributeSearchOutput:
+        async with metadata_scope():
+            with _attribute_helpers.frame_query_scope():
+                return await self._run_scoped(inp)
+
+    async def _run_scoped(self, inp: AttributeSearchInput) -> AttributeSearchOutput:
         """Execute attribute search and return the ranked results."""
         inp.validate_semantics()
         if inp.top_k is None:

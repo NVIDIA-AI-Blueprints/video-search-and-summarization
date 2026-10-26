@@ -48,6 +48,10 @@ from vss_core._foundation.retry import create_retry_strategy
 from vss_core._foundation.sanitize import quote_path_segment
 from vss_core._foundation.time import iso8601_to_datetime
 
+from ._metadata_cache import discard_metadata
+from ._metadata_cache import metadata_text
+from ._metadata_cache import metadata_value
+
 logger = logging.getLogger(__name__)
 
 #: Indirection so tests can drive the deadline without sleeping.
@@ -179,6 +183,21 @@ def map_interval_to_timeline(
     )
 
 
+async def _read_metadata(url: str, timeout_seconds: float, retries: int, label: str) -> str:
+    async def fetch() -> str:
+        timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+            async for retry in create_retry_strategy(retries=retries, exceptions=_VST_RETRYABLE_ERRORS):
+                with retry:
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            raise VSTError(f"VST {label} API returned status {response.status}")
+                        return await response.text()
+        raise VSTError(f"Failed to get VST {label}")
+
+    return await metadata_text((url, timeout_seconds, retries), fetch)
+
+
 async def get_timelines_map(
     vst_internal_url: str,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
@@ -196,29 +215,24 @@ async def get_timelines_map(
     if base.endswith("/vst"):
         base = base[:-4]
     timelines_url = f"{base}/vst/api/v1/storage/timelines"
-    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-            async for retry in create_retry_strategy(retries=retries, exceptions=_VST_RETRYABLE_ERRORS):
-                with retry:
-                    async with session.get(timelines_url) as response:
-                        if response.status != 200:
-                            raise VSTError(f"VST timelines API returned status {response.status}")
-                        payload = json.loads(await response.text())
-                        out: dict[str, tuple[str, str]] = {}
-                        if isinstance(payload, dict):
-                            for stream_id, segments in payload.items():
-                                if not (isinstance(segments, list) and segments):
-                                    continue
-                                starts = [
-                                    str(s["startTime"]) for s in segments if isinstance(s, dict) and s.get("startTime")
-                                ]
-                                ends = [str(s["endTime"]) for s in segments if isinstance(s, dict) and s.get("endTime")]
-                                if starts and ends:
-                                    out[str(stream_id)] = (min(starts), max(ends))
-                        return out
+        text = await _read_metadata(timelines_url, timeout_seconds, retries, "timelines")
+        payload = json.loads(text)
+        out: dict[str, tuple[str, str]] = {}
+        if isinstance(payload, dict):
+            for stream_id, segments in payload.items():
+                if not (isinstance(segments, list) and segments):
+                    continue
+                starts = [str(s["startTime"]) for s in segments if isinstance(s, dict) and s.get("startTime")]
+                ends = [str(s["endTime"]) for s in segments if isinstance(s, dict) and s.get("endTime")]
+                if starts and ends:
+                    out[str(stream_id)] = (min(starts), max(ends))
+        return out
     except _VST_BOUNDARY_ERRORS as e:
         raise VSTError("Failed to get timelines map after retrying transport errors", e) from e
+    except Exception:
+        discard_metadata((timelines_url, timeout_seconds, retries))
+        raise
     return {}  # unreachable; satisfies mypy
 
 
@@ -319,6 +333,18 @@ async def get_name_to_stream_id_map(
     vst_internal_url: str,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, str]:
+    """Resolve a catalogue once per request; callers receive independent mappings."""
+    mapping = await metadata_value(
+        ("catalogue-map", vst_internal_url.rstrip("/"), timeout_seconds),
+        lambda: _get_name_to_stream_id_map(vst_internal_url, timeout_seconds),
+    )
+    return dict(mapping)
+
+
+async def _get_name_to_stream_id_map(
+    vst_internal_url: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> dict[str, str]:
     """Fetch `/api/v1/sensor/streams` and return `{sensor_name: stream_id}`.
 
     Mirrors tools/vst/utils.py:70-97 with the env-fallback removed. Parse/shape
@@ -326,39 +352,35 @@ async def get_name_to_stream_id_map(
     shape is validated defensively so a malformed payload maps cleanly.
     """
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/streams"
-    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-            async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
-                with retry:
-                    async with session.get(url) as response:
-                        if response.status != 200:
-                            raise VSTError(f"VST streams API returned status {response.status}")
-                        text = await response.text()
-                        try:
-                            payload = json.loads(text)
-                            if not isinstance(payload, list):
-                                raise VSTError(f"Unexpected VST streams response shape: {type(payload).__name__}")
-                            mapping: dict[str, str] = {}
-                            for file in payload:
-                                if not isinstance(file, dict) or not file:
-                                    logger.warning("Skipping malformed VST stream entry")
-                                    continue
-                                stream_id = next(iter(file))
-                                entries = file[stream_id]
-                                if isinstance(entries, list) and len(entries) > 0 and isinstance(entries[0], dict):
-                                    name = entries[0].get("name")
-                                    if name is not None:
-                                        mapping[name] = stream_id
-                                else:
-                                    logger.warning(f"Stream ID {stream_id} is empty, skipping")
-                            return mapping
-                        except VSTError:
-                            raise
-                        except Exception as e:
-                            raise VSTError(f"Error parsing name to stream ID map: {e}") from e
+        text = await _read_metadata(url, timeout_seconds, 3, "streams")
+        try:
+            payload = json.loads(text)
+            if not isinstance(payload, list):
+                raise VSTError(f"Unexpected VST streams response shape: {type(payload).__name__}")
+            mapping: dict[str, str] = {}
+            for file in payload:
+                if not isinstance(file, dict) or not file:
+                    logger.warning("Skipping malformed VST stream entry")
+                    continue
+                stream_id = next(iter(file))
+                entries = file[stream_id]
+                if isinstance(entries, list) and len(entries) > 0 and isinstance(entries[0], dict):
+                    name = entries[0].get("name")
+                    if name is not None:
+                        mapping[name] = stream_id
+                else:
+                    logger.warning(f"Stream ID {stream_id} is empty, skipping")
+            return mapping
+        except VSTError:
+            raise
+        except Exception as e:
+            raise VSTError(f"Error parsing name to stream ID map: {e}") from e
     except _VST_BOUNDARY_ERRORS as e:
         raise VSTError("Failed to get name to stream ID map after retrying transport errors", e) from e
+    except Exception:
+        discard_metadata((url, timeout_seconds, 3))
+        raise
     return {}  # unreachable; satisfies mypy
 
 
@@ -373,42 +395,34 @@ async def get_streams_info(
     are wrapped in :class:`VSTError` (never leaked raw).
     """
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/streams"
-    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-            async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
-                with retry:
-                    async with session.get(url) as response:
-                        if response.status != 200:
-                            raise VSTError(f"VST streams API returned status {response.status}")
-                        text = await response.text()
-                        try:
-                            payload = json.loads(text)
-                            if not isinstance(payload, list):
-                                raise VSTError(f"Unexpected VST streams response shape: {type(payload).__name__}")
-                            result: dict[str, dict[str, str]] = {}
-                            for entry in payload:
-                                if not isinstance(entry, dict) or not entry:
-                                    logger.warning("Skipping malformed VST stream entry")
-                                    continue
-                                stream_id = next(iter(entry))
-                                stream_list = entry[stream_id]
-                                if (
-                                    isinstance(stream_list, list)
-                                    and len(stream_list) > 0
-                                    and isinstance(stream_list[0], dict)
-                                ):
-                                    result[stream_id] = {
-                                        "name": stream_list[0].get("name", ""),
-                                        "url": stream_list[0].get("url", ""),
-                                    }
-                            return result
-                        except VSTError:
-                            raise
-                        except Exception as e:
-                            raise VSTError(f"Error parsing streams info: {e}") from e
+        text = await _read_metadata(url, timeout_seconds, 3, "streams")
+        try:
+            payload = json.loads(text)
+            if not isinstance(payload, list):
+                raise VSTError(f"Unexpected VST streams response shape: {type(payload).__name__}")
+            result: dict[str, dict[str, str]] = {}
+            for entry in payload:
+                if not isinstance(entry, dict) or not entry:
+                    logger.warning("Skipping malformed VST stream entry")
+                    continue
+                stream_id = next(iter(entry))
+                stream_list = entry[stream_id]
+                if isinstance(stream_list, list) and len(stream_list) > 0 and isinstance(stream_list[0], dict):
+                    result[stream_id] = {
+                        "name": stream_list[0].get("name", ""),
+                        "url": stream_list[0].get("url", ""),
+                    }
+            return result
+        except VSTError:
+            raise
+        except Exception as e:
+            raise VSTError(f"Error parsing streams info: {e}") from e
     except _VST_BOUNDARY_ERRORS as e:
         raise VSTError("Failed to get streams info after retrying transport errors", e) from e
+    except Exception:
+        discard_metadata((url, timeout_seconds, 3))
+        raise
     return {}  # unreachable; satisfies mypy
 
 
@@ -466,6 +480,18 @@ async def get_timeline(
     vst_internal_url: str,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> tuple[str, str]:
+    """Reuse a successful first-segment view within the owning request only."""
+    return await metadata_value(
+        ("clip-timeline", vst_internal_url.rstrip("/"), stream_id, timeout_seconds),
+        lambda: _get_timeline(stream_id, vst_internal_url, timeout_seconds),
+    )
+
+
+async def _get_timeline(
+    stream_id: str,
+    vst_internal_url: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> tuple[str, str]:
     """Return (start_iso, end_iso) for a stream's replay timeline.
 
     Mirrors tools/vst/timeline.py:69-125. Tolerates being given a sensor name
@@ -480,42 +506,36 @@ async def get_timeline(
         base = base[:-4]
     timelines_url = f"{base}/vst/api/v1/storage/timelines"
 
-    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-            async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
-                with retry:
-                    async with session.get(timelines_url) as response:
-                        if response.status != 200:
-                            raise VSTError(f"VST timelines API returned status {response.status}")
-                        text = await response.text()
-                    try:
-                        timelines_data = json.loads(text)
-                        if not isinstance(timelines_data, dict):
-                            raise VSTError(f"Unexpected VST timelines response shape: {type(timelines_data).__name__}")
-                        timeline_list = timelines_data.get(stream_id, [])
-                        if not timeline_list:
-                            logger.info("no timeline for input; trying to resolve as sensor name")
-                            stream_id = await get_stream_id(
-                                stream_id, vst_internal_url, timeout_seconds=timeout_seconds
-                            )
-                            timeline_list = timelines_data.get(stream_id, [])
-                            if not timeline_list:
-                                raise VSTError(f"No timeline found for stream {stream_id}")
-                        logger.info("Timeline for stream %s: %s", stream_id, timeline_list)
-                        start = timeline_list[0].get("startTime")
-                        end = timeline_list[0].get("endTime")
-                        start_dt = iso8601_to_datetime(start)
-                        end_dt = iso8601_to_datetime(end)
-                        if (end_dt - start_dt).total_seconds() < 1:
-                            raise VSTError(f"Timeline duration is too short for stream {stream_id}")
-                        return start, end
-                    except VSTError:
-                        raise
-                    except Exception as e:
-                        raise VSTError(f"Error getting timeline for stream {stream_id}: {e}") from e
+        text = await _read_metadata(timelines_url, timeout_seconds, 3, "timelines")
+        try:
+            timelines_data = json.loads(text)
+            if not isinstance(timelines_data, dict):
+                raise VSTError(f"Unexpected VST timelines response shape: {type(timelines_data).__name__}")
+            timeline_list = timelines_data.get(stream_id, [])
+            if not timeline_list:
+                logger.info("no timeline for input; trying to resolve as sensor name")
+                stream_id = await get_stream_id(stream_id, vst_internal_url, timeout_seconds=timeout_seconds)
+                timeline_list = timelines_data.get(stream_id, [])
+                if not timeline_list:
+                    raise VSTError(f"No timeline found for stream {stream_id}")
+            logger.info("Timeline for stream %s: %s", stream_id, timeline_list)
+            start = timeline_list[0].get("startTime")
+            end = timeline_list[0].get("endTime")
+            start_dt = iso8601_to_datetime(start)
+            end_dt = iso8601_to_datetime(end)
+            if (end_dt - start_dt).total_seconds() < 1:
+                raise VSTError(f"Timeline duration is too short for stream {stream_id}")
+            return start, end
+        except VSTError:
+            raise
+        except Exception as e:
+            raise VSTError(f"Error getting timeline for stream {stream_id}: {e}") from e
     except _VST_BOUNDARY_ERRORS as e:
         raise VSTError(f"Failed to get timeline for stream {stream_id} after retrying transport errors", e) from e
+    except Exception:
+        discard_metadata((timelines_url, timeout_seconds, 3))
+        raise
     return "", ""  # unreachable; satisfies mypy
 
 

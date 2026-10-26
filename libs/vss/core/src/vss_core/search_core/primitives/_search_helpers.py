@@ -157,6 +157,10 @@ async def _run_attribute_only_search(
             "exclude_videos": exclude_videos,
         }
 
+        if search_input.max_hits_per_source is not None:
+            attr_params["max_hits_per_source"] = search_input.max_hits_per_source
+        if search_input.candidate_limit is not None:
+            attr_params["candidate_limit"] = search_input.candidate_limit
         attribute_results = await attribute_search_fn.ainvoke(attr_params)
 
         search_results: list[SearchResult] = []

@@ -27,6 +27,7 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import StrictInt
 
 from ..errors import InvalidInputError
 
@@ -54,8 +55,10 @@ class SearchInput(BaseModel):
     timestamp_end: datetime | None = None
     # None means use the primitive's configured default; all standalone
     # primitives receive SearchRuntime.default_max_results.
+    candidate_limit: int | None = Field(default=None, ge=1, le=100000)
     top_k: int | None = Field(default=None, ge=1, le=1000)
     search_mode: Literal["embed", "attribute", "fusion", "object", "tag"] = "embed"
+    max_hits_per_source: StrictInt | None = Field(default=None, ge=1, le=1000)
     attributes: list[str] = Field(default_factory=list)
     object_ids: list[int] | None = None
     # Cosine similarity is in [-1, 1]; the UI sends negative thresholds for
@@ -94,6 +97,8 @@ class SearchInput(BaseModel):
             raise InvalidInputError("search_mode='object' does not accept attributes")
         if self.object_ids and self.search_mode != "object":
             raise InvalidInputError("object_ids require search_mode='object'")
+        if self.max_hits_per_source is not None and self.candidate_limit is None:
+            raise InvalidInputError("max_hits_per_source requires an explicit candidate_limit")
 
 
 class SearchVerification(BaseModel):

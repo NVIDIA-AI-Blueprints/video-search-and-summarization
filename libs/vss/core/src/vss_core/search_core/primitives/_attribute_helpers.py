@@ -29,9 +29,12 @@ document is skipped rather than failing the whole search.
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from datetime import timedelta
 import logging
+import math
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Literal
@@ -52,6 +55,9 @@ from vss_core.vios import map_timestamp_to_timeline
 from .._internal.coerce import _coerce_str
 from .._internal.es_filters import build_video_sources_filter
 from .._internal.time_measure import TimeMeasure
+from ..clients.protocols import MultiSearchIndex
+from ..errors import BackendUnreachableError
+from ..errors import ConfigurationError
 from ..errors import IndexNotFoundError
 from ..models.attribute_search import AttributeSearchInput
 from ..models.attribute_search import AttributeSearchMetadata
@@ -411,6 +417,7 @@ async def _search_behavior(
     timestamp_end: datetime | None = None,
     video_sources: list[str] | None = None,
     source_type: str = "video_file",
+    candidate_limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """kNN-search the behavior embeddings and return the raw hits."""
     filter_clauses: list[dict[str, Any]] = []
@@ -429,7 +436,22 @@ async def _search_behavior(
     )
 
     try:
-        response = await es.search(index=search_index_str, body=search_query)
+        if candidate_limit is not None:
+            exact_search = getattr(es, "exhaustive_vector_search", None)
+            if not callable(exact_search):
+                raise ConfigurationError("Exact attribute scanning requires an exhaustive-vector backend")
+            response = await exact_search(
+                index=search_index_str,
+                filters=filter_clauses,
+                vector=query_embedding,
+                field="embeddings.vector",
+                nested_path="embeddings",
+                source_includes=["object", "sensor", "timestamp", "end"],
+                candidate_limit=candidate_limit,
+                min_score=min_similarity,
+            )
+        else:
+            response = await es.search(index=search_index_str, body=search_query)
     except IndexNotFoundError as e:
         if _is_absent_uploads_anchor(index):
             logger.warning(
@@ -445,6 +467,131 @@ async def _search_behavior(
     return hits
 
 
+_frame_query_preparations: ContextVar[dict | None] = ContextVar("frame_query_preparations", default=None)
+
+
+@contextmanager
+def frame_query_scope():
+    """Share immutable query parameters only within the current search request."""
+    token = _frame_query_preparations.set({}) if _frame_query_preparations.get() is None else None
+    try:
+        yield
+    finally:
+        if token is not None:
+            _frame_query_preparations.reset(token)
+
+
+def _prepare_frame_query(query_embedding: list[float]) -> dict[str, Any]:
+    cache = _frame_query_preparations.get()
+    key = tuple(query_embedding)
+    if cache is not None and key in cache:
+        return cache[key]
+    norm = math.hypot(*query_embedding)
+    if not math.isfinite(norm):
+        raise ValueError("Frame query vector must contain finite values")
+    params = {"query_vector": query_embedding, "query_norm": norm, "zero_vector": [0.0] * len(query_embedding)}
+    if cache is not None:
+        cache[key] = params
+    return params
+
+
+def _frame_lookup_body(*args, prepared=None, **kwargs):
+    """Score matching frame vectors with their indexed values and true norms."""
+    return _indexed_frame_lookup_body(*args, prepared=prepared, **kwargs)
+
+
+def _indexed_frame_lookup_body(
+    sensor_id: str,
+    object_id: str,
+    start_time: str,
+    end_time: str | None,
+    query_embedding: list[float],
+    *,
+    prepared: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Score matching nested object vectors exactly with ES's built-in cosine.
+
+    Sensor/time filters select parent frames; the nested object-id filter keeps
+    another object's vector from contributing to the frame score. Missing vectors
+    receive zero score instead of promoting the candidate through the behavior-score
+    fallback. Compute the actual vector norm:
+    cached cosine magnitudes can be 1.0 for vectors that are only nearly unit length.
+    """
+    return {
+        "query": {
+            "bool": {
+                "filter": [
+                    {"term": {"sensorId.keyword": sensor_id}},
+                    {"range": {"timestamp": {"gte": start_time, "lte": end_time} if end_time else {"gte": start_time}}},
+                ],
+                "must": [
+                    {
+                        "nested": {
+                            "path": "objects",
+                            "score_mode": "max",
+                            "query": {
+                                "script_score": {
+                                    "query": {
+                                        "bool": {
+                                            "filter": [
+                                                {"term": {"objects.id.keyword": object_id}},
+                                            ]
+                                        }
+                                    },
+                                    "script": {
+                                        "source": (
+                                            "if (doc['objects.embedding.vector'].size() == 0 || params.query_norm == 0.0) return 0.0; "
+                                            "double norm = l2norm(params.zero_vector, 'objects.embedding.vector'); "
+                                            "if (norm == 0.0) return 0.0; "
+                                            "double cosine = dotProduct(params.query_vector, 'objects.embedding.vector') / (params.query_norm * norm); "
+                                            "return (Math.max(-1.0, Math.min(1.0, cosine)) + 1.0) / 2.0;"
+                                        ),
+                                        "params": prepared
+                                        if prepared is not None
+                                        else _prepare_frame_query(query_embedding),
+                                    },
+                                }
+                            },
+                        }
+                    }
+                ],
+            }
+        },
+        "size": 1,
+        "_source": ["id", "timestamp", "sensorId", "objects.id", "objects.bbox"],
+    }
+
+
+def _parse_frame_lookup(response: Any, object_id: str) -> FrameLookupResult:
+    """Read one best-frame response without changing score or tie ordering."""
+    hits = response.get("hits", {}).get("hits", [])
+    if not hits:
+        return None, None, None, None
+
+    best_hit = hits[0]
+    frame_source = best_hit["_source"]
+    # The script already normalized cosine to (1 + cosine) / 2 in [0, 1];
+    # report it verbatim rather than transforming a second time.
+    best_score = float(best_hit["_score"])
+    best_frame_id = frame_source.get("id")
+    best_timestamp = frame_source.get("timestamp", "")
+
+    best_bbox = None
+    for obj in frame_source.get("objects", []):
+        if obj.get("id") == object_id:
+            bbox_data = obj.get("bbox", {})
+            if bbox_data and bbox_data.get("leftX") is not None:
+                best_bbox = {
+                    "leftX": bbox_data.get("leftX", 0),
+                    "rightX": bbox_data.get("rightX", 0),
+                    "topY": bbox_data.get("topY", 0),
+                    "bottomY": bbox_data.get("bottomY", 0),
+                }
+            break
+
+    return best_frame_id, best_bbox, best_score, best_timestamp
+
+
 async def _get_frame_from_behavior(
     frames_index: str | list[str],
     sensor_id: str,
@@ -453,11 +600,12 @@ async def _get_frame_from_behavior(
     end_time: str | None,
     query_embedding: list[float],
     es: ElasticIndex,
+    prepared: dict[str, Any] | None = None,
 ) -> FrameLookupResult:
     """Best-effort per-object best-frame lookup via a Painless cosine score.
 
-    Frame lookup is an enhancement: any failure returns an empty result so the
-    parent search still yields behavior-level matches.
+    Malformed frame documents remain best effort. Typed backend/index failures
+    propagate so failed infrastructure cannot masquerade as a frame miss.
 
     Score space: the Painless script shifts raw cosine ``[-1, 1]`` into
     ``(1 + cosine) / 2`` (``[0, 1]``) BEFORE returning it as ``_score``. This is
@@ -469,101 +617,20 @@ async def _get_frame_from_behavior(
     """
     try:
         search_frames_index_str = frames_index if isinstance(frames_index, str) else ",".join(frames_index)
-        painless_script = (
-            "double maxScore = -2.0; "
-            "if (params._source.containsKey('objects')) { "
-            "  for (int i = 0; i < params._source.objects.size(); i++) { "
-            "    def obj = params._source.objects[i]; "
-            "    if (obj.id == params.target_id && obj.containsKey('embedding') && obj.embedding.containsKey('vector')) { "
-            "      def vec = obj.embedding.vector; "
-            "      double dotProduct = 0.0; "
-            "      double normA = 0.0; "
-            "      double normB = 0.0; "
-            "      for (int j = 0; j < Math.min(params.query_vector.size(), vec.size()); j++) { "
-            "        dotProduct += params.query_vector[j] * vec[j]; "
-            "        normA += params.query_vector[j] * params.query_vector[j]; "
-            "        normB += vec[j] * vec[j]; "
-            "      } "
-            "      if (normA > 0 && normB > 0) { "
-            "        double similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB)); "
-            "        maxScore = Math.max(maxScore, similarity); "
-            "      } "
-            "      break; "
-            "    } "
-            "  } "
-            "} "
-            # Shift cosine [-1, 1] into [0, 1]: script_score rejects negative
-            # scores, so a negative cosine would throw and lose the frame.
-            "return maxScore > -2.0 ? (maxScore + 1.0) / 2.0 : 0.0;"
+        response = await es.search(
+            index=search_frames_index_str,
+            body=_frame_lookup_body(sensor_id, object_id, start_time, end_time, query_embedding, prepared=prepared),
         )
-        search_query = {
-            "query": {
-                "function_score": {
-                    "query": {
-                        "bool": {
-                            "filter": [
-                                {"term": {"sensorId.keyword": sensor_id}},
-                                {
-                                    "range": {
-                                        "timestamp": (
-                                            {"gte": start_time, "lte": end_time} if end_time else {"gte": start_time}
-                                        )
-                                    }
-                                },
-                            ],
-                            "must": [
-                                {
-                                    "nested": {
-                                        "path": "objects",
-                                        "query": {"term": {"objects.id.keyword": object_id}},
-                                    }
-                                }
-                            ],
-                        }
-                    },
-                    "script_score": {
-                        "script": {
-                            "source": painless_script,
-                            "params": {"query_vector": query_embedding, "target_id": object_id},
-                        }
-                    },
-                    "boost_mode": "replace",
-                }
-            },
-            "size": 1,
-            "_source": ["id", "timestamp", "sensorId", "objects"],
-        }
-
-        response = await es.search(index=search_frames_index_str, body=search_query)
-        hits = response.get("hits", {}).get("hits", [])
-        if not hits:
-            return None, None, None, None
-
-        best_hit = hits[0]
-        frame_source = best_hit["_source"]
-        # The script already normalized cosine to (1 + cosine) / 2 in [0, 1];
-        # report it verbatim rather than transforming a second time.
-        best_score = float(best_hit["_score"])
-        best_frame_id = frame_source.get("id")
-        best_timestamp = frame_source.get("timestamp", "")
-
-        best_bbox = None
-        for obj in frame_source.get("objects", []):
-            if obj.get("id") == object_id:
-                bbox_data = obj.get("bbox", {})
-                if bbox_data and bbox_data.get("leftX") is not None:
-                    best_bbox = {
-                        "leftX": bbox_data.get("leftX", 0),
-                        "rightX": bbox_data.get("rightX", 0),
-                        "topY": bbox_data.get("topY", 0),
-                        "bottomY": bbox_data.get("bottomY", 0),
-                    }
-                break
-
-        return best_frame_id, best_bbox, best_score, best_timestamp
+        return _parse_frame_lookup(response, object_id)
+    except LibraryError:
+        raise
     except Exception as e:
         logger.warning(f"Frame lookup failed for object={object_id}: {e}", exc_info=True)
         return None, None, None, None
+
+
+FRAME_LOOKUP_CONCURRENCY = 16
+FRAME_MSEARCH_BATCH_SIZE = 256
 
 
 async def _perform_frame_lookups(
@@ -574,7 +641,7 @@ async def _perform_frame_lookups(
     timestamp_end: datetime | None,
     es: ElasticIndex,
 ) -> list[FrameLookupResult | None]:
-    """Run per-candidate frame lookups in parallel; misses/errors map to None.
+    """Run frame lookups in parallel; document misses map to None, backend failures raise.
 
     The returned list is positionally aligned with ``candidates``: element ``i``
     is the frame result for ``candidates[i]`` (``None`` when that candidate had no
@@ -587,32 +654,95 @@ async def _perform_frame_lookups(
     start_time = timestamp_start.isoformat().replace("+00:00", "Z")
     end_time = timestamp_end.isoformat().replace("+00:00", "Z")
 
-    tasks: list[Any] = []
+    # Identical (sensor, object, interval) lookups share one result. Keep a
+    # bounded worker pool busy without waiting at fixed batch boundaries.
+    keys: list[tuple[str, str] | None] = []
     for candidate in candidates:
         source = candidate.get("_source") or {}
-        sensor = source.get("sensor") or {}
-        obj = source.get("object") or {}
-        object_id = obj.get("id")
-        sensor_id = sensor.get("id")
-        # ``0`` is a valid id, so test presence explicitly rather than truthiness.
-        if object_id not in (None, "") and sensor_id not in (None, ""):
-            tasks.append(
-                _get_frame_from_behavior(
+        object_id = (source.get("object") or {}).get("id")
+        sensor_id = (source.get("sensor") or {}).get("id")
+        keys.append(
+            (str(sensor_id), str(object_id)) if object_id not in (None, "") and sensor_id not in (None, "") else None
+        )
+    unique_keys = list(dict.fromkeys(key for key in keys if key is not None))
+    prepared = _prepare_frame_query(query_embedding)
+    by_key: dict[tuple[str, str], FrameLookupResult | None] = {}
+    if isinstance(es, MultiSearchIndex):
+        index = frames_index if isinstance(frames_index, str) else ",".join(frames_index)
+        # One batch in flight; ES runs at most 16 unchanged sub-searches.
+        for offset in range(0, len(unique_keys), FRAME_MSEARCH_BATCH_SIZE):
+            batch = unique_keys[offset : offset + FRAME_MSEARCH_BATCH_SIZE]
+            searches: list[dict[str, Any]] = []
+            for sensor_id, object_id in batch:
+                searches.extend(
+                    [
+                        {},
+                        _frame_lookup_body(
+                            sensor_id, object_id, start_time, end_time, query_embedding, prepared=prepared
+                        ),
+                    ]
+                )
+            try:
+                response = await es.msearch(
+                    index=index, searches=searches, max_concurrent_searches=FRAME_LOOKUP_CONCURRENCY
+                )
+                responses = response.get("responses", [])
+                if len(responses) != len(batch):
+                    raise ValueError("Frame multi-search response count does not match request count")
+            except LibraryError:
+                raise
+            except Exception:
+                logger.warning("Frame multi-search batch failed", exc_info=True)
+                responses = [{} for _ in batch]
+            for key, response in zip(batch, responses, strict=True):
+                try:
+                    if "error" in response:
+                        status = response.get("status")
+                        if isinstance(status, int) and (status in {401, 403, 404, 408, 429} or status >= 500):
+                            raise BackendUnreachableError(
+                                "elasticsearch", f"Frame multi-search backend failed with status {status}"
+                            )
+                        raise ValueError("Frame multi-search item failed")
+                    by_key[key] = _parse_frame_lookup(response, key[1])
+                except LibraryError:
+                    raise
+                except Exception:
+                    logger.warning("Frame multi-search item failed for object=%s", key[1], exc_info=True)
+                    by_key[key] = None
+        return [by_key.get(key) if key is not None else None for key in keys]
+
+    pending = iter(unique_keys)
+
+    async def lookup_worker() -> None:
+        # Iteration advances before awaiting, so each key belongs to one worker.
+        for sensor_id, object_id in pending:
+            try:
+                outcome = await _get_frame_from_behavior(
                     frames_index=frames_index,
-                    sensor_id=str(sensor_id),
-                    object_id=str(object_id),
+                    sensor_id=sensor_id,
+                    object_id=object_id,
                     start_time=start_time,
                     end_time=end_time,
                     query_embedding=query_embedding,
                     es=es,
+                    prepared=prepared,
                 )
-            )
-        else:
-            tasks.append(None)
+            except LibraryError:
+                raise
+            except Exception:
+                outcome = None
+            by_key[(sensor_id, object_id)] = outcome if isinstance(outcome, tuple) else None
 
-    runnable = [task if task is not None else asyncio.sleep(0) for task in tasks]
-    frame_results = await asyncio.gather(*runnable, return_exceptions=True)
-    return [result if isinstance(result, tuple) else None for result in frame_results]
+    workers = [asyncio.create_task(lookup_worker()) for _ in range(min(FRAME_LOOKUP_CONCURRENCY, len(unique_keys)))]
+    try:
+        await asyncio.gather(*workers)
+    except BaseException:
+        # Cancellation/fatal errors must not leave backend requests running.
+        for worker in workers:
+            worker.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+        raise
+    return [by_key.get(key) if key is not None else None for key in keys]
 
 
 async def _fetch_object_embedding(
@@ -867,6 +997,8 @@ async def search_by_attributes(
     enable_frame_lookup: bool = True,
     exclude_videos: list[dict[str, str]] | None = None,
     source_type: str = "video_file",
+    candidate_limit: int | None = None,
+    complete_pool: bool = False,
 ) -> list[AttributeSearchResult]:
     """Single-embedding attribute search: behavior kNN -> frames -> dedup.
 
@@ -886,6 +1018,7 @@ async def search_by_attributes(
             timestamp_end=timestamp_end,
             video_sources=video_sources,
             source_type=source_type,
+            candidate_limit=candidate_limit,
         )
 
     if not candidates:
@@ -939,7 +1072,7 @@ async def search_by_attributes(
         )
     ]
 
-    if 0 < top_k < len(results):
+    if not (complete_pool and candidate_limit is not None) and 0 < top_k < len(results):
         results = results[:top_k]
     return results
 
@@ -985,6 +1118,7 @@ async def search_single_attribute(
     es: ElasticIndex,
     enable_frame_lookup: bool = True,
     query_embedding: list[float] | None = None,
+    complete_pool: bool = False,
 ) -> list[AttributeSearchResult]:
     """Embed a single attribute string and run the attribute search pipeline.
 
@@ -1004,6 +1138,8 @@ async def search_single_attribute(
         timestamp_end=search_input.timestamp_end,
         video_sources=search_input.video_sources,
         top_k=search_input.top_k,
+        candidate_limit=search_input.candidate_limit,
+        complete_pool=complete_pool,
         min_similarity=search_input.min_similarity,
         frames_index=frames_index,
         enable_frame_lookup=enable_frame_lookup,
@@ -1157,6 +1293,7 @@ async def _append_multi_attribute(
                 es=es,
                 enable_frame_lookup=enable_frame_lookup,
                 query_embedding=embeddings[idx] if embeddings is not None else None,
+                complete_pool=search_input.candidate_limit is not None,
             )
 
             all_results.extend(
@@ -1181,6 +1318,25 @@ async def _append_multi_attribute(
     # truncated in favor of a lower-scoring earlier one. Tiebreak deterministically
     # on (sensor_id, object_id).
     all_results.sort(key=_append_rank_key)
+    if search_input.candidate_limit is not None:
+        # In exact mode select the final frame-ranked head from the full pool.
+        all_results.sort(
+            key=lambda result: (
+                result.metadata.frame_score
+                if result.metadata.frame_score is not None
+                else result.metadata.behavior_score
+            ),
+            reverse=True,
+        )
+    if search_input.max_hits_per_source is not None:
+        counts = {}
+        selected = []
+        for result in all_results:
+            source = result.metadata.sensor_id
+            if counts.get(source, 0) < search_input.max_hits_per_source:
+                selected.append(result)
+                counts[source] = counts.get(source, 0) + 1
+        all_results = selected
     top_k = search_input.top_k
     assert top_k is not None
     if top_k > 0 and len(all_results) > top_k:

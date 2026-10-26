@@ -27,6 +27,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import StrictInt
 
 from ..errors import InvalidInputError
 
@@ -46,6 +47,8 @@ class AttributeSearchInput(BaseModel):
     timestamp_start: datetime | None = None
     timestamp_end: datetime | None = None
     video_sources: list[str] | None = None
+    candidate_limit: int | None = Field(default=None, ge=1, le=100000)
+    max_hits_per_source: StrictInt | None = Field(default=None, ge=1, le=1000)
     top_k: int | None = Field(default=None, ge=1, le=1000)
     min_similarity: float = Field(default=0.3, ge=0.0, le=1.0)
     fuse_multi_attribute: bool = True
@@ -100,6 +103,8 @@ class AttributeSearchInput(BaseModel):
                 f"timestamp_start ({self.timestamp_start.isoformat()}) must not be after "
                 f"timestamp_end ({self.timestamp_end.isoformat()})"
             )
+        if self.max_hits_per_source is not None and self.candidate_limit is None:
+            raise InvalidInputError("max_hits_per_source requires an explicit candidate_limit")
 
 
 class AttributeSearchMetadata(BaseModel):

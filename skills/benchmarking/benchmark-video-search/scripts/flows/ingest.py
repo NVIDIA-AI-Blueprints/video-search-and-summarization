@@ -258,10 +258,9 @@ class AgentThreeStepIngest:
             verdict = classify_complete_failure(resp.status_code, resp.text or "")
 
             if verdict == COMPLETE_ALREADY_REGISTERED:
-                # A previous attempt already registered the stream, so the
-                # pipeline ran. chunks_processed is unknowable from here --
-                # readiness and the first query are what confirm it.
-                print(f"    /complete attempt {attempt}: already registered (RTVI-CV duplicate); treating as done")
+                # CV registration alone does not prove the embedding task finished.
+                # Preserve the identity for diagnosis, without retrying the add.
+                print(f"    /complete attempt {attempt}: already registered; completion remains unverified")
                 return {}, attempt, COMPLETE_ALREADY_REGISTERED
 
             if verdict == COMPLETE_FATAL or attempt == self.complete_retries:
@@ -340,16 +339,12 @@ class AgentThreeStepIngest:
             record["phases"] = phases
             finish_record(record, time.time() - overall_start)
 
-            # The upstream skill validates exactly this before treating an
-            # upload as real; a 200 with zero chunks means nothing was indexed.
-            # The duplicate-camera path is exempt: the work landed on an
-            # earlier attempt, so no chunk count comes back and readiness plus
-            # the first query are what actually confirm it.
-            if outcome != COMPLETE_ALREADY_REGISTERED:
-                chunks = completion.get("chunks_processed")
-                if not isinstance(chunks, int) or chunks <= 0:
-                    record["success"] = False
-                    record["error"] = f"completion reported chunks_processed={chunks!r}"
+            # Only a positive chunk count proves three-step embedding completion.
+            # A duplicate CV registration can race with failed embedding work.
+            chunks = completion.get("chunks_processed")
+            if type(chunks) is not int or chunks <= 0:
+                record["success"] = False
+                record["error"] = f"completion unverified: chunks_processed={chunks!r}"
         except requests.Timeout:
             record["success"] = False
             record["error"] = _TIMEOUT_ERROR
