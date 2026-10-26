@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# As-is routes from templates/vss-ingress.yaml for chart values.yaml with the
+# As-is routes from templates/vss-ingress.yaml for verification mode with the
 # default global.useReleaseNamePrefix=false. Service names are unprefixed.
 # The Ingress name stays <RELEASE_NAME>-vss-ingress: the chart always prefixes
 # that object, and it is the same object Helm owns. Set vssIngress.enabled=false
@@ -24,12 +24,11 @@
 # only; real-time sets vss-behavior-analytics.enabled=false, so delete that path
 # before applying this file to a real-time install.
 #
-# This snapshot matches chart values.yaml, with no mode file. Regenerate it with:
+# Regenerate rather than hand-editing:
 #   helm template <RELEASE_NAME> ./dev-profile-alerts \
+#     -f ./dev-profile-alerts/values-verification.yaml \
 #     --set-string global.externalHost=vss-alerts.<EXTERNAL_HOST>.nip.io \
 #     --show-only templates/vss-ingress.yaml
-# Both mode files set rtvi.vss-rtvi-vlm.enabled=true, which adds /rtvi-vlm.
-# Regenerate from that mode file before applying a mode install.
 #
 # Prefix-stripping routes are in vss-ingress-example-rewrites.yaml. Apply both
 # only when the chart Ingress is disabled. That second object is named

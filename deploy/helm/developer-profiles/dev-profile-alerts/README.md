@@ -525,7 +525,7 @@ helm upgrade --install haproxy-kubernetes-ingress haproxytech/kubernetes-ingress
 
 **`dev-profile-alerts/vss-ingress-example-rewrites.yaml`** is a second Ingress, **`<RELEASE_NAME>-vss-ingress-rewrites`**. It does not replace the Helm object. It only exists so the HAProxy rewrite annotation is not applied to the as-is routes. Apply it only together with the first file, and only after the chart Ingress is disabled.
 
-This snapshot matches chart **`values.yaml`**. **`rtvi.vss-rtvi-vlm.enabled`** is **`false`** there, so **`/rtvi-vlm`** is absent. Both mode files set that flag **`true`**; regenerate from the mode file before applying, or add the **`/rtvi-vlm`** route. Real-time disables behavior analytics and **`vss-rtvi-cv`**; remove those paths before a real-time apply. Drop **`/llm`** when **`nims.enabled=false`**.
+Verification routes include behavior analytics, **`/rtvi-cv`**, **`/rtvi-vlm`**, and **`/llm`**. Real-time disables behavior analytics and **`vss-rtvi-cv`**; remove those paths before applying this snapshot to a real-time install. Drop **`/llm`** when **`nims.enabled=false`**. Regenerate from the mode you install rather than editing placeholders:
 
 ```bash
 # Verification. For real-time, use values-realtime.yaml instead.
