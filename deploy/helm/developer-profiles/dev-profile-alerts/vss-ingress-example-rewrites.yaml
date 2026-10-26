@@ -19,6 +19,12 @@
 #   helm template <RELEASE_NAME> ./dev-profile-alerts --set global.externalHost=<HOST> \
 #     --set global.useReleaseNamePrefix=true --show-only templates/vss-ingress.yaml
 #
+# This snapshot assumes useReleaseNamePrefix=true and host vss.<EXTERNAL_HOST>.nip.io.
+# Default installs use unprefixed Service names and the quick start uses
+# vss-alerts.<IP>.nip.io. Set vssIngress.enabled=false before applying, or this
+# object fights the Helm-owned Ingress of the same name. Regenerate for the
+# mode you install; the rules below are not mode-aware.
+#
 # Mounts come from the canonical route table in deploy/helm/services/common; keep
 # them in step with it and with the Docker edge (haproxy.cfg.template).
 #
