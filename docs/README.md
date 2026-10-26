@@ -109,6 +109,12 @@ export VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 | `${VSS_DOCS_IMAGE_TAG:-develop-latest}` | `develop-latest` | `X.Y.Z` |
 | `${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}` | `develop-latest-sbsa` | `X.Y.Z-sbsa` |
 
+Nightly previews use the selected `nightly-*` tag for `VSS_DOCS_GIT_REF`,
+`develop-<SHA12>` for `VSS_DOCS_IMAGE_TAG`, and `develop-<SHA12>-sbsa` for
+`VSS_DOCS_SBSA_IMAGE_TAG`. SHA12 is the first 12 characters of the tagged
+commit, matching the immutable GHCR candidate selected by the nightly.
+Annotated tags are resolved to their commit before deriving these values.
+
 These markers are the only text the build replaces. Fern's own `${...}`
 substitution is turned off (`substitute-env-vars: false`), so every other
 `${NAME}` (shell, Compose, and configuration examples) renders exactly as
@@ -149,10 +155,26 @@ publish, and the published URL is in the job summary.
 |-------|----------|--------|
 | Pull request | `fern-docs-ci.yml` | Checks, then preview `pr-<N>`, linked in a PR comment. A PR into `release/X.Y.Z` previews as that release. A manual run without a PR gets a preview ID Fern generates |
 | Push to `release/X.Y.Z` | `preview-release-docs.yml` | Checks, then preview `release-X-Y-Z`, showing "X.Y.Z (preview)" with the release values |
+| Tag `nightly-*` pushed | `preview-nightly-docs.yml` | Checks, then preview named after the tag, showing "nightly-* (preview)" as the default version, with pinned nightly values |
 | Docs change merged to `develop` | `publish-fern-docs.yml` | Production rebuilt from develop; Dev updates, releases are rebuilt unchanged from their tags |
 | Release tag `vX.Y.Z` pushed | `publish-fern-docs.yml` | Production rebuilt from develop with the new release as the default; fails if `ref: vX.Y.Z` is not listed on develop |
 
 All of them need the `DOCS_FERN_TOKEN` repository or organization secret.
+
+Nightly previews use the tagged docs and version list. Rerunning a tag updates
+the same preview URL; find the link in the **Preview Nightly Docs** job summary.
+The workflow and builder must be present in the tagged commit, so new tags
+gain automatic previews after this tooling reaches `develop`. Tag pushes must
+use a credential that triggers workflows (a PAT or GitHub App token, rather
+than a workflow's `GITHUB_TOKEN`). To rerun a supported tag manually:
+
+```bash
+gh workflow run preview-nightly-docs.yml --ref nightly-20261025
+```
+
+For a local nightly build, check out the tag and pass
+`--nightly nightly-20261025` to `build_fern_site.py`. Nightly tags do not need
+entries in `fern/docs.yml` and do not add versions to the production site.
 
 ## Redirects
 

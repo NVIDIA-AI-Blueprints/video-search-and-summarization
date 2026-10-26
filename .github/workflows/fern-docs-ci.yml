@@ -84,7 +84,7 @@ jobs:
               -e '^services/analytics/video-analytics-api/src/app/specification/openapi\.json$' \
               -e '^\.github/scripts/((test_)?build_fern_site\.py|test_publish_fern_docs\.py|(test_)?preview_docs_href\.py|resolve_fern_docs_context\.sh|(check_fern_site|publish_fern_docs)\.sh)$' \
               -e '^\.github/actions/setup-fern/' \
-              -e '^\.github/workflows/(fern-docs-ci|preview-release-docs|publish-fern-docs)\.yml$'; then
+              -e '^\.github/workflows/(fern-docs-ci|preview-release-docs|preview-nightly-docs|publish-fern-docs)\.yml$'; then
               DOCS=true
             else
               DOCS=false

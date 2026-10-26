@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Each nightly tag gets a stable preview, stamped with its checkout ref and
+# develop-<commit SHA12> GHCR image tags. The URL is in the job summary.
+# Requires the DOCS_FERN_TOKEN repo secret.
+name: Preview Nightly Docs
+
+on:
+  push:
+    tags:
+      - 'nightly-*'
+  # Rerun against a nightly tag with gh workflow run --ref nightly-<id>.
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fern-nightly-preview-${{ github.ref }}
+  # Let an in-flight upload finish before another run updates the same URL.
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    name: Nightly preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Require a nightly tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$REF_TYPE" != tag || ! "$REF_NAME" =~ ^nightly-[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Select a flat nightly-* tag to preview"
+            exit 1
+          fi
+
+      - name: Checkout nightly tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Fern CLI
+        uses: ./.github/actions/setup-fern
+
+      - name: Build Fern site
+        env:
+          NIGHTLY: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/build_fern_site.py --fetch --nightly "$NIGHTLY" \
+            --output "${RUNNER_TEMP}/fern-site" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Check Fern site
+        working-directory: ${{ runner.temp }}/fern-site
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        run: '"${GITHUB_WORKSPACE}/.github/scripts/check_fern_site.sh"'
+
+      - name: Publish named preview
+        working-directory: ${{ runner.temp }}/fern-site
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+          NIGHTLY: ${{ github.ref_name }}
+        run: '"${GITHUB_WORKSPACE}/.github/scripts/publish_fern_docs.sh" --preview "$NIGHTLY"'

@@ -252,6 +252,12 @@ tags become docs versions; pre-releases name no published image and are
 skipped. These are checkout refs and registry tags, not package versions — the
 rc marker never appears in docs. See `docs/README.md`.
 
+Separately, a `nightly-*` tag push runs `preview-nightly-docs.yml`, producing
+a named preview with the nightly checkout as its default version. Its docs
+values are `nightly-*` / `develop-<SHA12>` / `develop-<SHA12>-sbsa`, with SHA12
+from the tagged commit. Nightlies remain outside the package-version rules
+and production docs version list.
+
 ## What is deliberately out of scope
 
 - **`Chart.yaml` `version:`** is the chart artifact's version, hand-bumped at
