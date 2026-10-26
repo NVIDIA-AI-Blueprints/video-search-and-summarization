@@ -69,32 +69,30 @@ this server limit.
 
 ## Prerequisites
 
-Kubernetes, Helm, GPU Operator, NIM Operator, and StorageClass versions are in the [Helm deployment prerequisites](https://docs.nvidia.com/vss/appendix/additional-deployments/helm-deployment#prerequisites).
-
 - **Kubernetes cluster**
-  - A Kubernetes cluster whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
+  - A Kubernetes cluster, version **1.34 or greater**, whose API you can reach with **`kubectl`** (correct context and, if applicable, kubeconfig).
   - **Driver (x86 Ubuntu 24.04)** recorded for this profile: **595.58.03**.
 
 - **NVIDIA GPU Operator**
-  - On the cluster so nodes advertise `nvidia.com/gpu`. For x86 Ubuntu 24.04, set driver **595.58.03** in the GPU Operator driver settings. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
+  - [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1 or above** on the cluster so nodes advertise `nvidia.com/gpu`. For x86 Ubuntu 24.04, set driver **595.58.03** in the GPU Operator driver settings. Platform support: [platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/platform-support.html).
 
 - **NVIDIA NIM Operator**
-  - When deploying in-cluster LLM or VLM models (`nims` subcharts, `NIMCache` / `NIMService`). Install it after the GPU Operator.
+  - [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0 or above** when deploying in-cluster LLM or VLM models (`nims` subcharts, `NIMCache` / `NIMService`). Install it after the GPU Operator.
 
 - **StorageClass**
   - A **StorageClass** for PVC provisioning. Set **`global.storageClass`** to that class’s **`metadata.name`**. The chart writes `storageClassName` on the PVCs it creates, so you do not need to change the cluster-wide default StorageClass for this profile. Change the default only for other workloads that omit `storageClassName`.
-  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation). The shared VST claims are `ReadWriteOnce`. **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** both mount `vst-data` and `vst-video`, so on a multi-node cluster they must run on a node that can mount those volumes — for local-path, the same node. Set **`nodeSelector`** on **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`**, and confirm the node has capacity for the claims. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage).
-  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) and use the StorageClass it creates.
+  - **Node-local storage (local-path):** use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35 or above**. The shared VST claims are `ReadWriteOnce`. **`vss-vios-sensor`** and **`vss-vios-streamprocessing`** both mount `vst-data` and `vst-video`, so on a multi-node cluster they must run on a node that can mount those volumes — for local-path, the same node. Set **`nodeSelector`** on **`vios.vss-vios-sensor`** and **`vios.vss-vios-streamprocessing`**, and confirm the node has capacity for the claims. See [shared VST volumes](#shared-vst-volumes-on-node-local-storage).
+  - **Bare-metal clusters** with no provisioner yet can install [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation) **v0.0.35 or above** and use the StorageClass it creates.
 
 ### Chart / tooling
 
-- **Helm**: see the [Helm deployment prerequisites](https://docs.nvidia.com/vss/appendix/additional-deployments/helm-deployment#prerequisites).
+- **Helm** [3.7 or above](https://github.com/helm/helm/blob/v3.7.0/README.md#install)
 - **Kubectl**
 - **Curl** and **jq** (to discover model IDs from remote endpoints)
 - **GPUs**: see [GPU requirements](#gpu-requirements) (3 with local defaults, 2 on the documented remote path).
-- **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
+- **NVIDIA NIM** (if using NIM subcharts): NIM Operator **3.1.0 or above** on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
-- **StorageClass**: a StorageClass must exist on the cluster to create PVCs.
+- **StorageClass**: a StorageClass must exist on the cluster to create PVCs. If you use local-path-provisioner, use **v0.0.35 or above**.
 
 
 ## Quick start
