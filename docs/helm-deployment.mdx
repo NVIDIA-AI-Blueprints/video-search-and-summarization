@@ -23,10 +23,10 @@ GitHub repository.
 ## Prerequisites
 
 - A Kubernetes cluster (version **1.34** or greater) you can reach with **kubectl**
-- [Helm](https://helm.sh/docs/intro/install/) **3.7 or above**
-- [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html) **v25.10.1 or above** on the cluster
-- [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/latest/install.html) **3.1.0 or above** when deploying in-cluster LLM and VLM models
-- **StorageClass** for PVC provisioning. If you use [local-path-provisioner](https://github.com/rancher/local-path-provisioner#installation), use **v0.0.35 or above**
+- [Helm](https://github.com/helm/helm/blob/v3.7.0/README.md#install) **3.7 or above**
+- [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/25.10/getting-started.html) **v25.10.1 or above** on the cluster
+- [NVIDIA NIM Operator](https://docs.nvidia.com/nim-operator/3.1.0/install.html) **3.1.0 or above** when deploying in-cluster LLM and VLM models
+- **StorageClass** for PVC provisioning. If you use [local-path-provisioner](https://github.com/rancher/local-path-provisioner/blob/v0.0.35/README.md#installation), use **v0.0.35 or above**
 - **NGC API key** — for image pull and NIM model access
 
 GPU requirements depend on the profile and values you choose (for example, in-cluster NIMs vs
