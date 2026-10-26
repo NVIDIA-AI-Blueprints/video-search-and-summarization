@@ -30,7 +30,7 @@ services:
         condition: service_healthy
 
   streaming-nim-cache-init:
-    image: "${STREAMING_NIM_IMAGE:?Set STREAMING_NIM_IMAGE to a streaming-capable Cosmos3 NIM image}"
+    image: "${STREAMING_NIM_IMAGE:-nvcr.io/nim/nvidia/cosmos3:2.1.0}"
     profiles: ["rtvi-vlm"]
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
@@ -43,7 +43,7 @@ services:
     restart: "no"
 
   streaming-nim:
-    image: "${STREAMING_NIM_IMAGE:?Set STREAMING_NIM_IMAGE to a streaming-capable Cosmos3 NIM image}"
+    image: "${STREAMING_NIM_IMAGE:-nvcr.io/nim/nvidia/cosmos3:2.1.0}"
     profiles: ["rtvi-vlm"]
     container_name: vss-alerts-streaming-nim
     runtime: nvidia

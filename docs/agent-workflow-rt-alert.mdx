@@ -968,7 +968,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 RTVI_STREAMING_VLM_ENABLED=false
 RTVI_VLM_MODEL_TO_USE=openai-compat
 VLM_NAME=nvidia/cosmos3-nano-reasoner
-STREAMING_NIM_IMAGE=<registry>/<streaming-capable-cosmos3-nim>:<tag>
+STREAMING_NIM_IMAGE=nvcr.io/nim/nvidia/cosmos3:2.1.0
 STREAMING_NIM_DEVICE_ID=1
 RT_VLM_DEVICE_ID=0
 RTVI_VLM_NVIDIA_VISIBLE_DEVICES=0
@@ -980,8 +980,9 @@ RTVI_VLM_MESSAGE_BUS=kafka
 RTVI_VLM_KAFKA_ENABLED=true
 ```
 
-Replace the image placeholder with a streaming-capable Cosmos3 NIM image
-available to your registry account. The supplied configuration selects Nano
+`STREAMING_NIM_IMAGE` defaults to `nvcr.io/nim/nvidia/cosmos3:2.1.0`; set it
+only to use a different streaming-capable Cosmos3 NIM image available to your
+registry account. The supplied configuration selects Nano
 Reasoner BF16, an eight-frame retention limit, and a 16384-token model length,
 matching the separate-NIM setup used for performance testing. Set `VLM_NAME`
 to the model ID served by that image. Authenticate to its registry as described

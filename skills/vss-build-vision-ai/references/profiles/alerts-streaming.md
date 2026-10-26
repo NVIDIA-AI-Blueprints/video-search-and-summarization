@@ -23,8 +23,9 @@ or backend; an explicit request to use defaults selects Chunking. Ask no
 streaming-variant question when Chunking was selected.
 
 After selection, collect only missing placement/model values. Native uses the
-integrated model selected from `services/rt-vlm.md`; separate NIM needs an
-accessible `STREAMING_NIM_IMAGE`, its served model ID (`VLM_NAME`), and
+integrated model selected from `services/rt-vlm.md`; separate NIM defaults
+`STREAMING_NIM_IMAGE` to `nvcr.io/nim/nvidia/cosmos3:2.1.0` (ask only if the
+user wants a different image) and needs its served model ID (`VLM_NAME`) and
 `STREAMING_NIM_DEVICE_ID`. The checked-in overlay selects Cosmos3 Nano Reasoner
 BF16. Do not replace a requested model with that model silently. Confirm the
 image supports the persistent streaming-session API, not only chat completions.

@@ -26,10 +26,10 @@
     },
     {
       "artifact_expected": false,
-      "query": "Use a separate streaming NIM. For now, explain the deployment changes only; do not generate files or deploy. The image, model ID, and GPU placement are still undecided.",
+      "query": "Use a separate streaming NIM. For now, explain the deployment changes only; do not generate files or deploy. The model ID and GPU placement are still undecided.",
       "checks": [
         "The explanation selects the checked-in dev Alerts compose.streaming-nim.yml overlay and keeps native streaming disabled.",
-        "It identifies the missing accessible streaming-capable NIM image, served VLM model ID, and GPU placement rather than inventing them.",
+        "It uses the default STREAMING_NIM_IMAGE nvcr.io/nim/nvidia/cosmos3:2.1.0 and identifies the still-undecided served VLM model ID and GPU placement rather than inventing them.",
         "It keeps Alert Bridge and the Agent routed through RTVI and describes the existing forwarding support without editing RTVI source or building a custom RTVI image.",
         "It describes a build-local streaming rule config selected by VLM_AS_VERIFIER_CONFIG_FILE_REALTIME, with the checked-in Foundation left unchanged.",
         "It does not ask the user to choose the inference mode or backend again, and performs no deployment or file generation."
