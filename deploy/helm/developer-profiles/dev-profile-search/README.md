@@ -476,6 +476,9 @@ agent:
     vstPublicBaseUseNipIo: false
     vssAgentExternalUrl: "http://<NODE_IP>:30800"
     reportsBaseUrl: "http://<NODE_IP>:30800/static/"
+    extraEnv:
+      - name: VST_EXTERNAL_URL
+        value: "http://<NODE_IP>:30888"
 vss-agent-ui:
   agentApiUrlBase: "http://<NODE_IP>:30800/api/v1"
   vstApiUrl: "http://<NODE_IP>:30888/vst/api"
@@ -486,7 +489,7 @@ vss-agent-ui:
   dashboardKibanaBaseUrl: "http://<NODE_IP>:31560"
 ```
 
-`vssAgentExternalUrl` is also the first choice for `VST_EXTERNAL_URL`. In-cluster VST calls still use `VST_INTERNAL_URL` (`http://vss-vios-ingress:30888`). The UI VST tab uses `vstApiUrl`.
+`vssAgentExternalUrl` is also the first choice for `VST_EXTERNAL_URL`, so the overlay sets that name again in `extraEnv` on port **30888**. `extraEnv` is applied last and replaces the agent-port value. In-cluster VST calls still use `VST_INTERNAL_URL` (`http://vss-vios-ingress:30888`). The UI VST tab uses `vstApiUrl`. Agent and report URLs stay on port **30800**.
 
 | Service           | URL                                    |
 |-------------------|----------------------------------------|
@@ -516,6 +519,9 @@ agent:
     vstPublicBaseUseNipIo: false
     vssAgentExternalUrl: "http://localhost:8000"
     reportsBaseUrl: "http://localhost:8000/static/"
+    extraEnv:
+      - name: VST_EXTERNAL_URL
+        value: "http://localhost:30888"
 vss-agent-ui:
   agentApiUrlBase: "http://localhost:8000/api/v1"
   vstApiUrl: "http://localhost:30888/vst/api"
@@ -526,6 +532,8 @@ vss-agent-ui:
 global:
   kibanaPublicUrl: "http://localhost:5601"
 ```
+
+`extraEnv` sets `VST_EXTERNAL_URL` to the VST port-forward (`localhost:30888`). `vssAgentExternalUrl` would otherwise copy the agent port `8000` into that variable. Agent and report URLs stay on `8000`.
 
 ```bash
 kubectl port-forward -n <NAMESPACE> svc/vss-agent-ui 3000:3000
