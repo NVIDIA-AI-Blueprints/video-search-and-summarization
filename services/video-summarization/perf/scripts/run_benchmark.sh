@@ -42,8 +42,8 @@ BENCHMARK_ROOT="$PERF_ROOT/benchmark"
 BENCHMARK_DIR="$BENCHMARK_ROOT/core"
 CONFIG_DIR="$PERF_ROOT/configs"
 COMPOSE_DIR="$PERF_ROOT/setup/compose"
-REQUIREMENTS_FILE="$BENCHMARK_ROOT/requirements.txt"
-VENV_DIR="$BENCHMARK_ROOT/vss-perf-env"
+SETUP_ENVIRONMENT="$PERF_ROOT/setup/setup_environment.sh"
+VENV_DIR="${PERF_VENV_DIR:-$PERF_ROOT/setup/.venv}"
 
 # Benchmark modules use these overrides to find service-owned configuration
 # without requiring the historical flattened runtime layout.
@@ -527,34 +527,11 @@ fi
 [ -n "$RELEASE" ] && BENCHMARK_CMD+=(--release "$RELEASE")
 
 cd "$BENCHMARK_DIR"
-if [ ! -f "$VENV_DIR/bin/activate" ]; then
-    step "Creating virtualenv: $VENV_DIR"
-    # Minimal BM images may lack ensurepip; CI also installs via pipeline-helpers before this script.
-    if ! python3 -m ensurepip --version >/dev/null 2>&1; then
-        step "Installing python3-venv (python3 -m venv requires ensurepip)"
-        if ! command -v apt-get &>/dev/null; then
-            echo "Error: apt-get not found; cannot auto-install python3-venv. Please install it manually." >&2
-            exit 1
-        fi
-        PYTHON_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-        SUDO_CMD=""
-        if [ "$(id -u)" -ne 0 ]; then
-            SUDO_CMD="sudo "
-        fi
-        ${SUDO_CMD}apt-get update -qq
-        ${SUDO_CMD}apt-get install -y "python${PYTHON_VER}-venv"
-    fi
-    python3 -m venv "$VENV_DIR"
-    set +u
-    source "$VENV_DIR/bin/activate"
-    set -u
-    pip install -q -r "$REQUIREMENTS_FILE"
-    info "Installed dependencies"
-else
-    set +u
-    source "$VENV_DIR/bin/activate"
-    set -u
-fi
+step "Synchronizing benchmark environment: $VENV_DIR"
+PERF_VENV_DIR="$VENV_DIR" "$SETUP_ENVIRONMENT"
+set +u
+source "$VENV_DIR/bin/activate"
+set -u
 info "Activated virtualenv: $VENV_DIR"
 export VIA_BACKEND="http://localhost:$LVS_PORT"
 [ -n "$VLM_GPUS" ] && export VIA_VLM_GPUS="$VLM_GPUS"

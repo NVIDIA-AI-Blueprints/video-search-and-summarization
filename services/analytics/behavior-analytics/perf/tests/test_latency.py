@@ -675,7 +675,7 @@ INCIDENTS MESSAGES
         self.assertIn('PERF_NATIVE_ONLY:-false', service_run)
         self.assertIn('benchmark/core/vss_perf_benchmark.py', service_run)
         self.assertIn('PERF_VENV_DIR', service_run)
-        self.assertIn('benchmark/requirements.txt', service_run)
+        self.assertIn('setup/setup_environment.sh', service_run)
         self.assertIn('exec "$PERF_VENV_DIR/bin/python"', service_run)
         generate_env = (
             REPO_ROOT
@@ -864,7 +864,9 @@ INCIDENTS MESSAGES
     def test_service_owned_jenkins_package_and_shared_infra_exist(self) -> None:
         perf_root = REPO_ROOT / "services" / "analytics" / "behavior-analytics" / "perf"
         self.assertTrue((perf_root / "benchmark" / "core" / "vss_perf_benchmark.py").is_file())
-        self.assertTrue((perf_root / "benchmark" / "requirements.txt").is_file())
+        self.assertTrue((perf_root / "setup" / "pyproject.toml").is_file())
+        self.assertTrue((perf_root / "setup" / "uv.lock").is_file())
+        self.assertTrue((perf_root / "setup" / "setup_environment.sh").is_file())
         self.assertTrue((perf_root / "configs" / "perf-configs.yaml").is_file())
         self.assertTrue((perf_root / "configs" / "config.yaml").is_file())
         self.assertIn("minio:", (perf_root / "configs" / "config.yaml").read_text())

@@ -11,9 +11,11 @@ without changing benchmark behavior.
 
 - `configs/`: scenario, platform, defaults, KPI, and override YAML files.
 - `benchmark/core/`: LVS benchmark client, modes, adapters, and CPU/GPU monitors.
-- `benchmark/requirements.txt`: benchmark Python dependencies.
 - `scripts/`: existing end-to-end runner, uploader, environment generator, and
   RTSP helper.
+- `setup/pyproject.toml` and `setup/uv.lock`: reproducible host-side benchmark
+  dependencies, separate from the deployed LVS image.
+- `setup/setup_environment.sh`: synchronizes the locked benchmark environment.
 - `setup/compose/`: Compose recipes and their transitive local dependencies.
 - `setup/monitoring/`: Prometheus, Grafana, DCGM, and dashboard assets.
 - `setup/scripts/`: existing setup script.
@@ -24,17 +26,17 @@ without changing benchmark behavior.
 The common `benchmark-perf-test` pipeline checks out the requested VSS revision
 and invokes `perf/scripts/run_benchmark.sh` directly from the
 `video-summarization` service directory. The runner resolves benchmark configs,
-Python modules, Compose recipes, virtual environments, and reports from this
-service-owned `perf/` tree.
+Python modules, Compose recipes, the locked uv environment, and reports from
+this service-owned `perf/` tree.
 
 The existing `vss_perf_common` API now acts as a compatibility facade over
 `libs/vss-perf-reporting` for the shared schema, run naming, JSON writing, and
 MinIO publication. LVS scenario execution, KPI calculation, and monitoring
 remain service-owned and unchanged.
 
-When publication is enabled, Jenkins exports `MINIO_ENDPOINT` in `host:port`
-form and `MINIO_BUCKET`; the shared reporting layer consumes those values
-along with masked credentials. Local upload runs must set `MINIO_ENDPOINT`
+When publication is enabled, Jenkins validates and uploads the canonical report
+after the benchmark exits. The benchmark process does not receive MinIO
+credentials. Local manual uploads must set `MINIO_ENDPOINT` and credentials
 explicitly.
 
 The promotion trigger supplies:
