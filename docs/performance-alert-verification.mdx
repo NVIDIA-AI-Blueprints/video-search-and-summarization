@@ -9,8 +9,8 @@ position: 1
 The VSS Alert Bridge verification pipeline processes live RTSP streams through CV detection
 and analytics (RTVI-CV and video-analytics microservices) and a VLM stage to classify and
 confirm security alerts. Benchmarks measure end-to-end (E2E) latency, VLM and VST stage
-latency, and verified alert throughput across the NVIDIA B200, DGX H100 SXM, L40S,
-RTX PRO 4500, RTX PRO 6000, DGX Spark, and AGX Thor platforms using RT-DETR and
+latency, and verified alert throughput across the B200, H100, L40S,
+RTX Pro 4500 SE, RTX Pro 6000 SE, DGX Spark, and AGX Thor platforms using RT-DETR and
 Grounding DINO (GDINO) with Cosmos3 Reasoner (CR3) Nano, Super, and Edge model
 variants. All platforms are reported for single-stream and multi-stream
 operation. Stream counts differ by platform and configuration, see the tables
@@ -21,7 +21,7 @@ below.
 | Parameter | Value |
 | --- | --- |
 | VSS Release | 3.3.0 |
-| Platforms tested | NVIDIA B200, DGX H100 SXM, L40S, RTX PRO 4500, RTX PRO 6000, DGX Spark, AGX Thor |
+| Platforms tested | B200, H100, L40S, RTX Pro 4500 SE, RTX Pro 6000 SE, DGX Spark, AGX Thor |
 | CV models | RT-DETR, Grounding DINO (GDINO) |
 | VLM | Cosmos3 Reasoner (CR3) Nano, Super, and Edge (platform- and model-dependent) |
 | VLM precision | BF16, FP8, NVFP4 (platform- and model-dependent) |
@@ -115,7 +115,7 @@ below.
 | GDINO | Edge | BF16 | 80 | 11.41 | 46.10 | 111.99 | 1.91 | 0.09 | 0.26 |
 
 </Tab>
-<Tab title="DGX H100 SXM">
+<Tab title="H100">
 **OSL 1 (alert verification)**
 
 | CV Model | VLM | Precision | Streams | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
@@ -222,7 +222,7 @@ below.
 | GDINO | Edge | BF16 | 30 | 14.89 | 27.06 | 29.84 | 1.08 | 0.09 | 0.11 |
 
 </Tab>
-<Tab title="RTX PRO 4500">
+<Tab title="RTX Pro 4500 SE">
 **OSL 1 (alert verification)**
 
 | CV Model | VLM | Precision | Streams | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
@@ -266,7 +266,7 @@ below.
 | GDINO | Edge | BF16 | 40 | 26.03 | 28.50 | 29.85 | 1.80 | 0.09 | 0.00 |
 
 </Tab>
-<Tab title="RTX PRO 6000">
+<Tab title="RTX Pro 6000 SE">
 **OSL 1 (alert verification)**
 
 | CV Model | VLM | Precision | Streams | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
@@ -418,9 +418,9 @@ stream count is beyond what the platform can sustain for that configuration.
 <Note>
 All benchmarks use input streams at 1080p, H.264 input.
 
-For dGPU platform tests (NVIDIA B200, DGX H100 SXM, L40S, RTX PRO 4500, and
-RTX PRO 6000), two GPUs were used for the Nano and Edge models: one GPU dedicated
-to RTVI-CV and one GPU dedicated to RTVI-VLM. Super-model runs used three GPUs. On L40S and RTX PRO 4500, the LLM used by
+For dGPU platform tests (B200, H100, L40S, RTX Pro 4500 SE, and
+RTX Pro 6000 SE), two GPUs were used for the Nano and Edge models: one GPU dedicated
+to RTVI-CV and one GPU dedicated to RTVI-VLM. Super-model runs used three GPUs. On L40S and RTX Pro 4500 SE, the LLM used by
 the pipeline is served remotely rather than on the local GPUs.
 
 Results are shown for OSL 1 (alert verification) and OSL 100 (captioning). GDINO end-to-end latency is
