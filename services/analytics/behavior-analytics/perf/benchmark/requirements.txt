@@ -1,5 +1,0 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-minio>=7.2,<8
-pydantic>=2.12,<3
-PyYAML>=6.0.2,<7

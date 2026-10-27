@@ -5,11 +5,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/scripts/common.sh"
 
 if [[ "${PERF_NATIVE_ONLY:-false}" != "true" ]]; then
-    PERF_VENV_DIR="${PERF_VENV_DIR:-$PERF_DIR/benchmark/vss-perf-env}"
-    if [[ ! -x "$PERF_VENV_DIR/bin/python" ]]; then
-        python3 -m venv "$PERF_VENV_DIR"
-        "$PERF_VENV_DIR/bin/pip" install -q -r "$PERF_DIR/benchmark/requirements.txt"
-    fi
+    PERF_VENV_DIR="${PERF_VENV_DIR:-$PERF_DIR/setup/.venv}"
+    PERF_VENV_DIR="$PERF_VENV_DIR" "$PERF_DIR/setup/setup_environment.sh"
     export PYTHONPATH="$PERF_DIR/benchmark${PYTHONPATH:+:$PYTHONPATH}"
     exec "$PERF_VENV_DIR/bin/python" \
         "$PERF_DIR/benchmark/core/vss_perf_benchmark.py" "$@"

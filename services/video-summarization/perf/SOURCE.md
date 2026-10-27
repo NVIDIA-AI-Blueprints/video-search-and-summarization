@@ -19,7 +19,8 @@
 | `perf/benchmark/overrides/` | `configs/overrides/` |
 | `perf/benchmark/*.py` | `benchmark/core/` |
 | `perf/benchmark/examples/` | `benchmark/examples/` |
-| `perf/benchmark/requirements.txt` | `benchmark/requirements.txt` |
+| `perf/benchmark/requirements.txt` | Dependencies migrated to `setup/pyproject.toml`; exact resolution in `setup/uv.lock` |
+| N/A | `setup/setup_environment.sh` standardizes locked environment creation |
 | `perf/benchmark/README.md` | `benchmark/README.md` |
 | `perf/tests/` | `../tests/perf/` |
 | `compose/run_benchmark.sh`, `compose/upload_perf_results.sh` | `scripts/` |

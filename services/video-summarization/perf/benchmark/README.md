@@ -103,23 +103,18 @@ export VLLM_IGNORE_EOS=true
 
 `VIA_EVS_EVENT_ONLY=false` and `VIA_EVS_TOKEN_BUDGET=1` together keep caption counts equal to a non-EVS run, so latency and throughput compare directly.
 
-## Python Environment Setup (Recommended)
+## Python environment setup
 
-It's recommended to use a Python virtual environment to isolate dependencies:
+Benchmark dependencies are resolved independently from the deployed LVS image
+using the project and lockfile under `../setup/`:
 
 ```bash
-# Create a virtual environment
-python3 -m venv vss-perf-env
-
-# Activate the virtual environment
-source vss-perf-env/bin/activate
-
-# Install required dependencies
-pip install -r requirements.txt
-
-# To deactivate the virtual environment when done:
-deactivate
+../setup/setup_environment.sh
+source ../setup/.venv/bin/activate
 ```
+
+Do not edit `uv.lock` manually. Change `../setup/pyproject.toml`, run
+`uv lock --project ../setup`, and commit both files.
 
 This benchmark suite provides comprehensive performance testing across two core operational modes:
 

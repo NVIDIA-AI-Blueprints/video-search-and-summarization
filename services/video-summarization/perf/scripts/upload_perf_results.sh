@@ -18,7 +18,7 @@
 # inspect it locally, then publish it with this script when satisfied.
 #
 # Prerequisites:
-#   - perf/benchmark/vss-perf-env venv exists (run any benchmark once to bootstrap).
+#   - uv is installed, or PERF_UV_BIN points to its executable.
 #   - MINIO_ENDPOINT is set to the target MinIO host:port.
 #
 # Bucket and credentials use their existing environment-based resolution.
@@ -31,7 +31,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PERF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BENCHMARK_ROOT="$PERF_ROOT/benchmark"
 BENCHMARK_DIR="$BENCHMARK_ROOT/core"
-VENV_DIR="$BENCHMARK_ROOT/vss-perf-env"
+SETUP_ENVIRONMENT="$PERF_ROOT/setup/setup_environment.sh"
+VENV_DIR="${PERF_VENV_DIR:-$PERF_ROOT/setup/.venv}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -111,12 +112,7 @@ else
 fi
 
 cd "$BENCHMARK_DIR"
-if [ ! -f "$VENV_DIR/bin/activate" ]; then
-    error "Perf venv not found at $VENV_DIR"
-    echo "  Bootstrap it by running any benchmark first, e.g."
-    echo "  ./run_benchmark.sh -f <compose-file> -s quick_test -d"
-    exit 1
-fi
+PERF_VENV_DIR="$VENV_DIR" "$SETUP_ENVIRONMENT"
 set +u
 source "$VENV_DIR/bin/activate"
 set -u

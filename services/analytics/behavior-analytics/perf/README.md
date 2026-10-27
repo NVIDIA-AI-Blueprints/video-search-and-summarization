@@ -16,6 +16,15 @@ Set `ARTIFACT_REF` to the promoted image, then run:
 ./perf/run_benchmark.sh
 ```
 
+Benchmark-runner dependencies are separate from the deployed Behavior Analytics
+image and are locked under `perf/setup/`:
+
+```bash
+./perf/setup/setup_environment.sh
+```
+
+Change `perf/setup/pyproject.toml` and regenerate `perf/setup/uv.lock` together.
+
 The canonical result is written beneath
 `perf/results/behavior-analytics_<scenario>_<config-id>/vss-perf-results/` as
 `behavior-analytics_<config-id>_<timestamp>.json`. It uses the same versioned
@@ -25,20 +34,18 @@ The dashboard-facing `metadata.service` value and case-sensitive MinIO prefix ar
 `Behavior-Analytics`. Lowercase `behavior-analytics` remains the stable local
 filename and Jenkins artifact-directory slug.
 
-Jenkins passes `--upload`, `MINIO_ENDPOINT`, `MINIO_BUCKET`, and masked MinIO
-credentials. The canonical file is uploaded unchanged to
-`s3://<bucket>/Behavior-Analytics/<same-filename>`. `MINIO_ENDPOINT` is required
-for uploads and comes from the Jenkins parameter or the local environment. The
-dashboard still has to onboard this service name.
+Jenkins validates and uploads the canonical file unchanged to
+`s3://<bucket>/Behavior-Analytics/<same-filename>`. MinIO credentials are bound
+only around the Jenkins-owned publisher and are not passed to this benchmark.
 
 ## Jenkins
 
 The shared job checks out this service with
 `SCM_FOLDER=services/analytics/behavior-analytics` and archives
-`perf/results/...`. `perf/configs/perf-configs.yaml` declares the integration
-and shared-infrastructure paths that the benchmark needs in addition to the
-service-owned `perf/` package. It also declares the single playback fixture
-that must be hydrated from Git LFS.
+the configured `PERF_REPORT_DIR`. `perf/configs/perf-configs.yaml` declares the
+integration and shared-infrastructure paths that the benchmark needs in
+addition to the service-owned `perf/` package. It also declares the single
+playback fixture that must be hydrated from Git LFS.
 
 `generate_env.sh` resolves the shared infrastructure from
 `deploy/docker/services/infra`. The benchmark continues to use the existing
@@ -50,16 +57,15 @@ that must be hydrated from Git LFS.
 `perf-configs.yaml` sets `composePath` so Jenkins exports a non-empty `COMPOSE_FILE`. The job's benchmark wrapper uses `set -u` and otherwise dies before `vss_perf_benchmark.py`. Playback still uses `deploy.sh` / `measure.sh`, not that compose file, for start/stop.
 
 The Jenkins entrypoint accepts the common flags (`--config-id`, `--scenario`,
-`--output-json`, and `--upload`). When Jenkins has already run the stage
-scripts it only measures. `PERF_SCENARIO=quick_test` selects the 60-second
-playback window. Results are written to
-`{checkout}/perf/results/behavior-analytics_<scenario>_<config-id>/`; Jenkins
-archives the complete directory, including the canonical `vss-perf-results/`
-subdirectory and native diagnostic evidence.
+and `--output-json`) and owns deployment, measurement, and teardown.
+`PERF_SCENARIO=quick_test` selects the 60-second playback window. Jenkins passes
+the run-specific output directory, then validates and archives the complete
+directory, including the canonical report and native diagnostic evidence.
 
 ## Shared reporting
 
 `perf/benchmark/vss_perf_ba_adapter.py` is the only Behavior Analytics-specific
 report mapping. It preserves the benchmark's native topic latency and KPI data
-under a canonical test case. Schema validation, naming, platform discovery,
-atomic writes, and MinIO publication come from `libs/vss-perf-reporting`.
+under a canonical test case. Schema validation, naming, platform discovery, and
+atomic writes come from `libs/vss-perf-reporting`; pipeline publication is
+owned centrally by Jenkins.
