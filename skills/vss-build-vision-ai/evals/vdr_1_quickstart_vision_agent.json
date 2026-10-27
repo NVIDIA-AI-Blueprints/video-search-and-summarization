@@ -17,7 +17,7 @@
       "query": "what does this skill do?",
       "checks": [
         "The answer describes what the skill does: it composes and deploys agent-ready vision capabilities as a self-contained stack on the NVIDIA VSS Blueprint, either by deploying a stock developer profile or by composing a delta overlay on one.",
-        "The answer identifies the stock developer profiles `base`, `alerts`, `search`, and LVS/video summarization, and identifies `warehouse` as the supported industry profile.",
+        "The answer explains that the skill can deploy a stock profile or customize one for the requested vision capabilities. Any specific capabilities or profiles mentioned must be supported by the skill.",
         "The answer scopes the skill to composing or deploying application stacks rather than single microservices, and distinguishes that from operating an already-deployed stack. The exact wording and examples are not prescribed.",
         "No deployment or composition side effects: the trajectory runs no `docker compose up`, creates no `_builds/` directory, and starts no container."
       ]

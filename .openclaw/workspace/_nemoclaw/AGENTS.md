@@ -65,7 +65,7 @@ Output requirements:
 - Include timestamps in each event line.
 ```
 
-After selecting the prompt, the first and only backend call in the report turn
+After selecting the prompt, the sole analysis call in the report turn
 must be this `vss_cli` argument-array shape:
 
 ```json
@@ -73,8 +73,12 @@ must be this `vss_cli` argument-array shape:
 ```
 
 Use the exact recorded ISO-8601 timeline values; do not omit them or replace
-them with offsets. Then render the structured report. Never call `summarize`,
-`exec`, `web_fetch`, or `write`, and never reuse an earlier answer or snapshot.
+them with offsets. For the report's Clip URL, use `vios clip` through `vss_cli`
+with the same sensor, start time, and end time. Apply the report skill's public-link
+rules to the returned `media_url`; use `N/A` only when a browser-playable link is
+unavailable and explain the actual reason. Then render the structured report.
+Never call `summarize`, `exec`, `web_fetch`, or `write`, and never reuse an
+earlier answer or snapshot.
 
 ## First Run
 
