@@ -728,7 +728,7 @@ ajv-errors,3.0.0,MIT,services/analytics/video-analytics-api,node,lockfile;manife
 ajv-formats,2.1.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 ajv-formats,3.0.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 alpine,3.23.4,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/sdrc/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
-alpine,3.24.1,UNKNOWN,deploy,container,compose;container,deploy/docker/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile;deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-base;container-image,Unknown
+alpine,3.24.3,UNKNOWN,deploy,container,compose;container,deploy/docker/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile;deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-base;container-image,Unknown
 annotated-doc,0.0.4,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 annotated-doc,0.0.4,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 annotated-doc,0.0.5,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -941,7 +941,7 @@ builder-util-runtime,9.7.0,MIT,services/vios,node,lockfile,services/vios/ui/vios
 busboy,1.6.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 busybox,1.36,UNKNOWN,services/alert,container,container,services/alert/Dockerfile,runtime,no,no,yes,container-base,Unknown
 busybox,1.36,UNKNOWN,services/rtvi/rt-cv-3d/reid-embed,container,container,services/rtvi/rt-cv-3d/reid-embed/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
-busybox,1.37.0,UNKNOWN,deploy,container,compose,deploy/docker/services/vios/initiator/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
+busybox,1.38.0,UNKNOWN,deploy,container,compose,deploy/docker/services/vios/initiator/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
 byte-counter,0.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 bytes,3.1.2,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 bytes,3.1.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1121,7 +1121,7 @@ confluentinc/cp-kafka,7.5.0,UNKNOWN,services/alert,container,compose,services/al
 confluentinc/cp-kafka,8.2.0,UNKNOWN,services/rtvi/rt-cv-3d/reid-embed,container,compose,services/rtvi/rt-cv-3d/reid-embed/tests/integration/compose.reid-test.yml,runtime,no,no,yes,container-image,Unknown
 confluentinc/cp-kafka,8.2.0,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,container,compose,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/tests/integration/compose.fusion-test.yml,runtime,no,no,yes,container-image,Unknown
 confluentinc/cp-kafka,8.2.0,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-mv3dt,container,compose,services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml,runtime,no,no,yes,container-image,Unknown
-confluentinc/cp-kafka,8.3.0,UNKNOWN,deploy,container,compose;container,deploy/docker/services/infra/Dockerfiles/kafka-health-check.Dockerfile;deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-base;container-image,Unknown
+confluentinc/cp-kafka,8.4.0,UNKNOWN,deploy,container,compose;container,deploy/docker/services/infra/Dockerfiles/kafka-health-check.Dockerfile;deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-base;container-image,Unknown
 content-disposition,0.5.4,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 content-disposition,1.1.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 content-disposition,2.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1152,7 +1152,7 @@ core-util-is,1.0.3,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.jso
 core-util-is,1.0.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 cors,2.8.6,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 cosmiconfig,7.1.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-coturn/coturn,4.14.0,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
+coturn/coturn,4.18.0,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
 cron,2.4.4,MIT,services/analytics/video-analytics-api,node,lockfile;manifest,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package.json;services/analytics/video-analytics-api/test/package-lock.json;services/analytics/video-analytics-api/test/package.json,runtime,no,no,no,declared-manifest,None
 cron-validate,1.5.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 croner,10.0.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1320,16 +1320,16 @@ docker,7.1.0,Apache-2.0,services/sdrc,python,lockfile;manifest,services/sdrc/pyp
 docker,7.2.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 docker,7.2.0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 docker-ce-cli,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/test/bdd_tests/Dockerfile,runtime,no,no,yes,container-apt,Unknown
-docker.elastic.co/elasticsearch/elasticsearch,9.4.4,UNKNOWN,deploy,container,container,deploy/docker/services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile,runtime,no,no,yes,container-base,Unknown
-docker.elastic.co/kibana/kibana,9.4.4,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
+docker.elastic.co/elasticsearch/elasticsearch,9.5.5,UNKNOWN,deploy,container,container,deploy/docker/services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile,runtime,no,no,yes,container-base,Unknown
+docker.elastic.co/kibana/kibana,9.5.5,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
 docker.elastic.co/logstash/logstash,9.3.3,UNKNOWN,services/video-summarization,container,compose,services/video-summarization/docker/deploy/compose.yaml,runtime,no,no,yes,container-image,Unknown
-docker.elastic.co/logstash/logstash,9.4.4,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
-docker.io/alpine/curl,8.21.0,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml,runtime,no,no,yes,container-image,Unknown
-docker.io/grafana/grafana,13.1.1-ubuntu,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
+docker.elastic.co/logstash/logstash,9.5.5,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
+docker.io/alpine/curl,8.22.0,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml,runtime,no,no,yes,container-image,Unknown
+docker.io/grafana/grafana,13.2.4-ubuntu,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
 docker.io/jaegertracing/all-in-one,1.76.0,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
-docker.io/library/haproxy,3.4.2-alpine,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/haproxy/compose.yml,runtime,no,no,yes,container-image,Unknown
+docker.io/library/haproxy,3.4.7-alpine,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/haproxy/compose.yml,runtime,no,no,yes,container-image,Unknown
 docker.io/nvidia/dcgm-exporter,3.3.6-3.4.2-ubuntu22.04,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
-docker.io/otel/opentelemetry-collector-contrib,0.137.0,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
+docker.io/otel/opentelemetry-collector-contrib,0.164.0,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
 docker/build-push-action,263435318d21b8e681c14492fe198d362a7d2c83,Apache-2.0,.github,github-action,ci,.github/workflows/build-dev-images.yml,ci,no,no,no,ci-tooling,None
 docker/login-action,74a5d142397b4f367a81961eba4e8cd7edddf772,Apache-2.0,.github,github-action,ci,.github/workflows/build-dev-images.yml,ci,no,no,no,ci-tooling,None
 docker/setup-buildx-action,e468171a9de216ec08956ac3ada2f0791b6bd435,Apache-2.0,.github,github-action,ci,.github/workflows/build-dev-images.yml,ci,no,no,no,ci-tooling,None
@@ -1370,8 +1370,8 @@ durationpy,0.11,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,d
 eastasianwidth,0.2.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 eastasianwidth,0.2.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 ecdsa-sig-formatter,1.0.11,Apache-2.0,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
-eclipse-mosquitto,2,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
 eclipse-mosquitto,2,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-mv3dt,container,compose,services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml,runtime,no,no,yes,container-image,Unknown
+eclipse-mosquitto,2.0.22,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
 ee-first,1.1.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 ee-first,1.1.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 einops,0.8.0,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -1689,7 +1689,7 @@ ghcr.io/astral-sh/uv,latest,UNKNOWN,services/agent,container,container,services/
 ghcr.io/astral-sh/uv,latest,UNKNOWN,services/video-summarization,container,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
-ghcr.io/google/cadvisor,0.60.5,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
+ghcr.io/google/cadvisor,v0.60.6,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
 ghcr.io/nvidia/nemoclaw/hermes-sandbox,sha256:26899bd091f7ad2d58ab7cf9fad33f1fcd065c10eb54f9cf1461a24e1c21ed1a,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/nvidia/nemoclaw/openclaw-sandbox,sha256:959d1255717b54f724248eb282dbb049d3cd785d5aa4eddb0da2a03839ad6fca,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
 gherkin-official,29.0.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -3368,7 +3368,7 @@ quack-kernels,0.3.6,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,servic
 quay.io/coreos/etcd,v3.5.18,UNKNOWN,services/rtvi/rt-cv-3d/reid-embed,container,compose,services/rtvi/rt-cv-3d/reid-embed/docker/compose.yaml,runtime,no,no,yes,container-image,Unknown
 quay.io/coreos/etcd,v3.5.18,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-mv3dt,container,compose,services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml,runtime,no,no,yes,container-image,Unknown
 quay.io/prometheus/node-exporter,v1.12.1,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
-quay.io/prometheus/prometheus,v3.13.1,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
+quay.io/prometheus/prometheus,v3.15.1,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
 quay.io/pypa/manylinux_2_28_aarch64,UNKNOWN,UNKNOWN,libs/analytics/spatialai-data-utils,container,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 quay.io/pypa/manylinux_2_28_aarch64,UNKNOWN,UNKNOWN,services/analytics/behavior-analytics,container,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 quay.io/pypa/manylinux_2_28_x86_64,UNKNOWN,UNKNOWN,libs/analytics/spatialai-data-utils,container,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -3434,10 +3434,10 @@ redis,7.4.0,MIT,services/analytics/behavior-analytics,python,lockfile,services/a
 redis,7.4.0,MIT,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,python,lockfile,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 redis,8.1.0,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 redis,8.1.0,UNKNOWN,services/rtvi/rt-cv-3d/reid-embed,python,lockfile;manifest,services/rtvi/rt-cv-3d/reid-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-cv-3d/reid-embed/docker/py_deps/requirements.txt;services/rtvi/rt-cv-3d/reid-embed/docker/py_deps/uv.lock,runtime,no,no,no,declared-manifest,Unknown
-redis,8.10.0-alpine,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
 redis,8.10.0-alpine,UNKNOWN,services/rtvi/rt-embed,container,compose,services/rtvi/rt-embed/docker/compose.yaml,runtime,no,no,yes,container-image,Unknown
 redis,8.10.0-alpine,UNKNOWN,services/rtvi/rt-vlm,container,compose,services/rtvi/rt-vlm/docker/compose.yaml,runtime,no,no,yes,container-image,Unknown
 redis,8.10.0-alpine,UNKNOWN,services/sdrc,container,compose,services/sdrc/demo/http-header-lifecycle/docker/compose.yaml,runtime,no,no,yes,container-image,Unknown
+redis,8.10.3-alpine,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
 redis,UNKNOWN,UNKNOWN,services/alert,python,usage,services/alert/src/mdx/sink/sink_redis_stream.py,runtime,no,no,no,imported-only,Unknown
 redis.clients:jedis,6.1.0,MIT,tools/logstash-plugins,java,manifest,tools/logstash-plugins/input/redis-stream/build.gradle,runtime,no,no,no,declared-manifest,None
 redis/redis-stack-server,7.2.0-v9,UNKNOWN,services/alert,container,compose,services/alert/test/e2e/kafka_incident/docker-compose-blueprint-test.yaml,runtime,no,no,yes,container-image,Unknown
