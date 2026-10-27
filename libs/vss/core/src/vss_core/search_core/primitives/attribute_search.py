@@ -23,10 +23,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from typing import TYPE_CHECKING
 
 from vss_core.vios._metadata_cache import metadata_scope
 
+from ..errors import ConfigurationError
+from ..errors import InvalidInputError
 from ..models.attribute_search import AttributeSearchInput
 from ..models.attribute_search import AttributeSearchOutput
 from . import _attribute_helpers
@@ -57,7 +60,10 @@ class AttributeSearch:
         vst_internal_url: str | None = None,
         owns_es: bool = False,
         owns_embed: bool = False,
+        representative_weight: float = 0.0,
     ) -> None:
+        if not math.isfinite(representative_weight) or not 0 <= representative_weight <= 1:
+            raise ConfigurationError("representative_weight must be finite and between 0 and 1")
         self._es = es
         self._embed = embed
         self._behavior_index = behavior_index
@@ -70,6 +76,7 @@ class AttributeSearch:
         self._vst_internal_url = vst_internal_url
         self._owns_es = owns_es
         self._owns_embed = owns_embed
+        self._representative_weight = representative_weight
 
     @property
     def embed_client(self) -> CVTextEmbedder:
@@ -88,6 +95,22 @@ class AttributeSearch:
     async def _run_scoped(self, inp: AttributeSearchInput) -> AttributeSearchOutput:
         """Execute attribute search and return the ranked results."""
         inp.validate_semantics()
+        pooled = inp.attribute_frame_pool_size != 1
+        if self._representative_weight and pooled:
+            # Checked here: deeper per-attribute failures are skipped, which
+            # would turn this conflict into a silently empty result.
+            raise InvalidInputError("Representative weighting and frame pooling cannot be combined")
+        if self._representative_weight or pooled:
+            mode = "Representative frame scoring" if self._representative_weight else "Frame pooling"
+            has_frame_index = self._frames_index or (inp.source_type != "video_file" and self._frames_index_wildcard)
+            if not self._enable_frame_lookup or not has_frame_index:
+                raise ConfigurationError(f"{mode} requires the frame index and frame lookups")
+            # Frame lookups are skipped without both bounds, which would quietly
+            # rank by behavior score instead.
+            if not inp.timestamp_start or not inp.timestamp_end:
+                raise InvalidInputError(f"{mode} requires timestamp_start and timestamp_end")
+            if inp.candidate_limit is None:
+                raise InvalidInputError(f"{mode} requires an explicit candidate_limit")
         if inp.top_k is None:
             inp = inp.model_copy(update={"top_k": self._default_k})
         assert inp.top_k is not None
@@ -102,6 +125,7 @@ class AttributeSearch:
             enable_frame_lookup=self._enable_frame_lookup,
             behavior_index_wildcard=self._behavior_index_wildcard,
             frames_index_wildcard=self._frames_index_wildcard,
+            representative_weight=self._representative_weight,
         )
         logger.info(f"AttributeSearch returned {len(results)} result(s)")
         return AttributeSearchOutput(results=results)
@@ -139,6 +163,7 @@ class AttributeSearch:
             vst_internal_url=rt.vst_internal_url,
             owns_es=owns_es,
             owns_embed=owns_embed,
+            representative_weight=rt.attribute_representative_weight,
         )
 
     async def aclose(self) -> None:

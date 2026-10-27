@@ -357,6 +357,8 @@ class ElasticClient:
         The budget counts eligible documents before score filtering and dedup.
         Crossing it is an error: no partial ranking is advertised as exhaustive.
         Scroll state is always released, including when scoring or paging fails.
+        Vector payloads are excluded unless their exact field names are
+        explicitly requested in ``source_includes``.
         """
         from ..errors import InvalidInputError
 
@@ -399,6 +401,7 @@ class ElasticClient:
                                 "objects.embedding.vector",
                                 "object.embedding.vector",
                             }
+                            - set(source_includes or [])
                         ),
                     },
                 },

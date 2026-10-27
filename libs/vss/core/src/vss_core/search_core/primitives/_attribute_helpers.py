@@ -59,6 +59,7 @@ from ..clients.protocols import MultiSearchIndex
 from ..errors import BackendUnreachableError
 from ..errors import ConfigurationError
 from ..errors import IndexNotFoundError
+from ..errors import InvalidInputError
 from ..models.attribute_search import AttributeSearchInput
 from ..models.attribute_search import AttributeSearchMetadata
 from ..models.attribute_search import AttributeSearchResult
@@ -418,6 +419,7 @@ async def _search_behavior(
     video_sources: list[str] | None = None,
     source_type: str = "video_file",
     candidate_limit: int | None = None,
+    include_embeddings: bool = False,
 ) -> list[dict[str, Any]]:
     """kNN-search the behavior embeddings and return the raw hits."""
     filter_clauses: list[dict[str, Any]] = []
@@ -446,11 +448,14 @@ async def _search_behavior(
                 vector=query_embedding,
                 field="embeddings.vector",
                 nested_path="embeddings",
-                source_includes=["object", "sensor", "timestamp", "end"],
+                source_includes=["object", "sensor", "timestamp", "end"]
+                + (["embeddings.vector"] if include_embeddings else []),
                 candidate_limit=candidate_limit,
                 min_score=min_similarity,
             )
         else:
+            if include_embeddings:
+                search_query["_source"].append("embeddings.vector")
             response = await es.search(index=search_index_str, body=search_query)
     except IndexNotFoundError as e:
         if _is_absent_uploads_anchor(index):
@@ -508,6 +513,9 @@ def _indexed_frame_lookup_body(
     query_embedding: list[float],
     *,
     prepared: dict[str, Any] | None = None,
+    require_embedding: bool = False,
+    include_vector: bool = False,
+    frame_pool_size: int = 1,
 ) -> dict[str, Any]:
     """Score matching nested object vectors exactly with ES's built-in cosine.
 
@@ -517,6 +525,12 @@ def _indexed_frame_lookup_body(
     fallback. Compute the actual vector norm:
     cached cosine magnitudes can be 1.0 for vectors that are only nearly unit length.
     """
+    if isinstance(frame_pool_size, bool) or not isinstance(frame_pool_size, int) or not 1 <= frame_pool_size <= 32:
+        raise ValueError("frame_pool_size must be an integer between 1 and 32")
+    object_filters = [{"term": {"objects.id.keyword": object_id}}]
+    if frame_pool_size > 1 or require_embedding:
+        # Missing embeddings are not zero-valued observations in an average.
+        object_filters.append({"exists": {"field": "objects.embedding.vector"}})
     return {
         "query": {
             "bool": {
@@ -533,9 +547,7 @@ def _indexed_frame_lookup_body(
                                 "script_score": {
                                     "query": {
                                         "bool": {
-                                            "filter": [
-                                                {"term": {"objects.id.keyword": object_id}},
-                                            ]
+                                            "filter": object_filters,
                                         }
                                     },
                                     "script": {
@@ -557,13 +569,14 @@ def _indexed_frame_lookup_body(
                 ],
             }
         },
-        "size": 1,
-        "_source": ["id", "timestamp", "sensorId", "objects.id", "objects.bbox"],
+        "size": frame_pool_size,
+        "_source": ["id", "timestamp", "sensorId", "objects.id", "objects.bbox"]
+        + (["objects.embedding.vector"] if include_vector else []),
     }
 
 
-def _parse_frame_lookup(response: Any, object_id: str) -> FrameLookupResult:
-    """Read one best-frame response without changing score or tie ordering."""
+def _parse_frame_lookup(response: Any, object_id: str, frame_pool_size: int = 1) -> FrameLookupResult:
+    """Pool requested frame scores; retain the strongest frame as visual evidence."""
     hits = response.get("hits", {}).get("hits", [])
     if not hits:
         return None, None, None, None
@@ -571,8 +584,11 @@ def _parse_frame_lookup(response: Any, object_id: str) -> FrameLookupResult:
     best_hit = hits[0]
     frame_source = best_hit["_source"]
     # The script already normalized cosine to (1 + cosine) / 2 in [0, 1];
-    # report it verbatim rather than transforming a second time.
-    best_score = float(best_hit["_score"])
+    # average in that score space without transforming a second time.
+    scores = [float(hit["_score"]) for hit in hits[:frame_pool_size]]
+    if not all(math.isfinite(score) for score in scores):
+        raise ValueError("Frame scores must be finite")
+    best_score = math.fsum(scores) / len(scores)
     best_frame_id = frame_source.get("id")
     best_timestamp = frame_source.get("timestamp", "")
 
@@ -601,6 +617,7 @@ async def _get_frame_from_behavior(
     query_embedding: list[float],
     es: ElasticIndex,
     prepared: dict[str, Any] | None = None,
+    frame_pool_size: int = 1,
 ) -> FrameLookupResult:
     """Best-effort per-object best-frame lookup via a Painless cosine score.
 
@@ -619,9 +636,17 @@ async def _get_frame_from_behavior(
         search_frames_index_str = frames_index if isinstance(frames_index, str) else ",".join(frames_index)
         response = await es.search(
             index=search_frames_index_str,
-            body=_frame_lookup_body(sensor_id, object_id, start_time, end_time, query_embedding, prepared=prepared),
+            body=_frame_lookup_body(
+                sensor_id,
+                object_id,
+                start_time,
+                end_time,
+                query_embedding,
+                prepared=prepared,
+                **({"frame_pool_size": frame_pool_size} if frame_pool_size != 1 else {}),
+            ),
         )
-        return _parse_frame_lookup(response, object_id)
+        return _parse_frame_lookup(response, object_id, frame_pool_size)
     except LibraryError:
         raise
     except Exception as e:
@@ -640,6 +665,7 @@ async def _perform_frame_lookups(
     timestamp_start: datetime | None,
     timestamp_end: datetime | None,
     es: ElasticIndex,
+    frame_pool_size: int = 1,
 ) -> list[FrameLookupResult | None]:
     """Run frame lookups in parallel; document misses map to None, backend failures raise.
 
@@ -678,7 +704,13 @@ async def _perform_frame_lookups(
                     [
                         {},
                         _frame_lookup_body(
-                            sensor_id, object_id, start_time, end_time, query_embedding, prepared=prepared
+                            sensor_id,
+                            object_id,
+                            start_time,
+                            end_time,
+                            query_embedding,
+                            prepared=prepared,
+                            **({"frame_pool_size": frame_pool_size} if frame_pool_size != 1 else {}),
                         ),
                     ]
                 )
@@ -703,7 +735,7 @@ async def _perform_frame_lookups(
                                 "elasticsearch", f"Frame multi-search backend failed with status {status}"
                             )
                         raise ValueError("Frame multi-search item failed")
-                    by_key[key] = _parse_frame_lookup(response, key[1])
+                    by_key[key] = _parse_frame_lookup(response, key[1], frame_pool_size)
                 except LibraryError:
                     raise
                 except Exception:
@@ -726,6 +758,7 @@ async def _perform_frame_lookups(
                     query_embedding=query_embedding,
                     es=es,
                     prepared=prepared,
+                    **({"frame_pool_size": frame_pool_size} if frame_pool_size != 1 else {}),
                 )
             except LibraryError:
                 raise
@@ -999,12 +1032,16 @@ async def search_by_attributes(
     source_type: str = "video_file",
     candidate_limit: int | None = None,
     complete_pool: bool = False,
+    representative_weight: float = 0.0,
+    frame_pool_size: int = 1,
 ) -> list[AttributeSearchResult]:
     """Single-embedding attribute search: behavior kNN -> frames -> dedup.
 
     Returns an empty list only when no candidate passes the similarity
     threshold. Backend/index failures propagate as library errors.
     """
+    if representative_weight and frame_pool_size != 1:
+        raise InvalidInputError("Representative weighting and frame pooling cannot be combined")
     exclude_videos = exclude_videos or []
 
     with TimeMeasure("attribute_search: search behavior embeddings"):
@@ -1012,15 +1049,22 @@ async def search_by_attributes(
             index=index,
             query_embedding=query_embedding,
             top_k=top_k,
-            min_similarity=min_similarity,
+            min_similarity=0.0 if representative_weight else min_similarity,
             es=es,
             timestamp_start=timestamp_start,
             timestamp_end=timestamp_end,
             video_sources=video_sources,
             source_type=source_type,
             candidate_limit=candidate_limit,
+            include_embeddings=representative_weight > 0,
         )
 
+    representative_candidates = candidates
+    if representative_weight:
+        # The appearance center uses every scoped behavior for a track, rather
+        # than changing with query-dependent score filtering. Preserve the
+        # caller's threshold when selecting retrieval candidates.
+        candidates = [hit for hit in candidates if hit["_score"] >= min_similarity]
     if not candidates:
         logger.info(f"No candidates passed min_similarity threshold ({min_similarity})")
         return []
@@ -1032,14 +1076,30 @@ async def search_by_attributes(
     aligned_candidates: list[dict[str, Any]] = []
     if enable_frame_lookup and frames_index:
         with TimeMeasure("attribute_search: frame lookups"):
-            frame_results = await _perform_frame_lookups(
-                candidates=candidates,
-                query_embedding=query_embedding,
-                frames_index=frames_index,
-                timestamp_start=timestamp_start,
-                timestamp_end=timestamp_end,
-                es=es,
-            )
+            if representative_weight:
+                from ._frame_aggregation import aggregate_frame_lookups
+
+                assert timestamp_start is not None and timestamp_end is not None
+                frame_results = await aggregate_frame_lookups(
+                    candidates,
+                    query_embedding,
+                    frames_index,
+                    timestamp_start,
+                    timestamp_end,
+                    es,
+                    representative_weight,
+                    representative_candidates=representative_candidates,
+                )
+            else:
+                frame_results = await _perform_frame_lookups(
+                    candidates=candidates,
+                    query_embedding=query_embedding,
+                    frames_index=frames_index,
+                    timestamp_start=timestamp_start,
+                    timestamp_end=timestamp_end,
+                    es=es,
+                    **({"frame_pool_size": frame_pool_size} if frame_pool_size != 1 else {}),
+                )
         for idx, hit in enumerate(candidates):
             frame_result = frame_results[idx] if idx < len(frame_results) else None
             item = _safe_hit_to_result(hit, frame_result)
@@ -1119,6 +1179,7 @@ async def search_single_attribute(
     enable_frame_lookup: bool = True,
     query_embedding: list[float] | None = None,
     complete_pool: bool = False,
+    representative_weight: float = 0.0,
 ) -> list[AttributeSearchResult]:
     """Embed a single attribute string and run the attribute search pipeline.
 
@@ -1145,6 +1206,12 @@ async def search_single_attribute(
         enable_frame_lookup=enable_frame_lookup,
         source_type=search_input.source_type,
         exclude_videos=search_input.exclude_videos,
+        representative_weight=representative_weight,
+        **(
+            {"frame_pool_size": search_input.attribute_frame_pool_size}
+            if search_input.attribute_frame_pool_size != 1
+            else {}
+        ),
     )
 
 
@@ -1159,6 +1226,7 @@ async def search_attributes(
     enable_frame_lookup: bool = True,
     behavior_index_wildcard: str = "mdx-behavior-*",
     frames_index_wildcard: str = "mdx-raw-*",
+    representative_weight: float = 0.0,
 ) -> list[AttributeSearchResult]:
     """Entry point: resolve indices by source_type, then fuse or append per attribute."""
     queries = search_input.normalized_queries()
@@ -1189,6 +1257,7 @@ async def search_attributes(
             vst_external_url=vst_external_url,
             vst_internal_url=vst_internal_url,
             es=es,
+            representative_weight=representative_weight,
         )
     return await _append_multi_attribute(
         queries=queries,
@@ -1201,6 +1270,7 @@ async def search_attributes(
         vst_external_url=vst_external_url,
         vst_internal_url=vst_internal_url,
         es=es,
+        representative_weight=representative_weight,
     )
 
 
@@ -1215,6 +1285,7 @@ async def _fuse_multi_attribute(
     vst_external_url: str,
     vst_internal_url: str | None,
     es: ElasticIndex,
+    representative_weight: float = 0.0,
 ) -> list[AttributeSearchResult]:
     """Fuse mode: run each attribute (top_k=1), then resolve one screenshot per result.
 
@@ -1234,6 +1305,7 @@ async def _fuse_multi_attribute(
             es=es,
             enable_frame_lookup=enable_frame_lookup,
             query_embedding=embeddings[i] if embeddings is not None else None,
+            representative_weight=representative_weight,
         )
         for i, q in enumerate(queries)
     ]
@@ -1277,6 +1349,7 @@ async def _append_multi_attribute(
     vst_external_url: str,
     vst_internal_url: str | None,
     es: ElasticIndex,
+    representative_weight: float = 0.0,
 ) -> list[AttributeSearchResult]:
     """Append mode: independent top_k per attribute, then dedup across all."""
     per_attr = search_input.model_copy(update={"fuse_multi_attribute": False})
@@ -1294,6 +1367,7 @@ async def _append_multi_attribute(
                 enable_frame_lookup=enable_frame_lookup,
                 query_embedding=embeddings[idx] if embeddings is not None else None,
                 complete_pool=search_input.candidate_limit is not None,
+                representative_weight=representative_weight,
             )
 
             all_results.extend(

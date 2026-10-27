@@ -59,6 +59,7 @@ class SearchInput(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=1000)
     search_mode: Literal["embed", "attribute", "fusion", "object", "tag"] = "embed"
     max_hits_per_source: StrictInt | None = Field(default=None, ge=1, le=1000)
+    attribute_frame_pool_size: StrictInt = Field(default=1, ge=1, le=32)
     attributes: list[str] = Field(default_factory=list)
     object_ids: list[int] | None = None
     # Cosine similarity is in [-1, 1]; the UI sends negative thresholds for
@@ -72,6 +73,8 @@ class SearchInput(BaseModel):
         combination; centralizing them keeps the primitive's ``run()``/``stream()``
         thin and gives callers one place to exercise input semantics.
         """
+        if self.attribute_frame_pool_size != 1 and self.search_mode != "attribute":
+            raise InvalidInputError("attribute_frame_pool_size is supported only for attribute search")
         if self.search_mode in {"embed", "fusion", "tag"} and not self.query.strip():
             raise InvalidInputError(f"SearchInput.query must be non-empty for search_mode={self.search_mode!r}")
         if self.timestamp_start and self.timestamp_end and self.timestamp_start > self.timestamp_end:
@@ -99,6 +102,8 @@ class SearchInput(BaseModel):
             raise InvalidInputError("object_ids require search_mode='object'")
         if self.max_hits_per_source is not None and self.candidate_limit is None:
             raise InvalidInputError("max_hits_per_source requires an explicit candidate_limit")
+        if self.attribute_frame_pool_size != 1 and self.candidate_limit is None:
+            raise InvalidInputError("attribute_frame_pool_size requires an explicit candidate_limit")
 
 
 class SearchVerification(BaseModel):

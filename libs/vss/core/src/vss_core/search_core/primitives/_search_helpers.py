@@ -159,6 +159,8 @@ async def _run_attribute_only_search(
 
         if search_input.max_hits_per_source is not None:
             attr_params["max_hits_per_source"] = search_input.max_hits_per_source
+        if search_input.attribute_frame_pool_size != 1:
+            attr_params["attribute_frame_pool_size"] = search_input.attribute_frame_pool_size
         if search_input.candidate_limit is not None:
             attr_params["candidate_limit"] = search_input.candidate_limit
         attribute_results = await attribute_search_fn.ainvoke(attr_params)
@@ -319,6 +321,7 @@ async def _lookup_fusion_attributes(
     attribute_embeddings: list[list[float]] | None,
     vst_internal_url: str | None,
     source_type: str,
+    candidate_limit: int | None = None,
 ) -> tuple[SearchResult, Any]:
     """Look up one candidate, preserving systemic errors and best-effort misses."""
     try:
@@ -351,6 +354,8 @@ async def _lookup_fusion_attributes(
         }
         if attribute_embeddings is not None:
             attr_params["query_embedding"] = attribute_embeddings
+        if candidate_limit is not None:
+            attr_params["candidate_limit"] = candidate_limit
         return embed_result, await attribute_search_fn.ainvoke(attr_params)
     except LibraryError:
         raise
@@ -374,6 +379,7 @@ async def fusion_search_rerank(
     w_attribute: float = 0.55,
     w_embed: float = 0.35,
     attribute_embed_client: TextEmbedder | None = None,
+    candidate_limit: int | None = None,
 ) -> list[SearchResult]:
     """Rerank embed results by fusing each video's embed score with attribute matches.
 
@@ -421,7 +427,13 @@ async def fusion_search_rerank(
     results_list = await asyncio.gather(
         *(
             _lookup_fusion_attributes(
-                result, attributes, attribute_search_fn, attribute_embeddings, vst_internal_url, source_type
+                result,
+                attributes,
+                attribute_search_fn,
+                attribute_embeddings,
+                vst_internal_url,
+                source_type,
+                candidate_limit=candidate_limit,
             )
             for result in embed_results
         )
@@ -665,6 +677,8 @@ async def execute_core_search(
             return _fusion.embed_output_to_search_results(validated)
 
         if config.fusion_method == "rrf":
+            if search_input.max_hits_per_source is not None:
+                raise InvalidInputError("Fusion max_hits_per_source requires weighted_rrf")
             # Legacy rrf fusion: embed + optional attribute (per-embed attribute
             # lookup), NO VLM tag leg. Reuses the pre-tag-search rrf_fusion
             # pipeline: score = 1/(rank + rrf_k) + rrf_w * normalised_attribute_score.
@@ -687,6 +701,7 @@ async def execute_core_search(
                     rrf_k=config.rrf_k,
                     rrf_w=config.rrf_w,
                     attribute_embed_client=getattr(attribute_search_fn, "embed_client", None),
+                    candidate_limit=search_input.candidate_limit,
                 )
             else:
                 with TimeMeasure(_FUSION_TIMER_NAME):

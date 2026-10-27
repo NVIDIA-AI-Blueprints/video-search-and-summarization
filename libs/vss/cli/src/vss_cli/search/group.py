@@ -40,6 +40,7 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import StrictInt
 from pydantic import model_validator
 
 from vss_cli import config as config_mod
@@ -144,6 +145,15 @@ class AttributeInput(_Common):
     candidate_limit: int | None = Field(
         None, ge=1, le=100000, description="Exact indexed scan budget; fail if exceeded."
     )
+    attribute_frame_pool_size: StrictInt = Field(
+        1,
+        ge=1,
+        le=32,
+        description=(
+            "Average the strongest N embedded frames per object; requires --candidate-limit and "
+            "time bounds. Default 1 keeps best-frame scoring."
+        ),
+    )
     max_hits_per_source: int | None = Field(
         None, ge=1, le=1000, description="Cap returned matches per source; preserve global rank."
     )
@@ -157,6 +167,8 @@ class AttributeInput(_Common):
     def require_complete_source_pool(self):
         if self.max_hits_per_source is not None and self.candidate_limit is None:
             raise ValueError("max_hits_per_source requires an explicit candidate_limit")
+        if self.attribute_frame_pool_size != 1 and self.candidate_limit is None:
+            raise ValueError("attribute_frame_pool_size requires an explicit candidate_limit")
         return self
 
 
@@ -190,6 +202,18 @@ class FusionInput(_Common):
     min_cosine_similarity: float | None = Field(
         None, ge=-1.0, le=1.0, description="Minimum cosine similarity threshold."
     )
+    candidate_limit: int | None = Field(
+        None, ge=1, le=100000, description="Exact attribute candidate budget; fail if exceeded."
+    )
+    max_hits_per_source: int | None = Field(
+        None, ge=1, le=1000, description="Cap attribute matches per source before weighted_rrf union fusion."
+    )
+
+    @model_validator(mode="after")
+    def require_complete_source_pool(self):
+        if self.max_hits_per_source is not None and self.candidate_limit is None:
+            raise ValueError("max_hits_per_source requires an explicit candidate_limit")
+        return self
 
 
 class ObjectInput(_Common):
@@ -218,6 +242,13 @@ class SearchTuning(BaseModel):
     an omitted flag never silently overrides configuration.
     """
 
+    attribute_representative_weight: float | None = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        allow_inf_nan=False,
+        description="Weight of a query-independent representative frame versus the best query frame; requires frame lookup, time bounds, and an exact candidate budget. Default 0 uses the best frame.",
+    )
     fusion_method: Literal["weighted_rrf", "rrf"] | None = Field(
         None, description="How tag, embed, and optional attribute ranks are combined."
     )

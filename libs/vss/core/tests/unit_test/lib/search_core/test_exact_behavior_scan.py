@@ -44,6 +44,11 @@ async def test_projection_is_opt_in_and_keeps_vector_exclusions():
     assert source["includes"] == ["object", "sensor", "timestamp", "end"]
     assert "embeddings.vector" in source["excludes"]
     assert raw.clear_scroll.await_count == 2
+    await es.exhaustive_vector_search(**args, source_includes=["object", "embeddings.vector"])
+    source = raw.search.call_args.kwargs["body"]["_source"]
+    assert "embeddings.vector" not in source["excludes"]
+    assert "objects.embedding.vector" in source["excludes"]
+    assert "llm.visionEmbeddings.vector" in source["excludes"]
 
 
 def _page(ids, *, total=2, relation="eq", cursor="cursor", timed_out=False):

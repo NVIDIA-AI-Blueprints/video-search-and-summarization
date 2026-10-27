@@ -179,6 +179,45 @@ sources when no person evidence is indexed. Missing relevant sources contribute
 zero; no tail clips are fabricated. This is an experimental policy on a
 previously examined regression cohort, not an unseen-dataset accuracy claim.
 
+### Optional representative-frame aggregation
+
+`vss search run attribute --attribute-representative-weight 0.5` blends the
+best query frame with a query-independent representative. SDK callers use
+`SearchRuntime(attribute_representative_weight=0.5, ...)` or
+`RawSdkRunner(tuning={"attribute_representative_weight": 0.5, ...})`.
+
+The representative is the existing frame nearest the mean normalized behavior
+embedding for that object within the requested source/time scope. All scoped
+behavior vectors contribute to this center before applying the query-score
+threshold. The returned score is `weight * representative_score +
+(1 - weight) * best_frame_score`; both scores retain the existing shifted cosine
+space `[0, 1]`. The displayed frame remains the best query match. Missing frame
+evidence retains the existing behavior-score fallback; partial backend responses
+fail explicitly. No query rewriting, language dictionary, additional model,
+track-length penalty, or benchmark metadata enters this computation.
+
+The default weight is zero, preserving existing retrieval. Nonzero weights
+require frame lookup, both timestamp bounds, and an explicit `candidate_limit`.
+For clip retrieval, also set `max_hits_per_source=1`. Fusion forwards the candidate budget to its attribute lookups. The per-source
+cap applies to `weighted_rrf` union fusion; legacy `rrf` rejects it explicitly.
+Each object needs
+two frame searches, so validate the accuracy/latency tradeoff on the intended
+workload. A balanced weight of 0.5 is an evaluation setting, not a new default.
+
+The earlier experimental `pas` scorer and `person-pas` routing profile were
+removed during generic-code review. Their 66.05%/75.02% development results
+belong to the archived experiment and do not describe this generic option.
+
+### Optional frame pooling
+
+`--attribute-frame-pool-size N` (attribute search only; evaluator flag of the
+same name) ranks each object by the mean of its N best-matching embedded frames
+instead of its single best frame. It requires `--candidate-limit` and both
+timestamp bounds, because results are frame-ranked only within an exact
+candidate pool; without them the request is rejected rather than silently
+ranked by behavior score. It cannot be combined with representative weighting.
+The default of 1 keeps best-frame scoring.
+
 ## Lifecycle and errors
 
 Use one async context and one event loop for the whole serial sequence.
@@ -275,3 +314,6 @@ captures rather than requiring independent live LLM runs to produce equal scores
 Offline route-reference scoring, automatic crop-gallery ranking, and native-
 person ranking are experimental paths whose implementation files are not part
 of this committed runner. They are intentionally not exposed by this guide.
+
+For the opt-in native PAS profile, full index reset, fresh ingest, and binary
+person-state-photo routing recipe, see [Native PhysicalAI PAS reproduction](pas-native-reproduction.md).

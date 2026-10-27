@@ -147,6 +147,8 @@ def build_request(
         )
     if path in {"attribute", "fusion"}:
         payload["attributes"] = plan["attributes"] if mode == "live-routed" else [text]
+        if path == "attribute" and getattr(args, "attribute_frame_pool_size", 1) != 1:
+            payload["attribute_frame_pool_size"] = args.attribute_frame_pool_size
     if mode == "live-routed" and plan.get("video_sources"):
         payload["video_sources"] = plan["video_sources"]
     for key in ("timestamp_start", "timestamp_end"):
@@ -349,9 +351,7 @@ async def run(args):
             repo_root=REPO_ROOT,
             model=args.llm_model,
             prompt_variant=prompt_variant,
-            max_tokens=32768
-            if v22_original or person_state
-            else MAX_TOKENS,
+            max_tokens=32768 if v22_original or person_state else MAX_TOKENS,
         )
         if "live-routed" in args.modes
         else None
@@ -381,6 +381,7 @@ async def run(args):
         "run_id": run_id,
         "execution_backend": args.execution_backend,
         "attribute_gallery": "native-index",
+        "attribute_frame_pool_size": args.attribute_frame_pool_size,
         "modes": args.modes,
         "top_k_values": ks,
         "multi_k": multi,
@@ -483,6 +484,7 @@ async def run(args):
             sdk = None
             if args.execution_backend == "sdk":
                 from flows.raw_sdk import RawSdkRunner
+
                 backend = RawSdkRunner(
                     deployment=deployment,
                     tuning={"no_merge_adjacent": not args.merge_adjacent},
@@ -844,6 +846,9 @@ def parse_args(argv=None):
     p.add_argument("--compare-cli-query-ids", type=Path)
     p.add_argument("--min-cosine-similarity", type=float, default=-1.0)
     p.add_argument("--candidate-limit", type=int, default=100000)
+    p.add_argument(
+        "--attribute-frame-pool-size", type=int, choices=range(1, 33), default=1
+    )
     p.add_argument("--max-hits-per-source", type=int, default=1)
     p.add_argument("--merge-adjacent", action="store_true")
     p.add_argument(

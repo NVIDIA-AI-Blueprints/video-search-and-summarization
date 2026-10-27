@@ -1259,3 +1259,34 @@ class TestTagOnlyDeploymentAndFusionWeights:
         # of silently dropping the attribute boost.
         assert out.data
         assert any("42" in r.object_ids for r in out.data)
+
+
+@pytest.mark.asyncio
+async def test_legacy_rrf_forwards_explicit_attribute_scan_budget():
+    attribute = _FakeAttr()
+    await _run(
+        SearchInput(query="any query", attributes=["any attribute"], search_mode="fusion", candidate_limit=37),
+        embed_search=_FakeEmbed([_embed_output([_embed_item()])]),
+        attribute_search_fn=attribute,
+        config=_config(fusion_method="rrf"),
+    )
+    assert attribute.calls and all(call["candidate_limit"] == 37 for call in attribute.calls)
+
+
+@pytest.mark.asyncio
+async def test_legacy_rrf_does_not_silently_ignore_a_union_source_cap():
+    embed = _FakeEmbed([_embed_output([_embed_item()])])
+    with pytest.raises(InvalidInputError, match="max_hits_per_source requires weighted_rrf"):
+        await _run(
+            SearchInput(
+                query="any query",
+                attributes=["any attribute"],
+                search_mode="fusion",
+                candidate_limit=37,
+                max_hits_per_source=1,
+            ),
+            embed_search=embed,
+            attribute_search_fn=_FakeAttr(),
+            config=_config(fusion_method="rrf"),
+        )
+    assert embed.calls == []

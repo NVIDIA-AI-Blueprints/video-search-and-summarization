@@ -548,8 +548,8 @@ async def test_get_frame_script_shifts_cosine_into_non_negative_range():
         query_embedding=[0.1],
         es=es,
     )
-    script = es.bodies[0]["query"]["function_score"]["script_score"]["script"]["source"]
-    assert "(maxScore + 1.0) / 2.0" in script
+    script = es.bodies[0]["query"]["bool"]["must"][0]["nested"]["query"]["script_score"]["script"]["source"]
+    assert "(Math.max(-1.0, Math.min(1.0, cosine)) + 1.0) / 2.0" in script
 
 
 @pytest.mark.asyncio

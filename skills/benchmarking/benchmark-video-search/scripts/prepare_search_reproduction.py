@@ -78,8 +78,22 @@ def source_identity():
             for p in (REPO / root).rglob("*")
             if p.is_file()
             and "__pycache__" not in p.parts
-            and p.suffix
-            in {".py", ".json", ".yml", ".yaml", ".env", ".sh", ".template"}
+            and (
+                p.name == "Dockerfile"
+                or p.suffix
+                in {
+                    ".py",
+                    ".json",
+                    ".yml",
+                    ".yaml",
+                    ".env",
+                    ".sh",
+                    ".template",
+                    ".patch",
+                    ".h",
+                    ".cpp",
+                }
+            )
         )
     hashes = {str(p.relative_to(REPO)): digest(p) for p in sorted(set(paths))}
     return {
@@ -517,6 +531,25 @@ def check(args):
                             raise RuntimeError(
                                 "Deployed application source differs from the prepared branch"
                             )
+                    # Profiles prepared before image IDs were recorded have none to check.
+                    pas = manifest.get("pas_eval_profile") or {}
+                    if (
+                        pas.get("image_id")
+                        and container["service"] == "perception-2d-fusion"
+                        and command(
+                            [
+                                "docker",
+                                "inspect",
+                                "--format",
+                                "{{.Image}}",
+                                container["id"],
+                            ]
+                        )
+                        != pas["image_id"]
+                    ):
+                        raise RuntimeError(
+                            "Running RT-CV image differs from the prepared PAS profile image"
+                        )
                     if container["service"] == "rtvi-embed":
                         subprocess.run(
                             [

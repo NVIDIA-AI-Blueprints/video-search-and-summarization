@@ -189,6 +189,30 @@ async def audit_indexes(manifest, clips=None):
     return report
 
 
+def require_registered_attribution(report):
+    """Fail when RT-CV raw/behavior documents name an unregistered source.
+
+    This checks the deployed pipeline end to end: a reused source slot or an
+    unidentified frame would index crops under a numeric, missing, or foreign
+    sensor, which unit tests of the metadata helpers cannot observe.
+    """
+    allowed = {str(s["sensor_id"]) for s in report["sensors"]} | {
+        str(s["name"]) for s in report["sensors"]
+    }
+    foreign = {
+        f"{index}:{source}": count
+        for index, entry in sorted(report["indices"].items())
+        if index.startswith(("mdx-raw-", "mdx-behavior-"))
+        for source, count in entry.get("by_source", {}).items()
+        if source not in allowed
+    }
+    if foreign:
+        examples = ", ".join(f"{k}={v}" for k, v in list(foreign.items())[:10])
+        raise RuntimeError(
+            f"RT-CV documents are attributed to unregistered sources ({len(foreign)}): {examples}"
+        )
+
+
 def ingest(args):
     workspace, deployment = load_workspace(args.workspace)
     configured_origin(deployment)
@@ -293,13 +317,14 @@ def ingest(args):
         if len({r["sensor_id"] for r in manifest["clips"]}) != len(clips):
             raise RuntimeError("Duplicate sensor identities")
         refresh_after_ingestion(workspace, deployment)
+        # Audit before declaring completion so a failed check leaves a failed manifest.
+        inventory = asyncio.run(audit_indexes(deployment, manifest["clips"]))
+        if getattr(args, "verify_source_attribution", False):
+            require_registered_attribution(inventory)
         manifest.update(complete=True, phase="complete")
         manifest.pop("active_filename", None)
         save(output, manifest)
-        save(
-            workspace / "gallery-before-benchmark.json",
-            asyncio.run(audit_indexes(deployment, manifest["clips"])),
-        )
+        save(workspace / "gallery-before-benchmark.json", inventory)
     except Exception as error:
         manifest.update(
             complete=False, phase="failed", error=f"{type(error).__name__}: {error}"
@@ -320,11 +345,18 @@ def main():
     p.add_argument("--upload-timestamp", default="2025-01-01T00:00:00")
     p.add_argument("--deadline", type=float, default=1800)
     p.add_argument("--audit-only", action="store_true")
+    p.add_argument(
+        "--verify-source-attribution",
+        action="store_true",
+        help="Fail unless every RT-CV raw/behavior document names a registered gallery source",
+    )
     args = p.parse_args()
     if args.audit_only:
         workspace, manifest = load_workspace(args.workspace)
         report = asyncio.run(audit_indexes(manifest))
         save(args.output, report)
+        if args.verify_source_attribution:
+            require_registered_attribution(report)
         before = json.loads((workspace / "gallery-before-benchmark.json").read_text())
         if report != before:
             raise RuntimeError(
