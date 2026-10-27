@@ -454,6 +454,60 @@ helm upgrade --install vss-alerts ./dev-profile-alerts \
 ```
 
 **Important:** `rtvi.vss-rtvi-vlm.useSharedNim=true` is required for a remote VLM — without it, RT-VLM ignores `global.vlmBaseUrl` and loads its integrated checkpoint instead of proxying to the remote endpoint.
+## Always-on alerts with Helm
+
+Always-on monitoring is disabled by default in this chart. The Docker Compose settings do not carry over:
+
+| | Docker Compose | This Helm chart |
+|---|---|---|
+| Always-on switch | `ALERT_AGENT_ALWAYS_ON=true` | `vss-alert-bridge.alwaysOn` (default `false`) |
+| Always-on rules | `vlm-as-verifier/realtime-config.yml` | `vss-alert-bridge.realtimeConfig` (inline YAML, default empty) |
+| VIOS camera-event webhook | `VST_NOTIFICATION_CONFIG_PATH` for `2d_vlm` | not wired in this profile |
+
+Rules you create at runtime (Agent chat or **Manage Alerts > Real-time Alerts**) do not need this setting. The chart's sample `ppe_confirmation` and `person_count` rules do require `alwaysOn: true` and the camera-event wiring described below.
+
+**Enable the flag:**
+
+```yaml
+vss-alert-bridge:
+  alwaysOn: true
+  # Optional: custom always-on rules (same format as realtime-config.yml in the Compose profile)
+  realtimeConfig: |
+    always_on_rules:
+      - ...
+```
+
+Apply it with the mode file you installed with, and repeat every override from your install command — `helm upgrade` resets anything you do not pass again to the chart defaults:
+
+```bash
+helm upgrade <RELEASE_NAME> ./dev-profile-alerts \
+  -f ./dev-profile-alerts/values-realtime.yaml \
+  -f my-always-on.yaml \
+  -n <NAMESPACE> \
+  --set-string ngc.apiKey="$NGC_CLI_API_KEY" \
+  --set global.externalHost="vss-alerts.$EXTERNAL_HOST.nip.io" \
+  --set global.storageClass="$STORAGE_CLASS"
+```
+
+Add `--set nims.enabled=false`, `--set-string global.llmBaseUrl=…`, `--set-string global.vlmBaseUrl=…`, `--set-string global.llmName=…`, and `--set-string global.vlmName=…` as well if you installed for remote LLM/VLM. To avoid repeating the list, move those settings into `my-always-on.yaml` (or any values file) and pass only `-f` files.
+
+> **Important:** `alwaysOn: true` is not sufficient on its own in this profile. Always-on rules start only from `camera_streaming` events posted to `/api/v1/realtime/always-on`, and this profile's `configs/sdrc/config-realtime.yml` points `WDM_WL_ADD_URL` at `/api/v1/proxy/stream/add`. End-to-end always-on is not validated here. Take `warehouse-2d-app` (`WDM_WL_ADD_URL: /api/v1/realtime/always-on`) as the reference, or use the [Docker Compose real-time alerts workflow](https://nvidia-vss.docs.buildwithfern.com/vss/vision-agent/agent-workflows/real-time-alerts#direct-docker-compose-overrides).
+
+**Verify after upgrading:**
+
+```bash
+# Rendered configuration: expect "always_on: true"
+kubectl get configmap vss-alert-bridge-config -n <NAMESPACE> -o yaml | grep always_on
+
+# Startup log: expect no "alert_agent.always_on is disabled"
+kubectl logs statefulset/vss-alert-bridge -n <NAMESPACE> | grep -i always
+
+# Rules: expect status "active"
+curl -s http://<EXTERNAL_HOST>/alert-bridge/api/v1/realtime
+
+# Incidents produced by the rules
+curl -s http://<EXTERNAL_HOST>/alert-bridge/api/v1/realtime/incidents
+```
 
 ## Exposing the stack
 
@@ -542,10 +596,15 @@ helm template <RELEASE_NAME> ./dev-profile-alerts \
 **Upgrade**
 
 ```bash
-helm upgrade <RELEASE_NAME> ./dev-profile-alerts -f dev-profile-alerts/values-verification.yaml -n <NAMESPACE>
+helm upgrade <RELEASE_NAME> ./dev-profile-alerts \
+  -f ./dev-profile-alerts/values-verification.yaml \
+  -n <NAMESPACE> \
+  --set-string ngc.apiKey="$NGC_CLI_API_KEY" \
+  --set global.externalHost="vss-alerts.$EXTERNAL_HOST.nip.io" \
+  --set global.storageClass="$STORAGE_CLASS"
 ```
 
-Use **`-f dev-profile-alerts/values-realtime.yaml`** if you installed **real-time** mode.
+Use **`-f ./dev-profile-alerts/values-realtime.yaml`** if you installed **real-time** mode. Repeat every `--set` and `--set-string` override from your install command, including the remote LLM/VLM values when you used them; `helm upgrade` resets anything you do not pass again to the chart defaults. To change always-on behavior, see [Always-on alerts with Helm](#always-on-alerts-with-helm).
 
 **Uninstall**
 
