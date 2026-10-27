@@ -9,8 +9,8 @@ position: 1
 The VSS Alert Bridge verification pipeline processes live RTSP streams through CV detection
 and analytics (RTVI-CV and video-analytics microservices) and a VLM stage to classify and
 confirm security alerts. Benchmarks measure end-to-end (E2E) latency, VLM and VST stage
-latency, and verified alert throughput across the NVIDIA RTX PRO 4500, RTX PRO 6000,
-DGX H100 SXM, DGX Spark, and AGX Thor platforms using RT-DETR and Grounding DINO
+latency, and verified alert throughput across the RTX Pro 4500 SE, RTX Pro 6000 SE,
+H100, DGX Spark, and AGX Thor platforms using RT-DETR and Grounding DINO
 (GDINO) with Cosmos3 Nano Reasoner (CR3) precision variants.
 
 ## Test Configuration
@@ -18,7 +18,7 @@ DGX H100 SXM, DGX Spark, and AGX Thor platforms using RT-DETR and Grounding DINO
 | Parameter | Value |
 | --- | --- |
 | VSS Release | 3.3 |
-| Platforms tested | NVIDIA RTX PRO 4500, RTX PRO 6000, DGX H100 SXM, DGX Spark, AGX Thor |
+| Platforms tested | RTX Pro 4500 SE, RTX Pro 6000 SE, H100, DGX Spark, AGX Thor |
 | CV models | RT-DETR, Grounding DINO (GDINO) |
 | VLM | Cosmos3 Nano Reasoner (CR3) |
 | VLM precision | BF16, FP8, NVFP4 (platform- and model-dependent) |
@@ -31,7 +31,7 @@ DGX H100 SXM, DGX Spark, and AGX Thor platforms using RT-DETR and Grounding DINO
 ## Performance by Platform
 
 <Tabs>
-<Tab title="RTX PRO 4500">
+<Tab title="RTX Pro 4500 SE">
 RT-DETR with Cosmos3 Nano Reasoner (CR3).
 
 | Streams | Precision | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
@@ -42,7 +42,7 @@ RT-DETR with Cosmos3 Nano Reasoner (CR3).
 | 40 | NVFP4 | 7.28 | 12.33 | 14.74 | 4.71 | 0.09 | 4.60 |
 
 </Tab>
-<Tab title="RTX PRO 6000">
+<Tab title="RTX Pro 6000 SE">
 RT-DETR with Cosmos3 Nano Reasoner (CR3).
 
 | Streams | Precision | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
@@ -54,7 +54,7 @@ RT-DETR with Cosmos3 Nano Reasoner (CR3).
 | 1 | FP8 | 0.51 | 0.90 | 0.99 | 0.45 | 0.25 | 4.57 |
 
 </Tab>
-<Tab title="DGX H100 SXM">
+<Tab title="H100">
 RT-DETR with Cosmos3 Nano Reasoner (CR3).
 
 | Streams | Precision | E2E Avg (s) | E2E P90 (s) | E2E P99 (s) | VLM P90 (s) | VST P90 (s) | Verified/min/stream |
@@ -109,6 +109,6 @@ GDINO and RT-DETR with Cosmos3 Nano Reasoner (CR3).
 <Note>
 All benchmarks use input streams at 1080p, H.264 input.
 
-For dGPU platform tests (NVIDIA RTX PRO 4500, RTX PRO 6000, and DGX H100 SXM),
+For dGPU platform tests (RTX Pro 4500 SE, RTX Pro 6000 SE, and H100),
 two GPUs were used: one GPU dedicated to RTVI-CV and one GPU dedicated to RTVI-VLM.
 </Note>
