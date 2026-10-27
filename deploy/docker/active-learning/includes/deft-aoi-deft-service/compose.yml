@@ -13,11 +13,8 @@ services:
     - app-network
     restart: 'no'
   deft-service:
-    image: deft-service:local
+    image: ${DEFT_SERVICE_IMAGE:-nvcr.io/0691049440816435/mdx/deft-service:v0.0.1}
     container_name: deft-service
-    build:
-      context: ${DEFT_SERVICE_DIR:?Set DEFT_SERVICE_DIR to the deft-service checkout}
-      dockerfile: Dockerfile
     environment:
       DEFT_EXECUTION_MODE: real
       DEFT_BACKEND_TYPE: docker

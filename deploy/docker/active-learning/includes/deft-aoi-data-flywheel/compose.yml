@@ -75,13 +75,7 @@ services:
     - app-network
     restart: 'no'
   data-flywheel-api:
-    image: ${DFW_IMAGE:-nvcr.io/nvstaging/blueprint/foundational-flywheel-server-deft:26.08.rc1}
-    build:
-      context: ${DFW_SERVICE_DIR}
-      dockerfile: ./deploy/Dockerfile
-      target: prod
-      args:
-        BACKEND: ${BACKEND:-nmp}
+    image: ${DFW_IMAGE:-nvcr.io/0691049440816435/mdx/foundational-flywheel-server-deft:v0.0.1}
     container_name: data-flywheel-api
     command:
     - uv
@@ -232,13 +226,7 @@ services:
     - app-network
     restart: 'no'
   data-flywheel-worker:
-    image: ${DFW_IMAGE:-nvcr.io/nvstaging/blueprint/foundational-flywheel-server-deft:26.08.rc1}
-    build:
-      context: ${DFW_SERVICE_DIR}
-      dockerfile: ./deploy/Dockerfile
-      target: prod
-      args:
-        BACKEND: ${BACKEND:-nmp}
+    image: ${DFW_IMAGE:-nvcr.io/0691049440816435/mdx/foundational-flywheel-server-deft:v0.0.1}
     container_name: data-flywheel-worker
     command:
     - uv
@@ -391,13 +379,7 @@ services:
     - app-network
     restart: 'no'
   data-flywheel-parent-worker:
-    image: ${DFW_IMAGE:-nvcr.io/nvstaging/blueprint/foundational-flywheel-server-deft:26.08.rc1}
-    build:
-      context: ${DFW_SERVICE_DIR}
-      dockerfile: ./deploy/Dockerfile
-      target: prod
-      args:
-        BACKEND: ${BACKEND:-nmp}
+    image: ${DFW_IMAGE:-nvcr.io/0691049440816435/mdx/foundational-flywheel-server-deft:v0.0.1}
     container_name: data-flywheel-parent-worker
     command:
     - uv
@@ -550,13 +532,7 @@ services:
     - app-network
     restart: 'no'
   data-flywheel-beat:
-    image: ${DFW_IMAGE:-nvcr.io/nvstaging/blueprint/foundational-flywheel-server-deft:26.08.rc1}
-    build:
-      context: ${DFW_SERVICE_DIR}
-      dockerfile: ./deploy/Dockerfile
-      target: prod
-      args:
-        BACKEND: ${BACKEND:-nmp}
+    image: ${DFW_IMAGE:-nvcr.io/0691049440816435/mdx/foundational-flywheel-server-deft:v0.0.1}
     container_name: data-flywheel-beat
     command:
     - uv
@@ -646,11 +622,8 @@ services:
     group_add:
     - '2000'
   data-flywheel-model-manager:
-    image: ${DFW_MODEL_MANAGER_IMAGE:-nvcr.io/nvstaging/blueprint/dfw-model-manager:26.08.rc1}
+    image: ${DFW_MODEL_MANAGER_IMAGE:-nvcr.io/0691049440816435/mdx/dfw-model-manager:v0.0.1}
     container_name: data-flywheel-model-manager
-    build:
-      context: "${DFW_SERVICE_DIR}/model-manager"
-      dockerfile: ./Dockerfile # data-flywheel-blueprint/model-manager
     environment:
       MODEL_MANAGER_CLIENT: ${MODEL_MANAGER_CLIENT:-aoi}
       MODEL_MANAGER_UNIFIED_ALLOW_UNLOAD: ${MODEL_MANAGER_UNIFIED_ALLOW_UNLOAD:-false}

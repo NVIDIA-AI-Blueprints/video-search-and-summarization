@@ -529,15 +529,8 @@ services:
     - app-network
     restart: 'no'
   backend-api:
-    image: deft-aoi-active-learning-backend:latest
+    image: ${AOI_BACKEND_IMAGE:-nvcr.io/0691049440816435/mdx/deft-aoi-active-learning-backend:v0.0.1}
     container_name: backend-api
-    build:
-      context: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/backend
-      dockerfile: Dockerfile
-      additional_contexts:
-        deft_common: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/deft_common
-        al_archiver: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/al_archiver
-        client: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/client
     environment:
       AWS_PUBLIC_ENDPOINT: ${AWS_PUBLIC_ENDPOINT:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
@@ -618,11 +611,8 @@ services:
     - app-network
     restart: 'no'
   aoi-client:
-    image: aoi-client:latest
+    image: ${AOI_CLIENT_IMAGE:-nvcr.io/0691049440816435/mdx/aoi-client:v0.0.1}
     container_name: aoi-client
-    build:
-      context: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/client
-      dockerfile: Dockerfile
     environment:
       AOI2_BASE_URL: http://aoi-inference:5000
       AOI2_BATCH_PATH: ${AOI2_BATCH_PATH:-/v1/predict:batch}
@@ -686,11 +676,8 @@ services:
     - app-network
     restart: 'no'
   al-archiver:
-    image: al-archiver:latest
+    image: ${AOI_ARCHIVER_IMAGE:-nvcr.io/0691049440816435/mdx/al-archiver:v0.0.1}
     container_name: al-archiver
-    build:
-      context: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}
-      dockerfile: al_archiver/Dockerfile
     environment:
       KAFKA_TOPIC: ${AOI_ARCHIVER_KAFKA_TOPIC:-aoi-inference-results}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID:-al-archiver}
@@ -775,12 +762,7 @@ services:
     - app-network
     restart: 'no'
   snapshot-slice-consumer:
-    image: snapshot-worker:latest
-    build:
-      context: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/snapshot_worker
-      dockerfile: Dockerfile
-      additional_contexts:
-        deft_common: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/deft_common
+    image: ${AOI_SNAPSHOT_WORKER_IMAGE:-nvcr.io/0691049440816435/mdx/snapshot-worker:v0.0.1}
     command:
     - python
     - -m
@@ -864,13 +846,8 @@ services:
     - app-network
     restart: 'no'
   snapshot-finalizer:
-    image: snapshot-worker:latest
+    image: ${AOI_SNAPSHOT_WORKER_IMAGE:-nvcr.io/0691049440816435/mdx/snapshot-worker:v0.0.1}
     container_name: snapshot-finalizer
-    build:
-      context: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/snapshot_worker
-      dockerfile: Dockerfile
-      additional_contexts:
-        deft_common: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/deft_common
     command:
     - python
     - -m
@@ -952,12 +929,7 @@ services:
     - app-network
     restart: 'no'
   eval-slice-consumer:
-    image: eval-set-worker:latest
-    build:
-      context: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/eval_set_worker
-      dockerfile: Dockerfile
-      additional_contexts:
-        deft_common: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/deft_common
+    image: ${AOI_EVAL_SET_WORKER_IMAGE:-nvcr.io/0691049440816435/mdx/eval-set-worker:v0.0.1}
     command:
     - python
     - -m
@@ -1050,13 +1022,8 @@ services:
     - app-network
     restart: 'no'
   eval-summary-consumer:
-    image: eval-set-worker:latest
+    image: ${AOI_EVAL_SET_WORKER_IMAGE:-nvcr.io/0691049440816435/mdx/eval-set-worker:v0.0.1}
     container_name: eval-summary-consumer
-    build:
-      context: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/eval_set_worker
-      dockerfile: Dockerfile
-      additional_contexts:
-        deft_common: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/deft_common
     command:
     - python
     - -m
@@ -1147,12 +1114,7 @@ services:
     - app-network
     restart: 'no'
   kpi-slice-consumer:
-    image: kpi-worker:latest
-    build:
-      context: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/kpi_worker
-      dockerfile: Dockerfile
-      additional_contexts:
-        deft_common: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/deft_common
+    image: ${AOI_KPI_WORKER_IMAGE:-nvcr.io/0691049440816435/mdx/kpi-worker:v0.0.1}
     command:
     - python
     - -m
@@ -1239,13 +1201,8 @@ services:
     - app-network
     restart: 'no'
   kpi-finalizer:
-    image: kpi-worker:latest
+    image: ${AOI_KPI_WORKER_IMAGE:-nvcr.io/0691049440816435/mdx/kpi-worker:v0.0.1}
     container_name: kpi-finalizer
-    build:
-      context: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/kpi_worker
-      dockerfile: Dockerfile
-      additional_contexts:
-        deft_common: ${DEFT_AOI_ACTIVE_LEARNING_DIR:?Set DEFT_AOI_ACTIVE_LEARNING_DIR to the deft-aoi-active-learning checkout}/deft_common
     command:
     - python
     - -m
