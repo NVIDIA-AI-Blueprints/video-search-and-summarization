@@ -8,155 +8,248 @@ position: 2
 
 The Video Summarization microservice processes uploaded video files through
 [RTVI-VLM](/system-components/vision-microservices/real-time-vlm) for per-chunk vision inference and a summarization LLM (CA-RAG) for
-event aggregation. The tables below report mean end-to-end (E2E) latency for file summarization
-and maximum concurrent request capacity (burst) across video lengths. Use these numbers to size
-GPU count and topology for batch summarization workloads on H100, RTX Pro 6000 SE, and L40S
-platforms.
+event aggregation. The tables below report mean end-to-end (E2E) latency for file summarization,
+with and without EVS++, maximum concurrent request capacity on data center GPUs, and
+latency at 1, 2, and 4 concurrent requests on DGX Spark and AGX Thor.
+Use these numbers to size GPU count and topology for batch summarization workloads on B200, H100,
+L40S, RTX Pro 6000 SE, and RTX Pro 4500 SE GPUs, and on DGX Spark and AGX Thor.
 
 ## Test Configuration
 
 | Parameter | Value |
 | --- | --- |
-| VSS release | 3.2 |
-| VLM | Cosmos3 Nano Reasoner |
-| Model precision | FP8 |
-| Summarization LLM | Nemotron 3 Nano (default Video Summarization stack) |
+| VSS release | 3.3 |
+| VLM | Cosmos3 Nano Reasoner, Cosmos3 Super Reasoner |
+| Model precision | NVFP4 (B200, RTX Pro 6000 SE, RTX Pro 4500 SE, DGX Spark, AGX Thor), FP8 (H100, L40S) |
+| Summarization LLM | Nemotron 3 Nano (B200, H100, L40S, RTX Pro 6000 SE); Nemotron-Nano-9B-v2 (1-GPU H100, RTX Pro 4500 SE as a remote endpoint, DGX Spark, AGX Thor) |
+| EVS++ | Off, or on with `VIA_EVS_SESSION=true` and `VLM_VIDEO_PRUNING_RATE=0.5` |
 | Chunk duration | 10 seconds |
 | Frames per chunk | 20 |
 | Vision input tokens | 9k |
 | Output max tokens | 100 |
-| Test scenario | Warehouse safety monitoring |
-| Test videos | 1, 10, 30, 60, 120, and 720 minute MP4 |
-| GPU topologies | `1` (1 GPU), `2x2` (2 VLM + 2 LLM), `4x4` (4 VLM + 4 LLM) |
-| Platforms tested | H100, RTX Pro 6000 SE, L40S |
+| GPU topologies | 2 GPUs (VLM on one GPU, LLM on the other); 1 GPU (VLM and LLM on the same GPU, or VLM only with a remote LLM); DGX Spark and AGX Thor run the VLM and LLM on the same device |
+| Platforms tested | B200, H100, L40S, RTX Pro 6000 SE, RTX Pro 4500 SE, DGX Spark, AGX Thor |
 
 ## E2E Latency
 
+Mean E2E latency in seconds for summarizing one video file.
+
+### Data Center GPUs
+
 <Tabs>
-<Tab title="H100">
-**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+<Tab title="B200">
+**2 GPUs** (VLM on one GPU, LLM on the other), NVFP4
 
-| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
-| --- | --- | --- | --- | --- | --- |
-| E2E Avg (s) | 5.16 | 20.1 | 52.9 | 64.7 | 119 |
-
-720-minute E2E Avg: **615 s**
-
-**Topology `2×2`** (2 VLM + 2 LLM GPUs)
-
-| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
-| --- | --- | --- | --- | --- | --- |
-| E2E Avg (s) | 5.70 | 23.3 | 59.7 | 128 | 205 |
-
-720-minute E2E Avg: **1151 s**
-
-**Topology `1`** (1 GPU — VLM and LLM colocated)
-
-| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
-| --- | --- | --- | --- | --- | --- |
-| E2E Avg (s) | 12.1 | 50.7 | 117 | 265 | 438 |
+| Model | EVS++ | 1 min | 10 min | 30 min | 60 min | 120 min | 720 min |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Cosmos3 Nano | Off | 3.61 | 17.9 | 45.5 | 97.4 | 158 | 922 |
+| Cosmos3 Nano | On | 3.23 | 16.6 | 46.0 | 76.0 | 129 | 743 |
+| Cosmos3 Super | Off | 5.53 | 30.5 | 83.1 | 162 | 308 | 1854 |
+| Cosmos3 Super | On | 4.00 | 17.2 | 45.0 | 86.4 | 162 | 919 |
 
 </Tab>
-<Tab title="RTX Pro 6000 SE">
-**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+<Tab title="H100">
+**2 GPUs** (VLM on one GPU, LLM on the other), FP8
 
-| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
-| --- | --- | --- | --- | --- | --- |
-| E2E Avg (s) | 6.50 | 25.9 | 51.6 | 95.2 | 187 |
-
-720-minute E2E Avg: **935 s**
-
-**Topology `2×2`** (2 VLM + 2 LLM GPUs)
-
-| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
-| --- | --- | --- | --- | --- | --- |
-| E2E Avg (s) | 7.05 | 33.0 | 91.6 | 184 | 334 |
-
-720-minute E2E Avg: **1805 s**
-
-**Topology `1`** (1 GPU — VLM and LLM colocated)
-
-| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
-| --- | --- | --- | --- | --- | --- |
-| E2E Avg (s) | 17.6 | 71.7 | 170 | 318 | 623 |
+| Model | EVS++ | 1 min | 10 min | 30 min | 60 min | 120 min | 720 min |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Cosmos3 Nano | Off | 4.99 | 29.6 | 78.5 | 155 | 285 | 1702 |
+| Cosmos3 Nano | On | 4.06 | 18.8 | 50.0 | 87.8 | 163 | 985 |
+| Cosmos3 Super | Off | 10.3 | 79.2 | 230 | 461 | 908 | 5387 |
+| Cosmos3 Super | On | 6.00 | 27.3 | 72.9 | 147 | 285 | 1589 |
 
 </Tab>
 <Tab title="L40S">
-**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+**2 GPUs** (VLM on one GPU, LLM on the other), FP8
 
-| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
+| Model | EVS++ | 1 min | 10 min | 30 min | 60 min | 120 min | 720 min |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Cosmos3 Nano | Off | 10.5 | 97.5 | 280 | 547 | 1020 | 6065 |
+| Cosmos3 Nano | On | 8.59 | 64.4 | 178 | 317 | 626 | 3780 |
+
+Cosmos3 Super does not fit on L40S.
+
+</Tab>
+<Tab title="RTX Pro 6000 SE">
+**2 GPUs** (VLM on one GPU, LLM on the other), NVFP4
+
+| Model | EVS++ | 1 min | 10 min | 30 min | 60 min | 120 min | 720 min |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Cosmos3 Nano | Off | 6.16 | 39.9 | 121 | 206 | 400 | 2399 |
+| Cosmos3 Nano | On | 5.00 | 24.3 | 84.3 | 119 | 229 | 1346 |
+| Cosmos3 Super | Off | 11.9 | 84.6 | 248 | 493 | 990 | 5832 |
+| Cosmos3 Super | On | 7.22 | 33.2 | 94.8 | 174 | 326 | 1879 |
+
+**1 GPU** (VLM and LLM on the same GPU), NVFP4
+
+| Model | EVS++ | 1 min | 10 min | 30 min | 60 min | 120 min | 720 min |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Cosmos3 Nano | Off | 6.06 | 41.2 | 112 | 235 | 421 | 2478 |
+| Cosmos3 Nano | On | 5.32 | 27.7 | 98.7 | 159 | 275 | 1548 |
+| Cosmos3 Super | Off | 13.6 | 113 | 337 | 688 | 1324 | 7912 |
+| Cosmos3 Super | On | 6.82 | 37.7 | 113 | 216 | 405 | 2342 |
+
+</Tab>
+<Tab title="RTX Pro 4500 SE">
+**1 GPU** (VLM only, remote Nemotron-Nano-9B-v2 LLM), NVFP4
+
+| Model | EVS++ | 1 min | 10 min | 30 min | 60 min | 120 min |
+| --- | --- | --- | --- | --- | --- | --- |
+| Cosmos3 Nano | Off | 17.7 | 117 | 341 | 742 | 1380 |
+| Cosmos3 Nano | On | 13.8 | 87.9 | 239 | 446 | 878 |
+
+The 720-minute video was not tested. Cosmos3 Super does not fit on RTX Pro 4500 SE.
+
+</Tab>
+</Tabs>
+
+### DGX Spark and AGX Thor
+
+<Tabs>
+<Tab title="DGX Spark">
+NVFP4, VLM and Nemotron-Nano-9B-v2 LLM on the same device
+
+| Model | EVS++ | 1 min | 10 min | 30 min | 60 min | 120 min |
+| --- | --- | --- | --- | --- | --- | --- |
+| Cosmos3 Nano | Off | 52.4 | 300 | 773 | 1436 | 3212 |
+| Cosmos3 Nano | On | 52.0 | 239 | 528 | 1114 | 2024 |
+| Cosmos3 Super | Off | 84.8 | 638 | 1792 | 3534 | 7036 |
+| Cosmos3 Super | On | 61.1 | 378 | 1037 | 2029 | 4309 |
+
+</Tab>
+<Tab title="AGX Thor">
+NVFP4, VLM and Nemotron-Nano-9B-v2 LLM on the same device, MAXN power mode
+
+| Model | EVS++ | 1 min | 10 min | 30 min | 60 min |
 | --- | --- | --- | --- | --- | --- |
-| E2E Avg (s) | 8.99 | 39.1 | 91.4 | 164 | 330 |
+| Cosmos3 Nano | Off | 56.0 | 313 | 836 | 1631 |
+| Cosmos3 Nano | On | 43.8 | 215 | 501 | 960 |
+| Cosmos3 Super | Off | 98.4 | 683 | 1960 | 3971 |
+| Cosmos3 Super | On | 62.5 | 321 | 868 | 1724 |
 
-720-minute E2E Avg: **1890 s**
-
-**Topology `2×2`** (2 VLM + 2 LLM GPUs)
-
-| Video length | 1 min | 10 min | 30 min | 60 min | 120 min |
-| --- | --- | --- | --- | --- | --- |
-| E2E Avg (s) | 12.2 | 65.8 | 168 | 340 | 609 |
-
-720-minute E2E Avg: **3957 s**
 </Tab>
 </Tabs>
 
 ## Maximum Concurrency
 
-Maximum concurrent summarize requests at each target mean E2E latency. Test videos are 1, 5, and
-10 minute MP4.
+Maximum concurrent summarize requests at each target mean E2E latency on data center GPUs, with
+EVS++ off. For each video length, the benchmark increases the number of concurrent requests and
+reports the level whose mean E2E latency is closest to the target (the video length), so the
+reported level can be slightly above the target. Test videos are 1, 5, and 10 minute MP4. For
+DGX Spark and AGX Thor, see [Latency by Concurrency](#latency-by-concurrency).
 
 <Tabs>
-<Tab title="H100">
-**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+<Tab title="B200">
+**2 GPUs** (VLM on one GPU, LLM on the other), NVFP4
 
-| Video length | 1 min | 5 min | 10 min |
+| Model | 1 min | 5 min | 10 min |
 | --- | --- | --- | --- |
 | Target avg latency (s) | 60 | 300 | 600 |
-| Max concurrency | 73 | 114 | 125 |
-
-**Topology `2×2`** (2 VLM + 2 LLM GPUs)
-
-| Video length | 1 min | 5 min | 10 min |
-| --- | --- | --- | --- |
-| Target avg latency (s) | 60 | 300 | 600 |
-| Max concurrency | 42 | 65 | 72 |
+| Cosmos3 Nano | 68 | 85 | 89 |
+| Cosmos3 Super | 26 | 41 | 34 |
 
 </Tab>
-<Tab title="RTX Pro 6000 SE">
-**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+<Tab title="H100">
+**2 GPUs** (VLM on one GPU, LLM on the other), FP8
 
-| Video length | 1 min | 5 min | 10 min |
+| Model | 1 min | 5 min | 10 min |
 | --- | --- | --- | --- |
 | Target avg latency (s) | 60 | 300 | 600 |
-| Max concurrency | 41 | 71 | 79 |
+| Cosmos3 Nano | 35 | 45 | 49 |
+| Cosmos3 Super | 11 | 14 | 13 |
 
-**Topology `2×2`** (2 VLM + 2 LLM GPUs)
+**1 GPU** (VLM and Nemotron-Nano-9B-v2 LLM on the same GPU), FP8
 
-| Video length | 1 min | 5 min | 10 min |
+| Model | 1 min | 5 min | 10 min |
 | --- | --- | --- | --- |
 | Target avg latency (s) | 60 | 300 | 600 |
-| Max concurrency | 22 | 38 | 41 |
+| Cosmos3 Nano | 17 | 25 | 26 |
+
+Cosmos3 Super does not fit on one H100 together with the LLM.
 
 </Tab>
 <Tab title="L40S">
-**Topology `4×4`** (4 VLM + 4 LLM GPUs)
+**2 GPUs** (VLM on one GPU, LLM on the other), FP8
 
-| Video length | 1 min | 5 min | 10 min |
+| Model | 1 min | 5 min | 10 min |
 | --- | --- | --- | --- |
 | Target avg latency (s) | 60 | 300 | 600 |
-| Max concurrency | 15 | 36 | 41 |
+| Cosmos3 Nano | 11 | 13 | 13 |
 
-**Topology `2×2`** (2 VLM + 2 LLM GPUs)
+</Tab>
+<Tab title="RTX Pro 6000 SE">
+**2 GPUs** (VLM on one GPU, LLM on the other), NVFP4
 
-| Video length | 1 min | 5 min | 10 min |
+| Model | 1 min | 5 min | 10 min |
 | --- | --- | --- | --- |
 | Target avg latency (s) | 60 | 300 | 600 |
-| Max concurrency | 8 | 17 | 20 |
+| Cosmos3 Nano | 19 | 30 | 31 |
+| Cosmos3 Super | 8 | 12 | 12 |
+
+**1 GPU** (VLM and LLM on the same GPU), NVFP4
+
+| Model | 1 min | 5 min | 10 min |
+| --- | --- | --- | --- |
+| Target avg latency (s) | 60 | 300 | 600 |
+| Cosmos3 Nano | 20 | 25 | 23 |
+| Cosmos3 Super | 8 | 9 | 9 |
+
+</Tab>
+<Tab title="RTX Pro 4500 SE">
+**1 GPU** (VLM only, remote Nemotron-Nano-9B-v2 LLM), NVFP4
+
+| Model | 1 min | 5 min | 10 min |
+| --- | --- | --- | --- |
+| Target avg latency (s) | 60 | 300 | 600 |
+| Cosmos3 Nano | 6 | 5 | 5 |
+
+</Tab>
+</Tabs>
+
+## Latency by Concurrency
+
+Mean E2E latency in seconds per request on DGX Spark and AGX Thor with 1, 2, and 4 concurrent
+summarize requests, with EVS++ off. A configuration keeps up with its videos when the latency is at
+or below the video length. Test videos are 1, 5, and 10 minute MP4.
+
+<Tabs>
+<Tab title="DGX Spark">
+NVFP4, VLM and Nemotron-Nano-9B-v2 LLM on the same device
+
+| Model | Video length | 1 request | 2 requests | 4 requests |
+| --- | --- | --- | --- | --- |
+| Cosmos3 Nano | 1 min | 62.2 | 84.6 | 164 |
+| Cosmos3 Nano | 5 min | 162 | 295 | 554 |
+| Cosmos3 Nano | 10 min | 300 | 540 | 1039 |
+| Cosmos3 Super | 1 min | 89.9 | 200 | 290 |
+| Cosmos3 Super | 5 min | 351 | 653 | 1264 |
+| Cosmos3 Super | 10 min | 618 | 1224 | 2418 |
+
+</Tab>
+<Tab title="AGX Thor">
+NVFP4, VLM and Nemotron-Nano-9B-v2 LLM on the same device, MAXN power mode
+
+| Model | Video length | 1 request | 2 requests | 4 requests |
+| --- | --- | --- | --- | --- |
+| Cosmos3 Nano | 1 min | 63.6 | 98.6 | 160 |
+| Cosmos3 Nano | 5 min | 167 | 320 | 590 |
+| Cosmos3 Super | 1 min | 88.1 | 167 | 278 |
+| Cosmos3 Super | 5 min | 373 | 722 | 1349 |
+
+AGX Thor was not tested with 10-minute videos.
 
 </Tab>
 </Tabs>
 
 <Note>
-All measurements use Cosmos3 Nano Reasoner FP8 with Nemotron 3 Nano, 20 frames per 10-second chunk, 9k vision
-tokens, and `max_tokens=100`.
+All measurements use 20 frames per 10-second chunk, 9k vision tokens, and `max_tokens=100`.
+With EVS++ on, VLM input tokens per chunk drop from about 10.1k to about 2.3k (vision and prompt
+tokens combined).
+
+1-GPU settings: with the LLM on the same GPU, the VLM uses `VLLM_GPU_MEMORY_UTILIZATION=0.35` and
+the LLM is limited to 40% of GPU memory. RTX Pro 4500 SE uses `VLLM_GPU_MEMORY_UTILIZATION=0.45`,
+`VLLM_MAX_NUM_BATCHED_TOKENS=2048`, and `RTVI_VLM_ADMISSION_MODE=adaptive`.
+
+AGX Thor runs in the MAXN power mode with clocks pinned (`sudo nvpmodel -m 0` and
+`sudo jetson_clocks`). Lower power modes give longer latencies.
 </Note>
