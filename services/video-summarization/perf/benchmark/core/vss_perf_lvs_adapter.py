@@ -42,7 +42,7 @@ class LatencyMetrics(BaseModel):
     e2e_seconds: float = Field(0.0, description="End-to-end latency (s)")
     vlm_pipeline_seconds: float = Field(0.0, description="VLM pipeline latency (s)")
     ca_rag_seconds: float = Field(0.0, description="Context-aware RAG latency (s)")
-    decode_seconds: float = Field(0.0, description="Decode latency (s)")
+    decode_seconds: Optional[float] = Field(None, description="Decode latency (s)")
 
 
 class GPUMetrics(BaseModel):
@@ -216,7 +216,11 @@ def execution_results_to_test_cases(
 
                 walls.append(iteration.get("wall_clock_seconds", 0))
                 vlm_pipeline.append(metrics_dict.get("vlm_pipeline_latency_seconds_latest", 0))
-                decode.append(metrics_dict.get("decode_latency_seconds_latest", 0))
+                decode_value = metrics_dict.get("decode_latency_seconds_latest")
+                if isinstance(decode_value, (int, float)) and not isinstance(
+                    decode_value, bool
+                ):
+                    decode.append(float(decode_value))
                 ca_rag.append(metrics_dict.get("ca_rag_latency_seconds_latest", 0))
 
                 gpu_file = os.path.join(iter_dir, f"gpu_metrics_iter_{idx}_stats.json")
@@ -247,7 +251,7 @@ def execution_results_to_test_cases(
                     e2e_seconds=_mean(walls),
                     vlm_pipeline_seconds=_mean(vlm_pipeline),
                     ca_rag_seconds=_mean(ca_rag),
-                    decode_seconds=_mean(decode),
+                    decode_seconds=_mean(decode) if decode else None,
                 ),
                 gpu=avg_gpu,
             )

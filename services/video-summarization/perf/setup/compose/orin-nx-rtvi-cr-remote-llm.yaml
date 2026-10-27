@@ -54,11 +54,15 @@ services:
     image: curlimages/curl:latest
     environment:
       REMOTE_LLM_BASE_URL: ${REMOTE_LLM_BASE_URL:?set REMOTE_LLM_BASE_URL to remote LLM /v1 endpoint}
+      REMOTE_LLM_API_KEY: ${REMOTE_LLM_API_KEY:-${NVIDIA_API_KEY:-}}
     command:
       - sh
       - -c
       - |
-        until curl -fs "$$REMOTE_LLM_BASE_URL/health/ready" >/dev/null 2>&1 || curl -fs "$$REMOTE_LLM_BASE_URL/models" >/dev/null 2>&1; do
+        if [ -n "$$REMOTE_LLM_API_KEY" ]; then
+          set -- -H "Authorization: Bearer $$REMOTE_LLM_API_KEY";
+        else set --; fi;
+        until curl -fs "$$@" "$$REMOTE_LLM_BASE_URL/health/ready" >/dev/null 2>&1 || curl -fs "$$@" "$$REMOTE_LLM_BASE_URL/models" >/dev/null 2>&1; do
           echo "Waiting for remote LLM at $$REMOTE_LLM_BASE_URL ..."; sleep 5;
         done; echo "remote LLM is ready!"
     networks: [app-network]

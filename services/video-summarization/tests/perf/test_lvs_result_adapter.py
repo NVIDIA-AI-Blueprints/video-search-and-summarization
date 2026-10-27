@@ -206,6 +206,20 @@ class TestAdapterSingleFile:
         assert m["latency"]["e2e_seconds"] == 40.0
         assert m["gpu"]["vlm_gpu_usage_mean"] == 75.0
 
+    def test_missing_decode_metric_is_reported_as_unavailable(
+        self, adapter_module, dummy_execution_results_single_file
+    ):
+        iteration = dummy_execution_results_single_file["test_cases"][0][
+            "iteration_results"
+        ][0]
+        iteration["api_metrics"].pop("decode_latency_seconds_latest")
+
+        test_cases = adapter_module.execution_results_to_test_cases(
+            None, dummy_execution_results_single_file, validate=True
+        )
+
+        assert test_cases[0]["metrics"]["latency"]["decode_seconds"] is None
+
     def test_single_file_feed_to_build_result(
         self, adapter_module, dummy_execution_results_single_file
     ):

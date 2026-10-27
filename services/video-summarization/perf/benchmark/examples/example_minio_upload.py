@@ -40,7 +40,7 @@ def example_simple_upload():
 
     # Upload a file using the convenience function
     success = upload_result_file(
-        file_path="vss-perf-report/benchmark_results/lvs_tp1_20260211_143022.json",
+        local_file_path="vss-perf-report/benchmark_results/lvs_tp1_20260211_143022.json",
         service="LVS",  # Required parameter
         endpoint="10.111.52.248:9000",
         bucket="perf-results",
