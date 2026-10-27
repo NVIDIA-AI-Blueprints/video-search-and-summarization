@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Fixed settings that keep perf runs comparable. Not meant to be changed per
+# run. Mirrors the latency profile used by the alerts eval framework
+# (ci-vss-oss eval/configs/bp_config_latency.yaml), but applied to generated
+# copies under PERF_WORK_DIR instead of editing tracked files in place, so a
+# perf run never leaves the checkout dirty.
+
+# Dotted-key updates applied to a copy of
+# deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml
+# (or EDGE-LOCAL-VLM-config.yml when VLM_AS_VERIFIER_CONFIG_FILE_PREFIX is set).
+verifier_config_overrides:
+  kafka.poll_timeout: 2
+  vlm.max_pixels: 8028160
+  vlm.max_tokens: 1                       # verdict only; OSL 1 as in the published tables
+  vlm.request_timeout: 600
+  alert_agent.num_workers: 30
+  alert_agent.include_latency_info: true  # needed for info.latency.* in ES
+  alert_agent.metrics.per_sensor_labels: true
+  alert_agent.async_io.max_vlm_concurrent: 5120
+  alert_agent.async_dispatch_max_in_flight: 10240
+  alert_agent.async_io.max_vst_concurrent: 64
+
+# Line inserts applied to a copy of the profile's DeepStream config dir
+# (dev-profile-alerts/deepstream/configs). Keyed by file name; each entry
+# inserts `line` after the first line that equals `after`.
+deepstream_config_inserts:
+  run_config-api-rtdetr-protobuf.txt:
+    - { after: "sei-uuid=NVDS_CUSTOMMETA", line: "low-latency-mode=1" }
+    - { after: "rtsp-reconnect-interval-sec=60", line: "set-rtp-protocol=7" }
+
+# VLM checkpoint per precision. Values are written to the perf runtime env and
+# override generated.env. VLM_NAME must match the id RT-VLM advertises on
+# /v1/models.
+vlm_precision_models:
+  bf16:
+    VLM_NAME: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+    RTVI_VLM_MODEL_PATH: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+  fp8:
+    VLM_NAME: "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix"
+    RTVI_VLM_MODEL_PATH: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix"
+  nvfp4:
+    # TODO: fill in the NVFP4 checkpoint used for the published Spark numbers.
+    VLM_NAME: ""
+    RTVI_VLM_MODEL_PATH: ""
+
+# Fixed perf-only environment for the stack (written to perf-runtime.env).
+runtime_env:
+  ALERT_AGENT_ALWAYS_ON: "false"
+  RTVI_VLM_KAFKA_ENABLED: "false"
+  PROMETHEUS_METRICS_ENABLED: "true"
+  PERF_PROMETHEUS_HOST_PORT: "9091"
+
+# How the benchmark reads Prometheus.
+prometheus:
+  scrape_interval_seconds: 5
