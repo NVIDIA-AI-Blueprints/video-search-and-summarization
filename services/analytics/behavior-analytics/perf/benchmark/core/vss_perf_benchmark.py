@@ -198,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     if env.get("PERF_PRE_FLIGHT"):
         cmd = ["bash", str(PERF_ROOT / "scripts" / "measure.sh")]
     else:
+        env["PERF_NATIVE_ONLY"] = "true"
         cmd = ["bash", str(PERF_ROOT / "run_benchmark.sh")]
     completed = subprocess.run(cmd, env=env, check=False)
 

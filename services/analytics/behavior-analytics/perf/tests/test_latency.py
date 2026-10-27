@@ -109,6 +109,19 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertEqual(topics["behavior"]["count"], 7)
         self.assertEqual(topics["incidents"]["count"], 6110)
 
+    def test_parse_uses_latest_finished_dump_when_topic_has_no_messages(self) -> None:
+        latest = CUMULATIVE_REPORT.replace(
+            "| Camera          |        2049 |      0.001 |      0.013 |      0.007 |       0.127 |      0.007 |      0.012 |      0.013 |\n"
+            "| Camera_01       |        2122 |      0.002 |      0.014 |      0.008 |       0.130 |      0.008 |      0.012 |      0.013 |\n"
+            "| Camera_02       |        1939 |      0.002 |      0.014 |      0.008 |       0.129 |      0.008 |      0.013 |      0.014 |",
+            "| Camera          | No messages received |",
+        ).replace("| Camera          |        1883 |", "| Camera          |        2883 |")
+
+        topics = parse_latency_report(latest)
+
+        self.assertEqual(topics["raw"]["count"], 6649)
+        self.assertNotIn("incidents", topics)
+
     def test_parse_uses_last_cumulative_dump_only(self) -> None:
         topics = parse_latency_report(CUMULATIVE_REPORT)
         self.assertEqual(topics["raw"]["count"], 5649)
@@ -466,6 +479,7 @@ INCIDENTS MESSAGES
 
             def fake_run(_cmd, *, env, check):
                 self.assertEqual(env["PERF_CONFIG_FILE"], str(config.resolve()))
+                self.assertEqual(env["PERF_NATIVE_ONLY"], "true")
                 native = Path(env["OUTPUT_DIR"]) / "execution_summary.json"
                 native.write_text(
                     json.dumps({"success": True, "setup": "warehouse_2d_kafka_playback"})
@@ -629,6 +643,11 @@ INCIDENTS MESSAGES
         ).read_text()
         for stage in ("pre_flight.sh", "deploy.sh", "post_deploy.sh", "measure.sh"):
             self.assertIn(stage, service_run)
+        self.assertIn('PERF_NATIVE_ONLY:-false', service_run)
+        self.assertIn('benchmark/core/vss_perf_benchmark.py', service_run)
+        self.assertIn('PERF_VENV_DIR', service_run)
+        self.assertIn('benchmark/requirements.txt', service_run)
+        self.assertIn('exec "$PERF_VENV_DIR/bin/python"', service_run)
         generate_env = (
             REPO_ROOT
             / "services"

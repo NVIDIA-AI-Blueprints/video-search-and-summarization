@@ -9,6 +9,7 @@ from vss_perf_common import (
     gpu_family_prefix_from_smi,
     gpu_topology_from_assignments,
     load_perf_config_by_id,
+    perf_row_metadata,
     resolve_perf_config,
     resolve_perf_config_from_compose,
 )
@@ -48,6 +49,24 @@ class TestLoadPerfConfigById:
 
     def test_empty_id_returns_none(self):
         assert load_perf_config_by_id("") is None
+
+    def test_metadata_uses_profile_gpu_assignments_by_default(self):
+        row = load_perf_config_by_id("h100-2-1x1-cr3-nano-rtvi-nemo3nano-9k")
+
+        metadata = perf_row_metadata(row)
+
+        assert metadata["vlm_gpu_ids"] == [0]
+        assert metadata["llm_gpu_ids"] == [1]
+        assert metadata["gpu_topology"] == "1x1"
+
+    def test_runtime_gpu_assignments_override_profile(self):
+        row = load_perf_config_by_id("h100-2-1x1-cr3-nano-rtvi-nemo3nano-9k")
+
+        metadata = perf_row_metadata(row, vlm_gpus=[4, 5], llm_gpus=[6, 7])
+
+        assert metadata["vlm_gpu_ids"] == [4, 5]
+        assert metadata["llm_gpu_ids"] == [6, 7]
+        assert metadata["gpu_topology"] == "2x2"
 
 
 class TestResolvePerfConfigFromCompose:

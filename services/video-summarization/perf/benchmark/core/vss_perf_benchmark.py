@@ -676,12 +676,6 @@ def main():
     config_id = (args.config_id or os.environ.get("CONFIG_ID") or "").strip()
     gpu_smi_name = get_nvidia_smi_gpu_name()
 
-    if args.output_json and (vlm_override is None or llm_override is None):
-        raise ValueError(
-            "--output-json requires runtime GPU assignments for both workloads. "
-            "Provide --vlm-gpus/--llm-gpus or VIA_VLM_GPUS/VIA_LLM_GPUS."
-        )
-
     perf_row = None
     if config_id or compose_path:
         perf_row = resolve_perf_config(
@@ -702,6 +696,10 @@ def main():
             vlm_gpus=vlm_override,
             llm_gpus=llm_override,
         )
+        # Explicit CLI/environment assignments override the profile. Otherwise,
+        # use the same canonical assignments that selected the deployment.
+        global_config["vlm_gpus"] = row_meta["vlm_gpu_ids"]
+        global_config["llm_gpus"] = row_meta["llm_gpu_ids"]
         config_id = row_meta["config_id"]
         args.config_id = config_id
         runtime_metadata = {

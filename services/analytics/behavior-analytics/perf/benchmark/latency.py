@@ -33,24 +33,28 @@ def parse_latency_report(text: str) -> dict[str, dict[str, float]]:
     The monitor reprints a growing table every few seconds. Earlier dumps
     are prefixes of the last one, so merging every dump double-counts.
     Empty dumps in the warm-up window are skipped. Stopping the monitor can
-    leave a partial final dump; keep the last dump that includes every
-    expected topic. Within that dump, count is summed across sensors and
-    average / percentile columns are count-weighted.
+    leave a partial final dump; keep the last dump that printed every
+    expected topic section, including sections with no messages. Within
+    that dump, count is summed across sensors and average / percentile
+    columns are count-weighted.
     """
     last: dict[str, dict[str, float]] = {}
     batch: dict[str, dict[str, float]] = {}
+    seen_topics: set[str] = set()
     topic: str | None = None
     fields: tuple[str, ...] | None = None
     for raw_line in text.splitlines():
         title = raw_line.strip()
         if title.startswith(_REPORT_HEADER):
-            last = _keep_report(last, batch)
+            last = _keep_report(last, batch, seen_topics)
             batch = {}
+            seen_topics = set()
             topic = None
             fields = None
             continue
         if title in TOPIC_TITLES:
             topic = TOPIC_TITLES[title]
+            seen_topics.add(topic)
             fields = None
             continue
         if topic is None or not raw_line.startswith("|"):
@@ -63,20 +67,21 @@ def parse_latency_report(text: str) -> dict[str, dict[str, float]]:
         if row is None:
             continue
         batch[topic] = _merge(batch.get(topic), row)
-    return _keep_report(last, batch)
+    return _keep_report(last, batch, seen_topics)
 
 
-def _report_complete(batch: Mapping[str, Mapping[str, float]]) -> bool:
-    return all(name in batch for name in COMPLETE_TOPICS)
+def _report_complete(seen_topics: set[str]) -> bool:
+    return all(name in seen_topics for name in COMPLETE_TOPICS)
 
 
 def _keep_report(
     last: dict[str, dict[str, float]],
     batch: dict[str, dict[str, float]],
+    seen_topics: set[str],
 ) -> dict[str, dict[str, float]]:
     if not batch:
         return last
-    if _report_complete(batch) or not last:
+    if _report_complete(seen_topics) or not last:
         return batch
     return last
 
