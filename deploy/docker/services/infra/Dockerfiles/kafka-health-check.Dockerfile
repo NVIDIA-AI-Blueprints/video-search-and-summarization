@@ -21,7 +21,7 @@
 #   kafka-base       - cp-kafka + jq (shared; used by kafka-topic-init-container)
 #   kafka-health-check - broker/topic readiness check (default)
 
-FROM alpine:3.24.1 AS jq-fetch
+FROM alpine:3.24.3 AS jq-fetch
 # Fetch the upstream *static* jq: Alpine's own jq package is musl-linked and
 # would not run once copied into the glibc-based cp-kafka stage below. busybox
 # wget is already in the base image, so nothing needs installing -- an earlier
@@ -39,7 +39,7 @@ RUN ARCH=$(uname -m) \
     && wget -q -O /jqbin/jq "$JQ_URL" \
     && chmod +x /jqbin/jq
 
-FROM confluentinc/cp-kafka:8.3.0 AS kafka-base
+FROM confluentinc/cp-kafka:8.4.0 AS kafka-base
 
 USER root
 RUN mkdir -p /home/appuser/jqbin

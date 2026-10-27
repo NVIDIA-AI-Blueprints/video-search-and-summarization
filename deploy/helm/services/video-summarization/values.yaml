@@ -138,7 +138,7 @@ waitForVlmEndpoint:
   enabled: true
   image:
     repository: docker.io/curlimages/curl
-    tag: "8.12.1"
+    tag: "8.23.0"
     pullPolicy: IfNotPresent
   maxAttempts: 120
   sleepSeconds: 5

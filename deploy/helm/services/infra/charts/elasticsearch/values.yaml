@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: docker.elastic.co/elasticsearch/elasticsearch
-  tag: "9.4.4"
+  tag: "9.5.5"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -44,7 +44,7 @@ persistence:
 
 volumeInit:
   image: docker.io/library/busybox
-  tag: "1.37.0"
+  tag: "1.38.0"
 
 gpu:
   enabled: false
@@ -66,7 +66,7 @@ init:
   nodeSelector: {}
   image:
     repository: docker.io/library/alpine
-    tag: "3.24.1"
+    tag: "3.24.3"
     pullPolicy: IfNotPresent
   backoffLimit: 10
   ttlSecondsAfterFinished: null

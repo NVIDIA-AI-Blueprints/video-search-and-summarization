@@ -77,7 +77,7 @@ spec:
         # staging Job writes a marker onto the shared models claim and we wait
         # for it, which also covers a Job that ran in an earlier release.
         - name: wait-for-reid-models
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c
@@ -102,7 +102,7 @@ spec:
               mountPath: {{ .Values.models.mountPath }}
         {{- end }}
         - name: wait-for-milvus
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c
@@ -112,7 +112,7 @@ spec:
               echo "Milvus is reachable."
         {{- if eq .Values.streamType "kafka" }}
         - name: wait-for-kafka
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c
@@ -127,7 +127,7 @@ spec:
               echo "Kafka is ready."
         {{- else }}
         - name: wait-for-redis
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c

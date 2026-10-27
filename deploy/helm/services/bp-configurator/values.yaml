@@ -30,7 +30,7 @@ init:
   retryIntervalSeconds: 2
   image:
     repository: docker.io/library/busybox
-    tag: "1.37.0"
+    tag: "1.38.0"
     pullPolicy: IfNotPresent
 
 command: []

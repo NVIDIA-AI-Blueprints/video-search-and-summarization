@@ -15,7 +15,7 @@
 
 services:
   sensor-bp-wait-bp-configurator:
-    image: busybox:1.37.0
+    image: busybox:1.38.0
     profiles: ["sensor-bp-wait-bp-configurator"]
     container_name: sensor-bp-wait-bp-configurator
     restart: "no"

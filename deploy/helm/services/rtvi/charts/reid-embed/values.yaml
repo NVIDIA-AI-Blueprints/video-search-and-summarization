@@ -172,7 +172,7 @@ ngcApiSecret:
 etcd:
   image:
     repository: quay.io/coreos/etcd
-    tag: v3.5.18
+    tag: v3.7.3
     pullPolicy: IfNotPresent
   port: 2379
   resources: {}

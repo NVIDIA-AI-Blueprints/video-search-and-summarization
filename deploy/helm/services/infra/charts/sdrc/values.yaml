@@ -65,7 +65,7 @@ waitForWorkloads:
   # bounds one attempt rather than giving up. Matches the Compose script, which
   # also fails rather than proceeding unprovisioned.
   timeoutSeconds: 1800
-  image: docker.io/library/busybox:1.37.0
+  image: docker.io/library/busybox:1.38.0
 
 config:
   configMapName: sdrc-config

@@ -135,7 +135,7 @@ services:
 
   # ── ReID embedding service stack ────────────────────────────────────────────────
   reid-etcd-mv3dt:
-    image: quay.io/coreos/etcd:v3.5.18
+    image: quay.io/coreos/etcd:v3.7.3
     profiles: ["reid-etcd-mv3dt"]
     container_name: vss-reid-etcd-mv3dt
     networks:

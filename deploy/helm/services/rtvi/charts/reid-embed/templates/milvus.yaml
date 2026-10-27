@@ -59,7 +59,7 @@ spec:
           type: Unconfined
       initContainers:
         - name: wait-for-backends
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c

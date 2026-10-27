@@ -22,7 +22,7 @@ prometheus:
   replicas: 1
   image:
     repository: quay.io/prometheus/prometheus
-    tag: v3.11.3
+    tag: v3.15.1
     pullPolicy: IfNotPresent
   port: 9090
   scrapeInterval: 15s
@@ -62,7 +62,7 @@ grafana:
   replicas: 1
   image:
     repository: grafana/grafana
-    tag: 13.0.1-ubuntu
+    tag: 13.2.4-ubuntu
     pullPolicy: IfNotPresent
   port: 3000
   # Full external URL when Grafana is served under a path, e.g.
@@ -93,7 +93,7 @@ nodeExporter:
   enabled: true
   image:
     repository: quay.io/prometheus/node-exporter
-    tag: v1.11.1
+    tag: v1.12.1
     pullPolicy: IfNotPresent
   port: 9100
   resources: {}

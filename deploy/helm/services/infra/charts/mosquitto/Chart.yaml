@@ -18,4 +18,4 @@ name: mosquitto
 description: Eclipse Mosquitto MQTT broker for MV3DT cross-camera messaging
 type: application
 version: 3.4.0
-appVersion: "2"
+appVersion: "2.0.22"

@@ -41,7 +41,7 @@ postgresCm:
 initContainer:
   fixPermissions:
     enabled: true
-    image: docker.io/library/busybox:1.37.0
+    image: docker.io/library/busybox:1.38.0
     runAsUser: 0
 securityContext:
   runAsUser: 1000

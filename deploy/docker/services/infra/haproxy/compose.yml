@@ -19,7 +19,7 @@
 
 services:
   vss-haproxy-ingress:
-    image: docker.io/library/haproxy:3.4.2-alpine
+    image: docker.io/library/haproxy:3.4.7-alpine
     profiles: ["vss-haproxy-ingress"]
     container_name: vss-haproxy-ingress
     ports:
