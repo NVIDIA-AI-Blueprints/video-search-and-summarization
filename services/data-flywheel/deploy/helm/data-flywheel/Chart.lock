@@ -1,6 +1,0 @@
-dependencies:
-- name: nemo-platform
-  repository: https://helm.ngc.nvidia.com/nvidian/nemo-llm
-  version: 2.1.0-nightly-20260422
-digest: ""
-generated: "2026-05-11T00:00:00.000000000+05:30"
