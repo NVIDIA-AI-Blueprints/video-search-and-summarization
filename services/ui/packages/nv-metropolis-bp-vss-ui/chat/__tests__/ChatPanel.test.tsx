@@ -560,6 +560,30 @@ describe('ChatPanel', () => {
     expect(conversationId).not.toHaveLength(0);
   });
 
+  it('renders caller-info tab links returned by onAnswer under the assistant card', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      sseResponse(['data: {"choices":[{"delta":{"content":"rule created"}}]}\n\n', 'data: [DONE]\n\n']),
+    ) as any;
+
+    render(
+      <ChatPanel
+        endpoint={endpoint}
+        features={noHeader}
+        onAnswer={() =>
+          '<div class="vss-caller-info-panel"><div class="caller-info-body"><div class="caller-info-title">See all results in:</div><ul><li><a class="vss-caller-info-tab-link" href="#vss-mt-alerts">Alerts Tab</a></li></ul></div></div>'
+        }
+      />,
+    );
+    await act(async () => typeAndSend('start alert'));
+
+    const panel = await screen.findByTestId('chat-caller-info');
+    expect(panel).toHaveTextContent('See all results in:');
+    expect(within(panel).getByRole('link', { name: 'Alerts Tab' })).toHaveAttribute(
+      'href',
+      '#vss-mt-alerts',
+    );
+  });
+
   it('signals completion before delivering the answer', async () => {
     global.fetch = jest.fn().mockResolvedValue(
       sseResponse(['data: {"choices":[{"delta":{"content":"done"}}]}\n\n', 'data: [DONE]\n\n']),

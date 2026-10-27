@@ -155,7 +155,7 @@ export function useChatSidebarMainTabBridge({
         .map((tabId) => {
           const label = `${tabLabelById[tabId]} Tab`;
           const href = hrefForCallerInfoMainTab(tabId);
-          return `<li><a class="vss-caller-info-tab-link" href="${href}">${label}</a></li>`;
+          return `<li><a class="vss-caller-info-tab-link" data-testid="vss-caller-info-tab-link-${tabId}" href="${href}">${label}</a></li>`;
         })
         .join('');
       return `<div class="vss-caller-info-panel"><span class="vss-caller-info-icon" aria-hidden="true"></span><div class="caller-info-body"><div class="font-semibold caller-info-title">See all results in:</div><ul>${listItemsHtml}</ul></div></div>`;

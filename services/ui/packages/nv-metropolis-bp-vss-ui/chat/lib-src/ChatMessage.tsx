@@ -358,7 +358,10 @@ const AssistantMessageContent: React.FC<AssistantMessageContentProps> = ({
       </div>
 
       {message.callerInfo ? (
-        <div className="mt-2 rounded-md border border-black/10 bg-neutral-100 px-4 py-2.5 text-sm text-neutral-800 dark:border-white/10 dark:bg-transparent dark:text-neutral-200">
+        <div
+          data-testid="chat-caller-info"
+          className="mt-2 rounded-md border border-black/10 bg-neutral-100 px-4 py-2.5 text-sm text-neutral-800 dark:border-white/10 dark:bg-transparent dark:text-neutral-200"
+        >
           <div
             className="[&_ul]:mt-2 [&_ul]:list-disc [&_ul]:space-y-0.5 [&_ul]:pl-5"
             dangerouslySetInnerHTML={{ __html: safeCallerInfo }}

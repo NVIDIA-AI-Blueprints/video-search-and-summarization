@@ -14,7 +14,7 @@
  */
 
 import React from 'react';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { AlertsComponent } from '../../lib-src/AlertsComponent';
 import { AlertsComponentProps } from '../../lib-src/types';
 
@@ -124,6 +124,16 @@ jest.mock('../../lib-src/hooks/useAutoRefresh', () => ({
   })),
 }));
 
+jest.mock('../../lib-src/components/CreateAlertRulesView', () => ({
+  CreateAlertRulesView: () =>
+    React.createElement('div', { 'data-testid': 'create-alert-rules-view-stub' }),
+  triggerRealtimeAddDraft: jest.fn(() => false),
+}));
+
+jest.mock('../../lib-src/components/CvAlertsVerificationTab', () => ({
+  triggerVerificationAddDraft: jest.fn(() => false),
+}));
+
 describe('AlertsComponent', () => {
   const defaultProps: AlertsComponentProps = {
     theme: 'light',
@@ -222,5 +232,50 @@ describe('AlertsComponent', () => {
 
     expect(handled).toBe(true);
     expect(mockRefetch).toHaveBeenCalledWith({ includeSensorList: true });
+  });
+
+  it('treats a successful chat rule mutation as an Alerts-tab result', () => {
+    let answerHandler: ((answer: string) => boolean | void) | undefined;
+    const registerChatAnswerHandler = jest.fn((handler) => {
+      answerHandler = handler;
+      return jest.fn();
+    });
+    render(
+      <AlertsComponent
+        {...defaultProps}
+        registerChatAnswerHandler={registerChatAnswerHandler}
+      />,
+    );
+
+    let handled: boolean | void;
+    act(() => {
+      handled = answerHandler?.(
+        'Real-time VLM alert successfully started for sensor warehouse_sample.\nAlert Rule ID: f190b51f-e8b7-40c9-9b6e-739f461ba925',
+      );
+    });
+
+    expect(handled).toBe(true);
+    expect(mockRefetch).not.toHaveBeenCalledWith({ includeSensorList: true });
+  });
+
+  it('does not treat ordinary chat as an Alerts-tab result', () => {
+    let answerHandler: ((answer: string) => boolean | void) | undefined;
+    const registerChatAnswerHandler = jest.fn((handler) => {
+      answerHandler = handler;
+      return jest.fn();
+    });
+    render(
+      <AlertsComponent
+        {...defaultProps}
+        registerChatAnswerHandler={registerChatAnswerHandler}
+      />,
+    );
+
+    expect(answerHandler?.('Hello, how can I help?')).toBe(false);
+    expect(
+      answerHandler?.(
+        'Stop alert `ppe` on **warehouse_sample**? (rule ID: `abc`) — yes/no',
+      ),
+    ).toBe(false);
   });
 });
