@@ -1363,6 +1363,14 @@ stack and standalone Helm override.
 The table lists variables in standalone Docker Compose stack and the
 standalone Helm override.
 
+Normal file-decoder cleanup shares a full-GC cadence across worker threads in
+each decoder process. `RTVI_FILE_DECODER_GC_INTERVAL=1` restores full collection
+after every cleanup; the default is `10`. In Helm, set
+`envOverrides.RTVI_FILE_DECODER_GC_INTERVAL` on the `rtvi-vlm` chart. Automatic
+Python GC and native decoder teardown remain enabled. Validate sustained memory
+use and alert latency with your workload when changing the interval; a short
+throughput test does not establish leak freedom.
+
 | Variable | Description | Standalone default |
 | --- | --- | --- |
 | `RTVI_IMAGE` | Docker Compose image to run | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:${VSS_DOCS_IMAGE_TAG:-develop-latest}` |
@@ -1407,6 +1415,7 @@ standalone Helm override.
 | `VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK` | Frame sampling rate or fixed frames per chunk | `30` |
 | `VLM_USE_FPS_FOR_CHUNKING` | Interpret the frame selection value as FPS instead of fixed frames per chunk | Empty |
 | `RTVI_QWEN_REFERENCE_RESIZE` | Use the Qwen reference file-frame sampling and resize path; file inputs only | `false` |
+| `RTVI_FILE_DECODER_GC_INTERVAL` | Positive number of normal file-decoder cleanups between forced full Python collections, shared by decoder threads in each process. `1` restores collection after every cleanup. Automatic GC stays enabled; failure/retry and shutdown cleanup still request immediate collection. Invalid values fail decoder initialization. | `10` |
 | `VLM_SYSTEM_PROMPT` | Default system prompt | Empty |
 | `VLM_PROMPT_MAX_LENGTH` | Maximum user-prompt length in characters | `10240` |
 | `VLM_SYSTEM_PROMPT_MAX_LENGTH` | Maximum system-prompt length in characters | `10240` |
