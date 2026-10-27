@@ -135,6 +135,28 @@ metadata never enter retrieval. This profile selects no fusion path and uses
 the fixed gallery scope; it does not change the agent or CLI defaults.
 Measured gains and limitations are in [person-state-evidence.md](person-state-evidence.md).
 
+## Generate a shareable HTML report
+
+After an evaluation, generate a self-contained report from its output directory:
+
+```bash
+python skills/benchmarking/benchmark-video-search/scripts/report_raw_clip_eval.py \
+  --run-dir /path/to/results
+```
+
+The report is written to `report.html` in that directory. Use `--output
+/path/to/report.html` to choose another destination. It reads saved run artifacts
+only; it does not contact the deployment or rerun searches. The summary includes
+per-mode/per-depth accuracy and latency, route and domain diagnostic cuts,
+configuration, prompt, token usage, and GPU telemetry when recorded. The query
+table has one row per query and mode, with AP@10, deepest-depth AP, route, query
+type, latency, and expandable ground truth, decomposition, request, score, and
+retrieval-hit details. Filters and column sorting work offline. Partial runs are
+marked incomplete and missing captures are listed.
+
+The HTML includes query text, model decomposition, retrieval results, prompt,
+and run metadata. Review it before sharing outside the evaluation team.
+
 For an already configured deployment and an 80-clip gallery with one embedding
 window per clip:
 

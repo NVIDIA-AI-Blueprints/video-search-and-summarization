@@ -83,7 +83,13 @@ committed `person-state-photo` route profile. Keep this host otherwise idle.
 "$PY" "$SCRIPTS/ingest_clip_gallery.py" --workspace "$WORK" \
   --audit-only --output "$WORK/gallery-after-benchmark.json"
 cat "$WORK/results/metrics.json"
+"$PY" "$SCRIPTS/report_raw_clip_eval.py" --run-dir "$WORK/results"
 ```
+
+This writes a self-contained `report.html` beside the run artifacts, with
+aggregate diagnostics and searchable per-query routes, scores, latencies, ground
+truth, and retrieval details. Review the report before sharing because it
+contains query text, model decompositions, prompts, and retrieval results.
 
 The `person-state-photo` profile makes one fresh LLM call per query to select
 embedding or attribute retrieval. Embedding receives the original query;
