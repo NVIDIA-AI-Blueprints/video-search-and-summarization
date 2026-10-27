@@ -9,14 +9,16 @@ import os
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MINIO_ENDPOINT = "10.111.52.248:9000"
 DEFAULT_MINIO_BUCKET = "perf-results"
 DEFAULT_MINIO_ACCESS_KEY = "admin"
 DEFAULT_MINIO_SECRET_KEY = "vss_automation"
 
 
 def get_minio_endpoint() -> str:
-    return os.environ.get("MINIO_ENDPOINT", DEFAULT_MINIO_ENDPOINT)
+    endpoint = os.environ.get("MINIO_ENDPOINT", "").strip()
+    if not endpoint:
+        raise ValueError("MINIO_ENDPOINT is required for MinIO uploads")
+    return endpoint
 
 
 def get_minio_bucket() -> str:

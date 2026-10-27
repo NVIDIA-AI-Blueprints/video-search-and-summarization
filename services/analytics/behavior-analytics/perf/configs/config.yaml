@@ -1,7 +1,6 @@
 global:
-  # Same internal MinIO compose-base uses. Jenkins MINIO_BUCKET / keys override.
+  # Jenkins supplies MINIO_ENDPOINT and credentials; MINIO_BUCKET overrides this bucket.
   minio:
-    endpoint: "10.111.52.248:9000"
     bucket: "perf-results-dev"
     service: "Behavior-Analytics"
 

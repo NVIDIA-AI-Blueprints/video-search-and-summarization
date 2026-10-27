@@ -27,7 +27,11 @@ from pathlib import Path
 # Add parent directory to path to import benchmark modules
 sys.path.insert(0, str(Path(__file__).parent.parent / "core"))
 
-from vss_perf_common import MinIOUploader, upload_result_file  # noqa: E402
+from vss_perf_common import (  # noqa: E402
+    MinIOUploader,
+    get_minio_endpoint,
+    upload_result_file,
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -42,7 +46,7 @@ def example_simple_upload():
     success = upload_result_file(
         local_file_path="vss-perf-report/benchmark_results/lvs_tp1_20260211_143022.json",
         service="LVS",  # Required parameter
-        endpoint="10.111.52.248:9000",
+        endpoint=get_minio_endpoint(),
         bucket="perf-results",
     )
 
@@ -60,7 +64,7 @@ def example_uploader_class():
 
     # Initialize uploader
     uploader = MinIOUploader(
-        endpoint="10.111.52.248:9000",
+        endpoint=get_minio_endpoint(),
         access_key="minioadmin",  # or use env var MINIO_ACCESS_KEY
         secret_key="minioadmin",  # or use env var MINIO_SECRET_KEY
         secure=False,  # HTTP (set True for HTTPS)
@@ -92,7 +96,7 @@ def example_custom_path():
     logger.info("\n=== Example 3: Custom Upload Path ===")
 
     uploader = MinIOUploader(
-        endpoint="10.111.52.248:9000",
+        endpoint=get_minio_endpoint(),
         secure=False,
     )
 
@@ -117,7 +121,7 @@ def main():
     logger.info("MinIO Upload Examples")
     logger.info("=" * 80)
     logger.info("\nMake sure you have:")
-    logger.info("  1. MinIO running at http://10.111.52.248:9000")
+    logger.info("  1. MINIO_ENDPOINT set to the target host:port")
     logger.info("  2. Credentials set (env vars MINIO_ACCESS_KEY and MINIO_SECRET_KEY)")
     logger.info("  3. A sample benchmark result file")
     logger.info("\n")
@@ -130,7 +134,7 @@ def main():
 
         logger.info("\n" + "=" * 80)
         logger.info("Examples complete!")
-        logger.info("View results at: http://10.111.52.248:9000/browser/perf-results/LVS")
+        logger.info("Uploaded results through MinIO endpoint: %s", get_minio_endpoint())
         logger.info("=" * 80)
 
     except Exception as e:

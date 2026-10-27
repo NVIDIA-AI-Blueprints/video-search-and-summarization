@@ -24,7 +24,7 @@ this module provides the shared schema, build_and_save, and upload.
 - discover_platform: optional system discovery (CPU, OS, GPU, CUDA) for platform dict.
 - MinIOUploader, upload_result_file: upload result files to MinIO.
 
-MinIO: set MINIO_ENDPOINT (server endpoint will be updated; override via env).
+MinIO: MINIO_ENDPOINT is required unless an endpoint is passed explicitly.
 Keys optional: default minioadmin/minioadmin if MINIO_ACCESS_KEY / MINIO_SECRET_KEY not set.
 """
 
@@ -80,8 +80,7 @@ DEFAULT_GPU_MODEL_UNKNOWN = "Unknown"
 DEFAULT_PLATFORM_PLACEHOLDER: Dict[str, Any] = {
     "gpu": {"model": DEFAULT_GPU_MODEL_UNKNOWN, "count": 0}
 }
-# MinIO (override via env: MINIO_ENDPOINT, MINIO_BUCKET, MINIO_ACCESS_KEY, MINIO_SECRET_KEY)
-DEFAULT_MINIO_ENDPOINT = "10.111.52.248:9000"
+# MinIO endpoint is required via MINIO_ENDPOINT or an explicit function argument.
 DEFAULT_MINIO_BUCKET = "perf-results"
 DEFAULT_MINIO_ACCESS_KEY = "admin"
 DEFAULT_MINIO_SECRET_KEY = "vss_automation"
@@ -193,8 +192,11 @@ class VSSBenchmarkResult(BaseModel):
 
 
 def get_minio_endpoint() -> str:
-    """Endpoint for MinIO (host:port). Use MINIO_ENDPOINT env or default."""
-    return os.environ.get("MINIO_ENDPOINT", DEFAULT_MINIO_ENDPOINT)
+    """Return the required MinIO host:port supplied by the environment."""
+    endpoint = os.environ.get("MINIO_ENDPOINT", "").strip()
+    if not endpoint:
+        raise ValueError("MINIO_ENDPOINT is required for MinIO uploads")
+    return endpoint
 
 
 def get_minio_bucket() -> str:
@@ -756,7 +758,6 @@ from vss_perf_reporting import (  # noqa: E402
     DEFAULT_GPU_MODEL_UNKNOWN as _SHARED_DEFAULT_GPU_MODEL_UNKNOWN,
     DEFAULT_MINIO_ACCESS_KEY as _SHARED_DEFAULT_MINIO_ACCESS_KEY,
     DEFAULT_MINIO_BUCKET as _SHARED_DEFAULT_MINIO_BUCKET,
-    DEFAULT_MINIO_ENDPOINT as _SHARED_DEFAULT_MINIO_ENDPOINT,
     DEFAULT_MINIO_SECRET_KEY as _SHARED_DEFAULT_MINIO_SECRET_KEY,
     DEFAULT_PLATFORM_PLACEHOLDER as _SHARED_DEFAULT_PLATFORM_PLACEHOLDER,
     DEFAULT_SCHEMA_VERSION as _SHARED_DEFAULT_SCHEMA_VERSION,
@@ -792,7 +793,6 @@ DEFAULT_SCHEMA_VERSION = _SHARED_DEFAULT_SCHEMA_VERSION
 DEFAULT_TRIGGERED_BY = _SHARED_DEFAULT_TRIGGERED_BY
 DEFAULT_GPU_MODEL_UNKNOWN = _SHARED_DEFAULT_GPU_MODEL_UNKNOWN
 DEFAULT_PLATFORM_PLACEHOLDER = _SHARED_DEFAULT_PLATFORM_PLACEHOLDER
-DEFAULT_MINIO_ENDPOINT = _SHARED_DEFAULT_MINIO_ENDPOINT
 DEFAULT_MINIO_BUCKET = _SHARED_DEFAULT_MINIO_BUCKET
 DEFAULT_MINIO_ACCESS_KEY = _SHARED_DEFAULT_MINIO_ACCESS_KEY
 DEFAULT_MINIO_SECRET_KEY = _SHARED_DEFAULT_MINIO_SECRET_KEY
@@ -819,7 +819,7 @@ def _upload_cli_main() -> None:
     parser.add_argument("files", nargs="+", help="JSON file(s) to upload")
     parser.add_argument("--service", required=True, help="Service name (e.g. LVS)")
     parser.add_argument(
-        "--endpoint", default=None, help="MinIO endpoint (default: MINIO_ENDPOINT env)"
+        "--endpoint", default=None, help="MinIO endpoint (required here or via MINIO_ENDPOINT)"
     )
     parser.add_argument("--bucket", default=None, help="MinIO bucket (default: MINIO_BUCKET env)")
     parser.add_argument(

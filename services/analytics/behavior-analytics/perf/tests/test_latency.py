@@ -279,8 +279,13 @@ INCIDENTS MESSAGES
         config = (
             Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
         )
-        settings = minio_settings(config)
-        self.assertEqual(settings["endpoint"], "10.111.52.248:9000")
+        with patch.dict(
+            os.environ,
+            {"MINIO_ENDPOINT": "minio.example.internal:9443"},
+            clear=False,
+        ):
+            settings = minio_settings(config)
+        self.assertEqual(settings["endpoint"], "minio.example.internal:9443")
         self.assertEqual(settings["service"], "Behavior-Analytics")
 
         def fake_publish(local_file, service, **kwargs):
@@ -294,7 +299,11 @@ INCIDENTS MESSAGES
             with patch("minio_upload.publish_result_file", side_effect=fake_publish) as put:
                 with patch.dict(
                     os.environ,
-                    {"MINIO_ACCESS_KEY": "", "MINIO_SECRET_KEY": ""},
+                    {
+                        "MINIO_ENDPOINT": "minio.example.internal:9443",
+                        "MINIO_ACCESS_KEY": "",
+                        "MINIO_SECRET_KEY": "",
+                    },
                     clear=False,
                 ):
                     with self.assertRaises(ValueError):
@@ -305,7 +314,11 @@ INCIDENTS MESSAGES
                         )
                 with patch.dict(
                     os.environ,
-                    {"MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"},
+                    {
+                        "MINIO_ENDPOINT": "minio.example.internal:9443",
+                        "MINIO_ACCESS_KEY": "ak",
+                        "MINIO_SECRET_KEY": "sk",
+                    },
                     clear=False,
                 ):
                     published = publish_result(
@@ -316,6 +329,22 @@ INCIDENTS MESSAGES
             self.assertEqual(published["object"], f"Behavior-Analytics/{result_path.name}")
             self.assertEqual(put.call_args.args[0], result_path)
             self.assertEqual(put.call_count, 1)
+
+    def test_minio_endpoint_comes_from_environment(self) -> None:
+        config = Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
+        with patch.dict(
+            os.environ,
+            {"MINIO_ENDPOINT": "minio.example.internal:9443"},
+            clear=False,
+        ):
+            settings = minio_settings(config)
+        self.assertEqual(settings["endpoint"], "minio.example.internal:9443")
+
+    def test_minio_endpoint_is_required(self) -> None:
+        config = Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
+        with patch.dict(os.environ, {"MINIO_ENDPOINT": ""}, clear=False):
+            with self.assertRaisesRegex(ValueError, "MINIO_ENDPOINT is required"):
+                minio_settings(config)
 
     def test_negative_correction_fails(self) -> None:
         topics = parse_latency_report(REPORT)

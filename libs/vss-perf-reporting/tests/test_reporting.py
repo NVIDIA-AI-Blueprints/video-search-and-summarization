@@ -13,6 +13,7 @@ from vss_perf_reporting import (
     build_and_save,
     build_result,
     generate_run_id,
+    get_minio_endpoint,
     publish_result_file,
 )
 
@@ -71,6 +72,17 @@ def test_publish_uses_exact_local_filename(monkeypatch, tmp_path) -> None:
     assert receipt["file"] == str(result)
     assert receipt["object"] == f"behavior-analytics/{result.name}"
     assert captured["args"][0] == str(result)
+
+
+def test_minio_endpoint_uses_environment_override(monkeypatch) -> None:
+    monkeypatch.setenv("MINIO_ENDPOINT", "minio.example.internal:9443")
+    assert get_minio_endpoint() == "minio.example.internal:9443"
+
+
+def test_minio_endpoint_is_required(monkeypatch) -> None:
+    monkeypatch.delenv("MINIO_ENDPOINT", raising=False)
+    with pytest.raises(ValueError, match="MINIO_ENDPOINT is required"):
+        get_minio_endpoint()
 
 
 def test_summary_totals_are_validated() -> None:

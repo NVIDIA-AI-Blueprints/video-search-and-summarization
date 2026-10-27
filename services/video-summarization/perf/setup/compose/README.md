@@ -159,7 +159,8 @@ To inspect results locally before publishing to the dashboard, run the benchmark
 
 - First arg is a single `lvs_*.json` file or a directory (globs `lvs_*.json` inside).
 - `-T TRIGGER` stamps `metadata.run_info.triggered_by` in each JSON before upload (`ci_pipeline | manual | scheduled | sqa | perf-lab`). Omit to keep whatever's in the file.
-- Uploads to the standard `10.111.52.248:9000` `perf-results` bucket (baked-in defaults). Reuses the perf venv bootstrapped by any prior `run_benchmark.sh` run.
+- Set `MINIO_ENDPOINT` to the target MinIO `host:port` before uploading. The
+  script reuses the perf venv bootstrapped by any prior `run_benchmark.sh` run.
 
 Run `../scripts/upload_perf_results.sh -h` for all options.
 
