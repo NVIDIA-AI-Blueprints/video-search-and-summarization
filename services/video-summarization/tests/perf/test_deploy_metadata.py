@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from vss_perf_common import (
     gpu_family_prefix_from_smi,
     gpu_topology_from_assignments,
     load_perf_config_by_id,
+    load_perf_configs,
     perf_row_metadata,
     resolve_perf_config,
     resolve_perf_config_from_compose,
@@ -67,6 +70,28 @@ class TestLoadPerfConfigById:
         assert metadata["vlm_gpu_ids"] == [4, 5]
         assert metadata["llm_gpu_ids"] == [6, 7]
         assert metadata["gpu_topology"] == "2x2"
+
+    def test_every_profile_checks_out_shared_reporting(self):
+        for row in load_perf_configs(refresh=True):
+            assert "libs/vss-perf-reporting/" in row.get("checkoutPaths", []), row["id"]
+
+
+def test_remote_llm_probes_forward_optional_bearer_key():
+    compose_dir = (
+        Path(__file__).resolve().parents[2] / "perf" / "setup" / "compose"
+    )
+    for filename in (
+        "x86-rtvi-cr-remote-llm_1gpu.yaml",
+        "orin-nx-rtvi-cr-remote-llm.yaml",
+    ):
+        text = (compose_dir / filename).read_text(encoding="utf-8")
+        assert (
+            "REMOTE_LLM_API_KEY: ${REMOTE_LLM_API_KEY:-${NVIDIA_API_KEY:-}}"
+            in text
+        )
+        assert 'set -- -H "Authorization: Bearer $$REMOTE_LLM_API_KEY"' in text
+        assert 'curl -fs "$$@" "$$REMOTE_LLM_BASE_URL/health/ready"' in text
+        assert 'curl -fs "$$@" "$$REMOTE_LLM_BASE_URL/models"' in text
 
 
 class TestResolvePerfConfigFromCompose:

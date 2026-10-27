@@ -12,6 +12,7 @@ perf_configs:
     # Additional repository paths required by the unchanged integration-based
     # benchmark. The common pipeline adds these to its sparse checkout.
     checkoutPaths:
+      - libs/vss-perf-reporting/
       - services/analytics/behavior-analytics/tests/integration/
       - deploy/docker/services/
     # Hydrate only the playback fixture needed by this config; all other LFS

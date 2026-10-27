@@ -830,6 +830,7 @@ INCIDENTS MESSAGES
             "vision_input_tokens:",
         ):
             self.assertIn(key, text, f"{rel} is missing {key} for Jenkins")
+        self.assertIn("- libs/vss-perf-reporting/", text)
 
     def test_service_owned_jenkins_package_and_shared_infra_exist(self) -> None:
         perf_root = REPO_ROOT / "services" / "analytics" / "behavior-analytics" / "perf"

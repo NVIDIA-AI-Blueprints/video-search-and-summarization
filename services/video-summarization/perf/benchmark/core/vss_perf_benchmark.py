@@ -684,6 +684,18 @@ def main():
             gpu_name=gpu_smi_name,
         )
 
+    row_meta = None
+    if perf_row:
+        row_meta = perf_row_metadata(
+            perf_row,
+            vlm_gpus=vlm_override,
+            llm_gpus=llm_override,
+        )
+        # Explicit CLI/environment assignments override the profile. Otherwise,
+        # monitor the same canonical assignments used by the deployment.
+        global_config["vlm_gpus"] = row_meta["vlm_gpu_ids"]
+        global_config["llm_gpus"] = row_meta["llm_gpu_ids"]
+
     if args.output_json:
         if not perf_row:
             raise ValueError(
@@ -691,15 +703,6 @@ def main():
                 f"config_id={config_id!r}, compose_file={compose_path!r}, "
                 f"gpu={gpu_smi_name!r}. Check ci/perf-configs.yaml."
             )
-        row_meta = perf_row_metadata(
-            perf_row,
-            vlm_gpus=vlm_override,
-            llm_gpus=llm_override,
-        )
-        # Explicit CLI/environment assignments override the profile. Otherwise,
-        # use the same canonical assignments that selected the deployment.
-        global_config["vlm_gpus"] = row_meta["vlm_gpu_ids"]
-        global_config["llm_gpus"] = row_meta["llm_gpu_ids"]
         config_id = row_meta["config_id"]
         args.config_id = config_id
         runtime_metadata = {
