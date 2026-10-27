@@ -17,13 +17,12 @@ if str(SHARED_REPORTING_SRC) not in sys.path:
 
 from vss_perf_reporting import publish_result_file  # noqa: E402
 
-DEFAULT_ENDPOINT = "10.111.52.248:9000"
 DEFAULT_BUCKET = "perf-results-dev"
 DEFAULT_SERVICE = "Behavior-Analytics"
 
 
 def minio_settings(config_path: Path) -> dict[str, Any]:
-    """Read global.minio from config.yaml; environment variables override."""
+    """Read MinIO settings, requiring the endpoint from the environment."""
     settings: dict[str, Any] = {}
     if config_path.is_file():
         try:
@@ -35,11 +34,13 @@ def minio_settings(config_path: Path) -> dict[str, Any]:
             raw = ((data.get("global") or {}).get("minio") or {})
             if isinstance(raw, Mapping):
                 settings = dict(raw)
-    endpoint = os.environ.get("MINIO_ENDPOINT") or settings.get("endpoint") or DEFAULT_ENDPOINT
+    endpoint = os.environ.get("MINIO_ENDPOINT", "").strip()
+    if not endpoint:
+        raise ValueError("MINIO_ENDPOINT is required for MinIO uploads")
     bucket = os.environ.get("MINIO_BUCKET") or settings.get("bucket") or DEFAULT_BUCKET
     service = os.environ.get("MINIO_UPLOAD_SERVICE") or settings.get("service") or DEFAULT_SERVICE
     return {
-        "endpoint": str(endpoint).strip(),
+        "endpoint": endpoint,
         "bucket": str(bucket).strip(),
         "service": str(service).strip(),
         "secure": bool(settings.get("secure", False)),

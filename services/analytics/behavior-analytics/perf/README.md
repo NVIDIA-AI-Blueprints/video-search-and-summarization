@@ -25,9 +25,11 @@ The dashboard-facing `metadata.service` value and case-sensitive MinIO prefix ar
 `Behavior-Analytics`. Lowercase `behavior-analytics` remains the stable local
 filename and Jenkins artifact-directory slug.
 
-Jenkins already passes `--upload` and MinIO keys. The canonical file is uploaded
-unchanged to `s3://<bucket>/Behavior-Analytics/<same-filename>`. The dashboard
-still has to onboard this service name.
+Jenkins passes `--upload`, `MINIO_ENDPOINT`, `MINIO_BUCKET`, and masked MinIO
+credentials. The canonical file is uploaded unchanged to
+`s3://<bucket>/Behavior-Analytics/<same-filename>`. `MINIO_ENDPOINT` is required
+for uploads and comes from the Jenkins parameter or the local environment. The
+dashboard still has to onboard this service name.
 
 ## Jenkins
 

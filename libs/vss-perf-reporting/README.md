@@ -50,6 +50,11 @@ Pass the returned `result_path` to `publish_result_file` when upload is enabled.
 The uploaded object keeps the same filename under `<service>/`; publication does
 not create a second timestamped copy.
 
+The common Jenkins pipeline supplies `MINIO_ENDPOINT` in `host:port` form and
+`MINIO_BUCKET` for publication. The shared reporting library reads both from
+the environment. `MINIO_ENDPOINT` is required for uploads; local upload runs
+must set it explicitly.
+
 The service runtime must make `libs/vss-perf-reporting/src` importable and install
 the dependencies declared in `pyproject.toml`.
 

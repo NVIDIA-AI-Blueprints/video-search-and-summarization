@@ -32,6 +32,11 @@ The existing `vss_perf_common` API now acts as a compatibility facade over
 MinIO publication. LVS scenario execution, KPI calculation, and monitoring
 remain service-owned and unchanged.
 
+When publication is enabled, Jenkins exports `MINIO_ENDPOINT` in `host:port`
+form and `MINIO_BUCKET`; the shared reporting layer consumes those values
+along with masked credentials. Local upload runs must set `MINIO_ENDPOINT`
+explicitly.
+
 The promotion trigger supplies:
 
 ```text

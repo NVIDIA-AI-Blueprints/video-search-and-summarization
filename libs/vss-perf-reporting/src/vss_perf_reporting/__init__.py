@@ -31,7 +31,6 @@ from .schema import (
 from .storage import (
     DEFAULT_MINIO_ACCESS_KEY,
     DEFAULT_MINIO_BUCKET,
-    DEFAULT_MINIO_ENDPOINT,
     DEFAULT_MINIO_SECRET_KEY,
     MinIOUploader,
     get_minio_bucket,

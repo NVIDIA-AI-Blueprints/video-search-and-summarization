@@ -19,9 +19,9 @@
 #
 # Prerequisites:
 #   - perf/benchmark/vss-perf-env venv exists (run any benchmark once to bootstrap).
+#   - MINIO_ENDPOINT is set to the target MinIO host:port.
 #
-# MinIO endpoint / bucket / credentials are baked into vss_perf_common.py
-# (10.111.52.248:9000, bucket perf-results) — no env vars needed.
+# Bucket and credentials use their existing environment-based resolution.
 #
 # Run with -h for usage.
 #
@@ -46,6 +46,8 @@ step()  { echo -e "${CYAN}[➜]${NC} $*"; }
 
 usage() {
     cat <<EOF
+MINIO_ENDPOINT must be set to the target MinIO host:port.
+
 Usage: $(basename "$0") <path> [options]
 
 Upload perf result JSON file(s) to MinIO. <path> is a single lvs_*.json
