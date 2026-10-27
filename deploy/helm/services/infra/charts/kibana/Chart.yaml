@@ -4,7 +4,7 @@
 apiVersion: v2
 name: kibana
 version: 3.4.0
-appVersion: "9.4.4"
+appVersion: "9.5.5"
 description: Kibana (Deployment, ConfigMap config, optional dashboard import Job)
 type: application
 maintainers: []

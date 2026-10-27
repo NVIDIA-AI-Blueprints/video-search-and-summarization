@@ -45,7 +45,7 @@ spec:
       # streams, or the camera events are acked and never redelivered.
       initContainers:
         - name: wait-for-workloads
-          image: {{ $wait.image | default "docker.io/library/busybox:1.37.0" | quote }}
+          image: {{ $wait.image | default "docker.io/library/busybox:1.38.0" | quote }}
           command:
             - sh
             - -c

@@ -32,7 +32,7 @@ services:
   # a deployment that has not asked for tracing runs exactly the containers it
   # runs today.
   otel-collector:
-    image: docker.io/otel/opentelemetry-collector-contrib:0.137.0
+    image: docker.io/otel/opentelemetry-collector-contrib:0.164.0
     container_name: otel-collector
     profiles: ["otel-collector"]
     command: ["--config=/etc/otel-collector-config.yaml"]
@@ -78,7 +78,7 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.13.1
+    image: quay.io/prometheus/prometheus:v3.15.1
     container_name: prometheus
     profiles: ["prometheus"]
     volumes:
@@ -88,7 +88,7 @@ services:
     restart: always
 
   grafana:
-    image: docker.io/grafana/grafana:13.1.1-ubuntu
+    image: docker.io/grafana/grafana:13.2.4-ubuntu
     container_name: grafana
     profiles: ["grafana"]
     ports:
@@ -119,7 +119,7 @@ services:
       - '--path.rootfs=/rootfs'
 
   cadvisor:
-    image: ghcr.io/google/cadvisor:0.60.5
+    image: ghcr.io/google/cadvisor:v0.60.6
     profiles: ["cadvisor"]
     ports:
       - "${CADVISOR_HOST_PORT:-18080}:8080"

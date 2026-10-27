@@ -16,7 +16,7 @@
 replicas: 1
 image:
   repository: docker.io/confluentinc/cp-kafka
-  tag: "8.3.0"
+  tag: "8.4.0"
   pullPolicy: IfNotPresent
 nodeId: "1"
 brokerId: "1"
@@ -89,7 +89,7 @@ topicJob:
 # Prometheus kafka-exporter sidecar deployment
 exporter:
   enabled: false
-  image: docker.io/danielqsj/kafka-exporter:latest
+  image: docker.io/danielqsj/kafka-exporter:v1.11.0
   port: 9308
   nodeSelector: {}
   resources: {}

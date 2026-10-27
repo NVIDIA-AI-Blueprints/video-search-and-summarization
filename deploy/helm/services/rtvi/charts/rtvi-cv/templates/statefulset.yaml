@@ -49,7 +49,7 @@ spec:
       initContainers:
         {{- if $engineCacheEnabled }}
         - name: prepare-engine-cache
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c
@@ -64,7 +64,7 @@ spec:
         {{- end }}
         {{- if $waitForKafka }}
         - name: wait-for-kafka
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c
@@ -225,7 +225,7 @@ spec:
       {{- end }}
       initContainers:
         - name: wait-for-kafka
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c

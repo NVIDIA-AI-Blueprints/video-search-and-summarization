@@ -3,7 +3,7 @@
 
 services:
   nemotron-3.5-lightning-30b-a3b-init:
-    image: alpine:3.24.1
+    image: alpine:3.24.3
     container_name: llm-nim-init
     profiles:
     - llm_local_nemotron-3.5-lightning-30b-a3b

@@ -64,7 +64,7 @@ spec:
       initContainers:
         {{- if .Values.downloadNgcAppData }}
         - name: wait-for-ngc-app-data
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c
@@ -87,7 +87,7 @@ spec:
               mountPath: /models-data
         {{- else }}
         - name: wait-for-warehouse-videos
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c
@@ -108,7 +108,7 @@ spec:
               mountPath: /models-data
         {{- end }}
         - name: ensure-mv3dt-engine-dirs
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c
@@ -125,7 +125,7 @@ spec:
         # the vss-reid-embed chart's staging Job is what puts it there. Without
         # this gate DeepStream would come up first and fail on a missing model.
         - name: wait-for-reid-models
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c
@@ -158,7 +158,7 @@ spec:
         {{- end }}
         {{- if eq ($sw.streamType | default "none") "kafka" }}
         - name: wait-for-kafka
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c

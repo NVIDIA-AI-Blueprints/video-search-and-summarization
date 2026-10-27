@@ -94,7 +94,7 @@ floormapImageEndpoint: ""
 configSeed:
   image:
     repository: docker.io/library/busybox
-    tag: "1.36"
+    tag: "1.38.0"
     pullPolicy: IfNotPresent
 # Centralized DB: host/port from template (Release-vss-vios-postgres:5432). Password from postgres-cm unless overridden.
 # Override for external DB: centralizedDbHost, centralizedDbPort, centralizedDbPassword.
@@ -201,4 +201,4 @@ waitForRedis:
   timeoutSeconds: 120
   image:
     repository: busybox
-    tag: "1.37.0"
+    tag: "1.38.0"

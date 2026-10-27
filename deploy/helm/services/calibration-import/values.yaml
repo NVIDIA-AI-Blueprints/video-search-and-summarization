@@ -14,7 +14,7 @@ useReleaseNamePrefix: null
 
 image:
   repository: docker.io/library/alpine
-  tag: "3.24.1"
+  tag: "3.24.3"
   pullPolicy: IfNotPresent
 
 apiUrl: http://vss-video-analytics-api:8081

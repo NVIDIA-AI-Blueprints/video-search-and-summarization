@@ -16,7 +16,7 @@
 replicas: 1
 image:
   repository: docker.elastic.co/logstash/logstash
-  tag: "9.4.4"
+  tag: "9.5.5"
   pullPolicy: IfNotPresent
 javaOpts: "-Xmx4g -Xms4g"
 streamType: "kafka"
@@ -45,7 +45,7 @@ tolerations: []
 # Prometheus logstash-exporter sidecar deployment
 exporter:
   enabled: false
-  image: ghcr.io/kuskoman/logstash-exporter:master
+  image: ghcr.io/kuskoman/logstash-exporter:v1.9.2
   port: 9198
   # Logstash API endpoint (HTTPS when TLS is enabled on the logstash service)
   logstashUrl: ""  # Auto-resolved: http://<release>-logstash:9600

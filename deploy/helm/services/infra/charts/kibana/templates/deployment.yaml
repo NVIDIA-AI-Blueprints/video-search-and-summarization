@@ -40,7 +40,7 @@ spec:
       {{- $wimg := $wfe.image | default dict }}
       initContainers:
         - name: wait-elasticsearch
-          image: {{ $wimg.repository | default "docker.io/curlimages/curl" }}:{{ $wimg.tag | default "8.12.1" }}
+          image: {{ $wimg.repository | default "docker.io/curlimages/curl" }}:{{ $wimg.tag | default "8.23.0" }}
           imagePullPolicy: {{ $wimg.pullPolicy | default "IfNotPresent" }}
           env:
             - name: ES_PROBE_URL

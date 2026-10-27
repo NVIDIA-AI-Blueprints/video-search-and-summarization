@@ -254,7 +254,7 @@ infra:
     enabled: true
     image:
       repository: docker.io/library/eclipse-mosquitto
-      tag: "2"
+      tag: "2.0.22"
       pullPolicy: IfNotPresent
     port: 1883
     service:

@@ -54,7 +54,7 @@ spec:
       initContainers:
         {{- if .Values.waitForKafka.enabled }}
         - name: wait-for-kafka
-          image: {{ .Values.waitForKafka.image | default "confluentinc/cp-kafka:8.3.0" }}
+          image: {{ .Values.waitForKafka.image | default "confluentinc/cp-kafka:8.4.0" }}
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh

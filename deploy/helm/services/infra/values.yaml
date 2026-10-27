@@ -44,7 +44,7 @@ redis:
   replicas: 1
   image:
     repository: docker.io/library/redis
-    tag: 8.10.0-alpine
+    tag: 8.10.3-alpine
     pullPolicy: IfNotPresent
   port: 6379
   persistence:
@@ -61,7 +61,7 @@ mosquitto:
   replicas: 1
   image:
     repository: docker.io/library/eclipse-mosquitto
-    tag: "2"
+    tag: "2.0.22"
     pullPolicy: IfNotPresent
   port: 1883
   service:

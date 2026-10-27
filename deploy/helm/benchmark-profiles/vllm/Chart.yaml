@@ -18,7 +18,7 @@ name: vllm
 description: Deploy configurable models with vLLM's OpenAI-compatible API
 type: application
 version: 3.4.0
-appVersion: "0.28.0"
+appVersion: "0.32.0"
 kubeVersion: ">=1.25.0-0"
 maintainers:
   - name: NVIDIA

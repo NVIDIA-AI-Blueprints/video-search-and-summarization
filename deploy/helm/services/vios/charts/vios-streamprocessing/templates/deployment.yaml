@@ -59,7 +59,7 @@ spec:
         # Compose parity with the wait-for-redis service. VST builds its
         # notification manager at startup and does not retry.
         - name: wait-for-redis
-          image: "{{ (.Values.waitForRedis.image | default dict).repository | default "busybox" }}:{{ (.Values.waitForRedis.image | default dict).tag | default "1.37.0" }}"
+          image: "{{ (.Values.waitForRedis.image | default dict).repository | default "busybox" }}:{{ (.Values.waitForRedis.image | default dict).tag | default "1.38.0" }}"
           command:
             - /bin/sh
             - -c
@@ -81,7 +81,7 @@ spec:
         {{- end }}
         {{- if $writableConfigs }}
         - name: seed-vst-configs
-          image: {{ .Values.configSeed.image.repository | default "docker.io/library/busybox" }}:{{ .Values.configSeed.image.tag | default "1.36" }}
+          image: {{ .Values.configSeed.image.repository | default "docker.io/library/busybox" }}:{{ .Values.configSeed.image.tag | default "1.38.0" }}
           imagePullPolicy: {{ .Values.configSeed.image.pullPolicy | default "IfNotPresent" }}
           command: ["sh", "-c", "cp -a /configmap-configs/. /home/vst/vst_release/configs/{{- if $notifCm }} && cp /notification-config/notification_config.json /home/vst/vst_release/configs/notification_config.json{{- end }}"]
           volumeMounts:

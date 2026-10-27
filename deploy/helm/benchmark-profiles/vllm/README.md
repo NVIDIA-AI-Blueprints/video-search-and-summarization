@@ -15,7 +15,7 @@ additional values file.
 - NVIDIA drivers and the NVIDIA Kubernetes device plugin
 - Egress to the model registry on first start, or a cache claim containing the model
 
-The default image is `vllm/vllm-openai:v0.28.0`. Change the image and resources
+The default image is `vllm/vllm-openai:v0.32.0`. Change the image and resources
 to match the model, GPU, and required vLLM version.
 
 ## Deploy a model

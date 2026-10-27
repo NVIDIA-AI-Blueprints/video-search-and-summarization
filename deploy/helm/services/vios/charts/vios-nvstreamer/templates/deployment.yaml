@@ -48,7 +48,7 @@ spec:
       initContainers:
         - name: prepare-streamer-videos
           {{- if $seed.fromExistingClaim }}
-          image: "busybox:1.37.0"
+          image: "busybox:1.38.0"
           {{- else }}
           image: "{{ $seed.image.repository }}:{{ $seed.image.tag }}"
           imagePullPolicy: {{ $seed.image.pullPolicy | default "IfNotPresent" }}

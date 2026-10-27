@@ -23,7 +23,7 @@ include:
 
 services:
   turnserver-init:
-    image: alpine:3.24.1
+    image: alpine:3.24.3
     profiles: ["turnserver-init"]
     container_name: vss-turnserver-init
     user: "0:0"
@@ -39,7 +39,7 @@ services:
     restart: "no"
 
   turnserver:
-    image: coturn/coturn:4.14.0
+    image: coturn/coturn:4.18.0
     profiles: ["turnserver"]
     container_name: vss-turnserver
     user: "65534:65534"
@@ -72,7 +72,7 @@ services:
         condition: service_completed_successfully
 
   mosquitto:
-    image: eclipse-mosquitto:2
+    image: eclipse-mosquitto:2.0.22
     profiles: ["mosquitto"]
     container_name: mosquitto
     ports:
@@ -159,7 +159,7 @@ services:
     restart: "on-failure:5"
 
   kafka:
-    image: confluentinc/cp-kafka:8.3.0
+    image: confluentinc/cp-kafka:8.4.0
     volumes:
       - kafka-data:/tmp/kafka-data
       - $VSS_APPS_DIR/services/infra/kafka/scripts/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
@@ -244,7 +244,7 @@ services:
     command: "bash /usr/bin/create-kafka-topics.sh"  
 
   redis:
-    image: redis:8.10.0-alpine
+    image: redis:8.10.3-alpine
     profiles: ["redis"]
     restart: always
     command: redis-server /config/redis.conf
@@ -257,7 +257,7 @@ services:
       - $VSS_DATA_DIR/data_log/redis/log:/log
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:9.4.4
+    image: docker.elastic.co/kibana/kibana:9.5.5
     profiles: ["kibana"]
     volumes:
       - $VSS_APPS_DIR/services/infra/elk/kibana/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
@@ -276,7 +276,7 @@ services:
       start_period: 60s
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:9.4.4
+    image: docker.elastic.co/logstash/logstash:9.5.5
     profiles: ["logstash"]
     volumes:
       - logstash-libs:/opt/logstash-data-libs

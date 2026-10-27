@@ -54,7 +54,7 @@ spec:
         # Compose parity with the wait-for-redis service. VST builds its
         # notification manager at startup and does not retry.
         - name: wait-for-redis
-          image: "{{ (.Values.waitForRedis.image | default dict).repository | default "busybox" }}:{{ (.Values.waitForRedis.image | default dict).tag | default "1.37.0" }}"
+          image: "{{ (.Values.waitForRedis.image | default dict).repository | default "busybox" }}:{{ (.Values.waitForRedis.image | default dict).tag | default "1.38.0" }}"
           command:
             - /bin/sh
             - -c

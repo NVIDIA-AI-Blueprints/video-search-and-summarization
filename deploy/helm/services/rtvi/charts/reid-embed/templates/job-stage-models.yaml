@@ -62,7 +62,7 @@ spec:
         # workingDir cannot create its own path, and the script writes relative
         # to $(pwd), so the target has to exist before the main container runs.
         - name: ensure-reid-dir
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - sh
             - -c
