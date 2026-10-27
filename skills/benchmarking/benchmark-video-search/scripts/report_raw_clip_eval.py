@@ -460,6 +460,55 @@ def diagnostic_table(groups: list[dict[str, Any]]) -> str:
     return "".join(lines)
 
 
+def rerank_section(root: Path) -> str:
+    """Original vs reranked mAP from rerank_raw_clip_eval.py outputs, if any."""
+
+    def points(value: Any) -> str:
+        return f"{value:.2f}%" if isinstance(value, (int, float)) else "—"
+
+    parts = []
+    for path in sorted((root / "rerank").glob("*/comparison.json")):
+        comparison = read_json(path) or {}
+        identity = comparison.get("identity", {})
+        lines = [
+            "<table><thead><tr><th>Setting</th><th>Mode</th><th>Depth</th><th>Variant</th><th>Event mAP</th><th>PAS mAP</th><th>Overall mAP</th><th>Δ overall vs stage-1 pool</th><th>Rerank mean / p95 (ms)</th><th>Frames / candidate</th><th>Score failures</th></tr></thead><tbody>"
+        ]
+        for row in comparison.get("rows", []):
+            latency = row.get("rerank_latency") or {}
+            delta = row.get("delta_overall_vs_stage1_pool")
+            frames = row.get("mean_frames_per_candidate")
+            lines.append(
+                "<tr>"
+                f"<td>{esc(row.get('setting'))}</td><td>{esc(row.get('mode'))}</td><td>{esc(row.get('k'))}</td>"
+                f"<td>{esc(row.get('variant'))}</td><td>{esc(points(row.get('event')))}</td>"
+                f"<td>{esc(points(row.get('pas')))}</td><td>{esc(points(row.get('overall')))}</td>"
+                f"<td>{esc('—' if delta is None else f'{delta:+.2f} pts')}</td>"
+                f"<td>{esc(format_ms(latency.get('mean_ms')))} / {esc(format_ms(latency.get('p95_ms')))}</td>"
+                f"<td>{esc('—' if frames is None else f'{frames:.1f}')}</td>"
+                f"<td>{esc(row.get('score_failures'))}</td></tr>"
+            )
+        lines.append("</tbody></table>")
+        state = "" if (path.parent / "complete.json").is_file() else " · <strong>incomplete</strong>"
+        parts.append(
+            f"<h3>{esc(path.parent.name)}</h3><p class=\"subtle\">Reranker {esc(identity.get('reranker'))}"
+            f" · model {esc(identity.get('model_id') or '—')} · LoRA {esc(identity.get('lora_path') or 'none')}"
+            f" · depth {esc(identity.get('rerank_depth'))} of stage-1 k={esc(identity.get('stage1_k'))}"
+            f" · query text {esc(identity.get('query_text'))}{state}</p>"
+            + '<div class="table-wrap">'
+            + "".join(lines)
+            + "</div>"
+            + detail_block("Settings, variant definitions and per-route mAP", comparison)
+        )
+    if not parts:
+        return ""
+    return (
+        '<section><h2>Reranker comparison</h2><p class="subtle">Each variant ranks the same saved stage-1 hits. '
+        "Compare “reranked” with “stage-1 pool”, which is exactly what the reranker saw; “baseline” is the run's own capture at that depth.</p>"
+        + "".join(parts)
+        + "</section>"
+    )
+
+
 def query_table(rows: list[dict[str, Any]], ks: list[int], gallery_size: int) -> str:
     full_label = (
         "Full mAP"
@@ -640,6 +689,7 @@ details{{margin:3px 0}}summary{{cursor:pointer;color:var(--accent);font-weight:6
 <section><h2>Run summary</h2><div class="cards">{cards}</div><p class="subtle">Latency definition: {esc(latency_definition)}</p></section>
 {missing_section}
 <section><h2>Accuracy and latency by mode and depth</h2>{aggregate_table(summary, modes, ks, rows)}</section>
+{rerank_section(root)}
 <section><h2>Diagnostic cuts by query type and selected route</h2><p class="subtle">These groups expose weak spots; groups contain different queries and are descriptive, not causal comparisons.</p>{diagnostic_table(groups)}</section>
 <section><h2>Run configuration and provenance</h2>{detail_block('Identity, versions, settings, and input hashes', provenance)}</section>
 <section><h2>GPU telemetry</h2>{gpu_section}</section>

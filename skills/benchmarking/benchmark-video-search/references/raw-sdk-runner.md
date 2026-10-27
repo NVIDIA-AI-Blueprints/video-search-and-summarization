@@ -157,6 +157,10 @@ marked incomplete and missing captures are listed.
 The HTML includes query text, model decomposition, retrieval results, prompt,
 and run metadata. Review it before sharing outside the evaluation team.
 
+To rerank a finished run's hits with Cosmos 3 Nano and compare both orders,
+see [cosmos-reranker-eval.md](cosmos-reranker-eval.md). The report then adds a
+reranker comparison section.
+
 For an already configured deployment and an 80-clip gallery with one embedding
 window per clip:
 

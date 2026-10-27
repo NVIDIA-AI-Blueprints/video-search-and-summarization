@@ -16,6 +16,10 @@ _FRAME_FACTOR = 2
 _FPS_MIN_FRAMES = 4
 
 
+class VideoSamplingError(ValueError):
+    """A video could not be opened or decoded for frame sampling."""
+
+
 @dataclass(frozen=True)
 class SampledVideoArray:
     """Explicit RGB frame sample plus metadata for offline vLLM video inputs."""
@@ -52,7 +56,7 @@ def controlled_frame_indices(
     if video_fps <= 0.0:
         video_fps = max(1.0, float(fps))
     if total_frames <= 0:
-        raise ValueError("Cannot sample video with no frames")
+        raise VideoSamplingError("Cannot sample video with no frames")
 
     seg = candidate.segment
     if seg.start is None or seg.end is None:
@@ -89,7 +93,7 @@ def sampled_video_array(candidate: Candidate, fps: float, max_frames: int) -> Sa
     source = candidate.video_path.resolve()
     cap = cv2.VideoCapture(str(source))
     if not cap.isOpened():
-        raise ValueError(f"Could not open video for frame sampling: {source}")
+        raise VideoSamplingError(f"Could not open video for frame sampling: {source}")
 
     try:
         video_fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
@@ -106,7 +110,7 @@ def sampled_video_array(candidate: Candidate, fps: float, max_frames: int) -> Sa
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
             ok, frame = cap.read()
             if not ok or frame is None:
-                raise ValueError(f"Could not read frame {frame_idx} from source: {source}")
+                raise VideoSamplingError(f"Could not read frame {frame_idx} from source: {source}")
             frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     finally:
         cap.release()
@@ -115,13 +119,18 @@ def sampled_video_array(candidate: Candidate, fps: float, max_frames: int) -> Sa
         video_fps = max(1.0, float(fps))
     if len(indices) <= 1:
         duration = 1.0 / video_fps
+        sample_fps = video_fps
     else:
-        duration = max(1e-6, (indices[-1] - indices[0] + 1) / video_fps)
+        frame_span = indices[-1] - indices[0]
+        duration = max(1e-6, (frame_span + 1) / video_fps)
+        # vLLM timestamps frames at 0, 1/fps, ..., (n-1)/fps. Match the
+        # first-to-last source-frame interval, rather than inclusive duration.
+        sample_fps = (len(frames) - 1) * video_fps / frame_span
     return SampledVideoArray(
         frames=np.stack(frames, axis=0),
         frame_indices=indices,
         source_fps=video_fps,
-        sample_fps=len(frames) / duration,
+        sample_fps=sample_fps,
         duration=duration,
     )
 

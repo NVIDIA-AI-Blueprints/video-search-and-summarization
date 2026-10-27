@@ -71,6 +71,8 @@ manifest: inspect it, then reset; the command never silently repeats an upload.
 The committed raw evaluator supports embedding-only, attribute-only and live-
 routed modes without critic, reranker or persistence. This recipe measures the
 committed `person-state-photo` route profile. Keep this host otherwise idle.
+To add the Cosmos 3 Nano reranker to a finished run, see
+`skills/benchmarking/benchmark-video-search/references/cosmos-reranker-eval.md`.
 
 ```bash
 "$PY" "$SCRIPTS/ingest_clip_gallery.py" --workspace "$WORK" \

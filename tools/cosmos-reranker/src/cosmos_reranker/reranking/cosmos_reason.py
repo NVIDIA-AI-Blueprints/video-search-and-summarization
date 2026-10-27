@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+
 import base64
 from typing import Any
+
 from PIL import Image
-from .config import RerankerConfig
+
 from .base import Candidate, CandidateScore
-from .frames import parallel_map, sampled_video_array
 from .common import (
     VLMReranker,
     answer_tail,
@@ -15,6 +16,8 @@ from .common import (
     read_results,
     read_sampling_params,
 )
+from .config import RerankerConfig
+from .frames import VideoSamplingError, parallel_map, sampled_video_array
 
 _NANO_REPO = "nvidia/Cosmos3-Nano"
 
@@ -66,7 +69,7 @@ class CosmosReasonReranker(VLMReranker):
             self.lora_request = None
         self.set_score_token_ids(self.llm.get_tokenizer())
 
-    def _video_data_url(self, candidate: Candidate) -> str:
+    def _video_data_url(self, candidate: Candidate) -> tuple[str, float]:
         sample = sampled_video_array(candidate, self.fps, self.max_frames)
         import cv2
 
@@ -78,9 +81,9 @@ class CosmosReasonReranker(VLMReranker):
                 [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality],
             )
             if not ok:
-                raise ValueError("Could not JPEG-encode CR3 sampled frame")
+                raise VideoSamplingError("Could not JPEG-encode CR3 sampled frame")
             encoded_frames.append(base64.b64encode(buffer).decode("ascii"))
-        return "data:video/jpeg;base64," + ",".join(encoded_frames)
+        return "data:video/jpeg;base64," + ",".join(encoded_frames), sample.sample_fps
 
     def _image_data_url(self, candidate: Candidate) -> str:
         if candidate.image_path is None:
@@ -92,7 +95,9 @@ class CosmosReasonReranker(VLMReranker):
         encoded = base64.b64encode(candidate.image_path.read_bytes()).decode("ascii")
         return f"data:{media_type};base64,{encoded}"
 
-    def _messages(self, query: str, candidate: Candidate) -> list[dict[str, Any]]:
+    def _messages(
+        self, query: str, candidate: Candidate
+    ) -> tuple[list[dict[str, Any]], float | None]:
         if candidate.image_path is not None:
             image_url = self._image_data_url(candidate)
             prompt = self.image_prompt_text(query)
@@ -104,8 +109,8 @@ class CosmosReasonReranker(VLMReranker):
                         {"type": "text", "text": prompt},
                     ],
                 }
-            ]
-        video_url = self._video_data_url(candidate)
+            ], None
+        video_url, sample_fps = self._video_data_url(candidate)
         prompt = self.prompt_text(query)
         return [
             {
@@ -115,21 +120,55 @@ class CosmosReasonReranker(VLMReranker):
                     {"type": "text", "text": prompt},
                 ],
             }
-        ]
+        ], sample_fps
+
+    def _set_video_fps(self, fps: float) -> None:
+        """Set vLLM's timestamp rate to the rate of the supplied JPEG frames."""
+        try:
+            self.media_io_kwargs["video"]["fps"] = fps
+            self.llm.llm_engine.model_config.multimodal_config.media_io_kwargs["video"]["fps"] = fps
+        except (AttributeError, KeyError, TypeError) as error:
+            raise RuntimeError(
+                "Cannot set the video fps reported to vLLM; use a compatible vLLM version"
+            ) from error
 
     def score_pairs(self, pairs: list[tuple[str, Candidate]]) -> list[CandidateScore]:
         if not pairs:
             return []
         modality = homogeneous_candidate_modality([candidate for _query, candidate in pairs])
-        messages = parallel_map(lambda item: self._messages(item[0], item[1]), pairs)
         mm_processor_kwargs = (
             self.video_mm_processor_kwargs
             if modality == "video"
             else self.image_mm_processor_kwargs
         )
-        return self.candidate_scores(
-            self._score_batch(messages, mm_processor_kwargs=mm_processor_kwargs)
-        )
+        prepared = parallel_map(lambda item: self._messages(item[0], item[1]), pairs)
+        if modality == "image":
+            return self.candidate_scores(
+                self._score_batch(
+                    [messages for messages, _fps in prepared],
+                    mm_processor_kwargs=mm_processor_kwargs,
+                )
+            )
+
+        # vLLM's media fps is per chat call. Group equal sampled rates so the
+        # timestamps it creates match the spacing of the explicit JPEG frames.
+        grouped: dict[float, list[tuple[int, list[dict[str, Any]]]]] = {}
+        for index, (messages, sample_fps) in enumerate(prepared):
+            if sample_fps is None:
+                raise RuntimeError("Video candidate has no sampled frame rate")
+            grouped.setdefault(sample_fps, []).append((index, messages))
+        results: list[tuple[float | None, dict] | None] = [None] * len(pairs)
+        for sample_fps, items in grouped.items():
+            self._set_video_fps(sample_fps)
+            scored = self._score_batch(
+                [messages for _, messages in items],
+                mm_processor_kwargs=mm_processor_kwargs,
+            )
+            for (index, _messages), result in zip(items, scored):
+                results[index] = result
+        if any(result is None for result in results):
+            raise RuntimeError("vLLM returned an incomplete video score batch")
+        return self.candidate_scores([result for result in results if result is not None])
 
     def _score_batch(
         self,
