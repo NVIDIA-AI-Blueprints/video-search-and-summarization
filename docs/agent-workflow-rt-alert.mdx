@@ -335,6 +335,13 @@ layout below in `deploy/docker/developer-profiles/dev-profile-alerts/user-overri
 
 #### Direct Docker Compose Overrides
 
+<Note>
+These overrides apply to Docker Compose deployments only. In the Helm chart, always-on alerts are
+disabled by default and `ALERT_AGENT_ALWAYS_ON` has no effect. See
+[Always-on alerts with Helm](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/helm/developer-profiles/dev-profile-alerts/README.md#always-on-alerts-with-helm)
+for the Helm equivalent and its prerequisites.
+</Note>
+
 Apply all of the following settings in the `user-overrides.env` file created
 above:
 
