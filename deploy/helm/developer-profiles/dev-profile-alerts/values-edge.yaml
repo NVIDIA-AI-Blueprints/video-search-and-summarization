@@ -1,0 +1,79 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Alerts profile — edge-hardware overlay (DGX-SPARK, IGX-THOR, AGX-THOR).
+#
+# Mirrors the Docker-compose EDGE-vss-behavior-analytics-config.json variant
+# selected by PERCEPTION_DOCKERFILE_PREFIX='EDGE-' in overrides.env. The only
+# semantic delta is fovCountViolationIncidentExpirationWindow: 2 (vs 0.5 for
+# non-edge). Everything else matches values.yaml.
+#
+# Behavior Analytics runs only in verification mode (MODE=2d_cv), so layer
+# this on top of values-verification.yaml:
+#
+#   helm upgrade --install vss-alerts . \
+#     -f values-verification.yaml \
+#     -f values-edge.yaml \
+#     -n vss-alerts --create-namespace
+#
+# When Helm merges values files, later -f entries override earlier ones for
+# the same key, so this file replaces the whole kafkaConfigJson block from
+# values.yaml.
+
+analytics:
+  vss-behavior-analytics:
+    config:
+      kafkaConfigJson: |
+        {
+          "kafka": {
+            "brokers": "kafka-kafka:9092",
+            "topics": [
+              {"name": "raw", "value": "mdx-raw"},
+              {"name": "notification", "value": "mdx-notification"},
+              {"name": "incidents", "value": "mdx-incidents"},
+              {"name": "frames", "value": "mdx-frames"}
+            ],
+            "consumer": {
+              "autoOffsetReset": "latest",
+              "enableAutoCommit": false,
+              "maxPollIntervalMs": 900000,
+              "maxPartitionFetchBytes": 10485760,
+              "fetchMaxBytes": 104857600,
+              "maxPollRecords": 10000,
+              "timeout": 0.01
+            },
+            "producer": {
+              "lingerMs": 0
+            },
+            "group": "mdx-spatial-analytics-2d-app"
+          },
+          "sensors": [],
+          "app": [
+            {"name": "playbackLoop", "value": "10000"},
+            {"name": "playbackFilterEmptyObjects", "value": "true"},
+            {"name": "playbackStartUpDelaySec", "value": "90"},
+            {"name": "sourceType", "value": "kafka"},
+            {"name": "sinkType", "value": "kafka"},
+            {"name": "numWorkersForIncidentGeneration", "value": "2"},
+            {"name": "behaviorEmitOnce", "value": "false"},
+            {"name": "numWorkersForBehaviorCreation", "value": "0"},
+            {"name": "numWorkersForEmbedFiltering", "value": "0"},
+            {"name": "fovCountViolationIncidentEnable", "value": "true"},
+            {"name": "fovCountViolationIncidentObjectThreshold", "value": "1"},
+            {"name": "fovCountViolationIncidentThreshold", "value": "2"},
+            {"name": "fovCountViolationIncidentExpirationWindow", "value": "2"},
+            {"name": "fovCountViolationIncidentObjectType", "value": "person"}
+          ]
+        }
