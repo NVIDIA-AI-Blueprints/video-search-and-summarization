@@ -81,6 +81,7 @@ Options:
   -c CONFIG      Benchmark config file (default: config.yaml)
   -s SCENARIO    Benchmark scenario to run; repeat -s for multiple (or comma-separated in one -s)
   -p PORT        LVS backend port (default: 38111)
+  -R PORT        RTVI host port (default: 8000; use a distinct port for parallel stacks)
   -t TIMEOUT     Max seconds to wait for lvs health (default: 600)
   -v GPUS        VLM GPU indices, comma-separated (e.g. 0,1)
   -l GPUS        LLM GPU indices, comma-separated (e.g. 2,3)
@@ -108,6 +109,7 @@ Examples:
   $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -s single_file_test
   $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -s single_file_test -d
   $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -v 0,1 -l 2,3                # split VLM/LLM across GPUs
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -p 39111 -R 9000            # distinct host ports for a parallel stack
   $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G h100                      # force device overlay
   $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G rtx-pro-6000              # force RTX Pro 6000 Blackwell overlay
   $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G none                      # use base compose default
@@ -121,6 +123,7 @@ COMPOSE_FILE=""
 BENCHMARK_CONFIG="config.yaml"
 SCENARIO_ARGS=()
 LVS_PORT=38111
+RTVI_PORT="${RTVI_PORT:-8000}"
 HEALTH_TIMEOUT=600
 VLM_GPUS=""
 LLM_GPUS=""
@@ -130,7 +133,7 @@ OUTPUT_JSON_NAME=""
 TEARDOWN=false
 GPU_OVERLAY="auto"
 
-while getopts "f:c:s:p:t:v:l:G:r:I:O:dh" opt; do
+while getopts "f:c:s:p:R:t:v:l:G:r:I:O:dh" opt; do
     case $opt in
         f) COMPOSE_FILE="$OPTARG" ;;
         c) BENCHMARK_CONFIG="$OPTARG" ;;
@@ -146,6 +149,7 @@ while getopts "f:c:s:p:t:v:l:G:r:I:O:dh" opt; do
             done
             ;;
         p) LVS_PORT="$OPTARG" ;;
+        R) RTVI_PORT="$OPTARG" ;;
         t) HEALTH_TIMEOUT="$OPTARG" ;;
         v) VLM_GPUS="$OPTARG" ;;
         l) LLM_GPUS="$OPTARG" ;;
@@ -169,6 +173,12 @@ if [ -z "$COMPOSE_FILE" ]; then
     error "Compose file is required (-f)"
     usage
 fi
+
+if [[ ! "$RTVI_PORT" =~ ^[0-9]+$ ]] || [ "$RTVI_PORT" -lt 1 ] || [ "$RTVI_PORT" -gt 65535 ]; then
+    error "RTVI host port must be an integer from 1 to 65535: $RTVI_PORT"
+    exit 1
+fi
+export RTVI_PORT
 
 # Resolve benchmark config: absolute or relative to perf/configs/.
 if [[ "$BENCHMARK_CONFIG" == /* ]]; then

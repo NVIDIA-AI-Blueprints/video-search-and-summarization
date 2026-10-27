@@ -4,6 +4,19 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/scripts/common.sh"
 
+if [[ "${PERF_NATIVE_ONLY:-false}" != "true" ]]; then
+    PERF_VENV_DIR="${PERF_VENV_DIR:-$PERF_DIR/benchmark/vss-perf-env}"
+    if [[ ! -x "$PERF_VENV_DIR/bin/python" ]]; then
+        python3 -m venv "$PERF_VENV_DIR"
+        "$PERF_VENV_DIR/bin/pip" install -q -r "$PERF_DIR/benchmark/requirements.txt"
+    fi
+    export PYTHONPATH="$PERF_DIR/benchmark${PYTHONPATH:+:$PYTHONPATH}"
+    exec "$PERF_VENV_DIR/bin/python" \
+        "$PERF_DIR/benchmark/core/vss_perf_benchmark.py" "$@"
+fi
+
+# Internal path used by the canonical entrypoint. It runs the service-native
+# stages once, leaving result conversion and publication to the caller.
 cleanup() {
     "$PERF_DIR/scripts/teardown.sh" || true
 }

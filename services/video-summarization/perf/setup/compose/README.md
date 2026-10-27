@@ -300,9 +300,9 @@ Each compose file has a `name:` field that automatically namespaces containers, 
 ../scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml \
   -v 4,5 -l 6,7 -s quick_test -d
 
-# Terminal 2 — RTVI+NIM-VLM stack on GPUs 0-3, port 39111
+# Terminal 2 — RTVI+NIM-VLM stack on GPUs 0-3, LVS port 39111, RTVI port 9000
 ../scripts/run_benchmark.sh -f x86-rtvi-cr-nim-nemo3-nano_4gpu.yaml \
-  -p 39111 -v 0,1 -l 2,3 -s quick_test -d
+  -p 39111 -R 9000 -v 0,1 -l 2,3 -s quick_test -d
 ```
 
 Each run writes results to a unique timestamped directory (e.g. `vss-perf-report-x86-rtvi-cr-nemo3-nano-4gpu-20260304-143000`), so outputs never conflict.
