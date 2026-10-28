@@ -3,7 +3,7 @@
 #
 # Video Analytics API query KPI thresholds.
 # required_endpoints: spec_gets expands to dump-backed OpenAPI GETs plus the
-# Kartikay P0 writes this Kafka-off stack can HTTP 201 (calibration file and
+# P0 writes this Kafka-off stack can HTTP 201 (calibration file and
 # calibration images). Kafka-dependent POST /config/update and GET
 # update/status stay out of this iteration. Also skipped: path-parameter GETs,
 # IDs we do not have

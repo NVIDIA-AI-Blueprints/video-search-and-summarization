@@ -13,7 +13,7 @@ from http_latency import build_result, encode_multipart, percentile, summarize
 from kpis import DEFAULT_KPIS_PATH, evaluate_kpis, load_kpis, resolved_required_endpoints
 from minio_upload import minio_settings
 from openapi_matrix import (
-    GANAPATHY_EXTRA_PATHS,
+    EXTRA_WAREHOUSE_GETS,
     SKIP_PATHS,
     dump_backed_endpoints,
     dump_backed_names,
@@ -118,7 +118,7 @@ class HttpLatencyTests(unittest.TestCase):
                 has_sensor and "place" in row["query_keys"],
                 row,
             )
-        self.assertTrue(GANAPATHY_EXTRA_PATHS.issubset(paths))
+        self.assertTrue(EXTRA_WAREHOUSE_GETS.issubset(paths))
 
     def test_p0_posts_seed_calibration_image(self) -> None:
         posts = p0_post_endpoints()

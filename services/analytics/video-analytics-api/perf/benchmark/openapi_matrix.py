@@ -38,8 +38,8 @@ CONTEXT_KEYS = (
 # Fixture metadata is place-keyed (building=Warehouse/room=Room-1, plan-view).
 PLACE_PREFERRED_PATHS = frozenset({"/config/calibration/image"})
 
-# Ganapathy extra warehouse GETs (Slack 23 Oct) already in the dump-backed matrix.
-GANAPATHY_EXTRA_PATHS = frozenset(
+# Additional warehouse GETs kept in the dump-backed matrix.
+EXTRA_WAREHOUSE_GETS = frozenset(
     {
         "/metrics/average-speed",
         "/metrics/flowrate",
@@ -125,7 +125,7 @@ def _schema_default(param: Mapping[str, Any]) -> Any:
 
 
 def _limit_defaults(operation: Mapping[str, Any]) -> dict[str, Any]:
-    """OpenAPI defaults that change retrieval time (Ganapathy, 24 Oct)."""
+    """OpenAPI defaults that change retrieval time."""
     limits: dict[str, Any] = {}
     for param in operation.get("parameters") or []:
         if not isinstance(param, Mapping) or param.get("in") != "query":
@@ -200,7 +200,7 @@ def _require_fixture(name: str) -> Path:
 
 
 def p0_post_endpoints() -> list[dict[str, Any]]:
-    """Kartikay P0 writes this dump + Kafka-off stack can HTTP 201.
+    """P0 writes this dump + Kafka-off stack can HTTP 201.
 
     POST /config/update/{docType} and GET /config/update/status/{docType}/{referenceId}
     need Kafka plus a Behavior Analytics ack. kafka.js stays null when
