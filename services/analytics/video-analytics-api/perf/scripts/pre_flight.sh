@@ -9,6 +9,10 @@ docker info >/dev/null
 command -v python3 >/dev/null
 resolve_image >/dev/null
 test -f "$PERF_DIR/configs/kpis.yaml"
+test -f "$INTEGRATION_DIR/scripts/load_elasticsearch_data_dump.js"
+test -f "$INTEGRATION_DIR/generate_env.sh"
+test -f "$INTEGRATION_DIR/lifecycle.sh"
+test -f "$INTEGRATION_DIR/cleanup.sh"
 test -d "$DUMP_DIR"
 shopt -s nullglob
 dump_files=("$DUMP_DIR"/*.json)

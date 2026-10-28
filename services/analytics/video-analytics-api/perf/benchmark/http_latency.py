@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from kpis import evaluate_kpis, load_kpis
-from openapi_matrix import dump_backed_endpoints, query_params_for
+from openapi_matrix import dump_backed_endpoints, query_notes, query_params_for, query_window_s
 from safe_fs import safe_write_text
 
 SPEC_GETS_TOKEN = "spec_gets"
@@ -185,6 +185,7 @@ def measure_endpoints(
         results[row["name"]]["url"] = url
         results[row["name"]]["path"] = row["path"]
         results[row["name"]]["method"] = method
+        results[row["name"]]["query"] = query_notes(row, params)
     return results
 
 
@@ -197,6 +198,8 @@ def build_result(
     request_count: int,
     warmup_requests: int,
     apply_kpis: bool = True,
+    from_ts: str | None = None,
+    to_ts: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schema_version": "0.1",
@@ -207,6 +210,9 @@ def build_result(
         "config_id": config_id,
         "request_count": request_count,
         "warmup_requests": warmup_requests,
+        "query_window_s": query_window_s(
+            {"fromTimestamp": from_ts or "", "toTimestamp": to_ts or ""}
+        ),
         "endpoints": dict(endpoints),
         "success": True,
     }
@@ -271,6 +277,8 @@ def main() -> int:
         config_id=args.config_id,
         request_count=args.request_count,
         warmup_requests=args.warmup_requests,
+        from_ts=args.from_ts,
+        to_ts=args.to_ts,
     )
     write_result(args.output, payload)
     print(json.dumps({"result_file": str(args.output), "status": "PASS" if payload["success"] else "FAIL"}))

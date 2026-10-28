@@ -4,8 +4,9 @@
 # Video Analytics API query KPI thresholds.
 # required_endpoints: spec_gets expands to dump-backed OpenAPI GETs plus the
 # Kartikay P0 writes this Kafka-off stack can HTTP 201 (calibration file and
-# calibration images). Skipped: POST /config/update and GET update/status
-# (need Kafka + Behavior Analytics), path-parameter GETs, IDs we do not have
+# calibration images). Kafka-dependent POST /config/update and GET
+# update/status stay out of this iteration. Also skipped: path-parameter GETs,
+# IDs we do not have
 # (segmentInfo, endFrameId, behaviorTimeInterval, referenceId), city/corridor
 # travel-time, behavior-locations IDs, nvstreamer PTS, missing road-network
 # and usd-assets.

@@ -7,6 +7,7 @@ set -euo pipefail
 PERF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE_DIR="$(cd "$PERF_DIR/.." && pwd)"
 INTEGRATION_DIR="$SERVICE_DIR/test/integration-test"
+INTEGRATION_TEST_DIR="$INTEGRATION_DIR"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-va-api-perf}"
 APP_CONTAINER="${APP_CONTAINER:-va-api-perf-app}"
 ES_CONTAINER="${ES_CONTAINER:-va-api-perf-elasticsearch}"
@@ -33,6 +34,13 @@ VIDEO_ANALYTICS_API_HOST_PORT="${VIDEO_ANALYTICS_API_HOST_PORT:-18081}"
 export VA_API_PERF_DATA_DIR="${VA_API_PERF_DATA_DIR:-/tmp/va-api-perf-${COMPOSE_PROJECT_NAME}-$(id -u)}"
 DUMP_DIR="$INTEGRATION_DIR/elasticsearch_data_dump"
 ENV_FILE="$INTEGRATION_DIR/docker_compose/infra/.env"
+COMPOSE_ENV_FILE="$ENV_FILE"
+COMPOSE_EXTRA_FILES="$PERF_DIR/setup/compose-names.yml $PERF_DIR/setup/compose-es.yml"
+# shellcheck disable=SC1091
+source "$INTEGRATION_DIR/lifecycle.sh"
+# shellcheck disable=SC1091
+source "$INTEGRATION_DIR/cleanup.sh"
+export INTEGRATION_TEST_DIR COMPOSE_ENV_FILE COMPOSE_EXTRA_FILES COMPOSE_PROJECT_NAME
 
 refuse_symlink() {
     local path="$1"
@@ -119,11 +127,10 @@ resolve_image() {
 }
 
 write_compose_env() {
-    local repo_root apps_dir infra_dir image
+    local repo_root apps_dir image
     repo_root="$(resolve_repo_root)"
     apps_dir="$(resolve_apps_dir "$repo_root")"
     ensure_compose_include_env_files "$apps_dir"
-    infra_dir="$apps_dir/services/infra"
     image="$(resolve_image)"
     ensure_host_dir "$VA_API_PERF_DATA_DIR/data_log/video-analytics-api-app/files"
     ensure_host_dir "$VA_API_PERF_DATA_DIR/elastic/data"
@@ -132,41 +139,35 @@ write_compose_env() {
         "$VA_API_PERF_DATA_DIR/elastic/data" "$VA_API_PERF_DATA_DIR/elastic/logs" \
         "$VA_API_PERF_DATA_DIR/data_log/video-analytics-api-app/files" 2>/dev/null || true
     ensure_host_dir "$(dirname "$ENV_FILE")"
+    export DATA_DIR="$VA_API_PERF_DATA_DIR"
+    export VSS_DATA_DIR="$VA_API_PERF_DATA_DIR"
+    export INFRA_DIR="$apps_dir/services/infra"
+    export VSS_APPS_DIR="$apps_dir"
+    export COMPOSE_PROJECT_NAME
+    export COMPOSE_EXTRA_FILES COMPOSE_ENV_FILE
+    # Reuse integration generate_env.sh, then add perf host ports and image.
     # Docker Compose --env-file does not accept `export KEY=`. KEY=VALUE only.
-    cat > "$ENV_FILE" << EOF
-INTEGRATION_TEST_DIR=$INTEGRATION_DIR
-VIDEO_ANALYTICS_API_ROOT=$SERVICE_DIR
-DATA_DIR=$VA_API_PERF_DATA_DIR
-HOST_IP=localhost
-INFRA_DIR=$infra_dir
-VSS_APPS_DIR=$apps_dir
-VSS_DATA_DIR=$VA_API_PERF_DATA_DIR
-VSS_VERSION=
-COMPOSE_PROFILES=elasticsearch,elasticsearch-init-container
-COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME
-STREAM_TYPE=
-VSS_PUBLIC_HOST=
-VSS_PUBLIC_PORT=
-EXTERNAL_IP=
-NUM_STREAMS=
-NUM_SENSORS=
+    # shellcheck disable=SC1091
+    source "$INTEGRATION_DIR/generate_env.sh"
+    cat >> "$ENV_FILE" << EOF
 ELASTICSEARCH_HOST_PORT=$ELASTICSEARCH_HOST_PORT
 VIDEO_ANALYTICS_API_HOST_PORT=$VIDEO_ANALYTICS_API_HOST_PORT
 VIDEO_ANALYTICS_API_IMAGE=$image
 CURRENT_VIDEO_ANALYTICS_API_IMAGE=$image
 BUILD_SERVICE_IMAGE=false
+VSS_VERSION=
+COMPOSE_EXTRA_FILES=$COMPOSE_EXTRA_FILES
+COMPOSE_ENV_FILE=$ENV_FILE
 EOF
-    export INTEGRATION_TEST_DIR SERVICE_DIR
-    export DATA_DIR="$VA_API_PERF_DATA_DIR"
-    export INFRA_DIR="$infra_dir"
-    export VSS_APPS_DIR="$apps_dir"
-    export VSS_DATA_DIR="$VA_API_PERF_DATA_DIR"
-    export COMPOSE_PROFILES="elasticsearch,elasticsearch-init-container"
-    export COMPOSE_PROJECT_NAME
-    export ELASTICSEARCH_HOST_PORT VIDEO_ANALYTICS_API_HOST_PORT VSS_VERSION
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
     export VIDEO_ANALYTICS_API_IMAGE="$image"
     export CURRENT_VIDEO_ANALYTICS_API_IMAGE="$image"
     export BUILD_SERVICE_IMAGE=false
+    export ES_URL="http://127.0.0.1:${ELASTICSEARCH_HOST_PORT}"
+    export VA_API_URL="http://127.0.0.1:${VIDEO_ANALYTICS_API_HOST_PORT}"
 }
 
 load_compose_env() {
@@ -183,15 +184,9 @@ load_compose_env() {
 }
 
 compose() {
-    docker compose --project-directory "$INFRA_DIR" \
-        --env-file "$ENV_FILE" \
-        -p "$COMPOSE_PROJECT_NAME" \
-        -f "$INFRA_DIR/compose.yml" \
-        -f "$INTEGRATION_DIR/docker_compose/infra/video-analytics-api-infra.yml" \
-        -f "$INTEGRATION_DIR/docker_compose/apps/video-analytics-api-app.yml" \
-        -f "$PERF_DIR/setup/compose-names.yml" \
-        -f "$PERF_DIR/setup/compose-es.yml" \
-        "$@"
+    COMPOSE_ENV_FILE="$ENV_FILE"
+    export COMPOSE_ENV_FILE COMPOSE_EXTRA_FILES COMPOSE_PROJECT_NAME INFRA_DIR INTEGRATION_TEST_DIR
+    va_api_compose "$@"
 }
 
 dump_es_debug() {
@@ -199,8 +194,7 @@ dump_es_debug() {
     docker inspect "$ES_CONTAINER" --format \
         'status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' \
         >&2 || true
-    echo "--- elasticsearch logs ---" >&2
-    docker logs "$ES_CONTAINER" >&2 || true
+    va_api_dump_service_logs
     echo "--- vm.max_map_count ---" >&2
     cat /proc/sys/vm/max_map_count >&2 || true
     echo "--- ss :9200/:19200 ---" >&2
@@ -208,23 +202,6 @@ dump_es_debug() {
 }
 
 wait_for_elasticsearch() {
-    local deadline=$((SECONDS + 180))
-    local health status
-    while (( SECONDS < deadline )); do
-        status="$(docker inspect -f '{{.State.Status}}' "$ES_CONTAINER" 2>/dev/null || echo missing)"
-        health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$ES_CONTAINER" 2>/dev/null || echo none)"
-        if [[ "$status" == "exited" || "$status" == "dead" || "$status" == "missing" ]]; then
-            echo "Elasticsearch container $status" >&2
-            dump_es_debug
-            return 1
-        fi
-        if curl -sf "http://127.0.0.1:${ELASTICSEARCH_HOST_PORT}/_cluster/health" >/dev/null 2>&1; then
-            echo "Elasticsearch is reachable on :${ELASTICSEARCH_HOST_PORT} (docker health=${health})"
-            return 0
-        fi
-        sleep 5
-    done
-    echo "Timed out waiting for Elasticsearch on :${ELASTICSEARCH_HOST_PORT}" >&2
-    dump_es_debug
-    return 1
+    ES_URL="${ES_URL:-http://127.0.0.1:${ELASTICSEARCH_HOST_PORT}}"
+    va_api_wait_for_elasticsearch "$ES_URL" 36 5
 }

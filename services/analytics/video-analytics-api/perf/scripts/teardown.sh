@@ -6,7 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 if [[ -f "$ENV_FILE" ]]; then
     load_compose_env || true
-    compose down --remove-orphans -v || true
+    cleanup_docker_environment || true
 fi
 docker rm -f "$APP_CONTAINER" "$ES_CONTAINER" va-api-perf-es-init >/dev/null 2>&1 || true
 remove_root_tree "$VA_API_PERF_DATA_DIR"

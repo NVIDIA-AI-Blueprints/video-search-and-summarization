@@ -38,6 +38,17 @@ CONTEXT_KEYS = (
 # Fixture metadata is place-keyed (building=Warehouse/room=Room-1, plan-view).
 PLACE_PREFERRED_PATHS = frozenset({"/config/calibration/image"})
 
+# Ganapathy extra warehouse GETs (Slack 23 Oct) already in the dump-backed matrix.
+GANAPATHY_EXTRA_PATHS = frozenset(
+    {
+        "/metrics/average-speed",
+        "/metrics/flowrate",
+        "/frames/alerts",
+        "/clustering/behavior",
+        "/events/roi",
+    }
+)
+
 # OpenAPI required params are fillable, but warehouse_2d still cannot HTTP 200.
 SKIP_PATHS = frozenset(
     {
@@ -106,6 +117,28 @@ def _query_params(operation: Mapping[str, Any]) -> tuple[set[str], set[str]]:
     return names, required
 
 
+def _schema_default(param: Mapping[str, Any]) -> Any:
+    schema = param.get("schema")
+    if isinstance(schema, Mapping) and "default" in schema:
+        return schema["default"]
+    return None
+
+
+def _limit_defaults(operation: Mapping[str, Any]) -> dict[str, Any]:
+    """OpenAPI defaults that change retrieval time (Ganapathy, 24 Oct)."""
+    limits: dict[str, Any] = {}
+    for param in operation.get("parameters") or []:
+        if not isinstance(param, Mapping) or param.get("in") != "query":
+            continue
+        name = str(param.get("name") or "")
+        if name not in ("maxResultSize", "timeWindowSizeInSec", "maxClusterSampleSize"):
+            continue
+        default = _schema_default(param)
+        if default is not None:
+            limits[name] = default
+    return limits
+
+
 def spec_get_endpoints(spec: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     """Return GET operations whose required query params this job can supply.
 
@@ -142,11 +175,13 @@ def spec_get_endpoints(spec: Mapping[str, Any] | None = None) -> list[dict[str, 
                 continue
             query_keys.append(key)
         query_keys = _exclusive_location_keys(path, query_keys, required)
+        limits = _limit_defaults(operation)
         rows.append(
             {
                 "name": endpoint_name(path),
                 "path": path,
                 "query_keys": query_keys,
+                "limits": limits,
                 "tags": list(operation.get("tags") or []),
             }
         )
@@ -213,4 +248,42 @@ def query_params_for(row: Mapping[str, Any], context: Mapping[str, str]) -> dict
         value = context.get(key)
         if value is not None and value != "":
             params[str(key)] = str(value)
+    for key, value in (row.get("limits") or {}).items():
+        params[str(key)] = str(value)
     return params
+
+
+def query_window_s(params: Mapping[str, str]) -> float | None:
+    start = params.get("fromTimestamp")
+    end = params.get("toTimestamp")
+    if not start or not end:
+        window = params.get("timeWindowSizeInSec")
+        if window is None:
+            return None
+        try:
+            return float(window)
+        except ValueError:
+            return None
+    from datetime import datetime
+
+    try:
+        start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (end_dt - start_dt).total_seconds()
+
+
+def query_notes(row: Mapping[str, Any], params: Mapping[str, str]) -> dict[str, Any]:
+    """Record the request shape so reviewers can compare retrieval time."""
+    max_result = params.get("maxResultSize")
+    payload: dict[str, Any] = {
+        "params": dict(params),
+        "query_window_s": query_window_s(params),
+        "maxResultSize": int(max_result) if max_result and str(max_result).isdigit() else None,
+    }
+    if "timeWindowSizeInSec" in params:
+        payload["timeWindowSizeInSec"] = int(float(params["timeWindowSizeInSec"]))
+    if "maxClusterSampleSize" in params:
+        payload["maxClusterSampleSize"] = int(float(params["maxClusterSampleSize"]))
+    return payload

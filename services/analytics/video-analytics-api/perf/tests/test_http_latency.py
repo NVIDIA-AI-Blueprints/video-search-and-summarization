@@ -9,17 +9,19 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from dump_loader import is_lfs_pointer, load_file
 from http_latency import build_result, encode_multipart, percentile, summarize
 from kpis import DEFAULT_KPIS_PATH, evaluate_kpis, load_kpis, resolved_required_endpoints
 from minio_upload import minio_settings
 from openapi_matrix import (
+    GANAPATHY_EXTRA_PATHS,
     SKIP_PATHS,
     dump_backed_endpoints,
     dump_backed_names,
     load_spec,
     p0_post_endpoints,
+    query_notes,
     query_params_for,
+    query_window_s,
     spec_get_endpoints,
     spec_get_names,
 )
@@ -30,9 +32,12 @@ REPO = Path(__file__).resolve().parents[5]
 ROOT_RUN = REPO / "perf" / "run_benchmark.sh"
 PRE_FLIGHT = PERF / "scripts" / "pre_flight.sh"
 DEPLOY = PERF / "scripts" / "deploy.sh"
+POST_DEPLOY = PERF / "scripts" / "post_deploy.sh"
 COMMON = PERF / "scripts" / "common.sh"
 TEARDOWN = PERF / "scripts" / "teardown.sh"
 ES_OVERLAY = PERF / "setup" / "compose-es.yml"
+INTEGRATION = REPO / "services" / "analytics" / "video-analytics-api" / "test" / "integration-test"
+JS_LOADER = INTEGRATION / "scripts" / "load_elasticsearch_data_dump.js"
 
 
 class HttpLatencyTests(unittest.TestCase):
@@ -113,6 +118,7 @@ class HttpLatencyTests(unittest.TestCase):
                 has_sensor and "place" in row["query_keys"],
                 row,
             )
+        self.assertTrue(GANAPATHY_EXTRA_PATHS.issubset(paths))
 
     def test_p0_posts_seed_calibration_image(self) -> None:
         posts = p0_post_endpoints()
@@ -152,8 +158,35 @@ class HttpLatencyTests(unittest.TestCase):
                 "sensorId": "Camera",
                 "fromTimestamp": "2026-02-14T10:16:00.000Z",
                 "toTimestamp": "2026-02-14T10:17:00.000Z",
+                "maxResultSize": "25",
             },
         )
+        notes = query_notes(frames, params)
+        self.assertEqual(notes["query_window_s"], 60.0)
+        self.assertEqual(notes["maxResultSize"], 25)
+
+    def test_query_window_and_size_limits(self) -> None:
+        self.assertEqual(
+            query_window_s(
+                {
+                    "fromTimestamp": "2026-02-14T10:16:00.000Z",
+                    "toTimestamp": "2026-02-14T10:17:00.000Z",
+                }
+            ),
+            60.0,
+        )
+        flowrate = next(row for row in spec_get_endpoints() if row["name"] == "metrics_flowrate")
+        clustering = next(row for row in spec_get_endpoints() if row["name"] == "clustering_behavior")
+        alerts = next(row for row in spec_get_endpoints() if row["name"] == "frames_alerts")
+        self.assertEqual(flowrate["limits"]["timeWindowSizeInSec"], 5)
+        self.assertEqual(clustering["limits"]["maxClusterSampleSize"], 100)
+        self.assertEqual(alerts["limits"]["maxResultSize"], 25)
+        flow_params = query_params_for(
+            flowrate,
+            {"sensorId": "Camera", "toTimestamp": "2026-02-14T10:17:00.000Z"},
+        )
+        self.assertEqual(flow_params["timeWindowSizeInSec"], "5")
+        self.assertEqual(query_notes(flowrate, flow_params)["query_window_s"], 5.0)
 
     def test_slow_frames_p99_fails(self) -> None:
         kpis, _, measured = self._measured(
@@ -182,53 +215,15 @@ class HttpLatencyTests(unittest.TestCase):
         self.assertFalse(payload["success"])
         self.assertTrue(payload["kpis"]["violations"])
 
-    def test_dump_loader_rejects_lfs_pointer(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "mdx-frames.json"
-            path.write_text(
-                "version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 1\n"
-            )
-            self.assertTrue(is_lfs_pointer(path))
-            with self.assertRaises(RuntimeError):
-                load_file("http://127.0.0.1:19200", path)
-
-    def test_dump_loader_fails_on_bulk_item_errors(self) -> None:
-        class _Resp:
-            def __init__(self, body: bytes) -> None:
-                self._body = body
-
-            def read(self) -> bytes:
-                return self._body
-
-            def __enter__(self) -> "_Resp":
-                return self
-
-            def __exit__(self, *args: object) -> bool:
-                return False
-
-        body = json.dumps(
-            {
-                "errors": True,
-                "items": [
-                    {
-                        "index": {
-                            "status": 429,
-                            "error": "es_rejected_execution_exception",
-                        }
-                    }
-                ],
-            }
-        ).encode()
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "mdx-frames.json"
-            path.write_text(
-                json.dumps({"_index": "mdx-frames", "_id": "1", "_source": {"a": 1}})
-                + "\n"
-            )
-            with patch("dump_loader.urllib.request.urlopen", return_value=_Resp(body)):
-                with self.assertRaises(RuntimeError) as ctx:
-                    load_file("http://127.0.0.1:19200", path)
-            self.assertIn("rejected", str(ctx.exception).lower())
+    def test_integration_js_loader_rejects_lfs_and_bulk_errors(self) -> None:
+        text = JS_LOADER.read_text()
+        self.assertIn("git-lfs.github.com", text)
+        self.assertIn("json.errors", text)
+        lifecycle = (INTEGRATION / "lifecycle.sh").read_text()
+        self.assertIn("load_elasticsearch_data_dump.js", lifecycle)
+        self.assertIn("va_api_load_elasticsearch_dumps", POST_DEPLOY.read_text())
+        self.assertNotIn("dump_loader.py", POST_DEPLOY.read_text())
+        self.assertFalse((PERF / "benchmark" / "dump_loader.py").exists())
 
     def test_scenario_config_reads_request_count(self) -> None:
         settings = scenario_settings(PERF / "configs" / "config.yaml", "quick_test")
@@ -244,11 +239,23 @@ class HttpLatencyTests(unittest.TestCase):
 
     def test_env_file_is_compose_key_value(self) -> None:
         text = COMMON.read_text()
+        generate_env = (INTEGRATION / "generate_env.sh").read_text()
         self.assertIn("Docker Compose --env-file does not accept", text)
         self.assertIn("ELASTICSEARCH_HOST_PORT=$ELASTICSEARCH_HOST_PORT", text)
         self.assertNotIn("export ELASTICSEARCH_HOST_PORT=", text)
+        self.assertNotIn("export COMPOSE_PROJECT_NAME=", generate_env)
         self.assertIn("PERF_CONFIG_PATH", text)
         self.assertIn("ensure_compose_include_env_files", text)
+        self.assertIn("generate_env.sh", text)
+        self.assertIn("lifecycle.sh", text)
+
+    def test_root_configs_are_not_duplicated(self) -> None:
+        root_configs = REPO / "perf" / "configs"
+        service_configs = PERF / "configs"
+        for name in ("config.yaml", "perf-configs.yaml"):
+            root = root_configs / name
+            self.assertTrue(root.is_symlink(), name)
+            self.assertEqual(root.resolve(), (service_configs / name).resolve())
 
     def test_compose_mirror_has_haproxy_include_env_files(self) -> None:
         compose_root = REPO / "compose" / "docker" / "services"
@@ -273,6 +280,7 @@ class HttpLatencyTests(unittest.TestCase):
 
     def test_teardown_is_project_scoped(self) -> None:
         text = TEARDOWN.read_text()
+        self.assertIn("cleanup_docker_environment", text)
         self.assertIn("va-api-perf", text)
         self.assertNotIn("docker rm -f elasticsearch", text)
 
