@@ -199,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         cmd = ["bash", str(PERF_ROOT / "scripts" / "measure.sh")]
     else:
         env["PERF_NATIVE_ONLY"] = "true"
-        cmd = ["bash", str(PERF_ROOT / "run_benchmark.sh")]
+        cmd = ["bash", str(PERF_ROOT / "scripts" / "run_benchmark.sh")]
     completed = subprocess.run(cmd, env=env, check=False)
 
     if native_path.is_file():

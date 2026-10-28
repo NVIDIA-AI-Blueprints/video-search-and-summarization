@@ -668,6 +668,7 @@ INCIDENTS MESSAGES
             / "analytics"
             / "behavior-analytics"
             / "perf"
+            / "scripts"
             / "run_benchmark.sh"
         ).read_text()
         for stage in ("pre_flight.sh", "deploy.sh", "post_deploy.sh", "measure.sh"):
