@@ -424,7 +424,10 @@ export const AccordionDetails = ({ children, className }: DivProps) => (
 );
 
 export const Accordion = ({ children, className, defaultExpanded }: DivProps & { defaultExpanded?: boolean }) => (
-  <details className={cx('rounded border border-neutral-300 dark:border-neutral-700', className)} open={defaultExpanded}>
+  <details
+    className={cx('rounded border border-neutral-300 dark:border-neutral-700', className)}
+    {...(defaultExpanded ? { open: true } : {})}
+  >
     {children}
   </details>
 );

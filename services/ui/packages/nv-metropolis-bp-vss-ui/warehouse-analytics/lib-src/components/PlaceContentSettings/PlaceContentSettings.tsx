@@ -32,7 +32,7 @@ export default class PlaceContentSettings extends React.PureComponent {
 
     // Expects panelClass to have title
     return (
-      <Accordion defaultExpanded>
+      <Accordion>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography>
             {panelTitle ? panelTitle : panelClass.prototype.PANEL_TITLE}
