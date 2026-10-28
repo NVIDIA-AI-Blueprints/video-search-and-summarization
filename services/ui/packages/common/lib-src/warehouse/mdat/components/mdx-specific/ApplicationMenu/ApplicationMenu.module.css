@@ -1,0 +1,26 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.menuIcon,
+.menu {
+  color: white;
+}
+
+.menuIcon {
+  display: inline;
+  font-size: 2vw !important;
+  cursor: pointer;
+  float: right;
+}
+
+.menu {
+  position: fixed;
+  right: 0;
+  top: 2vw;
+  background: black;
+  z-index: 11;
+}

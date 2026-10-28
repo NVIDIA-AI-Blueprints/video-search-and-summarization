@@ -100,6 +100,12 @@ jest.mock(
   { virtual: true }
 );
 
+jest.mock(
+  "@nv-metropolis-bp-vss-ui/map",
+  () => ({}),
+  { virtual: true }
+);
+
 jest.mock("../../hooks/useTheme", () => ({
   useTheme: () => ({
     theme: "light",

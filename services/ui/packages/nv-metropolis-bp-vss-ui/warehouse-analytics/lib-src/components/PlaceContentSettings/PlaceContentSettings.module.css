@@ -1,0 +1,117 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.main {
+  position: absolute;
+  top: calc(2.25rem + 8px);
+  left: 0.75rem;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.settingsBtn {
+  position: relative;
+  box-sizing: border-box;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #3f3f46;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.settingsBtn :global(svg) {
+  width: 18px;
+  height: 18px;
+}
+
+.settingsBtn:hover {
+  background: rgba(255, 255, 255, 0.5);
+  color: #27272a;
+}
+
+.settingsBtnActive,
+.settingsBtnActive:hover {
+  background: rgba(82, 82, 91, 0.28);
+  color: #27272a;
+  border-color: rgba(63, 63, 70, 0.28);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.settingsBtn[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #1a1a1a;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+  text-align: left;
+  pointer-events: none;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 2;
+}
+
+.menuList {
+  width: 280px;
+  max-width: min(280px, calc(100vw - 2rem));
+  background: rgba(255, 255, 255, 0.16);
+  color: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.menuList :global(details) {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #1a1a1a;
+}
+
+.menuList :global(summary) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #1a1a1a;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.menuList :global(summary span),
+.menuList :global(summary svg) {
+  color: #1a1a1a;
+}
+
+.menuList :global(details > div) {
+  padding: 12px;
+}

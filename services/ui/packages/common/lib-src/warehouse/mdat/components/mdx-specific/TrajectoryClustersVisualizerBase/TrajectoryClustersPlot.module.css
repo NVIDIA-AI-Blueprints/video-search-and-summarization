@@ -1,0 +1,17 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.graphContainer {
+  position: absolute;
+  height: 40%;
+  bottom: 10px;
+  left: 10px;
+  width: 20%;
+  opacity: 0.92;
+  padding: 5px;
+  color: #1a1a1a;
+}

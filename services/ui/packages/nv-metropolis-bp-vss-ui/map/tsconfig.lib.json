@@ -1,11 +1,12 @@
 {
-    "extends": "./tsconfig.json",
-    "compilerOptions": {
-      "noEmit": false,
-      "declaration": true,
-      "declarationMap": true,
-      "emitDeclarationOnly": true,
-      "outDir": "./lib"
-    },
-    "include": ["lib-src/**/*"]
-  }
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": true,
+    "noCheck": true,
+    "outDir": "./lib"
+  },
+  "include": ["lib-src/**/*"]
+}

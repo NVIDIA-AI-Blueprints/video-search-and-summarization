@@ -1,0 +1,25 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.headerControl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.headerChip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  max-height: 1.65rem;
+  height: 1.65rem;
+  box-sizing: border-box;
+}
+
+.headerChip :global(.nv-tag) {
+  max-height: 1.65rem;
+  box-sizing: border-box;
+}

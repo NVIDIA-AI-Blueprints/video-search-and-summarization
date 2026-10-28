@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 
-import dashjs from 'dashjs';
+import * as dashjsModule from 'dashjs';
+
+const dashjs = (dashjsModule as { default?: typeof dashjsModule }).default ?? dashjsModule;
 
 /* How long to wait for the first manifest before giving up.
  *
@@ -117,7 +119,7 @@ export interface DashSessionInfo {
 }
 
 export class DashStream {
-    private player: dashjs.MediaPlayerClass | null = null;
+    private player: ReturnType<ReturnType<typeof dashjs.MediaPlayer>['create']> | null = null;
     private viewerId = '';
     private firstFrameReported = false;
     private videoElement: HTMLVideoElement | null = null;
@@ -194,7 +196,7 @@ export class DashStream {
             if (generation !== this.startGeneration) {
                 return null;
             }
-            const response = await fetch(manifestUrl, { credentials: 'include' });
+            const response = await fetch(manifestUrl, { credentials: 'same-origin' });
             lastStatus = response.status;
             if (response.status === 202 || response.status === 404) {
                 await new Promise<void>(resolve => window.setTimeout(resolve, MANIFEST_RETRY_DELAY_MS));
@@ -990,7 +992,10 @@ export class DashStream {
         }
         const response = await fetch(startUrl, {
             method: 'POST',
-            credentials: 'include',
+            // Cookies (vst_session) go with same-origin UI+VST. `include` would
+            // credential a CORS request, which VST's Access-Control-Allow-Origin: *
+            // rejects even when no cookie exists.
+            credentials: 'same-origin',
             headers: {
                 'Content-Type': 'application/json',
                 streamid: config.streamId,
@@ -1029,7 +1034,7 @@ export class DashStream {
         }
         const response = await fetch(new URL('/vst/api/v1/replay/dash/seek', this.config.endpoint).toString(), {
             method: 'POST',
-            credentials: 'include',
+            credentials: 'same-origin',
             headers: {
                 'Content-Type': 'application/json',
                 streamid: this.config.streamId,
@@ -1070,7 +1075,7 @@ export class DashStream {
         }
         const response = await fetch(url.toString(), {
             method: 'GET',
-            credentials: 'include',
+            credentials: 'same-origin',
             headers,
         });
         if (!response.ok) {
@@ -1111,7 +1116,7 @@ export class DashStream {
             const stopPath = this.replay ? '/vst/api/v1/replay/dash/stop' : '/vst/api/v1/live/dash/stop';
             await fetch(new URL(stopPath, endpoint).toString(), {
                 method: 'POST',
-                credentials: 'include',
+                credentials: 'same-origin',
                 keepalive: true,
                 headers: {
                     'Content-Type': 'application/json',

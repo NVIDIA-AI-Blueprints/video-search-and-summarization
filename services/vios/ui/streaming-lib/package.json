@@ -5,8 +5,21 @@
   "description": "Streaming library for VST (Video Storage Toolkit)",
   "module": "dist/esm/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "default": "./dist/esm/index.js"
+    },
+    "./dash": {
+      "types": "./src/dash/DashStream.ts",
+      "import": "./src/dash/DashStream.ts",
+      "default": "./src/dash/DashStream.ts"
+    }
+  },
   "files": [
-    "dist"
+    "dist",
+    "src/dash"
   ],
   "scripts": {
     "build": "rollup -c",
