@@ -84,7 +84,7 @@ const flushAndFinish = async (status: number, responseBody: string) => {
 describe('chunkedUpload', () => {
   beforeEach(installMockXHR);
 
-  it('single-chunk upload: sets nviosreamer headers and returns parsed response', async () => {
+  it('single-chunk upload: sets nvstreamer headers and returns parsed response', async () => {
     const file = new File(['x'.repeat(1024)], 'small.mp4', { type: 'video/mp4' });
     const promise = chunkedUpload({
       file,
@@ -100,12 +100,12 @@ describe('chunkedUpload', () => {
     const xhr = MockXHR.instances[0];
     expect(xhr.method).toBe('POST');
     expect(xhr.url).toBe('http://vst/storage/file');
-    expect(xhr.headers['nviosreamer-chunk-number']).toBe('1');
-    expect(xhr.headers['nviosreamer-total-chunks']).toBe('1');
-    expect(xhr.headers['nviosreamer-is-last-chunk']).toBe('true');
-    expect(xhr.headers['nviosreamer-file-name']).toBe('small.mp4');
+    expect(xhr.headers['nvstreamer-chunk-number']).toBe('1');
+    expect(xhr.headers['nvstreamer-total-chunks']).toBe('1');
+    expect(xhr.headers['nvstreamer-is-last-chunk']).toBe('true');
+    expect(xhr.headers['nvstreamer-file-name']).toBe('small.mp4');
     // identifier should be a uuid-shaped string
-    expect(xhr.headers['nviosreamer-identifier']).toMatch(/^[0-9a-f-]{20,}$/i);
+    expect(xhr.headers['nvstreamer-identifier']).toMatch(/^[0-9a-f-]{20,}$/i);
   });
 
   it('multi-chunk: sends total-chunks, marks last chunk, reuses identifier', async () => {
@@ -120,12 +120,12 @@ describe('chunkedUpload', () => {
 
     expect(res.sensorId).toBe('sensor-xyz');
     expect(MockXHR.instances).toHaveLength(3);
-    const ids = MockXHR.instances.map((x) => x.headers['nviosreamer-identifier']);
+    const ids = MockXHR.instances.map((x) => x.headers['nvstreamer-identifier']);
     expect(new Set(ids).size).toBe(1); // same identifier across chunks
-    expect(MockXHR.instances[0].headers['nviosreamer-is-last-chunk']).toBe('false');
-    expect(MockXHR.instances[1].headers['nviosreamer-is-last-chunk']).toBe('false');
-    expect(MockXHR.instances[2].headers['nviosreamer-is-last-chunk']).toBe('true');
-    expect(MockXHR.instances.every((x) => x.headers['nviosreamer-total-chunks'] === '3')).toBe(true);
+    expect(MockXHR.instances[0].headers['nvstreamer-is-last-chunk']).toBe('false');
+    expect(MockXHR.instances[1].headers['nvstreamer-is-last-chunk']).toBe('false');
+    expect(MockXHR.instances[2].headers['nvstreamer-is-last-chunk']).toBe('true');
+    expect(MockXHR.instances.every((x) => x.headers['nvstreamer-total-chunks'] === '3')).toBe(true);
   });
 
   it('retries a failed chunk up to maxRetries and succeeds on retry', async () => {

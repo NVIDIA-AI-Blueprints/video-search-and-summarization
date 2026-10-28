@@ -85,7 +85,7 @@ describe('uploadFileChunked', () => {
     expect(global.fetch).not.toHaveBeenCalled();
     expect(MockXHR.instances).toHaveLength(1);
     expect(MockXHR.instances[0].url).toBe('https://vios.example.com/v1/storage/file');
-    expect(MockXHR.instances[0].headers['nviosreamer-is-last-chunk']).toBe('true');
+    expect(MockXHR.instances[0].headers['nvstreamer-is-last-chunk']).toBe('true');
     expect(result.sensorId).toBe('chat-sensor-1');
     expect(result.filename).toBe('chat_video');
     expect(result.bytes).toBe(25);
@@ -104,7 +104,7 @@ describe('uploadFileChunked', () => {
     await flushAndFinish(200, JSON.stringify({ sensorId: 's1' }));
     await promise;
 
-    expect(MockXHR.instances[0].headers['nviosreamer-file-name']).toBe('renamed.mp4');
+    expect(MockXHR.instances[0].headers['nvstreamer-file-name']).toBe('renamed.mp4');
     expect(global.fetch).not.toHaveBeenCalled();
   });
 

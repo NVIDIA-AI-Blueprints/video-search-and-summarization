@@ -136,7 +136,7 @@ function getFieldLabel(fieldName: string): string {
   return fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
 }
 
-/** Sanitize upload filename: remove spaces so VIOS/nviosreamer naming stays consistent with Video Management. */
+/** Sanitize upload filename: remove spaces so VIOS/nvstreamer naming stays consistent with Video Management. */
 function sanitizeUploadFilename(name: string): string {
   return name.replaceAll(/\s+/g, '');
 }

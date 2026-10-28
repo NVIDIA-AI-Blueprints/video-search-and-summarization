@@ -3,7 +3,7 @@
 /**
  * Chat video upload helpers.
  *
- * Uploads each file chunk directly to VIOS using the nviosreamer protocol.
+ * Uploads each file chunk directly to VIOS using the nvstreamer protocol.
  */
 
 import { chunkedUpload } from './chunkedUpload';

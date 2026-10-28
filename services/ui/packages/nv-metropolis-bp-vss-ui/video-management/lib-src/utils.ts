@@ -139,11 +139,11 @@ export async function uploadFile(
   formData.append('metadata', '{"timestamp":"2025-01-01T00:00:00"}');
 
   const headers: Record<string, string> = {
-    'nviosreamer-chunk-number': '1',
-    'nviosreamer-file-name': fileName,
-    'nviosreamer-identifier': identifier,
-    'nviosreamer-is-last-chunk': 'true',
-    'nviosreamer-total-chunks': '1',
+    'nvstreamer-chunk-number': '1',
+    'nvstreamer-file-name': fileName,
+    'nvstreamer-identifier': identifier,
+    'nvstreamer-is-last-chunk': 'true',
+    'nvstreamer-total-chunks': '1',
   };
 
   return new Promise((resolve, reject) => {

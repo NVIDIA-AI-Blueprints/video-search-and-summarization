@@ -12,7 +12,7 @@ import type { ChunkedUploadOptions, ChunkedUploadResponse } from 'common';
 export type { ChunkedUploadOptions };
 
 /**
- * Upload a file to VIOS in chunks using the nviosreamer chunked upload protocol.
+ * Upload a file to VIOS in chunks using the nvstreamer chunked upload protocol.
  *
  * Thin wrapper around the shared primitive that re-types the response as the
  * package-local FileUploadResponse for existing call sites.
