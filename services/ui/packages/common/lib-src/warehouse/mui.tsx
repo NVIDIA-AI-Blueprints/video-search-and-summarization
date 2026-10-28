@@ -12,7 +12,6 @@ import {
   DatePicker as KaizenDatePicker,
   Divider as KaizenDivider,
   Select as KaizenSelect,
-  Slider as KaizenSlider,
   Spinner as KaizenSpinner,
   Switch as KaizenSwitch,
   Tag as KaizenTag,
@@ -403,32 +402,6 @@ export const Tooltip = ({
   );
 };
 
-export const Slider = ({
-  value, defaultValue, min = 0, max = 100, step = 1, onChange, onChangeCommitted, className, style,
-}: {
-  value?: number;
-  defaultValue?: number;
-  min?: number;
-  max?: number;
-  step?: number;
-  onChange?: (event: unknown, value: number) => void;
-  onChangeCommitted?: (event: unknown, value: number) => void;
-  className?: string;
-  style?: React.CSSProperties;
-}) => (
-  <KaizenSlider
-    className={className}
-    style={style}
-    min={min}
-    max={max}
-    step={step}
-    value={value}
-    defaultValue={defaultValue}
-    onValueChange={(next: number) => onChange?.(null, next)}
-    onValueCommit={(next: number) => onChangeCommitted?.(null, next)}
-  />
-);
-
 export const AccordionSummary = ({ children, className, expandIcon }: DivProps & { expandIcon?: React.ReactNode }) => (
   <summary className={cx('flex cursor-pointer list-none items-center justify-between gap-2 p-2', className)}>
     <span>{children}</span>
@@ -609,19 +582,6 @@ export const LocalizationProvider = ({ children }: { children?: React.ReactNode;
 export const AdapterDateFns = function AdapterDateFns() {
   return null;
 };
-
-export function styled(Component: React.ComponentType<any> | keyof JSX.IntrinsicElements) {
-  return function styledFactory(_styles?: unknown) {
-    const Styled = (props: Record<string, unknown>) => {
-      if (typeof Component === 'string') {
-        return React.createElement(Component, props);
-      }
-      return <Component {...props} />;
-    };
-    Styled.displayName = 'WarehouseStyled';
-    return Styled;
-  };
-}
 
 export default {
   Box, Button, Chip, Select, Switch, TextField, Tooltip,

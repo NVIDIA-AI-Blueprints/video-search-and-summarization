@@ -6,7 +6,6 @@ export { default as withLoaderDisplay } from './components/generic/Hoc/WithLoade
 export { default as VideoElement } from './components/generic/VideoElement/VideoElement';
 export { default as HlsVideo } from './components/generic/HlsVideo/HlsVideo';
 export { default as WrappedHlsVideo } from './components/generic/WrappedHlsVideo/WrappedHlsVideo';
-export { default as WebrtcVideo } from './components/generic/WebrtcVideo/WebrtcVideo';
 export { default as DashVideo } from './components/generic/DashVideo/DashVideo';
 export { default as Widget } from './components/generic/Widget/Widget';
 export { default as StartEndDateTimeSelector } from './components/generic/StartEndDateTimeSelector';
@@ -26,8 +25,6 @@ export { default as CameraView } from './components/mdx-specific/CameraView';
 export { default as TopView } from './components/mdx-specific/TopView';
 export { default as CameraImageView } from './components/mdx-specific/CameraImageView';
 export { default as EventCard } from './components/mdx-specific/EventCard';
-export { default as EventWebrtcVideo } from './components/mdx-specific/EventWebrtcVideo';
-export { default as RecordedSensorWebrtcVideo } from './components/mdx-specific/RecordedSensorWebrtcVideo';
 export { default as VizCameraIcon } from './components/mdx-specific/VizCameraIcon';
 export { default as MapVisualizerSettings } from './components/mdx-specific/MapVisualizerSettings';
 export { default as LastUpdateTimeDisplay } from './components/mdx-specific/LastUpdateTimeDisplay';

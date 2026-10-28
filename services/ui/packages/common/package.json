@@ -75,7 +75,6 @@
     "ts-overlapping-marker-spiderfier": "^1.0.3",
     "uuid": "^11.1.1",
     "vst-streaming-lib": "file:../../../vios/ui/streaming-lib",
-    "webrtc-streamer": "^0.3.3-17-g5e5933f",
     "wellknown": "^0.5.0"
   },
   "devDependencies": {
