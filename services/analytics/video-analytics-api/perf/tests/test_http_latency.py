@@ -289,6 +289,21 @@ class HttpLatencyTests(unittest.TestCase):
         text = ROOT_RUN.read_text()
         self.assertIn("video-analytics-api/perf/run_benchmark.sh", text)
         self.assertNotIn("behavior-analytics/perf/run_benchmark.sh", text)
+        root_perf = REPO / "perf"
+        for rel in (
+            "configs/perf-configs.yaml",
+            "configs/config.yaml",
+            "benchmark/core/vss_perf_benchmark.py",
+            "scripts/pre_flight.sh",
+            "scripts/deploy.sh",
+            "scripts/post_deploy.sh",
+            "scripts/measure.sh",
+            "scripts/teardown.sh",
+        ):
+            path = root_perf / rel
+            self.assertTrue(path.is_file(), rel)
+        measure = (root_perf / "scripts" / "measure.sh").read_text()
+        self.assertIn("video-analytics-api/perf/scripts/measure.sh", measure)
 
     def test_minio_service_name(self) -> None:
         settings = minio_settings(PERF / "configs" / "config.yaml")
