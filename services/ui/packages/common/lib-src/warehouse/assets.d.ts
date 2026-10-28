@@ -18,5 +18,4 @@ declare module '*.json' {
   export default value;
 }
 declare module 'wellknown';
-declare module 'webrtc-streamer/html/libs/adapter.min.js';
 declare module 'ts-overlapping-marker-spiderfier';

@@ -60,7 +60,6 @@ const DatePicker = ({ children, ...rest }) =>
   React.createElement('div', rest, children);
 const TimeInput = TextInput;
 const Spinner = (props) => React.createElement('div', { role: 'status', ...props });
-const Slider = (props) => React.createElement('input', { type: 'range', ...props });
 const Tooltip = ({ children, slotContent, ...rest }) =>
   React.createElement('span', rest, children, slotContent);
 const Checkbox = ({ checked, onCheckedChange, ...rest }) =>
@@ -82,7 +81,6 @@ module.exports = {
   DatePicker,
   TimeInput,
   Spinner,
-  Slider,
   Tooltip,
   Checkbox,
   Divider,

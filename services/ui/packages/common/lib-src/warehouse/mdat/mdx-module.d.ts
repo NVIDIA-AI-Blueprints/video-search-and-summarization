@@ -21,16 +21,4 @@ declare module "common/warehouse/mdat" {
   }
 
   export const EventCard: React.FC<EventCardProps>;
-
-
-  /* ************* */
-  export interface EventWebrtcVideoProps {
-    eventData: any;
-    endpoints: {
-      mediaServerBaseUrl: String;
-    };
-    sensorConfig: any;
-  }
-
-  export const EventWebrtcVideo: React.FC<EventWebrtcVideoProps>;
 }
