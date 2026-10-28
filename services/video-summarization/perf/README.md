@@ -42,9 +42,8 @@ explicitly.
 The promotion trigger supplies:
 
 ```text
-PERF_SOURCE=external
-SCM_FOLDER=services/video-summarization
-PERF_FOLDER=perf
+PERF_ROOT=services/video-summarization/perf
+PERF_ENTRYPOINT=scripts/run_benchmark.sh
 ```
 
 Run the offline unit tests from this service directory:
