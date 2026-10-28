@@ -1733,3 +1733,139 @@ def test_categories_and_budgets_stay_at_the_base_contract() -> None:
         "max_vlm_calls_per_subagent": 4,
         "max_total_vlm_calls": 12,
     }
+
+
+def count_candidate(
+    candidate_id: str,
+    status: str = "observed",
+    *,
+    counted: bool | None = None,
+    observation_ids: list[str] | None = None,
+    duplicate_of: str | None = None,
+) -> dict:
+    value = {
+        "candidate_id": candidate_id,
+        "status": status,
+        "counted": status in ("observed", "inferred") if counted is None else counted,
+        "description": f"Candidate event {candidate_id}.",
+        "justification": "Visible in the cited caption.",
+    }
+    if observation_ids is not None:
+        value["observation_ids"] = observation_ids
+    if duplicate_of is not None:
+        value["duplicate_of"] = duplicate_of
+    return value
+
+
+def count_gap(
+    gap_id: str, kind: str = "obscured_interval", *, affects_answer: bool = True
+) -> dict:
+    return {
+        "gap_id": gap_id,
+        "kind": kind,
+        "description": f"Gap {gap_id} may hide a qualifying event.",
+        "affects_answer": affects_answer,
+        "start": START,
+        "end": END,
+    }
+
+
+def count_ledger_task() -> tuple[dict, dict]:
+    ledger = initialized(claim("claim-count", "count", "whole_video"))
+    return ledger, create_tasks(ledger)[0]
+
+
+def count_result(task: dict, observations: tuple[dict, ...], count_state: dict, **kwargs) -> dict:
+    value = result(task, observations, **kwargs)
+    value["count_state"] = count_state
+    return value
+
+
+def test_count_inventory_rejects_counted_uncounted_statuses() -> None:
+    _, task = count_ledger_task()
+    item = observation("claim-count", text="A box falls at 2 seconds.")
+    for status in ("duplicate", "excluded", "unresolved"):
+        candidate = count_candidate("evt-a", status, counted=True)
+        if status == "duplicate":
+            candidate["duplicate_of"] = "evt-b"
+        state = {"candidates": [candidate], "open_gaps": [], "resolved_gaps": []}
+        with pytest.raises(ledger_mod.LedgerValidationError, match="cannot be counted"):
+            ledger_mod.validate_inspection_result(count_result(task, (item,), state), task)
+
+
+def test_count_inventory_requires_cited_evidence_for_observed_events() -> None:
+    _, task = count_ledger_task()
+    item = observation("claim-count", text="A box falls at 2 seconds.")
+    state = {"candidates": [count_candidate("evt-a")], "open_gaps": [], "resolved_gaps": []}
+    with pytest.raises(ledger_mod.LedgerValidationError, match="must cite evidence"):
+        ledger_mod.validate_inspection_result(count_result(task, (item,), state), task)
+    state["candidates"][0]["observation_ids"] = ["obs-" + "f" * 24]
+    with pytest.raises(ledger_mod.LedgerValidationError, match="accepted observations"):
+        ledger_mod.validate_inspection_result(count_result(task, (item,), state), task)
+
+
+def test_count_inventory_duplicates_must_point_at_an_original() -> None:
+    _, task = count_ledger_task()
+    item = observation("claim-count", text="A box falls at 2 seconds.")
+    ids = [item["observation_id"]]
+    state = {
+        "candidates": [
+            count_candidate("evt-a", observation_ids=ids),
+            count_candidate("evt-b", "duplicate", observation_ids=ids, duplicate_of="evt-c"),
+            count_candidate("evt-c", "duplicate", observation_ids=ids, duplicate_of="evt-a"),
+        ],
+        "open_gaps": [],
+        "resolved_gaps": [],
+    }
+    with pytest.raises(ledger_mod.LedgerValidationError, match="non-duplicate"):
+        ledger_mod.validate_inspection_result(count_result(task, (item,), state), task)
+
+
+def test_count_inventory_is_only_valid_for_count_claims() -> None:
+    ledger = initialized()
+    task = create_tasks(ledger)[0]
+    state = {"candidates": [], "open_gaps": [], "resolved_gaps": []}
+    with pytest.raises(ledger_mod.LedgerValidationError, match="only valid for a count claim"):
+        ledger_mod.validate_inspection_result(count_result(task, (), state), task)
+
+
+def test_count_inventory_follows_canonical_observation_ids() -> None:
+    ledger, task = count_ledger_task()
+    item = observation("claim-count", text="A box falls at 2 seconds.")
+    stale = dict(item, observation_id="obs-" + "1" * 24)
+    state = {
+        "candidates": [count_candidate("evt-a", observation_ids=[stale["observation_id"]])],
+        "open_gaps": [],
+        "resolved_gaps": [],
+    }
+    merged = ledger_mod.merge_round_results(
+        ledger, [task], [count_result(task, (stale,), state)]
+    )
+    assert merged["claims"][0]["count_state"]["candidates"][0]["observation_ids"] == [
+        item["observation_id"]
+    ]
+
+
+def test_ledger_rejects_sufficient_coverage_with_an_answer_affecting_gap() -> None:
+    ledger, task = count_ledger_task()
+    item = observation("claim-count", text="A box falls at 2 seconds.")
+    merged = ledger_mod.merge_round_results(
+        ledger,
+        [task],
+        [
+            count_result(
+                task,
+                (item,),
+                {
+                    "candidates": [count_candidate("evt-a", observation_ids=[item["observation_id"]])],
+                    "open_gaps": [count_gap("gap-shelf")],
+                    "resolved_gaps": [],
+                },
+            )
+        ],
+    )
+    forged = copy.deepcopy(merged)
+    forged["claims"][0]["coverage"] = "sufficient"
+    forged["claims"][0].pop("coverage_cap")
+    with pytest.raises(ledger_mod.LedgerValidationError, match="cannot be sufficient"):
+        ledger_mod.validate_ledger(forged)

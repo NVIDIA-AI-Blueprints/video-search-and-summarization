@@ -133,6 +133,28 @@ CLAIM_ID_RE = re.compile(r"^claim-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_ID_RE = re.compile(r"^inspect-claim-[a-z0-9]+(?:-[a-z0-9]+)*-r[1-9][0-9]*$")
 OBSERVATION_ID_RE = re.compile(r"^obs-[a-f0-9]{24}$")
 
+CANDIDATE_STATUSES = ("observed", "inferred", "unresolved", "duplicate", "excluded")
+UNCOUNTED_CANDIDATE_STATUSES = ("unresolved", "duplicate", "excluded")
+COUNT_GAP_KINDS = (
+    "unobserved_interval",
+    "obscured_interval",
+    "temporal_boundary",
+    "identity_ambiguity",
+    "qualification_ambiguity",
+)
+CANDIDATE_REQUIRED = {"candidate_id", "status", "counted", "description", "justification"}
+CANDIDATE_OPTIONAL = {"observation_ids", "spans", "duplicate_of"}
+COUNT_GAP_REQUIRED = {"gap_id", "kind", "description", "affects_answer"}
+COUNT_GAP_OPTIONAL = {"start", "end"}
+RESOLVED_GAP_KEYS = {"gap_id", "resolution"}
+RESULT_COUNT_STATE_KEYS = {"candidates", "open_gaps", "resolved_gaps"}
+LEDGER_COUNT_STATE_KEYS = {"candidates", "open_gaps", "resolved_gaps"}
+COVERAGE_CAP_KEYS = {"capped_from", "reason", "gap_ids", "candidate_ids"}
+CANDIDATE_ID_RE = re.compile(r"^evt-[a-z0-9]+(?:-[a-z0-9]+)*$")
+COUNT_GAP_ID_RE = re.compile(r"^gap-[a-z0-9]+(?:-[a-z0-9]+)*$")
+MAX_COUNT_CANDIDATES = 40
+MAX_COUNT_GAPS = 16
+
 
 class LedgerValidationError(ValueError):
     """Raised when a contract or state transition is invalid."""
@@ -147,6 +169,20 @@ def _strict(value: Any, keys: set[str], path: str) -> Mapping[str, Any]:
         _fail(path, "must be an object")
     missing = keys - set(value)
     unknown = set(value) - keys
+    if missing:
+        _fail(path, f"missing fields: {', '.join(sorted(missing))}")
+    if unknown:
+        _fail(path, f"unknown fields: {', '.join(sorted(unknown))}")
+    return value
+
+
+def _strict_optional(
+    value: Any, required: set[str], optional: set[str], path: str
+) -> Mapping[str, Any]:
+    if not isinstance(value, dict):
+        _fail(path, "must be an object")
+    missing = required - set(value)
+    unknown = set(value) - required - optional
     if missing:
         _fail(path, f"missing fields: {', '.join(sorted(missing))}")
     if unknown:
@@ -302,9 +338,22 @@ def canonicalize_result_observation_ids(result: Any) -> Any:
     if not isinstance(result, dict) or not isinstance(result.get("observations"), list):
         return copy.deepcopy(result)
     repaired = copy.deepcopy(result)
+    renamed: dict[str, str] = {}
     for item in repaired["observations"]:
         if isinstance(item, dict):
-            item["observation_id"] = observation_id(item)
+            canonical = observation_id(item)
+            if isinstance(item.get("observation_id"), str):
+                renamed[item["observation_id"]] = canonical
+            item["observation_id"] = canonical
+    count_state = repaired.get("count_state")
+    candidates = count_state.get("candidates") if isinstance(count_state, dict) else None
+    for candidate in candidates if isinstance(candidates, list) else []:
+        cited = candidate.get("observation_ids") if isinstance(candidate, dict) else None
+        if isinstance(cited, list):
+            candidate["observation_ids"] = [
+                renamed.get(item_id, item_id) if isinstance(item_id, str) else item_id
+                for item_id in cited
+            ]
     return repaired
 
 
@@ -404,7 +453,9 @@ def _validate_observation(
 
 
 def _validate_claim_state(state: Any, path: str) -> None:
-    state = _strict(state, CLAIM_STATE_KEYS, path)
+    state = _strict_optional(
+        state, CLAIM_STATE_KEYS, {"count_state", "coverage_cap"}, path
+    )
     if not CLAIM_ID_RE.fullmatch(str(state["claim_id"])):
         _fail(f"{path}.claim_id", "invalid claim ID")
     if state["status"] not in CLAIM_STATUSES:
@@ -419,6 +470,245 @@ def _validate_claim_state(state: Any, path: str) -> None:
         if not OBSERVATION_ID_RE.fullmatch(str(observation)):
             _fail(f"{path}.observation_ids", "contains an invalid observation ID")
     _nullable_string(state["gap"], f"{path}.gap")
+
+
+def _validate_count_gap(gap: Any, path: str, *, resolved: bool = False) -> None:
+    required = COUNT_GAP_REQUIRED | ({"resolution", "resolved_by"} if resolved else set())
+    gap = _strict_optional(gap, required, COUNT_GAP_OPTIONAL, path)
+    if not COUNT_GAP_ID_RE.fullmatch(str(gap["gap_id"])):
+        _fail(f"{path}.gap_id", "must match gap-<descriptive-slug>")
+    if gap["kind"] not in COUNT_GAP_KINDS:
+        _fail(f"{path}.kind", "unknown count gap kind")
+    _nonempty(gap["description"], f"{path}.description")
+    if gap["affects_answer"] not in (True, False):
+        _fail(f"{path}.affects_answer", "must be a boolean")
+    if ("start" in gap) != ("end" in gap):
+        _fail(path, "start and end must be given together")
+    if "start" in gap:
+        _validate_window(gap["start"], gap["end"], path)
+    if resolved:
+        _nonempty(gap["resolution"], f"{path}.resolution")
+        if not TASK_ID_RE.fullmatch(str(gap["resolved_by"])):
+            _fail(f"{path}.resolved_by", "must name the resolving task")
+
+
+def _validate_candidates(
+    candidates: Any, path: str, known_observations: set[str] | None
+) -> None:
+    if not isinstance(candidates, list) or len(candidates) > MAX_COUNT_CANDIDATES:
+        _fail(path, f"must be an array of at most {MAX_COUNT_CANDIDATES} candidates")
+    by_id: dict[str, Mapping[str, Any]] = {}
+    for index, candidate in enumerate(candidates):
+        item_path = f"{path}[{index}]"
+        candidate = _strict_optional(
+            candidate, CANDIDATE_REQUIRED, CANDIDATE_OPTIONAL, item_path
+        )
+        candidate_id = str(candidate["candidate_id"])
+        if not CANDIDATE_ID_RE.fullmatch(candidate_id):
+            _fail(f"{item_path}.candidate_id", "must match evt-<descriptive-slug>")
+        if candidate_id in by_id:
+            _fail(f"{item_path}.candidate_id", "must be unique")
+        by_id[candidate_id] = candidate
+        if candidate["status"] not in CANDIDATE_STATUSES:
+            _fail(f"{item_path}.status", "unknown candidate status")
+        if candidate["counted"] not in (True, False):
+            _fail(f"{item_path}.counted", "must be a boolean")
+        if candidate["status"] in UNCOUNTED_CANDIDATE_STATUSES and candidate["counted"]:
+            _fail(
+                f"{item_path}.counted",
+                f"a {candidate['status']} candidate cannot be counted",
+            )
+        _nonempty(candidate["description"], f"{item_path}.description")
+        _nonempty(candidate["justification"], f"{item_path}.justification")
+        cited = candidate.get("observation_ids", [])
+        if not isinstance(cited, list) or len(cited) != len(set(cited)):
+            _fail(f"{item_path}.observation_ids", "must be an array of unique IDs")
+        for item_id in cited:
+            if not OBSERVATION_ID_RE.fullmatch(str(item_id)):
+                _fail(f"{item_path}.observation_ids", "contains an invalid observation ID")
+            if known_observations is not None and item_id not in known_observations:
+                _fail(
+                    f"{item_path}.observation_ids",
+                    "must cite accepted observations for this claim",
+                )
+        if candidate["status"] == "observed" and not cited:
+            _fail(f"{item_path}.observation_ids", "an observed candidate must cite evidence")
+        spans = candidate.get("spans", [])
+        if not isinstance(spans, list):
+            _fail(f"{item_path}.spans", "must be an array")
+        for span_index, span in enumerate(spans):
+            span = _strict(span, {"start", "end"}, f"{item_path}.spans[{span_index}]")
+            _validate_window(span["start"], span["end"], f"{item_path}.spans[{span_index}]")
+        target = candidate.get("duplicate_of")
+        if (candidate["status"] == "duplicate") != (target is not None):
+            _fail(
+                f"{item_path}.duplicate_of",
+                "is required for, and only for, a duplicate candidate",
+            )
+    for candidate_id, candidate in by_id.items():
+        target = candidate.get("duplicate_of")
+        if target is None:
+            continue
+        original = by_id.get(target)
+        if original is None or target == candidate_id or original["status"] == "duplicate":
+            _fail(
+                f"{path}.{candidate_id}.duplicate_of",
+                "must name another non-duplicate candidate",
+            )
+
+
+def _validate_count_state(
+    count_state: Any,
+    path: str,
+    *,
+    ledger_form: bool,
+    known_observations: set[str] | None,
+) -> None:
+    keys = LEDGER_COUNT_STATE_KEYS if ledger_form else RESULT_COUNT_STATE_KEYS
+    count_state = _strict(count_state, keys, path)
+    _validate_candidates(count_state["candidates"], f"{path}.candidates", known_observations)
+    for field in ("open_gaps", "resolved_gaps"):
+        if not isinstance(count_state[field], list) or len(count_state[field]) > MAX_COUNT_GAPS:
+            _fail(f"{path}.{field}", f"must be an array of at most {MAX_COUNT_GAPS} gaps")
+    for index, gap in enumerate(count_state["open_gaps"]):
+        _validate_count_gap(gap, f"{path}.open_gaps[{index}]")
+    for index, gap in enumerate(count_state["resolved_gaps"]):
+        gap_path = f"{path}.resolved_gaps[{index}]"
+        if ledger_form:
+            _validate_count_gap(gap, gap_path, resolved=True)
+        else:
+            gap = _strict(gap, RESOLVED_GAP_KEYS, gap_path)
+            if not COUNT_GAP_ID_RE.fullmatch(str(gap["gap_id"])):
+                _fail(f"{gap_path}.gap_id", "must match gap-<descriptive-slug>")
+            _nonempty(gap["resolution"], f"{gap_path}.resolution")
+    open_ids = [gap["gap_id"] for gap in count_state["open_gaps"]]
+    resolved_ids = [gap["gap_id"] for gap in count_state["resolved_gaps"]]
+    if len(open_ids) != len(set(open_ids)) or len(resolved_ids) != len(set(resolved_ids)):
+        _fail(path, "gap IDs must be unique")
+    if set(open_ids) & set(resolved_ids):
+        _fail(path, "a gap cannot be both open and resolved")
+
+
+def count_blockers(count_state: Mapping[str, Any] | None) -> dict[str, list[str]]:
+    """Answer-affecting open gaps and unresolved candidates that prevent an exact count."""
+    if not count_state:
+        return {"gap_ids": [], "candidate_ids": []}
+    return {
+        "gap_ids": sorted(
+            gap["gap_id"] for gap in count_state["open_gaps"] if gap["affects_answer"]
+        ),
+        "candidate_ids": sorted(
+            item["candidate_id"]
+            for item in count_state["candidates"]
+            if item["status"] == "unresolved"
+        ),
+    }
+
+
+def count_assessment(state: Mapping[str, Any]) -> dict[str, Any]:
+    """Summarize a claim's count inventory without choosing an answer."""
+    count_state = state.get("count_state")
+    if count_state is None:
+        return {"claim_id": state["claim_id"], "inventory": "absent", "count_kind": "unrecorded"}
+    candidates = count_state["candidates"]
+    counted = [item for item in candidates if item["counted"]]
+    blockers = count_blockers(count_state)
+    blocked = bool(blockers["gap_ids"] or blockers["candidate_ids"])
+    return {
+        "claim_id": state["claim_id"],
+        "inventory": "present",
+        "count_kind": "lower_bound" if blocked else "exact",
+        "counted": len(counted),
+        "counted_observed": sum(1 for item in counted if item["status"] == "observed"),
+        "counted_inferred": sum(1 for item in counted if item["status"] == "inferred"),
+        "unresolved_candidate_ids": blockers["candidate_ids"],
+        "duplicate_candidate_ids": sorted(
+            item["candidate_id"] for item in candidates if item["status"] == "duplicate"
+        ),
+        "excluded_candidate_ids": sorted(
+            item["candidate_id"] for item in candidates if item["status"] == "excluded"
+        ),
+        "answer_affecting_gap_ids": blockers["gap_ids"],
+        "non_blocking_gap_ids": sorted(
+            gap["gap_id"] for gap in count_state["open_gaps"] if not gap["affects_answer"]
+        ),
+        "resolved_gap_ids": sorted(gap["gap_id"] for gap in count_state["resolved_gaps"]),
+    }
+
+
+def _merge_count_state(
+    prior: Mapping[str, Any] | None,
+    reported: Mapping[str, Any],
+    task_id: str,
+    path: str,
+) -> dict[str, Any]:
+    """Union candidates by ID and carry every unresolved prior gap forward."""
+    prior = prior or {"candidates": [], "open_gaps": [], "resolved_gaps": []}
+    candidates = {item["candidate_id"]: copy.deepcopy(item) for item in prior["candidates"]}
+    for item in reported["candidates"]:
+        candidates[item["candidate_id"]] = copy.deepcopy(item)
+    open_gaps = {gap["gap_id"]: copy.deepcopy(gap) for gap in prior["open_gaps"]}
+    resolved = {gap["gap_id"]: copy.deepcopy(gap) for gap in prior["resolved_gaps"]}
+    for gap in reported["open_gaps"]:
+        if gap["gap_id"] in resolved:
+            _fail(f"{path}.open_gaps", f"{gap['gap_id']} was already resolved")
+        open_gaps[gap["gap_id"]] = copy.deepcopy(gap)
+    for entry in reported["resolved_gaps"]:
+        gap = open_gaps.pop(entry["gap_id"], None)
+        if gap is None:
+            _fail(f"{path}.resolved_gaps", f"{entry['gap_id']} is not an open gap")
+        gap.update({"resolution": entry["resolution"], "resolved_by": task_id})
+        resolved[entry["gap_id"]] = gap
+    return {
+        "candidates": [candidates[key] for key in sorted(candidates)],
+        "open_gaps": [open_gaps[key] for key in sorted(open_gaps)],
+        "resolved_gaps": [resolved[key] for key in sorted(resolved)],
+    }
+
+
+def _apply_coverage_cap(state: dict[str, Any]) -> None:
+    """An open answer-affecting count gap keeps coverage below sufficient."""
+    blockers = count_blockers(state.get("count_state"))
+    if not (blockers["gap_ids"] or blockers["candidate_ids"]):
+        state.pop("coverage_cap", None)
+        return
+    if state["coverage"] == "sufficient":
+        state["coverage"] = "partial"
+        state["coverage_cap"] = {
+            "capped_from": "sufficient",
+            "reason": "an answer-affecting count gap or unresolved candidate remains",
+            **blockers,
+        }
+    elif "coverage_cap" in state:
+        state["coverage_cap"].update(blockers)
+
+
+def _validate_count_fields(
+    state: Mapping[str, Any], claim: Mapping[str, Any], path: str
+) -> None:
+    if "count_state" in state:
+        if claim["evidence_type"] != "count":
+            _fail(f"{path}.count_state", "is only valid for a count claim")
+        _validate_count_state(
+            state["count_state"],
+            f"{path}.count_state",
+            ledger_form=True,
+            known_observations=set(state["observation_ids"]),
+        )
+    blockers = count_blockers(state.get("count_state"))
+    blocked = bool(blockers["gap_ids"] or blockers["candidate_ids"])
+    if blocked and state["coverage"] == "sufficient":
+        _fail(
+            f"{path}.coverage",
+            "cannot be sufficient while an answer-affecting count gap remains",
+        )
+    if "coverage_cap" in state:
+        cap = _strict(state["coverage_cap"], COVERAGE_CAP_KEYS, f"{path}.coverage_cap")
+        if not blocked or cap["capped_from"] != "sufficient":
+            _fail(f"{path}.coverage_cap", "must describe a current count blocker")
+        if cap["gap_ids"] != blockers["gap_ids"] or cap["candidate_ids"] != blockers["candidate_ids"]:
+            _fail(f"{path}.coverage_cap", "must list the current count blockers")
+        _nonempty(cap["reason"], f"{path}.coverage_cap.reason")
 
 
 def _derived_claim_status(
@@ -534,6 +824,7 @@ def validate_ledger(ledger: Any) -> None:
         )
         if state["status"] != expected:
             _fail(f"ledger.claims[{index}].status", "does not match accepted evidence")
+        _validate_count_fields(state, plan_claims[index], f"ledger.claims[{index}]")
     if sorted(referenced) != sorted(observation_ids):
         _fail(
             "ledger.observations",
@@ -637,7 +928,7 @@ def validate_inspection_task(
     task: Any, ledger: Mapping[str, Any] | None = None
 ) -> None:
     """Validate a one-claim task, optionally against a frozen ledger."""
-    task = _strict(task, TASK_KEYS, "task")
+    task = _strict_optional(task, TASK_KEYS, {"count_state"}, "task")
     if not TASK_ID_RE.fullmatch(str(task["task_id"])):
         _fail("task.task_id", "invalid task ID")
     _integer(task["base_revision"], "task.base_revision")
@@ -666,6 +957,15 @@ def validate_inspection_task(
     assert match is not None
     if match.group(1) != task["claim"]["claim_id"]:
         _fail("task.task_id", "does not match assigned claim")
+    if "count_state" in task:
+        if task["claim"]["evidence_type"] != "count":
+            _fail("task.count_state", "is only valid for a count claim")
+        _validate_count_state(
+            task["count_state"],
+            "task.count_state",
+            ledger_form=True,
+            known_observations={item["observation_id"] for item in task["existing_observations"]},
+        )
     if ledger is None:
         return
     validate_ledger(ledger)
@@ -685,6 +985,8 @@ def validate_inspection_task(
     ]
     if task["existing_observations"] != expected:
         _fail("task.existing_observations", "does not match accepted claim evidence")
+    if task.get("count_state") != state.get("count_state"):
+        _fail("task.count_state", "does not match the canonical count inventory")
     if task["asset_id"] != ledger["plan"]["asset_id"]:
         _fail("task.asset_id", "does not match the plan")
 
@@ -765,6 +1067,8 @@ def create_inspection_tasks(
             "media_scope": copy.deepcopy(media_scopes[claim_id]),
             "max_vlm_calls": allocation,
         }
+        if "count_state" in state:
+            task["count_state"] = copy.deepcopy(state["count_state"])
         validate_inspection_task(task, ledger)
         tasks.append(task)
     return tasks
@@ -774,7 +1078,7 @@ def validate_inspection_result(
     result: Any, task: Mapping[str, Any] | None = None
 ) -> None:
     """Validate a small subagent result; it never carries canonical state."""
-    result = _strict(result, RESULT_KEYS, "result")
+    result = _strict_optional(result, RESULT_KEYS, {"count_state"}, "result")
     if not TASK_ID_RE.fullmatch(str(result["task_id"])):
         _fail("result.task_id", "invalid task ID")
     _integer(result["base_revision"], "result.base_revision")
@@ -793,9 +1097,21 @@ def validate_inspection_result(
         maximum=BUDGETS["max_vlm_calls_per_subagent"],
     )
     _nullable_string(result["error"], "result.error")
+    if "count_state" in result:
+        known = {item["observation_id"] for item in result["observations"]}
+        if task is not None:
+            known |= {item["observation_id"] for item in task["existing_observations"]}
+        _validate_count_state(
+            result["count_state"],
+            "result.count_state",
+            ledger_form=False,
+            known_observations=known,
+        )
     if task is None:
         return
     validate_inspection_task(task)
+    if "count_state" in result and task["claim"]["evidence_type"] != "count":
+        _fail("result.count_state", "is only valid for a count claim")
     if result["task_id"] != task["task_id"]:
         _fail("result.task_id", "does not match assigned task")
     if result["base_revision"] != task["base_revision"]:
@@ -921,6 +1237,9 @@ def _is_sufficient(ledger: Mapping[str, Any]) -> bool:
             return False
         if state["coverage"] != "sufficient" or not state["observation_ids"]:
             return False
+        blockers = count_blockers(state.get("count_state"))
+        if blockers["gap_ids"] or blockers["candidate_ids"]:
+            return False
         relations = {
             observations[item_id]["relation"] for item_id in state["observation_ids"]
         }
@@ -938,15 +1257,16 @@ def assess_sufficiency(ledger: Mapping[str, Any]) -> dict[str, Any]:
         relations = {
             observations[item_id]["relation"] for item_id in state["observation_ids"]
         }
-        claims.append(
-            {
-                "claim_id": state["claim_id"],
-                "resolved": state["status"] in ("supported", "contradicted"),
-                "coverage_sufficient": state["coverage"] == "sufficient",
-                "has_observation": bool(state["observation_ids"]),
-                "conflicting": "supports" in relations and "contradicts" in relations,
-            }
-        )
+        entry = {
+            "claim_id": state["claim_id"],
+            "resolved": state["status"] in ("supported", "contradicted"),
+            "coverage_sufficient": state["coverage"] == "sufficient",
+            "has_observation": bool(state["observation_ids"]),
+            "conflicting": "supports" in relations and "contradicts" in relations,
+        }
+        if _claim(ledger, state["claim_id"])["evidence_type"] == "count":
+            entry["count_assessment"] = count_assessment(state)
+        claims.append(entry)
     return {"sufficient": _is_sufficient(ledger), "claims": claims}
 
 
@@ -998,10 +1318,20 @@ def merge_round_results(
         result = result_map[task_id]
         accepted += _append_observations(updated, result["observations"])
         state = _state(updated, task_map[task_id]["claim"]["claim_id"])
+        prior_coverage = state["coverage"]
         if COVERAGES.index(result["coverage"]) > COVERAGES.index(state["coverage"]):
             state["coverage"] = result["coverage"]
-            coverage_improved = True
         state["gap"] = result["gap"]
+        if "count_state" in result:
+            state["count_state"] = _merge_count_state(
+                state.get("count_state"),
+                result["count_state"],
+                task_id,
+                f"results.{task_id}.count_state",
+            )
+        _apply_coverage_cap(state)
+        if COVERAGES.index(state["coverage"]) > COVERAGES.index(prior_coverage):
+            coverage_improved = True
     updated["vlm_calls_used"] += calls
     updated["round"] += 1
     updated["revision"] += 1
@@ -1246,6 +1576,7 @@ def final_result(
             "unresolved_gaps": [],
             "revision": ledger["revision"],
             "artifact_dir": artifact_dir,
+            **_count_assessments(ledger),
         }
     gaps = []
     for state in ledger["claims"]:
@@ -1272,6 +1603,20 @@ def final_result(
                 "reason": reason,
             }
         )
+        for count_gap in (state.get("count_state") or {}).get("open_gaps", []):
+            if count_gap["affects_answer"]:
+                gaps.append(
+                    {
+                        "claim_id": state["claim_id"],
+                        "gap": f"{count_gap['gap_id']}: {count_gap['description']}",
+                        "reason": (
+                            "not_visible"
+                            if count_gap["kind"] == "obscured_interval"
+                            else "insufficient_coverage"
+                        ),
+                    }
+                )
+    counts = _count_assessments(ledger)
     if answer_text is not None:
         return {
             "status": "answered",
@@ -1283,6 +1628,7 @@ def final_result(
             "unresolved_gaps": gaps,
             "revision": ledger["revision"],
             "artifact_dir": artifact_dir,
+            **counts,
         }
     return {
         "status": "unresolved",
@@ -1294,7 +1640,16 @@ def final_result(
         "unresolved_gaps": gaps,
         "revision": ledger["revision"],
         "artifact_dir": artifact_dir,
+        **counts,
     }
+
+
+def _count_assessments(ledger: Mapping[str, Any]) -> dict[str, Any]:
+    """Optional final-result field, present only when a count inventory exists."""
+    entries = [
+        count_assessment(state) for state in ledger["claims"] if "count_state" in state
+    ]
+    return {"count_assessment": entries} if entries else {}
 
 
 def atomic_write(path: str | os.PathLike[str], value: Any) -> None:

@@ -111,6 +111,47 @@ observations for the assigned claim and media scope. Sensor observations may
 use a subwindow within the assigned window; URL and file provenance must match
 the assigned selector exactly. Errors are strings or null and never evidence.
 
+### Count inventory
+
+A result for a `count` claim may add an optional `count_state` with exactly
+`candidates`, `open_gaps`, and `resolved_gaps`. Report one for every count
+inspection. It is how a count claim records what was seen, what was not, and
+whether the total is exact. Other claim types must omit it.
+
+Each candidate has `candidate_id` (`evt-<slug>`), `status`, `counted`,
+`description`, and `justification`, plus optional `observation_ids`, `spans`
+(`[{"start","end"}]` ISO-8601), and `duplicate_of`. Status is:
+
+- `observed`: the qualifying event is visible; cite its observation IDs;
+- `inferred`: not directly visible but implied by visible before and after
+  states; say why in `justification`;
+- `unresolved`: something happened that may or may not qualify;
+- `duplicate`: the same event seen again, for example in an overlapping
+  window; set `duplicate_of` to the original candidate;
+- `excluded`: seen, but it does not meet the claim's definition.
+
+Only `observed` and `inferred` candidates may be `counted`. A disappearance,
+retrieval, or other visible change is not counted merely because it occurred;
+count it only when the visible evidence meets the claim's definition.
+
+Each open gap has `gap_id` (`gap-<slug>`), `kind`, `description`, and
+`affects_answer`, plus an optional `start`/`end`. Kinds are
+`unobserved_interval`, `obscured_interval`, `temporal_boundary`,
+`identity_ambiguity`, and `qualification_ambiguity`. Set `affects_answer`
+true only when the gap could change the total, for example an occluded
+interval where a qualifying event could occur. An occlusion that cannot hide a
+qualifying event is not answer-affecting. Resolve a prior gap only with new
+evidence, listing `{"gap_id","resolution"}` in `resolved_gaps`.
+
+The merge keeps candidates by ID, with the newest report replacing an earlier
+one, and carries every unresolved prior gap forward. Tasks for that claim
+include the canonical `count_state`. While an answer-affecting gap or an
+unresolved candidate remains, the claim cannot be `sufficient`: a reported
+`sufficient` is lowered to `partial` and the claim records `coverage_cap`.
+`assess` and the final result report `count_assessment`: the counted total,
+how many were observed or inferred, and `count_kind` of `exact` or
+`lower_bound`. A lower bound is not an exact total.
+
 ### Final result
 
 The final result keeps decision and evidence state separate. It includes
@@ -616,7 +657,9 @@ The deterministic sufficiency gate passes only when every claim:
 - is `supported` or `contradicted`;
 - has `sufficient` coverage;
 - cites at least one accepted observation;
-- does not contain both supporting and contradicting observations.
+- does not contain both supporting and contradicting observations;
+- for a count inventory, has no answer-affecting open gap or unresolved
+  candidate.
 
 If the gate passes, the ledger becomes `answered` with stop reason `resolved`.
 If a round adds no observation and improves no coverage, it stops unresolved
