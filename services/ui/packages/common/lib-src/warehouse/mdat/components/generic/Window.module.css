@@ -24,6 +24,8 @@
 }
 
 .headerBarMain {
+  position: relative;
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -34,6 +36,31 @@
   padding: 0 8px;
   box-sizing: border-box;
   background-color: #333333;
+}
+
+.headerStart {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: #ffffff;
+}
+
+.headerStart :global(button[aria-haspopup="true"]) {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #ffffff;
+}
+
+.headerStart :global(button[aria-haspopup="true"]):hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.headerStart :global(svg) {
+  width: 18px;
+  height: 18px;
+  color: #ffffff;
 }
 
 .headerActions {

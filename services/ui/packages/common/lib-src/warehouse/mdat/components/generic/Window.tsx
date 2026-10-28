@@ -20,6 +20,9 @@ export default class Window extends React.PureComponent {
       <div className={Styles.main}>
         <div className={Styles.headerBar}>
           <div className={Styles.headerBarMain}>
+            {this.props.headerStart ? (
+              <div className={Styles.headerStart}>{this.props.headerStart}</div>
+            ) : null}
             <div className={Styles.headerTitle} title={this.props.titleText}>
               {this.props.titleText}
             </div>

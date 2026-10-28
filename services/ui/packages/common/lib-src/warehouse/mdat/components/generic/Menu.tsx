@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { Button } from "common/warehouse/mui";
+import { IconButton } from "common/warehouse/mui";
 import { Menu as MenuIcon } from "common/warehouse/mui-icons";
 import PropTypes from "prop-types";
 import React from "react";
@@ -21,15 +21,16 @@ class CustomMenu extends React.PureComponent {
   render() {
     return (
       <div className={CssClasses.wrap}>
-        <Button
+        <IconButton
+          className={CssClasses.trigger}
           aria-controls="simple-menu"
           aria-haspopup="true"
           aria-expanded={this.state.open}
-          color="inherit"
+          title="Menu"
           onClick={this.state.open ? this.handleClose : this.handleOpen}
         >
           <MenuIcon title="Menu" />
-        </Button>
+        </IconButton>
         {this.state.open ? (
           <ul className={CssClasses.menu} role="menu">
             {this.props.items.map((item, key) => (
