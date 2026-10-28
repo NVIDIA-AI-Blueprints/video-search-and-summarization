@@ -3,19 +3,8 @@
 // @ts-nocheck
 import React from "react";
 
+import { DateTimePicker } from "common/warehouse/mui";
 import Styles from "./LightForm.module.css";
-
-const pad = (n) => String(n).padStart(2, "0");
-
-const toLocalInputValue = (date) => {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-};
-
-const fromLocalInputValue = (value) => {
-  const next = new Date(value);
-  return Number.isNaN(next.getTime()) ? null : next;
-};
 
 class StartEndDateTimeSelector extends React.PureComponent {
   constructor(props) {
@@ -77,34 +66,20 @@ class StartEndDateTimeSelector extends React.PureComponent {
             </button>
           </div>
         ) : null}
-        <label className={Styles.field}>
-          <span className={Styles.label}>Start Time</span>
-          <input
-            className={Styles.input}
-            type="datetime-local"
-            step="1"
-            value={toLocalInputValue(this.state.startDateTime)}
-            max={this.props.disableFuture ? toLocalInputValue(new Date()) : undefined}
-            onChange={(event) => {
-              const next = fromLocalInputValue(event.target.value);
-              if (next) this.onChangeStartDate(next);
-            }}
-          />
-        </label>
-        <label className={Styles.field}>
-          <span className={Styles.label}>End Time</span>
-          <input
-            className={Styles.input}
-            type="datetime-local"
-            step="1"
-            value={toLocalInputValue(this.state.endDateTime)}
-            max={this.props.disableFuture ? toLocalInputValue(new Date()) : undefined}
-            onChange={(event) => {
-              const next = fromLocalInputValue(event.target.value);
-              if (next) this.onChangeEndDate(next);
-            }}
-          />
-        </label>
+        <DateTimePicker
+          className={Styles.field}
+          label="Start Time"
+          value={this.state.startDateTime}
+          disableFuture={this.props.disableFuture}
+          onChange={this.onChangeStartDate}
+        />
+        <DateTimePicker
+          className={Styles.field}
+          label="End Time"
+          value={this.state.endDateTime}
+          disableFuture={this.props.disableFuture}
+          onChange={this.onChangeEndDate}
+        />
         {this.state.showComparisonError ? (
           <div className={Styles.error}>Start time must be before end time</div>
         ) : null}

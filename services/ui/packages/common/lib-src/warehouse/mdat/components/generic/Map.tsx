@@ -20,8 +20,8 @@ const DefaultLibraries = ["drawing"];
 function MapPlacesFallback({ children }) {
   const items = React.Children.toArray(children).filter(React.isValidElement);
   return (
-    <div className="flex h-full w-full flex-col gap-3 overflow-auto bg-neutral-100 p-4 dark:bg-neutral-950">
-      <p className="text-sm text-neutral-600 dark:text-neutral-300">
+    <div className="flex h-full w-full flex-col gap-3 overflow-auto bg-neutral-100 p-4">
+      <p className="text-sm text-neutral-600">
         Google Maps is unavailable without NEXT_PUBLIC_GOOGLE_MAPS_API_KEY.
         Select a location to continue.
       </p>
@@ -33,7 +33,7 @@ function MapPlacesFallback({ children }) {
             <button
               key={child.key || index}
               type="button"
-              className="rounded border border-neutral-400 bg-white px-3 py-2 text-left text-sm hover:border-[#76b900] dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
+              className="rounded border border-neutral-400 bg-white px-3 py-2 text-left text-sm text-neutral-900 hover:border-[#76b900]"
               onClick={() => child.props?.onLeftClick?.()}
               onContextMenu={(event) => {
                 event.preventDefault();

@@ -2,31 +2,41 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Theme replacements for the Material UI widgets used by warehouse analytics.
- * Built from @nvidia/foundations-react-core, rsuite, and Tailwind.
+ * Built from @nvidia/foundations-react-core (Kaizen 1.17) and Tailwind.
  */
 // @ts-nocheck
 import React from 'react';
 import {
   Button as KaizenButton,
   Checkbox as KaizenCheckbox,
+  DatePicker as KaizenDatePicker,
   Divider as KaizenDivider,
   Select as KaizenSelect,
+  Slider as KaizenSlider,
+  Spinner as KaizenSpinner,
   Switch as KaizenSwitch,
   Tag as KaizenTag,
   TextInput,
+  ThemeProvider,
+  TimeInput as KaizenTimeInput,
+  Tooltip as KaizenTooltip,
 } from '@nvidia/foundations-react-core';
-import { DatePicker, Slider as RsuiteSlider, Tooltip as RsuiteTooltip, Whisper } from 'rsuite';
+
+import './kaizen-light.css';
 
 type DivProps = React.HTMLAttributes<HTMLDivElement>;
 
 const cx = (...parts: Array<string | false | undefined | null>) => parts.filter(Boolean).join(' ');
+
+/** Kaizen ThemeProvider class that resets tokens inside Agent UI `.nv-dark`. */
+const KAIZEN_LIGHT_CLASS = 'nv-light';
 
 export const Box = ({ children, className, sx: _sx, ...rest }: DivProps & { sx?: unknown }) => (
   <div className={className} {...rest}>{children}</div>
 );
 
 export const Paper = ({ children, className, elevation: _e, ...rest }: DivProps & { elevation?: number }) => (
-  <div className={cx('rounded border border-neutral-300 bg-white p-2 dark:border-neutral-700 dark:bg-neutral-900', className)} {...rest}>
+  <div className={cx('rounded border border-neutral-300 bg-white p-2 text-neutral-900', className)} {...rest}>
     {children}
   </div>
 );
@@ -98,7 +108,7 @@ export const IconButton = ({
     onClick={onClick}
     disabled={disabled}
     title={title}
-    className={cx('inline-flex items-center justify-center rounded p-1 hover:bg-black/10 dark:hover:bg-white/10', className)}
+    className={cx('inline-flex items-center justify-center rounded p-1 hover:bg-black/10', className)}
     style={style}
     {...rest}
   >
@@ -132,7 +142,7 @@ export const TextField = ({
         {label}
         <textarea
           ref={inputRef as React.Ref<HTMLTextAreaElement>}
-          className="rounded border border-neutral-400 bg-transparent p-2 dark:border-neutral-600"
+          className="rounded border border-neutral-400 bg-white p-2 text-neutral-900"
           rows={rows || 3}
           value={value as string | undefined}
           defaultValue={defaultValue as string | undefined}
@@ -243,7 +253,7 @@ export const MenuItem = ({
     type="button"
     value={value as string | number}
     className={cx(
-      'block w-full cursor-pointer px-3 py-1.5 text-left text-sm text-neutral-900 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800',
+      'block w-full cursor-pointer px-3 py-1.5 text-left text-sm text-neutral-900 hover:bg-neutral-100',
       className,
     )}
     onClick={onClick}
@@ -285,7 +295,7 @@ export const Select = ({
         aria-labelledby={labelId}
         multiple
         title={title}
-        className={cx('min-w-[100px] rounded border border-neutral-400 bg-transparent p-1 dark:border-neutral-600', className)}
+        className={cx('min-w-[100px] rounded border border-neutral-400 bg-white p-1 text-neutral-900', className)}
         style={style}
         value={selected}
         defaultValue={defaultValue as string[] | undefined}
@@ -312,6 +322,7 @@ export const Select = ({
         title={title}
         value={value === undefined ? undefined : String(value)}
         items={items}
+        attributes={{ SelectContent: { className: KAIZEN_LIGHT_CLASS } }}
         onValueChange={(next: string) => onChange?.({ target: { value: next } })}
       />
     );
@@ -322,7 +333,7 @@ export const Select = ({
       id={id}
       aria-labelledby={labelId}
       title={title}
-      className={cx('min-w-[100px] rounded border border-neutral-400 bg-transparent p-1 dark:border-neutral-600', className)}
+      className={cx('min-w-[100px] rounded border border-neutral-400 bg-white p-1 text-neutral-900', className)}
       style={style}
       value={value as string | number | undefined}
       defaultValue={defaultValue as string | number | undefined}
@@ -364,11 +375,18 @@ export const Chip = ({
 );
 
 export const CircularProgress = ({ size = 24, className }: { size?: number; className?: string }) => (
-  <span
-    className={cx('inline-block animate-spin rounded-full border-2 border-neutral-300 border-t-[#76b900]', className)}
-    style={{ width: size, height: size }}
+  <KaizenSpinner
+    className={className}
+    kind="ring"
+    size={size >= 48 ? 'large' : size >= 24 ? 'medium' : 'small'}
+    aria-label="Loading"
   />
 );
+
+const tooltipSide = (placement?: string): 'top' | 'right' | 'bottom' | 'left' => {
+  if (placement === 'right' || placement === 'bottom' || placement === 'left') return placement;
+  return 'top';
+};
 
 export const Tooltip = ({
   title, children, placement,
@@ -379,17 +397,14 @@ export const Tooltip = ({
 }) => {
   if (!title) return children;
   return (
-    <Whisper
-      placement={(placement as 'top') || 'top'}
-      speaker={<RsuiteTooltip>{title}</RsuiteTooltip>}
-    >
+    <KaizenTooltip slotContent={title} side={tooltipSide(placement)} className={KAIZEN_LIGHT_CLASS}>
       {children}
-    </Whisper>
+    </KaizenTooltip>
   );
 };
 
 export const Slider = ({
-  value, defaultValue, min = 0, max = 100, step = 1, onChange, className, style,
+  value, defaultValue, min = 0, max = 100, step = 1, onChange, onChangeCommitted, className, style,
 }: {
   value?: number;
   defaultValue?: number;
@@ -397,10 +412,11 @@ export const Slider = ({
   max?: number;
   step?: number;
   onChange?: (event: unknown, value: number) => void;
+  onChangeCommitted?: (event: unknown, value: number) => void;
   className?: string;
   style?: React.CSSProperties;
 }) => (
-  <RsuiteSlider
+  <KaizenSlider
     className={className}
     style={style}
     min={min}
@@ -408,7 +424,8 @@ export const Slider = ({
     step={step}
     value={value}
     defaultValue={defaultValue}
-    onChange={(next: number) => onChange?.(null, next)}
+    onValueChange={(next: number) => onChange?.(null, next)}
+    onValueCommit={(next: number) => onChangeCommitted?.(null, next)}
   />
 );
 
@@ -425,7 +442,7 @@ export const AccordionDetails = ({ children, className }: DivProps) => (
 
 export const Accordion = ({ children, className, defaultExpanded }: DivProps & { defaultExpanded?: boolean }) => (
   <details
-    className={cx('rounded border border-neutral-300 dark:border-neutral-700', className)}
+    className={cx('rounded border border-neutral-300', className)}
     {...(defaultExpanded ? { open: true } : {})}
   >
     {children}
@@ -489,7 +506,7 @@ export const CardMedia = ({
 };
 
 export const Avatar = ({ children, className, style, sx: _sx }: DivProps & { sx?: unknown }) => (
-  <div className={cx('flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-neutral-200 text-xs dark:bg-neutral-700', className)} style={style}>
+  <div className={cx('flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-neutral-200 text-xs text-neutral-900', className)} style={style}>
     {children}
   </div>
 );
@@ -506,29 +523,86 @@ export const Menu = ({
 }) => {
   if (!open) return null;
   return (
-    <div className="absolute left-0 z-50 mt-1 min-w-[12rem] rounded border border-neutral-300 bg-white py-1 text-neutral-900 shadow dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100">
+    <div className="absolute left-0 z-50 mt-1 min-w-[12rem] rounded border border-neutral-300 bg-white py-1 text-neutral-900 shadow">
       <div onClick={onClose}>{children}</div>
     </div>
   );
 };
 
+const padDateTime = (n: number) => String(n).padStart(2, '0');
+
+const isValidDate = (date?: Date | null): date is Date =>
+  date instanceof Date && !Number.isNaN(date.getTime());
+
+const toTimeInputValue = (date?: Date | null) => {
+  if (!isValidDate(date)) return '';
+  return `${padDateTime(date.getHours())}:${padDateTime(date.getMinutes())}:${padDateTime(date.getSeconds())}`;
+};
+
+const mergeDateAndTime = (date: Date | null | undefined, timeValue: string) => {
+  const next = isValidDate(date) ? new Date(date) : new Date();
+  const [hours = '0', minutes = '0', seconds = '0'] = timeValue.split(':');
+  next.setHours(Number(hours) || 0, Number(minutes) || 0, Number(seconds) || 0, 0);
+  return next;
+};
+
+const mergeDateKeepingTime = (nextDate: Date, previous?: Date | null) => {
+  const merged = new Date(nextDate);
+  if (isValidDate(previous)) {
+    merged.setHours(
+      previous.getHours(),
+      previous.getMinutes(),
+      previous.getSeconds(),
+      previous.getMilliseconds(),
+    );
+  }
+  return merged;
+};
+
 export const DateTimePicker = ({
-  value, onChange, label, className,
+  value, onChange, label, className, disableFuture,
 }: {
   value?: Date | null;
   onChange?: (date: Date | null) => void;
   label?: React.ReactNode;
   className?: string;
-}) => (
-  <label className={cx('flex flex-col gap-1 text-sm', className)}>
-    {label}
-    <DatePicker
-      format="yyyy-MM-dd HH:mm:ss"
-      value={value ?? undefined}
-      onChange={(next: Date | null) => onChange?.(next)}
-    />
-  </label>
-);
+  disableFuture?: boolean;
+}) => {
+  const selectedDate = isValidDate(value) ? value : undefined;
+  const todayCutoff = new Date();
+  return (
+    <ThemeProvider
+      theme="light"
+      className={cx('flex flex-col gap-1 text-sm', KAIZEN_LIGHT_CLASS, className)}
+      style={{ colorScheme: 'light' }}
+    >
+      {label ? <span className="font-semibold text-neutral-700">{label}</span> : null}
+      <KaizenDatePicker
+        kind="single"
+        value={selectedDate}
+        format="yyyy-MM-dd"
+        placeholder="Select date"
+        portal
+        attributes={{ DatePickerContent: { className: KAIZEN_LIGHT_CLASS } }}
+        disabledMatcher={disableFuture ? { after: todayCutoff } : undefined}
+        endMonth={disableFuture ? todayCutoff : undefined}
+        onValueChange={(next?: Date) => {
+          if (!next) {
+            onChange?.(null);
+            return;
+          }
+          onChange?.(mergeDateKeepingTime(next, selectedDate));
+        }}
+      />
+      <KaizenTimeInput
+        aria-label={typeof label === 'string' ? `${label} time` : 'Time'}
+        step={1}
+        value={toTimeInputValue(selectedDate)}
+        onValueChange={(time: string) => onChange?.(mergeDateAndTime(selectedDate, time))}
+      />
+    </ThemeProvider>
+  );
+};
 
 export const LocalizationProvider = ({ children }: { children?: React.ReactNode; dateAdapter?: unknown }) => <>{children}</>;
 

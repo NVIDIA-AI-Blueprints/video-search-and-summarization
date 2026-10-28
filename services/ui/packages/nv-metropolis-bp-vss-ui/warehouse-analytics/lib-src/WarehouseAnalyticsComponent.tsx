@@ -3,6 +3,7 @@
 // @ts-nocheck
 import React, { useEffect, useMemo, useState } from 'react';
 import { combineReducers, configureStore } from '@reduxjs/toolkit';
+import { ThemeProvider } from '@nvidia/foundations-react-core';
 import { Provider, connect } from 'react-redux';
 import {
   AppConfigReduxUtil,
@@ -199,23 +200,25 @@ const WarehouseAnalyticsAppInner: React.FC<AppInnerProps> = ({
   }, [addLogToAppLogs, data?.uiConfigUrl, updateAppConfig, updateMetaData, updateUiState]);
 
   return (
-    <div
-      className={`relative h-full min-h-0 w-full overflow-hidden ${theme === 'dark' ? 'dark bg-black text-gray-100' : 'bg-white text-gray-900'} ${className}`}
-      style={style}
-    >
-      {!renderControlsInLeftSidebar ? (
-        <div className="absolute right-2 top-2 z-20 flex max-h-[40%] max-w-md flex-col gap-2 overflow-auto rounded border border-neutral-300 bg-white/90 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900/90">
-          {sidebarControls}
+    <ThemeProvider theme="light" asChild>
+      <div
+        className={`nv-light relative h-full min-h-0 w-full overflow-hidden text-neutral-900 ${theme === 'dark' ? 'bg-black' : 'bg-white'} ${className}`}
+        style={{ colorScheme: 'light', ...style }}
+      >
+        {!renderControlsInLeftSidebar ? (
+          <div className="absolute right-2 top-2 z-20 flex max-h-[40%] max-w-md flex-col gap-2 overflow-auto rounded border border-neutral-300 bg-white/90 p-2 text-xs text-neutral-900">
+            {sidebarControls}
+          </div>
+        ) : null}
+        <div className={classes.placeContent}>
+          <BuildingsLevelViewWithLoaderDisplay
+            loaderDisplayType={loadState}
+            loaderDisplayUserMessage={userMessage}
+            loaderDisplaySize={LoaderDisplay.SIZE.LARGE}
+          />
         </div>
-      ) : null}
-      <div className={classes.placeContent}>
-        <BuildingsLevelViewWithLoaderDisplay
-          loaderDisplayType={loadState}
-          loaderDisplayUserMessage={userMessage}
-          loaderDisplaySize={LoaderDisplay.SIZE.LARGE}
-        />
       </div>
-    </div>
+    </ThemeProvider>
   );
 };
 
