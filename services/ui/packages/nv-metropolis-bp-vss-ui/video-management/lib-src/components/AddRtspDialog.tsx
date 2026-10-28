@@ -13,11 +13,11 @@ const POPUP_OVERLAY_CONTAINED =
 
 interface AddRtspDialogProps {
   isOpen: boolean;
-  vstApiUrl?: string | null;
+  viosApiUrl?: string | null;
   onClose: () => void;
   onSuccess?: () => void;
   /**
-   * Polls VST until it lists the sensor the add call returned. The dialog stays
+   * Polls VIOS until it lists the sensor the add call returned. The dialog stays
    * open until this resolves, so it never closes on a stream the grid has yet
    * to receive.
    */
@@ -41,7 +41,7 @@ function getSubmitLabel(phase: SubmitPhase, canResumeWait: boolean): string {
     case 'adding':
       return 'Adding...';
     case 'confirming':
-      return 'Waiting for VST...';
+      return 'Waiting for VIOS...';
     default:
       return canResumeWait ? 'Retry' : 'Add RTSP';
   }
@@ -49,7 +49,7 @@ function getSubmitLabel(phase: SubmitPhase, canResumeWait: boolean): string {
 
 export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   isOpen,
-  vstApiUrl,
+  viosApiUrl,
   onClose,
   onSuccess,
   onAwaitStream,
@@ -60,9 +60,9 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   const [userEditedName, setUserEditedName] = useState(false); // Track if user manually edited the name
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<SubmitPhase>('idle');
-  // Sensors VST accepted in this dialog session, keyed by RTSP URL. A later
+  // Sensors VIOS accepted in this dialog session, keyed by RTSP URL. A later
   // add of a different URL must not forget an earlier one: reverting the field
-  // would otherwise re-POST a URL VST already holds and come back as a duplicate.
+  // would otherwise re-POST a URL VIOS already holds and come back as a duplicate.
   const [acceptedByUrl, setAcceptedByUrl] = useState<Record<string, string>>({});
   // Bumped on close and on each submit, so an attempt whose wait outlives the
   // dialog — or a superseded one — stops writing to it.
@@ -73,7 +73,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   const trimmedUrl = rtspUrl.trim();
   const trimmedName = sensorName.trim();
 
-  // VST keys sensors on the RTSP URL. A listing timeout leaves the fields
+  // VIOS keys sensors on the RTSP URL. A listing timeout leaves the fields
   // editable, but a name-only edit is still the same sensor — re-POSTing the
   // URL would come back as a duplicate. An edited URL is a different stream
   // unless this session already accepted it.
@@ -108,7 +108,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
     onClose();
   };
 
-  // Closing mid-wait is safe — VST already holds the sensor and the poll keeps
+  // Closing mid-wait is safe — VIOS already holds the sensor and the poll keeps
   // refreshing the grid — but closing mid-add would drop the sensorId the wait
   // needs, leaving an added stream with nothing watching for it.
   const canClose = phase !== 'adding';
@@ -134,8 +134,8 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
       setError(validationError);
       return;
     }
-    if (!vstApiUrl) {
-      setError('VST API URL not configured.');
+    if (!viosApiUrl) {
+      setError('VIOS API URL not configured.');
       return;
     }
 
@@ -148,14 +148,14 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
     try {
       let sensorId = acceptedSensorId;
       if (!sensorId) {
-        const result = await addRtspStream(vstApiUrl, { sensorUrl: trimmedUrl, name: trimmedName });
+        const result = await addRtspStream(viosApiUrl, { sensorUrl: trimmedUrl, name: trimmedName });
         if (!isCurrentAttempt()) return;
         sensorId = result.sensorId;
         setAcceptedByUrl((prev) => ({ ...prev, [trimmedUrl]: sensorId }));
         setPhase('confirming');
       }
 
-      // VST returns the sensorId before the stream shows up in its listing.
+      // VIOS returns the sensorId before the stream shows up in its listing.
       // Closing here is what left the new camera out of the grid until the user
       // refreshed or switched tabs.
       const { found } = (await onAwaitStream?.(sensorId)) ?? { found: true };
@@ -163,7 +163,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
 
       if (!found) {
         setError(
-          'VST accepted the stream but has not listed it yet. Retry to check again.'
+          'VIOS accepted the stream but has not listed it yet. Retry to check again.'
         );
         return;
       }
@@ -173,7 +173,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
     } catch (err) {
       if (!isCurrentAttempt()) return;
       // eslint-disable-next-line no-console
-      console.error('Error adding RTSP sensor via VST API:', err);
+      console.error('Error adding RTSP sensor via VIOS API:', err);
       setError(
         parseApiError(
           err instanceof Error ? err.message : '',
@@ -284,7 +284,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
               data-testid="add-rtsp-confirming"
               className="text-sm text-gray-500 dark:text-gray-400"
             >
-              Stream added. Waiting for VST to list it…
+              Stream added. Waiting for VIOS to list it…
             </p>
           )}
 

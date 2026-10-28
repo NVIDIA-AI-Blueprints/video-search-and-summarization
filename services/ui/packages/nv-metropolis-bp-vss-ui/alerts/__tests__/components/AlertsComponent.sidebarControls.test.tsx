@@ -22,7 +22,7 @@ import { AlertsComponent } from '../../lib-src/AlertsComponent';
 
 const alertsData: any = {
   apiUrl: 'http://api.test/video-analytics-api',
-  vstApiUrl: 'http://api.test/vst/api',
+  viosApiUrl: 'http://api.test/vst/api',
   alertsApiUrl: 'http://api.test/alert-bridge/api/v1',
   maxResults: 100,
   pageSize: 20,

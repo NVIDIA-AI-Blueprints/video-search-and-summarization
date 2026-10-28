@@ -166,8 +166,8 @@ NEXT_PUBLIC_SIDEBAR_CHAT_SHOW_THEME_TOGGLE_BUTTON=false
 # Optional: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON='...'
 
 NEXT_PUBLIC_ENABLE_ALERTS_TAB=true
-NEXT_PUBLIC_VST_API_URL=http://127.0.0.1:30888/vst/api
-NEXT_PUBLIC_MDX_WEB_API_URL=http://127.0.0.1:8081
+NEXT_PUBLIC_VIOS_API_URL=http://127.0.0.1:30888/vst/api
+NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL=http://127.0.0.1:8081
 # Base URL of vss-alert-bridge, which manages Alert Rules for various scenarios (used by the Manage Alerts → Real-time Alerts editor). Include the API version prefix (e.g. /api/v1) so future server-side bumps (e.g. /api/v2) are a deploy-time change, not a UI change. Matches met-blueprints' NEXT_PUBLIC_ALERTS_API_URL.
 NEXT_PUBLIC_ALERTS_API_URL=http://127.0.0.1:9081/api/v1
 # Maximum number of incidents fetched per API request (applies to the initial load and each "Show more" page; allowed range 10–5000, default 100 when unset).

@@ -356,7 +356,7 @@ vss-agent-ui:
   enableDashboardTab: "false"
   fillAlertBridgeUrlFromGlobal: true
   agentApiUrlBase: ""
-  vstApiUrl: ""
+  viosApiUrl: ""
   chatCompletionUrl: ""
   websocketChatUrl: ""
   alertsApiUrl: ""

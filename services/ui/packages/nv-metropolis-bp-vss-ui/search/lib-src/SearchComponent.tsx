@@ -73,12 +73,12 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       });
   }, []);
 
-  const vstApiUrl = searchData?.vstApiUrl;
-  const mdxWebApiUrl = searchData?.mdxWebApiUrl;
+  const viosApiUrl = searchData?.viosApiUrl;
+  const videoAnalyticsWebApiUrl = searchData?.videoAnalyticsWebApiUrl;
   const mediaWithObjectsBbox = searchData?.mediaWithObjectsBbox ?? false;
 
-  const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(vstApiUrl);  
-  const { streams, filterParams, setFilterParams, addFilter, removeFilterTag, filterTags, refetch: refetchStreams } = useFilter({vstApiUrl});
+  const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(viosApiUrl);  
+  const { streams, filterParams, setFilterParams, addFilter, removeFilterTag, filterTags, refetch: refetchStreams } = useFilter({viosApiUrl});
 
   // Map streamId (UUID) -> sensor name for /frames API lookup
   const sensorIdToNameMap = React.useMemo(() => {
@@ -98,7 +98,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
     searchByImageFrameData,
     startSearchByImage,
     cancelSearchByImage,
-  } = useSearchByImage({ vstApiUrl, mdxWebApiUrl });
+  } = useSearchByImage({ viosApiUrl, videoAnalyticsWebApiUrl });
   const [searchByImageSelectedObjectId, setSearchByImageSelectedObjectId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -191,9 +191,9 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
     () =>
       normalizeSearchResultMediaUrls(
         applySearchResultFilters(agentSearchResults ?? [], filterParams, streams),
-        vstApiUrl,
+        viosApiUrl,
       ),
-    [agentSearchResults, filterParams, streams, vstApiUrl],
+    [agentSearchResults, filterParams, streams, viosApiUrl],
   );
 
   const controlsComponent = React.useMemo(

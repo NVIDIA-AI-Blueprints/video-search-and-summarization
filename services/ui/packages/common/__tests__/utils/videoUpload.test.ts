@@ -67,11 +67,11 @@ describe('uploadFileChunked', () => {
     global.fetch = jest.fn();
   });
 
-  it('uploads directly to the supplied VST URL without Agent requests', async () => {
+  it('uploads directly to the supplied VIOS URL without Agent requests', async () => {
     const file = new File(['x'.repeat(25)], 'chat_video.mp4', { type: 'video/mp4' });
     const promise = uploadFileChunked(
       file,
-      'https://vst.example.com/v1/storage/file',
+      'https://vios.example.com/v1/storage/file',
     );
 
     await flushAndFinish(200, JSON.stringify({
@@ -84,18 +84,18 @@ describe('uploadFileChunked', () => {
     const result = await promise;
     expect(global.fetch).not.toHaveBeenCalled();
     expect(MockXHR.instances).toHaveLength(1);
-    expect(MockXHR.instances[0].url).toBe('https://vst.example.com/v1/storage/file');
+    expect(MockXHR.instances[0].url).toBe('https://vios.example.com/v1/storage/file');
     expect(MockXHR.instances[0].headers['nvstreamer-is-last-chunk']).toBe('true');
     expect(result.sensorId).toBe('chat-sensor-1');
     expect(result.filename).toBe('chat_video');
     expect(result.bytes).toBe(25);
   });
 
-  it('uses the request filename override for the VST upload', async () => {
+  it('uses the request filename override for the VIOS upload', async () => {
     const file = new File(['y'.repeat(10)], 'original.mp4');
     const promise = uploadFileChunked(
       file,
-      'https://vst.example.com/v1/storage/file',
+      'https://vios.example.com/v1/storage/file',
       undefined,
       undefined,
       'renamed.mp4',
@@ -108,11 +108,11 @@ describe('uploadFileChunked', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it('rejects a VST response without a sensorId', async () => {
+  it('rejects a VIOS response without a sensorId', async () => {
     const file = new File(['z'], 'invalid.mp4');
     const promise = uploadFileChunked(
       file,
-      'https://vst.example.com/v1/storage/file',
+      'https://vios.example.com/v1/storage/file',
     );
 
     await flushAndFinish(200, JSON.stringify({ bytes: 1 }));
@@ -125,7 +125,7 @@ describe('uploadFileChunked', () => {
 
     await expect(uploadFileChunked(
       new File(['x'], 'cancel.mp4'),
-      'https://vst.example.com/v1/storage/file',
+      'https://vios.example.com/v1/storage/file',
       undefined,
       controller.signal,
     )).rejects.toThrow(/cancelled/i);

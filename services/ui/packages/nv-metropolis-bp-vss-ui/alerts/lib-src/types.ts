@@ -49,11 +49,11 @@ export interface RealtimeAlertRule {
   alert_type: string;
   prompt: string;
   /**
-   * Friendly label for the sensor behind `live_stream_url` (`name` in VST
+   * Friendly label for the sensor behind `live_stream_url` (`name` in VIOS
    * `/v1/sensor/list`). Resolved from the live stream URL before POST.
    */
   sensor_name?: string;
-  /** VST sensor id (`sensorId` in `/v1/sensor/list`). Resolved before POST. */
+  /** VIOS sensor id (`sensorId` in `/v1/sensor/list`). Resolved before POST. */
   sensor_id?: string;
   status?: string; // typically "active"
   created_at?: string; // ISO-8601 UTC
@@ -75,8 +75,8 @@ export interface RealtimeAlertRule {
  * been saved to the server. Once persisted via `POST /realtime` it is
  * replaced by a {@link RealtimeAlertRule} carrying a server-assigned `id`.
  *
- * The draft carries `sensor_name` (chosen from the VST live-stream catalog).
- * `live_stream_url` and `sensor_id` are resolved from VST at save time so the
+ * The draft carries `sensor_name` (chosen from the VIOS live-stream catalog).
+ * `live_stream_url` and `sensor_id` are resolved from VIOS at save time so the
  * user never has to paste an RTSP URL.
  */
 export interface RealtimeAlertRuleDraft {
@@ -150,7 +150,7 @@ export interface AlertsComponentProps {
   alertsData?: {
     systemStatus: string;
     apiUrl?: string;
-    vstApiUrl?: string;
+    viosApiUrl?: string;
     alertsApiUrl?: string;
     defaultTimeWindow?: number;
     defaultAutoRefreshInterval?: number; // in milliseconds

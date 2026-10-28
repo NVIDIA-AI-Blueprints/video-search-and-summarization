@@ -20,7 +20,7 @@
 export declare function fetchAlertsData(): Promise<{
     systemStatus: string;
     apiUrl: string | undefined;
-    vstApiUrl: string | undefined;
+    viosApiUrl: string | undefined;
     defaultTimeWindow: number;
     defaultAutoRefreshInterval: number;
     defaultVlmVerified: boolean;

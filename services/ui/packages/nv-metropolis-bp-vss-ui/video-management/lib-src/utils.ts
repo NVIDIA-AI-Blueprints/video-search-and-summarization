@@ -125,11 +125,11 @@ export function generateUploadId(): string {
 
 export async function uploadFile(
   file: File,
-  vstApiUrl: string,
+  viosApiUrl: string,
   onProgress?: (progress: number) => void,
   abortSignal?: AbortSignal
 ): Promise<FileUploadResponse> {
-  const apiEndpoints = createApiEndpoints(vstApiUrl);
+  const apiEndpoints = createApiEndpoints(viosApiUrl);
   const identifier = generateUUID();
   const fileName = file.name;
 

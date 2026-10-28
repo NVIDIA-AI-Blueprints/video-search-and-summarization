@@ -34,7 +34,7 @@ describe('useVideoModal', () => {
 
   describe('initial state', () => {
     it('initializes with closed modal', () => {
-      const { result } = renderHook(() => useVideoModal('http://vst.test'));
+      const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
       expect(result.current.videoModal).toEqual({
         isOpen: false,
@@ -93,7 +93,7 @@ describe('useVideoModal', () => {
       global.fetch = originalFetch;
     });
 
-    it('does nothing when vstApiUrl is undefined', async () => {
+    it('does nothing when viosApiUrl is undefined', async () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
       const { result } = renderHook(() => useVideoModal(undefined));
 
@@ -102,13 +102,13 @@ describe('useVideoModal', () => {
       });
 
       expect(result.current.videoModal.isOpen).toBe(false);
-      expect(consoleSpy).toHaveBeenCalledWith('VST API URL not available');
+      expect(consoleSpy).toHaveBeenCalledWith('VIOS API URL not available');
       consoleSpy.mockRestore();
     });
 
     it('opens modal with video URL after successful fetch', async () => {
       global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
-      const { result } = renderHook(() => useVideoModal('http://vst.test'));
+      const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
       await act(async () => {
         await result.current.openVideoModal(makeSearchData());
@@ -148,7 +148,7 @@ describe('useVideoModal', () => {
 
       const sensorMap = new Map([['Cam-A', 'sensor-id']]);
       const { result } = renderHook(() =>
-        useVideoModal('http://vst.test', { sensorMap })
+        useVideoModal('http://vios.test', { sensorMap })
       );
 
       const alert = makeAlert({
@@ -163,7 +163,7 @@ describe('useVideoModal', () => {
       expect(result.current.loadingAlertId).toBeNull();
     });
 
-    it('falls back to VST API when videoSource not accessible', async () => {
+    it('falls back to VIOS API when videoSource not accessible', async () => {
       const originalCreateElement = document.createElement.bind(document);
       jest.spyOn(document, 'createElement').mockImplementation((tag: string) => {
         if (tag === 'video') {
@@ -176,10 +176,10 @@ describe('useVideoModal', () => {
         return originalCreateElement(tag);
       });
 
-      global.fetch = mockFetchResponse({ videoUrl: 'http://vst.test/vst/storage/clip.mp4' });
+      global.fetch = mockFetchResponse({ videoUrl: 'http://vios.test/vst/storage/clip.mp4' });
       const sensorMap = new Map([['Cam-A', 'sensor-id']]);
       const { result } = renderHook(() =>
-        useVideoModal('http://vst.test/vst/api', { sensorMap })
+        useVideoModal('http://vios.test/vst/api', { sensorMap })
       );
 
       const alert = makeAlert({
@@ -190,14 +190,14 @@ describe('useVideoModal', () => {
         await result.current.openVideoModalFromAlert(alert);
       });
 
-      expect(result.current.videoModal.videoUrl).toContain('vst');
+      expect(result.current.videoModal.videoUrl).toContain('vios');
       expect(result.current.loadingAlertId).toBeNull();
     });
 
-    it('does nothing when vstApiUrl or sensorMap missing', async () => {
+    it('does nothing when viosApiUrl or sensorMap missing', async () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
       const { result } = renderHook(() =>
-        useVideoModal('http://vst.test', { sensorMap: undefined })
+        useVideoModal('http://vios.test', { sensorMap: undefined })
       );
 
       await act(async () => {
@@ -205,7 +205,7 @@ describe('useVideoModal', () => {
       });
 
       expect(result.current.videoModal.isOpen).toBe(false);
-      expect(consoleSpy).toHaveBeenCalledWith('VST API URL or sensor map not available');
+      expect(consoleSpy).toHaveBeenCalledWith('VIOS API URL or sensor map not available');
       consoleSpy.mockRestore();
     });
 
@@ -213,7 +213,7 @@ describe('useVideoModal', () => {
       global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
       const sensorMap = new Map([['Cam-A', 'sensor-id']]);
       const { result } = renderHook(() =>
-        useVideoModal('http://vst.test', { sensorMap })
+        useVideoModal('http://vios.test', { sensorMap })
       );
 
       await act(async () => {

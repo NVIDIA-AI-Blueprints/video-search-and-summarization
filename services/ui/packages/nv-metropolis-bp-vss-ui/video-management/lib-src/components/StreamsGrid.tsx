@@ -13,7 +13,7 @@ const TARGET_ROWS = 4; // Target number of rows per page (reduced by ~25% from 5
 interface StreamsGridProps {
   streams: StreamInfo[];
   selectedStreams: Set<string>;
-  vstApiUrl?: string | null;
+  viosApiUrl?: string | null;
   onSelectionChange: (streamId: string, selected: boolean) => void;
   onSelectAll: (selected: boolean) => void;
   showVideos: boolean;
@@ -28,7 +28,7 @@ interface StreamsGridProps {
 export const StreamsGrid: React.FC<StreamsGridProps> = ({
   streams,
   selectedStreams,
-  vstApiUrl,
+  viosApiUrl,
   onSelectionChange,
   onSelectAll,
   showVideos,
@@ -236,7 +236,7 @@ export const StreamsGrid: React.FC<StreamsGridProps> = ({
               key={stream.streamId}
               stream={stream}
               isSelected={selectedStreams.has(stream.streamId)}
-              vstApiUrl={vstApiUrl}
+              viosApiUrl={viosApiUrl}
               onSelectionChange={onSelectionChange}
               getEndTimeForStream={getEndTimeForStream}
               onPlay={onPlayStream}

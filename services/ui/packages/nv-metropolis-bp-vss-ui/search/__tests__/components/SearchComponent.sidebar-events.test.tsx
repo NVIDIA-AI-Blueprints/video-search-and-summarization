@@ -50,7 +50,7 @@ describe('SearchComponent sidebar events', () => {
     searchData: {
       systemStatus: 'ok',
       agentApiUrl: 'http://agent-api.test',
-      vstApiUrl: 'http://vst-api.test',
+      viosApiUrl: 'http://vios-api.test',
     },
   };
 
@@ -275,7 +275,7 @@ describe('SearchComponent sidebar events', () => {
     const closeVideoModal = jest.fn();
 
     mockUseVideoModal.mockReturnValue({
-      videoModal: { isOpen: true, videoUrl: 'http://vst.test/clip.mp4', title: 'clip' },
+      videoModal: { isOpen: true, videoUrl: 'http://vios.test/clip.mp4', title: 'clip' },
       openVideoModal: jest.fn(),
       closeVideoModal,
     });

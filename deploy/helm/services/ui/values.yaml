@@ -27,14 +27,14 @@ service:
   type: ClusterIP
   nodePort: ""
 # Compose parity: NEXT_PUBLIC_* env (parameterized). These are sent to the browser (__ENV.js);
-# the browser fetches agent and VST APIs from these URLs. Use in-cluster URLs (default) when
+# the browser fetches agent and VIOS APIs from these URLs. Use in-cluster URLs (default) when
 # the UI is reached via Ingress/LoadBalancer that proxies to the same cluster. For local
 # port-forward, set to 127.0.0.1 and run three port-forwards (UI 3000, agent 8000, vst-ingress 30888);
 # see helm_dp/vss/values-local-portforward.example.yaml. Chat tab needs chatCompletionUrl and websocketChatUrl (agent serves /v1/chat/stream and /websocket, not /api/chat).
 # Parent developer-profile sets these (e.g. dev-profile-base, dev-profile-lvs, dev-profile-alerts, dev-profile-search).
 # Set global.externalHost to the browser-reachable host (e.g. vss-search.<ip>.nip.io). Trailing NEXT_PUBLIC_* URLs are derived from {scheme}://{externalHost} (and wss/ws for websockets).
 # If externalHost is vss-search.<ip>.nip.io, the Dashboard Kibana base defaults to http://kibana.<ip>.nip.io{kibanaNipPathSuffix} unless global.kibanaPublicUrl or dashboardKibanaBaseUrl is set.
-mdxWebApiPath: "/video-analytics-api"
+videoAnalyticsWebApiPath: "/video-analytics-api"
 mapAppPath: ""
 kibanaNipPathSuffix: "/app/dashboards"
 appSubtitle: ""
@@ -50,7 +50,7 @@ extraEnv: []
 # Optional: list of {name, value} env overrides (merged over chart `env` by name in deployment template). Parent uses for alerts profile.
 envOverrides: []
 agentApiUrlBase: ""
-vstApiUrl: ""
+viosApiUrl: ""
 # Server-only destination used by /api/proxy. Empty selects the in-cluster
 # vss-vios-ingress Service even when browser URLs use global.externalHost.
 proxyBaseUrl: ""
@@ -103,7 +103,7 @@ agentAdapter:
   # compose default (falls back to agentAdapter.enabled).
   forceHttpChatTransport: ""
 # When true (default), global.external* sets NEXT_PUBLIC_ALERTS_API_URL to {global}/alert-bridge/api/v1 (Ingress path; backend is vss-alert-bridge).
-# When false (real-time / no vss-alert-bridge), NEXT_PUBLIC_ALERTS_API_URL is left unset unless envOverrides/alertsApiUrl (Compose 3.1.0: UI uses NEXT_PUBLIC_MDX_WEB_API_URL only).
+# When false (real-time / no vss-alert-bridge), NEXT_PUBLIC_ALERTS_API_URL is left unset unless envOverrides/alertsApiUrl (Compose 3.1.0: UI uses NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL only).
 fillAlertBridgeUrlFromGlobal: true
 env:
   # Bind to all interfaces so port-forward and K8s probes can reach the server (Next.js otherwise binds to pod hostname only).
@@ -164,7 +164,7 @@ env:
     value: ""
   - name: NEXT_PUBLIC_MAP_URL
     value: ""
-  - name: NEXT_PUBLIC_MDX_WEB_API_URL
+  - name: NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL
     value: ""
   # App-wide chat sidebar (deploy/docker/services/ui/compose.yml)
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_WORKFLOW
@@ -234,7 +234,7 @@ env:
   - name: NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED
     value: "false"
   # NEXT_PUBLIC_ALERTS_API_URL set only in template from alertsApiUrl or envOverrides (avoids duplicate env entry)
-  # NEXT_PUBLIC_AGENT_API_URL_BASE, NEXT_PUBLIC_VST_API_URL, chat URLs set by template from agentApiUrlBase / vstApiUrl / chatCompletionUrl / websocketChatUrl
+  # NEXT_PUBLIC_AGENT_API_URL_BASE, NEXT_PUBLIC_VIOS_API_URL, chat URLs set by template from agentApiUrlBase / viosApiUrl / chatCompletionUrl / websocketChatUrl
 resources: {}
 nodeSelector: {}
 tolerations: []

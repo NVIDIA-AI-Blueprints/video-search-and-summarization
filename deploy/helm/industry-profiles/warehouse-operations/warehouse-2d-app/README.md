@@ -563,7 +563,7 @@ For the Alerts UI, add explicit NodePort URLs to `my-values.yaml`:
 ```yaml
 vss-agent-ui:
   agentApiUrlBase: "http://<NODE_IP>:30800/api/v1"
-  vstApiUrl: "http://<NODE_IP>:30888/vst/api"
+  viosApiUrl: "http://<NODE_IP>:30888/vst/api"
   fillAlertBridgeUrlFromGlobal: false
   alertsApiUrl: "http://<NODE_IP>:30980/api/v1"
   dashboardKibanaBaseUrl: "http://<NODE_IP>:31560"
@@ -571,7 +571,7 @@ vss-agent-ui:
     # Preserve existing entries; Helm replaces lists.
     - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
       value: "true"
-    - name: NEXT_PUBLIC_MDX_WEB_API_URL
+    - name: NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL
       value: "http://<NODE_IP>:30801"
 ```
 

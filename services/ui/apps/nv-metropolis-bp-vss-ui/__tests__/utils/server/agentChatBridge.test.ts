@@ -307,7 +307,7 @@ describe("agent chat compatibility bridge", () => {
               info: {
                 reasoning: "Smoke is visible",
                 verdict: "confirmed",
-                videoSource: "https://vst.example/clip.mp4",
+                videoSource: "https://vios.example/clip.mp4",
               },
             },
           ],
@@ -320,7 +320,7 @@ describe("agent chat compatibility bridge", () => {
     expect(alerts[1]).toContain("<incidents>");
     expect(alerts[1]).toContain("camera-1");
     expect(alerts[1]).toContain("Smoke is visible");
-    expect(alerts[1]).toContain("https://vst.example/clip.mp4");
+    expect(alerts[1]).toContain("https://vios.example/clip.mp4");
     expect(alerts[1]).toContain('"Validation":true');
   });
 

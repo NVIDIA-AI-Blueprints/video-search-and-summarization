@@ -136,7 +136,7 @@ export class SseParser {
 
   /**
    * @param mediaProxyUrl Rebases `*_url` fields in artifact payloads, so hits
-   * carrying a container-local VST host stay playable from the browser.
+   * carrying a container-local VIOS host stay playable from the browser.
    */
   constructor(private readonly mediaProxyUrl?: string) {}
 

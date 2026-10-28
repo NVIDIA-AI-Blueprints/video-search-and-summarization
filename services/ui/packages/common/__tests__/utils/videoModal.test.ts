@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
   replaceVideoUrlBase,
-  fetchVideoUrlFromVst,
+  fetchVideoUrlFromVios,
   checkVideoUrl,
   type FetchVideoUrlParams,
 } from '../../lib-src/utils/videoModal';
@@ -35,34 +35,34 @@ describe('replaceVideoUrlBase', () => {
   it('handles relative videoUrl', () => {
     const result = replaceVideoUrlBase(
       '/vst/storage/xyz/segment.mp4?token=abc',
-      'http://vst.test/vst/api'
+      'http://vios.test/vst/api'
     );
-    expect(result).toBe('http://vst.test/vst/storage/xyz/segment.mp4?token=abc');
+    expect(result).toBe('http://vios.test/vst/storage/xyz/segment.mp4?token=abc');
   });
 
-  it('returns videoUrl when vstApiUrl is empty', () => {
+  it('returns videoUrl when viosApiUrl is empty', () => {
     const videoUrl = 'http://host/vst/path';
     expect(replaceVideoUrlBase(videoUrl, '')).toBe(videoUrl);
   });
 
   it('returns videoUrl when videoUrl is empty', () => {
-    expect(replaceVideoUrlBase('', 'http://vst.test/vst/api')).toBe('');
+    expect(replaceVideoUrlBase('', 'http://vios.test/vst/api')).toBe('');
   });
 
-  it('returns videoUrl and logs error when /vst not found in vstApiUrl', () => {
+  it('returns videoUrl and logs error when /vst not found in viosApiUrl', () => {
     const videoUrl = 'http://stream.test/vst/storage/segment.mp4';
-    const result = replaceVideoUrlBase(videoUrl, 'http://vst.test/api');
+    const result = replaceVideoUrlBase(videoUrl, 'http://vios.test/api');
 
     expect(result).toBe(videoUrl);
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       'Failed to replace video URL: /vst path segment not found in URLs',
-      expect.objectContaining({ vstApiUrl: 'http://vst.test/api', videoUrl })
+      expect.objectContaining({ viosApiUrl: 'http://vios.test/api', videoUrl })
     );
   });
 
   it('returns videoUrl and logs error when /vst not found in videoUrl', () => {
     const videoUrl = 'http://stream.test/storage/segment.mp4';
-    const result = replaceVideoUrlBase(videoUrl, 'http://vst.test/vst/api');
+    const result = replaceVideoUrlBase(videoUrl, 'http://vios.test/vst/api');
 
     expect(result).toBe(videoUrl);
     expect(consoleErrorSpy).toHaveBeenCalled();
@@ -90,7 +90,7 @@ describe('replaceVideoUrlBase', () => {
   });
 });
 
-describe('fetchVideoUrlFromVst', () => {
+describe('fetchVideoUrlFromVios', () => {
   const defaultParams: FetchVideoUrlParams = {
     sensorId: 'sensor-001',
     startTime: '2024-01-15T09:00:00',
@@ -111,31 +111,31 @@ describe('fetchVideoUrlFromVst', () => {
   it('returns videoUrl from API response', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    const result = await fetchVideoUrlFromVst('http://vst.test', defaultParams);
+    const result = await fetchVideoUrlFromVios('http://vios.test', defaultParams);
 
     expect(result).toBe('http://stream.test/video.mp4');
   });
 
-  it('replaces video URL base with vstApiUrl base', async () => {
+  it('replaces video URL base with viosApiUrl base', async () => {
     global.fetch = mockFetchResponse({
       videoUrl: 'http://other-host:30888/vst/storage/xyz/segment.mp4?token=abc',
     });
 
-    const result = await fetchVideoUrlFromVst(
-      'http://vst.test/vst/api',
+    const result = await fetchVideoUrlFromVios(
+      'http://vios.test/vst/api',
       defaultParams
     );
 
-    expect(result).toBe('http://vst.test/vst/storage/xyz/segment.mp4?token=abc');
+    expect(result).toBe('http://vios.test/vst/storage/xyz/segment.mp4?token=abc');
   });
 
   it('builds correct fetch URL with query params', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    await fetchVideoUrlFromVst('http://vst.test', defaultParams);
+    await fetchVideoUrlFromVios('http://vios.test', defaultParams);
 
     const calledUrl = (global.fetch as jest.Mock).mock.calls[0][0];
-    expect(calledUrl).toContain('http://vst.test/v1/storage/file/sensor-001/url');
+    expect(calledUrl).toContain('http://vios.test/v1/storage/file/sensor-001/url');
     expect(calledUrl).toContain('startTime=');
     expect(calledUrl).toContain('endTime=');
     expect(calledUrl).toContain('expiryMinutes=60');
@@ -146,7 +146,7 @@ describe('fetchVideoUrlFromVst', () => {
   it('includes bbox configuration when showObjectsBbox is true and objectIds exist', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    await fetchVideoUrlFromVst('http://vst.test', {
+    await fetchVideoUrlFromVios('http://vios.test', {
       ...defaultParams,
       objectIds: ['1', '2'],
       showObjectsBbox: true,
@@ -163,7 +163,7 @@ describe('fetchVideoUrlFromVst', () => {
   it('does not include bbox config when showObjectsBbox is false', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    await fetchVideoUrlFromVst('http://vst.test', {
+    await fetchVideoUrlFromVios('http://vios.test', {
       ...defaultParams,
       objectIds: ['1', '2'],
       showObjectsBbox: false,
@@ -176,7 +176,7 @@ describe('fetchVideoUrlFromVst', () => {
   it('does not include bbox config when objectIds is empty', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    await fetchVideoUrlFromVst('http://vst.test', {
+    await fetchVideoUrlFromVios('http://vios.test', {
       ...defaultParams,
       objectIds: [],
       showObjectsBbox: true,
@@ -190,14 +190,14 @@ describe('fetchVideoUrlFromVst', () => {
     global.fetch = mockFetchResponse(null, false, 404);
 
     await expect(
-      fetchVideoUrlFromVst('http://vst.test', defaultParams)
+      fetchVideoUrlFromVios('http://vios.test', defaultParams)
     ).rejects.toThrow('Failed to fetch video URL: 404');
   });
 
   it('returns empty string when API returns no videoUrl', async () => {
     global.fetch = mockFetchResponse({});
 
-    const result = await fetchVideoUrlFromVst('http://vst.test', defaultParams);
+    const result = await fetchVideoUrlFromVios('http://vios.test', defaultParams);
 
     expect(result).toBe('');
   });
@@ -206,7 +206,7 @@ describe('fetchVideoUrlFromVst', () => {
     const controller = new AbortController();
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    await fetchVideoUrlFromVst('http://vst.test', defaultParams, controller.signal);
+    await fetchVideoUrlFromVios('http://vios.test', defaultParams, controller.signal);
 
     expect((global.fetch as jest.Mock).mock.calls[0][1].signal).toBe(
       controller.signal

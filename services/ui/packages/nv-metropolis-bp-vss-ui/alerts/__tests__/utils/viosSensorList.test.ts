@@ -3,9 +3,9 @@
 import {
   clearSensorListCache,
   deriveSensorNameFromLiveStreamUrl,
-  fetchVstLiveStreamCatalog,
+  fetchViosLiveStreamCatalog,
   resolveSensorByName,
-} from '../../lib-src/utils/vstSensorList';
+} from '../../lib-src/utils/viosSensorList';
 
 const textResponse = (body: unknown) =>
   Promise.resolve({
@@ -13,7 +13,7 @@ const textResponse = (body: unknown) =>
     text: () => Promise.resolve(JSON.stringify(body)),
   } as Response);
 
-describe('vstSensorList', () => {
+describe('viosSensorList', () => {
   let originalFetch: typeof global.fetch;
 
   beforeEach(() => {
@@ -39,7 +39,7 @@ describe('vstSensorList', () => {
     ).toBe('sample.mp4');
   });
 
-  it('flattens the nested VST /v1/live/streams payload', async () => {
+  it('flattens the nested VIOS /v1/live/streams payload', async () => {
     global.fetch = jest.fn().mockResolvedValue(
       textResponse([
         {
@@ -63,8 +63,8 @@ describe('vstSensorList', () => {
       ]),
     );
 
-    const catalog = await fetchVstLiveStreamCatalog('http://vst.test');
-    expect(global.fetch).toHaveBeenCalledWith('http://vst.test/v1/live/streams');
+    const catalog = await fetchViosLiveStreamCatalog('http://vios.test');
+    expect(global.fetch).toHaveBeenCalledWith('http://vios.test/v1/live/streams');
     expect(catalog).toEqual([
       {
         name: 'warehouse-cam-1',
@@ -79,11 +79,11 @@ describe('vstSensorList', () => {
     ]);
   });
 
-  it('does not cache the live-stream catalog — back-to-back calls each hit VST', async () => {
+  it('does not cache the live-stream catalog — back-to-back calls each hit VIOS', async () => {
     global.fetch = jest.fn().mockResolvedValue(textResponse([]));
 
-    await fetchVstLiveStreamCatalog('http://vst.test');
-    await fetchVstLiveStreamCatalog('http://vst.test');
+    await fetchViosLiveStreamCatalog('http://vios.test');
+    await fetchViosLiveStreamCatalog('http://vios.test');
 
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
@@ -104,7 +104,7 @@ describe('vstSensorList', () => {
     );
 
     await expect(
-      resolveSensorByName('http://vst.test', 'warehouse-cam-1'),
+      resolveSensorByName('http://vios.test', 'warehouse-cam-1'),
     ).resolves.toEqual({
       sensor_name: 'warehouse-cam-1',
       live_stream_url:
@@ -112,11 +112,11 @@ describe('vstSensorList', () => {
     });
   });
 
-  it('returns undefined when the sensor is not in the VST live-stream catalog', async () => {
+  it('returns undefined when the sensor is not in the VIOS live-stream catalog', async () => {
     global.fetch = jest.fn().mockResolvedValue(textResponse([]));
 
     await expect(
-      resolveSensorByName('http://vst.test', 'unknown-sensor'),
+      resolveSensorByName('http://vios.test', 'unknown-sensor'),
     ).resolves.toBeUndefined();
   });
 });

@@ -8,10 +8,26 @@ import { createApiEndpoints } from '../api';
 import {copyToClipboard} from 'common';
 import { IconCheck } from '@tabler/icons-react';
 
+type PictureEndpoints = Pick<
+  ReturnType<typeof createApiEndpoints>,
+  'LIVE_PICTURE' | 'REPLAY_PICTURE'
+>;
+
+const pictureUrlForStream = (
+  isRtsp: boolean,
+  endpoints: PictureEndpoints,
+  streamId: string,
+  endTime: string | null,
+): string | undefined => {
+  if (isRtsp) return endpoints.LIVE_PICTURE(streamId);
+  if (!endTime) return undefined;
+  return endpoints.REPLAY_PICTURE(streamId, endTime);
+};
+
 interface StreamCardProps {
   stream: StreamInfo;
   isSelected: boolean;
-  vstApiUrl?: string | null;
+  viosApiUrl?: string | null;
   onSelectionChange: (streamId: string, selected: boolean) => void;
   getEndTimeForStream: (streamId: string) => string | null;
   /** Resolving to `false` means playback could not be opened, and the card shows a notice. */
@@ -24,7 +40,7 @@ interface StreamCardProps {
 export const StreamCard: React.FC<StreamCardProps> = ({
   stream,
   isSelected,
-  vstApiUrl,
+  viosApiUrl,
   onSelectionChange,
   getEndTimeForStream,
   onPlay,
@@ -52,31 +68,29 @@ export const StreamCard: React.FC<StreamCardProps> = ({
     let retryTimer: NodeJS.Timeout | undefined;
 
     const fetchThumbnail = async (retryCount = 0) => {
-      if (!vstApiUrl) {
+      if (!viosApiUrl) {
         setThumbnailError(true);
         setIsLoadingThumbnail(false);
         return;
       }
 
-      const apiEndpoints = createApiEndpoints(vstApiUrl);
+      const apiEndpoints = createApiEndpoints(viosApiUrl);
       setIsLoadingThumbnail(true);
       setThumbnailError(false);
 
       try {
-        let pictureUrl: string;
-
-        if (isRtsp) {
-          pictureUrl = apiEndpoints.LIVE_PICTURE(stream.streamId);
-        } else {
-          const endTime = getEndTimeForStream(stream.streamId);
-          if (!endTime) {
-            if (retryCount < 5 && isMounted) {
-              retryTimer = setTimeout(() => fetchThumbnail(retryCount + 1), 1000);
-              return;
-            }
-            throw new Error('No timeline available');
+        const pictureUrl = pictureUrlForStream(
+          isRtsp,
+          apiEndpoints,
+          stream.streamId,
+          getEndTimeForStream(stream.streamId),
+        );
+        if (!pictureUrl) {
+          if (retryCount < 5 && isMounted) {
+            retryTimer = setTimeout(() => fetchThumbnail(retryCount + 1), 1000);
+            return;
           }
-          pictureUrl = apiEndpoints.REPLAY_PICTURE(stream.streamId, endTime);
+          throw new Error('No timeline available');
         }
 
         const blob = await fetchPictureWithQueue(pictureUrl);
@@ -103,7 +117,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
       isMounted = false;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [stream.streamId, isRtsp, vstApiUrl, getEndTimeForStream]);
+  }, [stream.streamId, isRtsp, viosApiUrl, getEndTimeForStream]);
 
   useEffect(() => {
     return () => {
@@ -129,7 +143,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
     onSelectionChange(stream.streamId, e.target.checked);
   };
 
-  // VST has no recorded footage for a stream that was just added, so the URL
+  // VIOS has no recorded footage for a stream that was just added, so the URL
   // request 404s and the modal never opens. Surface that instead of no-op'ing.
   const handlePlayClick = useCallback(async () => {
     if (!onPlay || isLoadingPlay) return;

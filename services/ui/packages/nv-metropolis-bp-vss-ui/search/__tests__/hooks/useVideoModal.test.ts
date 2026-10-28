@@ -31,7 +31,7 @@ describe('useVideoModal', () => {
   });
 
   it('initializes with closed modal state', () => {
-    const { result } = renderHook(() => useVideoModal('http://vst.test'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
     expect(result.current.videoModal).toEqual({
       isOpen: false,
@@ -43,7 +43,7 @@ describe('useVideoModal', () => {
   it('opens modal with video URL after successful fetch', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData());
@@ -59,14 +59,14 @@ describe('useVideoModal', () => {
   it('builds correct fetch URL with query params', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData());
     });
 
     const calledUrl = (global.fetch as jest.Mock).mock.calls[0][0];
-    expect(calledUrl).toContain('http://vst.test/v1/storage/file/sensor-001/url');
+    expect(calledUrl).toContain('http://vios.test/v1/storage/file/sensor-001/url');
     expect(calledUrl).toContain('startTime=2024-01-15T09%3A00%3A00');
     expect(calledUrl).toContain('endTime=2024-01-15T09%3A05%3A00');
     expect(calledUrl).toContain('expiryMinutes=60');
@@ -77,7 +77,7 @@ describe('useVideoModal', () => {
   it('includes bbox configuration when showObjectsBbox is true and object_ids exist', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData({ object_ids: ['1', '2'] }), true);
@@ -95,7 +95,7 @@ describe('useVideoModal', () => {
   it('does not include bbox config when showObjectsBbox is false', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData(), false);
@@ -108,7 +108,7 @@ describe('useVideoModal', () => {
   it('does not include bbox config when object_ids is empty', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData({ object_ids: [] }), true);
@@ -121,7 +121,7 @@ describe('useVideoModal', () => {
   it('closes modal and resets state', async () => {
     global.fetch = mockFetchResponse({ videoUrl: 'http://stream.test/video.mp4' });
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData());
@@ -143,7 +143,7 @@ describe('useVideoModal', () => {
     global.fetch = mockFetchResponse(null, false, 404);
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData());
@@ -158,7 +158,7 @@ describe('useVideoModal', () => {
     global.fetch = jest.fn().mockRejectedValue(abortError);
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData());
@@ -169,12 +169,12 @@ describe('useVideoModal', () => {
     consoleSpy.mockRestore();
   });
 
-  it('replaces video URL base with vstApiUrl base when data.videoUrl is absolute', async () => {
+  it('replaces video URL base with viosApiUrl base when data.videoUrl is absolute', async () => {
     global.fetch = mockFetchResponse({
       videoUrl: 'http://other-host:30888/vst/storage/xyz/segment.mp4?token=abc',
     });
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test/vst/api'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test/vst/api'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData());
@@ -182,7 +182,7 @@ describe('useVideoModal', () => {
 
     expect(result.current.videoModal.isOpen).toBe(true);
     expect(result.current.videoModal.videoUrl).toBe(
-      'http://vst.test/vst/storage/xyz/segment.mp4?token=abc'
+      'http://vios.test/vst/storage/xyz/segment.mp4?token=abc'
     );
   });
 
@@ -191,7 +191,7 @@ describe('useVideoModal', () => {
       videoUrl: '/vst/storage/xyz/segment.mp4?token=abc',
     });
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test/vst/api'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test/vst/api'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData());
@@ -199,17 +199,17 @@ describe('useVideoModal', () => {
 
     expect(result.current.videoModal.isOpen).toBe(true);
     expect(result.current.videoModal.videoUrl).toBe(
-      'http://vst.test/vst/storage/xyz/segment.mp4?token=abc'
+      'http://vios.test/vst/storage/xyz/segment.mp4?token=abc'
     );
   });
 
-  it('keeps original data.videoUrl when /vst is not found in vstApiUrl', async () => {
+  it('keeps original data.videoUrl when /vst is not found in viosApiUrl', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
     global.fetch = mockFetchResponse({
       videoUrl: 'http://stream.test/vst/storage/segment.mp4',
     });
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test/api'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test/api'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData());
@@ -225,7 +225,7 @@ describe('useVideoModal', () => {
       videoUrl: 'http://stream.test/storage/segment.mp4',
     });
 
-    const { result } = renderHook(() => useVideoModal('http://vst.test/vst/api'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test/vst/api'));
 
     await act(async () => {
       await result.current.openVideoModal(makeSearchData());
@@ -235,7 +235,7 @@ describe('useVideoModal', () => {
     consoleSpy.mockRestore();
   });
 
-  it('handles relative videoUrl with relative vstApiUrl', async () => {
+  it('handles relative videoUrl with relative viosApiUrl', async () => {
     global.fetch = mockFetchResponse({
       videoUrl: '/vst/segment.mp4',
     });
@@ -267,7 +267,7 @@ describe('useVideoModal', () => {
     });
 
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    const { result } = renderHook(() => useVideoModal('http://vst.test'));
+    const { result } = renderHook(() => useVideoModal('http://vios.test'));
 
     await act(async () => {
       result.current.openVideoModal(makeSearchData({ video_name: 'first.mp4' }));

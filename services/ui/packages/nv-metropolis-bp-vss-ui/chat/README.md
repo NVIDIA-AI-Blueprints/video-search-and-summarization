@@ -23,7 +23,7 @@ import '@nv-metropolis-bp-vss-ui/chat/lib/chat.css';
     transport: 'agent-api',
     surface: 'vss-ui-sidebar',
     mediaProxyUrl: '/api/proxy',
-    uploadUrlBase: vstApiBase,
+    uploadUrlBase: viosApiBase,
   }}
   title="Vision Agent"
   theme="dark"

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Shared utilities for video modal: URL checking and VST API fetch.
+ * Shared utilities for video modal: URL checking and VIOS API fetch.
  */
 
 export interface FetchVideoUrlParams {
@@ -79,50 +79,50 @@ export const checkVideoUrl = (
 };
 
 /**
- * Replace the base URL (up to /vst) in videoUrl with the base from vstApiUrl.
+ * Replace the base URL (up to /vst) in videoUrl with the base from viosApiUrl.
  * Helps when UI can access only public IPs or different network.
  * Looks up "/vst/" (trailing slash) so hostnames like "vst-ingress" are not matched.
  */
 export const replaceVideoUrlBase = (
   videoUrl: string,
-  vstApiUrl: string
+  viosApiUrl: string
 ): string => {
-  if (!videoUrl || !vstApiUrl) {
+  if (!videoUrl || !viosApiUrl) {
     return videoUrl;
   }
 
-  const vstSegment = '/vst/';
-  // Trailing slash avoids false matches on hosts like "vst-ingress" / "vst.test".
-  const vstSegmentIndexInApiUrl = vstApiUrl.indexOf(vstSegment);
-  const vstSegmentIndexInVideoUrl = videoUrl.indexOf(vstSegment);
+  const viosSegment = '/vst/';
+  // Trailing slash avoids false matches on hosts like "vst-ingress" / "vios.test".
+  const viosSegmentIndexInApiUrl = viosApiUrl.indexOf(viosSegment);
+  const viosSegmentIndexInVideoUrl = videoUrl.indexOf(viosSegment);
 
-  if (vstSegmentIndexInApiUrl === -1 || vstSegmentIndexInVideoUrl === -1) {
+  if (viosSegmentIndexInApiUrl === -1 || viosSegmentIndexInVideoUrl === -1) {
     console.error('Failed to replace video URL: /vst path segment not found in URLs', {
-      vstApiUrl,
+      viosApiUrl,
       videoUrl,
     });
     return videoUrl;
   }
 
-  let vstBase = vstApiUrl.substring(0, vstSegmentIndexInApiUrl + vstSegment.length);
+  let viosBase = viosApiUrl.substring(0, viosSegmentIndexInApiUrl + viosSegment.length);
   // Normalize default ports via URL.origin, but keep any path prefix before /vst/
   // (e.g. https://proxy/some-prefix/vst/api -> https://proxy/some-prefix/vst/).
   try {
-    const parsedApiUrl = new URL(vstApiUrl);
-    const pathnameVstIndex = parsedApiUrl.pathname.indexOf(vstSegment);
-    if (pathnameVstIndex !== -1) {
-      vstBase =
+    const parsedApiUrl = new URL(viosApiUrl);
+    const pathnameViosIndex = parsedApiUrl.pathname.indexOf(viosSegment);
+    if (pathnameViosIndex !== -1) {
+      viosBase =
         `${parsedApiUrl.origin}` +
-        parsedApiUrl.pathname.substring(0, pathnameVstIndex + vstSegment.length);
+        parsedApiUrl.pathname.substring(0, pathnameViosIndex + viosSegment.length);
     }
   } catch {
-    // Keep string-derived base for relative vstApiUrl (e.g. "/vst/api").
+    // Keep string-derived base for relative viosApiUrl (e.g. "/vst/api").
   }
 
-  const videoPathAfterVst = videoUrl.substring(
-    vstSegmentIndexInVideoUrl + vstSegment.length
+  const videoPathAfterVios = videoUrl.substring(
+    viosSegmentIndexInVideoUrl + viosSegment.length
   );
-  let finalVideoUrl = vstBase + videoPathAfterVst;
+  let finalVideoUrl = viosBase + videoPathAfterVios;
 
   if (finalVideoUrl !== videoUrl) {
     try {
@@ -143,10 +143,10 @@ export const replaceVideoUrlBase = (
 };
 
 /**
- * Fetch video URL from VST API with optional overlay configuration.
+ * Fetch video URL from VIOS API with optional overlay configuration.
  */
-export const fetchVideoUrlFromVst = async (
-  vstApiUrl: string,
+export const fetchVideoUrlFromVios = async (
+  viosApiUrl: string,
   params: FetchVideoUrlParams,
   signal?: AbortSignal
 ): Promise<string> => {
@@ -183,7 +183,7 @@ export const fetchVideoUrlFromVst = async (
     );
   }
 
-  const fetchUrl = `${vstApiUrl}/v1/storage/file/${sensorId}/url?${searchParams.toString()}`;
+  const fetchUrl = `${viosApiUrl}/v1/storage/file/${sensorId}/url?${searchParams.toString()}`;
   const response = await fetch(fetchUrl, { signal });
 
   if (!response.ok) {
@@ -193,8 +193,8 @@ export const fetchVideoUrlFromVst = async (
   const data = await response.json();
   let finalUrl = data.videoUrl ?? '';
 
-  if (data.videoUrl && vstApiUrl) {
-    finalUrl = replaceVideoUrlBase(data.videoUrl, vstApiUrl);
+  if (data.videoUrl && viosApiUrl) {
+    finalUrl = replaceVideoUrlBase(data.videoUrl, viosApiUrl);
   }
 
   return finalUrl;

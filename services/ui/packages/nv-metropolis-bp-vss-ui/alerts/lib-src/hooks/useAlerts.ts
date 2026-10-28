@@ -177,7 +177,7 @@ function mergeAlertsDedupe(existing: AlertData[], incoming: AlertData[]): AlertD
  */
 interface UseAlertsOptions {
   apiUrl?: string;
-  vstApiUrl?: string;
+  viosApiUrl?: string;
   vlmVerified?: boolean;
   vlmVerdict?: VlmVerdict;
   timeWindow?: number;
@@ -264,7 +264,7 @@ const serializeFilters = (filters?: FilterState): string => {
  * Custom React hook for managing alerts data fetching and state management
  *
  */
-export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = VLM_VERDICT.ALL, timeWindow = 10, maxResults = 100, activeFilters }: UseAlertsOptions) => {
+export const useAlerts = ({ apiUrl, viosApiUrl, vlmVerified = true, vlmVerdict = VLM_VERDICT.ALL, timeWindow = 10, maxResults = 100, activeFilters }: UseAlertsOptions) => {
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -305,10 +305,10 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
   );
 
   const fetchSensorList = useCallback(async () => {
-    if (!vstApiUrl) return;
+    if (!viosApiUrl) return;
     
     try {
-      const response = await fetch(`${vstApiUrl}/v1/sensor/list`);
+      const response = await fetch(`${viosApiUrl}/v1/sensor/list`);
       if (!response.ok) {
         console.error(`Failed to fetch sensor list: ${response.status}`);
         return;
@@ -329,7 +329,7 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
     } catch (err) {
       console.error('Error fetching sensor list:', err);
     }
-  }, [vstApiUrl]);
+  }, [viosApiUrl]);
 
   /**
    * Fetches alerts data from the incidents API with time-based filtering.
@@ -355,9 +355,9 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
       const fromTime = new Date(now.getTime() - (timeWindow * 60 * 1000));
       const fromTimestamp = fromTime.toISOString();
 
-      const mdxWebApiIncidents = buildIncidentsUrl(fromTimestamp, toTimestamp);
+      const videoAnalyticsWebApiIncidents = buildIncidentsUrl(fromTimestamp, toTimestamp);
 
-      const response = await fetch(mdxWebApiIncidents, { signal });
+      const response = await fetch(videoAnalyticsWebApiIncidents, { signal });
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);

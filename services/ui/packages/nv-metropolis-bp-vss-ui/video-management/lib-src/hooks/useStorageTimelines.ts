@@ -5,7 +5,7 @@ import type { StorageSizeResponse, StreamStorageInfo } from '../types';
 import { createApiEndpoints } from '../api';
 
 interface UseStorageTimelinesOptions {
-  vstApiUrl?: string | null;
+  viosApiUrl?: string | null;
 }
 
 interface TimelineRange {
@@ -23,7 +23,7 @@ interface UseStorageTimelinesResult {
   getLastTimelineForStream: (streamId: string) => TimelineRange | null;
 }
 
-export function useStorageTimelines({ vstApiUrl }: UseStorageTimelinesOptions = {}): UseStorageTimelinesResult {
+export function useStorageTimelines({ viosApiUrl }: UseStorageTimelinesOptions = {}): UseStorageTimelinesResult {
   const [timelines, setTimelines] = useState<Map<string, StreamStorageInfo>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,13 +32,13 @@ export function useStorageTimelines({ vstApiUrl }: UseStorageTimelinesOptions = 
   timelinesRef.current = timelines;
 
   const fetchTimelines = useCallback(async () => {
-    if (!vstApiUrl) {
-      setError('VST API URL not configured');
+    if (!viosApiUrl) {
+      setError('VIOS API URL not configured');
       setIsLoading(false);
       return;
     }
 
-    const apiEndpoints = createApiEndpoints(vstApiUrl);
+    const apiEndpoints = createApiEndpoints(viosApiUrl);
     setIsLoading(true);
     setError(null);
 
@@ -63,7 +63,7 @@ export function useStorageTimelines({ vstApiUrl }: UseStorageTimelinesOptions = 
     } finally {
       setIsLoading(false);
     }
-  }, [vstApiUrl]);
+  }, [viosApiUrl]);
 
   useEffect(() => {
     fetchTimelines();

@@ -5,9 +5,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CreateAlertRulesView } from '../../lib-src/components/CreateAlertRulesView';
 import { RealtimeAlertRule } from '../../lib-src/types';
 
-jest.mock('../../lib-src/components/VstStreamThumbnail', () => ({
-  VstStreamThumbnail: ({ sensorName }: { sensorName: string }) => (
-    <div data-testid="vst-stream-thumbnail">{sensorName}</div>
+jest.mock('../../lib-src/components/ViosStreamThumbnail', () => ({
+  ViosStreamThumbnail: ({ sensorName }: { sensorName: string }) => (
+    <div data-testid="vios-stream-thumbnail">{sensorName}</div>
   ),
 }));
 
@@ -53,7 +53,7 @@ describe('CreateAlertRulesView realtime rules', () => {
     expect(screen.getAllByTestId('realtime-alert-draft-row')).toHaveLength(1);
   });
 
-  it('creates a realtime alert rule by picking a sensor from VST live streams', async () => {
+  it('creates a realtime alert rule by picking a sensor from VIOS live streams', async () => {
     const liveRtspUrl =
       'rtsp://10.24.142.82:30554/live/8c7338ec-2266-4eea-aeb4-c568d8944b05';
     let rules: RealtimeAlertRule[] = [];
@@ -109,7 +109,7 @@ describe('CreateAlertRulesView realtime rules', () => {
         activeKind="real-time"
         onAddNew={jest.fn()}
         alertsApiUrl="http://alerts.test/api/v1/"
-        vstApiUrl="http://vst.test"
+        viosApiUrl="http://vios.test"
       />,
     );
 
@@ -162,7 +162,7 @@ describe('CreateAlertRulesView realtime rules', () => {
     expect(screen.getAllByText('warehouse-cam-1').length).toBeGreaterThan(0);
   });
 
-  it('forwards a custom sensor name that is not in the VST catalog', async () => {
+  it('forwards a custom sensor name that is not in the VIOS catalog', async () => {
     let rules: RealtimeAlertRule[] = [];
     global.fetch = jest.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url.includes('/v1/live/streams')) {
@@ -202,7 +202,7 @@ describe('CreateAlertRulesView realtime rules', () => {
         activeKind="real-time"
         onAddNew={jest.fn()}
         alertsApiUrl="http://alerts.test/api/v1"
-        vstApiUrl="http://vst.test"
+        viosApiUrl="http://vios.test"
       />,
     );
 

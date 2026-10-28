@@ -25,7 +25,7 @@ export interface CreateRealtimeRuleInput {
   live_stream_url: string;
   alert_type: string;
   prompt: string;
-  /** Friendly sensor name (VST `name`). Alert Bridge resolves the stream from this. */
+  /** Friendly sensor name (VIOS `name`). Alert Bridge resolves the stream from this. */
   sensor_name: string;
 }
 

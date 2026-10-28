@@ -45,7 +45,7 @@ import { GATEWAY_TOKEN_HEADER, NemoClawConnectionBadge, NemoClawConnectionPanel,
 interface AlertsData {
   systemStatus: string;
   apiUrl?: string;
-  vstApiUrl?: string;
+  viosApiUrl?: string;
   defaultTimeWindow?: number;
 }
 
@@ -66,7 +66,7 @@ interface MapData {
 
 interface VideoManagementData {
   systemStatus: string;
-  vstApiUrl?: string | null;
+  viosApiUrl?: string | null;
 }
 
 interface HomeProps {
@@ -140,8 +140,8 @@ const vssChatConfig = (surface: ChatSurface) => {
     surface: `vss-ui-${surface}`,
     mediaProxyUrl: '/api/proxy',
     title: surfaceEnv(surface, 'NEXT_PUBLIC_WORKFLOW') || 'Chat',
-    // Upload is a chunked, multi-minute transfer to VST, not an agent run.
-    uploadUrlBase: surfaceEnv(surface, 'NEXT_PUBLIC_VST_API_URL'),
+    // Upload is a chunked, multi-minute transfer to VIOS, not an agent run.
+    uploadUrlBase: surfaceEnv(surface, 'NEXT_PUBLIC_VIOS_API_URL'),
   };
 };
 

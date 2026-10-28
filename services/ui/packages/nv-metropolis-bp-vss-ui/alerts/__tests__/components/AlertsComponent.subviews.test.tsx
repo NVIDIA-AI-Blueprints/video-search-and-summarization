@@ -203,7 +203,7 @@ describe('AlertsComponent sub-views', () => {
         alertsData={{
           systemStatus: 'active',
           apiUrl: 'http://alerts.example',
-          vstApiUrl: 'http://vst.example',
+          viosApiUrl: 'http://vios.example',
           alertsApiUrl: 'http://bridge.example/api/v1',
         }}
       />,
@@ -222,7 +222,7 @@ describe('AlertsComponent sub-views', () => {
         alertsData={{
           systemStatus: 'active',
           apiUrl: 'http://alerts.example',
-          vstApiUrl: 'http://vst.example',
+          viosApiUrl: 'http://vios.example',
           alertsApiUrl: 'http://bridge.example/api/v1',
         }}
       />,
@@ -244,7 +244,7 @@ describe('AlertsComponent sub-views', () => {
         alertsData={{
           systemStatus: 'active',
           apiUrl: 'http://alerts.example',
-          vstApiUrl: 'http://vst.example',
+          viosApiUrl: 'http://vios.example',
           alertsApiUrl: 'http://bridge.example/api/v1',
         }}
       />,
@@ -311,7 +311,7 @@ describe('AlertsComponent sub-views', () => {
         alertsData={{
           systemStatus: 'active',
           apiUrl: 'http://alerts.example',
-          vstApiUrl: 'http://vst.example',
+          viosApiUrl: 'http://vios.example',
           alertsApiUrl: 'http://bridge.example/api/v1',
         }}
       />,
@@ -353,7 +353,7 @@ describe('AlertsComponent sub-views', () => {
         alertsData={{
           systemStatus: 'active',
           apiUrl: 'http://alerts.example',
-          vstApiUrl: 'http://vst.example',
+          viosApiUrl: 'http://vios.example',
           alertsApiUrl: 'http://bridge.example/api/v1',
         }}
       />,
@@ -393,7 +393,7 @@ describe('AlertsComponent sub-views', () => {
         alertsData={{
           systemStatus: 'active',
           apiUrl: 'http://alerts.example',
-          vstApiUrl: 'http://vst.example',
+          viosApiUrl: 'http://vios.example',
           alertsApiUrl: 'http://bridge.example/api/v1',
         }}
       />,

@@ -251,7 +251,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 
   return (
     <ChatUpload
-      vstApiUrlBase={uploadUrlBase}
+      viosApiUrlBase={uploadUrlBase}
       configTemplateJson={uploadConfigTemplateJson}
       metadataEnabled={features.uploadFileMetadata}
       hiddenMessageTemplate={uploadHiddenMessageTemplate}

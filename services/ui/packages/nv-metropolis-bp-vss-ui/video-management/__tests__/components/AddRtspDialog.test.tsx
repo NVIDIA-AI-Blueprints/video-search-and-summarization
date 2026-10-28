@@ -24,7 +24,7 @@ function deferred<T>() {
 
 const defaultProps = {
   isOpen: true,
-  vstApiUrl: 'https://vst.example.com/vst/api',
+  viosApiUrl: 'https://vios.example.com/vst/api',
   onClose: jest.fn(),
   onSuccess: jest.fn(),
   onAwaitStream: jest.fn(async () => ({ found: true })),
@@ -43,18 +43,18 @@ function fillUrl(url = RTSP_URL) {
   });
 }
 
-const submitButton = () => screen.getByRole('button', { name: /Add RTSP|Waiting for VST|Adding|Retry/ });
+const submitButton = () => screen.getByRole('button', { name: /Add RTSP|Waiting for VIOS|Adding|Retry/ });
 
-// The add call answers with a sensorId before VST lists the sensor. Closing on
+// The add call answers with a sensorId before VIOS lists the sensor. Closing on
 // that answer left the grid without the stream the user just added, until a
 // manual refresh or a tab switch.
-describe('AddRtspDialog — waits for VST to list the added stream', () => {
+describe('AddRtspDialog — waits for VIOS to list the added stream', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockAddRtspStream.mockResolvedValue({ sensorId: 'sensor-new' });
   });
 
-  it('stays open while VST has not listed the stream yet', async () => {
+  it('stays open while VIOS has not listed the stream yet', async () => {
     const wait = deferred<{ found: boolean }>();
     const onAwaitStream = jest.fn(() => wait.promise);
     const { props } = renderDialog({ onAwaitStream });
@@ -88,14 +88,14 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
     });
 
     expect(submitButton()).toBeDisabled();
-    expect(submitButton()).toHaveTextContent('Waiting for VST...');
+    expect(submitButton()).toHaveTextContent('Waiting for VIOS...');
 
     await act(async () => {
       wait.resolve({ found: true });
     });
   });
 
-  it('closes and reports success once VST lists the stream', async () => {
+  it('closes and reports success once VIOS lists the stream', async () => {
     const { props } = renderDialog();
 
     fillUrl();
@@ -108,7 +108,7 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
     expect(screen.queryByTestId('add-rtsp-error')).not.toBeInTheDocument();
   });
 
-  it('stays open with a retry message when VST never lists the stream', async () => {
+  it('stays open with a retry message when VIOS never lists the stream', async () => {
     const { props } = renderDialog({ onAwaitStream: jest.fn(async () => ({ found: false })) });
 
     fillUrl();
@@ -118,7 +118,7 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
 
     expect(screen.getByTestId('add-rtsp-dialog')).toBeInTheDocument();
     expect(screen.getByTestId('add-rtsp-error')).toHaveTextContent(
-      'VST accepted the stream but has not listed it yet. Retry to check again.',
+      'VIOS accepted the stream but has not listed it yet. Retry to check again.',
     );
     expect(props.onClose).not.toHaveBeenCalled();
     expect(props.onSuccess).not.toHaveBeenCalled();
@@ -126,8 +126,8 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
   });
 
   // Re-sending the add would come back as a duplicate URL, reading as a failure
-  // for a sensor VST already holds.
-  it('retries only the wait, never a second add, once VST accepted the sensor', async () => {
+  // for a sensor VIOS already holds.
+  it('retries only the wait, never a second add, once VIOS accepted the sensor', async () => {
     const onAwaitStream = jest
       .fn<Promise<{ found: boolean }>, [string]>()
       .mockResolvedValueOnce({ found: false })
@@ -179,13 +179,13 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
 
     expect(mockAddRtspStream).toHaveBeenCalledTimes(2);
     expect(mockAddRtspStream).toHaveBeenLastCalledWith(
-      props.vstApiUrl,
+      props.viosApiUrl,
       { sensorUrl: 'rtsp://cam.example.com:554/cam02', name: 'cam02' },
     );
     expect(onAwaitStream).toHaveBeenLastCalledWith('sensor-second');
   });
 
-  // VST keys sensors on the URL. A name-only edit is still the same stream;
+  // VIOS keys sensors on the URL. A name-only edit is still the same stream;
   // re-POSTing it would come back as a duplicate.
   it('resumes the wait when only the sensor name is edited after a listing timeout', async () => {
     const onAwaitStream = jest
@@ -236,7 +236,7 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
   });
 
   // A second accepted URL must not forget the first. Reverting the field and
-  // re-POSTing would be a duplicate of a sensor VST already holds.
+  // re-POSTing would be a duplicate of a sensor VIOS already holds.
   it('resumes the wait for an earlier URL after a later URL also times out', async () => {
     const onAwaitStream = jest.fn(async () => ({ found: false }));
     mockAddRtspStream
@@ -366,7 +366,7 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
     expect(props.onSuccess).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects an invalid URL before calling VST', async () => {
+  it('rejects an invalid URL before calling VIOS', async () => {
     renderDialog();
 
     fillUrl('http://cam.example.com/stream');

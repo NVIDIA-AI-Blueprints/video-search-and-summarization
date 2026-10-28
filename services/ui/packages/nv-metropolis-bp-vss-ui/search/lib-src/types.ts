@@ -63,8 +63,8 @@ export interface SearchComponentProps {
   searchData?: {
     systemStatus: string;
     agentApiUrl?: string;
-    vstApiUrl?: string;
-    mdxWebApiUrl?: string;
+    viosApiUrl?: string;
+    videoAnalyticsWebApiUrl?: string;
     mediaWithObjectsBbox?: boolean;
   };
   serverRenderTime?: string;
@@ -102,7 +102,7 @@ export interface FilterTag {
 }
 
 export interface FilterProps {
-  vstApiUrl?: string;
+  viosApiUrl?: string;
 }
 
 export interface StreamInfo {

@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Recent still frame for a registered VST sensor. Resolves `sensorName` to a
- * VST stream id via `/v1/sensor/list` (cached per `vstApiUrl`), then renders
+ * Recent still frame for a registered VIOS sensor. Resolves `sensorName` to a
+ * VIOS stream id via `/v1/sensor/list` (cached per `viosApiUrl`), then renders
  * `/v1/replay/stream/{id}/picture` within its latest recorded segment as an `<img>`. The
  * replay endpoint is used instead of `/v1/live/...` to avoid hitting the live
  * pipeline for what is effectively a preview.
@@ -10,26 +10,26 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { IconCamera, IconAlertTriangle, IconLoader2 } from '@tabler/icons-react';
-import { fetchSensorMap } from '../utils/vstSensorList';
+import { fetchSensorMap, stripTrailingSlashes } from '../utils/viosSensorList';
 
-export { clearSensorListCache } from '../utils/vstSensorList';
+export { clearSensorListCache } from '../utils/viosSensorList';
 
-/** Resolved replay-picture URLs per VST base + sensor name (survives remounts). */
+/** Resolved replay-picture URLs per VIOS base + sensor name (survives remounts). */
 const pictureUrlCache = new Map<string, string>();
 
-const pictureCacheKey = (vstApiUrl: string, sensorName: string) =>
-  `${vstApiUrl.replace(/\/+$/, '')}|${sensorName}`;
+const pictureCacheKey = (viosApiUrl: string, sensorName: string) =>
+  `${stripTrailingSlashes(viosApiUrl)}|${sensorName}`;
 
-export const clearVstStreamThumbnailCache = (vstApiUrl?: string, sensorName?: string): void => {
-  if (!vstApiUrl && !sensorName) {
+export const clearViosStreamThumbnailCache = (viosApiUrl?: string, sensorName?: string): void => {
+  if (!viosApiUrl && !sensorName) {
     pictureUrlCache.clear();
     return;
   }
-  if (vstApiUrl && sensorName) {
-    pictureUrlCache.delete(pictureCacheKey(vstApiUrl, sensorName));
+  if (viosApiUrl && sensorName) {
+    pictureUrlCache.delete(pictureCacheKey(viosApiUrl, sensorName));
     return;
   }
-  const prefix = vstApiUrl ? `${vstApiUrl.replace(/\/+$/, '')}|` : undefined;
+  const prefix = viosApiUrl ? `${stripTrailingSlashes(viosApiUrl)}|` : undefined;
   for (const key of pictureUrlCache.keys()) {
     if (prefix && key.startsWith(prefix)) {
       pictureUrlCache.delete(key);
@@ -39,9 +39,9 @@ export const clearVstStreamThumbnailCache = (vstApiUrl?: string, sensorName?: st
   }
 };
 
-interface VstStreamThumbnailProps {
-  vstApiUrl?: string;
-  /** Friendly sensor name as registered with VST (`name` in `/v1/sensor/list`). */
+interface ViosStreamThumbnailProps {
+  viosApiUrl?: string;
+  /** Friendly sensor name as registered with VIOS (`name` in `/v1/sensor/list`). */
   sensorName: string;
   isDark: boolean;
   fallbackLabel?: string;
@@ -60,7 +60,7 @@ const fetchPreviewJson = async (url: string): Promise<unknown> => {
   const timer = setTimeout(() => controller.abort(), PREVIEW_REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`VST preview request returned ${response.status}`);
+    if (!response.ok) throw new Error(`VIOS preview request returned ${response.status}`);
     return await response.json();
   } finally {
     clearTimeout(timer);
@@ -149,7 +149,7 @@ const Placeholder: React.FC<{
     : '';
 
   return (
-    <div data-testid="vst-stream-thumbnail-placeholder" style={THUMBNAIL_BOX_STYLE} className={baseClass}>
+    <div data-testid="vios-stream-thumbnail-placeholder" style={THUMBNAIL_BOX_STYLE} className={baseClass}>
       {renderIcon()}
       {text && <span className="px-1 truncate max-w-full">{text}</span>}
       {onRetry && <button type="button" className="underline" onClick={onRetry}>Retry thumbnail</button>}
@@ -164,30 +164,30 @@ type ThumbnailState =
   | { kind: 'unavailable'; reason: string };
 
 const initialThumbnailState = (
-  vstApiUrl: string | undefined,
+  viosApiUrl: string | undefined,
   sensorName: string,
 ): ThumbnailState => {
   if (!sensorName) {
     return { kind: 'idle' };
   }
-  if (!vstApiUrl) {
-    return { kind: 'unavailable', reason: 'VST URL not configured' };
+  if (!viosApiUrl) {
+    return { kind: 'unavailable', reason: 'VIOS URL not configured' };
   }
-  const cachedUrl = pictureUrlCache.get(pictureCacheKey(vstApiUrl, sensorName));
+  const cachedUrl = pictureUrlCache.get(pictureCacheKey(viosApiUrl, sensorName));
   if (cachedUrl) {
     return { kind: 'ready', pictureUrl: cachedUrl };
   }
   return { kind: 'loading' };
 };
 
-export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
-  vstApiUrl,
+export const ViosStreamThumbnail: React.FC<ViosStreamThumbnailProps> = ({
+  viosApiUrl,
   sensorName,
   isDark,
   fallbackLabel,
 }) => {
   const [state, setState] = useState<ThumbnailState>(() =>
-    initialThumbnailState(vstApiUrl, sensorName),
+    initialThumbnailState(viosApiUrl, sensorName),
   );
   /** URL that failed to load; cleared implicitly when `pictureUrl` changes. */
   const [brokenPictureUrl, setBrokenPictureUrl] = useState<string | null>(null);
@@ -195,7 +195,7 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
   const [retryCount, setRetryCount] = useState(0);
   const retryRequested = useRef(false);
   const retryThumbnail = () => {
-    clearVstStreamThumbnailCache(vstApiUrl, sensorName);
+    clearViosStreamThumbnailCache(viosApiUrl, sensorName);
     setBrokenPictureUrl(null);
     setState({ kind: 'loading' });
     retryRequested.current = true;
@@ -209,12 +209,12 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
       setState({ kind: 'idle' });
       return;
     }
-    if (!vstApiUrl) {
-      setState({ kind: 'unavailable', reason: 'VST URL not configured' });
+    if (!viosApiUrl) {
+      setState({ kind: 'unavailable', reason: 'VIOS URL not configured' });
       return;
     }
 
-    const cacheKey = pictureCacheKey(vstApiUrl, sensorName);
+    const cacheKey = pictureCacheKey(viosApiUrl, sensorName);
     const cachedUrl = pictureUrlCache.get(cacheKey);
     if (cachedUrl) {
       setState({ kind: 'ready', pictureUrl: cachedUrl });
@@ -224,7 +224,7 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
 
     let cancelled = false;
 
-    fetchSensorMap(vstApiUrl, { forceRefresh })
+    fetchSensorMap(viosApiUrl, { forceRefresh })
       .then(async (map) => {
         if (cancelled) return;
         const sensorId = map.get(sensorName);
@@ -232,12 +232,11 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
           pictureUrlCache.delete(cacheKey);
           setState({
             kind: 'unavailable',
-            reason: `Sensor "${sensorName}" not registered with VST`,
+            reason: `Sensor "${sensorName}" not registered with VIOS`,
           });
           return;
         }
-        let baseUrl = vstApiUrl;
-        while (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+        const baseUrl = stripTrailingSlashes(viosApiUrl);
         const { streamId, startTime } = await fetchPreview(baseUrl, sensorId);
         if (cancelled) return;
         const pictureUrl = `${baseUrl}/v1/replay/stream/${encodeURIComponent(
@@ -251,14 +250,14 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
         pictureUrlCache.delete(cacheKey);
         setState({
           kind: 'unavailable',
-          reason: err instanceof Error ? err.message : 'VST unavailable',
+          reason: err instanceof Error ? err.message : 'VIOS unavailable',
         });
       });
 
     return () => {
       cancelled = true;
     };
-  }, [vstApiUrl, sensorName, retryCount]);
+  }, [viosApiUrl, sensorName, retryCount]);
 
   if (state.kind === 'idle') {
     return <Placeholder isDark={isDark} state="no-name" label={fallbackLabel} />;
@@ -276,7 +275,7 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
 
   return (
     <img
-      data-testid="vst-stream-thumbnail"
+      data-testid="vios-stream-thumbnail"
       src={state.pictureUrl}
       alt={`Recent thumbnail for ${sensorName}`}
       style={THUMBNAIL_BOX_STYLE}

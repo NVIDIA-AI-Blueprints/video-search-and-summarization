@@ -14,7 +14,7 @@ import { AlertData } from '../types';
 
 interface ThumbnailButtonProps {
   alert: AlertData;
-  vstApiUrl?: string;
+  viosApiUrl?: string;
   sensorMap?: Map<string, string>;
   isDark: boolean;
   onPlayVideo: (alert: AlertData) => void;
@@ -27,7 +27,7 @@ const BUTTON_BOX_STYLE = { width: '84px', height: '64px' } as const;
 
 export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
   alert,
-  vstApiUrl,
+  viosApiUrl,
   sensorMap,
   isDark,
   onPlayVideo,
@@ -40,7 +40,7 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
   const spinnerStyle = { width: '24px', height: '24px' };
 
   const thumbnailUrl = useMemo(() => {
-    if (!vstApiUrl || !sensorMap || !alert.sensor || !alert.timestamp) {
+    if (!viosApiUrl || !sensorMap || !alert.sensor || !alert.timestamp) {
       return null;
     }
 
@@ -49,7 +49,7 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
       return null;
     }
 
-    let url = `${vstApiUrl}/v1/replay/stream/${sensorId}/picture?width=256&height=114&startTime=${alert.timestamp}`;
+    let url = `${viosApiUrl}/v1/replay/stream/${sensorId}/picture?width=256&height=114&startTime=${alert.timestamp}`;
 
     const objectIds = alert.metadata?.objectIds;
     if (showObjectsBbox && Array.isArray(objectIds) && objectIds.length > 0) {
@@ -68,7 +68,7 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
     }
 
     return url;
-  }, [vstApiUrl, sensorMap, alert, showObjectsBbox]);
+  }, [viosApiUrl, sensorMap, alert, showObjectsBbox]);
 
   const handleClick = () => {
     if (isLoading) return;

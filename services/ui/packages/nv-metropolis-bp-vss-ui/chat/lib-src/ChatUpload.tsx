@@ -8,7 +8,7 @@
  * a batch lands.
  *
  * Chunking is not an optimisation. The browser posts chunks straight to the
- * configured VST API, which keeps a large file from dying on the ingress'
+ * configured VIOS API, which keeps a large file from dying on the ingress'
  * request timeout.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -61,8 +61,8 @@ export interface ChatUploadRenderProps {
 }
 
 export interface ChatUploadProps {
-  /** Base VST API URL; chunks are posted directly to its storage endpoint. */
-  vstApiUrlBase?: string;
+  /** Base VIOS API URL; chunks are posted directly to its storage endpoint. */
+  viosApiUrlBase?: string;
   configTemplateJson?: string;
   metadataEnabled?: boolean;
   /** `{filenames}` is replaced with the uploaded names. */
@@ -83,7 +83,7 @@ const DEFAULT_ACCEPT = '.mp4,.mkv,video/mp4,video/x-matroska';
 let uploadSeq = 0;
 
 export const ChatUpload: React.FC<ChatUploadProps> = ({
-  vstApiUrlBase,
+  viosApiUrlBase,
   configTemplateJson,
   metadataEnabled,
   hiddenMessageTemplate,
@@ -255,8 +255,8 @@ export const ChatUpload: React.FC<ChatUploadProps> = ({
       const cancelled: BatchEntry = { filename, error: 'Upload was cancelled', cancelled: true };
       if (cancelledIds.current.has(item.id)) return cancelled;
 
-      if (!vstApiUrlBase) {
-        const error = 'VST API URL is not configured';
+      if (!viosApiUrlBase) {
+        const error = 'VIOS API URL is not configured';
         patchFile(item.id, { uploadStatus: 'error', uploadError: error });
         return { filename, error };
       }
@@ -266,7 +266,7 @@ export const ChatUpload: React.FC<ChatUploadProps> = ({
       abortControllers.current.set(item.id, controller);
 
       try {
-        const uploadUrl = `${vstApiUrlBase.replace(/\/$/, '')}/v1/storage/file`;
+        const uploadUrl = `${viosApiUrlBase.replace(/\/$/, '')}/v1/storage/file`;
         const result = await uploadFileChunked(
           item.file,
           uploadUrl,
@@ -290,7 +290,7 @@ export const ChatUpload: React.FC<ChatUploadProps> = ({
         return { filename, error: message };
       }
     },
-    [patchFile, vstApiUrlBase],
+    [patchFile, viosApiUrlBase],
   );
 
   const runBatch = useCallback(

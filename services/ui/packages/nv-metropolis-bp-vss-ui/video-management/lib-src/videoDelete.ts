@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Delete an uploaded video's storage and sensor directly from VST.
+ * Delete an uploaded video's storage and sensor directly from VIOS.
  */
 import { createApiEndpoints } from './api';
 
@@ -10,7 +10,7 @@ export interface DeleteVideoResult {
   spaceSaved?: number;
 }
 
-async function getVstError(response: Response, fallback: string): Promise<string> {
+async function getViosError(response: Response, fallback: string): Promise<string> {
   const text = await response.text().catch(() => '');
   if (!text) return fallback;
   try {
@@ -22,7 +22,7 @@ async function getVstError(response: Response, fallback: string): Promise<string
 }
 
 export async function deleteVideo(
-  vstApiUrl: string,
+  viosApiUrl: string,
   sensorId: string,
   startTime: string,
   endTime: string,
@@ -32,7 +32,7 @@ export async function deleteVideo(
     throw new Error('Delete video was cancelled');
   }
 
-  const endpoints = createApiEndpoints(vstApiUrl);
+  const endpoints = createApiEndpoints(viosApiUrl);
   const storageResponse = await fetch(
     endpoints.DELETE_STORAGE_FILES(sensorId, startTime, endTime),
     {
@@ -43,7 +43,7 @@ export async function deleteVideo(
   );
 
   if (!storageResponse.ok && storageResponse.status !== 404) {
-    throw new Error(await getVstError(
+    throw new Error(await getViosError(
       storageResponse,
       `Failed to delete video storage: ${storageResponse.statusText || storageResponse.status}`,
     ));
@@ -65,7 +65,7 @@ export async function deleteVideo(
 
   // Storage deletion may already remove the file-backed sensor.
   if (!sensorResponse.ok && sensorResponse.status !== 404) {
-    throw new Error(await getVstError(
+    throw new Error(await getViosError(
       sensorResponse,
       `Failed to delete video sensor: ${sensorResponse.statusText || sensorResponse.status}`,
     ));

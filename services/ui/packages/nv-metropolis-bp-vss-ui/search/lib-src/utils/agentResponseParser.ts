@@ -186,21 +186,21 @@ function transformToSearchData(data: unknown[]): SearchData[] {
 }
 
 /**
- * Rebase VST thumbnail URLs onto the browser-facing VST origin. External
+ * Rebase VIOS thumbnail URLs onto the browser-facing VIOS origin. External
  * harnesses run the VSS CLI from their own network namespace, so an otherwise
- * valid artifact can contain a host-local or container-local VST hostname.
- * Playback already applies the same rebasing to the clip URL returned by VST.
+ * valid artifact can contain a host-local or container-local VIOS hostname.
+ * Playback already applies the same rebasing to the clip URL returned by VIOS.
  */
 export function normalizeSearchResultMediaUrls(
   results: SearchData[],
-  vstApiUrl?: string,
+  viosApiUrl?: string,
 ): SearchData[] {
-  if (!vstApiUrl?.includes('/vst/')) return results;
+  if (!viosApiUrl?.includes('/vst/')) return results;
 
   return results.map((result) => {
     if (!result.screenshot_url.includes('/vst/')) return result;
 
-    const screenshotUrl = replaceVideoUrlBase(result.screenshot_url, vstApiUrl);
+    const screenshotUrl = replaceVideoUrlBase(result.screenshot_url, viosApiUrl);
     return screenshotUrl === result.screenshot_url
       ? result
       : { ...result, screenshot_url: screenshotUrl };

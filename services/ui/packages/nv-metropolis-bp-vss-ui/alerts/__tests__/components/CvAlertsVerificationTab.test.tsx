@@ -43,7 +43,7 @@ const ControlledView = () => {
       onActiveKindChange={setKind}
       onAddNew={jest.fn()}
       alertsApiUrl="http://alerts.test/api/v1"
-      vstApiUrl="http://vst.test"
+      viosApiUrl="http://vios.test"
     />
   );
 };

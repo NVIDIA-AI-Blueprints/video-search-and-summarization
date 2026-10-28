@@ -29,14 +29,14 @@ import {
 } from '@tabler/icons-react';
 import { AlertRulesType, RealtimeAlertRuleDraft, RealtimeAlertRule } from '../types';
 import { useRealtimeAlertRules } from '../hooks/useRealtimeAlertRules';
-import { VstStreamThumbnail } from './VstStreamThumbnail';
+import { ViosStreamThumbnail } from './ViosStreamThumbnail';
 import { CvAlertsVerificationTab } from './CvAlertsVerificationTab';
 import {
   deriveSensorNameFromLiveStreamUrl,
-  fetchVstLiveStreamCatalog,
+  fetchViosLiveStreamCatalog,
   resolveSensorByName,
-  VstLiveStream,
-} from '../utils/vstSensorList';
+  ViosLiveStream,
+} from '../utils/viosSensorList';
 
 interface CreateAlertRulesViewProps {
   isDark: boolean;
@@ -51,8 +51,8 @@ interface CreateAlertRulesViewProps {
   alertsApiUrl?: string;
   /** Changes when chat completes or the Alerts tab becomes active. */
   refreshVersion?: number;
-  /** Base URL of the VST service (NEXT_PUBLIC_VST_API_URL); used for sensor thumbnails. */
-  vstApiUrl?: string;
+  /** Base URL of the VIOS service (NEXT_PUBLIC_VIOS_API_URL); used for sensor thumbnails. */
+  viosApiUrl?: string;
   enableRealtimeAlerts?: boolean;
   enableCvAlertsVerification?: boolean;
 }
@@ -82,7 +82,7 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   onTypeFilterChange,
   alertsApiUrl,
   refreshVersion,
-  vstApiUrl,
+  viosApiUrl,
   enableRealtimeAlerts = true,
   enableCvAlertsVerification = true,
 }) => {
@@ -158,7 +158,7 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
       isDark={isDark}
       refreshVersion={refreshVersion}
       alertsApiUrl={alertsApiUrl}
-      vstApiUrl={vstApiUrl}
+      viosApiUrl={viosApiUrl}
       streamFilter={streamFilter}
       typeFilter={typeFilter}
       onStreamFilterChange={onStreamFilterChange}
@@ -208,7 +208,7 @@ interface RealtimeAlertsTabProps {
   alertsApiUrl?: string;
   /** Changes when chat completes or the Alerts tab becomes active. */
   refreshVersion?: number;
-  vstApiUrl?: string;
+  viosApiUrl?: string;
   streamFilter?: string;
   typeFilter?: string;
   onStreamFilterChange?: (value: string) => void;
@@ -222,7 +222,7 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
   isDark,
   alertsApiUrl,
   refreshVersion,
-  vstApiUrl,
+  viosApiUrl,
   streamFilter: streamFilterProp,
   typeFilter: typeFilterProp,
   inputClass,
@@ -233,9 +233,9 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
     useRealtimeAlertRules({ alertsApiUrl, refreshVersion });
 
   const [drafts, setDrafts] = useState<RealtimeAlertRuleDraft[]>([]);
-  // VST live-stream catalog used to populate the sensor picker in draft rows.
+  // VIOS live-stream catalog used to populate the sensor picker in draft rows.
   // Fetched lazily the first time a draft exists; refetched on demand.
-  const [liveStreams, setLiveStreams] = useState<VstLiveStream[]>([]);
+  const [liveStreams, setLiveStreams] = useState<ViosLiveStream[]>([]);
   const [liveStreamsLoading, setLiveStreamsLoading] = useState(false);
   const [liveStreamsError, setLiveStreamsError] = useState<string | null>(null);
   const [internalStreamFilter] = useState('');
@@ -277,26 +277,26 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
 
   const loadLiveStreams = useCallback(
     async () => {
-      if (!vstApiUrl) {
+      if (!viosApiUrl) {
         setLiveStreams([]);
-        setLiveStreamsError('VST API URL is not configured');
+        setLiveStreamsError('VIOS API URL is not configured');
         return;
       }
       setLiveStreamsLoading(true);
       setLiveStreamsError(null);
       try {
-        const catalog = await fetchVstLiveStreamCatalog(vstApiUrl);
+        const catalog = await fetchViosLiveStreamCatalog(viosApiUrl);
         setLiveStreams(catalog);
       } catch (err) {
         setLiveStreams([]);
         setLiveStreamsError(
-          err instanceof Error ? err.message : 'Failed to load VST live streams',
+          err instanceof Error ? err.message : 'Failed to load VIOS live streams',
         );
       } finally {
         setLiveStreamsLoading(false);
       }
     },
-    [vstApiUrl],
+    [viosApiUrl],
   );
 
   const addDraft = useCallback(() => {
@@ -362,19 +362,19 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
         });
         return;
       }
-      if (!vstApiUrl) {
+      if (!viosApiUrl) {
         updateDraft(draftId, {
-          error: 'VST API URL is not configured; cannot resolve live stream URL.',
+          error: 'VIOS API URL is not configured; cannot resolve live stream URL.',
         });
         return;
       }
       updateDraft(draftId, { saving: true, error: undefined });
       try {
-        // Resolver returns undefined if the sensor isn't in VST's live-stream
+        // Resolver returns undefined if the sensor isn't in VIOS's live-stream
         // catalog yet — we still forward the name so users can create alert
         // rules for streams that will be registered later. Alert Bridge is the
         // source of truth on whether that's accepted.
-        const resolved = await resolveSensorByName(vstApiUrl, sensorName);
+        const resolved = await resolveSensorByName(viosApiUrl, sensorName);
         await createRule({
           live_stream_url: resolved?.live_stream_url ?? '',
           alert_type,
@@ -390,7 +390,7 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
         });
       }
     },
-    [drafts, createRule, updateDraft, vstApiUrl],
+    [drafts, createRule, updateDraft, viosApiUrl],
   );
 
   const handleDelete = useCallback(
@@ -567,32 +567,32 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
             </tr>
           </thead>
           <tbody>
-            {loading && rules.length === 0 && drafts.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={6}
-                  className={`text-center py-10 text-sm ${
-                    isDark ? 'text-neutral-400' : 'text-gray-500'
-                  }`}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <IconLoader2 className="w-4 h-4 animate-spin" />
-                    Loading alert rules…
-                  </span>
-                </td>
-              </tr>
-            ) : visibleRules.length === 0 && drafts.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={6}
-                  className={`text-center py-10 text-sm ${
-                    isDark ? 'text-neutral-400' : 'text-gray-500'
-                  }`}
-                >
-                  No real-time alert rules. Click &ldquo;+ Create alert rule&rdquo; to create one.
-                </td>
-              </tr>
-            ) : (
+            {(() => {
+              const emptyCellClass = `text-center py-10 text-sm ${
+                isDark ? 'text-neutral-400' : 'text-gray-500'
+              }`;
+              if (loading && rules.length === 0 && drafts.length === 0) {
+                return (
+                  <tr>
+                    <td colSpan={6} className={emptyCellClass}>
+                      <span className="inline-flex items-center gap-2">
+                        <IconLoader2 className="w-4 h-4 animate-spin" />
+                        Loading alert rules…
+                      </span>
+                    </td>
+                  </tr>
+                );
+              }
+              if (visibleRules.length === 0 && drafts.length === 0) {
+                return (
+                  <tr>
+                    <td colSpan={6} className={emptyCellClass}>
+                      No real-time alert rules. Click &ldquo;+ Create alert rule&rdquo; to create one.
+                    </td>
+                  </tr>
+                );
+              }
+              return (
               <>
                 {visibleRules.map((rule, index) => (
                   <tr
@@ -698,9 +698,9 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                       </div>
                     </td>
                     <td className="py-2 px-3 align-middle">
-                      <VstStreamThumbnail
+                      <ViosStreamThumbnail
                         isDark={isDark}
-                        vstApiUrl={vstApiUrl}
+                        viosApiUrl={viosApiUrl}
                         // Prefer the rule's server-side `sensor_name`. Fall
                         // back to deriving from the RTSP URL for older rules
                         // that pre-date the sensor_name field.
@@ -788,9 +788,9 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                         </div>
                       </td>
                       <td className="py-2 px-3 align-middle">
-                        <VstStreamThumbnail
+                        <ViosStreamThumbnail
                           isDark={isDark}
-                          vstApiUrl={vstApiUrl}
+                          viosApiUrl={viosApiUrl}
                           sensorName={draft.sensor_name}
                         />
                       </td>
@@ -873,7 +873,8 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                   );
                 })}
               </>
-            )}
+              );
+            })()}
           </tbody>
         </table>
 
@@ -898,7 +899,7 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
 // SensorPicker — sensor dropdown for draft rows
 // =============================================================================
 // Mirrors the chat flow (services/agent/.../rtvi_vlm_alert.py): the user picks
-// a friendly sensor name, and the live-stream URL is resolved from VST at save
+// a friendly sensor name, and the live-stream URL is resolved from VIOS at save
 // time. Removes the URL-parsing path that broke for `rtsp://host:port/live/<uuid>`
 // inputs where the last path segment is a UUID, not the sensor name.
 
@@ -907,7 +908,7 @@ interface SensorPickerProps {
   inputClass: string;
   value: string;
   onChange: (sensorName: string) => void;
-  liveStreams: VstLiveStream[];
+  liveStreams: ViosLiveStream[];
   loading: boolean;
   errorMessage: string | null;
   onRetry: () => void;
@@ -1051,7 +1052,7 @@ const SensorPicker: React.FC<SensorPickerProps> = ({
         <span
           className={`text-xs ${isDark ? 'text-neutral-400' : 'text-gray-500'}`}
         >
-          Not in VST catalog — will be created against this sensor name.
+          Not in VIOS catalog — will be created against this sensor name.
         </span>
       )}
       {errorMessage && (

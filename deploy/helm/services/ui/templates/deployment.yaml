@@ -112,13 +112,13 @@ spec:
             {{- $_ := set $ov "NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL" .Values.dashboardKibanaBaseUrl }}
             {{- end }}
             {{- if ne $globalBase "" }}
-            {{- /* Real-time: fillAlertBridgeUrlFromGlobal=false — do not set NEXT_PUBLIC_ALERTS_API_URL (Alerts tab uses MDX_WEB_API_URL). */}}
+            {{- /* Real-time: fillAlertBridgeUrlFromGlobal=false — do not set NEXT_PUBLIC_ALERTS_API_URL (Alerts tab uses VIDEO_ANALYTICS_WEB_API_URL). */}}
             {{- if not (and (kindIs "bool" .Values.fillAlertBridgeUrlFromGlobal) (eq .Values.fillAlertBridgeUrlFromGlobal false)) }}
             {{- /* Includes the API version prefix so a future server-side bump (e.g. /api/v2) is a chart change, not a UI rebuild. */}}
             {{- $_ := set $ov "NEXT_PUBLIC_ALERTS_API_URL" (index $ov "NEXT_PUBLIC_ALERTS_API_URL" | default (printf "%s/alert-bridge/api/v1" $globalBase)) }}
             {{- end }}
-            {{- $mdxP := .Values.mdxWebApiPath | default "/video-analytics-api" }}
-            {{- $_ := set $ov "NEXT_PUBLIC_MDX_WEB_API_URL" (index $ov "NEXT_PUBLIC_MDX_WEB_API_URL" | default (printf "%s%s" $globalBase $mdxP)) }}
+            {{- $videoAnalyticsWebApiPath := .Values.videoAnalyticsWebApiPath | default "/video-analytics-api" }}
+            {{- $_ := set $ov "NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL" (index $ov "NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL" | default (printf "%s%s" $globalBase $videoAnalyticsWebApiPath)) }}
             {{- $mapP := .Values.mapAppPath | default "" | trim }}
             {{- $mapHostPfx := .Values.mapAppHostPrefix | default "" | trim }}
             {{- if ne $mapP "" }}
@@ -139,13 +139,13 @@ spec:
               value: {{ .Values.agentApiUrlBase | default (ternary (printf "%s/api/v1" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/api/v1" .Release.Name) "http://vss-agent:8000/api/v1" $pfx) | quote }}
             - name: NEXT_PUBLIC_SIDEBAR_CHAT_AGENT_API_URL_BASE
               value: {{ .Values.agentApiUrlBase | default (ternary (printf "%s/api/v1" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/api/v1" .Release.Name) "http://vss-agent:8000/api/v1" $pfx) | quote }}
-            - name: NEXT_PUBLIC_VST_API_URL
-              value: {{ .Values.vstApiUrl | default (ternary (printf "%s/vst/api" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-vios-ingress:30888/vst/api" .Release.Name) "http://vss-vios-ingress:30888/vst/api" $pfx) | quote }}
-            {{- $vstInternal := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}
+            - name: NEXT_PUBLIC_VIOS_API_URL
+              value: {{ .Values.viosApiUrl | default (ternary (printf "%s/vst/api" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-vios-ingress:30888/vst/api" .Release.Name) "http://vss-vios-ingress:30888/vst/api" $pfx) | quote }}
+            {{- $viosInternal := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}
             # Server-only target for /api/proxy. Keep media reads in-cluster
             # instead of hairpinning through the public ingress and its auth.
             - name: VSS_PROXY_BASE_URL
-              value: {{ .Values.proxyBaseUrl | default $vstInternal | quote }}
+              value: {{ .Values.proxyBaseUrl | default $viosInternal | quote }}
             {{- $httpChat := .Values.chatCompletionUrl | default (ternary (printf "%s/v1/chat/stream" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/v1/chat/stream" .Release.Name) "http://vss-agent:8000/v1/chat/stream" $pfx) }}
             - name: NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL
               value: {{ $httpChat | quote }}

@@ -296,7 +296,7 @@ vss-agent-ui:
   # Empty URL fields: deployment uses global.external* then in-cluster defaults.
   # Base-profile NEXT_PUBLIC_* defaults (former configs/vss-agent-ui/static-env.yaml).
   agentApiUrlBase: ""
-  vstApiUrl: ""
+  viosApiUrl: ""
   chatCompletionUrl: ""
   websocketChatUrl: ""
   envOverrides:
@@ -358,7 +358,7 @@ vss-agent-ui:
       value: "true"
     - name: NEXT_PUBLIC_MAP_URL
       value: ""
-    - name: NEXT_PUBLIC_MDX_WEB_API_URL
+    - name: NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL
       value: ""
     - name: NEXT_PUBLIC_RIGHT_MENU_OPEN
       value: "false"

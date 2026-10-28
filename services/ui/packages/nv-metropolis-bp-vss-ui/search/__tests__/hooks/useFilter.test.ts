@@ -40,7 +40,7 @@ describe('useFilter', () => {
   it('initializes with default state', () => {
     global.fetch = mockFetchResponse([]);
 
-    const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+    const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
     expect(result.current.filterParams).toEqual({
       videoSources: [],
@@ -56,11 +56,11 @@ describe('useFilter', () => {
     ]);
   });
 
-  it('does not fetch when vstApiUrl is not provided', async () => {
+  it('does not fetch when viosApiUrl is not provided', async () => {
     const fetchSpy = mockFetchResponse([]);
     global.fetch = fetchSpy;
 
-    renderHook(() => useFilter({ vstApiUrl: undefined }));
+    renderHook(() => useFilter({ viosApiUrl: undefined }));
     // Allow effects to flush
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 
@@ -70,13 +70,13 @@ describe('useFilter', () => {
   it('fetches sensor list and filters online sensors', async () => {
     global.fetch = mockFetchResponse(mockSensors);
 
-    const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+    const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
     await waitFor(() => {
       expect(result.current.streams).toHaveLength(2);
     });
 
-    expect(global.fetch).toHaveBeenCalledWith('http://vst.test/v1/sensor/list');
+    expect(global.fetch).toHaveBeenCalledWith('http://vios.test/v1/sensor/list');
     expect(result.current.streams).toEqual([
       { sensorId: 'cam-1', name: 'Camera-1', type: 'sensor_file' },
       { sensorId: 'cam-2', name: 'Camera-2', type: 'sensor_rtsp' },
@@ -87,7 +87,7 @@ describe('useFilter', () => {
     global.fetch = mockFetchResponse(null, false);
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
-    const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+    const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
     await waitFor(() => {
       expect(consoleSpy).toHaveBeenCalled();
@@ -101,7 +101,7 @@ describe('useFilter', () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
-    const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+    const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
     await waitFor(() => {
       expect(consoleSpy).toHaveBeenCalled();
@@ -115,7 +115,7 @@ describe('useFilter', () => {
     it('creates tags for all provided filter params', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
       act(() => {
         result.current.addFilter({
@@ -134,7 +134,7 @@ describe('useFilter', () => {
     it('keeps the similarity tag when the threshold is zero', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
       act(() => {
         result.current.addFilter({
@@ -153,7 +153,7 @@ describe('useFilter', () => {
     it('uses filterParams when no params argument passed', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
       act(() => {
         result.current.addFilter();
@@ -168,7 +168,7 @@ describe('useFilter', () => {
     it('formats similarity value to 2 decimal places', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
       act(() => {
         result.current.addFilter({ similarity: 0.7, topK: 10 });
@@ -183,7 +183,7 @@ describe('useFilter', () => {
     it('removes a specific tag', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
       act(() => {
         result.current.addFilter({
@@ -207,7 +207,7 @@ describe('useFilter', () => {
     it('resets to default topK tag when null is passed (clear all)', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
       // Update filterParams topK to 20
       act(() => {
@@ -237,7 +237,7 @@ describe('useFilter', () => {
     it('allows updating filter params directly', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
 
       act(() => {
         result.current.setFilterParams({

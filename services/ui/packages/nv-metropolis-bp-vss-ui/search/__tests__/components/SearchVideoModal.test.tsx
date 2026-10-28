@@ -14,7 +14,7 @@ const setCurrentTime = (video: HTMLVideoElement, value: number) => {
 
 const defaultProps = {
   isOpen: true,
-  videoUrl: 'http://vst.test/vst/clip.mp4',
+  videoUrl: 'http://vios.test/vst/clip.mp4',
   title: 'Clip',
   onClose: jest.fn(),
   searchByImageEnabled: true,

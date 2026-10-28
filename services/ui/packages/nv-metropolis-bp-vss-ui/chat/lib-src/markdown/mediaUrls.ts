@@ -10,7 +10,7 @@ interface MarkdownNode {
 }
 
 /**
- * Rebase NemoClaw's sandbox-only VST URLs after Markdown and raw HTML parsing.
+ * Rebase NemoClaw's sandbox-only VIOS URLs after Markdown and raw HTML parsing.
  * This preserves autolinks and leaves literal code (including copied snippets)
  * intact while links, embedded media, and visible URL text use the UI route.
  */

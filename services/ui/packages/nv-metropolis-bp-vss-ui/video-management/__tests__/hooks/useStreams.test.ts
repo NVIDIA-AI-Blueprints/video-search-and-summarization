@@ -6,13 +6,13 @@ import { ADDED_STREAM_POLL_DELAYS_MS, DELETED_STREAM_POLL_DELAYS_MS } from '../.
 import type { StreamInfo } from '../../lib-src/types';
 import { videoStream, rtspStream } from '../helpers/streamFixtures';
 
-const VST_API_URL = 'https://vst.example.com/vst/api';
+const VIOS_API_URL = 'https://vios.example.com/vst/api';
 
 function streamsPayload(streams: StreamInfo[]) {
   return streams.map((stream) => ({ [stream.sensorId]: [stream] }));
 }
 
-function mockVstStreams(...responses: StreamInfo[][]) {
+function mockViosStreams(...responses: StreamInfo[][]) {
   const queue = [...responses];
   const fetchMock = jest.fn(async () => {
     const streams = queue.length > 1 ? queue.shift()! : queue[0];
@@ -39,10 +39,10 @@ describe('useStreams — waitUntilStreamsRemoved', () => {
     jest.useRealTimers();
   });
 
-  it('resolves immediately when VST already dropped the sensors', async () => {
-    mockVstStreams([videoStream, rtspStream], [videoStream]);
+  it('resolves immediately when VIOS already dropped the sensors', async () => {
+    mockViosStreams([videoStream, rtspStream], [videoStream]);
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(2));
 
     let waitResult: { remainingSensorIds: string[] } | undefined;
@@ -54,15 +54,15 @@ describe('useStreams — waitUntilStreamsRemoved', () => {
     expect(names(result.current.streams)).toEqual([videoStream.name]);
   });
 
-  it('polls until VST drops the sensor, then resolves with none remaining', async () => {
+  it('polls until VIOS drops the sensor, then resolves with none remaining', async () => {
     // Initial load still has both; first wait-poll still has RTSP; second drops it
-    const fetchMock = mockVstStreams(
+    const fetchMock = mockViosStreams(
       [videoStream, rtspStream],
       [videoStream, rtspStream],
       [videoStream],
     );
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(2));
 
     let waitResult: { remainingSensorIds: string[] } | undefined;
@@ -80,9 +80,9 @@ describe('useStreams — waitUntilStreamsRemoved', () => {
   });
 
   it('returns remaining sensor ids when the poll budget is exhausted', async () => {
-    mockVstStreams([videoStream, rtspStream]);
+    mockViosStreams([videoStream, rtspStream]);
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(2));
 
     let waitResult: { remainingSensorIds: string[] } | undefined;
@@ -99,9 +99,9 @@ describe('useStreams — waitUntilStreamsRemoved', () => {
   });
 
   it('keeps poll fetches out of the loading state', async () => {
-    mockVstStreams([videoStream, rtspStream], [videoStream]);
+    mockViosStreams([videoStream, rtspStream], [videoStream]);
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => {
@@ -112,14 +112,14 @@ describe('useStreams — waitUntilStreamsRemoved', () => {
   });
 
   // A poll that errors out returns no streams, which must not be read as
-  // "VST dropped the sensor" — that would close the dialog on a stale stream.
+  // "VIOS dropped the sensor" — that would close the dialog on a stale stream.
   it('does not treat a failed poll as confirmed removal', async () => {
     const fetchMock = jest.fn(async (): Promise<Response> => {
       throw new Error('network down');
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     let waitResult: { remainingSensorIds: string[] } | undefined;
@@ -148,7 +148,7 @@ describe('useStreams — waitUntilStreamsRemoved', () => {
       return { ok: true, json: async () => streamsPayload(next) } as Response;
     }) as unknown as typeof fetch;
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(2));
 
     let waitResult: { remainingSensorIds: string[] } | undefined;
@@ -171,7 +171,7 @@ describe('useStreams — waitUntilStreamsRemoved', () => {
       throw new Error('transient failure');
     }) as unknown as typeof fetch;
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(2));
 
     await act(async () => {
@@ -187,9 +187,9 @@ describe('useStreams — waitUntilStreamsRemoved', () => {
   });
 
   it('does nothing when no sensors were deleted', async () => {
-    const fetchMock = mockVstStreams([videoStream, rtspStream]);
+    const fetchMock = mockViosStreams([videoStream, rtspStream]);
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(2));
 
     let waitResult: { remainingSensorIds: string[] } | undefined;
@@ -204,7 +204,7 @@ describe('useStreams — waitUntilStreamsRemoved', () => {
   });
 });
 
-// VST answers the add-sensor call before the sensor turns up in its streams
+// VIOS answers the add-sensor call before the sensor turns up in its streams
 // listing, so the Add RTSP dialog has to wait on the listing, not the add.
 describe('useStreams — waitUntilStreamAdded', () => {
   beforeEach(() => {
@@ -216,10 +216,10 @@ describe('useStreams — waitUntilStreamAdded', () => {
     jest.useRealTimers();
   });
 
-  it('resolves immediately when VST already lists the sensor', async () => {
-    const fetchMock = mockVstStreams([videoStream], [videoStream, rtspStream]);
+  it('resolves immediately when VIOS already lists the sensor', async () => {
+    const fetchMock = mockViosStreams([videoStream], [videoStream, rtspStream]);
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(1));
 
     let waitResult: { found: boolean } | undefined;
@@ -233,14 +233,14 @@ describe('useStreams — waitUntilStreamAdded', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('polls until VST lists the sensor, updating the grid on the way', async () => {
-    const fetchMock = mockVstStreams(
+  it('polls until VIOS lists the sensor, updating the grid on the way', async () => {
+    const fetchMock = mockViosStreams(
       [videoStream],
       [videoStream],
       [videoStream, rtspStream],
     );
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(1));
 
     let waitResult: { found: boolean } | undefined;
@@ -256,9 +256,9 @@ describe('useStreams — waitUntilStreamAdded', () => {
   });
 
   it('reports not found when the poll budget is exhausted', async () => {
-    mockVstStreams([videoStream]);
+    mockViosStreams([videoStream]);
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(1));
 
     let waitResult: { found: boolean } | undefined;
@@ -287,7 +287,7 @@ describe('useStreams — waitUntilStreamAdded', () => {
       return { ok: true, json: async () => streamsPayload(next) } as Response;
     }) as unknown as typeof fetch;
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(1));
 
     let waitResult: { found: boolean } | undefined;
@@ -301,9 +301,9 @@ describe('useStreams — waitUntilStreamAdded', () => {
   });
 
   it('keeps poll fetches out of the loading state', async () => {
-    mockVstStreams([videoStream], [videoStream, rtspStream]);
+    mockViosStreams([videoStream], [videoStream, rtspStream]);
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => {
@@ -315,9 +315,9 @@ describe('useStreams — waitUntilStreamAdded', () => {
   });
 
   it('does nothing without a sensor id', async () => {
-    const fetchMock = mockVstStreams([videoStream]);
+    const fetchMock = mockViosStreams([videoStream]);
 
-    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    const { result } = renderHook(() => useStreams({ viosApiUrl: VIOS_API_URL }));
     await waitFor(() => expect(result.current.streams).toHaveLength(1));
 
     let waitResult: { found: boolean } | undefined;

@@ -372,7 +372,7 @@ describe('normalizeSearchResultMediaUrls', () => {
     object_ids: [],
   };
 
-  it('rebases a harness-local thumbnail onto the browser-facing VST origin', () => {
+  it('rebases a harness-local thumbnail onto the browser-facing VIOS origin', () => {
     expect(
       normalizeSearchResultMediaUrls(
         [result],
@@ -383,10 +383,10 @@ describe('normalizeSearchResultMediaUrls', () => {
     );
   });
 
-  it('leaves non-VST media URLs and results without a public VST origin unchanged', () => {
-    const nonVstResult = { ...result, screenshot_url: 'https://images.example/thumb.jpg' };
-    expect(normalizeSearchResultMediaUrls([nonVstResult], 'https://vss.example/vst/api')[0]).toBe(
-      nonVstResult,
+  it('leaves non-VIOS media URLs and results without a public VIOS origin unchanged', () => {
+    const nonViosResult = { ...result, screenshot_url: 'https://images.example/thumb.jpg' };
+    expect(normalizeSearchResultMediaUrls([nonViosResult], 'https://vss.example/vst/api')[0]).toBe(
+      nonViosResult,
     );
     expect(normalizeSearchResultMediaUrls([result], undefined)[0]).toBe(result);
   });

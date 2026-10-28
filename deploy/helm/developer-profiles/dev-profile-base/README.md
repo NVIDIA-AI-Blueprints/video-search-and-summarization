@@ -227,7 +227,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`agent.vss-agent.extraEnv`** | *(omit)* | Optional **`{ name, value }`** appended last (same pattern as **vss-agent-ui.extraEnv**). |
 | **`vss-agent-ui.enabled`** | `true` | Set **`false`** to disable the **vss-agent-ui** deployment. |
 | **`vss-agent-ui.agentApiUrlBase`** | `""` | Base URL for the **vss-agent** HTTP API (browser **`NEXT_PUBLIC_AGENT_API_URL_BASE`**, typically ends with **`/api/v1`**). If unset, built from **`global.externalScheme`** / **`externalHost`** / **`externalPort`** as **`<global>/api/v1`**, else defaults to in-cluster **`http://<RELEASE_NAME>-vss-agent:8000/api/v1`**. |
-| **`vss-agent-ui.vstApiUrl`** | `""` | **VST** HTTP API URL for the browser (**`NEXT_PUBLIC_VST_API_URL`**). If unset, built as **`<global>/vst/api`**, else **`http://<RELEASE_NAME>-vss-vios-ingress:30888/vst/api`**. |
+| **`vss-agent-ui.viosApiUrl`** | `""` | **VIOS** HTTP API URL for the browser (**`NEXT_PUBLIC_VIOS_API_URL`**). If unset, built as **`<global>/vst/api`**, else **`http://<RELEASE_NAME>-vss-vios-ingress:30888/vst/api`**. |
 | **`vss-agent-ui.proxyBaseUrl`** | `""` | Server-only media-proxy target (**`VSS_PROXY_BASE_URL`**). If unset, uses the in-cluster **vss-vios-ingress** Service. |
 | **`vss-agent-ui.chatCompletionUrl`** | `""` | HTTP chat completion URL (**`NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL`**). If unset, built as **`<global>/chat/stream`**, else **`http://<RELEASE_NAME>-vss-agent:8000/chat/stream`**. |
 | **`vss-agent-ui.chatBackendUrl`**, **`sidebarChatBackendUrl`** | `""` | Server-only chat proxy targets. If unset, use an explicit **`chatCompletionUrl`**, otherwise the in-cluster **vss-agent** Service. |
