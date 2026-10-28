@@ -1074,10 +1074,13 @@ def inspect_sensor_scope(
     recording_start: str | None = None,
     recording_end: str | None = None,
     frame_archive_root: Path | None = None,
+    required_fps: float | None = None,
 ) -> dict[str, Any]:
     """Inspect every affordable subwindow before bounded quality retries."""
     if output_mode not in OUTPUT_MODES:
         raise ValueError(f"unknown output mode: {output_mode}")
+    if required_fps is not None and float(fps) != float(required_fps):
+        raise ValueError(f"fps {fps:g} does not match the refinement's planned fps {required_fps:g}")
     recording_context(start, end, recording_start, recording_end)
     if calls_budget < 1:
         raise ValueError("calls_budget must be at least one")
@@ -1433,6 +1436,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 recording_start=args.recording_start,
                 recording_end=args.recording_end,
                 frame_archive_root=frame_archive_root(args.output),
+                required_fps=(
+                    selected["refinement"]["fps"]
+                    if isinstance(selected.get("refinement"), dict)
+                    else None
+                ),
             ),
         )
     return 0

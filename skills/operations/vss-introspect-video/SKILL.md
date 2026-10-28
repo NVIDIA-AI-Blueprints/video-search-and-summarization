@@ -473,6 +473,10 @@ it to:
   attribute is a limitation, not proof that the attribute or event was absent;
 - preserve VSS job ID and the exact assigned provenance selector: sensor plus
   ISO-8601 window, media URL, or file path;
+- for a count claim, return `count_state` as described under Count inventory:
+  start from the task's `count_state` when present, list each candidate event
+  and each interval where a qualifying event could be hidden or cut off, and
+  resolve a prior gap only with new visible evidence;
 - put tool failures in `error`, never in `observations`; exit 6 may retain
   usable evidence while recording the persistence limitation;
 - return exactly one contract-valid result without changing claims, canonical
@@ -673,6 +677,55 @@ is not finished. If budget remains, create another task for it using a shorter
 window and higher FPS targeted at the remaining gap, not another full-interval
 skim. If no budget remains, stop. Do not answer from a note while the ledger
 is `in_progress`.
+
+#### One bounded refinement for an open count gap
+
+When a count claim still has an answer-affecting open gap, you may attach one
+refinement to that claim's next task. Do this only when another view could
+plausibly reveal the missing evidence. An interval that stays fully occluded
+from this camera cannot be revealed by more frames; leave it as a gap. Write
+`refinement.json`:
+
+```json
+{
+  "claim_id": "claim-...",
+  "gap_ids": ["gap-..."],
+  "missing_evidence": "What visible fact is still missing.",
+  "rationale": "Why a different view could show it.",
+  "strategy": "narrower_denser",
+  "fps": 2,
+  "prior_request": {"start": "...", "end": "...", "fps": 0.5}
+}
+```
+
+Then pass it to `create-tasks --refinement refinement.json`, with that claim's new
+window in `media-scopes.json`. `prior_request` is the earlier window and FPS
+that left the gap open. Strategies:
+
+- `narrower_denser`: a shorter window inside the prior one, at a higher FPS;
+- `adjacent_context`: time outside the prior window, such as just before or
+  after an occlusion, to see before and after states;
+- `boundary_check`: a shorter window that contains a gap's start or end, to
+  settle whether an event falls inside the asked interval.
+
+The utility rejects an identical or immaterial retry, a window that does not
+reach a targeted gap, a gap that is not open and answer-affecting, a request
+whose frames exceed the task's call allocation, and a second refinement. It
+also rejects a refinement when less than five minutes remain before the
+deadline given with `--deadline` or set by the runtime policy. The task records
+the claim and gaps, the missing evidence, the rationale, what changed from the
+prior request, and the remaining call, round, frame, and time budget. Inspect
+that task at exactly the refinement's `fps`; the helper refuses another rate.
+The merged ledger keeps the record and its outcome in `refinements`.
+
+A round that adds no observation and no coverage normally stops with
+`no_progress`. If an answer-affecting count gap is still open, budget remains,
+and no refinement has been used, the ledger instead stays `in_progress` once
+and records `no_progress_continuation`. `assess` then reports
+`refinement_only`. The next batch must be exactly one refinement task. If no
+materially different view is plausible, do not invent one: call
+`final-result`, which records the `no_progress` stop. This continuation is
+granted at most once and is never reset.
 
 Invoke planner expansion mode only when an independently assessable answer
 requirement is absent from the plan. Pass the prior plan and demonstrated

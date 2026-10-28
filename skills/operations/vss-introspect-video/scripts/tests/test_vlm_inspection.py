@@ -1362,3 +1362,20 @@ def test_sampled_frames_match_their_measured_manifest(tmp_path: Path) -> None:
     assert len(manifest) == 4
     assert [entry["clip_time_seconds"] for entry in manifest] == [0.0, 1.0, 2.0, 3.0]
     assert {(entry["width"], entry["height"]) for entry in manifest} == {(160, 90)}
+
+
+def test_refinement_task_fps_is_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        vlm, "_run_vlm", lambda **_: (_ for _ in ()).throw(AssertionError("called the model"))
+    )
+    with pytest.raises(ValueError, match="planned fps 2"):
+        vlm.inspect_sensor_scope(
+            vss_project="/repo/libs/vss",
+            sensor="sensor-1",
+            start=START,
+            end="2026-09-30T00:00:20Z",
+            fps=1,
+            prompt="Count visible boxes.",
+            calls_budget=1,
+            required_fps=2,
+        )

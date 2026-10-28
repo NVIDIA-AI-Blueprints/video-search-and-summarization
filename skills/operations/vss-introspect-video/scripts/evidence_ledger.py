@@ -9,11 +9,12 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import os
 import re
 import tempfile
-from collections.abc import Mapping, Sequence
-from datetime import datetime
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -154,6 +155,33 @@ CANDIDATE_ID_RE = re.compile(r"^evt-[a-z0-9]+(?:-[a-z0-9]+)*$")
 COUNT_GAP_ID_RE = re.compile(r"^gap-[a-z0-9]+(?:-[a-z0-9]+)*$")
 MAX_COUNT_CANDIDATES = 40
 MAX_COUNT_GAPS = 16
+
+REFINEMENT_STRATEGIES = ("narrower_denser", "adjacent_context", "boundary_check")
+REFINEMENT_INPUT_KEYS = {
+    "claim_id",
+    "gap_ids",
+    "missing_evidence",
+    "rationale",
+    "strategy",
+    "fps",
+    "prior_request",
+}
+REFINEMENT_KEYS = REFINEMENT_INPUT_KEYS | {"new_request", "changes", "budget_remaining"}
+REQUEST_KEYS = {"start", "end", "fps"}
+REFINEMENT_BUDGET_KEYS = {
+    "vlm_calls_remaining",
+    "vlm_calls_allocated",
+    "rounds_remaining",
+    "frames_planned",
+    "frames_affordable",
+    "deadline",
+    "seconds_remaining",
+}
+CONTINUATION_KEYS = {"granted_after_round", "granted_at_revision", "gap_ids", "reason"}
+MAX_STRATEGY_REFINEMENTS = 1
+MAX_NO_PROGRESS_CONTINUATIONS = 1
+FRAMES_PER_VLM_CALL = 60
+REFINEMENT_MIN_SECONDS = 300
 
 
 class LedgerValidationError(ValueError):
@@ -730,7 +758,9 @@ def _derived_claim_status(
 
 def validate_ledger(ledger: Any) -> None:
     """Strictly validate the canonical minimal ledger and cross references."""
-    ledger = _strict(ledger, LEDGER_KEYS, "ledger")
+    ledger = _strict_optional(
+        ledger, LEDGER_KEYS, {"refinements", "no_progress_continuation"}, "ledger"
+    )
     if ledger["ledger_version"] != "1.0":
         _fail("ledger.ledger_version", "must be 1.0")
     _integer(ledger["revision"], "ledger.revision")
@@ -844,6 +874,195 @@ def validate_ledger(ledger: Any) -> None:
     ):
         _fail("ledger.stop_reason", "unresolved requires a terminal unresolved reason")
 
+    refinements = ledger.get("refinements", [])
+    if not isinstance(refinements, list) or len(refinements) > MAX_STRATEGY_REFINEMENTS:
+        _fail(
+            "ledger.refinements",
+            f"must be an array of at most {MAX_STRATEGY_REFINEMENTS} refinements",
+        )
+    for index, record in enumerate(refinements):
+        record = _strict(
+            record,
+            REFINEMENT_KEYS | {"task_id", "outcome"},
+            f"ledger.refinements[{index}]",
+        )
+        _validate_refinement_record(record, f"ledger.refinements[{index}]")
+        if record["claim_id"] not in plan_ids:
+            _fail(f"ledger.refinements[{index}].claim_id", "unknown claim")
+        _strict(
+            record["outcome"],
+            {"observations_accepted", "coverage_after", "gaps_resolved"},
+            f"ledger.refinements[{index}].outcome",
+        )
+    if "no_progress_continuation" in ledger:
+        grant = _strict(
+            ledger["no_progress_continuation"],
+            CONTINUATION_KEYS,
+            "ledger.no_progress_continuation",
+        )
+        _integer(grant["granted_after_round"], "ledger.no_progress_continuation.granted_after_round", 1)
+        _integer(grant["granted_at_revision"], "ledger.no_progress_continuation.granted_at_revision", 1)
+        if grant["granted_after_round"] > ledger["round"]:
+            _fail("ledger.no_progress_continuation", "cannot be granted for a future round")
+        if not isinstance(grant["gap_ids"], list) or not grant["gap_ids"]:
+            _fail("ledger.no_progress_continuation.gap_ids", "must name the open gaps")
+        _nonempty(grant["reason"], "ledger.no_progress_continuation.reason")
+
+
+def _validate_request(value: Any, path: str) -> dict[str, Any]:
+    value = _strict(value, REQUEST_KEYS, path)
+    _validate_window(value["start"], value["end"], path)
+    if isinstance(value["fps"], bool) or not isinstance(value["fps"], (int, float)) or value["fps"] <= 0:
+        _fail(f"{path}.fps", "must be a positive number")
+    return value
+
+
+def _validate_refinement_record(record: Mapping[str, Any], path: str) -> None:
+    if not CLAIM_ID_RE.fullmatch(str(record["claim_id"])):
+        _fail(f"{path}.claim_id", "invalid claim ID")
+    gap_ids = record["gap_ids"]
+    if (
+        not isinstance(gap_ids, list)
+        or not gap_ids
+        or len(gap_ids) != len(set(gap_ids))
+        or any(not COUNT_GAP_ID_RE.fullmatch(str(item)) for item in gap_ids)
+    ):
+        _fail(f"{path}.gap_ids", "must list the targeted open gap IDs")
+    for field in ("missing_evidence", "rationale"):
+        _nonempty(record[field], f"{path}.{field}")
+    if record["strategy"] not in REFINEMENT_STRATEGIES:
+        _fail(f"{path}.strategy", "unknown refinement strategy")
+    prior = _validate_request(record["prior_request"], f"{path}.prior_request")
+    if "new_request" in record:
+        new = _validate_request(record["new_request"], f"{path}.new_request")
+        if new["fps"] != record["fps"]:
+            _fail(f"{path}.fps", "must match the new request")
+        if new == prior:
+            _fail(f"{path}.new_request", "an identical retry is not a refinement")
+        if not isinstance(record["changes"], list) or not record["changes"]:
+            _fail(f"{path}.changes", "must describe what changed")
+        _strict(record["budget_remaining"], REFINEMENT_BUDGET_KEYS, f"{path}.budget_remaining")
+
+
+def _seconds(start: str, end: str) -> float:
+    return (_parse_timestamp(end, "end") - _parse_timestamp(start, "start")).total_seconds()
+
+
+def _overlaps(gap: Mapping[str, Any], start: str, end: str) -> bool:
+    if "start" not in gap:
+        return True
+    return _parse_timestamp(gap["start"], "gap.start") < _parse_timestamp(end, "end") and (
+        _parse_timestamp(start, "start") < _parse_timestamp(gap["end"], "gap.end")
+    )
+
+
+def _strategy_changes(
+    strategy: str,
+    prior: Mapping[str, Any],
+    new: Mapping[str, Any],
+    gaps: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    """Check that the strategy materially changes the view and describe how."""
+    prior_start = _parse_timestamp(prior["start"], "prior_request.start")
+    prior_end = _parse_timestamp(prior["end"], "prior_request.end")
+    new_start = _parse_timestamp(new["start"], "new_request.start")
+    new_end = _parse_timestamp(new["end"], "new_request.end")
+    prior_seconds = (prior_end - prior_start).total_seconds()
+    new_seconds = (new_end - new_start).total_seconds()
+    inside = prior_start <= new_start and new_end <= prior_end
+    changes: list[str] = []
+    if new_seconds != prior_seconds or new_start != prior_start:
+        changes.append(
+            f"window {prior['start']}..{prior['end']} ({prior_seconds:g}s) -> "
+            f"{new['start']}..{new['end']} ({new_seconds:g}s)"
+        )
+    if new["fps"] != prior["fps"]:
+        changes.append(f"fps {prior['fps']:g} -> {new['fps']:g}")
+    if not changes:
+        _fail("refinement", "an identical retry is not a refinement")
+    if not any(_overlaps(gap, new["start"], new["end"]) for gap in gaps):
+        _fail("refinement", "the new window does not reach any targeted gap")
+    if strategy == "narrower_denser":
+        if not inside or new_seconds >= prior_seconds or new["fps"] <= prior["fps"]:
+            _fail(
+                "refinement.strategy",
+                "narrower_denser needs a shorter window inside the prior one at a higher fps",
+            )
+    elif strategy == "adjacent_context":
+        if inside:
+            _fail(
+                "refinement.strategy",
+                "adjacent_context must inspect time outside the prior window",
+            )
+    else:
+        bounded = [gap for gap in gaps if "start" in gap]
+        edges = [
+            _parse_timestamp(gap[field], f"gap.{field}")
+            for gap in bounded
+            for field in ("start", "end")
+        ]
+        if new_seconds >= prior_seconds or not any(new_start <= edge <= new_end for edge in edges):
+            _fail(
+                "refinement.strategy",
+                "boundary_check needs a shorter window that contains a targeted gap boundary",
+            )
+    return changes
+
+
+def _check_refinement(
+    ledger: Mapping[str, Any],
+    refinement: Mapping[str, Any],
+    media_scope: Mapping[str, Any],
+    allocation: int,
+) -> dict[str, Any]:
+    """Validate an affordable, materially different follow-up and build its record."""
+    if len(ledger.get("refinements", [])) >= MAX_STRATEGY_REFINEMENTS:
+        _fail("refinement", "the refinement budget is already used")
+    state = _state(ledger, refinement["claim_id"])
+    count_state = state.get("count_state")
+    if count_state is None:
+        _fail("refinement.claim_id", "refinement targets a count claim with recorded gaps")
+    open_gaps = {gap["gap_id"]: gap for gap in count_state["open_gaps"]}
+    targeted = []
+    for gap_id in refinement["gap_ids"]:
+        gap = open_gaps.get(gap_id)
+        if gap is None or not gap["affects_answer"]:
+            _fail("refinement.gap_ids", f"{gap_id} is not an open answer-affecting gap")
+        targeted.append(gap)
+    if media_scope.get("type") != "sensor":
+        _fail("refinement", "refinement requires a bounded sensor scope")
+    prior = refinement["prior_request"]
+    new = {"start": media_scope["start"], "end": media_scope["end"], "fps": refinement["fps"]}
+    _validate_request(new, "refinement.new_request")
+    for earlier in ledger.get("refinements", []):
+        if earlier["new_request"] == new:
+            _fail("refinement", "an identical retry is not a refinement")
+    changes = _strategy_changes(refinement["strategy"], prior, new, targeted)
+    frames = math.ceil(_seconds(new["start"], new["end"]) * float(new["fps"]))
+    if frames > allocation * FRAMES_PER_VLM_CALL:
+        _fail(
+            "refinement",
+            f"{frames} frames do not fit the {allocation}-call allocation",
+        )
+    return {**copy.deepcopy(dict(refinement)), "new_request": new, "changes": changes, "frames": frames}
+
+
+def _continuation_pending(ledger: Mapping[str, Any]) -> bool:
+    grant = ledger.get("no_progress_continuation")
+    return bool(grant) and grant["granted_after_round"] == ledger["round"]
+
+
+def _deadline_seconds(
+    deadline: str | None, now: datetime | None
+) -> tuple[str | None, float | None]:
+    if deadline is None:
+        deadline = _policy().get("deadline")
+    if deadline is None:
+        return None, None
+    limit = _parse_timestamp(deadline, "deadline")
+    current = now or datetime.now(timezone.utc)
+    return deadline, (limit - current).total_seconds()
+
 
 def question_requires_choice(text: str | None) -> bool:
     """True when the caller asked for one of a listed set of choices."""
@@ -853,15 +1072,19 @@ def question_requires_choice(text: str | None) -> bool:
     return any(marker in folded for marker in CHOICE_MARKERS)
 
 
-def policy_requires_choice() -> bool:
-    """Eval/runtime policy may force choice questions to require an answer."""
+def _policy() -> dict[str, Any]:
     if not POLICY_PATH.is_file():
-        return False
+        return {}
     try:
         payload = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return False
-    return payload.get("requires_choice") is True
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def policy_requires_choice() -> bool:
+    """Eval/runtime policy may force choice questions to require an answer."""
+    return _policy().get("requires_choice") is True
 
 
 def initialize_ledger(
@@ -928,7 +1151,7 @@ def validate_inspection_task(
     task: Any, ledger: Mapping[str, Any] | None = None
 ) -> None:
     """Validate a one-claim task, optionally against a frozen ledger."""
-    task = _strict_optional(task, TASK_KEYS, {"count_state"}, "task")
+    task = _strict_optional(task, TASK_KEYS, {"count_state", "refinement"}, "task")
     if not TASK_ID_RE.fullmatch(str(task["task_id"])):
         _fail("task.task_id", "invalid task ID")
     _integer(task["base_revision"], "task.base_revision")
@@ -966,6 +1189,17 @@ def validate_inspection_task(
             ledger_form=True,
             known_observations={item["observation_id"] for item in task["existing_observations"]},
         )
+    if "refinement" in task:
+        record = _strict(task["refinement"], REFINEMENT_KEYS, "task.refinement")
+        _validate_refinement_record(record, "task.refinement")
+        if record["claim_id"] != task["claim"]["claim_id"]:
+            _fail("task.refinement.claim_id", "must match the task claim")
+        scope = task["media_scope"]
+        if scope["type"] != "sensor" or (
+            record["new_request"]["start"],
+            record["new_request"]["end"],
+        ) != (scope["start"], scope["end"]):
+            _fail("task.refinement.new_request", "must match the task media scope")
     if ledger is None:
         return
     validate_ledger(ledger)
@@ -987,6 +1221,20 @@ def validate_inspection_task(
         _fail("task.existing_observations", "does not match accepted claim evidence")
     if task.get("count_state") != state.get("count_state"):
         _fail("task.count_state", "does not match the canonical count inventory")
+    if "refinement" in task:
+        record = task["refinement"]
+        recomputed = _check_refinement(
+            ledger,
+            {key: record[key] for key in REFINEMENT_INPUT_KEYS},
+            task["media_scope"],
+            task["max_vlm_calls"],
+        )
+        if recomputed["changes"] != record["changes"] or (
+            recomputed["frames"] != record["budget_remaining"]["frames_planned"]
+        ):
+            _fail("task.refinement", "does not match the deterministic refinement check")
+    elif _continuation_pending(ledger):
+        _fail("task", "a no-progress continuation allows only the refinement task")
     if task["asset_id"] != ledger["plan"]["asset_id"]:
         _fail("task.asset_id", "does not match the plan")
 
@@ -1014,11 +1262,30 @@ def create_inspection_tasks(
     ledger: Mapping[str, Any],
     media_scopes: Mapping[str, Mapping[str, Any]],
     claim_ids: Sequence[str] | None = None,
+    refinement: Mapping[str, Any] | None = None,
+    *,
+    deadline: str | None = None,
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Create a bounded task batch without mutating canonical state."""
+    """Create a bounded task batch without mutating canonical state.
+
+    ``refinement`` attaches one materially different, affordable follow-up to
+    the task for its claim. After a no-progress continuation, it is required.
+    """
     validate_ledger(ledger)
     if ledger["status"] != "in_progress":
         _fail("ledger.status", "cannot create tasks for a terminal ledger")
+    if _continuation_pending(ledger) and refinement is None:
+        _fail(
+            "refinement",
+            "the no-progress continuation allows only one refinement task; "
+            "finalize the ledger instead",
+        )
+    if refinement is not None:
+        refinement = _strict(refinement, REFINEMENT_INPUT_KEYS, "refinement")
+        _validate_refinement_record(refinement, "refinement")
+        if claim_ids is not None and refinement["claim_id"] not in claim_ids:
+            _fail("refinement.claim_id", "must be one of the selected claims")
     if ledger["round"] >= BUDGETS["max_inspection_rounds"]:
         _fail("ledger.round", "inspection round budget is exhausted")
     remaining = BUDGETS["max_total_vlm_calls"] - ledger["vlm_calls_used"]
@@ -1044,6 +1311,11 @@ def create_inspection_tasks(
         _validate_media_scope(media_scopes[claim_id], f"media_scopes.{claim_id}")
     if len(selected) > remaining:
         selected = selected[:remaining]
+    if refinement is not None and refinement["claim_id"] not in selected:
+        _fail("refinement.claim_id", "must target a claim that receives a task")
+    if _continuation_pending(ledger) and selected != [refinement["claim_id"]]:
+        _fail("claim_ids", "a no-progress continuation allows only the refinement task")
+    total_remaining = remaining
     observations = {item["observation_id"]: item for item in ledger["observations"]}
     tasks: list[dict[str, Any]] = []
     for index, claim_id in enumerate(selected):
@@ -1069,6 +1341,26 @@ def create_inspection_tasks(
         }
         if "count_state" in state:
             task["count_state"] = copy.deepcopy(state["count_state"])
+        if refinement is not None and refinement["claim_id"] == claim_id:
+            record = _check_refinement(ledger, refinement, task["media_scope"], allocation)
+            frames = record.pop("frames")
+            deadline_text, seconds_left = _deadline_seconds(deadline, now)
+            if seconds_left is not None and seconds_left < REFINEMENT_MIN_SECONDS:
+                _fail(
+                    "refinement",
+                    f"{seconds_left:.0f}s remain before the deadline; "
+                    f"a refinement needs at least {REFINEMENT_MIN_SECONDS}s",
+                )
+            record["budget_remaining"] = {
+                "vlm_calls_remaining": total_remaining,
+                "vlm_calls_allocated": allocation,
+                "rounds_remaining": BUDGETS["max_inspection_rounds"] - ledger["round"],
+                "frames_planned": frames,
+                "frames_affordable": allocation * FRAMES_PER_VLM_CALL,
+                "deadline": deadline_text,
+                "seconds_remaining": seconds_left,
+            }
+            task["refinement"] = record
         validate_inspection_task(task, ledger)
         tasks.append(task)
     return tasks
@@ -1316,7 +1608,8 @@ def merge_round_results(
     accepted = 0
     for task_id in sorted(task_map):
         result = result_map[task_id]
-        accepted += _append_observations(updated, result["observations"])
+        added = _append_observations(updated, result["observations"])
+        accepted += added
         state = _state(updated, task_map[task_id]["claim"]["claim_id"])
         prior_coverage = state["coverage"]
         if COVERAGES.index(result["coverage"]) > COVERAGES.index(state["coverage"]):
@@ -1332,6 +1625,22 @@ def merge_round_results(
         _apply_coverage_cap(state)
         if COVERAGES.index(state["coverage"]) > COVERAGES.index(prior_coverage):
             coverage_improved = True
+        refinement = task_map[task_id].get("refinement")
+        if refinement is not None:
+            updated.setdefault("refinements", []).append(
+                {
+                    **copy.deepcopy(refinement),
+                    "task_id": task_id,
+                    "outcome": {
+                        "observations_accepted": added,
+                        "coverage_after": state["coverage"],
+                        "gaps_resolved": sorted(
+                            gap["gap_id"]
+                            for gap in result.get("count_state", {}).get("resolved_gaps", [])
+                        ),
+                    },
+                }
+            )
     updated["vlm_calls_used"] += calls
     updated["round"] += 1
     updated["revision"] += 1
@@ -1344,13 +1653,42 @@ def merge_round_results(
         updated["status"] = "unresolved"
         updated["stop_reason"] = "tool_failure"
     elif accepted == 0 and not coverage_improved:
-        updated["status"] = "unresolved"
-        updated["stop_reason"] = "no_progress"
+        grant = _continuation_grant(updated, task_map.values())
+        if grant is not None:
+            updated["no_progress_continuation"] = grant
+        else:
+            updated["status"] = "unresolved"
+            updated["stop_reason"] = "no_progress"
     elif _budget_exhausted(updated):
         updated["status"] = "unresolved"
         updated["stop_reason"] = "budget_exhausted"
     validate_ledger(updated)
     return updated
+
+
+def _continuation_grant(
+    ledger: Mapping[str, Any], tasks: Iterable[Mapping[str, Any]]
+) -> dict[str, Any] | None:
+    """Allow one refinement after a no-progress round while a count gap remains open."""
+    if "no_progress_continuation" in ledger or _budget_exhausted(ledger):
+        return None
+    if len(ledger.get("refinements", [])) >= MAX_STRATEGY_REFINEMENTS:
+        return None
+    if any("refinement" in task for task in tasks):
+        return None
+    gap_ids = sorted(
+        gap_id
+        for state in ledger["claims"]
+        for gap_id in count_blockers(state.get("count_state"))["gap_ids"]
+    )
+    if not gap_ids:
+        return None
+    return {
+        "granted_after_round": ledger["round"],
+        "granted_at_revision": ledger["revision"],
+        "gap_ids": gap_ids,
+        "reason": "no new evidence, but an answer-affecting count gap remains open",
+    }
 
 
 def collect_inspection_results(
@@ -1466,6 +1804,14 @@ def evaluate_stop(ledger: Mapping[str, Any]) -> dict[str, Any]:
         }
     if _budget_exhausted(ledger):
         return {"stop": True, "status": "unresolved", "reason": "budget_exhausted"}
+    if _continuation_pending(ledger):
+        return {
+            "stop": False,
+            "status": "in_progress",
+            "reason": None,
+            "refinement_only": True,
+            "gap_ids": list(ledger["no_progress_continuation"]["gap_ids"]),
+        }
     return {"stop": False, "status": "in_progress", "reason": None}
 
 
@@ -1492,6 +1838,13 @@ def prepare_for_final_result(ledger: Mapping[str, Any]) -> dict[str, Any]:
     validate_ledger(ledger)
     if ledger["status"] != "in_progress":
         return copy.deepcopy(ledger)
+    if _continuation_pending(ledger) and not _budget_exhausted(ledger):
+        updated = copy.deepcopy(ledger)
+        updated["status"] = "unresolved"
+        updated["stop_reason"] = "no_progress"
+        updated["revision"] += 1
+        validate_ledger(updated)
+        return updated
     if evaluate_stop(ledger)["reason"] != "budget_exhausted":
         _fail(
             "ledger.status",
@@ -1829,6 +2182,15 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--ledger", required=True)
     create.add_argument("--media-scopes", required=True)
     create.add_argument("--claim-id", action="append")
+    create.add_argument(
+        "--refinement",
+        help="JSON file describing one materially different follow-up for an open count gap.",
+    )
+    create.add_argument(
+        "--deadline",
+        help="ISO-8601 wall-clock deadline. Defaults to the runtime policy deadline, if any.",
+    )
+    create.add_argument("--now", help=argparse.SUPPRESS)
     create.add_argument("--output", required=True)
     memory = commands.add_parser("merge-memory")
     memory.add_argument("--ledger", required=True)
@@ -1886,7 +2248,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "create-tasks":
         _emit(
             create_inspection_tasks(
-                _read(args.ledger), _read(args.media_scopes), args.claim_id
+                _read(args.ledger),
+                _read(args.media_scopes),
+                args.claim_id,
+                _read(args.refinement) if args.refinement else None,
+                deadline=args.deadline,
+                now=_parse_timestamp(args.now, "now") if args.now else None,
             ),
             args.output,
         )
