@@ -2656,13 +2656,22 @@ class VlmPipeline:
 
             try:
                 if should_start_decoder:
-                    self._decoder_procs[gpu_id].send_command(
+                    started = self._decoder_procs[gpu_id].send_command(
                         "start-live-stream",
                         asset=asset,
                         vlm_query=vlm_query,
                         request_params=request_params,
                         request_id=request_id,
                     )
+                    if started == "already-running":
+                        # The previous decoder handle is still tearing down after
+                        # EOS, so no decoder will serve this request. Fail
+                        # retryably instead of leaving it without a terminal callback.
+                        raise ServiceException(
+                            f"Live stream {asset.asset_id} is still shutting down; retry",
+                            "StreamNotActive",
+                            409,
+                        )
                 else:
                     added = self._decoder_procs[gpu_id].send_command(
                         "add-live-stream-subscriber",

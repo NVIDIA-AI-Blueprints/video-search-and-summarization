@@ -492,35 +492,104 @@ def test_add_live_stream_starts_fresh_decoder_after_natural_eos():
 @pytest.mark.no_gpu
 def test_add_live_stream_keeps_stream_still_draining_after_eos():
     pipeline = _make_pipeline()
+    pipeline._processed_chunk_queue = Queue()
+    pipeline._processed_chunk_queue_watcher_stop_event = Event()
+    pipeline.close_evs_sessions = MagicMock()
     asset_id = str(uuid.uuid4())
     asset = _make_asset(asset_id)
+    first_callback = MagicMock()
 
     pipeline.add_live_stream(
         asset,
         _make_query(asset_id, "Describe vehicles."),
-        MagicMock(),
+        first_callback,
         request_id="request-1",
     )
     draining_info = pipeline._live_stream_id_map[asset_id]
-    draining_info.end_of_stream = True
-    draining_info.total_chunks_at_eos = 3
-    decoder = pipeline._decoder_procs[0]
+
+    watcher = Thread(target=pipeline._watch_processed_chunk_queue)
+    watcher.start()
+    try:
+        # EOS arrives while two chunks are still in flight.
+        pipeline._processed_chunk_queue.put(
+            {"live_stream_ended": True, "live_stream_id": asset_id, "total_chunks": 2}
+        )
+        _wait_for(lambda: draining_info.end_of_stream)
+        assert draining_info.all_chunks_processed is False
+
+        decoder = pipeline._decoder_procs[0]
+        decoder.send_command.reset_mock()
+        decoder.send_command.side_effect = _decoder_without_stream_after_eos
+        with pytest.raises(ServiceException) as exc_info:
+            pipeline.add_live_stream(
+                asset,
+                _make_query(asset_id, "Describe people."),
+                MagicMock(),
+                request_id="request-2",
+            )
+
+        # The entry must survive so the tail chunks are still accounted for.
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.code == "StreamNotActive"
+        assert pipeline._live_stream_id_map[asset_id] is draining_info
+        assert set(draining_info.subscribers) == {"request-1"}
+
+        for chunk_idx in range(2):
+            pipeline._processed_chunk_queue.put(
+                _make_live_chunk_result(asset_id, "request-1", chunk_idx)
+            )
+        _wait_for(
+            lambda: any(call.args[0].is_live_stream_ended for call in first_callback.call_args_list)
+        )
+    finally:
+        pipeline._processed_chunk_queue_watcher_stop_event.set()
+        watcher.join(timeout=2)
+
+    assert first_callback.call_count == 3
+    assert draining_info.all_chunks_processed is True
+
+    # Once drained, the stream can be restarted.
     decoder.send_command.reset_mock()
     decoder.send_command.side_effect = _decoder_without_stream_after_eos
+    pipeline.add_live_stream(
+        asset,
+        _make_query(asset_id, "Describe people."),
+        MagicMock(),
+        request_id="request-3",
+    )
+    assert [call.args[0] for call in decoder.send_command.call_args_list] == ["start-live-stream"]
+    assert set(pipeline._live_stream_id_map[asset_id].subscribers) == {"request-3"}
+
+
+@pytest.mark.no_gpu
+def test_add_live_stream_start_already_running_is_retryable():
+    pipeline = _make_pipeline()
+    asset_id = str(uuid.uuid4())
+    asset = _make_asset(asset_id)
+    decoder = pipeline._decoder_procs[0]
+    # The previous decoder handle is still being torn down after EOS.
+    decoder.send_command.return_value = "already-running"
 
     with pytest.raises(ServiceException) as exc_info:
         pipeline.add_live_stream(
             asset,
-            _make_query(asset_id, "Describe people."),
+            _make_query(asset_id, "Describe vehicles."),
             MagicMock(),
-            request_id="request-2",
+            request_id="request-1",
         )
 
-    # Tail chunks of request-1 still need accounting against this entry.
     assert exc_info.value.status_code == 409
     assert exc_info.value.code == "StreamNotActive"
-    assert pipeline._live_stream_id_map[asset_id] is draining_info
-    assert set(draining_info.subscribers) == {"request-1"}
+    assert asset_id not in pipeline._live_stream_id_map
+
+    decoder.send_command.return_value = "started"
+    pipeline.add_live_stream(
+        asset,
+        _make_query(asset_id, "Describe vehicles."),
+        MagicMock(),
+        request_id="request-2",
+    )
+    assert set(pipeline._live_stream_id_map[asset_id].subscribers) == {"request-2"}
 
 
 @pytest.mark.no_gpu
