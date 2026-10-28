@@ -66,7 +66,7 @@ describe('getTabChatInitialStateOverride', () => {
     expect(result.chatCompletionURL).toBeUndefined();
     expect(result.webSocketURL).toBeUndefined();
     expect(result.agentApiUrlBase).toBeUndefined();
-    expect(result.vstApiUrl).toBeUndefined();
+    expect(result.viosApiUrl).toBeUndefined();
     expect(result.customAgentParamsJson).toBeUndefined();
   });
 
@@ -95,13 +95,13 @@ describe('getTabChatInitialStateOverride', () => {
       'NEXT_PUBLIC_SEARCH_TAB_CHAT_AGENT_API_URL_BASE',
       'http://localhost:9090',
     );
-    setMockEnv('NEXT_PUBLIC_VST_API_URL', 'http://localhost:7777/vst/api');
+    setMockEnv('NEXT_PUBLIC_VIOS_API_URL', 'http://localhost:7777/vst/api');
 
     const result = getTabChatInitialStateOverride('SEARCH_TAB');
     expect(result.chatCompletionURL).toBe('http://localhost:8080/chat');
     expect(result.webSocketURL).toBe('ws://localhost:8080/ws');
     expect(result.agentApiUrlBase).toBe('http://localhost:9090');
-    expect(result.vstApiUrl).toBe('http://localhost:7777/vst/api');
+    expect(result.viosApiUrl).toBe('http://localhost:7777/vst/api');
   });
 
   it('boolean-default-true fields return true when env is not set', () => {

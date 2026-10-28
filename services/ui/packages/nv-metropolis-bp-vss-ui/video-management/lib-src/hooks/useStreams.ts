@@ -7,16 +7,16 @@ import { parseStreamsResponse } from '../utils';
 import { ADDED_STREAM_POLL_DELAYS_MS, DELETED_STREAM_POLL_DELAYS_MS } from '../constants';
 
 interface UseStreamsOptions {
-  vstApiUrl?: string | null;
+  viosApiUrl?: string | null;
 }
 
 interface WaitUntilStreamsRemovedResult {
-  /** sensorIds that were still present in VST after the poll budget ran out */
+  /** sensorIds that were still present in VIOS after the poll budget ran out */
   remainingSensorIds: string[];
 }
 
 interface WaitUntilStreamAddedResult {
-  /** `false` when VST never listed the sensor within the poll budget */
+  /** `false` when VIOS never listed the sensor within the poll budget */
   found: boolean;
 }
 
@@ -26,14 +26,14 @@ interface UseStreamsResult {
   error: string | null;
   refetch: () => Promise<void>;
   /**
-   * Re-poll VST until none of `sensorIds` appear in the streams response,
+   * Re-poll VIOS until none of `sensorIds` appear in the streams response,
    * or until `DELETED_STREAM_POLL_DELAYS_MS` is exhausted. Updates `streams`
    * on every poll. Callers should keep the delete dialog open until this
    * resolves (NVBug 6243148).
    */
   waitUntilStreamsRemoved: (sensorIds: string[]) => Promise<WaitUntilStreamsRemovedResult>;
   /**
-   * Re-poll VST until `sensorId` appears in the streams response, or until
+   * Re-poll VIOS until `sensorId` appears in the streams response, or until
    * `ADDED_STREAM_POLL_DELAYS_MS` is exhausted. Updates `streams` on every
    * poll. Callers should keep the add dialog open until this resolves, so the
    * grid already holds the new stream by the time the dialog closes.
@@ -45,7 +45,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsResult {
+export function useStreams({ viosApiUrl }: UseStreamsOptions = {}): UseStreamsResult {
   const [streams, setStreams] = useState<StreamInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,15 +58,15 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
     };
   }, []);
 
-  /** Resolves to `null` when the listing could not be read — never confuse that with "VST has no streams". */
+  /** Resolves to `null` when the listing could not be read — never confuse that with "VIOS has no streams". */
   const fetchStreams = useCallback(async ({ silent = false }: { silent?: boolean } = {}): Promise<StreamInfo[] | null> => {
-    if (!vstApiUrl) {
-      setError('VST API URL not configured');
+    if (!viosApiUrl) {
+      setError('VIOS API URL not configured');
       setIsLoading(false);
       return null;
     }
 
-    const apiEndpoints = createApiEndpoints(vstApiUrl);
+    const apiEndpoints = createApiEndpoints(viosApiUrl);
     if (!silent) {
       setIsLoading(true);
       setError(null);
@@ -95,7 +95,7 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
     } finally {
       if (!silent && isMountedRef.current) setIsLoading(false);
     }
-  }, [vstApiUrl]);
+  }, [viosApiUrl]);
 
   const refetch = useCallback(async () => {
     await fetchStreams();
@@ -107,7 +107,7 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
     const pending = new Set(sensorIds);
 
     const dropGone = (listed: StreamInfo[] | null) => {
-      // A poll that failed says nothing about what VST still holds. Reading it as
+      // A poll that failed says nothing about what VIOS still holds. Reading it as
       // an empty list would confirm a deletion that may not have happened.
       if (listed === null) return;
       const present = new Set(listed.map((s) => s.sensorId));
@@ -116,7 +116,7 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
       }
     };
 
-    // Immediate check — VST may already have dropped them by the time the
+    // Immediate check — VIOS may already have dropped them by the time the
     // agent delete returned.
     dropGone(await fetchStreams({ silent: true }));
     if (pending.size === 0) return { remainingSensorIds: [] };
@@ -135,12 +135,12 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
   const waitUntilStreamAdded = useCallback(async (sensorId: string): Promise<WaitUntilStreamAddedResult> => {
     if (!sensorId) return { found: false };
 
-    // A poll that failed says nothing about what VST holds, so it counts as
+    // A poll that failed says nothing about what VIOS holds, so it counts as
     // "not yet listed" and the next poll decides.
     const isListed = (listed: StreamInfo[] | null) =>
       listed?.some((s) => s.sensorId === sensorId) ?? false;
 
-    // Immediate check — VST may already list the sensor by the time the
+    // Immediate check — VIOS may already list the sensor by the time the
     // add call returned.
     if (isListed(await fetchStreams({ silent: true }))) return { found: true };
 

@@ -133,7 +133,7 @@ interface AlertsTableProps {
   alertReportPromptTemplate?: string;
   vlmVerifiedAlertReportPromptTemplate?: string;
   vlmVerified?: boolean;
-  vstApiUrl?: string;
+  viosApiUrl?: string;
   sensorMap?: Map<string, string>;
   showObjectsBbox?: boolean;
   timeFormat?: TimeFormat;
@@ -369,7 +369,7 @@ type AlertTableBodyRowProps = Readonly<{
   timeFormatUtc: boolean;
   activeFilters: FilterState;
   loadingAlertId?: string | null;
-  vstApiUrl?: string;
+  viosApiUrl?: string;
   sensorMap?: Map<string, string>;
   showObjectsBbox: boolean;
   alertReportPromptTemplate?: string;
@@ -390,7 +390,7 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
   timeFormatUtc,
   activeFilters,
   loadingAlertId,
-  vstApiUrl,
+  viosApiUrl,
   sensorMap,
   showObjectsBbox,
   alertReportPromptTemplate,
@@ -421,7 +421,7 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
         <td className="py-3 px-4 text-sm">
           <ThumbnailButton
             alert={alert}
-            vstApiUrl={vstApiUrl}
+            viosApiUrl={viosApiUrl}
             sensorMap={sensorMap}
             isDark={isDark}
             onPlayVideo={onPlayVideo}
@@ -523,7 +523,7 @@ type AlertsTableContentProps = Readonly<{
   timeFormatUtc: boolean;
   activeFilters: FilterState;
   loadingAlertId?: string | null;
-  vstApiUrl?: string;
+  viosApiUrl?: string;
   sensorMap?: Map<string, string>;
   showObjectsBbox: boolean;
   alertReportPromptTemplate?: string;
@@ -564,7 +564,7 @@ function AlertsTableContent({
   timeFormatUtc,
   activeFilters,
   loadingAlertId,
-  vstApiUrl,
+  viosApiUrl,
   sensorMap,
   showObjectsBbox,
   alertReportPromptTemplate,
@@ -794,7 +794,7 @@ function AlertsTableContent({
                   timeFormatUtc={timeFormatUtc}
                   activeFilters={activeFilters}
                   loadingAlertId={loadingAlertId}
-                  vstApiUrl={vstApiUrl}
+                  viosApiUrl={viosApiUrl}
                   sensorMap={sensorMap}
                   showObjectsBbox={showObjectsBbox}
                   alertReportPromptTemplate={alertReportPromptTemplate}
@@ -841,7 +841,7 @@ export function AlertsTable({
   alertReportPromptTemplate,
   vlmVerifiedAlertReportPromptTemplate,
   vlmVerified = false,
-  vstApiUrl,
+  viosApiUrl,
   sensorMap,
   showObjectsBbox = false,
   timeFormat = 'local',
@@ -996,7 +996,7 @@ export function AlertsTable({
       timeFormatUtc={timeFormatUtc}
       activeFilters={activeFilters}
       loadingAlertId={loadingAlertId}
-      vstApiUrl={vstApiUrl}
+      viosApiUrl={viosApiUrl}
       sensorMap={sensorMap}
       showObjectsBbox={showObjectsBbox}
       alertReportPromptTemplate={alertReportPromptTemplate}

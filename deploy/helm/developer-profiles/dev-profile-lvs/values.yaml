@@ -375,7 +375,7 @@ vss-agent-ui:
   enabled: true
   # NEXT_PUBLIC_* defaults aligned with dev-profile-base; LVS deltas: subtitle + dashboard tab.
   agentApiUrlBase: ""
-  vstApiUrl: ""
+  viosApiUrl: ""
   chatCompletionUrl: ""
   websocketChatUrl: ""
   dashboardKibanaBaseUrl: ""
@@ -438,7 +438,7 @@ vss-agent-ui:
       value: "true"
     - name: NEXT_PUBLIC_MAP_URL
       value: ""
-    - name: NEXT_PUBLIC_MDX_WEB_API_URL
+    - name: NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL
       value: ""
     - name: NEXT_PUBLIC_RIGHT_MENU_OPEN
       value: "false"

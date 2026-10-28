@@ -212,7 +212,7 @@ export function getMarkdownComponents({
         <a
           href={href}
           className="text-[#76b900] no-underline hover:underline"
-          // Agent answers link out to VST and report files; without noopener the
+          // Agent answers link out to VIOS and report files; without noopener the
           // opened page gets a handle on this window.
           target="_blank"
           rel="noopener noreferrer"

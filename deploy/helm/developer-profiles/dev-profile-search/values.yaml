@@ -854,7 +854,7 @@ agent:
 
 vss-agent-ui:
   enabled: true
-  # Set global.externalHost to vss-search.$NODE_IP.nip.io (e.g. --set) so public URLs and ws:// use that host. MDX/Map match Search ingress.
+  # Set global.externalHost to vss-search.$NODE_IP.nip.io (e.g. --set) so public URLs and ws:// use that host. Video Analytics and Map match Search ingress.
   mapAppPath: /ui/smartcities
   global:
     externalHost: ''
@@ -862,7 +862,7 @@ vss-agent-ui:
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''
-  vstApiUrl: ''
+  viosApiUrl: ''
   chatCompletionUrl: ''
   websocketChatUrl: ''
   alertsApiUrl: ''

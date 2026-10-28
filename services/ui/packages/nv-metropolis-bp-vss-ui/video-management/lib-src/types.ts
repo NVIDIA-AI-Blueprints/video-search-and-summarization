@@ -67,13 +67,13 @@ export interface UploadProgress {
   fileName: string;
   progress: number;
   /**
-   * `confirming` = VST took the bytes; waiting for its streams listing to
+   * `confirming` = VIOS took the bytes; waiting for its streams listing to
    * include the new sensor. Kept apart from `processing` so cancelling the
-   * queue does not mark a file VST already holds as cancelled.
+   * queue does not mark a file VIOS already holds as cancelled.
    */
   status: 'pending' | 'uploading' | 'processing' | 'confirming' | 'success' | 'error' | 'cancelled';
   error?: string;
-  /** Set when the upload succeeded but VST never listed the sensor in time. */
+  /** Set when the upload succeeded but VIOS never listed the sensor in time. */
   unconfirmed?: string;
 }
 
@@ -100,7 +100,7 @@ export interface VideoManagementSidebarControlHandlers {
 
 export interface VideoManagementData {
   systemStatus: string;
-  vstApiUrl?: string | null;
+  viosApiUrl?: string | null;
   chatUploadFileConfigTemplateJson?: string | null;
   enableAddRtspButton?: boolean;
   /** Starting position of the tab's "Enable video upload" switch. */

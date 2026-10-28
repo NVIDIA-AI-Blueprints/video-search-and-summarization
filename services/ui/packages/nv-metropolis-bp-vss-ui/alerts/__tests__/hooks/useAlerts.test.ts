@@ -168,7 +168,7 @@ describe('useAlerts', () => {
     });
 
     const { result } = renderHook(() =>
-      useAlerts({ apiUrl: 'http://api.test', vstApiUrl: 'http://vst.test', timeWindow: 10 })
+      useAlerts({ apiUrl: 'http://api.test', viosApiUrl: 'http://vios.test', timeWindow: 10 })
     );
 
     await waitFor(() => {
@@ -198,7 +198,7 @@ describe('useAlerts', () => {
     });
 
     const { result } = renderHook(() =>
-      useAlerts({ apiUrl: 'http://api.test', vstApiUrl: 'http://vst.test' })
+      useAlerts({ apiUrl: 'http://api.test', viosApiUrl: 'http://vios.test' })
     );
 
     await waitFor(() => {
@@ -221,7 +221,7 @@ describe('useAlerts', () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
     const { result } = renderHook(() =>
-      useAlerts({ apiUrl: 'http://api.test', vstApiUrl: 'http://vst.test' })
+      useAlerts({ apiUrl: 'http://api.test', viosApiUrl: 'http://vios.test' })
     );
 
     await waitFor(() => {
@@ -243,7 +243,7 @@ describe('useAlerts', () => {
     renderHook(() =>
       useAlerts({
         apiUrl: 'http://api.test',
-        vstApiUrl: 'http://vst.test',
+        viosApiUrl: 'http://vios.test',
         vlmVerified: true,
         vlmVerdict: VLM_VERDICT.CONFIRMED,
         timeWindow: 30,
@@ -324,7 +324,7 @@ describe('useAlerts', () => {
     expect(incidentCall[0]).toContain('queryString=');
   });
 
-  it('does not fetch sensor list when vstApiUrl is not provided', async () => {
+  it('does not fetch sensor list when viosApiUrl is not provided', async () => {
     global.fetch = jest.fn().mockImplementation(() =>
       Promise.resolve({ ok: true, json: () => Promise.resolve({ incidents: [] }) })
     );
@@ -370,7 +370,7 @@ describe('useAlerts', () => {
     const { result } = renderHook(() =>
       useAlerts({
         apiUrl: 'http://api.test',
-        vstApiUrl: 'http://vst.test',
+        viosApiUrl: 'http://vios.test',
         maxResults: 500,
         timeWindow: 10,
       }),
@@ -489,7 +489,7 @@ describe('useAlerts', () => {
     });
 
     const { result } = renderHook(() =>
-      useAlerts({ apiUrl: 'http://api.test', vstApiUrl: 'http://vst.test', maxResults: 2 }),
+      useAlerts({ apiUrl: 'http://api.test', viosApiUrl: 'http://vios.test', maxResults: 2 }),
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));

@@ -26,8 +26,8 @@ const DEFAULT_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE =
   "Generate a verified incident report for incident {incidentId} with sensor id {sensorId}.";
 
 // Environment variables
-const MDX_WEB_API_URL = env('NEXT_PUBLIC_MDX_WEB_API_URL') || process?.env?.NEXT_PUBLIC_MDX_WEB_API_URL;
-const VST_API_URL = env('NEXT_PUBLIC_VST_API_URL') || process?.env?.NEXT_PUBLIC_VST_API_URL;
+const VIDEO_ANALYTICS_WEB_API_URL = env('NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL') || process?.env?.NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL;
+const VIOS_API_URL = env('NEXT_PUBLIC_VIOS_API_URL') || process?.env?.NEXT_PUBLIC_VIOS_API_URL;
 const ALERTS_API_URL = env('NEXT_PUBLIC_ALERTS_API_URL') || process?.env?.NEXT_PUBLIC_ALERTS_API_URL;
 const ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES = env('NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES;
 const ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS = env('NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS;
@@ -54,8 +54,8 @@ export async function fetchAlertsData() {
   return {
     systemStatus: 'operational',
     // Include API URLs from environment variables
-    apiUrl: MDX_WEB_API_URL || null,
-    vstApiUrl: VST_API_URL || null,
+    apiUrl: VIDEO_ANALYTICS_WEB_API_URL || null,
+    viosApiUrl: VIOS_API_URL || null,
     // vss-alert-bridge base URL (used for alert-rule CRUD).
     alertsApiUrl: ALERTS_API_URL || null,
     // Include default time window from environment variables (default to 10 minutes)

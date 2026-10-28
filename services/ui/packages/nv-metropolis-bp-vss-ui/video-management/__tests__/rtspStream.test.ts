@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { addRtspStream, deleteRtspStream } from '../lib-src/rtspStream';
 
-describe('direct VST RTSP lifecycle', () => {
+describe('direct VIOS RTSP lifecycle', () => {
   beforeEach(() => {
     global.fetch = jest.fn();
   });
 
-  it('adds an RTSP sensor directly through VST', async () => {
+  it('adds an RTSP sensor directly through VIOS', async () => {
     (global.fetch as jest.Mock).mockResolvedValue(new Response(
       JSON.stringify({ sensorId: 'sensor-1' }),
       { status: 200 },
@@ -27,7 +27,7 @@ describe('direct VST RTSP lifecycle', () => {
     );
   });
 
-  it('deletes an RTSP sensor by VST sensor ID', async () => {
+  it('deletes an RTSP sensor by VIOS sensor ID', async () => {
     (global.fetch as jest.Mock).mockResolvedValue(new Response('true', { status: 200 }));
 
     await expect(deleteRtspStream(

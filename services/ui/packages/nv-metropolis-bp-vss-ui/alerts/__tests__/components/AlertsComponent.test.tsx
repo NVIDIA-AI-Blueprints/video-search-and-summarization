@@ -141,7 +141,7 @@ describe('AlertsComponent', () => {
     alertsData: {
       systemStatus: 'active',
       apiUrl: 'http://test-api.com',
-      vstApiUrl: 'http://test-vst-api.com',
+      viosApiUrl: 'http://test-vios-api.com',
       defaultTimeWindow: 3600,
     },
   };

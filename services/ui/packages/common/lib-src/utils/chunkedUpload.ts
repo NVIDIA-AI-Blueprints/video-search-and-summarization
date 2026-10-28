@@ -3,14 +3,14 @@
 /**
  * Shared chunked-upload helper.
  *
- * Slices a File into chunks and POSTs each one with `nvstreamer-*` headers
- * so VST can reassemble the file. Each chunk is a self-contained HTTP request that completes
+ * Slices a File into chunks and POSTs each one with `nviosreamer-*` headers
+ * so VIOS can reassemble the file. Each chunk is a self-contained HTTP request that completes
  * well under the Cloudflare 100-second limit that would otherwise kill a
  * monolithic upload of a large video.
  *
  * Consumers:
- *  - video-management/chunkedUpload.ts: uploads straight to VST (URL hardcoded from `vstApiUrl`)
- *  - videoUpload.ts#uploadFileChunked: uploads to a caller-supplied VST URL
+ *  - video-management/chunkedUpload.ts: uploads straight to VIOS (URL hardcoded from `viosApiUrl`)
+ *  - videoUpload.ts#uploadFileChunked: uploads to a caller-supplied VIOS URL
  */
 
 export const CHUNK_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -28,9 +28,9 @@ export interface ChunkedUploadResponse {
 
 export interface ChunkedUploadOptions {
   file: File;
-  /** Filename to send to the receiver in nvstreamer headers/form fields. */
+  /** Filename to send to the receiver in nviosreamer headers/form fields. */
   fileName?: string;
-  /** Fully-qualified URL to POST each chunk to (receiver handles nvstreamer reassembly). */
+  /** Fully-qualified URL to POST each chunk to (receiver handles nviosreamer reassembly). */
   uploadUrl: string;
   chunkSize?: number;
   maxRetries?: number;
@@ -43,7 +43,7 @@ function randomIdentifier(): string {
   // CI runs the test browser against `http://<host>:<port>` (non-secure), so
   // calling it directly throws "crypto.randomUUID is not a function" and the
   // chunked upload silently fails before any chunk leaves the browser. Fall
-  // back to a UUID-v4-shape string for the nvstreamer chunk identifier — it
+  // back to a UUID-v4-shape string for the nviosreamer chunk identifier — it
   // only needs to be unique per upload session, not cryptographically random.
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -63,7 +63,7 @@ async function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Upload a single chunk of a file with nvstreamer-* headers.
+ * Upload a single chunk of a file with nviosreamer-* headers.
  * Resolves with the parsed JSON response from the receiver.
  */
 async function uploadChunk(
@@ -129,17 +129,17 @@ async function uploadChunk(
     const isLastChunk = chunkNumber === totalChunks;
 
     xhr.open('POST', url);
-    xhr.setRequestHeader('nvstreamer-chunk-number', String(chunkNumber));
-    xhr.setRequestHeader('nvstreamer-total-chunks', String(totalChunks));
-    xhr.setRequestHeader('nvstreamer-is-last-chunk', String(isLastChunk));
-    xhr.setRequestHeader('nvstreamer-identifier', identifier);
-    xhr.setRequestHeader('nvstreamer-file-name', fileName);
+    xhr.setRequestHeader('nviosreamer-chunk-number', String(chunkNumber));
+    xhr.setRequestHeader('nviosreamer-total-chunks', String(totalChunks));
+    xhr.setRequestHeader('nviosreamer-is-last-chunk', String(isLastChunk));
+    xhr.setRequestHeader('nviosreamer-identifier', identifier);
+    xhr.setRequestHeader('nviosreamer-file-name', fileName);
     xhr.send(formData);
   });
 }
 
 /**
- * Upload a file in chunks using the nvstreamer chunked-upload protocol.
+ * Upload a file in chunks using the nviosreamer chunked-upload protocol.
  *
  * Each chunk is sent as a separate POST request. Files smaller than
  * `chunkSize` are sent as a single chunk. Failed chunks are retried with

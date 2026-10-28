@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * VST (VIOS) sensor helpers.
+ * VIOS sensor helpers.
  *
  *  - `GET /v1/sensor/list` maps friendly sensor `name` → `sensorId` for online
  *    sensors. Used by the thumbnail component.
@@ -11,19 +11,19 @@
  *    `services/agent/.../rtvi_vlm_alert.py`) instead of pasting an RTSP URL.
  */
 
-export interface VstSensorListEntry {
+export interface ViosSensorListEntry {
   name?: string;
   sensorId?: string;
   state?: string;
 }
 
-export interface VstLiveStream {
+export interface ViosLiveStream {
   name: string;
   url: string;
   streamId: string;
 }
 
-export interface ResolvedVstStream {
+export interface ResolvedViosStream {
   sensor_name: string;
   live_stream_url: string;
 }
@@ -61,23 +61,23 @@ const stripUrlQueryAndFragment = (value: string): string => {
   return end === value.length ? value : value.slice(0, end);
 };
 
-export const clearSensorListCache = (vstApiUrl?: string): void => {
-  if (vstApiUrl) {
-    sensorListCache.delete(vstApiUrl);
+export const clearSensorListCache = (viosApiUrl?: string): void => {
+  if (viosApiUrl) {
+    sensorListCache.delete(viosApiUrl);
   } else {
     sensorListCache.clear();
   }
 };
 
 /**
- * Cached map of VST sensor `name` → `sensorId` (online sensors only).
+ * Cached map of VIOS sensor `name` → `sensorId` (online sensors only).
  */
 export const fetchSensorMap = (
-  vstApiUrl: string,
+  viosApiUrl: string,
   options?: { forceRefresh?: boolean },
 ): Promise<Map<string, string>> => {
   const now = Date.now();
-  const cached = sensorListCache.get(vstApiUrl);
+  const cached = sensorListCache.get(viosApiUrl);
   if (
     cached &&
     !options?.forceRefresh &&
@@ -86,17 +86,17 @@ export const fetchSensorMap = (
     return cached.promise;
   }
 
-  const promise = fetch(`${stripTrailingSlashes(vstApiUrl)}/v1/sensor/list`)
+  const promise = fetch(`${stripTrailingSlashes(viosApiUrl)}/v1/sensor/list`)
     .then((response) => {
       if (!response.ok) {
-        throw new Error(`VST /v1/sensor/list returned ${response.status}`);
+        throw new Error(`VIOS /v1/sensor/list returned ${response.status}`);
       }
       return response.json();
     })
     .then((data) => {
       const map = new Map<string, string>();
       if (Array.isArray(data)) {
-        for (const entry of data as VstSensorListEntry[]) {
+        for (const entry of data as ViosSensorListEntry[]) {
           // Online-only — same convention as useAlerts/useFilter.
           if (entry?.name && entry?.sensorId && entry.state === 'online') {
             map.set(entry.name, entry.sensorId);
@@ -107,14 +107,14 @@ export const fetchSensorMap = (
     })
     .catch((err) => {
       // Evict failed entry so subsequent renders can retry before TTL.
-      const existing = sensorListCache.get(vstApiUrl);
+      const existing = sensorListCache.get(viosApiUrl);
       if (existing && existing.promise === promise) {
-        sensorListCache.delete(vstApiUrl);
+        sensorListCache.delete(viosApiUrl);
       }
       throw err;
     });
 
-  sensorListCache.set(vstApiUrl, { promise, createdAt: now });
+  sensorListCache.set(viosApiUrl, { promise, createdAt: now });
   return promise;
 };
 
@@ -139,21 +139,21 @@ export const deriveSensorNameFromLiveStreamUrl = (
 
 /**
  * Live-stream catalog from `GET /v1/live/streams`. Not cached — sensors can
- * be added/removed in VST from another window, and the picker needs to reflect
+ * be added/removed in VIOS from another window, and the picker needs to reflect
  * those changes immediately. The wire shape nests one entry per stream key —
- * `[{<key>: [{name, url, streamId}]}, …]` — so we flatten to `VstLiveStream[]`.
+ * `[{<key>: [{name, url, streamId}]}, …]` — so we flatten to `ViosLiveStream[]`.
  */
-export const fetchVstLiveStreamCatalog = async (
-  vstApiUrl: string,
-): Promise<VstLiveStream[]> => {
-  const response = await fetch(`${stripTrailingSlashes(vstApiUrl)}/v1/live/streams`);
+export const fetchViosLiveStreamCatalog = async (
+  viosApiUrl: string,
+): Promise<ViosLiveStream[]> => {
+  const response = await fetch(`${stripTrailingSlashes(viosApiUrl)}/v1/live/streams`);
   if (!response.ok) {
-    throw new Error(`VST /v1/live/streams returned ${response.status}`);
+    throw new Error(`VIOS /v1/live/streams returned ${response.status}`);
   }
-  // VST returns text/plain content-type but the body is JSON.
+  // VIOS returns text/plain content-type but the body is JSON.
   const text = await response.text();
   const data = JSON.parse(text) as unknown;
-  const result: VstLiveStream[] = [];
+  const result: ViosLiveStream[] = [];
   if (Array.isArray(data)) {
     for (const item of data) {
       if (!item || typeof item !== 'object') continue;
@@ -174,19 +174,19 @@ export const fetchVstLiveStreamCatalog = async (
 };
 
 /**
- * Look up a sensor name in the VST live-stream catalog. Returns `undefined`
+ * Look up a sensor name in the VIOS live-stream catalog. Returns `undefined`
  * when the catalog has no matching entry — callers can decide whether to
  * forward the name to Alert Bridge anyway (e.g. for a stream that hasn't been
  * registered yet).
  */
 export const resolveSensorByName = async (
-  vstApiUrl: string,
+  viosApiUrl: string,
   sensorName: string,
-): Promise<ResolvedVstStream | undefined> => {
+): Promise<ResolvedViosStream | undefined> => {
   const trimmed = sensorName.trim();
   if (!trimmed) return undefined;
 
-  const catalog = await fetchVstLiveStreamCatalog(vstApiUrl);
+  const catalog = await fetchViosLiveStreamCatalog(viosApiUrl);
   const match = catalog.find((entry) => entry.name === trimmed);
   if (!match) return undefined;
 

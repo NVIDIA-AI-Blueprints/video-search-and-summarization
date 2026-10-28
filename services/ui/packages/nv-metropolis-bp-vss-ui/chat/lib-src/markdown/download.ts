@@ -5,7 +5,7 @@
  *
  * Always goes through a Blob rather than `<a download>`: an anonymous download
  * attribute is ignored for cross-origin hrefs, so the browser navigates away
- * from the app instead of saving. VSS media comes from VST on another origin,
+ * from the app instead of saving. VSS media comes from VIOS on another origin,
  * which is exactly that case.
  */
 /**

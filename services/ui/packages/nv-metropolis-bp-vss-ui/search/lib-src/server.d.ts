@@ -20,5 +20,7 @@
 export declare function fetchSearchData(): Promise<{
     systemStatus: string;
     agentApiUrl: string | undefined;
-    vstApiUrl: string | undefined;
+    viosApiUrl: string | undefined;
+    videoAnalyticsWebApiUrl: string | undefined;
+    mediaWithObjectsBbox: string | undefined;
 }>;

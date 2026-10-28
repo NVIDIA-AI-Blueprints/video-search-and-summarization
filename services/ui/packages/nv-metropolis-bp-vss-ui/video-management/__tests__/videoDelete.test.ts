@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { deleteVideo } from '../lib-src/videoDelete';
 
-describe('direct VST uploaded-video deletion', () => {
+describe('direct VIOS uploaded-video deletion', () => {
   beforeEach(() => {
     global.fetch = jest.fn();
   });

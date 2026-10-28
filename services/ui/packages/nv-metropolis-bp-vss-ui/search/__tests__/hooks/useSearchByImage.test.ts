@@ -3,8 +3,8 @@
 import { renderHook, act } from '@testing-library/react';
 import { useSearchByImage } from '../../lib-src/hooks/useSearchByImage';
 
-const MOCK_VST_URL = 'http://vst.test';
-const MOCK_MDX_URL = 'http://mdx.test';
+const MOCK_VIOS_URL = 'http://vios.test';
+const MOCK_VIDEO_ANALYTICS_URL = 'http://video-analytics.test';
 
 const mockBlob = new Blob(['fake-image'], { type: 'image/jpeg' });
 
@@ -70,7 +70,7 @@ describe('useSearchByImage', () => {
   // ---------------------------------------------------------------------------
 
   it('initializes with inactive state', () => {
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     expect(result.current.searchByImageActive).toBe(false);
     expect(result.current.searchByImageLoading).toBe(false);
@@ -82,26 +82,26 @@ describe('useSearchByImage', () => {
   // startSearchByImage - missing config
   // ---------------------------------------------------------------------------
 
-  it('sets error when vstApiUrl is missing', async () => {
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: undefined, mdxWebApiUrl: MOCK_MDX_URL }));
+  it('sets error when viosApiUrl is missing', async () => {
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: undefined, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, 'http://example.com/video.mp4');
     });
 
     expect(result.current.searchByImageActive).toBe(false);
-    expect(result.current.searchByImageError).toBe('VST API URL or MDX Web API URL not configured');
+    expect(result.current.searchByImageError).toBe('VIOS API URL or Video Analytics Web API URL not configured');
   });
 
-  it('sets error when mdxWebApiUrl is missing', async () => {
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: undefined }));
+  it('sets error when videoAnalyticsWebApiUrl is missing', async () => {
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: undefined }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, 'http://example.com/video.mp4');
     });
 
     expect(result.current.searchByImageActive).toBe(false);
-    expect(result.current.searchByImageError).toBe('VST API URL or MDX Web API URL not configured');
+    expect(result.current.searchByImageError).toBe('VIOS API URL or Video Analytics Web API URL not configured');
   });
 
   // ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@ describe('useSearchByImage', () => {
       .mockResolvedValueOnce(mockFetchResponse(null))
       .mockResolvedValueOnce(mockFetchResponse(mockFrameApiResponse(objects)));
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 60, 'http://example.com/video.mp4');
@@ -130,38 +130,38 @@ describe('useSearchByImage', () => {
     expect(result.current.searchByImageFrameData?.sensorName).toBe('Camera-1');
   });
 
-  it('calls correct VST picture URL with sensorId and timestamp', async () => {
+  it('calls correct VIOS picture URL with sensorId and timestamp', async () => {
     const fetchSpy = jest.fn()
       .mockResolvedValueOnce(mockFetchResponse(null))
       .mockResolvedValueOnce(mockFetchResponse(mockFrameApiResponse([])));
     global.fetch = fetchSpy;
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 30, 'http://example.com/video.mp4');
     });
 
     const pictureCall = fetchSpy.mock.calls[0];
-    expect(pictureCall[0]).toContain(`${MOCK_VST_URL}/v1/replay/stream/sensor-1/picture`);
+    expect(pictureCall[0]).toContain(`${MOCK_VIOS_URL}/v1/replay/stream/sensor-1/picture`);
     expect(pictureCall[0]).toContain('startTime=');
     expect(pictureCall[1].headers.streamId).toBe('sensor-1');
   });
 
-  it('calls correct MDX frames URL with sensorName and timestamp range', async () => {
+  it('calls correct Video Analytics frames URL with sensorName and timestamp range', async () => {
     const fetchSpy = jest.fn()
       .mockResolvedValueOnce(mockFetchResponse(null))
       .mockResolvedValueOnce(mockFetchResponse(mockFrameApiResponse([])));
     global.fetch = fetchSpy;
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 30, 'http://example.com/video.mp4');
     });
 
     const framesCall = fetchSpy.mock.calls[1];
-    expect(framesCall[0]).toContain(`${MOCK_MDX_URL}/frames`);
+    expect(framesCall[0]).toContain(`${MOCK_VIDEO_ANALYTICS_URL}/frames`);
     expect(framesCall[0]).toContain('sensorId=Camera-1');
     expect(framesCall[0]).toContain('fromTimestamp=');
     expect(framesCall[0]).toContain('toTimestamp=');
@@ -177,9 +177,9 @@ describe('useSearchByImage', () => {
       .mockResolvedValueOnce(mockFetchResponse(mockFrameApiResponse([])));
     global.fetch = fetchSpy;
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
-    const videoUrl = 'http://vst.test/video.mp4?startTime=2025-06-15T10:30:00.000Z&endTime=2025-06-15T10:31:00.000Z';
+    const videoUrl = 'http://vios.test/video.mp4?startTime=2025-06-15T10:30:00.000Z&endTime=2025-06-15T10:31:00.000Z';
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 5, videoUrl);
     });
@@ -194,7 +194,7 @@ describe('useSearchByImage', () => {
       .mockResolvedValueOnce(mockFetchResponse(mockFrameApiResponse([])));
     global.fetch = fetchSpy;
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, '/videos/sample_20250615_103000_abc123.mp4');
@@ -210,7 +210,7 @@ describe('useSearchByImage', () => {
       .mockResolvedValueOnce(mockFetchResponse(mockFrameApiResponse([])));
     global.fetch = fetchSpy;
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, '/plain-video.mp4');
@@ -228,7 +228,7 @@ describe('useSearchByImage', () => {
     jest.spyOn(console, 'error').mockImplementation();
     global.fetch = jest.fn();
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', 'not-a-date', 10, '/video.mp4');
@@ -247,7 +247,7 @@ describe('useSearchByImage', () => {
     jest.spyOn(console, 'warn').mockImplementation();
     global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, 'http://example.com/video.mp4');
@@ -263,7 +263,7 @@ describe('useSearchByImage', () => {
     jest.spyOn(console, 'warn').mockImplementation();
     global.fetch = jest.fn().mockResolvedValue(mockFetchResponse(null, false, 500));
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, 'http://example.com/video.mp4');
@@ -286,7 +286,7 @@ describe('useSearchByImage', () => {
       .mockResolvedValueOnce(mockFetchResponse(null))
       .mockResolvedValueOnce(mockFetchResponse(mockFrameApiResponse(objects)));
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, 'http://example.com/video.mp4');
@@ -308,7 +308,7 @@ describe('useSearchByImage', () => {
       .mockResolvedValueOnce(mockFetchResponse(null))
       .mockResolvedValueOnce(mockFetchResponse(mockFrameApiResponse(objects)));
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, 'http://example.com/video.mp4');
@@ -328,7 +328,7 @@ describe('useSearchByImage', () => {
       .mockResolvedValueOnce(mockFetchResponse(null))
       .mockResolvedValueOnce(mockFetchResponse(frames));
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, 'http://example.com/video.mp4');
@@ -345,7 +345,7 @@ describe('useSearchByImage', () => {
       .mockResolvedValueOnce(mockFetchResponse(null))
       .mockResolvedValueOnce(mockFetchResponse(null, false, 404));
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, 'http://example.com/video.mp4');
@@ -365,7 +365,7 @@ describe('useSearchByImage', () => {
       .mockResolvedValueOnce(mockFetchResponse(null))
       .mockResolvedValueOnce(mockFetchResponse(mockFrameApiResponse([makeBboxObject('obj-1')])));
 
-    const { result } = renderHook(() => useSearchByImage({ vstApiUrl: MOCK_VST_URL, mdxWebApiUrl: MOCK_MDX_URL }));
+    const { result } = renderHook(() => useSearchByImage({ viosApiUrl: MOCK_VIOS_URL, videoAnalyticsWebApiUrl: MOCK_VIDEO_ANALYTICS_URL }));
 
     await act(async () => {
       await result.current.startSearchByImage('sensor-1', 'Camera-1', '2025-01-01T00:00:00.000Z', 10, 'http://example.com/video.mp4');

@@ -118,7 +118,7 @@ describe('SseParser extras', () => {
     const artifact = {
       version: '1.0',
       kind: 'vss.search.results',
-      payload: { data: [{ screenshot_url: 'http://vst-internal:81/vst/frame.jpg' }] },
+      payload: { data: [{ screenshot_url: 'http://vios-internal:81/vst/frame.jpg' }] },
     };
     const events = new SseParser('/api/proxy').feed(
       `artifact_data: ${JSON.stringify(artifact)}\n`,

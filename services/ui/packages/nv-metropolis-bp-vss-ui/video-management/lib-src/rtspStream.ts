@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Direct VST RTSP sensor utilities.
+ * Direct VIOS RTSP sensor utilities.
  *
  * API Endpoints:
  * - Add:    POST   /v1/sensor/add          { sensorUrl, name }
@@ -29,7 +29,7 @@ export interface AddRtspStreamResult {
  */
 export type DeleteRtspStreamResult = boolean;
 
-async function getVstError(response: Response, fallback: string): Promise<string> {
+async function getViosError(response: Response, fallback: string): Promise<string> {
   const text = await response.text().catch(() => '');
   if (!text) return fallback;
   try {
@@ -41,10 +41,10 @@ async function getVstError(response: Response, fallback: string): Promise<string
 }
 
 /**
- * Add an RTSP sensor directly to VST.
+ * Add an RTSP sensor directly to VIOS.
  */
 export async function addRtspStream(
-  vstApiUrl: string,
+  viosApiUrl: string,
   request: AddRtspStreamRequest,
   signal?: AbortSignal
 ): Promise<AddRtspStreamResult> {
@@ -52,7 +52,7 @@ export async function addRtspStream(
     throw new Error('Add RTSP stream was cancelled');
   }
 
-  const response = await fetch(createApiEndpoints(vstApiUrl).ADD_SENSOR, {
+  const response = await fetch(createApiEndpoints(viosApiUrl).ADD_SENSOR, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -65,7 +65,7 @@ export async function addRtspStream(
   });
 
   if (!response.ok) {
-    throw new Error(await getVstError(
+    throw new Error(await getViosError(
       response,
       `Failed to add RTSP stream: ${response.statusText || response.status}`,
     ));
@@ -73,20 +73,20 @@ export async function addRtspStream(
 
   const result: AddRtspStreamResult = await response.json();
   if (!result.sensorId) {
-    throw new Error('VST add-sensor response missing sensorId');
+    throw new Error('VIOS add-sensor response missing sensorId');
   }
   return result;
 }
 
 /**
- * Delete an RTSP sensor directly from VST.
+ * Delete an RTSP sensor directly from VIOS.
  *
- * @param vstApiUrl - VST API base URL (for example, http://host:7777/vst/api)
- * @param sensorId - VST sensor UUID
+ * @param viosApiUrl - VIOS API base URL (for example, http://host:7777/vst/api)
+ * @param sensorId - VIOS sensor UUID
  * @param signal - Optional AbortSignal for cancellation
  */
 export async function deleteRtspStream(
-  vstApiUrl: string,
+  viosApiUrl: string,
   sensorId: string,
   signal?: AbortSignal
 ): Promise<DeleteRtspStreamResult> {
@@ -94,7 +94,7 @@ export async function deleteRtspStream(
     throw new Error('Delete RTSP stream was cancelled');
   }
 
-  const response = await fetch(createApiEndpoints(vstApiUrl).DELETE_SENSOR(sensorId), {
+  const response = await fetch(createApiEndpoints(viosApiUrl).DELETE_SENSOR(sensorId), {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
@@ -103,7 +103,7 @@ export async function deleteRtspStream(
   });
 
   if (!response.ok && response.status !== 404) {
-    throw new Error(await getVstError(
+    throw new Error(await getViosError(
       response,
       `Failed to delete RTSP stream: ${response.statusText || response.status}`,
     ));

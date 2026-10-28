@@ -51,7 +51,7 @@ describe('SearchComponent', () => {
     searchData: {
       systemStatus: 'active',
       agentApiUrl: 'http://test-agent-api.com',
-      vstApiUrl: 'http://test-vst-api.com',
+      viosApiUrl: 'http://test-vios-api.com',
     },
   };
 

@@ -205,7 +205,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     () =>
       uploadEnabled ? (
         <ChatUpload
-          vstApiUrlBase={uploadUrlBase}
+          viosApiUrlBase={uploadUrlBase}
           configTemplateJson={uploadConfigTemplateJson}
           metadataEnabled={features.uploadFileMetadata}
           hiddenMessageTemplate={uploadHiddenMessageTemplate}

@@ -29,7 +29,7 @@ The package is included in the monorepo. To use it in an app or another package:
 
 - **copyToClipboard** – Copy text to clipboard (browser API with fallback)
 - **formatTimestamp** – Format timestamp string for display
-- **uploadFileChunked** – Upload a video in chunks directly to a supplied VST storage URL
+- **uploadFileChunked** – Upload a video in chunks directly to a supplied VIOS storage URL
 
 ## Requirements
 

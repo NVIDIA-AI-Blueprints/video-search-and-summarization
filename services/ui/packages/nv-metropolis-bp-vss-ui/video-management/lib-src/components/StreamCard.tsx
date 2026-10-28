@@ -11,7 +11,7 @@ import { IconCheck } from '@tabler/icons-react';
 interface StreamCardProps {
   stream: StreamInfo;
   isSelected: boolean;
-  vstApiUrl?: string | null;
+  viosApiUrl?: string | null;
   onSelectionChange: (streamId: string, selected: boolean) => void;
   getEndTimeForStream: (streamId: string) => string | null;
   /** Resolving to `false` means playback could not be opened, and the card shows a notice. */
@@ -24,7 +24,7 @@ interface StreamCardProps {
 export const StreamCard: React.FC<StreamCardProps> = ({
   stream,
   isSelected,
-  vstApiUrl,
+  viosApiUrl,
   onSelectionChange,
   getEndTimeForStream,
   onPlay,
@@ -52,13 +52,13 @@ export const StreamCard: React.FC<StreamCardProps> = ({
     let retryTimer: NodeJS.Timeout | undefined;
 
     const fetchThumbnail = async (retryCount = 0) => {
-      if (!vstApiUrl) {
+      if (!viosApiUrl) {
         setThumbnailError(true);
         setIsLoadingThumbnail(false);
         return;
       }
 
-      const apiEndpoints = createApiEndpoints(vstApiUrl);
+      const apiEndpoints = createApiEndpoints(viosApiUrl);
       setIsLoadingThumbnail(true);
       setThumbnailError(false);
 
@@ -103,7 +103,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
       isMounted = false;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [stream.streamId, isRtsp, vstApiUrl, getEndTimeForStream]);
+  }, [stream.streamId, isRtsp, viosApiUrl, getEndTimeForStream]);
 
   useEffect(() => {
     return () => {
@@ -129,7 +129,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
     onSelectionChange(stream.streamId, e.target.checked);
   };
 
-  // VST has no recorded footage for a stream that was just added, so the URL
+  // VIOS has no recorded footage for a stream that was just added, so the URL
   // request 404s and the modal never opens. Surface that instead of no-op'ing.
   const handlePlayClick = useCallback(async () => {
     if (!onPlay || isLoadingPlay) return;

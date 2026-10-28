@@ -7,7 +7,7 @@ import { Whisper, Tooltip } from 'rsuite';
 import { SearchData, QueryDataContext } from '../types';
 import { formatTime, parseDateAsLocal } from '../utils/Formatter';
 
-/** How long a card waits for the VST clip request before unlocking Retry. */
+/** How long a card waits for the VIOS clip request before unlocking Retry. */
 export const SEARCH_CLIP_PLAYBACK_TIMEOUT_MS = 15_000;
 
 function settleWithTimeout<T>(
@@ -201,7 +201,7 @@ const VideoCard: React.FC<VideoCardProps> = ({
     };
   }, []);
 
-  // The VST clip request can fail (e.g. no recorded footage for the matched
+  // The VIOS clip request can fail (e.g. no recorded footage for the matched
   // window), in which case the modal never opens. Surface that instead of
   // silently dropping back to the play icon. A hung request must also
   // time out so Play/Retry are not disabled indefinitely.

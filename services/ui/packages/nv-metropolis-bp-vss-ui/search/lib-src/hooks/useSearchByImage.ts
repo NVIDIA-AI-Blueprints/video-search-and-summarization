@@ -4,8 +4,8 @@ import { useState, useCallback, useRef } from 'react';
 import { SearchByImageFrameData, BboxObject } from '../types';
 
 interface UseSearchByImageOptions {
-  vstApiUrl?: string;
-  mdxWebApiUrl?: string;
+  viosApiUrl?: string;
+  videoAnalyticsWebApiUrl?: string;
 }
 
 interface SearchByImageState {
@@ -16,16 +16,16 @@ interface SearchByImageState {
 }
 
 /**
- * Fetch the still-frame image from VST /picture API as an HTMLImageElement.
+ * Fetch the still-frame image from VIOS /picture API as an HTMLImageElement.
  */
 async function fetchFrameImage(
-  vstApiUrl: string,
+  viosApiUrl: string,
   sensorId: string,
   timestamp: string,
   signal: AbortSignal
 ): Promise<HTMLImageElement> {
   const params = new URLSearchParams({ startTime: timestamp });
-  const url = `${vstApiUrl}/v1/replay/stream/${sensorId}/picture?${params}`;
+  const url = `${viosApiUrl}/v1/replay/stream/${sensorId}/picture?${params}`;
   const response = await fetch(url, { signal, headers: { streamId: sensorId } });
 
   if (!response.ok) {
@@ -103,7 +103,7 @@ interface FrameMetadataResult {
  * this returns an empty result so the overlay still shows the frame (without boxes).
  */
 async function fetchFrameMetadata(
-  mdxWebApiUrl: string,
+  videoAnalyticsWebApiUrl: string,
   sensorName: string,
   timestamp: string,
   signal: AbortSignal
@@ -115,7 +115,7 @@ async function fetchFrameMetadata(
     const toTimestamp = timestamp;
 
     const params = new URLSearchParams({ sensorId: sensorName, fromTimestamp, toTimestamp });
-    const url = `${mdxWebApiUrl}/frames?${params}`;
+    const url = `${videoAnalyticsWebApiUrl}/frames?${params}`;
     const response = await fetch(url, { signal });
 
     if (!response.ok) {
@@ -165,9 +165,9 @@ async function fetchFrameMetadata(
 }
 
 /**
- * Extract the actual clip start time from a VST video URL.
+ * Extract the actual clip start time from a VIOS video URL.
  *
- * VST video URLs come in two flavours:
+ * VIOS video URLs come in two flavours:
  *  1. Signed URL with query params: ...?startTime=2025-01-01T00:00:31.000Z&...
  *  2. Static file path with timestamp in filename:
  *     .../sample-warehouse-4min_20250101_000031_3945b.mp4
@@ -196,7 +196,7 @@ function extractStartTimeFromVideoUrl(videoUrl: string): string | null {
   return null;
 }
 
-export const useSearchByImage = ({ vstApiUrl, mdxWebApiUrl }: UseSearchByImageOptions) => {
+export const useSearchByImage = ({ viosApiUrl, videoAnalyticsWebApiUrl }: UseSearchByImageOptions) => {
   const [state, setState] = useState<SearchByImageState>({
     active: false,
     loading: false,
@@ -208,8 +208,8 @@ export const useSearchByImage = ({ vstApiUrl, mdxWebApiUrl }: UseSearchByImageOp
 
   const startSearchByImage = useCallback(
     async (sensorId: string, sensorName: string, videoStartTime: string, pauseOffsetSeconds: number, videoUrl: string) => {
-      if (!vstApiUrl || !mdxWebApiUrl) {
-        setState((s) => ({ ...s, error: 'VST API URL or MDX Web API URL not configured', active: false }));
+      if (!viosApiUrl || !videoAnalyticsWebApiUrl) {
+        setState((s) => ({ ...s, error: 'VIOS API URL or Video Analytics Web API URL not configured', active: false }));
         return;
       }
 
@@ -230,8 +230,8 @@ export const useSearchByImage = ({ vstApiUrl, mdxWebApiUrl }: UseSearchByImageOp
         const timestamp = new Date(startMs + offsetMs).toISOString();
 
         const [frameImage, frameResult] = await Promise.all([
-          fetchFrameImage(vstApiUrl, sensorId, timestamp, controller.signal),
-          fetchFrameMetadata(mdxWebApiUrl, sensorName, timestamp, controller.signal),
+          fetchFrameImage(viosApiUrl, sensorId, timestamp, controller.signal),
+          fetchFrameMetadata(videoAnalyticsWebApiUrl, sensorName, timestamp, controller.signal),
         ]);
 
         if (controller.signal.aborted) return;
@@ -258,7 +258,7 @@ export const useSearchByImage = ({ vstApiUrl, mdxWebApiUrl }: UseSearchByImageOp
         }));
       }
     },
-    [vstApiUrl, mdxWebApiUrl]
+    [viosApiUrl, videoAnalyticsWebApiUrl]
   );
 
   const cancelSearchByImage = useCallback(() => {

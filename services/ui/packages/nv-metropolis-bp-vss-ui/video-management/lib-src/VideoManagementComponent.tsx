@@ -32,10 +32,10 @@ import {
 
 export type { VideoManagementComponentProps, VideoManagementSidebarControlHandlers } from './types';
 
-// The bytes are in VST either way, so this is not an upload failure — but the
+// The bytes are in VIOS either way, so this is not an upload failure — but the
 // grid may not show the file yet, which is what the user needs to know.
 const UNCONFIRMED_UPLOAD_NOTE =
-  'Uploaded, but VST has not listed it yet. Refresh the Video Management tab to check.';
+  'Uploaded, but VIOS has not listed it yet. Refresh the Video Management tab to check.';
 
 const asUnconfirmedSuccess = (upload: UploadProgress): UploadProgress => ({
   ...upload,
@@ -44,7 +44,7 @@ const asUnconfirmedSuccess = (upload: UploadProgress): UploadProgress => ({
   unconfirmed: UNCONFIRMED_UPLOAD_NOTE,
 });
 
-// Cancelling cannot un-upload a file VST has already taken; it only stops the
+// Cancelling cannot un-upload a file VIOS has already taken; it only stops the
 // wait on that file's listing. So a `confirming` file settles as the success it
 // is, carrying the caveat that the grid may not show it yet.
 const settleOnCancel = (upload: UploadProgress): UploadProgress =>
@@ -73,7 +73,7 @@ const toUploadFailure = (
   prev.map((p) => {
     if (p.id !== id) return p;
     // Only the listing wait can fail this late, and it failing does not take the
-    // file back out of VST. Reporting an upload error here would be wrong, and
+    // file back out of VIOS. Reporting an upload error here would be wrong, and
     // leaving it `confirming` would keep the popup up forever.
     if (p.status === 'confirming') return asUnconfirmedSuccess(p);
     if (p.status !== 'pending' && !isUploadInFlight(p.status)) return p;
@@ -92,7 +92,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   addChatQueryContext,
   registerChatVideoUploadComplete,
 }) => {
-  const vstApiUrl = videoManagementData?.vstApiUrl;
+  const viosApiUrl = videoManagementData?.viosApiUrl;
   const chatUploadFileConfigTemplateJson = videoManagementData?.chatUploadFileConfigTemplateJson;
   const enableAddRtspButton = videoManagementData?.enableAddRtspButton ?? true;
   // The deployment flag only picks where the "Enable video upload" switch starts; the user owns it after that.
@@ -168,14 +168,14 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     refetch,
     waitUntilStreamsRemoved,
     waitUntilStreamAdded,
-  } = useStreams({ vstApiUrl });
+  } = useStreams({ viosApiUrl });
   const {
     getEndTimeForStream,
     getTimelineRangeForStream,
     getLastTimelineForStream,
     refetch: refetchTimelines,
-  } = useStorageTimelines({ vstApiUrl });
-  const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(vstApiUrl ?? undefined);
+  } = useStorageTimelines({ viosApiUrl });
+  const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(viosApiUrl ?? undefined);
 
   const filteredStreams = useMemo(
     () => filterStreams(streams, showVideos, showRtsps, appliedSearchQuery),
@@ -191,7 +191,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const refetchRef = useRef(refetch);
   const refetchTimelinesRef = useRef(refetchTimelines);
   const waitUntilStreamAddedRef = useRef(waitUntilStreamAdded);
-  const vstApiUrlRef = useRef(vstApiUrl);
+  const viosApiUrlRef = useRef(viosApiUrl);
 
   useEffect(() => {
     refetchRef.current = refetch;
@@ -200,8 +200,8 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   }, [refetch, refetchTimelines, waitUntilStreamAdded]);
 
   useEffect(() => {
-    vstApiUrlRef.current = vstApiUrl;
-  }, [vstApiUrl]);
+    viosApiUrlRef.current = viosApiUrl;
+  }, [viosApiUrl]);
 
   // Refetch streams when component becomes active
   useEffect(() => {
@@ -242,10 +242,10 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       );
 
       try {
-        if (!vstApiUrl) {
-          throw new Error('VST API URL not configured');
+        if (!viosApiUrl) {
+          throw new Error('VIOS API URL not configured');
         }
-        const uploadEndpoints = createApiEndpoints(vstApiUrl);
+        const uploadEndpoints = createApiEndpoints(viosApiUrl);
         const uploaded = await chunkedUpload({
           file,
           fileName: requestFilename,
@@ -267,7 +267,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
         if (!isSessionValid() || cancelledFileIdsRef.current.has(id)) return;
 
-        // VST answers the last chunk before the file's sensor turns up in its
+        // VIOS answers the last chunk before the file's sensor turns up in its
         // streams listing, the same lag the RTSP add hits. Hold the file in
         // `confirming` until the listing agrees, so "Done" means the grid has it.
         setUploadProgress(toConfirming(id));
@@ -314,7 +314,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
     setIsUploading(false);
     await Promise.all([refetchRef.current(), refetchTimelinesRef.current()]);
-  }, [vstApiUrl, resolveFilename]);
+  }, [viosApiUrl, resolveFilename]);
 
   const handleFilesSelected = useCallback((files: File[]) => {
     if (files.length === 0 || isDialogOpenRef.current) return;
@@ -403,7 +403,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     });
     setIsUploading(false);
 
-    // A `confirming` file is one VST accepted, so it counts toward the refresh
+    // A `confirming` file is one VIOS accepted, so it counts toward the refresh
     // even though its listing wait was just abandoned.
     const settledCount = uploadProgressRef.current.filter(
       (p) => p.status === 'success' || p.status === 'confirming',
@@ -441,7 +441,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     () =>
       uploadProgress.map((upload) => {
         // The popup has no phase past `uploading`, so the server-side waits —
-        // VST processing the last chunk, then listing the sensor — both show as
+        // VIOS processing the last chunk, then listing the sensor — both show as
         // an in-flight file parked at 100%.
         const isServerSideWait = upload.status === 'processing' || upload.status === 'confirming';
         return {
@@ -472,7 +472,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         return {
           filename: u.fileName,
           result: u.unconfirmed
-            ? { status: 'success', vst_listing: 'pending', note: u.unconfirmed }
+            ? { status: 'success', vios_listing: 'pending', note: u.unconfirmed }
             : { status: 'success' },
         };
       }
@@ -495,7 +495,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     setIsRtspModalOpen(false);
   };
 
-  // VST accepts the add before its streams list includes the sensor. Hold the
+  // VIOS accepts the add before its streams list includes the sensor. Hold the
   // dialog open until the list agrees, so the grid it uncovers already shows
   // the stream the user just added.
   const handleAwaitRtspStream = useCallback(async (sensorId: string) => {
@@ -569,7 +569,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     [streams, selectedStreams]
   );
 
-  // Sensors VST already accepted a delete for, but still lists. This
+  // Sensors VIOS already accepted a delete for, but still lists. This
   // tracks backend state, not dialog state: any later attempt on these must only
   // resume polling, since re-sending the destructive request would either fail
   // against an already-deleted sensor or hit a resource recreated under the same
@@ -577,7 +577,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const acceptedDeletesRef = useRef<Set<string>>(new Set());
 
   // An acknowledgement only describes the backend that issued it. Once the tab points at
-  // a different VST, a sensor id reused over there has not been deleted, so keeping
+  // a different VIOS, a sensor id reused over there has not been deleted, so keeping
   // the entry would skip the new backend's delete call and poll until timeout instead.
   // The counter lets a delete already in flight recognise that its result arrived too
   // late to be recorded, which clearing alone cannot prevent.
@@ -586,11 +586,11 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   useEffect(() => {
     backendSessionRef.current += 1;
     acceptedDeletesRef.current.clear();
-  }, [vstApiUrl]);
+  }, [viosApiUrl]);
 
-  // Once VST stops listing a sensor the delete is fully settled, so drop it here.
+  // Once VIOS stops listing a sensor the delete is fully settled, so drop it here.
   // Without this, a stream later recreated under the same sensor id could never be
-  // deleted — every attempt would skip the VST call and just poll forever.
+  // deleted — every attempt would skip the VIOS call and just poll forever.
   useEffect(() => {
     if (acceptedDeletesRef.current.size === 0) return;
     const listed = new Set(streams.map((s) => s.sensorId));
@@ -614,8 +614,8 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   }, [isDeleting]);
 
   // Step 2 of delete: invoked by the confirm button inside DeleteConfirmDialog.
-  // Keeps the dialog open through agent delete + VST stream-list convergence
-  // (NVBug 6243148). Only closes when VST no longer lists the deleted sensors;
+  // Keeps the dialog open through agent delete + VIOS stream-list convergence
+  // (NVBug 6243148). Only closes when VIOS no longer lists the deleted sensors;
   // otherwise surfaces which streams could not be removed so the user can retry.
   const handleConfirmDelete = useCallback(async () => {
     if (selectedStreams.size === 0 || isDeleting) return;
@@ -637,7 +637,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
     const uniqueSensorIds = Array.from(sensorToStreams.keys());
     // Retry after a convergence timeout: the agent already took these, so only
-    // the VST wait below needs repeating.
+    // the VIOS wait below needs repeating.
     const alreadyAcceptedSensorIds = uniqueSensorIds.filter((id) => acceptedDeletesRef.current.has(id));
     const sensorIdsToDelete = uniqueSensorIds.filter((id) => !acceptedDeletesRef.current.has(id));
 
@@ -649,13 +649,13 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         const sensorStreams = sensorToStreams.get(sensorId) || [];
         const firstStream = sensorStreams[0];
 
-        if (!vstApiUrl) {
-          throw new Error('VST API URL not configured for deletion');
+        if (!viosApiUrl) {
+          throw new Error('VIOS API URL not configured for deletion');
         }
 
         // RTSP streams have no uploaded-file storage to remove.
         if (firstStream && isRtspStream(firstStream)) {
-          await deleteRtspStream(vstApiUrl, sensorId);
+          await deleteRtspStream(viosApiUrl, sensorId);
           return sensorId;
         }
 
@@ -666,7 +666,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           throw new Error(`No storage timeline found for ${firstStream?.name || sensorId}`);
         }
         await deleteVideo(
-          vstApiUrl,
+          viosApiUrl,
           sensorId,
           timelineRange.startTime,
           timelineRange.endTime,
@@ -707,7 +707,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
       deletedSensorIds.forEach((sensorId) => acceptedDeletesRef.current.add(sensorId));
 
-      // VST accepted the delete — wait until its streams list agrees before
+      // VIOS accepted the delete — wait until its streams list agrees before
       // claiming success. Closing early is what left RTSP entries stale in the grid.
       const { remainingSensorIds } = await waitUntilStreamsRemoved(deletedSensorIds);
       if (!isSameBackend()) return;
@@ -733,7 +733,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         }
         if (unconfirmedNames.length > 0) {
           messages.push(
-            `Deletion was accepted but these are still listed by VST: ${unconfirmedNames.join(', ')}. Retry to check again.`
+            `Deletion was accepted but these are still listed by VIOS: ${unconfirmedNames.join(', ')}. Retry to check again.`
           );
         }
         setDeleteError(messages.join('\n'));
@@ -748,7 +748,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     selectedStreams,
     streams,
     isDeleting,
-    vstApiUrl,
+    viosApiUrl,
     getTimelineRangeForStream,
     waitUntilStreamsRemoved,
     refetchTimelines,
@@ -832,7 +832,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       <StreamsGrid
         streams={filteredStreams}
         selectedStreams={selectedStreams}
-        vstApiUrl={vstApiUrl}
+        viosApiUrl={viosApiUrl}
         onSelectionChange={handleSelectionChange}
         onSelectAll={handleSelectAll}
         showVideos={showVideos}
@@ -882,7 +882,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         <AddRtspDialog
           overlay="contained"
           isOpen={isRtspModalOpen}
-          vstApiUrl={vstApiUrl}
+          viosApiUrl={viosApiUrl}
           onClose={handleRtspDialogClose}
           onSuccess={handleRtspSuccess}
           onAwaitStream={handleAwaitRtspStream}

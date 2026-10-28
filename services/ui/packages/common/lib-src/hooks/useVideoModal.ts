@@ -4,15 +4,15 @@
  * useVideoModal Hook - Video Playback Modal State Management
  *
  * Provides state management for video playback modal: visibility, URL generation
- * from VST API, and proper cleanup. Used by Search, Alerts, and other modules.
+ * from VIOS API, and proper cleanup. Used by Search, Alerts, and other modules.
  *
  * Usage:
- * - Search: useVideoModal(vstApiUrl) -> openVideoModal(videoData, showObjectsBbox)
- * - Alerts: useVideoModal(vstApiUrl, { sensorMap, showObjectsBbox }) -> openVideoModalFromAlert(alert) 
+ * - Search: useVideoModal(viosApiUrl) -> openVideoModal(videoData, showObjectsBbox)
+ * - Alerts: useVideoModal(viosApiUrl, { sensorMap, showObjectsBbox }) -> openVideoModalFromAlert(alert) 
  */
 
 import { useRef, useState, useCallback } from 'react';
-import { checkVideoUrl, fetchVideoUrlFromVst } from '../utils/videoModal';
+import { checkVideoUrl, fetchVideoUrlFromVios } from '../utils/videoModal';
 
 export interface VideoModalState {
   isOpen: boolean;
@@ -20,7 +20,7 @@ export interface VideoModalState {
   title: string;
 }
 
-/** Data required to fetch and display a video clip from VST API */
+/** Data required to fetch and display a video clip from VIOS API */
 export interface VideoModalData {
   video_name: string;
   start_time: string;
@@ -49,7 +49,7 @@ export interface UseVideoModalOptions {
 }
 
 export const useVideoModal = (
-  vstApiUrl?: string,
+  viosApiUrl?: string,
   options?: UseVideoModalOptions
 ) => {
   const [videoModal, setVideoModal] = useState<VideoModalState>({
@@ -65,13 +65,13 @@ export const useVideoModal = (
 
   /**
    * Opens the playback modal for a clip. Resolves `false` when no video could
-   * be loaded (e.g. VST 404s because a freshly added stream has no recorded
+   * be loaded (e.g. VIOS 404s because a freshly added stream has no recorded
    * footage yet) so callers can surface that instead of failing silently.
    */
   const openVideoModal = useCallback(
     async (videoData: VideoModalData, showBbox: boolean = false): Promise<boolean> => {
-      if (!vstApiUrl) {
-        console.error('VST API URL not available');
+      if (!viosApiUrl) {
+        console.error('VIOS API URL not available');
         return false;
       }
 
@@ -86,8 +86,8 @@ export const useVideoModal = (
         const { video_name, start_time, end_time, sensor_id, object_ids } =
           videoData;
 
-        const finalVideoUrl = await fetchVideoUrlFromVst(
-          vstApiUrl,
+        const finalVideoUrl = await fetchVideoUrlFromVios(
+          viosApiUrl,
           {
             sensorId: sensor_id,
             startTime: start_time,
@@ -101,7 +101,7 @@ export const useVideoModal = (
         if (abortController.signal.aborted) return false;
 
         if (!finalVideoUrl) {
-          console.error('VST returned no video URL for', videoData);
+          console.error('VIOS returned no video URL for', videoData);
           return false;
         }
 
@@ -123,7 +123,7 @@ export const useVideoModal = (
         }
       }
     },
-    [vstApiUrl]
+    [viosApiUrl]
   );
 
   const openVideoModalFromUrl = useCallback((title: string, videoUrl: string) => {
@@ -162,13 +162,13 @@ export const useVideoModal = (
             return;
           }
           console.warn(
-            'Video source URL not accessible, falling back to VST API:',
+            'Video source URL not accessible, falling back to VIOS API:',
             videoSource
           );
         }
 
-        if (!vstApiUrl || !sensorMap) {
-          console.error('VST API URL or sensor map not available');
+        if (!viosApiUrl || !sensorMap) {
+          console.error('VIOS API URL or sensor map not available');
           setLoadingAlertId(null);
           return;
         }
@@ -191,8 +191,8 @@ export const useVideoModal = (
 
         const objectIds = alert.metadata?.objectIds;
 
-        const finalVideoUrl = await fetchVideoUrlFromVst(
-          vstApiUrl,
+        const finalVideoUrl = await fetchVideoUrlFromVios(
+          viosApiUrl,
           {
             sensorId,
             startTime,
@@ -218,7 +218,7 @@ export const useVideoModal = (
         }
       }
     },
-    [vstApiUrl, sensorMap, showObjectsBbox, openVideoModalFromUrl]
+    [viosApiUrl, sensorMap, showObjectsBbox, openVideoModalFromUrl]
   );
 
   const closeVideoModal = useCallback(() => {

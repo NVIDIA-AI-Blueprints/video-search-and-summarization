@@ -61,7 +61,7 @@ const mockTimelines = new Map([
   }],
 ]);
 
-// Mutable so a test can simulate VST dropping a stream and it reappearing later
+// Mutable so a test can simulate VIOS dropping a stream and it reappearing later
 let mockStreamsList = [videoStream, rtspStream];
 const mockRefetch = jest.fn(() => Promise.resolve());
 const mockWaitUntilStreamsRemoved = jest.fn(async () => ({ remainingSensorIds: [] as string[] }));
@@ -119,7 +119,7 @@ jest.mock('../../lib-src/api', () => ({
   createApiEndpoints: () => ({
     LIVE_PICTURE: jest.fn(),
     REPLAY_PICTURE: jest.fn(),
-    UPLOAD_FILE: 'https://vst.example.com/vst/v1/storage/file',
+    UPLOAD_FILE: 'https://vios.example.com/vst/v1/storage/file',
   }),
 }));
 
@@ -131,7 +131,7 @@ jest.mock('@tabler/icons-react', () => ({
 const defaultProps = {
   videoManagementData: {
     systemStatus: 'ok',
-    vstApiUrl: 'https://vst.example.com/vst',
+    viosApiUrl: 'https://vios.example.com/vst',
   },
 };
 
@@ -225,7 +225,7 @@ describe('VideoManagementComponent — video playback', () => {
     expect(screen.queryByTestId('video-modal')).not.toBeInTheDocument();
   });
 
-  it('uses uploadFilename from dialog for the direct VST upload', async () => {
+  it('uses uploadFilename from dialog for the direct VIOS upload', async () => {
     renderComponent();
 
     expect(lastUploadDialogProps).toBeTruthy();
@@ -357,10 +357,10 @@ describe('VideoManagementComponent — video playback', () => {
   });
 });
 
-// Same lag as Add RTSP: VST answers the last chunk before the uploaded file's
+// Same lag as Add RTSP: VIOS answers the last chunk before the uploaded file's
 // sensor appears in its streams listing, so "Done" used to be able to precede
 // the grid actually holding the video.
-describe('VideoManagementComponent — upload waits for VST to list the file', () => {
+describe('VideoManagementComponent — upload waits for VIOS to list the file', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockStreamsList = [videoStream, rtspStream];
@@ -386,7 +386,7 @@ describe('VideoManagementComponent — upload waits for VST to list the file', (
     return () => settle({ found: true });
   }
 
-  it('keeps the file in flight until VST lists the uploaded sensor', async () => {
+  it('keeps the file in flight until VIOS lists the uploaded sensor', async () => {
     const settleWait = deferWait();
 
     renderComponent();
@@ -409,7 +409,7 @@ describe('VideoManagementComponent — upload waits for VST to list the file', (
     ]);
   });
 
-  it('reports success with the listing caveat when VST never lists the file', async () => {
+  it('reports success with the listing caveat when VIOS never lists the file', async () => {
     mockWaitUntilStreamAdded.mockResolvedValueOnce({ found: false });
 
     renderComponent();
@@ -420,13 +420,13 @@ describe('VideoManagementComponent — upload waits for VST to list the file', (
       filename: 'clip.mp4',
       result: {
         status: 'success',
-        vst_listing: 'pending',
+        vios_listing: 'pending',
         note: expect.stringContaining('has not listed it yet'),
       },
     });
   });
 
-  // The bytes are in VST by then, so cancelling only abandons the listing wait
+  // The bytes are in VIOS by then, so cancelling only abandons the listing wait
   it('settles a file cancelled mid-wait as success, not cancelled', async () => {
     const settleWait = deferWait();
 
@@ -445,7 +445,7 @@ describe('VideoManagementComponent — upload waits for VST to list the file', (
     const [result] = lastUploadSuccessPopupProps.results;
     expect(result.cancelled).toBeUndefined();
     expect(result.error).toBeUndefined();
-    expect(result.result).toEqual(expect.objectContaining({ vst_listing: 'pending' }));
+    expect(result.result).toEqual(expect.objectContaining({ vios_listing: 'pending' }));
   });
 
   it('settles a per-file cancel mid-wait the same way', async () => {
@@ -464,7 +464,7 @@ describe('VideoManagementComponent — upload waits for VST to list the file', (
     await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
     const [result] = lastUploadSuccessPopupProps.results;
     expect(result.cancelled).toBeUndefined();
-    expect(result.result).toEqual(expect.objectContaining({ vst_listing: 'pending' }));
+    expect(result.result).toEqual(expect.objectContaining({ vios_listing: 'pending' }));
   });
 
   it('does not wait when the upload response carries no sensorId', async () => {
@@ -495,7 +495,7 @@ describe('VideoManagementComponent — upload waits for VST to list the file', (
 
 // NVBug 6243148: selecting an RTSP stream and an uploaded video together and
 // hitting Select All → Delete left the RTSP entry in the grid, stale and
-// unplayable, because VST's stream list still reported it when the UI refetched.
+// unplayable, because VIOS's stream list still reported it when the UI refetched.
 describe('VideoManagementComponent — Select All delete of mixed RTSP and uploaded videos', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -538,18 +538,18 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     await selectAllAndConfirmDelete();
 
     expect(mockDeleteVideo).toHaveBeenCalledWith(
-      'https://vst.example.com/vst',
+      'https://vios.example.com/vst',
       videoStream.sensorId,
       '2025-01-01T00:00:00Z',
       '2025-01-01T01:03:30Z',
     );
     expect(mockDeleteRtspStream).toHaveBeenCalledWith(
-      'https://vst.example.com/vst',
+      'https://vios.example.com/vst',
       rtspStream.sensorId,
     );
   });
 
-  it('waits for VST to stop listing deleted sensors before closing the dialog', async () => {
+  it('waits for VIOS to stop listing deleted sensors before closing the dialog', async () => {
     renderComponent();
     await selectAllAndConfirmDelete();
 
@@ -560,7 +560,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     expect(screen.queryByTestId('delete-confirm-dialog')).not.toBeInTheDocument();
   });
 
-  it('keeps the dialog open with an error when VST still lists a deleted stream', async () => {
+  it('keeps the dialog open with an error when VIOS still lists a deleted stream', async () => {
     mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
       remainingSensorIds: [rtspStream.sensorId],
     });
@@ -569,9 +569,9 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     await selectAllAndConfirmDelete();
 
     expect(screen.getByTestId('delete-confirm-dialog')).toBeInTheDocument();
-    // VST accepted this delete, so it must not be reported as a failure
+    // VIOS accepted this delete, so it must not be reported as a failure
     expect(screen.getByTestId('delete-confirm-error')).toHaveTextContent(
-      `Deletion was accepted but these are still listed by VST: ${rtspStream.name}`,
+      `Deletion was accepted but these are still listed by VIOS: ${rtspStream.name}`,
     );
     expect(screen.getByTestId('delete-confirm-error')).not.toHaveTextContent(
       'Unable to remove the following streams',
@@ -579,8 +579,8 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
   });
 
   // A convergence timeout is not a failed delete: re-sending it would target a
-  // sensor VST already removed.
-  it('re-polls without re-sending the delete when VST has not converged yet', async () => {
+  // sensor VIOS already removed.
+  it('re-polls without re-sending the delete when VIOS has not converged yet', async () => {
     mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
       remainingSensorIds: [rtspStream.sensorId],
     });
@@ -602,7 +602,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     expect(screen.queryByTestId('delete-confirm-dialog')).not.toBeInTheDocument();
   });
 
-  // Cancelling only dismisses the dialog — VST still accepted the delete, so
+  // Cancelling only dismisses the dialog — VIOS still accepted the delete, so
   // a later attempt must not repeat the destructive request.
   it('does not re-send the delete after the dialog is cancelled and reopened', async () => {
     mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
@@ -629,7 +629,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
   });
 
   // An acknowledgement belongs to the backend that gave it. A sensor id reused on a
-  // different VST has not been deleted there, so the new backend must still get
+  // different VIOS has not been deleted there, so the new backend must still get
   // the request instead of the dialog polling it to a timeout.
   it('re-sends the delete when the component is pointed at a different backend', async () => {
     mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
@@ -648,7 +648,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
         <VideoManagementComponent
           videoManagementData={{
             systemStatus: 'ok',
-            vstApiUrl: 'https://other-vst.example.com/vst',
+            viosApiUrl: 'https://other-vios.example.com/vst',
           }}
         />,
       );
@@ -659,13 +659,13 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     await reopenDeleteDialogAndConfirm();
 
     expect(mockDeleteRtspStream).toHaveBeenCalledWith(
-      'https://other-vst.example.com/vst',
+      'https://other-vios.example.com/vst',
       rtspStream.sensorId,
     );
   });
 
   // Clearing on backend change is not enough on its own: a delete already awaiting its
-  // VST response would otherwise record that answer afterwards, leaving the new
+  // VIOS response would otherwise record that answer afterwards, leaving the new
   // backend's identical sensor id looking accepted and its Retry stuck polling.
   it('discards an acknowledgement that arrives after the backend changed', async () => {
     let settleRtspDelete: (value: unknown) => void = () => {};
@@ -681,13 +681,13 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     const { rerender } = renderComponent();
     await selectAllAndConfirmDelete();
 
-    // The tab is pointed elsewhere while the VST call is still outstanding
+    // The tab is pointed elsewhere while the VIOS call is still outstanding
     await act(async () => {
       rerender(
         <VideoManagementComponent
           videoManagementData={{
             systemStatus: 'ok',
-            vstApiUrl: 'https://other-vst.example.com/vst',
+            viosApiUrl: 'https://other-vios.example.com/vst',
           }}
         />,
       );
@@ -704,14 +704,14 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     });
 
     expect(mockDeleteRtspStream).toHaveBeenCalledWith(
-      'https://other-vst.example.com/vst',
+      'https://other-vios.example.com/vst',
       rtspStream.sensorId,
     );
   });
 
   // Forgetting a settled delete matters: a stream recreated under the same sensor
   // id must be deletable again rather than polled forever.
-  it('re-sends the delete once VST has dropped the sensor and it reappears', async () => {
+  it('re-sends the delete once VIOS has dropped the sensor and it reappears', async () => {
     mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
       remainingSensorIds: [rtspStream.sensorId],
     });
@@ -723,7 +723,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     });
 
-    // VST finally drops the stream, settling the delete
+    // VIOS finally drops the stream, settling the delete
     mockStreamsList = [videoStream];
     await act(async () => {
       rerender(<VideoManagementComponent {...defaultProps} />);
@@ -740,13 +740,13 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     await reopenDeleteDialogAndConfirm();
 
     expect(mockDeleteRtspStream).toHaveBeenCalledWith(
-      'https://vst.example.com/vst',
+      'https://vios.example.com/vst',
       rtspStream.sensorId,
     );
   });
 
-  it('keeps a failed stream selected and reports it without waiting for VST on that id', async () => {
-    mockDeleteRtspStream.mockRejectedValueOnce(new Error('Stream not found in VST'));
+  it('keeps a failed stream selected and reports it without waiting for VIOS on that id', async () => {
+    mockDeleteRtspStream.mockRejectedValueOnce(new Error('Stream not found in VIOS'));
 
     renderComponent();
     await selectAllAndConfirmDelete();
@@ -758,7 +758,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
   });
 
   it('retries only the failed stream when the user confirms again', async () => {
-    mockDeleteRtspStream.mockRejectedValueOnce(new Error('Stream not found in VST'));
+    mockDeleteRtspStream.mockRejectedValueOnce(new Error('Stream not found in VIOS'));
 
     renderComponent();
     await selectAllAndConfirmDelete();
@@ -776,10 +776,10 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
   });
 });
 
-// Add RTSP used to close on VST's add response, which precedes the sensor
+// Add RTSP used to close on VIOS's add response, which precedes the sensor
 // showing up in the streams listing — the grid was left without the camera the
 // user had just added until a manual refresh or a tab switch.
-describe('VideoManagementComponent — Add RTSP waits for VST to list the stream', () => {
+describe('VideoManagementComponent — Add RTSP waits for VIOS to list the stream', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockStreamsList = [videoStream, rtspStream];

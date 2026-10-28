@@ -137,7 +137,7 @@ describe('VideoSearchList', () => {
     });
 
     it('shows a notice when the clip request rejects', async () => {
-      renderCard(jest.fn().mockRejectedValue(new Error('VST unreachable')));
+      renderCard(jest.fn().mockRejectedValue(new Error('VIOS unreachable')));
 
       fireEvent.click(screen.getByTestId('video-play-overlay'));
 

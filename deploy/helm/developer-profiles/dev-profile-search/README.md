@@ -481,7 +481,7 @@ agent:
         value: "http://<NODE_IP>:30888"
 vss-agent-ui:
   agentApiUrlBase: "http://<NODE_IP>:30800/api/v1"
-  vstApiUrl: "http://<NODE_IP>:30888/vst/api"
+  viosApiUrl: "http://<NODE_IP>:30888/vst/api"
   chatCompletionUrl: "http://<NODE_IP>:30800/v1/chat/stream"
   chatBackendUrl: "http://vss-agent:8000/v1/chat/stream"
   sidebarChatBackendUrl: "http://vss-agent:8000/v1/chat/stream"
@@ -489,7 +489,7 @@ vss-agent-ui:
   dashboardKibanaBaseUrl: "http://<NODE_IP>:31560"
 ```
 
-`vssAgentExternalUrl` is also the first choice for `VST_EXTERNAL_URL`, so the overlay sets that name again in `extraEnv` on port **30888**. `extraEnv` is applied last and replaces the agent-port value. In-cluster VST calls still use `VST_INTERNAL_URL` (`http://vss-vios-ingress:30888`). The UI VST tab uses `vstApiUrl`. Agent and report URLs stay on port **30800**.
+`vssAgentExternalUrl` is also the first choice for `VST_EXTERNAL_URL`, so the overlay sets that name again in `extraEnv` on port **30888**. `extraEnv` is applied last and replaces the agent-port value. In-cluster VST calls still use `VST_INTERNAL_URL` (`http://vss-vios-ingress:30888`). The UI uses `viosApiUrl`. Agent and report URLs stay on port **30800**.
 
 | Service           | URL                                    |
 |-------------------|----------------------------------------|
@@ -524,7 +524,7 @@ agent:
         value: "http://localhost:30888"
 vss-agent-ui:
   agentApiUrlBase: "http://localhost:8000/api/v1"
-  vstApiUrl: "http://localhost:30888/vst/api"
+  viosApiUrl: "http://localhost:30888/vst/api"
   chatCompletionUrl: "http://localhost:8000/v1/chat/stream"
   chatBackendUrl: "http://vss-agent:8000/v1/chat/stream"
   sidebarChatBackendUrl: "http://vss-agent:8000/v1/chat/stream"

@@ -3,7 +3,7 @@
 /**
  * Image and video renderers for agent markdown.
  *
- * The agent answers with `<img>` / `<video>` pointing at VST media, so these
+ * The agent answers with `<img>` / `<video>` pointing at VIOS media, so these
  * two carry most of what a VSS answer actually looks like.
  */
 import { IconDownload, IconExclamationCircle, IconX } from '@tabler/icons-react';

@@ -36,7 +36,7 @@ function similarityFilterTag(similarity: unknown): { key: string; title: string;
   return { key: 'similarity', title: 'Similarity', value: value.toFixed(2) };
 }
 
-export const useFilter = ({vstApiUrl}: FilterProps) => {
+export const useFilter = ({viosApiUrl}: FilterProps) => {
   const [streams, setStreams] = useState<StreamInfo[]>([]);
   const [filterParams, setFilterParamsState] = useState<SearchParams>(() => ({
     videoSources: [],
@@ -64,10 +64,10 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
   ]);
 
   const fetchSensorList = useCallback(async () => {
-    if (!vstApiUrl) return;
+    if (!viosApiUrl) return;
     
     try {
-      const response = await fetch(`${vstApiUrl}/v1/sensor/list`);
+      const response = await fetch(`${viosApiUrl}/v1/sensor/list`);
       if (!response.ok) {
         console.error(`Failed to fetch sensor list: ${response.status}`);
         return;
@@ -88,7 +88,7 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
     } catch (err) {
       console.error('Error fetching sensor list:', err);
     }
-  }, [vstApiUrl]);
+  }, [viosApiUrl]);
 
   const addFilter = useCallback((params?: any) => {
     const paramsToUse = params || filterParams;

@@ -211,7 +211,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   });
 
   const apiUrl = alertsData?.apiUrl;
-  const vstApiUrl = alertsData?.vstApiUrl;
+  const viosApiUrl = alertsData?.viosApiUrl;
   const alertsApiUrl = alertsData?.alertsApiUrl;
   const defaultMaxResults = alertsData?.maxResults ?? 100;
   const defaultPageSize = alertsData?.pageSize ?? 20;
@@ -275,7 +275,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     canLoadMore,
   } = useAlerts({
     apiUrl,
-    vstApiUrl,
+    viosApiUrl,
     vlmVerified,
     vlmVerdict,
     timeWindow,
@@ -368,7 +368,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
       }),
     [timeWindow, vlmVerified, vlmVerdict, pageSize, activeFilters],
   );
-  const { videoModal, openVideoModalFromAlert, closeVideoModal, loadingAlertId } = useVideoModal(vstApiUrl, { sensorMap, showObjectsBbox: mediaWithObjectsBbox });
+  const { videoModal, openVideoModalFromAlert, closeVideoModal, loadingAlertId } = useVideoModal(viosApiUrl, { sensorMap, showObjectsBbox: mediaWithObjectsBbox });
 
   const handleClearAllFilters = React.useCallback(() => {
     setActiveFilters({
@@ -561,7 +561,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
             onTypeFilterChange={setTypeFilter}
             refreshVersion={rulesRefreshVersion}
             alertsApiUrl={alertsApiUrl}
-            vstApiUrl={vstApiUrl}
+            viosApiUrl={viosApiUrl}
             enableRealtimeAlerts={enableRealtimeAlerts}
             enableCvAlertsVerification={enableCvAlertsVerification}
           />
@@ -591,7 +591,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           alertReportPromptTemplate={alertReportPromptTemplate}
           vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
           vlmVerified={vlmVerified}
-          vstApiUrl={vstApiUrl}
+          viosApiUrl={viosApiUrl}
           sensorMap={sensorMap}
           showObjectsBbox={mediaWithObjectsBbox}
           timeFormat={timeFormat}

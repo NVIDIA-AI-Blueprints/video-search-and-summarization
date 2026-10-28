@@ -3,11 +3,11 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
-  VstStreamThumbnail,
+  ViosStreamThumbnail,
   clearSensorListCache,
-  clearVstStreamThumbnailCache,
-} from '../../lib-src/components/VstStreamThumbnail';
-import * as vstSensorList from '../../lib-src/utils/vstSensorList';
+  clearViosStreamThumbnailCache,
+} from '../../lib-src/components/ViosStreamThumbnail';
+import * as viosSensorList from '../../lib-src/utils/viosSensorList';
 
 const segments = [{ startTime: '2025-01-01T00:00:00.000Z', endTime: '2025-01-01T00:00:25.000Z' }];
 
@@ -16,7 +16,7 @@ const streamResponse = (url: string) => {
   return match ? [{ streamId: decodeURIComponent(match[1]) }] : undefined;
 };
 
-const mockVstFetch = (sensors: unknown, timelines: unknown = segments) =>
+const mockViosFetch = (sensors: unknown, timelines: unknown = segments) =>
   jest.fn().mockImplementation((url: string) =>
     jsonResponse(url.endsWith('/sensor/list') ? sensors : streamResponse(url) ?? timelines),
   );
@@ -27,19 +27,19 @@ const jsonResponse = (body: unknown) =>
     json: () => Promise.resolve(body),
   } as Response);
 
-describe('VstStreamThumbnail picture URL', () => {
+describe('ViosStreamThumbnail picture URL', () => {
   let originalFetch: typeof global.fetch;
 
   beforeEach(() => {
     originalFetch = global.fetch;
     clearSensorListCache();
-    clearVstStreamThumbnailCache();
+    clearViosStreamThumbnailCache();
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
     clearSensorListCache();
-    clearVstStreamThumbnailCache();
+    clearViosStreamThumbnailCache();
   });
 
   it('uses the uploaded recording timeline even when the wall clock is a year later', async () => {
@@ -47,17 +47,17 @@ describe('VstStreamThumbnail picture URL', () => {
     const fixedNow = Date.UTC(2026, 0, 15, 12, 0, 0); // 2026-01-15T12:00:00.000Z
     jest.spyOn(Date, 'now').mockReturnValue(fixedNow);
 
-    global.fetch = mockVstFetch([{ name: 'sample.mp4', sensorId: 'id-1', state: 'online' }]);
+    global.fetch = mockViosFetch([{ name: 'sample.mp4', sensorId: 'id-1', state: 'online' }]);
 
     render(
-      <VstStreamThumbnail
-        vstApiUrl="http://vst.test"
+      <ViosStreamThumbnail
+        viosApiUrl="http://vios.test"
         sensorName="sample.mp4"
         isDark={false}
       />,
     );
 
-    const img = await screen.findByTestId('vst-stream-thumbnail');
+    const img = await screen.findByTestId('vios-stream-thumbnail');
     const src = img.getAttribute('src') ?? '';
     const url = new URL(src);
 
@@ -72,56 +72,56 @@ describe('VstStreamThumbnail picture URL', () => {
   });
 
   it('percent-encodes the sensorId path segment', async () => {
-    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id with space/slash', state: 'online' }]);
+    global.fetch = mockViosFetch([{ name: 'cam', sensorId: 'id with space/slash', state: 'online' }]);
 
     render(
-      <VstStreamThumbnail
-        vstApiUrl="http://vst.test"
+      <ViosStreamThumbnail
+        viosApiUrl="http://vios.test"
         sensorName="cam"
         isDark={false}
       />,
     );
 
-    const img = await screen.findByTestId('vst-stream-thumbnail');
+    const img = await screen.findByTestId('vios-stream-thumbnail');
     expect(img.getAttribute('src')).toContain(
       '/v1/replay/stream/id%20with%20space%2Fslash/picture',
     );
   });
 
-  it('strips trailing slashes from vstApiUrl before assembling the URL', async () => {
-    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }]);
+  it('strips trailing slashes from viosApiUrl before assembling the URL', async () => {
+    global.fetch = mockViosFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }]);
 
     render(
-      <VstStreamThumbnail
-        vstApiUrl="http://vst.test///"
+      <ViosStreamThumbnail
+        viosApiUrl="http://vios.test///"
         sensorName="cam"
         isDark={false}
       />,
     );
 
-    const img = await screen.findByTestId('vst-stream-thumbnail');
+    const img = await screen.findByTestId('vios-stream-thumbnail');
     const src = img.getAttribute('src') ?? '';
-    expect(src.startsWith('http://vst.test/v1/replay/stream/id-1/picture?')).toBe(true);
-    expect(src).not.toContain('vst.test//v1');
+    expect(src.startsWith('http://vios.test/v1/replay/stream/id-1/picture?')).toBe(true);
+    expect(src).not.toContain('vios.test//v1');
   });
 
   it('selects the latest valid segment even if timelines are out of order', async () => {
-    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }], [
+    global.fetch = mockViosFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }], [
       { startTime: '2025-01-02T00:00:00Z', endTime: '2025-01-02T00:00:30Z' },
       ...segments,
       { startTime: 'invalid', endTime: '2027-01-01T00:00:00Z' },
     ]);
-    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
-    const img = await screen.findByTestId('vst-stream-thumbnail');
+    render(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam" isDark={false} />);
+    const img = await screen.findByTestId('vios-stream-thumbnail');
     expect(new URL(img.getAttribute('src')!).searchParams.get('startTime')).toBe('2025-01-02T00:00:25.000Z');
   });
 
   it('keeps a short recording preview inside its timeline', async () => {
-    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }], [
+    global.fetch = mockViosFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }], [
       { startTime: '2025-01-01T00:00:00Z', endTime: '2025-01-01T00:00:02Z' },
     ]);
-    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
-    const img = await screen.findByTestId('vst-stream-thumbnail');
+    render(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam" isDark={false} />);
+    const img = await screen.findByTestId('vios-stream-thumbnail');
     expect(new URL(img.getAttribute('src')!).searchParams.get('startTime')).toBe('2025-01-01T00:00:01.000Z');
   });
 
@@ -130,10 +130,10 @@ describe('VstStreamThumbnail picture URL', () => {
     [{ startTime: 'invalid', endTime: 'invalid' }],
     [{ startTime: '2025-01-01T00:00:02Z', endTime: '2025-01-01T00:00:00Z' }],
   ].map((timeline) => ({ timeline })))('shows a placeholder when there is no valid recording: %j', async ({ timeline }) => {
-    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }], timeline);
-    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    global.fetch = mockViosFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }], timeline);
+    render(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam" isDark={false} />);
     await screen.findByText('No thumbnail');
-    expect(screen.queryByTestId('vst-stream-thumbnail')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('vios-stream-thumbnail')).not.toBeInTheDocument();
   });
 
   it('shows a placeholder when the timeline service fails', async () => {
@@ -142,9 +142,9 @@ describe('VstStreamThumbnail picture URL', () => {
         ? jsonResponse([{ name: 'cam', sensorId: 'id-1', state: 'online' }])
         : streamResponse(url) ? jsonResponse(streamResponse(url)) : Promise.resolve({ ok: false, status: 503 } as Response),
     );
-    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    render(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam" isDark={false} />);
     await screen.findByText('No thumbnail');
-    expect(screen.queryByTestId('vst-stream-thumbnail')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('vios-stream-thumbnail')).not.toBeInTheDocument();
   });
 
 
@@ -156,12 +156,12 @@ describe('VstStreamThumbnail picture URL', () => {
         ? [{ startTime: '2025-02-01T00:00:00Z', endTime: '2025-02-01T00:00:30Z' }]
         : segments);
     });
-    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
-    const img = await screen.findByTestId('vst-stream-thumbnail');
+    render(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam" isDark={false} />);
+    const img = await screen.findByTestId('vios-stream-thumbnail');
     const url = new URL(img.getAttribute('src')!);
     expect(url.pathname).toBe('/v1/replay/stream/new-stream/picture');
     expect(url.searchParams.get('startTime')).toBe('2025-02-01T00:00:25.000Z');
-    expect(global.fetch).not.toHaveBeenCalledWith('http://vst.test/v1/storage/sensor-1/timelines');
+    expect(global.fetch).not.toHaveBeenCalledWith('http://vios.test/v1/storage/sensor-1/timelines');
   });
 
   it('uses another recorded stream if one stream timeline request fails', async () => {
@@ -170,8 +170,8 @@ describe('VstStreamThumbnail picture URL', () => {
       if (url.endsWith('/streams')) return jsonResponse([{ streamId: 'failed-stream' }, { streamId: 'good-stream' }]);
       return url.includes('/failed-stream/') ? Promise.resolve({ ok: false, status: 503 } as Response) : jsonResponse(segments);
     });
-    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
-    const img = await screen.findByTestId('vst-stream-thumbnail');
+    render(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam" isDark={false} />);
+    const img = await screen.findByTestId('vios-stream-thumbnail');
     expect(img.getAttribute('src')).toContain('/good-stream/picture');
   });
 
@@ -184,22 +184,22 @@ describe('VstStreamThumbnail picture URL', () => {
       if (recovered) return jsonResponse(segments);
       return failure === 'empty' ? jsonResponse([]) : Promise.resolve({ ok: false, status: 503 } as Response);
     });
-    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    render(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam" isDark={false} />);
     await screen.findByText('No thumbnail');
     recovered = true;
     fireEvent.click(screen.getByRole('button', { name: 'Retry thumbnail' }));
-    const img = await screen.findByTestId('vst-stream-thumbnail');
+    const img = await screen.findByTestId('vios-stream-thumbnail');
     expect(img.getAttribute('src')).toContain('/id-1/picture');
     expect(jest.mocked(global.fetch).mock.calls.filter(([url]) => String(url).endsWith('/sensor/list'))).toHaveLength(2);
   });
 
   it('allows retrying a picture that failed to load', async () => {
-    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }]);
-    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
-    fireEvent.error(await screen.findByTestId('vst-stream-thumbnail'));
+    global.fetch = mockViosFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }]);
+    render(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam" isDark={false} />);
+    fireEvent.error(await screen.findByTestId('vios-stream-thumbnail'));
     expect(screen.getByText('Frame unavailable')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry thumbnail' }));
-    const img = await screen.findByTestId('vst-stream-thumbnail');
+    const img = await screen.findByTestId('vios-stream-thumbnail');
     fireEvent.load(img);
     expect(screen.queryByText('Frame unavailable')).not.toBeInTheDocument();
   });
@@ -218,11 +218,11 @@ describe('VstStreamThumbnail picture URL', () => {
         }
         return jsonResponse(segments);
       });
-      render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+      render(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam" isDark={false} />);
       await act(async () => {});
       expect(screen.getByText('Loading thumbnail…')).toBeInTheDocument();
       await act(async () => { await jest.advanceTimersByTimeAsync(5000); });
-      expect(screen.getByTestId('vst-stream-thumbnail').getAttribute('src')).toContain('/good-stream/picture');
+      expect(screen.getByTestId('vios-stream-thumbnail').getAttribute('src')).toContain('/good-stream/picture');
     } finally {
       jest.useRealTimers();
     }
@@ -230,30 +230,30 @@ describe('VstStreamThumbnail picture URL', () => {
 
   it('refreshes the sensor catalog only for the retry, not later sensor changes', async () => {
     const sensorMap = new Map([['cam-a', 'id-a'], ['cam-b', 'id-b']]);
-    const sensorFetch = jest.spyOn(vstSensorList, 'fetchSensorMap').mockResolvedValue(sensorMap);
-    global.fetch = mockVstFetch([]);
-    const { rerender } = render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam-a" isDark={false} />);
-    fireEvent.error(await screen.findByTestId('vst-stream-thumbnail'));
+    const sensorFetch = jest.spyOn(viosSensorList, 'fetchSensorMap').mockResolvedValue(sensorMap);
+    global.fetch = mockViosFetch([]);
+    const { rerender } = render(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam-a" isDark={false} />);
+    fireEvent.error(await screen.findByTestId('vios-stream-thumbnail'));
     fireEvent.click(screen.getByRole('button', { name: 'Retry thumbnail' }));
-    await screen.findByTestId('vst-stream-thumbnail');
-    expect(sensorFetch).toHaveBeenLastCalledWith('http://vst.test', { forceRefresh: true });
-    rerender(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam-b" isDark={false} />);
-    await waitFor(() => expect(screen.getByTestId('vst-stream-thumbnail').getAttribute('src')).toContain('/id-b/picture'));
-    expect(sensorFetch).toHaveBeenLastCalledWith('http://vst.test', { forceRefresh: false });
+    await screen.findByTestId('vios-stream-thumbnail');
+    expect(sensorFetch).toHaveBeenLastCalledWith('http://vios.test', { forceRefresh: true });
+    rerender(<ViosStreamThumbnail viosApiUrl="http://vios.test" sensorName="cam-b" isDark={false} />);
+    await waitFor(() => expect(screen.getByTestId('vios-stream-thumbnail').getAttribute('src')).toContain('/id-b/picture'));
+    expect(sensorFetch).toHaveBeenLastCalledWith('http://vios.test', { forceRefresh: false });
   });
 
 });
 
-describe('VstStreamThumbnail remount cache', () => {
-  const vstApiUrl = 'http://vst.example/';
+describe('ViosStreamThumbnail remount cache', () => {
+  const viosApiUrl = 'http://vios.example/';
   const sensorName = 'warehouse-cam';
 
   beforeEach(() => {
     jest.clearAllMocks();
-    global.fetch = mockVstFetch([]);
-    clearVstStreamThumbnailCache();
+    global.fetch = mockViosFetch([]);
+    clearViosStreamThumbnailCache();
     jest
-      .spyOn(vstSensorList, 'fetchSensorMap')
+      .spyOn(viosSensorList, 'fetchSensorMap')
       .mockResolvedValue(new Map([[sensorName, 'sensor-42']]));
   });
 
@@ -263,39 +263,39 @@ describe('VstStreamThumbnail remount cache', () => {
 
   it('shows cached thumbnail immediately on remount without a loading placeholder', async () => {
     const { unmount } = render(
-      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorName} />,
+      <ViosStreamThumbnail isDark={false} viosApiUrl={viosApiUrl} sensorName={sensorName} />,
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('vst-stream-thumbnail')).toBeInTheDocument();
+      expect(screen.getByTestId('vios-stream-thumbnail')).toBeInTheDocument();
     });
 
     unmount();
-    jest.mocked(vstSensorList.fetchSensorMap).mockClear();
+    jest.mocked(viosSensorList.fetchSensorMap).mockClear();
 
     await act(async () => {
       render(
-        <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorName} />,
+        <ViosStreamThumbnail isDark={false} viosApiUrl={viosApiUrl} sensorName={sensorName} />,
       );
     });
 
-    expect(screen.getByTestId('vst-stream-thumbnail')).toBeInTheDocument();
+    expect(screen.getByTestId('vios-stream-thumbnail')).toBeInTheDocument();
     expect(screen.queryByText('Loading thumbnail…')).not.toBeInTheDocument();
-    expect(vstSensorList.fetchSensorMap).toHaveBeenCalled();
+    expect(viosSensorList.fetchSensorMap).toHaveBeenCalled();
   });
 });
 
-describe('VstStreamThumbnail broken frame recovery', () => {
-  const vstApiUrl = 'http://vst.example';
+describe('ViosStreamThumbnail broken frame recovery', () => {
+  const viosApiUrl = 'http://vios.example';
   const sensorA = 'cam-a';
   const sensorB = 'cam-b';
 
   beforeEach(() => {
     jest.clearAllMocks();
-    global.fetch = mockVstFetch([]);
-    clearVstStreamThumbnailCache();
-    jest.spyOn(vstSensorList, 'fetchSensorMap').mockImplementation(async (url) => {
-      if (url !== vstApiUrl) {
+    global.fetch = mockViosFetch([]);
+    clearViosStreamThumbnailCache();
+    jest.spyOn(viosSensorList, 'fetchSensorMap').mockImplementation(async (url) => {
+      if (url !== viosApiUrl) {
         return new Map();
       }
       return new Map([
@@ -311,22 +311,22 @@ describe('VstStreamThumbnail broken frame recovery', () => {
 
   it('shows a new sensor thumbnail after the prior sensor image failed', async () => {
     const { rerender } = render(
-      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorA} />,
+      <ViosStreamThumbnail isDark={false} viosApiUrl={viosApiUrl} sensorName={sensorA} />,
     );
 
-    const imgA = await screen.findByTestId('vst-stream-thumbnail');
+    const imgA = await screen.findByTestId('vios-stream-thumbnail');
     fireEvent.error(imgA);
     expect(screen.getByText('Frame unavailable')).toBeInTheDocument();
 
     rerender(
-      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorB} />,
+      <ViosStreamThumbnail isDark={false} viosApiUrl={viosApiUrl} sensorName={sensorB} />,
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('vst-stream-thumbnail')).toBeInTheDocument();
+      expect(screen.getByTestId('vios-stream-thumbnail')).toBeInTheDocument();
     });
     expect(screen.queryByText('Frame unavailable')).not.toBeInTheDocument();
-    expect(screen.getByTestId('vst-stream-thumbnail').getAttribute('src')).toContain(
+    expect(screen.getByTestId('vios-stream-thumbnail').getAttribute('src')).toContain(
       '/v1/replay/stream/id-b/picture',
     );
   });
@@ -340,19 +340,19 @@ describe('VstStreamThumbnail broken frame recovery', () => {
       url.includes('/storage/id-a/') ? previousTimeline : jsonResponse(streamResponse(url) ?? segments),
     );
     const { rerender } = render(
-      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorA} />,
+      <ViosStreamThumbnail isDark={false} viosApiUrl={viosApiUrl} sensorName={sensorA} />,
     );
     await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
-      `${vstApiUrl}/v1/storage/id-a/timelines`, expect.objectContaining({ signal: expect.anything() }),
+      `${viosApiUrl}/v1/storage/id-a/timelines`, expect.objectContaining({ signal: expect.anything() }),
     ));
     rerender(
-      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorB} />,
+      <ViosStreamThumbnail isDark={false} viosApiUrl={viosApiUrl} sensorName={sensorB} />,
     );
-    await screen.findByTestId('vst-stream-thumbnail');
+    await screen.findByTestId('vios-stream-thumbnail');
     await act(async () => {
       resolvePrevious(await jsonResponse(segments));
     });
-    expect(screen.getByTestId('vst-stream-thumbnail').getAttribute('src')).toContain(
+    expect(screen.getByTestId('vios-stream-thumbnail').getAttribute('src')).toContain(
       '/v1/replay/stream/id-b/picture',
     );
   });

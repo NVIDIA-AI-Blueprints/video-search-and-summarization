@@ -3,7 +3,7 @@
 /**
  * Chat video upload helpers.
  *
- * Uploads each file chunk directly to VST using the nvstreamer protocol.
+ * Uploads each file chunk directly to VIOS using the nviosreamer protocol.
  */
 
 import { chunkedUpload } from './chunkedUpload';
@@ -18,7 +18,7 @@ export interface FileUploadResult {
 }
 
 /**
- * Chunked upload directly to VST. Each chunk is its own short HTTP request so the
+ * Chunked upload directly to VIOS. Each chunk is its own short HTTP request so the
  * Cloudflare 100s timeout doesn't apply to large files.
  */
 export async function uploadFileChunked(
@@ -44,7 +44,7 @@ export async function uploadFileChunked(
 
   const sensorId = uploadResponse.sensorId as string;
   if (!sensorId) {
-    throw new Error('VST upload response missing sensorId');
+    throw new Error('VIOS upload response missing sensorId');
   }
 
   return {

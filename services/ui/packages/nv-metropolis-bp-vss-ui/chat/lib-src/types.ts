@@ -107,7 +107,7 @@ export interface ChatEndpointConfig {
   /** Merged into the request body (the UI's custom agent params). */
   extraParams?: Record<string, string | number | boolean>;
   headers?: Record<string, string>;
-  /** Base VST API URL for chunked video upload; enables the upload button when set. */
+  /** Base VIOS API URL for chunked video upload; enables the upload button when set. */
   uploadUrlBase?: string;
 }
 
