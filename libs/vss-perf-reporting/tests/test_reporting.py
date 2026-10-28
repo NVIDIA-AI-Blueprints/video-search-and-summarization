@@ -14,6 +14,7 @@ from vss_perf_reporting import (
     build_result,
     generate_run_id,
     get_minio_endpoint,
+    publish_result_directory,
     publish_result_file,
 )
 
@@ -94,3 +95,57 @@ def test_summary_totals_are_validated() -> None:
             passed=-1,
             failed=0,
         )
+
+
+def test_publish_directory_writes_jenkins_compatible_receipt(monkeypatch, tmp_path) -> None:
+    result = build_and_save(
+        tmp_path / "nested",
+        "Behavior-Analytics",
+        [{"test_case_id": "playback", "status": "PASS", "metrics": {}}],
+        config_id="warehouse-2d",
+        run_id="behavior-analytics_warehouse-2d_20261023_121500",
+        passed=1,
+        failed=0,
+    )
+    (tmp_path / "execution_summary.json").write_text('{"success": true}\n')
+    uploads = []
+
+    class FakeUploader:
+        def __init__(self, endpoint, access_key, secret_key, secure):
+            uploads.append((endpoint, access_key, secret_key, secure))
+
+        def upload_benchmark_result(self, local_file, service, bucket):
+            uploads.append((local_file, service, bucket))
+            return True
+
+    monkeypatch.setattr("vss_perf_reporting.storage.MinIOUploader", FakeUploader)
+    monkeypatch.setenv("BUILD_URL", "https://jenkins.example/job/42/")
+    receipts = publish_result_directory(
+        tmp_path,
+        endpoint="minio.example:9000",
+        bucket="perf-results-dev",
+        access_key="access",
+        secret_key="secret",
+    )
+
+    assert len(receipts) == 1
+    assert uploads[1] == (str(result), "Behavior-Analytics", "perf-results-dev")
+    assert receipts[0]["object"] == f"Behavior-Analytics/{result.name}"
+    assert receipts[0]["pipeline_url"] == "https://jenkins.example/job/42/"
+    assert len(receipts[0]["sha256"]) == 64
+    receipt_path = result.with_name(f"{result.name}.upload.json")
+    assert json.loads(receipt_path.read_text()) == receipts[0]
+
+
+def test_publish_directory_rejects_unsafe_service(tmp_path) -> None:
+    payload = build_result(
+        service="unsafe/service",
+        run_id="unsafe",
+        test_cases=[],
+        passed=0,
+        failed=0,
+    )
+    (tmp_path / "unsafe.json").write_text(json.dumps(payload))
+
+    with pytest.raises(ValueError, match="unsafe or missing metadata.service"):
+        publish_result_directory(tmp_path)

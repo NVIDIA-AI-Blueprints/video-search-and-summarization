@@ -46,17 +46,33 @@ result_path = build_and_save(
 )
 ```
 
-Pass the returned `result_path` to `publish_result_file` when upload is enabled.
-The uploaded object keeps the same filename under `<service>/`; publication does
-not create a second timestamped copy.
+The service runtime must make `libs/vss-perf-reporting/src` importable and
+install the dependencies declared in `pyproject.toml`.
 
-The common Jenkins pipeline supplies `MINIO_ENDPOINT` in `host:port` form and
-`MINIO_BUCKET` for publication. The shared reporting library reads both from
-the environment. `MINIO_ENDPOINT` is required for uploads; local upload runs
-must set it explicitly.
+## Jenkins-owned publication
 
-The service runtime must make `libs/vss-perf-reporting/src` importable and install
-the dependencies declared in `pyproject.toml`.
+Benchmark entrypoints only write canonical reports. The common Jenkins pipeline
+binds MinIO credentials after the benchmark exits and invokes the shared CLI:
+
+```bash
+uv run --project libs/vss-perf-reporting --locked \
+  python -m vss_perf_reporting publish \
+  --report-dir perf-results/<run>
+```
+
+The CLI recursively finds and validates canonical JSON, ignores native
+diagnostic JSON, uploads each result as `<metadata.service>/<filename>`, and
+writes a neighboring `<filename>.upload.json` receipt containing the object
+URI and SHA-256 checksum. It reads `MINIO_ENDPOINT`, `MINIO_BUCKET`,
+`MINIO_ACCESS_KEY`, and `MINIO_SECRET_KEY` from the environment; credentials
+must not be passed as command-line arguments.
+
+`MINIO_ENDPOINT` is required for publication. The committed `uv.lock` makes the
+publisher independent of system Python packages such as `pip`.
+
+`publish_result_file` remains available for trusted local tooling, but service
+benchmark scripts must leave CI publication and credential ownership to
+Jenkins.
 
 ## Tests
 
