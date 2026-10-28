@@ -54,18 +54,13 @@ The skills were evaluated with Claude Code and Codex in the NVIDIA Astra sandbox
 
 - The registered source revision: [2800540bd82adc2594af9a6a4bec3e654cab1cb8](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/commit/2800540bd82adc2594af9a6a4bec3e654cab1cb8)
 
-Repository registration is tracked under [NSPECT-NAC8-FZUO](https://nspect.nvidia.com/review?id=NSPECT-NAC8-FZUO), release Skills 3.3, branch dev/3.3.0.
-
 ### Release Management
 
 - GitHub — planned Aug 29, 2026 via [dev/3.3.0](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/dev/3.3.0/skills)
 
 - NVIDIA NGC — planned Aug 29, 2026 as part of the registered Skills 3.3 external release
 
-- Build.NVIDIA.com — [VSS product page](https://build.nvidia.com/nvidia/video-search-and-summarization); not currently listed as a Skills 3.3 release location in [nSpect](https://nspect.nvidia.com/review?id=NSPECT-NAC8-FZUO)
-
-[nSpect](https://nspect.nvidia.com/review?id=NSPECT-NAC8-FZUO) lists GitHub and NVIDIA NGC as the release locations and uses the date above as the Skills 3.3 release date. Add the final published links to the nSpect AI Transparency Card when publication is complete.
-
+- Build.NVIDIA.com — [VSS product page](https://build.nvidia.com/nvidia/video-search-and-summarization)
 
 ### Deployment Geography for Use
 
@@ -123,7 +118,6 @@ UTF-8 JSON. Each skill contains a canonical evals/evals.json manifest; supportin
 
 - Total evaluation JSON storage at the registered revision is 222,479 bytes (approximately 217 KiB); canonical manifests account for 37,988 bytes (approximately 37 KiB).
 
-
 ## References
 
 - [VSS source repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
@@ -133,10 +127,6 @@ UTF-8 JSON. Each skill contains a canonical evals/evals.json manifest; supportin
 - [VSS prerequisites and validated GPU configurations](https://docs.nvidia.com/vss/latest/prerequisites.html)
 
 - [VSS Skills catalog](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/dev/3.3.0/skills)
-
-- [NVIDIA Skill Card template](https://gitlab-master.nvidia.com/api-catalog/examples/-/blob/main/nv-skillscard/SkillsCard.md)
-
-- [nSpect registration NSPECT-NAC8-FZUO](https://nspect.nvidia.com/review?id=NSPECT-NAC8-FZUO)
 
 The package contains these individually documented skills:
 
