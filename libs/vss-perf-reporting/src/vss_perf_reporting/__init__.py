@@ -35,6 +35,7 @@ from .storage import (
     MinIOUploader,
     get_minio_bucket,
     get_minio_endpoint,
+    publish_result_directory,
     publish_result_file,
     upload_result_file,
 )

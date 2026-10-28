@@ -15,6 +15,9 @@ dependencies = [
   "pydantic>=2.12,<3",
 ]
 
+[project.scripts]
+vss-perf-reporting = "vss_perf_reporting.__main__:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
