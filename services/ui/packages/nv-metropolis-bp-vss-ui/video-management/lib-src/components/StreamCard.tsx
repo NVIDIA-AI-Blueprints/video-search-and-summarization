@@ -8,6 +8,22 @@ import { createApiEndpoints } from '../api';
 import {copyToClipboard} from 'common';
 import { IconCheck } from '@tabler/icons-react';
 
+type PictureEndpoints = Pick<
+  ReturnType<typeof createApiEndpoints>,
+  'LIVE_PICTURE' | 'REPLAY_PICTURE'
+>;
+
+const pictureUrlForStream = (
+  isRtsp: boolean,
+  endpoints: PictureEndpoints,
+  streamId: string,
+  endTime: string | null,
+): string | undefined => {
+  if (isRtsp) return endpoints.LIVE_PICTURE(streamId);
+  if (!endTime) return undefined;
+  return endpoints.REPLAY_PICTURE(streamId, endTime);
+};
+
 interface StreamCardProps {
   stream: StreamInfo;
   isSelected: boolean;
@@ -63,20 +79,18 @@ export const StreamCard: React.FC<StreamCardProps> = ({
       setThumbnailError(false);
 
       try {
-        let pictureUrl: string;
-
-        if (isRtsp) {
-          pictureUrl = apiEndpoints.LIVE_PICTURE(stream.streamId);
-        } else {
-          const endTime = getEndTimeForStream(stream.streamId);
-          if (!endTime) {
-            if (retryCount < 5 && isMounted) {
-              retryTimer = setTimeout(() => fetchThumbnail(retryCount + 1), 1000);
-              return;
-            }
-            throw new Error('No timeline available');
+        const pictureUrl = pictureUrlForStream(
+          isRtsp,
+          apiEndpoints,
+          stream.streamId,
+          getEndTimeForStream(stream.streamId),
+        );
+        if (!pictureUrl) {
+          if (retryCount < 5 && isMounted) {
+            retryTimer = setTimeout(() => fetchThumbnail(retryCount + 1), 1000);
+            return;
           }
-          pictureUrl = apiEndpoints.REPLAY_PICTURE(stream.streamId, endTime);
+          throw new Error('No timeline available');
         }
 
         const blob = await fetchPictureWithQueue(pictureUrl);

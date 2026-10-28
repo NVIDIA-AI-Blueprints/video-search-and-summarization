@@ -137,6 +137,41 @@ export const deriveSensorNameFromLiveStreamUrl = (
   return last || undefined;
 };
 
+const stringField = (value: unknown): string | undefined =>
+  typeof value === 'string' ? value : undefined;
+
+const liveStreamFromUnknown = (info: unknown): ViosLiveStream | undefined => {
+  if (!info || typeof info !== 'object') return undefined;
+  const record = info as Record<string, unknown>;
+  const name = stringField(record.name);
+  const url = stringField(record.url);
+  const streamId = stringField(record.streamId);
+  if (!name || !url || !streamId) return undefined;
+  return { name, url, streamId };
+};
+
+const appendCatalogItem = (result: ViosLiveStream[], item: unknown): void => {
+  if (!item || typeof item !== 'object') return;
+  for (const streams of Object.values(item) as unknown[]) {
+    if (!Array.isArray(streams) || streams.length === 0) continue;
+    const stream = liveStreamFromUnknown(streams[0]);
+    if (stream) result.push(stream);
+  }
+};
+
+/**
+ * VIOS `/v1/live/streams` nests one entry per stream key:
+ * `[{<key>: [{name, url, streamId}]}, …]`. Flatten to `ViosLiveStream[]`.
+ */
+const flattenLiveStreamCatalog = (data: unknown): ViosLiveStream[] => {
+  if (!Array.isArray(data)) return [];
+  const result: ViosLiveStream[] = [];
+  for (const item of data) {
+    appendCatalogItem(result, item);
+  }
+  return result;
+};
+
 /**
  * Live-stream catalog from `GET /v1/live/streams`. Not cached — sensors can
  * be added/removed in VIOS from another window, and the picker needs to reflect
@@ -152,25 +187,7 @@ export const fetchViosLiveStreamCatalog = async (
   }
   // VIOS returns text/plain content-type but the body is JSON.
   const text = await response.text();
-  const data = JSON.parse(text) as unknown;
-  const result: ViosLiveStream[] = [];
-  if (Array.isArray(data)) {
-    for (const item of data) {
-      if (!item || typeof item !== 'object') continue;
-      for (const streams of Object.values(item) as unknown[]) {
-        if (!Array.isArray(streams) || streams.length === 0) continue;
-        const info = streams[0] as Record<string, unknown>;
-        const name = typeof info.name === 'string' ? info.name : undefined;
-        const url = typeof info.url === 'string' ? info.url : undefined;
-        const streamId =
-          typeof info.streamId === 'string' ? info.streamId : undefined;
-        if (name && url && streamId) {
-          result.push({ name, url, streamId });
-        }
-      }
-    }
-  }
-  return result;
+  return flattenLiveStreamCatalog(JSON.parse(text) as unknown);
 };
 
 /**

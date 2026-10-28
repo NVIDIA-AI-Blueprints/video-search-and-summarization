@@ -567,32 +567,32 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
             </tr>
           </thead>
           <tbody>
-            {loading && rules.length === 0 && drafts.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={6}
-                  className={`text-center py-10 text-sm ${
-                    isDark ? 'text-neutral-400' : 'text-gray-500'
-                  }`}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <IconLoader2 className="w-4 h-4 animate-spin" />
-                    Loading alert rules…
-                  </span>
-                </td>
-              </tr>
-            ) : visibleRules.length === 0 && drafts.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={6}
-                  className={`text-center py-10 text-sm ${
-                    isDark ? 'text-neutral-400' : 'text-gray-500'
-                  }`}
-                >
-                  No real-time alert rules. Click &ldquo;+ Create alert rule&rdquo; to create one.
-                </td>
-              </tr>
-            ) : (
+            {(() => {
+              const emptyCellClass = `text-center py-10 text-sm ${
+                isDark ? 'text-neutral-400' : 'text-gray-500'
+              }`;
+              if (loading && rules.length === 0 && drafts.length === 0) {
+                return (
+                  <tr>
+                    <td colSpan={6} className={emptyCellClass}>
+                      <span className="inline-flex items-center gap-2">
+                        <IconLoader2 className="w-4 h-4 animate-spin" />
+                        Loading alert rules…
+                      </span>
+                    </td>
+                  </tr>
+                );
+              }
+              if (visibleRules.length === 0 && drafts.length === 0) {
+                return (
+                  <tr>
+                    <td colSpan={6} className={emptyCellClass}>
+                      No real-time alert rules. Click &ldquo;+ Create alert rule&rdquo; to create one.
+                    </td>
+                  </tr>
+                );
+              }
+              return (
               <>
                 {visibleRules.map((rule, index) => (
                   <tr
@@ -873,7 +873,8 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                   );
                 })}
               </>
-            )}
+              );
+            })()}
           </tbody>
         </table>
 
