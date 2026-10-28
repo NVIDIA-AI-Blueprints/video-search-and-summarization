@@ -19,6 +19,7 @@ export default class RoomOccupancySettingPanel extends React.PureComponent {
     notification: null,
     inputValue: null,
     objectType: "",
+    showValidation: false,
   };
 
   displayNotification = (type, msg, timeoutMs = 3000) => {
@@ -33,6 +34,12 @@ export default class RoomOccupancySettingPanel extends React.PureComponent {
   };
 
   onSubmit = () => {
+    const validationErrors = this.getValidationErrors();
+    if (validationErrors.length > 0) {
+      this.setState({ showValidation: true });
+      return;
+    }
+
     let json = {
       place: this.props.config.place,
       occupancyReset: this.state.inputValue,
@@ -105,7 +112,7 @@ export default class RoomOccupancySettingPanel extends React.PureComponent {
           {this.state.notification.msg}
         </div>
       );
-    } else if (validationErrors.length > 0) {
+    } else if (this.state.showValidation && validationErrors.length > 0) {
       notificationComponent = (
         <div className={CssClasses.notification} style={{ color: "red" }}>
           {validationErrors.join(". ")}
@@ -120,7 +127,7 @@ export default class RoomOccupancySettingPanel extends React.PureComponent {
         </label>
         <input
           id="room-occupancy-object-type"
-          className={`${CssClasses.inputTextBox} ${this.state.objectType === "" ? CssClasses.inputError : ""}`}
+          className={`${CssClasses.inputTextBox} ${this.state.showValidation && this.state.objectType === "" ? CssClasses.inputError : ""}`}
           type="text"
           placeholder="e.g. Person"
           value={this.state.objectType}
@@ -134,7 +141,7 @@ export default class RoomOccupancySettingPanel extends React.PureComponent {
         </label>
         <input
           id="room-occupancy-count"
-          className={`${CssClasses.inputTextBox} ${this.state.inputValue == null ? CssClasses.inputError : ""}`}
+          className={`${CssClasses.inputTextBox} ${this.state.showValidation && this.state.inputValue == null ? CssClasses.inputError : ""}`}
           type="text"
           title={InputTitle}
           placeholder={InputTitle}

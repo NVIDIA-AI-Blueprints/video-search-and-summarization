@@ -26,8 +26,9 @@
   padding: 8px 10px;
   border: 1px solid rgba(63, 63, 70, 0.28);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.72);
   color: #1a1a1a;
+  color-scheme: light;
   font-size: 13px;
   line-height: 1.3;
 }
