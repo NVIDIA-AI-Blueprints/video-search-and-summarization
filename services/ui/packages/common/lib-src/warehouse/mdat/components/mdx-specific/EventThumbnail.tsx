@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import Styles from "./EventThumbnail.module.css";
-import { Axios } from "common/warehouse";
+import { joinUrl, isAbortError, readJson, readBlob } from "common/warehouse";
 import { isEqual } from "lodash";
 import { HideImage as HideImageIcon } from "common/warehouse/mui-icons";
 import React from "react";
@@ -43,7 +43,7 @@ export default class EventThumbnail extends React.Component {
       return;
     }
 
-    this.axiosCancelTokenFrameMetadata = Axios.CancelToken.source();
+    this.abortControllerFrameMetadata = new AbortController();
 
     let params;
 
@@ -57,12 +57,12 @@ export default class EventThumbnail extends React.Component {
     }
     params["sensorId"] = props.sensorConfig.id;
 
-    Axios.get(props.endpoints.framesUrl, {
-      params: params,
-      cancelToken: this.axiosCancelTokenFrameMetadata.token,
+    fetch(joinUrl(props.endpoints.framesUrl, params), {
+      signal: this.abortControllerFrameMetadata?.signal,
     })
-      .then((res) => {
-        const clonedResponse = { ...res };
+      .then((response) => readJson(response))
+      .then((data) => {
+        const clonedResponse = { data };
         let eventTargetObjectId = null;
         if (props.data.objectId) {
           eventTargetObjectId = props.data.objectId;
@@ -141,11 +141,11 @@ export default class EventThumbnail extends React.Component {
         }
       })
       .catch((thrown) => {
-        if (Axios.isCancel(thrown)) return;
+        if (isAbortError(thrown)) return;
         this.setState({ pictureLoadState: "erred" });
         if (!thrown.config) throw thrown;
         let userMessage = new UserMessage(
-          UserMessage.SRC_TYPE.AXIOS_ERROR,
+          UserMessage.SRC_TYPE.HTTP_ERROR,
           UserMessage.MESSAGE_LEVEL.ERROR,
           this.constructor.name + ": Fetch frames metadata for event",
           thrown
@@ -188,7 +188,7 @@ export default class EventThumbnail extends React.Component {
       );
     }
 
-    this.axiosCancelTokenSourceCameraPicture = Axios.CancelToken.source();
+    this.abortControllerCameraPicture = new AbortController();
 
     let getCallPurposeStr =
       this.constructor.name +
@@ -201,21 +201,18 @@ export default class EventThumbnail extends React.Component {
       " at time: " +
       timeString;
 
-    Axios.get(
+    fetch(joinUrl(
       `${props.endpoints.mediaServerBaseUrl}/replay/stream/${mediaStreamerSensorId}/picture`,
-      {
-        responseType: "blob",
-        headers: {
-          streamId: mediaStreamerSensorId,
-        },
-        params: {
-          startTime: timeString,
-        },
-        cancelToken: this.axiosCancelTokenSourceCameraPicture.token,
-      }
-    )
-      .then(async (res) => {
-        this.pictureUrl = window.URL.createObjectURL(res.data);
+      { startTime: timeString },
+    ), {
+      headers: {
+        streamId: mediaStreamerSensorId,
+      },
+      signal: this.abortControllerCameraPicture?.signal,
+    })
+      .then((response) => readBlob(response))
+      .then(async (blob) => {
+        this.pictureUrl = window.URL.createObjectURL(blob);
         let htmlImage = new window.Image();
         this._htmlImageOnLoadAbortController = new AbortController();
         htmlImage.addEventListener(
@@ -232,7 +229,7 @@ export default class EventThumbnail extends React.Component {
         htmlImage.src = this.pictureUrl;
       })
       .catch((thrown) => {
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           thrown.message &&
             console.warn(getCallPurposeStr + " : " + thrown.message);
           return;
@@ -324,7 +321,7 @@ export default class EventThumbnail extends React.Component {
           }
         } else {
           let userMessage = new UserMessage(
-            UserMessage.SRC_TYPE.AXIOS_ERROR,
+            UserMessage.SRC_TYPE.HTTP_ERROR,
             UserMessage.MESSAGE_LEVEL.ERROR,
             getCallPurposeStr,
             thrown
@@ -335,8 +332,7 @@ export default class EventThumbnail extends React.Component {
   };
 
   _getImageAndData = (props, frameMetadata) => {
-    this.axiosCancelTokenSourceMediaServiceDeviceListQuery =
-      Axios.CancelToken.source();
+    this.abortControllerMediaServiceDeviceListQuery = new AbortController();
 
     let mediaServiceBaseUrl = props.endpoints.mediaServerBaseUrl;
 
@@ -346,16 +342,17 @@ export default class EventThumbnail extends React.Component {
       "Get MediaService deviceId for sensor " +
       props.sensorConfig.id;
 
-    Axios.get(`${props.endpoints.mediaServerBaseUrl}/sensor/list`, {
-      cancelToken: this.axiosCancelTokenSourceMediaServiceDeviceListQuery.token,
+    fetch(`${props.endpoints.mediaServerBaseUrl}/sensor/list`, {
+      signal: this.abortControllerMediaServiceDeviceListQuery?.signal,
     })
-      .then((mediaServiceDeviceListResponse) => {
+      .then((response) => readJson(response))
+      .then((deviceList) => {
         let mediaStreamerSensorId;
 
-        if (!mediaServiceDeviceListResponse.data) {
+        if (!deviceList) {
           throw Error("No data sent from the server");
         }
-        mediaServiceDeviceListResponse.data.forEach((deviceData) => {
+        deviceList.forEach((deviceData) => {
           let sensorId = props.sensorConfig.id;
           if (props.isRemoveDashCV && sensorId.endsWith("-cv")) {
             sensorId = sensorId.replace("-cv", "");
@@ -382,7 +379,7 @@ export default class EventThumbnail extends React.Component {
         );
       })
       .catch((thrown) => {
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           thrown.message &&
             console.warn(
               getMediaServiceDeviceListCallPurpose + " : " + thrown.message
@@ -399,7 +396,7 @@ export default class EventThumbnail extends React.Component {
           return;
         }
         let userMessage = new UserMessage(
-          UserMessage.SRC_TYPE.AXIOS_ERROR,
+          UserMessage.SRC_TYPE.HTTP_ERROR,
           UserMessage.MESSAGE_LEVEL.ERROR,
           getMediaServiceDeviceListCallPurpose,
           thrown
@@ -410,12 +407,12 @@ export default class EventThumbnail extends React.Component {
 
   _cancelGetImageAndData = (message) => {
     window.URL.revokeObjectURL(this.pictureUrl);
-    this.axiosCancelTokenSourceCameraPicture &&
-      this.axiosCancelTokenSourceCameraPicture.cancel(message);
-    this.axiosCancelTokenFrameMetadata &&
-      this.axiosCancelTokenFrameMetadata.cancel(message);
-    this.axiosCancelTokenSourceMediaServiceDeviceListQuery &&
-      this.axiosCancelTokenSourceMediaServiceDeviceListQuery.cancel(message);
+    this.abortControllerCameraPicture &&
+      this.abortControllerCameraPicture.abort(message);
+    this.abortControllerFrameMetadata &&
+      this.abortControllerFrameMetadata.abort(message);
+    this.abortControllerMediaServiceDeviceListQuery &&
+      this.abortControllerMediaServiceDeviceListQuery.abort(message);
     this._htmlImageOnLoadAbortController &&
       this._htmlImageOnLoadAbortController.abort(message);
     clearTimeout(this._retryGetPictureTimeoutId);

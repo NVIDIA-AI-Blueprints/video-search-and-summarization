@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { Axios } from "common/warehouse";
+import { readJson } from "common/warehouse";
 import React from "react";
 import {
   Close as CloseIcon,
@@ -73,17 +73,17 @@ export default class ConfigFileActionsPanel extends React.PureComponent {
           formdata.append("configFiles", this.filesToUpload[i]);
         }
 
-        Axios.post(
-          `${UploadConfigFileUrl}/${this.state.selectedConfigType}`,
-          formdata
-        )
-          .then((res) => {
-            this.setState({ postSubmitInfo: JSON.stringify(res.data) });
+        fetch(`${UploadConfigFileUrl}/${this.state.selectedConfigType}`, {
+          method: "POST",
+          body: formdata,
+        })
+          .then((response) => readJson(response, "POST"))
+          .then(() => {
             this.setState({ postSubmitInfo: "Successfully uploaded files" });
           })
           .catch((err) => {
             this.setState({
-              postSubmitInfo: `${err.message}. Server message: ${JSON.stringify(err.response.data)}`,
+              postSubmitInfo: `${err.message}. Server message: ${JSON.stringify(err.response?.data)}`,
             });
           });
       }
@@ -99,15 +99,16 @@ export default class ConfigFileActionsPanel extends React.PureComponent {
       } else if (this.state.selectedConfigType === "road-network") {
         url = RoadNetworkUrl;
       }
-      Axios.get(url)
-        .then((res) => {
-          this.getConfigOutputTextAreaRef.value = JSON.stringify(res.data);
+      fetch(url)
+        .then((response) => readJson(response))
+        .then((data) => {
+          this.getConfigOutputTextAreaRef.value = JSON.stringify(data);
           this.setState({ postSubmitInfo: "Successfully fetched" });
         })
         .catch((err) => {
           console.error(err);
           this.setState({
-            postSubmitInfo: err.message + " -> " + err.response.data.error,
+            postSubmitInfo: err.message + " -> " + (err.response?.data?.error || err.message),
           });
         });
     }

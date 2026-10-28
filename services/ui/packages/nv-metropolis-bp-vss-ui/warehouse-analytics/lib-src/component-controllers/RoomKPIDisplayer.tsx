@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { Axios } from "common/warehouse";
+import { joinUrl, isAbortError, readJson } from "common/warehouse";
 import React from "react";
 import { connect } from "react-redux";
 
@@ -104,14 +104,14 @@ class RoomKPIDisplayer extends React.PureComponent {
 
       const timestampISO = new Date(this.newQueryTimeMs).toISOString();
 
-      Axios.get(MetricsOccupancyTripwireUrl, {
-        params: {
+      fetch(joinUrl(MetricsOccupancyTripwireUrl, {
           place: place,
           timestamp: timestampISO,
-        },
-        timeout: KPI_REQUEST_TIMEOUT_MS,
+        }), {
+        signal: AbortSignal.timeout(KPI_REQUEST_TIMEOUT_MS),
       })
-        .then((res) => {
+        .then((response) => readJson(response))
+        .then((data) => {
           this.isRequestInProgress = false;
           this.lastRequestCompletedTimeMs = Date.now();
 
@@ -120,7 +120,7 @@ class RoomKPIDisplayer extends React.PureComponent {
           // Handle the API response structure
           // Response format: { place, timestamp, occupancy: Array }
           // Each occupancy item: { objectType, count, details: { events: [{type, count}] } }
-          const occupancyData = res.data.occupancy;
+          const occupancyData = data.occupancy;
           if (occupancyData && Array.isArray(occupancyData) && occupancyData.length > 0) {
             // Process first item for backward compatibility
             const firstItem = occupancyData[0];
@@ -165,7 +165,7 @@ class RoomKPIDisplayer extends React.PureComponent {
           this.setState((prevState) => ({ isLoading: false, hasError: true, data: prevState.data }));
 
           // Handle timeout specifically
-          if (thrown.code === "ECONNABORTED") {
+          if (isAbortError(thrown) || thrown.name === "TimeoutError") {
             console.log(
               "[RoomKPIDisplayer] Request timed out after " +
                 KPI_REQUEST_TIMEOUT_MS / 1000 +
@@ -178,7 +178,7 @@ class RoomKPIDisplayer extends React.PureComponent {
           // Log other errors
           if (thrown.config) {
             let userMessage = new UserMessage(
-              UserMessage.SRC_TYPE.AXIOS_ERROR,
+              UserMessage.SRC_TYPE.HTTP_ERROR,
               UserMessage.MESSAGE_LEVEL.ERROR,
               "Fetch Tripwire KPIs for place: " + place,
               thrown,

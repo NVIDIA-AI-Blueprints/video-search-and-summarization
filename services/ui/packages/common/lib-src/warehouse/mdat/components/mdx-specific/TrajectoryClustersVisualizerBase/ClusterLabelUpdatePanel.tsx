@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { Axios } from "common/warehouse";
+import { isAbortError, readJson } from "common/warehouse";
 import { CircularProgress } from "common/warehouse/mui";
 
 import NewValueApplier from "./../../generic/NewValueApplier";
@@ -19,18 +19,19 @@ export default class ClusterLabelUpdatePanel extends React.PureComponent {
   onNewClusterLabelSelected = (label) => {
     this.setState({ lastActionStatus: "working" });
 
-    Axios({
-      url: this.props.clusterLabelUpdateEndpoint,
+    fetch(this.props.clusterLabelUpdateEndpoint, {
       method: "POST",
-      data: {
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         sensorId: this.props.sensorConfig.id,
         modelVersion: this.props.clusterData.modelVersion,
         clusterIndex: this.props.clusterData.clusterIndex,
         label: label,
-      },
-      cancelToken: this.clusterLabelUpdateCancelSource.token,
+      }),
+      signal: this.abortController?.signal,
     })
-      .then((res) => {
+      .then((response) => readJson(response, "POST"))
+      .then(() => {
         this.setState({
           lastActionStatus: "Success",
         });
@@ -38,13 +39,13 @@ export default class ClusterLabelUpdatePanel extends React.PureComponent {
       })
       .catch((thrown) => {
         let userMessage = new UserMessage(
-          UserMessage.SRC_TYPE.AXIOS_ERROR,
+          UserMessage.SRC_TYPE.HTTP_ERROR,
           UserMessage.MESSAGE_LEVEL.ERROR,
           "Update Cluster label for sensor id: " + this.props.sensorConfig.id,
           thrown
         );
 
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           console.log(userMessage.getLongString());
         } else {
           console.error(userMessage.getLongString());
@@ -56,7 +57,7 @@ export default class ClusterLabelUpdatePanel extends React.PureComponent {
   };
 
   componentDidMount() {
-    this.clusterLabelUpdateCancelSource = Axios.CancelToken.source();
+    this.abortController = new AbortController();
   }
 
   render() {
@@ -96,10 +97,8 @@ export default class ClusterLabelUpdatePanel extends React.PureComponent {
   }
 
   componentWillUnmount() {
-    this.clusterLabelUpdateCancelSource &&
-      this.clusterLabelUpdateCancelSource.cancel(
-        "Canceling label update action on close"
-      );
+    this.abortController &&
+      this.abortController.abort("Canceling label update action on close");
     clearTimeout(this.onSuccessTimerId);
   }
 }

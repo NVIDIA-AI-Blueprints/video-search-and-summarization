@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { Axios } from "common/warehouse";
+import { isAbortError, readJson } from "common/warehouse";
 import { PlayDisabled as PlayDisabledIcon } from "common/warehouse/mui-icons";
 
 import { VideoElementDefaultConfig } from "../../utils/Utils";
@@ -29,21 +29,21 @@ export default class RecordedSensorWebrtcVideo extends React.PureComponent {
       return;
     }
 
-    this.axiosCancelTokenSourceMediaServiceDeviceListQuery =
-      Axios.CancelToken.source();
+    this.abortControllerMediaServiceDeviceListQuery = new AbortController();
 
     let getMediaServiceDeviceListCallPurpose =
       "Get MediaService deviceId for sensor " + this.props.sensorConfig.id;
 
-    Axios.get(`${this.props.endpoints.mediaServerBaseUrl}/sensor/list`, {
-      cancelToken: this.axiosCancelTokenSourceMediaServiceDeviceListQuery.token,
+    fetch(`${this.props.endpoints.mediaServerBaseUrl}/sensor/list`, {
+      signal: this.abortControllerMediaServiceDeviceListQuery.signal,
     })
-      .then((mediaServiceDeviceListResponse) => {
+      .then((response) => readJson(response))
+      .then((deviceList) => {
         let mediaStreamerSensorId;
-        if (!mediaServiceDeviceListResponse.data) {
+        if (!deviceList) {
           throw Error("No data sent from the server");
         }
-        mediaServiceDeviceListResponse.data.forEach((deviceData) => {
+        deviceList.forEach((deviceData) => {
           if (
             deviceData.name.split(".")[0] === this.props.sensorConfig.id &&
             deviceData.state === "online"
@@ -89,7 +89,7 @@ export default class RecordedSensorWebrtcVideo extends React.PureComponent {
       .catch((thrown) => {
         this.setState({ loadState: "erred" });
 
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           console.warn(
             getMediaServiceDeviceListCallPurpose + " : " + thrown.message
           );
@@ -102,7 +102,7 @@ export default class RecordedSensorWebrtcVideo extends React.PureComponent {
           return;
         }
         let userMessage = new UserMessage(
-          UserMessage.SRC_TYPE.AXIOS_ERROR,
+          UserMessage.SRC_TYPE.HTTP_ERROR,
           UserMessage.MESSAGE_LEVEL.ERROR,
           getMediaServiceDeviceListCallPurpose,
           thrown
@@ -150,7 +150,7 @@ export default class RecordedSensorWebrtcVideo extends React.PureComponent {
   }
 
   componentWillUnmount() {
-    this.axiosCancelTokenSourceMediaServiceDeviceListQuery &&
-      this.axiosCancelTokenSourceMediaServiceDeviceListQuery.cancel();
+    this.abortControllerMediaServiceDeviceListQuery &&
+      this.abortControllerMediaServiceDeviceListQuery.abort();
   }
 }

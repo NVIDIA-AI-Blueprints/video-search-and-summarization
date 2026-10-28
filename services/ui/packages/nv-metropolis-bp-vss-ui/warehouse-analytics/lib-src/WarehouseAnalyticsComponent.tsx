@@ -8,7 +8,6 @@ import {
   AppConfigReduxUtil,
   AppConstants,
   AppLogsConsoleReduxUtil,
-  Axios,
   CalibrationUrl,
   getEnv,
   CONFIG_PANEL_ALLOWED_CONFIG_TYPES_DEFAULT,
@@ -16,6 +15,7 @@ import {
   ReduxUtils,
   UserMessage,
   withLoaderDisplay,
+  readJson,
 } from 'common/warehouse';
 
 import BuildingsLevelView from './page-builder/BuildingsLevelView';
@@ -153,7 +153,7 @@ const WarehouseAnalyticsAppInner: React.FC<AppInnerProps> = ({
     const fail = (purpose: string, error: unknown) => {
       const message = new UserMessage(
         error && typeof error === 'object' && 'config' in (error as object)
-          ? UserMessage.SRC_TYPE.AXIOS_ERROR
+          ? UserMessage.SRC_TYPE.HTTP_ERROR
           : UserMessage.SRC_TYPE.GENERIC,
         UserMessage.MESSAGE_LEVEL.ERROR,
         purpose,
@@ -173,16 +173,18 @@ const WarehouseAnalyticsAppInner: React.FC<AppInnerProps> = ({
       try {
         const configUrl =
           data?.uiConfigUrl || '/warehouse-analytics/default-ui-config.json';
-        const configResponse = await Axios.get(configUrl);
+        const configResponse = await fetch(configUrl);
+        const configData = await readJson(configResponse) as { uiDelaySeconds?: number };
         if (cancelled) return;
-        updateAppConfig(configResponse.data);
-        const uiDelayMs = ((configResponse.data as { uiDelaySeconds?: number })?.uiDelaySeconds || 0) * 1000;
+        updateAppConfig(configData);
+        const uiDelayMs = (configData?.uiDelaySeconds || 0) * 1000;
         updateUiState({ appStartTimeMs: Date.now() - uiDelayMs });
 
-        const calibrationResponse = await Axios.get(CalibrationUrl);
+        const calibrationResponse = await fetch(CalibrationUrl);
+        const calibrationData = await readJson(calibrationResponse);
         if (cancelled) return;
-        updateMetaData(calibrationResponse.data);
-        updateUiState(selectInitialView(calibrationResponse.data as never));
+        updateMetaData(calibrationData);
+        updateUiState(selectInitialView(calibrationData as never));
         setUserMessage(null);
         setLoadState(LoaderDisplay.TYPE.LOAD_SUCCESS);
       } catch (error) {

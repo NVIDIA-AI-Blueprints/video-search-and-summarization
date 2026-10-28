@@ -8,7 +8,7 @@ import {
   Warning as WarningIcon,
 } from "common/warehouse/mui-icons";
 import { Paper } from "common/warehouse/mui";
-import { Axios } from "common/warehouse";
+import { joinUrl, isAbortError, readJson } from "common/warehouse";
 
 import StartEndDateTimeSelector from "./../generic/StartEndDateTimeSelector";
 import NewValueApplier from "./../generic/NewValueApplier";
@@ -131,17 +131,17 @@ export default class TrajectoryClustersVisualizer extends React.Component {
       loaderDisplaySize: LoaderDisplay.SIZE.MEDIUM,
     };
 
-    Axios.get(this.props.clusteringBehaviorEndpoint, {
-      params: {
+    fetch(joinUrl(this.props.clusteringBehaviorEndpoint, {
         sensorId: this.props.sensorConfig.id,
         maxClusterSampleSize: count,
         fromTimestamp: start.toISOString(),
         toTimestamp: end.toISOString(),
         minBehaviorDistance: minBehaviorDistance,
-      },
-      cancelToken: this.queriesCancelSource.token,
+      }), {
+      signal: this.abortController?.signal,
     })
-      .then((res) => {
+      .then((response) => readJson(response))
+      .then((data) => {
         this.loaderDisplayOptions = {
           loaderDisplayType: LoaderDisplay.TYPE.LOAD_SUCCESS,
           loaderDisplayUserMessage: new UserMessage(
@@ -161,7 +161,7 @@ export default class TrajectoryClustersVisualizer extends React.Component {
 
         let maxActualCount = -1;
         // Append color for UI purposes
-        res.data.clusters.forEach((cluster, index) => {
+        data.clusters.forEach((cluster, index) => {
           cluster.color = ColorSet[index % ColorSet.length];
           maxActualCount = Math.max(maxActualCount, cluster.count);
         });
@@ -173,7 +173,7 @@ export default class TrajectoryClustersVisualizer extends React.Component {
         // the cluster with highest actual count value. And then only keep subset of
         // proportional trajectories for the other clusters. Set a min 5 trajectory count
         // for the clusters having more than 5 trajectories
-        res.data.clusters.forEach((cluster) => {
+        data.clusters.forEach((cluster) => {
           let presentationTrajCount = Math.floor(
             ((1.0 * cluster.count) / maxActualCount) * 100
           );
@@ -186,18 +186,18 @@ export default class TrajectoryClustersVisualizer extends React.Component {
           }
         });
 
-        this.setState({ presentationData: res.data.clusters });
+        this.setState({ presentationData: data.clusters });
       })
       .catch((thrown) => {
         let userMessage = new UserMessage(
-          UserMessage.SRC_TYPE.AXIOS_ERROR,
+          UserMessage.SRC_TYPE.HTTP_ERROR,
           UserMessage.MESSAGE_LEVEL.ERROR,
           "GET Trajectory Clustering data for sensor id: " +
             this.props.sensorConfig.id,
           thrown
         );
 
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           console.log(userMessage.getLongString());
         } else {
           console.error(userMessage.getLongString());
@@ -212,7 +212,7 @@ export default class TrajectoryClustersVisualizer extends React.Component {
   };
 
   componentDidMount() {
-    this.queriesCancelSource = Axios.CancelToken.source();
+    this.abortController = new AbortController();
     this.queryData(
       this.startTime,
       this.endTime,
@@ -514,9 +514,10 @@ export default class TrajectoryClustersVisualizer extends React.Component {
   }
 
   componentWillUnmount() {
-    this.queriesCancelSource.cancel(
-      "Canceling queries for Trajectories clustering"
-    );
+    this.abortController &&
+      this.abortController.abort(
+        "Canceling queries for Trajectories clustering"
+      );
   }
 }
 

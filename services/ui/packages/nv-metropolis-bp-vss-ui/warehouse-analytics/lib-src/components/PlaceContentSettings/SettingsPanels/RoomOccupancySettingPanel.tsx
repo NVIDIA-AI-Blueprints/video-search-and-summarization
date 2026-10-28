@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { Axios } from "common/warehouse";
+import { readJson } from "common/warehouse";
 import React from "react";
 
 import { MetricsOccupancyResetUrl } from "common/warehouse";
@@ -47,8 +47,13 @@ export default class RoomOccupancySettingPanel extends React.PureComponent {
       -1
     );
     // Send request
-    Axios.post(MetricsOccupancyResetUrl, json)
-      .then((res) =>
+    fetch(MetricsOccupancyResetUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(json),
+    })
+      .then((response) => readJson(response, "POST"))
+      .then(() =>
         this.displayNotification(this.NotificatonType.SUCCESS, "Success")
       )
       .catch((err) => {
@@ -57,7 +62,7 @@ export default class RoomOccupancySettingPanel extends React.PureComponent {
           "Failure [check console logs]"
         );
         console.error(
-          this.LOG_TAG + err.message + " -> " + err.response.data.error
+          this.LOG_TAG + err.message + " -> " + (err.response?.data?.error || err.message)
         );
       });
   };

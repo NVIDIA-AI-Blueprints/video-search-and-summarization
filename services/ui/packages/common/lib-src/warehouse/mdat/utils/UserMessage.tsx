@@ -3,11 +3,11 @@
 // @ts-nocheck
 import React from "react";
 import _ from "lodash";
-import { Axios } from "common/warehouse";
+import { isAbortError } from "../../http";
 import { Chip } from "common/warehouse/mui";
 
 /**
- * Processes Axios AJAX Error Objects, provides descriptive
+ * Processes fetch HTTP error objects, provides descriptive
  * messages in different forms, adds more information about
  * the error, stores post error actions
  */
@@ -18,7 +18,8 @@ export default class UserMessage {
    */
   static SRC_TYPE = {
     GENERIC: "generic",
-    AXIOS_ERROR: "axios-error",
+    HTTP_ERROR: "http-error",
+    AXIOS_ERROR: "http-error",
   };
 
   /**
@@ -133,7 +134,7 @@ export default class UserMessage {
    * Process Axios error object
    */
   _processAxiosError(errorObj) {
-    if (Axios.isCancel(errorObj)) {
+    if (isAbortError(errorObj)) {
       const message = this._processAxiosCanceledError(errorObj);
       this.shortMessage = message;
       return message;
@@ -166,7 +167,10 @@ export default class UserMessage {
       this.shortMessage = message;
       return message;
     }
-    if (srcType === UserMessage.SRC_TYPE.AXIOS_ERROR) {
+    if (
+      srcType === UserMessage.SRC_TYPE.HTTP_ERROR ||
+      srcType === UserMessage.SRC_TYPE.AXIOS_ERROR
+    ) {
       if (_.isString(errorObj)) {
         this.shortMessage = errorObj;
         return errorObj;

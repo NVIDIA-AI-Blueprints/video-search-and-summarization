@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { Axios } from "common/warehouse";
+import { readJson } from "common/warehouse";
 import PropTypes from "prop-types";
 import React from "react";
 import {
@@ -48,12 +48,16 @@ export default class UploadImagesPanel extends React.PureComponent {
 
     formdata.append("imageMetadata", this.imagesMetadataFiles[0]);
 
-    Axios.post(CalibrationImagesUrl, formdata)
-      .then((res) => {
-        this.outputBoxRef.value = `Success! Server message: ${JSON.stringify(res.data)}`;
+    fetch(CalibrationImagesUrl, {
+      method: "POST",
+      body: formdata,
+    })
+      .then((response) => readJson(response, "POST"))
+      .then((data) => {
+        this.outputBoxRef.value = `Success! Server message: ${JSON.stringify(data)}`;
       })
       .catch((err) => {
-        this.outputBoxRef.value = `${err.message}. Server message: ${JSON.stringify(err.response.data)}`;
+        this.outputBoxRef.value = `${err.message}. Server message: ${JSON.stringify(err.response?.data)}`;
       });
   };
 
