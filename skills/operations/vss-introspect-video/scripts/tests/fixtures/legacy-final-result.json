@@ -1,0 +1,33 @@
+{
+  "answer": "B",
+  "artifact_dir": "/artifacts/case",
+  "decision_source": "best_available_answer",
+  "evidence": [
+    "obs-120c371801c6e0b10c63fd1c"
+  ],
+  "evidence_details": [
+    {
+      "claim_id": "claim-count",
+      "observation_id": "obs-120c371801c6e0b10c63fd1c",
+      "relation": "supports",
+      "source": {
+        "end": "2026-09-21T20:00:10Z",
+        "job_id": "vlm-1",
+        "sensor_id": "sensor-1",
+        "start": "2026-09-21T20:00:00Z",
+        "type": "vlm"
+      },
+      "text": "[1.0:2.0] A box falls."
+    }
+  ],
+  "evidence_status": "unresolved",
+  "revision": 2,
+  "status": "answered",
+  "unresolved_gaps": [
+    {
+      "claim_id": "claim-count",
+      "gap": "The far shelf is occluded.",
+      "reason": "not_visible"
+    }
+  ]
+}

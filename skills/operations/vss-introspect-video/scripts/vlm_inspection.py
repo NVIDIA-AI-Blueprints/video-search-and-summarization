@@ -1271,7 +1271,7 @@ def inspect_sensor_scope(
 
     for window_index, window in enumerate(windows):
         if len(attempts) >= calls_budget:
-            effective_prompt, prompt_sha256, _, _ = _window_prompt(window, repair=False)
+            _, prompt_sha256, _, _ = _window_prompt(window, repair=False)
             priors = priors_by_key.get(
                 _call_key(sensor, window["start"], window["end"], fps, prompt_sha256, bound_claim),
                 [],

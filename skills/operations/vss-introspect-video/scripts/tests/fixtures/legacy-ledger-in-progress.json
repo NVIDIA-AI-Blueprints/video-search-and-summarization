@@ -1,0 +1,62 @@
+{
+  "budgets": {
+    "max_expansions": 4,
+    "max_initial_claims": 2,
+    "max_inspection_rounds": 4,
+    "max_parallel_subagents": 2,
+    "max_total_claims": 6,
+    "max_total_vlm_calls": 12,
+    "max_vlm_calls_per_subagent": 4
+  },
+  "claims": [
+    {
+      "claim_id": "claim-count",
+      "coverage": "partial",
+      "gap": "The far shelf is occluded.",
+      "observation_ids": [
+        "obs-120c371801c6e0b10c63fd1c"
+      ],
+      "status": "supported"
+    }
+  ],
+  "expansions_used": 0,
+  "ledger_version": "1.0",
+  "observations": [
+    {
+      "claim_id": "claim-count",
+      "observation_id": "obs-120c371801c6e0b10c63fd1c",
+      "relation": "supports",
+      "source": {
+        "end": "2026-09-21T20:00:10Z",
+        "job_id": "vlm-1",
+        "sensor_id": "sensor-1",
+        "start": "2026-09-21T20:00:00Z",
+        "type": "vlm"
+      },
+      "text": "[1.0:2.0] A box falls."
+    }
+  ],
+  "plan": {
+    "asset_id": "asset-1",
+    "claims": [
+      {
+        "claim_id": "claim-count",
+        "coverage_requirement": "whole_video",
+        "evidence_type": "count",
+        "falsification_test": "A visible event does not qualify.",
+        "requirement": "Count the qualifying events.",
+        "support_test": "Each qualifying event is visible."
+      }
+    ],
+    "mode": "initial",
+    "plan_version": "2.0",
+    "question_id": "question-1",
+    "question_text": "How many events happened?"
+  },
+  "requires_choice": true,
+  "revision": 1,
+  "round": 1,
+  "status": "in_progress",
+  "stop_reason": null,
+  "vlm_calls_used": 2
+}

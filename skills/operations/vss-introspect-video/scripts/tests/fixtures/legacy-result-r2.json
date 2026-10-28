@@ -1,0 +1,9 @@
+{
+  "base_revision": 1,
+  "coverage": "partial",
+  "error": null,
+  "gap": "The far shelf is occluded.",
+  "observations": [],
+  "task_id": "inspect-claim-count-r2",
+  "vlm_calls_used": 1
+}

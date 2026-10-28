@@ -1,0 +1,36 @@
+{
+  "asset_id": "asset-1",
+  "base_revision": 1,
+  "claim": {
+    "claim_id": "claim-count",
+    "coverage_requirement": "whole_video",
+    "evidence_type": "count",
+    "falsification_test": "A visible event does not qualify.",
+    "requirement": "Count the qualifying events.",
+    "support_test": "Each qualifying event is visible."
+  },
+  "existing_observations": [
+    {
+      "claim_id": "claim-count",
+      "observation_id": "obs-120c371801c6e0b10c63fd1c",
+      "relation": "supports",
+      "source": {
+        "end": "2026-09-21T20:00:10Z",
+        "job_id": "vlm-1",
+        "sensor_id": "sensor-1",
+        "start": "2026-09-21T20:00:00Z",
+        "type": "vlm"
+      },
+      "text": "[1.0:2.0] A box falls."
+    }
+  ],
+  "gap": "The far shelf is occluded.",
+  "max_vlm_calls": 4,
+  "media_scope": {
+    "end": "2026-09-21T20:00:10Z",
+    "sensor_id": "sensor-1",
+    "start": "2026-09-21T20:00:00Z",
+    "type": "sensor"
+  },
+  "task_id": "inspect-claim-count-r2"
+}
