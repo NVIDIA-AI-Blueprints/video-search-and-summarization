@@ -39,7 +39,7 @@ interface SensorMapCacheEntry {
 const sensorListCache = new Map<string, SensorMapCacheEntry>();
 
 /** Strip trailing `/` characters in O(n) without regex (Sonar S5852). */
-const stripTrailingSlashes = (value: string): string => {
+export const stripTrailingSlashes = (value: string): string => {
   let end = value.length;
   while (end > 0 && value.charCodeAt(end - 1) === 47) {
     end -= 1;

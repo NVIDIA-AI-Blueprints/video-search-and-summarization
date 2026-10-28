@@ -10,7 +10,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { IconCamera, IconAlertTriangle, IconLoader2 } from '@tabler/icons-react';
-import { fetchSensorMap } from '../utils/viosSensorList';
+import { fetchSensorMap, stripTrailingSlashes } from '../utils/viosSensorList';
 
 export { clearSensorListCache } from '../utils/viosSensorList';
 
@@ -18,7 +18,7 @@ export { clearSensorListCache } from '../utils/viosSensorList';
 const pictureUrlCache = new Map<string, string>();
 
 const pictureCacheKey = (viosApiUrl: string, sensorName: string) =>
-  `${viosApiUrl.replace(/\/+$/, '')}|${sensorName}`;
+  `${stripTrailingSlashes(viosApiUrl)}|${sensorName}`;
 
 export const clearViosStreamThumbnailCache = (viosApiUrl?: string, sensorName?: string): void => {
   if (!viosApiUrl && !sensorName) {
@@ -29,7 +29,7 @@ export const clearViosStreamThumbnailCache = (viosApiUrl?: string, sensorName?: 
     pictureUrlCache.delete(pictureCacheKey(viosApiUrl, sensorName));
     return;
   }
-  const prefix = viosApiUrl ? `${viosApiUrl.replace(/\/+$/, '')}|` : undefined;
+  const prefix = viosApiUrl ? `${stripTrailingSlashes(viosApiUrl)}|` : undefined;
   for (const key of pictureUrlCache.keys()) {
     if (prefix && key.startsWith(prefix)) {
       pictureUrlCache.delete(key);
@@ -236,8 +236,7 @@ export const ViosStreamThumbnail: React.FC<ViosStreamThumbnailProps> = ({
           });
           return;
         }
-        let baseUrl = viosApiUrl;
-        while (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+        const baseUrl = stripTrailingSlashes(viosApiUrl);
         const { streamId, startTime } = await fetchPreview(baseUrl, sensorId);
         if (cancelled) return;
         const pictureUrl = `${baseUrl}/v1/replay/stream/${encodeURIComponent(
