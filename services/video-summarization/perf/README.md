@@ -1,70 +1,101 @@
-# LVS performance benchmark package
+# LVS performance benchmarks
 
-State: **service-owned; common-pipeline validation and hardware smoke pending**
+This directory contains the performance benchmark package for the Long Video
+Summarization (LVS) service. The runner starts one LVS Compose stack, waits for
+it to become healthy, executes the selected benchmark scenarios, and optionally
+tears the stack down.
 
-This is the canonical LVS performance benchmark package owned beside the
-`video-summarization` service. It was migrated from the finalized
-`benchmarking-perf-eval` POC into the standard service package categories
-without changing benchmark behavior.
+## Prerequisites
 
-## Contents
+- Docker with the Compose plugin
+- NVIDIA Container Toolkit and the GPUs required by the selected Compose file
+- `uv` for the host-side benchmark environment
+- Access to the container images and models used by the selected configuration
+- `ARTIFACTORY_USER` and `ARTIFACTORY_TOKEN` exported in the environment or
+  configured in the generated Compose `.env` file
 
-- `configs/`: scenario, platform, defaults, KPI, and override YAML files.
-- `benchmark/core/`: LVS benchmark client, modes, adapters, and CPU/GPU monitors.
-- `scripts/`: existing end-to-end runner, uploader, environment generator, and
-  RTSP helper.
-- `setup/pyproject.toml` and `setup/uv.lock`: reproducible host-side benchmark
-  dependencies, separate from the deployed LVS image.
-- `setup/setup_environment.sh`: synchronizes the locked benchmark environment.
-- `setup/compose/`: Compose recipes and their transitive local dependencies.
-- `setup/monitoring/`: Prometheus, Grafana, DCGM, and dashboard assets.
-- `setup/scripts/`: existing setup script.
-- `../tests/perf/`: LVS perf tests and expected-result fixture.
+Run these commands from `services/video-summarization`.
 
-## Pipeline integration
+## Setup
 
-The common `benchmark-perf-test` pipeline checks out the requested VSS revision
-and invokes `perf/scripts/run_benchmark.sh` directly from the
-`video-summarization` service directory. The runner resolves benchmark configs,
-Python modules, Compose recipes, the locked uv environment, and reports from
-this service-owned `perf/` tree.
+Create the Compose environment and shared media volume:
 
-The existing `vss_perf_common` API now acts as a compatibility facade over
-`libs/vss-perf-reporting` for the shared schema, run naming, JSON writing, and
-MinIO publication. LVS scenario execution, KPI calculation, and monitoring
-remain service-owned and unchanged.
-
-When publication is enabled, Jenkins validates and uploads the canonical report
-after the benchmark exits. The benchmark process does not receive MinIO
-credentials. Local manual uploads must set `MINIO_ENDPOINT` and credentials
-explicitly.
-
-The promotion trigger supplies:
-
-```text
-PERF_ROOT=services/video-summarization/perf
-PERF_ENTRYPOINT=scripts/run_benchmark.sh
+```bash
+./perf/setup/scripts/setup.sh
 ```
 
-Run the offline unit tests from this service directory:
+Prepare the locked Python environment used by the benchmark client:
+
+```bash
+./perf/setup/setup_environment.sh
+```
+
+## Run
+
+A Compose file is required. Names are resolved relative to
+`perf/setup/compose/`; an absolute path is also accepted.
+
+```bash
+./perf/scripts/run_benchmark.sh \
+  -f x86-rtvi-cr-nemo3-nano_4gpu.yaml \
+  -s quick_test \
+  -d
+```
+
+`-d` tears down the Compose stack when the benchmark finishes. Omit it to keep
+the stack running for inspection.
+
+Common examples:
+
+```bash
+# Run one scenario
+./perf/scripts/run_benchmark.sh \
+  -f x86-rtvi-cr-nemo3-nano_4gpu.yaml \
+  -s single_file_test \
+  -d
+
+# Run multiple scenarios
+./perf/scripts/run_benchmark.sh \
+  -f x86-rtvi-cr-nemo3-nano_4gpu.yaml \
+  -s single_file_test \
+  -s file_burst_test \
+  -d
+
+# Use a different benchmark configuration and image
+./perf/scripts/run_benchmark.sh \
+  -f x86-rtvi-cr-nemo3-nano_4gpu.yaml \
+  -c vss_sample_config.yaml \
+  -I <lvs-image> \
+  -d
+```
+
+Run the following command for all available options, including GPU assignment,
+ports, release metadata, health timeout, and GPU overlays:
+
+```bash
+./perf/scripts/run_benchmark.sh -h
+```
+
+Benchmark configurations and scenario definitions are under `perf/configs/`.
+Compose files and GPU overlays are under `perf/setup/compose/`.
+
+## Tests
+
+Run the offline performance-script tests with:
 
 ```bash
 bash tests/perf/run_tests.sh
 ```
 
-Runtime verification requires a Jenkins validation-only run followed by a
-shared-GPU smoke run. The `artifacts-promotion` triggers remain disabled until
-that POC validation is complete.
-
-### Optional monitoring network
+## Optional monitoring
 
 The monitoring and OpenTelemetry Compose files attach to the network of an
 already-running benchmark stack. Set `BENCHMARK_NETWORK` to that Docker network
-before starting either optional stack. For example:
+before starting the monitoring stack:
 
 ```bash
 export BENCHMARK_NETWORK=x86-rtvi-cr-nemo3-nano-2gpu_app-network
 docker compose -f perf/setup/monitoring/compose.yaml up -d
 ```
 
-Use `docker network ls` to confirm the project-specific network name.
+Use `docker network ls` to find the network created for your Compose project.
