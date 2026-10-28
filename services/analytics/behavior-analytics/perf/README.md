@@ -42,8 +42,7 @@ only around the Jenkins-owned publisher and are not passed to this benchmark.
 
 The shared job checks out the VSS repository with
 `PERF_ROOT=services/analytics/behavior-analytics/perf` and invokes the common
-`scripts/run_benchmark.sh` entrypoint beneath that root. The wrapper delegates
-to the unchanged service-native benchmark implementation. Jenkins archives the
+`scripts/run_benchmark.sh` entrypoint beneath that root. Jenkins archives the
 configured `PERF_REPORT_DIR`. `perf/configs/perf-configs.yaml` declares the
 integration and shared-infrastructure paths that the benchmark needs in
 addition to the service-owned `perf/` package. It also declares the single
