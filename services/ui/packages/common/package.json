@@ -68,7 +68,6 @@
     "react-hot-toast": "^2.6.0",
     "react-konva": "^19.2.1",
     "react-konva-utils": "^1.1.3",
-    "react-marquee-text": "^1.0.4",
     "react-redux": "^9.2.0",
     "recharts": "^2.15.4",
     "rsuite": "^6.2.4",

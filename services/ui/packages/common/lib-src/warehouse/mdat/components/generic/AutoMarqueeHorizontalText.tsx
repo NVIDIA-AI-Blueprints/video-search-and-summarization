@@ -1,9 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import MarqueeText from "react-marquee-text";
-import "react-marquee-text/dist/styles.css";
+import React, { useEffect, useRef, useState } from "react";
 
 import Styles from "./AutoMarqueeHorizontalText.module.css";
 
@@ -35,7 +33,6 @@ const AutoMarqueeHorizontalText = React.memo(
 
     return (
       <div ref={containerParentRef} className={Styles.contentDiv}>
-        {/* Hidden element to measure content width */}
         <div
           ref={hiddenContainerRef}
           style={{
@@ -47,9 +44,12 @@ const AutoMarqueeHorizontalText = React.memo(
           {children}
         </div>
         {isContentOverflowing ? (
-          <MarqueeText pauseOnHover={true} willChange={true} direction="right">
-            {children}
-          </MarqueeText>
+          <div className={Styles.marquee}>
+            <span className={Styles.marqueeInner}>{children}</span>
+            <span className={Styles.marqueeInner} aria-hidden="true">
+              {children}
+            </span>
+          </div>
         ) : (
           <div>{children}</div>
         )}

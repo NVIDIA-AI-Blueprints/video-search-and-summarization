@@ -1,0 +1,159 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/*
+ * Warehouse Map overlays sit on a light floor plan. Agent UI puts `.dark` /
+ * `.nv-dark` on <html>, and apps/.../globals.css then paints Kaizen controls
+ * dark. `.nv-light` (Kaizen ThemeProvider theme="light") resets tokens for
+ * in-tree controls; these rules beat the Agent UI `.dark .nv-*` overrides and
+ * cover portaled date/select/tooltip surfaces that also carry `.nv-light`.
+ */
+
+.dark .nv-light,
+.nv-dark .nv-light,
+.nv-light {
+  color-scheme: light;
+}
+
+.dark .nv-light .nv-text-input-root,
+.dark .nv-light.nv-text-input-root,
+.nv-dark .nv-light .nv-text-input-root,
+.nv-dark .nv-light.nv-text-input-root {
+  background-color: #fff;
+  border-color: #d4d4d8;
+  color: #1a1a1a;
+}
+
+.dark .nv-light .nv-text-input-root:hover,
+.nv-dark .nv-light .nv-text-input-root:hover {
+  border-color: #76b900;
+}
+
+.dark .nv-light .nv-text-input-root .nv-text-input-element,
+.dark .nv-light .nv-text-input-root .nv-text-input-element:focus,
+.nv-dark .nv-light .nv-text-input-root .nv-text-input-element,
+.nv-dark .nv-light .nv-text-input-root .nv-text-input-element:focus {
+  background-color: #fff;
+  color: #1a1a1a;
+  border-color: #d4d4d8;
+}
+
+.dark .nv-light .nv-text-input-root:focus-within,
+.nv-dark .nv-light .nv-text-input-root:focus-within {
+  border-color: #76b900;
+}
+
+.dark .nv-light .nv-text-input-root .nv-text-input-element::placeholder,
+.nv-dark .nv-light .nv-text-input-root .nv-text-input-element::placeholder {
+  color: #71717a;
+}
+
+.dark .nv-light .nv-input-shell:where(:not(.nv-input-shell--kind-floating)),
+.nv-dark .nv-light .nv-input-shell:where(:not(.nv-input-shell--kind-floating)) {
+  background: #fff;
+  border-color: #d4d4d8;
+  color: #1a1a1a;
+}
+
+.dark .nv-light .nv-button.nv-button--kind-secondary,
+.nv-dark .nv-light .nv-button.nv-button--kind-secondary {
+  color: #1a1a1a;
+  border-color: #d4d4d8;
+}
+
+.dark .nv-light .nv-button.nv-button--kind-secondary:hover,
+.nv-dark .nv-light .nv-button.nv-button--kind-secondary:hover {
+  background-color: #f4f4f5;
+  color: #18181b;
+}
+
+.dark .nv-light .nv-button.nv-button--kind-tertiary,
+.nv-dark .nv-light .nv-button.nv-button--kind-tertiary {
+  color: #1a1a1a;
+  border: 1px solid #d4d4d8;
+}
+
+.dark .nv-light .nv-button.nv-button--kind-tertiary:hover,
+.nv-dark .nv-light .nv-button.nv-button--kind-tertiary:hover {
+  background-color: #f4f4f5;
+  color: #18181b;
+}
+
+.dark .nv-light .nv-button:disabled,
+.dark .nv-light .nv-button[disabled],
+.nv-dark .nv-light .nv-button:disabled,
+.nv-dark .nv-light .nv-button[disabled] {
+  background-color: #f4f4f5;
+  color: #71717a;
+  border-color: #e4e4e7;
+}
+
+.dark .nv-light .nv-select-trigger,
+.dark .nv-light.nv-select-trigger,
+.nv-dark .nv-light .nv-select-trigger,
+.nv-dark .nv-light.nv-select-trigger {
+  background-color: #fff;
+  color: #1a1a1a;
+  border-color: #d4d4d8;
+}
+
+.dark .nv-light .nv-select-trigger *,
+.nv-dark .nv-light .nv-select-trigger * {
+  color: #1a1a1a;
+}
+
+.dark .nv-light .nv-select-content,
+.dark .nv-light.nv-select-content,
+.nv-dark .nv-light .nv-select-content,
+.nv-dark .nv-light.nv-select-content {
+  background-color: #fff;
+  color: #1a1a1a;
+  border-color: #d4d4d8;
+}
+
+.dark .nv-light .nv-select-item,
+.nv-dark .nv-light .nv-select-item {
+  color: #1a1a1a;
+}
+
+.dark .nv-light .nv-select-item:hover,
+.dark .nv-light .nv-select-item[data-highlighted],
+.nv-dark .nv-light .nv-select-item:hover,
+.nv-dark .nv-light .nv-select-item[data-highlighted] {
+  background-color: #f4f4f5;
+  color: #18181b;
+}
+
+.dark .nv-light .nv-tag,
+.nv-dark .nv-light .nv-tag {
+  color: #1a1a1a;
+  border-color: #d4d4d8;
+}
+
+.dark .nv-light .nv-switch-root .nv-label,
+.nv-dark .nv-light .nv-switch-root .nv-label {
+  color: #3f3f46;
+}
+
+.dark .nv-light .nv-date-picker-content,
+.dark .nv-light.nv-date-picker-content,
+.dark .nv-light .nv-popover-content,
+.dark .nv-light.nv-popover-content,
+.nv-dark .nv-light .nv-date-picker-content,
+.nv-dark .nv-light.nv-date-picker-content,
+.nv-dark .nv-light .nv-popover-content,
+.nv-dark .nv-light.nv-popover-content {
+  background-color: #fff;
+  color: #1a1a1a;
+  border-color: #d4d4d8;
+  color-scheme: light;
+}
+
+.dark .nv-light .nv-tooltip-content,
+.dark .nv-light.nv-tooltip-content,
+.nv-dark .nv-light .nv-tooltip-content,
+.nv-dark .nv-light.nv-tooltip-content {
+  background-color: #fff;
+  color: #1a1a1a;
+  border-color: #d4d4d8;
+}

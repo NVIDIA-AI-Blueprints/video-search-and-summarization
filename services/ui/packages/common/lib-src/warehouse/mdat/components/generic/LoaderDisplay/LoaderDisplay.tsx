@@ -8,12 +8,12 @@ import {
   DoneOutline as DoneOutlineIcon,
   Error as ErrorIcon,
 } from "common/warehouse/mui-icons";
+import { Spinner as KaizenSpinner } from "@nvidia/foundations-react-core";
 
+import "../../../../kaizen-light.css";
 import UserMessage from "./../../../utils/UserMessage";
 
 import CssClasses from "./LoaderDisplay.module.css";
-
-// TODO: replace spinner with Kaizen UI Spinner
 
 // Same as background in .outermostBoundary (#ddd)
 const BACKGROUND_RGB = "221, 221, 221";
@@ -33,8 +33,19 @@ const LoaderDisplay = (props) => {
   }
 
   if (props.type === LoaderDisplay.TYPE.LOADING) {
-    // TODO: Make loading icon follow different sizes after using Kaizen Spinner
-    iconDivContent = <div className={CssClasses.loaderIcon} />;
+    iconDivContent = (
+      <KaizenSpinner
+        kind="ring"
+        size={
+          props.size === LoaderDisplay.SIZE.LARGE
+            ? "large"
+            : props.size === LoaderDisplay.SIZE.MEDIUM
+              ? "medium"
+              : "small"
+        }
+        aria-label="Loading"
+      />
+    );
   } else if (props.type === LoaderDisplay.TYPE.LOAD_FAILURE) {
     iconDivContent = <ErrorIcon className={CssClasses.errorIcon} />;
   } else if (props.type === LoaderDisplay.TYPE.LOAD_SUCCESS) {
