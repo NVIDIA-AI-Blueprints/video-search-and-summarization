@@ -2621,6 +2621,12 @@ class VlmPipeline:
 
         with self._live_stream_lock:
             lsinfo = self._live_stream_id_map.get(asset.asset_id)
+            if lsinfo and lsinfo.end_of_stream and lsinfo.all_chunks_processed:
+                # The decoder dropped this stream at EOS and every subscriber has
+                # seen its final chunk, so the entry is stale: subscribing to it
+                # would fail with StreamNotActive forever. Start a fresh decoder.
+                self._live_stream_id_map.pop(asset.asset_id, None)
+                lsinfo = None
             if lsinfo:
                 if lsinfo.decode_signature != decode_signature:
                     raise ServiceException(

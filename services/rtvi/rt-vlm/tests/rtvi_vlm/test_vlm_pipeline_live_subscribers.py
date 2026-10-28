@@ -434,6 +434,95 @@ def test_add_live_stream_rejects_mismatched_decode_settings_for_same_asset():
     ]
 
 
+def _decoder_without_stream_after_eos(command, **_kwargs):
+    # After natural EOS the decoder drops its handle, so subscribing is refused.
+    return False if command == "add-live-stream-subscriber" else "started"
+
+
+@pytest.mark.no_gpu
+def test_add_live_stream_starts_fresh_decoder_after_natural_eos():
+    pipeline = _make_pipeline()
+    pipeline._processed_chunk_queue = Queue()
+    pipeline._processed_chunk_queue_watcher_stop_event = Event()
+    pipeline.close_evs_sessions = MagicMock()
+    asset_id = str(uuid.uuid4())
+    asset = _make_asset(asset_id)
+    first_callback = MagicMock()
+    second_callback = MagicMock()
+
+    pipeline.add_live_stream(
+        asset,
+        _make_query(asset_id, "Describe vehicles."),
+        first_callback,
+        request_id="request-1",
+    )
+    stale_info = pipeline._live_stream_id_map[asset_id]
+
+    watcher = Thread(target=pipeline._watch_processed_chunk_queue)
+    watcher.start()
+    try:
+        pipeline._processed_chunk_queue.put(
+            {"live_stream_ended": True, "live_stream_id": asset_id, "total_chunks": 0}
+        )
+        _wait_for(lambda: stale_info.all_chunks_processed)
+    finally:
+        pipeline._processed_chunk_queue_watcher_stop_event.set()
+        watcher.join(timeout=2)
+
+    decoder = pipeline._decoder_procs[0]
+    decoder.send_command.reset_mock()
+    decoder.send_command.side_effect = _decoder_without_stream_after_eos
+
+    pipeline.add_live_stream(
+        asset,
+        _make_query(asset_id, "Describe people."),
+        second_callback,
+        request_id="request-2",
+    )
+
+    assert [call.args[0] for call in decoder.send_command.call_args_list] == ["start-live-stream"]
+    assert decoder.send_command.call_args.kwargs["request_id"] == "request-2"
+    fresh_info = pipeline._live_stream_id_map[asset_id]
+    assert fresh_info is not stale_info
+    assert fresh_info.end_of_stream is False
+    assert set(fresh_info.subscribers) == {"request-2"}
+    assert fresh_info.subscribers["request-2"].on_chunk_result is second_callback
+
+
+@pytest.mark.no_gpu
+def test_add_live_stream_keeps_stream_still_draining_after_eos():
+    pipeline = _make_pipeline()
+    asset_id = str(uuid.uuid4())
+    asset = _make_asset(asset_id)
+
+    pipeline.add_live_stream(
+        asset,
+        _make_query(asset_id, "Describe vehicles."),
+        MagicMock(),
+        request_id="request-1",
+    )
+    draining_info = pipeline._live_stream_id_map[asset_id]
+    draining_info.end_of_stream = True
+    draining_info.total_chunks_at_eos = 3
+    decoder = pipeline._decoder_procs[0]
+    decoder.send_command.reset_mock()
+    decoder.send_command.side_effect = _decoder_without_stream_after_eos
+
+    with pytest.raises(ServiceException) as exc_info:
+        pipeline.add_live_stream(
+            asset,
+            _make_query(asset_id, "Describe people."),
+            MagicMock(),
+            request_id="request-2",
+        )
+
+    # Tail chunks of request-1 still need accounting against this entry.
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == "StreamNotActive"
+    assert pipeline._live_stream_id_map[asset_id] is draining_info
+    assert set(draining_info.subscribers) == {"request-1"}
+
+
 @pytest.mark.no_gpu
 def test_vlm_process_does_not_batch_live_stream_items():
     process = object.__new__(VlmProcess)
