@@ -1,48 +1,17 @@
 /* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-/**
- * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- */
-
-.headerBar {
+.body {
   position: absolute;
-  width: 100%;
-  height: 40px;
-  background-color: #d4e8db;
-  color: #1a1a1a;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-}
-
-.headerTitle {
-  position: absolute;
-  width: 100%;
-  left: 0;
-  font-size: 1vw;
-  font-weight: bold;
-  white-space: nowrap;
-  z-index: 1;
-  text-align: center;
-  padding: 5px;
-  color: #1a1a1a;
-}
-
-.menuBtn {
-  position: absolute;
-  left: 0;
-  z-index: 2;
-  color: #1a1a1a;
-}
-
-.menuBtn :global(button),
-.menuBtn :global(svg) {
+  inset: 0;
+  overflow: hidden;
   color: #1a1a1a;
 }
 
 .selectorContainer {
   position: absolute;
-  top: 50px;
-  left: 10px;
+  top: 8px;
+  left: 8px;
   z-index: 20;
   width: 18rem;
   min-width: 220px;
@@ -56,8 +25,8 @@
 
 .clusterLabelUpdatePanelContainer {
   position: absolute;
-  top: 75px;
-  left: 10px;
+  top: 8px;
+  left: 8px;
   z-index: 20;
   width: 18rem;
   min-width: 220px;
@@ -72,10 +41,11 @@
 .infoOverlayContainer {
   z-index: 2;
   position: absolute;
-  top: 40px;
+  top: 8px;
   width: 100%;
   display: flex;
   justify-content: center;
+  pointer-events: none;
 }
 
 .infoOverlayItem {
@@ -83,18 +53,7 @@
   padding: 0 2px;
   opacity: 0.95;
   color: #1a1a1a;
-}
-
-.closeBtn {
-  position: absolute;
-  z-index: 2;
-  right: 0;
-  cursor: pointer;
-  color: #1a1a1a;
-}
-
-.closeBtn :global(svg) {
-  color: #1a1a1a;
+  pointer-events: auto;
 }
 
 .mainContentMsg {
@@ -106,21 +65,18 @@
 
 .helpBackdrop {
   position: absolute;
-  top: 40px;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  inset: 0;
   z-index: 29;
   background: rgba(24, 24, 27, 0.32);
 }
 
 .helpElementContainer {
   position: absolute;
-  top: 56px;
+  top: 16px;
   left: 50%;
   z-index: 30;
   width: min(32rem, calc(100% - 2rem));
-  max-height: calc(100% - 72px);
+  max-height: calc(100% - 32px);
   overflow: hidden;
   transform: translateX(-50%);
   border: 1px solid #e4e4e7;
@@ -132,10 +88,7 @@
 
 .mainContentContainer {
   position: absolute;
-  top: 40px;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   z-index: 1;
   display: flex;
   justify-content: center;

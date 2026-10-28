@@ -84,7 +84,7 @@ export const Button = ({
 };
 
 export const IconButton = ({
-  children, onClick, disabled, className, title, style,
+  children, onClick, disabled, className, title, style, ...rest
 }: {
   children?: React.ReactNode;
   onClick?: React.MouseEventHandler;
@@ -92,7 +92,7 @@ export const IconButton = ({
   className?: string;
   title?: string;
   style?: React.CSSProperties;
-}) => (
+} & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
   <button
     type="button"
     onClick={onClick}
@@ -100,6 +100,7 @@ export const IconButton = ({
     title={title}
     className={cx('inline-flex items-center justify-center rounded p-1 hover:bg-black/10 dark:hover:bg-white/10', className)}
     style={style}
+    {...rest}
   >
     {children}
   </button>

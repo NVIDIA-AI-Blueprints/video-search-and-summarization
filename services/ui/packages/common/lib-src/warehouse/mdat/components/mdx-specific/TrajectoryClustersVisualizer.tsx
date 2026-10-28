@@ -3,10 +3,7 @@
 // @ts-nocheck
 import React from "react";
 import PropTypes from "prop-types";
-import {
-  Close as CloseIcon,
-  Warning as WarningIcon,
-} from "common/warehouse/mui-icons";
+import { Warning as WarningIcon } from "common/warehouse/mui-icons";
 import { Paper } from "common/warehouse/mui";
 import { joinUrl, isAbortError, readJson } from "common/warehouse";
 
@@ -16,6 +13,8 @@ import Menu from "./../generic/Menu";
 import AboutModal from "./../generic/AboutModal";
 import LoaderDisplay from "./../generic/LoaderDisplay/LoaderDisplay";
 import WithLoaderDisplay from "./../generic/Hoc/WithLoaderDisplay";
+import Widget from "./../generic/Widget/Widget";
+import Window from "./../generic/Window";
 
 import TrajectoryClustersPlot from "./TrajectoryClustersVisualizerBase/TrajectoryClustersPlot";
 import ClusterLabelUpdatePanel from "./TrajectoryClustersVisualizerBase/ClusterLabelUpdatePanel";
@@ -405,14 +404,6 @@ export default class TrajectoryClustersVisualizer extends React.Component {
       </Paper>
     ) : null;
 
-    let closeBtn = this.props.onClose ? (
-      <CloseIcon
-        className={Styles.closeBtn}
-        title="Close"
-        onClick={() => this.props.onClose()}
-      />
-    ) : null;
-
     let helpEl = this.state.showHelp && (
       <React.Fragment>
         <div
@@ -430,6 +421,16 @@ export default class TrajectoryClustersVisualizer extends React.Component {
       </React.Fragment>
     );
 
+    const {
+      left,
+      top,
+      width,
+      height,
+      zIndex,
+      onClose,
+      ...plotProps
+    } = this.props;
+
     let mainContent = (
       <div className={Styles.mainContentContainer}>
         <TrajectoryClustersPlotWithLoaderDisplay
@@ -437,7 +438,7 @@ export default class TrajectoryClustersVisualizer extends React.Component {
           onClusterLabelUpdateRequest={this.onClusterLabelUpdateRequest.bind(
             this
           )}
-          {...this.props}
+          {...plotProps}
           {...this.loaderDisplayOptions}
         />
       </div>
@@ -491,25 +492,34 @@ export default class TrajectoryClustersVisualizer extends React.Component {
     );
 
     return (
-      <React.Fragment>
-        <span className={Styles.headerBar}>
-          <span className={Styles.menuBtn}>
-            <Menu items={this.menuItems} />
-          </span>
-          <span className={Styles.headerTitle}>
-            {"Clustering Behavior: " +
-              BeautifyNameString(this.props.sensorConfig.id)}
-          </span>
-          {closeBtn}
-        </span>
-        {timeRangeSelector}
-        {maxTrajCountSelector}
-        {minBehaviorDistanceSelector}
-        {infoOverlayEl}
-        {mainContent}
-        {helpEl}
-        {clusterLabelUpdatePanel}
-      </React.Fragment>
+      <Widget
+        left={left ?? "0.6%"}
+        top={top ?? "6%"}
+        width={width ?? "98.8%"}
+        height={height ?? "calc(94% - 0.5rem)"}
+        zIndex={zIndex ?? "1"}
+        showShadow={true}
+      >
+        <Window
+          titleText={
+            "Clustering Behavior: " +
+            BeautifyNameString(this.props.sensorConfig.id)
+          }
+          overflowHidden
+          headerStart={<Menu items={this.menuItems} />}
+          onClose={onClose}
+        >
+          <div className={Styles.body}>
+            {timeRangeSelector}
+            {maxTrajCountSelector}
+            {minBehaviorDistanceSelector}
+            {infoOverlayEl}
+            {mainContent}
+            {helpEl}
+            {clusterLabelUpdatePanel}
+          </div>
+        </Window>
+      </Widget>
     );
   }
 
@@ -555,9 +565,17 @@ TrajectoryClustersVisualizer.propTypes = {
   /**
    * Callback on close button of widget.
    *
-   * If provided, a clickable close button appears in the header.
+   * If provided, a clickable close button appears in the Window header.
    */
   onClose: PropTypes.func,
+  /**
+   * Widget position and size, same CSS values as Map Viz / other Widgets.
+   */
+  left: PropTypes.string,
+  top: PropTypes.string,
+  width: PropTypes.string,
+  height: PropTypes.string,
+  zIndex: PropTypes.string,
   /**
    * Maps Api Key if GeoMap in use
    */

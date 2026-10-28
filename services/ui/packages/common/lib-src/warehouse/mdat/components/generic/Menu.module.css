@@ -3,15 +3,26 @@
 
 .wrap {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trigger {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: inherit;
 }
 
 .menu {
   position: absolute;
   left: 0;
-  top: 100%;
+  top: calc(100% + 4px);
   z-index: 50;
-  min-width: 16rem;
+  box-sizing: border-box;
+  min-width: 18rem;
+  width: max-content;
   padding: 4px 0;
   margin: 0;
   border: 1px solid #d4d4d8;
@@ -24,14 +35,21 @@
 
 .item {
   display: block;
+  box-sizing: border-box;
   width: 100%;
-  padding: 8px 12px;
+  min-width: 18rem;
+  height: auto !important;
+  padding: 8px 12px !important;
   border: none;
+  border-radius: 0;
   background: transparent;
   color: #1a1a1a !important;
   font-size: 13px;
   line-height: 1.35;
   text-align: left;
+  white-space: nowrap;
+  appearance: none;
+  -webkit-appearance: none;
   cursor: pointer;
 }
 

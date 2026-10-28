@@ -9,7 +9,6 @@ import {
   DEFAULT_CARTESIAN_MAP_VIZ_CONTENTS_RENDER_UPDATE_FPS,
 } from "common/warehouse";
 
-import Styles from "./TrajectoryClusterView.module.css";
 import {
   CalibrationImageUrl,
   CalibrationImageMetadataUrl,
@@ -23,24 +22,22 @@ const TrajectoryClusterView = (props) => {
   );
 
   return (
-    <div className={Styles.container}>
-      <TrajectoryClustersVisualizer
-        type="people"
-        clusteringBehaviorEndpoint={ClusteringBehaviorUrl}
-        clusterLabelUpdateEndpoint={ClusteringAddLabelUrl}
-        sensorConfig={sensorConfig}
-        floorPlanViewConfig={{
-          endpointGetImageMetadata: CalibrationImageMetadataUrl,
-          endpointGetSensorImage: CalibrationImageUrl,
-        }}
-        globalM2PxScaleFactor={props.metadata.m2PxScaleFactor}
-        worldTranslationOffset={props.metadata.translationToGlobalCoordinates}
-        mapVizContentsRenderUpdateFps={
-          props.appConfig?.cartesianMapVizContentsRenderUpdateFps ??
-          DEFAULT_CARTESIAN_MAP_VIZ_CONTENTS_RENDER_UPDATE_FPS
-        }
-      />
-    </div>
+    <TrajectoryClustersVisualizer
+      type="people"
+      clusteringBehaviorEndpoint={ClusteringBehaviorUrl}
+      clusterLabelUpdateEndpoint={ClusteringAddLabelUrl}
+      sensorConfig={sensorConfig}
+      floorPlanViewConfig={{
+        endpointGetImageMetadata: CalibrationImageMetadataUrl,
+        endpointGetSensorImage: CalibrationImageUrl,
+      }}
+      globalM2PxScaleFactor={props.metadata.m2PxScaleFactor}
+      worldTranslationOffset={props.metadata.translationToGlobalCoordinates}
+      mapVizContentsRenderUpdateFps={
+        props.appConfig?.cartesianMapVizContentsRenderUpdateFps ??
+        DEFAULT_CARTESIAN_MAP_VIZ_CONTENTS_RENDER_UPDATE_FPS
+      }
+    />
   );
 };
 
