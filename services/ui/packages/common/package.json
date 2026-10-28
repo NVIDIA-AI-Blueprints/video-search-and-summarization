@@ -50,14 +50,13 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@nvidia/foundations-react-core": "0.607.4",
+    "@nvidia/foundations-react-core": "1.17.0",
     "@react-google-maps/api": "^2.20.8",
     "@reduxjs/toolkit": "^2.11.2",
     "@tabler/icons-react": "^3.46.0",
     "@xmldom/xmldom": "^0.9.12",
     "dashjs": "^5.2.1",
     "hls.js": "^1.6.15",
-    "vst-streaming-lib": "file:../../../vios/ui/streaming-lib",
     "konva": "^9.3.22",
     "lodash": "^4.18.1",
     "mathjs": "^14.5.2",
@@ -76,6 +75,7 @@
     "serialize-javascript": "^6.0.2",
     "ts-overlapping-marker-spiderfier": "^1.0.3",
     "uuid": "^11.1.1",
+    "vst-streaming-lib": "file:../../../vios/ui/streaming-lib",
     "webrtc-streamer": "^0.3.3-17-g5e5933f",
     "wellknown": "^0.5.0"
   },
