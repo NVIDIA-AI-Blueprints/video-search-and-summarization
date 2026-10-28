@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { Axios } from "common/warehouse";
+import { joinUrl, isAbortError, readJson } from "common/warehouse";
 import React from "react";
 import { Circle } from "react-konva";
 import { Portal } from "react-konva-utils";
@@ -98,17 +98,17 @@ class LivePeopleMovementDataVisualizer extends React.PureComponent {
     return violationObjectIds;
   }
 
-  _handleFrameDataResponse(res) {
+  _handleFrameDataResponse(data) {
     if (
-      !res.data ||
-      !res.data.enhancedFrames ||
-      res.data.enhancedFrames.length === 0
+      !data ||
+      !data.enhancedFrames ||
+      data.enhancedFrames.length === 0
     ) {
       this._throttledObjectsLocation.schedule(null);
       return;
     }
 
-    const firstFrame = res.data.enhancedFrames[0];
+    const firstFrame = data.enhancedFrames[0];
     const apiClusters = firstFrame.socialDistancing?.clusters ?? [];
     const violationObjectIds = this._collectViolationObjectIds(apiClusters);
 
@@ -150,9 +150,7 @@ class LivePeopleMovementDataVisualizer extends React.PureComponent {
       return;
     }
 
-    // Cancel token for axios request for people location data from a sensor
-    this.axiosCancelTokenSourcePeopleLocationDataFromSensor =
-      Axios.CancelToken.source();
+    this.abortControllerPeopleLocationDataFromSensor = new AbortController();
 
     let entityInfo = this.props.metadata.sensorsMap.get(
       this.props.uiState.selectedSensorId
@@ -188,20 +186,19 @@ class LivePeopleMovementDataVisualizer extends React.PureComponent {
         newQueryTimeMs = this.lastRequestTimeMsPeopleDataForSensor + 1;
       }
 
-      Axios.get(FramesEnhancedUrl, {
-        params: {
+      fetch(joinUrl(FramesEnhancedUrl, {
           fromTimestamp: new Date(
             this.lastRequestTimeMsPeopleDataForSensor
           ).toISOString(),
           toTimestamp: new Date(newQueryTimeMs).toISOString(),
           sensorId: entityInfo.id,
-        },
-        cancelToken:
-          this.axiosCancelTokenSourcePeopleLocationDataFromSensor.token,
+        }), {
+        signal: this.abortControllerPeopleLocationDataFromSensor?.signal,
       })
-        .then((res) => {
+        .then((response) => readJson(response))
+        .then((data) => {
           this.lastRequestTimeMsPeopleDataForSensor = newQueryTimeMs;
-          this._handleFrameDataResponse(res);
+          this._handleFrameDataResponse(data);
         })
         .then(() => {
           // Schedule next poll only AFTER current request completes successfully
@@ -213,7 +210,7 @@ class LivePeopleMovementDataVisualizer extends React.PureComponent {
         })
         .catch((thrown) => {
           let userMessage = new UserMessage(
-            UserMessage.SRC_TYPE.AXIOS_ERROR,
+            UserMessage.SRC_TYPE.HTTP_ERROR,
             UserMessage.MESSAGE_LEVEL.ERROR,
             "Fetch People Locations for sensor: " + entityInfo.id,
             thrown,
@@ -225,7 +222,7 @@ class LivePeopleMovementDataVisualizer extends React.PureComponent {
           this.props["addLogTo" + AppConstants.APP_LOGS_CONSOLE_NAME](
             userMessage
           );
-          if (Axios.isCancel(thrown)) {
+          if (isAbortError(thrown)) {
             // Request was intentionally cancelled - don't restart the loop
             console.log(userMessage.getLongString());
           } else {
@@ -244,8 +241,8 @@ class LivePeopleMovementDataVisualizer extends React.PureComponent {
   };
 
   stopRequestCyclePeopleDataForSensor = () => {
-    this.axiosCancelTokenSourcePeopleLocationDataFromSensor &&
-      this.axiosCancelTokenSourcePeopleLocationDataFromSensor.cancel();
+    this.abortControllerPeopleLocationDataFromSensor &&
+      this.abortControllerPeopleLocationDataFromSensor.abort();
     clearTimeout(this.requestPeopleDataForSensorCycleTimeoutId);
   };
 

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { Axios } from "common/warehouse";
+import { joinUrl, isAbortError, readJson } from "common/warehouse";
 import React from "react";
 import { connect } from "react-redux";
 
@@ -71,23 +71,23 @@ class SensorKPIDisplayer extends React.PureComponent {
       const intervalMinutes = Math.round((toTimestampMs - fromTimestampMs) / 60000);
       this.currentIntervalMinutes = intervalMinutes;
 
-      Axios.get(MetricsTripwireCountsUrl, {
-        params: {
+      fetch(joinUrl(MetricsTripwireCountsUrl, {
           fromTimestamp: fromTimestampISO,
           toTimestamp: toTimestampISO,
           sensorId: props.uiState.selectedSensorId,
           ...(props.uiState.selectedSensorId.includes("-cv") ? { objectType: "Object" } : {}),
-        },
-        timeout: KPI_REQUEST_TIMEOUT_MS,
+        }), {
+        signal: AbortSignal.timeout(KPI_REQUEST_TIMEOUT_MS),
       })
-        .then((res) => {
+        .then((response) => readJson(response))
+        .then((data) => {
           this.isRequestInProgress = false;
           this.lastRequestCompletedTimeMs = Date.now();
 
           // Group events by objectType
           // Use null-prototype object to prevent prototype pollution from external data
           const eventsByObjectType = Object.create(null);
-          res.data.aggregatedMetrics.events.forEach((event) => {
+          data.aggregatedMetrics.events.forEach((event) => {
             // Validate objectType is a string to prevent object pollution from external data
             const rawObjType = event.objectType;
             const objType = typeof rawObjType === "string" ? rawObjType : "UNKNOWN";
@@ -134,7 +134,7 @@ class SensorKPIDisplayer extends React.PureComponent {
           this.setState((prevState) => ({ isLoading: false, hasError: true, data: prevState.data }));
 
           // Handle timeout specifically
-          if (thrown.code === "ECONNABORTED") {
+          if (isAbortError(thrown) || thrown.name === "TimeoutError") {
             console.log(
               "[SensorKPIDisplayer] Request timed out after " +
                 KPI_REQUEST_TIMEOUT_MS / 1000 +
@@ -146,7 +146,7 @@ class SensorKPIDisplayer extends React.PureComponent {
 
           // Log other errors
           let userMessage = new UserMessage(
-            UserMessage.SRC_TYPE.AXIOS_ERROR,
+            UserMessage.SRC_TYPE.HTTP_ERROR,
             UserMessage.MESSAGE_LEVEL.ERROR,
             "Fetch KPIs for sensor: " + props.uiState.selectedSensorId,
             thrown,

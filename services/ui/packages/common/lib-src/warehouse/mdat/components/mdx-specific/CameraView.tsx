@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { Axios } from "common/warehouse";
+import { joinUrl, isAbortError, readJson, readBlob } from "common/warehouse";
 import React from "react";
 
 import TopView from "./TopView";
@@ -26,14 +26,13 @@ export default class CameraView extends React.PureComponent {
       let params = new URLSearchParams();
       params.append("place", placeString);
 
-      this.axiosCancelTokenSourceImageMetadataByPlace = Axios.CancelToken.source();
+      this.abortControllerImageMetadataByPlace = new AbortController();
 
       try {
-        const res = await Axios.get(this.props.endpointGetCameraImagesMetadata, {
-          params: params,
-          cancelToken: this.axiosCancelTokenSourceImageMetadataByPlace.token,
+        const response = await fetch(joinUrl(this.props.endpointGetCameraImagesMetadata, params), {
+          signal: this.abortControllerImageMetadataByPlace.signal,
         });
-        const metadata = res.data;
+        const metadata = await readJson(response);
         // Check if plan-view exists in imageMetadata array
         const planViewExists = metadata.imageMetadata?.some(
           (item) => item.view === "plan-view"
@@ -43,7 +42,7 @@ export default class CameraView extends React.PureComponent {
         }
         return null; // plan-view not found, try sensorId
       } catch (thrown) {
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           throw thrown;
         }
         let userMessage = new UserMessage(
@@ -63,14 +62,13 @@ export default class CameraView extends React.PureComponent {
       let params = new URLSearchParams();
       params.append("sensorId", cameraConfig.id);
 
-      this.axiosCancelTokenSourceImageMetadata = Axios.CancelToken.source();
+      this.abortControllerImageMetadata = new AbortController();
 
       try {
-        const res = await Axios.get(this.props.endpointGetCameraImagesMetadata, {
-          params: params,
-          cancelToken: this.axiosCancelTokenSourceImageMetadata.token,
+        const response = await fetch(joinUrl(this.props.endpointGetCameraImagesMetadata, params), {
+          signal: this.abortControllerImageMetadata.signal,
         });
-        const metadata = res.data;
+        const metadata = await readJson(response);
         // Check if warped-camera-view exists in imageMetadata array
         const warpedCameraViewExists = metadata.imageMetadata?.some(
           (item) => item.view === "warped-camera-view"
@@ -80,7 +78,7 @@ export default class CameraView extends React.PureComponent {
         }
         return null; // warped-camera-view not found
       } catch (thrown) {
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           throw thrown;
         }
         let userMessage = new UserMessage(
@@ -127,7 +125,7 @@ export default class CameraView extends React.PureComponent {
       metadataResult = await this.getImageMetadata(cameraConfig);
     } catch (error) {
       // If metadata fetch is cancelled or fails, stop here
-      if (Axios.isCancel(error)) return;
+      if (isAbortError(error)) return;
       this.setState({ cameraViewImage: null });
       return;
     }
@@ -145,15 +143,14 @@ export default class CameraView extends React.PureComponent {
     }
     params.append("view", viewType);
 
-    this.axiosCancelTokenSourceCameraViewImage = Axios.CancelToken.source();
+    this.abortControllerCameraViewImage = new AbortController();
 
-    Axios.get(this.props.endpointGetCameraViewImage, {
-      responseType: "blob",
-      params: params,
-      cancelToken: this.axiosCancelTokenSourceCameraViewImage.token,
+    fetch(joinUrl(this.props.endpointGetCameraViewImage, params), {
+      signal: this.abortControllerCameraViewImage.signal,
     })
-      .then(async (res) => {
-        this.pictureUrl = window.URL.createObjectURL(res.data);
+      .then((response) => readBlob(response))
+      .then(async (blob) => {
+        this.pictureUrl = window.URL.createObjectURL(blob);
         let htmlImage = new window.Image();
         this._htmlImageOnLoadAbortController = new AbortController();
         htmlImage.addEventListener(
@@ -169,7 +166,7 @@ export default class CameraView extends React.PureComponent {
       .catch((thrown) => {
         this.setState({ cameraViewImage: null });
 
-        if (Axios.isCancel(thrown)) return;
+        if (isAbortError(thrown)) return;
         if (!thrown.config) throw thrown;
 
         const reader = new FileReader();
@@ -198,7 +195,7 @@ export default class CameraView extends React.PureComponent {
 
   UNSAFE_componentWillMount() {
     // Get background image from the backend for the sensor
-    // Cancel token for axios request for Image for a sensor
+    // Abort in-flight image requests for a sensor
     this.getCameraViewImage(this.props.cameraConfig);
   }
 
@@ -246,12 +243,12 @@ export default class CameraView extends React.PureComponent {
 
   componentWillUnmount() {
     window.URL.revokeObjectURL(this.pictureUrl);
-    this.axiosCancelTokenSourceImageMetadataByPlace &&
-      this.axiosCancelTokenSourceImageMetadataByPlace.cancel();
-    this.axiosCancelTokenSourceImageMetadata &&
-      this.axiosCancelTokenSourceImageMetadata.cancel();
-    this.axiosCancelTokenSourceCameraViewImage &&
-      this.axiosCancelTokenSourceCameraViewImage.cancel();
+    this.abortControllerImageMetadataByPlace &&
+      this.abortControllerImageMetadataByPlace.abort();
+    this.abortControllerImageMetadata &&
+      this.abortControllerImageMetadata.abort();
+    this.abortControllerCameraViewImage &&
+      this.abortControllerCameraViewImage.abort();
     this._htmlImageOnLoadAbortController &&
       this._htmlImageOnLoadAbortController.abort();
   }

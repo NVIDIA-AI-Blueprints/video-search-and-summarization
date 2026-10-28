@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { Axios } from "common/warehouse";
+import { joinUrl, isAbortError, readJson } from "common/warehouse";
 import { connect } from "react-redux";
 import { Divider as Divider } from "common/warehouse/mui";
 import { DoNotDisturbOnOutlined as DoNotDisturbOnOutlinedIcon } from "common/warehouse/mui-icons";
@@ -46,24 +46,24 @@ class LiveTripwireAlertsDisplayController extends React.PureComponent {
     const fromTimestamp = new Date(queryStartTimeMs).toISOString();
     const toTimestamp = new Date(newQueryTimeMs).toISOString();
 
-    Axios.get(EventsTripwireUrl, {
-      params: {
+    fetch(joinUrl(EventsTripwireUrl, {
         sensorId: props.uiState.selectedSensorId,
         fromTimestamp: fromTimestamp,
         toTimestamp: toTimestamp,
         ...(props.uiState.selectedSensorId.includes("-cv") ? { objectType: "Object" } : {}),
-      },
-      cancelToken: this.source.token,
+      }), {
+      signal: this.abortController?.signal,
     })
-      .then((res) => {
+      .then((response) => readJson(response))
+      .then((data) => {
         this.setState({
-          anomalyList: this.generateCurrentAnomalyList(res.data.tripwireEvents),
+          anomalyList: this.generateCurrentAnomalyList(data.tripwireEvents),
         });
       })
       .catch((thrown) => {
         this.stopAlertsUpdateCycles();
         let userMessage = new UserMessage(
-          UserMessage.SRC_TYPE.AXIOS_ERROR,
+          UserMessage.SRC_TYPE.HTTP_ERROR,
           UserMessage.MESSAGE_LEVEL.ERROR,
           "Fetch Tripwire Alerts for sensor: " + props.uiState.selectedSensorId,
           thrown,
@@ -72,7 +72,7 @@ class LiveTripwireAlertsDisplayController extends React.PureComponent {
         );
         props["addLogTo" + AppConstants.APP_LOGS_CONSOLE_NAME](userMessage);
 
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           console.log(userMessage.getLongString());
         } else {
           console.error(userMessage.getLongString());
@@ -83,7 +83,7 @@ class LiveTripwireAlertsDisplayController extends React.PureComponent {
   startAlertsUpdateCycles = (props) => {
     // Stop previous cycle
     this.stopAlertsUpdateCycles();
-    this.source = Axios.CancelToken.source();
+    this.abortController = new AbortController();
     this.updateAlerts(props);
 
     /* make ajax call regularly */
@@ -93,8 +93,8 @@ class LiveTripwireAlertsDisplayController extends React.PureComponent {
   };
 
   stopAlertsUpdateCycles = () => {
-    if (this.source) {
-      this.source.cancel();
+    if (this.abortController) {
+      this.abortController.abort();
     }
     clearInterval(this.intervalTimerId);
   };

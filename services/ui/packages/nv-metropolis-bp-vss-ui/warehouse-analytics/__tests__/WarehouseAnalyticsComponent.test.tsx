@@ -17,7 +17,7 @@ jest.mock('common/warehouse', () => {
   const ReactLib = require('react');
 
   class UserMessage {
-    static SRC_TYPE = { GENERIC: 'generic', AXIOS_ERROR: 'axios-error' };
+    static SRC_TYPE = { GENERIC: 'generic', HTTP_ERROR: 'http-error', AXIOS_ERROR: 'http-error' };
     static MESSAGE_LEVEL = { INFO: 'Info', ERROR: 'Error' };
     shortMessage: string;
     constructor(_srcType: string, _level: string, srcTitle: string, errorObj: unknown) {
@@ -47,7 +47,7 @@ jest.mock('common/warehouse', () => {
   };
 
   return {
-    Axios: { get: jest.fn(() => new Promise(() => undefined)) },
+    readJson: jest.fn(),
     getEnv: jest.fn(),
     CalibrationUrl: 'http://example.test/config/calibration',
     CONFIG_PANEL_ALLOWED_CONFIG_TYPES_DEFAULT: ['calibration'],
@@ -74,6 +74,16 @@ jest.mock('common/warehouse', () => {
 });
 
 describe('WarehouseAnalyticsComponent', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = jest.fn(() => new Promise(() => undefined)) as typeof fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
   it('renders the warehouse analytics surface while configuration loads', () => {
     const { container } = render(
       <WarehouseAnalyticsComponent theme="dark" warehouseData={{ apiUrl: 'http://example.test' }} />,

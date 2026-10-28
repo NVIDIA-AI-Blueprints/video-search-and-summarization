@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { Axios } from "common/warehouse";
+import { joinUrl, isAbortError, readJson } from "common/warehouse";
 import React, { PureComponent } from "react";
 import _ from "lodash";
 
@@ -23,15 +23,15 @@ class LastUpdateTimeDisplay extends PureComponent {
   };
 
   updateLastUpdateTime = (props) => {
-    Axios.get(props.apiUrl, {
-      cancelToken: this.axiosCancelTokenSource.token,
-      params: props.placeOrSensorId,
+    fetch(joinUrl(props.apiUrl, props.placeOrSensorId), {
+      signal: this.abortController?.signal,
     })
-      .then((res) => {
-        if (res.data && res.data.latestTimestamp) {
+      .then((response) => readJson(response))
+      .then((data) => {
+        if (data && data.latestTimestamp) {
           this.setState({
             timeStr: new Date(
-              res.data.latestTimestamp.timestamp
+              data.latestTimestamp.timestamp
             ).toLocaleString(),
           });
         } else {
@@ -53,7 +53,7 @@ class LastUpdateTimeDisplay extends PureComponent {
 
         if (thrown.config) {
           let userMessage = new UserMessage(
-            UserMessage.SRC_TYPE.AXIOS_ERROR,
+            UserMessage.SRC_TYPE.HTTP_ERROR,
             UserMessage.MESSAGE_LEVEL.ERROR,
             purposeMsg,
             thrown,
@@ -61,7 +61,7 @@ class LastUpdateTimeDisplay extends PureComponent {
             () => this.startLastTimeUpdateCycle(props)
           );
 
-          if (Axios.isCancel(thrown)) {
+          if (isAbortError(thrown)) {
             console.log(userMessage.getLongString());
           } else {
             console.error(userMessage.getLongString());
@@ -81,7 +81,7 @@ class LastUpdateTimeDisplay extends PureComponent {
   startLastTimeUpdateCycle = (props) => {
     this.stoptLastTimeUpdateCycle();
     this.setState({ timeStr: LastUpdateTimeDisplay.DEFAULT_TIME_STR });
-    this.axiosCancelTokenSource = Axios.CancelToken.source();
+    this.abortController = new AbortController();
     this.updateLastUpdateTime(props);
     clearInterval(this.updateCycleIntervalTimerId);
     /* make ajax call regularly */
@@ -95,8 +95,8 @@ class LastUpdateTimeDisplay extends PureComponent {
   };
 
   stoptLastTimeUpdateCycle = () => {
-    this.axiosCancelTokenSource &&
-      this.axiosCancelTokenSource.cancel(
+    this.abortController &&
+      this.abortController.abort(
         `${this.constructor.name} - API Call - Canceling on Unmount`
       );
 

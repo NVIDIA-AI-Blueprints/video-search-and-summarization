@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { Axios } from "common/warehouse";
+import { joinUrl, isAbortError, readJson } from "common/warehouse";
 import DashVideo from "../generic/DashVideo/DashVideo";
 import { vstHttpOrigin } from "../generic/DashVideo/vstHttpOrigin";
 import UserMessage from "../../utils/UserMessage";
@@ -11,87 +11,15 @@ import { FramesUrlPtsSuffix } from "../../utils/UrlConstants";
 
 export default class CameraVideoPresenter extends React.Component {
   state = {
-    // hlsVideoURL: null,
     mediaStreamerSensorId: undefined,
   };
-
-  // computeHlsStartPts(props) {
-  //   this.axiosCancelTokenSource && this.axiosCancelTokenSource.cancel();
-
-  //   this.setState({ hlsVideoURL: null });
-
-  //   this.axiosCancelTokenSource = Axios.CancelToken.source();
-
-  //   if (props.cameraSourceInfo.mmsInfo.protocol === "hls") {
-  //     if (props.cameraSourceInfo.mmsInfo.type === "wowza") {
-  //       // Construct hls video url
-
-  //       let currentTimestamp;
-
-  //       if (props.mode === 'recorded') {
-  //         currentTimestamp = props.replayEventInfo.start;
-  //       } else if (props.mode === 'live') {
-  //         currentTimestamp = new Date(Date.now() -
-  //                                     (props.uiDelaySeconds ?
-  //                                      props.uiDelaySeconds * 1000 :
-  //                                      0)
-  //                                    ).toISOString();
-  //       }
-
-  //       // get the PTS time for Wowza VOD video
-  //       Axios.get(props.endpointPts, {
-  //         params: {
-  //           sensorId: props.cameraSourceInfo.id,
-  //           timestamp: currentTimestamp,
-  //         },
-  //         cancelToken: this.axiosCancelTokenSource.token
-  //       }).then((res) => {
-  //         let hlsVideoURL = props.cameraSourceInfo.videoURL;
-
-  //         if (res.data.pts === null || res.data.pts === undefined) {
-  //           console.error('Request for computed Wowza HLS Video PTS for camera ' +
-  //                         props.cameraSourceInfo.id +
-  //                         ' returned: ' + res.data.pts);
-  //           // re-render based on bad Hls Url state
-  //           this.setState({ hlsVideoURL: null });
-  //           // Since this is fatal HLS Wowza playback error,
-  //           // run HLS Fatal Error playback if applicable
-  //           props.hlsEventListeners &&
-  //                props.hlsEventListeners.onFatalError &&
-  //                props.hlsEventListeners.onFatalError();
-
-  //           return;
-  //         }
-
-  //         if (props.mode === 'live') {
-  //           this.setState({ hlsVideoURL: hlsVideoURL + '?wowzaplaystart=' + res.data.pts});
-  //         } else if (props.mode === 'recorded') {
-  //           let wowzaPlayDurationMs = Math.floor(props.replayEventInfo.timeInterval * 1000);
-  //           this.setState({
-  //             hlsVideoURL: hlsVideoURL +
-  //                          '?wowzaplaystart=' + res.data.pts +
-  //                          '&wowzaplayduration=' + wowzaPlayDurationMs,
-  //           });
-  //         }
-  //       }).catch((thrown) => {
-  //         if (Axios.isCancel(thrown)) {
-  //           console.log('Request for computed Video PTS for camera:' + props.cameraSourceInfo.id +
-  //                       ' canceled - ', thrown.message);
-  //         } else {
-  //           console.error('Something wrong with Query to request computed Video PTS for camera:' +
-  //                         props.cameraSourceInfo.id + ' ' + thrown.message);
-  //         }
-  //       });
-  //     }
-  //   }
-  // }
 
   getVideoSourceLivePts = (
     props,
     mediaStreamerSensorId,
     fileSourceMetadata
   ) => {
-    this.axiosCancelTokenSourceVideoPts = Axios.CancelToken.source();
+    this.abortControllerVideoPts = new AbortController();
 
     let getCallPurpose =
       "Get NvStreamer Live PTS for sensor " + props.cameraSourceInfo.id;
@@ -100,28 +28,28 @@ export default class CameraVideoPresenter extends React.Component {
       Date.now() - (props.uiDelaySeconds ? props.uiDelaySeconds * 1000 : 0)
     ).toISOString();
 
-    Axios.get(`${props.endpointPtsBaseUrl}${FramesUrlPtsSuffix}`, {
-      params: {
+    fetch(joinUrl(`${props.endpointPtsBaseUrl}${FramesUrlPtsSuffix}`, {
         sensorId: props.cameraSourceInfo.id,
         timestamp: currentTimestamp,
-      },
-      cancelToken: this.axiosCancelTokenSourceVideoPts.token,
+      }), {
+      signal: this.abortControllerVideoPts.signal,
     })
-      .then((res) => {
-        if (!res.data) {
+      .then((response) => readJson(response))
+      .then((data) => {
+        if (!data) {
           throw Error("No data sent from the server");
         }
-        if (!res.data.pts) {
+        if (!data.pts) {
           throw Error("No Live pts in data sent from the server");
         }
         this.setState({
           mediaStreamerSensorId: mediaStreamerSensorId,
           fileSourceMetadata: fileSourceMetadata,
-          sensorLivePts: res.data.pts,
+          sensorLivePts: data.pts,
         });
       })
       .catch((thrown) => {
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           console.warn(getCallPurpose + " : " + thrown.message);
           return;
         }
@@ -133,7 +61,7 @@ export default class CameraVideoPresenter extends React.Component {
           return;
         }
         let userMessage = new UserMessage(
-          UserMessage.SRC_TYPE.AXIOS_ERROR,
+          UserMessage.SRC_TYPE.HTTP_ERROR,
           UserMessage.MESSAGE_LEVEL.ERROR,
           getCallPurpose,
           thrown
@@ -143,29 +71,30 @@ export default class CameraVideoPresenter extends React.Component {
   };
 
   getNvStreamerVideoSourceFileMetadata = (props, mediaStreamerSensorId) => {
-    this.axiosCancelTokenSourceMediaServiceFileMetadata =
-      Axios.CancelToken.source();
+    this.abortControllerMediaServiceFileMetadata = new AbortController();
 
     let getCallPurpose =
       "Get Media Service source file metadata for sensor " +
       props.cameraSourceInfo.id;
 
-    Axios.get(props.mediaServiceBaseUrl + "/file/metadata", {
-      params: { fileId: mediaStreamerSensorId },
-      cancelToken: this.axiosCancelTokenSourceMediaServiceFileMetadata.token,
+    fetch(joinUrl(props.mediaServiceBaseUrl + "/file/metadata", {
+        fileId: mediaStreamerSensorId,
+      }), {
+      signal: this.abortControllerMediaServiceFileMetadata.signal,
     })
-      .then((res) => {
-        if (!res.data) {
+      .then((response) => readJson(response))
+      .then((data) => {
+        if (!data) {
           throw Error("No data sent from the server");
         }
-        if (!res.data.Duration) {
+        if (!data.Duration) {
           throw Error("No file duration in data sent from the server");
         }
 
-        this.getVideoSourceLivePts(props, mediaStreamerSensorId, res.data);
+        this.getVideoSourceLivePts(props, mediaStreamerSensorId, data);
       })
       .catch((thrown) => {
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           console.warn(getCallPurpose + " : " + thrown.message);
           return;
         }
@@ -177,7 +106,7 @@ export default class CameraVideoPresenter extends React.Component {
           return;
         }
         let userMessage = new UserMessage(
-          UserMessage.SRC_TYPE.AXIOS_ERROR,
+          UserMessage.SRC_TYPE.HTTP_ERROR,
           UserMessage.MESSAGE_LEVEL.ERROR,
           getCallPurpose,
           thrown
@@ -187,23 +116,23 @@ export default class CameraVideoPresenter extends React.Component {
   };
 
   getMediaServiceDeviceId = (props) => {
-    this.axiosCancelTokenSourceMediaServiceDeviceListQuery =
-      Axios.CancelToken.source();
+    this.abortControllerMediaServiceDeviceListQuery = new AbortController();
 
     let getMediaServiceDeviceListCallPurpose =
       "Get MediaService deviceId for sensor " + props.cameraSourceInfo.id;
 
-    Axios.get(props.mediaServiceBaseUrl + "/sensor/list", {
-      cancelToken: this.axiosCancelTokenSourceMediaServiceDeviceListQuery.token,
+    fetch(props.mediaServiceBaseUrl + "/sensor/list", {
+      signal: this.abortControllerMediaServiceDeviceListQuery.signal,
     })
-      .then((mediaServiceDeviceListResponse) => {
+      .then((response) => readJson(response))
+      .then((deviceList) => {
         let mediaStreamerSensorId;
 
-        if (!mediaServiceDeviceListResponse.data) {
+        if (!deviceList) {
           throw Error("No media service device list data sent from the server");
         }
 
-        mediaServiceDeviceListResponse.data.forEach((deviceData) => {
+        deviceList.forEach((deviceData) => {
           let cameraId = props.cameraSourceInfo.id;
           if (props.isRemoveDashCV && cameraId.endsWith("-cv")) {
             cameraId = cameraId.replace("-cv", "");
@@ -240,7 +169,7 @@ export default class CameraVideoPresenter extends React.Component {
         }
       })
       .catch((thrown) => {
-        if (Axios.isCancel(thrown)) {
+        if (isAbortError(thrown)) {
           console.warn(
             getMediaServiceDeviceListCallPurpose + " : " + thrown.message
           );
@@ -256,7 +185,7 @@ export default class CameraVideoPresenter extends React.Component {
           return;
         }
         let userMessage = new UserMessage(
-          UserMessage.SRC_TYPE.AXIOS_ERROR,
+          UserMessage.SRC_TYPE.HTTP_ERROR,
           UserMessage.MESSAGE_LEVEL.ERROR,
           getMediaServiceDeviceListCallPurpose,
           thrown
@@ -270,12 +199,10 @@ export default class CameraVideoPresenter extends React.Component {
   }
 
   componentDidMount() {
-    // this.computeHlsStartPts(this.props);
     this.getMediaServiceDeviceId(this.props);
   }
 
   UNSAFE_componentWillReceiveProps(nextProps) {
-    // this.computeHlsStartPts(nextProps);
     this.getMediaServiceDeviceId(nextProps);
   }
 
@@ -443,13 +370,12 @@ export default class CameraVideoPresenter extends React.Component {
   }
 
   componentWillUnmount() {
-    // this.axiosCancelTokenSource && this.axiosCancelTokenSource.cancel();
-    this.axiosCancelTokenSourceMediaServiceDeviceListQuery &&
-      this.axiosCancelTokenSourceMediaServiceDeviceListQuery.cancel();
-    this.axiosCancelTokenSourceMediaServiceFileMetadata &&
-      this.axiosCancelTokenSourceMediaServiceFileMetadata.cancel();
-    this.axiosCancelTokenSourceVideoPts &&
-      this.axiosCancelTokenSourceVideoPts.cancel();
+    this.abortControllerMediaServiceDeviceListQuery &&
+      this.abortControllerMediaServiceDeviceListQuery.abort();
+    this.abortControllerMediaServiceFileMetadata &&
+      this.abortControllerMediaServiceFileMetadata.abort();
+    this.abortControllerVideoPts &&
+      this.abortControllerVideoPts.abort();
   }
 }
 

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { Axios } from "common/warehouse";
 import React, { Fragment } from "react";
 import { Line, Rect, Circle, Text, Group } from "react-konva";
 
