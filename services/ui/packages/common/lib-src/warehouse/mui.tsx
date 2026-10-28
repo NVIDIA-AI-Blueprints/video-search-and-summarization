@@ -7,7 +7,6 @@
 // @ts-nocheck
 import React from 'react';
 import {
-  Accordion as KaizenAccordion,
   Button as KaizenButton,
   Checkbox as KaizenCheckbox,
   Divider as KaizenDivider,
@@ -413,42 +412,21 @@ export const Slider = ({
 );
 
 export const AccordionSummary = ({ children, className, expandIcon }: DivProps & { expandIcon?: React.ReactNode }) => (
-  <span className={cx('inline-flex items-center justify-between gap-2', className)}>
+  <summary className={cx('flex cursor-pointer list-none items-center justify-between gap-2 p-2', className)}>
     <span>{children}</span>
     {expandIcon}
-  </span>
+  </summary>
 );
-AccordionSummary.displayName = 'AccordionSummary';
 
 export const AccordionDetails = ({ children, className }: DivProps) => (
-  <div className={className}>{children}</div>
+  <div className={cx('p-2', className)}>{children}</div>
 );
-AccordionDetails.displayName = 'AccordionDetails';
 
-export const Accordion = ({ children, className, defaultExpanded }: DivProps & { defaultExpanded?: boolean }) => {
-  const childArray = React.Children.toArray(children);
-  let trigger: React.ReactNode;
-  let content: React.ReactNode;
-  childArray.forEach((child) => {
-    if (!React.isValidElement(child)) return;
-    if (child.type === AccordionSummary) trigger = child;
-    if (child.type === AccordionDetails) content = (child.props as { children?: React.ReactNode }).children;
-  });
-  if (trigger !== undefined) {
-    return (
-      <KaizenAccordion
-        className={className}
-        defaultValue={defaultExpanded ? 'panel' : undefined}
-        items={[{ value: 'panel', slotTrigger: trigger, slotContent: content }]}
-      />
-    );
-  }
-  return (
-    <details className={cx('rounded border border-neutral-300 dark:border-neutral-700', className)} open={defaultExpanded}>
-      {children}
-    </details>
-  );
-};
+export const Accordion = ({ children, className, defaultExpanded }: DivProps & { defaultExpanded?: boolean }) => (
+  <details className={cx('rounded border border-neutral-300 dark:border-neutral-700', className)} open={defaultExpanded}>
+    {children}
+  </details>
+);
 
 export const Card = React.forwardRef<HTMLDivElement, DivProps & { raised?: boolean }>(
   ({ children, className, onClick, onMouseEnter, onMouseLeave, style, title, raised: _r, ...rest }, ref) => (

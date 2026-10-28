@@ -77,14 +77,20 @@
 .menuList {
   width: 280px;
   max-width: min(280px, calc(100vw - 2rem));
-  background: rgba(255, 255, 255, 0.16);
+  color-scheme: light;
+  background: rgba(255, 255, 255, 0.72);
   color: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 10px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
   overflow: hidden;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.menuList,
+.menuList :global(*) {
+  color: #1a1a1a;
 }
 
 .menuList :global(details) {
@@ -100,11 +106,16 @@
   justify-content: space-between;
   gap: 8px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.28);
   color: #1a1a1a;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  list-style: none;
+}
+
+.menuList :global(summary)::-webkit-details-marker {
+  display: none;
 }
 
 .menuList :global(summary span),
@@ -114,4 +125,5 @@
 
 .menuList :global(details > div) {
   padding: 12px;
+  background: transparent;
 }
