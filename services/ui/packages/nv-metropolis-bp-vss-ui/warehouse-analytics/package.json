@@ -1,0 +1,61 @@
+{
+  "name": "@nv-metropolis-bp-vss-ui/warehouse-analytics",
+  "version": "3.3-dev",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./lib/index.js",
+      "require": "./lib/index.js",
+      "types": "./lib/index.d.ts"
+    },
+    "./server": {
+      "import": "./lib/server.js",
+      "require": "./lib/server.js",
+      "types": "./lib/server.d.ts"
+    }
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "scripts": {
+    "build": "rm -rf lib && swc lib-src -d lib --config-file .swcrc && mv lib/lib-src/* lib/ && rmdir lib/lib-src && bash -c 'find lib-src -type f \\( -name \"*.css\" -o -name \"*.json\" -o -name \"*.png\" -o -name \"*.svg\" \\) | while read -r f; do dest=\"lib/${f#lib-src/}\"; mkdir -p \"$(dirname \"$dest\")\"; cp \"$f\" \"$dest\"; done' && tsc --project tsconfig.lib.json",
+    "dev": "swc lib-src -d lib --config-file .swcrc -w",
+    "clean": "rm -rf lib && rm -rf node_modules",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "dependencies": {
+    "@nvidia/foundations-react-core": "0.607.4",
+    "@reduxjs/toolkit": "^2.11.2",
+    "@tabler/icons-react": "^3.46.0",
+    "common": "*",
+    "lodash": "^4.18.1",
+    "next-runtime-env": "^1.8.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-redux": "^9.2.0"
+  },
+  "devDependencies": {
+    "@swc/cli": "^0.8.1",
+    "@swc/core": "^1.16.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/jest": "^30.0.0",
+    "@types/lodash": "^4.17.20",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "ts-jest": "^29.4.12",
+    "typescript": "5.9.3",
+    "whatwg-fetch": "^3.6.20"
+  },
+  "peerDependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}

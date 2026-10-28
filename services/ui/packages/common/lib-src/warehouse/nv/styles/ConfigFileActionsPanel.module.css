@@ -1,0 +1,56 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.main {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  z-index: auto;
+  padding: 8px 8px 12px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 6px;
+}
+
+.row {
+  min-height: 28px;
+  padding: 4px 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 6px;
+}
+
+.closeIcon {
+  display: inline-flex;
+  margin-left: auto;
+  border-radius: 100%;
+  border: 1px solid currentColor;
+  cursor: pointer;
+}
+
+.closeIcon:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.listMenu,
+.inputBox,
+.outputBox,
+.submitButton {
+  color: inherit;
+  max-width: 100%;
+}
+
+.listMenu {
+  display: block;
+}
+
+.outputBox,
+.row textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}

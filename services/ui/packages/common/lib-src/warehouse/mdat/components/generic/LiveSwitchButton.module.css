@@ -1,0 +1,89 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.container {
+  display: block;
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.textLive,
+.textNotLive {
+  color: #7ceb15;
+  text-align: center;
+  font-size: 0.75vw;
+  font-weight: bolder;
+  display: inline-block;
+  position: absolute;
+  padding-left: 1.1vw;
+  padding-right: 4px;
+  background: #333333;
+  z-index: 1;
+  border-radius: 0.1vw;
+}
+
+.textNotLive {
+  color: #f5f4f2;
+  padding-left: 4px;
+  text-decoration: line-through;
+  text-decoration-thickness: 20%;
+}
+
+.liveIcon {
+  display: inline-block;
+  position: absolute;
+  width: 1vw;
+  height: 1vw;
+  z-index: 2;
+}
+
+.liveIcon .liveIconCircleInner {
+  background: #7ceb15;
+  left: 0.35vw;
+  top: 0.35vw;
+  width: 0.25vw;
+  height: 0.25vw;
+  border-radius: 50%;
+  position: absolute;
+  display: inline-block;
+}
+
+.liveIcon .liveIconCircleInner:after {
+  content: "";
+  display: inline-block;
+  border: 2px solid #7ceb15;
+  border-radius: 50%;
+  width: 1.25vw;
+  height: 1.25vw;
+  top: -0.5vw;
+  left: -0.5vw;
+  position: absolute;
+  -webkit-animation: circle 2s ease-in-out 0.2s infinite;
+  animation: circle 2s ease-in-out 0.2s infinite;
+}
+
+@-webkit-keyframes circle {
+  from {
+    -webkit-transform: scale(0.5);
+    transform: scale(0.5);
+  }
+
+  to {
+    -webkit-transform: scale(0.75);
+    transform: scale(0.75);
+    opacity: 0;
+  }
+}
+
+@keyframes circle {
+  from {
+    -webkit-transform: scale(0.5);
+    transform: scale(0.5);
+  }
+
+  to {
+    -webkit-transform: scale(0.75);
+    transform: scale(0.75);
+    opacity: 0;
+  }
+}

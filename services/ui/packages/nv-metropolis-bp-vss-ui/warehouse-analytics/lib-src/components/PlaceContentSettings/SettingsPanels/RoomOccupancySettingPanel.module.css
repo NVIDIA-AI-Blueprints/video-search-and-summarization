@@ -1,0 +1,77 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.mainContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 0;
+  color: #1a1a1a;
+}
+
+.label {
+  display: block;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #3f3f46;
+  text-align: left;
+}
+
+.inputTextBox {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(63, 63, 70, 0.28);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.28);
+  color: #1a1a1a;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.inputTextBox::placeholder {
+  color: #71717a;
+}
+
+.inputTextBox:focus {
+  outline: none;
+  border-color: #76b900;
+  box-shadow: 0 0 0 2px rgba(118, 185, 0, 0.25);
+}
+
+.inputError {
+  border-color: #ef4444;
+}
+
+.notification {
+  margin: 0;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.submitButton {
+  margin: 4px 0 0;
+  align-self: flex-start;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  background: #76b900;
+  color: #111;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.submitButton:hover:not(:disabled) {
+  background: #87c50a;
+}
+
+.submitButton:disabled {
+  background: rgba(228, 228, 231, 0.45);
+  color: #52525b;
+  cursor: not-allowed;
+}

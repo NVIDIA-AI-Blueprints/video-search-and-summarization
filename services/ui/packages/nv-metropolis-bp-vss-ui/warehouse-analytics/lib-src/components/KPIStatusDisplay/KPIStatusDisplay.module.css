@@ -1,0 +1,76 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.kpiPanel {
+  --kpi-panel-height: 3rem;
+  color: #1a1a1a;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  min-height: var(--kpi-panel-height);
+  max-height: var(--kpi-panel-height);
+  display: flex;
+  align-items: center;
+}
+
+.metricsLabel {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 1rem 0 0.75rem;
+  margin-right: 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #1a1a1a;
+  letter-spacing: 0.08em;
+  border-right: 2px solid rgba(0, 0, 0, 0.2);
+  height: 100%;
+}
+
+.statusContent {
+  flex: 1 1 auto;
+  min-height: var(--kpi-panel-height);
+  max-height: var(--kpi-panel-height);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-left: 0.5rem;
+}
+
+/* Loading spinner */
+.loadingSpinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-top-color: #76b900; /* NVIDIA green */
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.statusText {
+  font-size: 0.95rem;
+  color: #1a1a1a;
+}
+
+/* Error state */
+.errorIcon {
+  font-size: 1.1rem;
+  color: #d32f2f;
+}
+
+.errorText {
+  font-size: 0.95rem;
+  color: #d32f2f;
+}
+

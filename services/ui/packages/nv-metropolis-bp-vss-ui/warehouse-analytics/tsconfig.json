@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "es2019",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "common": ["../../common/lib-src/index.ts"],
+      "common/warehouse": ["../../common/lib-src/warehouse/index.ts"],
+      "common/warehouse/mdat": ["../../common/lib-src/warehouse/mdat/index.ts"],
+      "common/warehouse/nv": ["../../common/lib-src/warehouse/nv/index.ts"],
+      "common/warehouse/mui": ["../../common/lib-src/warehouse/mui.tsx"],
+      "common/warehouse/mui-icons": ["../../common/lib-src/warehouse/mui-icons.tsx"]
+    }
+  },
+  "include": ["lib-src/**/*"],
+  "exclude": ["node_modules", "lib"]
+}

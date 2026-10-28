@@ -1,0 +1,88 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.main {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid #333333;
+  background-color: #ffffff;
+  box-sizing: border-box;
+}
+
+.headerBar {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  color: #76b900;
+}
+
+.headerBarMain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 0 0 2.25rem;
+  height: 2.25rem;
+  width: 100%;
+  padding: 0 8px;
+  box-sizing: border-box;
+  background-color: #333333;
+}
+
+.headerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  color: #ffffff;
+}
+
+.headerBarSub {
+  display: flex;
+  align-items: center;
+  flex: 0 0 1.15rem;
+  height: 1.15rem;
+  width: 100%;
+  padding: 0 8px;
+  box-sizing: border-box;
+  background-color: #333333;
+  color: #ffffff;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.headerTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #76b900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contents {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  margin: 4px 1%;
+  background-color: #ffffff;
+  color: #1a1a1a;
+  overflow: auto;
+}
+
+.contentsClip {
+  overflow: hidden;
+}

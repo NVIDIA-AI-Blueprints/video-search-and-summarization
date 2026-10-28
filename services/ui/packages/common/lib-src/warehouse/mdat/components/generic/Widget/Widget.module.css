@@ -1,0 +1,21 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.widget {
+  position: absolute;
+  z-index: 10;
+  background-color: rgba(254, 254, 254, 0.8);
+  color: #1a1a1a;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.widget > :global(.Window_main),
+.widget > [class*="Window_main"] {
+  width: 100%;
+  height: 100%;
+}
