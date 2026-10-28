@@ -6,7 +6,16 @@
  */
 // @ts-nocheck
 import React from 'react';
-import { Button as KaizenButton, Select as KaizenSelect, Switch as KaizenSwitch, Tag as KaizenTag, TextInput } from '@nvidia/foundations-react-core';
+import {
+  Accordion as KaizenAccordion,
+  Button as KaizenButton,
+  Checkbox as KaizenCheckbox,
+  Divider as KaizenDivider,
+  Select as KaizenSelect,
+  Switch as KaizenSwitch,
+  Tag as KaizenTag,
+  TextInput,
+} from '@nvidia/foundations-react-core';
 import { DatePicker, Slider as RsuiteSlider, Tooltip as RsuiteTooltip, Whisper } from 'rsuite';
 
 type DivProps = React.HTMLAttributes<HTMLDivElement>;
@@ -31,7 +40,7 @@ export const Typography = ({
 };
 
 export const Divider = ({ className, ...rest }: DivProps) => (
-  <hr className={cx('my-2 border-neutral-300 dark:border-neutral-700', className)} {...rest} />
+  <KaizenDivider className={cx('my-2', className)} {...rest} />
 );
 
 export const Grid = ({ children, className, container: _c, item: _i, xs: _xs, ...rest }: DivProps & { container?: boolean; item?: boolean; xs?: number | string }) => (
@@ -180,12 +189,14 @@ export const Checkbox = ({
   disabled?: boolean;
   className?: string;
 }) => (
-  <input
-    type="checkbox"
+  <KaizenCheckbox
     className={className}
-    checked={checked}
+    checked={Boolean(checked)}
     disabled={disabled}
-    onChange={(event) => onChange?.({ target: { checked: event.target.checked } }, event.target.checked)}
+    onCheckedChange={(next) => {
+      const isChecked = next === true;
+      onChange?.({ target: { checked: isChecked } }, isChecked);
+    }}
   />
 );
 
@@ -341,7 +352,11 @@ export const Chip = ({
     style={{ display: 'inline-flex', cursor: onClick ? 'pointer' : undefined, ...style }}
     className={className}
   >
-    <KaizenTag color={color === 'success' || color === 'error' ? color : 'neutral'} variant={variant === 'outlined' ? 'outline' : 'solid'}>
+    <KaizenTag
+      color={color === 'success' ? 'green' : color === 'error' ? 'red' : 'gray'}
+      kind={variant === 'outlined' ? 'outline' : 'solid'}
+      readOnly={!onClick}
+    >
       {icon}
       {label}
     </KaizenTag>
@@ -397,22 +412,43 @@ export const Slider = ({
   />
 );
 
-export const Accordion = ({ children, className, defaultExpanded }: DivProps & { defaultExpanded?: boolean }) => (
-  <details className={cx('rounded border border-neutral-300 dark:border-neutral-700', className)} open={defaultExpanded}>
-    {children}
-  </details>
-);
-
 export const AccordionSummary = ({ children, className, expandIcon }: DivProps & { expandIcon?: React.ReactNode }) => (
-  <summary className={cx('flex cursor-pointer list-none items-center justify-between gap-2 p-2', className)}>
+  <span className={cx('inline-flex items-center justify-between gap-2', className)}>
     <span>{children}</span>
     {expandIcon}
-  </summary>
+  </span>
 );
+AccordionSummary.displayName = 'AccordionSummary';
 
 export const AccordionDetails = ({ children, className }: DivProps) => (
-  <div className={cx('p-2', className)}>{children}</div>
+  <div className={className}>{children}</div>
 );
+AccordionDetails.displayName = 'AccordionDetails';
+
+export const Accordion = ({ children, className, defaultExpanded }: DivProps & { defaultExpanded?: boolean }) => {
+  const childArray = React.Children.toArray(children);
+  let trigger: React.ReactNode;
+  let content: React.ReactNode;
+  childArray.forEach((child) => {
+    if (!React.isValidElement(child)) return;
+    if (child.type === AccordionSummary) trigger = child;
+    if (child.type === AccordionDetails) content = (child.props as { children?: React.ReactNode }).children;
+  });
+  if (trigger !== undefined) {
+    return (
+      <KaizenAccordion
+        className={className}
+        defaultValue={defaultExpanded ? 'panel' : undefined}
+        items={[{ value: 'panel', slotTrigger: trigger, slotContent: content }]}
+      />
+    );
+  }
+  return (
+    <details className={cx('rounded border border-neutral-300 dark:border-neutral-700', className)} open={defaultExpanded}>
+      {children}
+    </details>
+  );
+};
 
 export const Card = React.forwardRef<HTMLDivElement, DivProps & { raised?: boolean }>(
   ({ children, className, onClick, onMouseEnter, onMouseLeave, style, title, raised: _r, ...rest }, ref) => (
