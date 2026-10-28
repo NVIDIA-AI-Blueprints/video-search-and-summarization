@@ -3,7 +3,6 @@
 // @ts-nocheck
 import React from "react";
 import { connect } from "react-redux";
-import { Chip as Chip } from "common/warehouse/mui";
 
 import { BeautifyNameString } from "common/warehouse";
 import {
@@ -18,45 +17,6 @@ import SensorLevelViewReplay from "./sensor-level-views/SensorLevelViewReplay";
 import UiStateReduxUtil from "./../utils/UiStateReduxUtil";
 import { joinPlacePath } from "../utils/joinPlacePath";
 import CssClasses from "./SensorLevelView.module.css";
-
-// Keyframe animation for the live indicator
-const liveIndicatorAnimation = `
-@keyframes livePulse {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.3);
-    opacity: 0.5;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-`;
-
-// Inject animation styles
-if (typeof document !== 'undefined') {
-  const styleSheet = document.createElement("style");
-  styleSheet.textContent = liveIndicatorAnimation;
-  if (!document.head.querySelector('style[data-live-indicator]')) {
-    styleSheet.setAttribute('data-live-indicator', 'true');
-    document.head.appendChild(styleSheet);
-  }
-}
-
-let CssLiveIcon = {
-  display: "inline-block",
-  width: "8px",
-  height: "8px",
-  borderRadius: "50%",
-  backgroundColor: "#ffffff",
-  marginRight: "6px",
-  animation: "livePulse 1.5s ease-in-out infinite",
-  boxShadow: "0 0 12px rgba(255, 255, 255, 0.95), 0 0 6px rgba(255, 255, 255, 1)",
-};
 
 class SensorLevelView extends React.PureComponent {
   onClickButtonBackToLive = () => {
@@ -78,13 +38,20 @@ class SensorLevelView extends React.PureComponent {
     if (this.props.uiState.viewType === "sensor-level-alert") {
       buttonBackToLive = (
         <span className={CssClasses.headerControl}>
-          <Chip
+          <span
+            className={`${CssClasses.liveBadge} ${CssClasses.replayBadge}`}
+            role="button"
+            tabIndex={0}
             onClick={this.onClickButtonBackToLive.bind(this)}
-            color="success"
-            variant="filled"
-            label="Go Back Live"
-            className={CssClasses.headerChip}
-          />
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                this.onClickButtonBackToLive();
+              }
+            }}
+          >
+            Go Back Live
+          </span>
         </span>
       );
 
@@ -92,18 +59,10 @@ class SensorLevelView extends React.PureComponent {
     } else if (this.props.uiState.viewType === "sensor-level-live") {
       buttonBackToLive = (
         <span className={CssClasses.headerControl}>
-          <Chip
-            color="success"
-            variant="filled"
-            label={
-              <span style={{ display: "flex", alignItems: "center" }}>
-                <span style={CssLiveIcon}></span>
-                Live
-              </span>
-            }
-            className={CssClasses.headerChip}
-            style={{ cursor: "default" }}
-          />
+          <span className={CssClasses.liveBadge}>
+            <span className={CssClasses.liveDot} aria-hidden="true" />
+            Live
+          </span>
         </span>
       );
 
