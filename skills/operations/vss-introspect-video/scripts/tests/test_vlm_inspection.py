@@ -1127,3 +1127,238 @@ def test_remote_vlm_spec_selects_astra_responses(monkeypatch: pytest.MonkeyPatch
     assert spec is not None
     assert spec["api"] == "responses"
     assert spec["base_url"] == "https://inference-api.nvidia.com/v1"
+
+
+def _jpeg_header(width: int, height: int) -> bytes:
+    sof = bytes([0x08]) + height.to_bytes(2, "big") + width.to_bytes(2, "big") + b"\x01\x01\x11\x00"
+    return (
+        b"\xff\xd8"
+        + b"\xff\xe0" + (16).to_bytes(2, "big") + b"JFIF\x00" + b"\x00" * 9
+        + b"\xff\xc0" + (len(sof) + 2).to_bytes(2, "big") + sof
+        + b"\xff\xd9"
+    )
+
+
+def test_jpeg_dimensions_reads_the_frame_header() -> None:
+    assert vlm.jpeg_dimensions(_jpeg_header(640, 360)) == (640, 360)
+    assert vlm.jpeg_dimensions(b"not a jpeg") is None
+
+
+def test_showinfo_times_keep_missing_frames_unavailable() -> None:
+    stderr = "\n".join(
+        [
+            "[Parsed_showinfo_1 @ 0x1] n:   0 pts:      0 pts_time:0       duration:1",
+            "[Parsed_showinfo_1 @ 0x1] n:   1 pts:      1 pts_time:0.5     duration:1",
+            "frame=    2 fps=0.0 q=2.0",
+        ]
+    )
+    assert vlm._showinfo_times(stderr, 3) == [0.0, 0.5, None]
+
+
+def test_recording_context_is_absent_unless_supplied() -> None:
+    duration = vlm.window_duration_seconds(START, "2026-09-30T00:00:20Z")
+    plain = vlm.effective_inspection_prompt(
+        "Count visible boxes.",
+        output_mode=vlm.OUTPUT_MODE_TIMESTAMPED,
+        duration_seconds=duration,
+    )
+    assert plain == "Count visible boxes.\n\n" + vlm.caption_contract(duration)
+    assert "of a recording that lasts" not in plain
+    context = vlm.recording_context(
+        "2026-09-30T00:01:00Z",
+        "2026-09-30T00:01:20Z",
+        START,
+        "2026-09-30T00:06:20Z",
+    )
+    assert context == {
+        "window_start_seconds": 60.0,
+        "window_end_seconds": 80.0,
+        "recording_duration_seconds": 380.0,
+    }
+    located = vlm.effective_inspection_prompt(
+        "Count visible boxes.",
+        output_mode=vlm.OUTPUT_MODE_TIMESTAMPED,
+        duration_seconds=duration,
+        context=context,
+    )
+    assert "seconds 60.000 to 80.000 of a recording that lasts 380.000 seconds" in located
+    assert "Timestamps are model-estimated" in located
+    legacy = vlm.effective_inspection_prompt(
+        "Count visible boxes.", output_mode=vlm.OUTPUT_MODE_LEGACY, context=context
+    )
+    assert legacy == "Count visible boxes."
+
+
+def test_recording_context_rejects_partial_or_outside_intervals() -> None:
+    with pytest.raises(ValueError, match="both"):
+        vlm.recording_context(START, "2026-09-30T00:00:20Z", START, None)
+    with pytest.raises(ValueError, match="outside"):
+        vlm.recording_context(
+            START, "2026-09-30T00:00:20Z", "2026-09-30T00:00:05Z", "2026-09-30T00:01:00Z"
+        )
+
+
+def test_caption_annotations_never_change_usability(monkeypatch: pytest.MonkeyPatch) -> None:
+    text = "[0.0:4.0] A box moves.\n[18.0:25.0] LIMITATION: far end hidden.\nLoose prose."
+    monkeypatch.setattr(
+        vlm,
+        "_run_vlm",
+        lambda **_: {
+            "exit_code": 0,
+            "job_id": "vlm-1",
+            "status": "completed",
+            "raw_answer": text,
+            "answer": text,
+            "usable": True,
+            "quality_reason": "ok",
+            "error": None,
+        },
+    )
+    result = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        start=START,
+        end="2026-09-30T00:00:20Z",
+        fps=1,
+        prompt="Count visible boxes.",
+        calls_budget=1,
+        output_mode=vlm.OUTPUT_MODE_TIMESTAMPED,
+    )
+    attempt = result["attempts"][0]
+    assert attempt["usable"] is True
+    assert result["vlm_calls_used"] == 1
+    assert attempt["caption_annotations"] == {
+        "timestamp_source": "model_generated",
+        "lines": 3,
+        "caption_lines": 2,
+        "uncaptioned_lines": 1,
+        "out_of_range_lines": 1,
+        "reversed_span_lines": 0,
+        "affects_usability": False,
+    }
+    assert attempt["requested_sampling"]["basis"] == "requested"
+    assert attempt["input_manifest"]["basis"] == "unavailable"
+
+
+def test_remote_attempt_records_measured_inputs_without_reasoning_content(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    frames = []
+    for index in range(2):
+        path = frames_dir / f"frame_{index + 1:04d}.jpg"
+        path.write_bytes(_jpeg_header(320, 180) + bytes([index]))
+        frames.append(path)
+
+    def fake_clip(_project: str, _sensor: str, _start: str, _end: str, dest: Path) -> None:
+        dest.write_bytes(b"clip-bytes" * 8)
+
+    posted: list[dict] = []
+
+    def fake_post(url: str, payload: dict, timeout: int) -> tuple[int, dict, str]:
+        posted.append(payload)
+        return (
+            200,
+            {
+                "id": "resp_123",
+                "model": "openai/openai/gpt-6-astra",
+                "status": "completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 40,
+                    "output_tokens_details": {"reasoning_tokens": 30},
+                },
+                "reasoning": {"effort": "medium", "summary": None},
+                "output": [
+                    {"type": "reasoning", "encrypted_content": "SECRET-CIPHERTEXT"},
+                    {"type": "message", "content": [{"type": "output_text", "text": "[0:2] A box."}]},
+                ],
+            },
+            "a" * 64,
+        )
+
+    monkeypatch.setattr(vlm, "_extract_clip", fake_clip)
+    monkeypatch.setattr(vlm, "_sample_frames", lambda *_: (frames, [0.0, None]))
+    monkeypatch.setattr(vlm, "_probe_clip", lambda _clip: {"duration_seconds": 2.0, "start_time_seconds": 0.0, "probe": "ffprobe"})
+    monkeypatch.setattr(vlm, "_post_inference_traced", fake_post)
+    monkeypatch.setenv("NVIDIA_INFERENCE_API_KEY", "test-key")
+    archive = tmp_path / "archive"
+    result = vlm._run_remote_vlm(
+        spec={"model": "openai/openai/gpt-6-astra", "api": "responses", "base_url": "https://x/v1"},
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        start=START,
+        end="2026-09-30T00:00:04Z",
+        fps=0.5,
+        prompt="Count boxes.",
+        frame_archive_dir=archive,
+    )
+    manifest = result["input_manifest"]
+    assert manifest["basis"] == "measured"
+    assert manifest["frame_count"] == 2 == result["frames_sent"]
+    assert [frame["clip_time_seconds"] for frame in manifest["frames"]] == [0.0, None]
+    assert {(frame["width"], frame["height"]) for frame in manifest["frames"]} == {(320, 180)}
+    assert manifest["frames"][0]["sha256"] != manifest["frames"][1]["sha256"]
+    assert manifest["clip"]["duration_seconds"] == 2.0
+    assert sorted(path.name for path in archive.iterdir()) == ["frame_0001.jpg", "frame_0002.jpg"]
+    assert manifest["frames_retained"] == str(archive)
+    assert result["request_metadata"]["requested_model"] == "openai/openai/gpt-6-astra"
+    assert result["request_metadata"]["reasoning_requested"] is None
+    assert result["request_metadata"]["image_count"] == 2
+    meta = result["response_metadata"]
+    assert meta["response_id"] == "resp_123"
+    assert meta["returned_model"] == "openai/openai/gpt-6-astra"
+    assert meta["usage"]["output_tokens_details"] == {"reasoning_tokens": 30}
+    assert meta["returned_reasoning_config"] == {"effort": "medium", "summary": None}
+    assert meta["raw_response_sha256"] == "a" * 64
+    assert "SECRET-CIPHERTEXT" not in json.dumps(result)
+    assert "test-key" not in json.dumps(result)
+    assert result["answer"] == "[0:2] A box."
+
+
+def test_remote_frame_retention_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict = {}
+
+    def fake_remote(**kwargs: object) -> dict:
+        seen.update(kwargs)
+        return {"exit_code": 0, "usable": True}
+
+    monkeypatch.setattr(vlm, "_run_remote_vlm", fake_remote)
+    monkeypatch.setattr(vlm, "remote_vlm_spec", lambda: {"model": "m"})
+    vlm._run_vlm(
+        vss_project="p", sensor="s", start=START, end="2026-09-30T00:00:04Z",
+        fps=1, prompt="x", frame_archive_dir=Path("/tmp/a"),
+    )
+    assert seen["frame_archive_dir"] is None
+    monkeypatch.setattr(vlm, "remote_vlm_spec", lambda: {"model": "m", "retain_frames": True})
+    vlm._run_vlm(
+        vss_project="p", sensor="s", start=START, end="2026-09-30T00:00:04Z",
+        fps=1, prompt="x", frame_archive_dir=Path("/tmp/a"),
+    )
+    assert seen["frame_archive_dir"] == Path("/tmp/a")
+    assert vlm.frame_archive_root("/run/round-1/inspection-claim-x.json") == Path(
+        "/run/round-1/inspection-claim-x.frames"
+    )
+    assert vlm.frame_archive_root(None) is None
+
+
+@pytest.mark.skipif(
+    vlm.shutil.which("ffmpeg") is None, reason="ffmpeg is not installed"
+)
+def test_sampled_frames_match_their_measured_manifest(tmp_path: Path) -> None:
+    clip = tmp_path / "clip.mp4"
+    made = vlm.subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+            "-i", "testsrc=size=160x90:rate=10:duration=4", "-pix_fmt", "yuv420p", str(clip),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    assert made.returncode == 0
+    frames, times = vlm._sample_frames(clip, tmp_path / "frames", 1, 4)
+    manifest = vlm.frame_manifest(frames, times)
+    assert len(manifest) == 4
+    assert [entry["clip_time_seconds"] for entry in manifest] == [0.0, 1.0, 2.0, 3.0]
+    assert {(entry["width"], entry["height"]) for entry in manifest} == {(160, 90)}

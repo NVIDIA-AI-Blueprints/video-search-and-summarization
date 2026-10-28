@@ -52,6 +52,19 @@ _UNCLOSED_THINK = re.compile(r"<think>", re.IGNORECASE)
 _TIMESTAMP = re.compile(r"\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2}(?:\.\d+)?)\b")
 _NUMBER = re.compile(r"\b\d+(?:\.\d+)?\b")
 _SPACE = re.compile(r"\s+")
+_CAPTION_LINE = re.compile(r"^\[\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\s*\]")
+_SHOWINFO_PTS = re.compile(r"\bn:\s*(\d+)\b.*?\bpts_time:\s*(-?\d+(?:\.\d+)?)")
+MEASURED_TIMESTAMP_BASIS = (
+    "Presentation time of each submitted frame at the output of the ffmpeg fps "
+    "filter, in seconds from the start of the downloaded clip. The selected "
+    "source frame lies within one source-frame interval of that time. Mapping "
+    "clip time to recording time assumes the clip starts at the requested "
+    "start; that alignment is not verified."
+)
+LOCAL_SERVICE_FRAMES_UNAVAILABLE = (
+    "Frames are sampled inside the VSS VLM service and are not returned to the "
+    "helper. Only the requested window, FPS, and frame limit are known."
+)
 
 
 def _parse_instant(value: str) -> datetime:
@@ -128,17 +141,56 @@ def _line_material(line: str) -> str:
     return _SPACE.sub(" ", _NUMBER.sub("<n>", line.casefold())).strip()
 
 
-def caption_contract(duration_seconds: float) -> str:
+def recording_context(
+    window_start: str,
+    window_end: str,
+    recording_start: str | None,
+    recording_end: str | None,
+) -> dict[str, float] | None:
+    """Locate a submitted window inside the known recording interval."""
+    if recording_start is None and recording_end is None:
+        return None
+    if recording_start is None or recording_end is None:
+        raise ValueError("recording context requires both start and end")
+    origin = _parse_instant(recording_start)
+    finish = _parse_instant(recording_end)
+    if origin >= finish:
+        raise ValueError("recording start must be before recording end")
+    start = _parse_instant(window_start)
+    end = _parse_instant(window_end)
+    if start < origin or end > finish:
+        raise ValueError("submitted window is outside the recording interval")
+    return {
+        "window_start_seconds": round((start - origin).total_seconds(), 3),
+        "window_end_seconds": round((end - origin).total_seconds(), 3),
+        "recording_duration_seconds": round((finish - origin).total_seconds(), 3),
+    }
+
+
+def caption_contract(
+    duration_seconds: float, context: dict[str, float] | None = None
+) -> str:
     """Fixed reporting contract for one submitted subwindow.
 
     ``duration_seconds`` is the duration of that subwindow, not the parent task.
+    ``context`` places the subwindow in the recording; it is input metadata.
     """
     if not math.isfinite(duration_seconds) or duration_seconds <= 0:
         raise ValueError("submitted duration must be a positive finite number")
     duration = f"{duration_seconds:.3f}"
+    located = ""
+    if context is not None:
+        located = (
+            "This window covers seconds "
+            f"{context['window_start_seconds']:.3f} to "
+            f"{context['window_end_seconds']:.3f} of a recording that lasts "
+            f"{context['recording_duration_seconds']:.3f} seconds. Events before "
+            "or after this window are not shown. "
+        )
     return (
         "The inspection focus above is the only requested observation. "
         "Report only what is visibly present in this submitted window. "
+        f"{located}"
         f"This window lasts {duration} seconds. Timestamps are model-estimated "
         "offsets from the start of this submitted window. They are not "
         "camera-overlay clocks or verified frame-level annotations.\n"
@@ -180,6 +232,7 @@ def effective_inspection_prompt(
     output_mode: str = OUTPUT_MODE_LEGACY,
     duration_seconds: float | None = None,
     repair: bool = False,
+    context: dict[str, float] | None = None,
 ) -> str:
     """Keep the agent focus and, in timestamped mode, append the caption contract."""
     if output_mode not in OUTPUT_MODES:
@@ -188,10 +241,41 @@ def effective_inspection_prompt(
         return focus + (QUALITY_REPAIR_SUFFIX if repair else "")
     if duration_seconds is None:
         raise ValueError("timestamped mode requires the submitted window duration")
-    prompt = focus.rstrip() + "\n\n" + caption_contract(duration_seconds)
+    prompt = focus.rstrip() + "\n\n" + caption_contract(duration_seconds, context)
     if repair:
         prompt += TIMESTAMPED_QUALITY_REPAIR_SUFFIX
     return prompt
+
+
+def caption_annotations(text: str, duration_seconds: float) -> dict[str, Any]:
+    """Describe caption shape without judging content or discarding output.
+
+    Times inside captions are model-generated estimates. They are reported
+    here only so analysis can keep them apart from measured frame times.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    captioned = 0
+    out_of_range = 0
+    reversed_spans = 0
+    for line in lines:
+        match = _CAPTION_LINE.match(line)
+        if match is None:
+            continue
+        captioned += 1
+        start, end = float(match.group(1)), float(match.group(2))
+        if start > end:
+            reversed_spans += 1
+        if start < 0 or end > duration_seconds + 1e-6:
+            out_of_range += 1
+    return {
+        "timestamp_source": "model_generated",
+        "lines": len(lines),
+        "caption_lines": captioned,
+        "uncaptioned_lines": len(lines) - captioned,
+        "out_of_range_lines": out_of_range,
+        "reversed_span_lines": reversed_spans,
+        "affects_usability": False,
+    }
 
 
 def _prompt_digest(prompt: str) -> str:
@@ -485,7 +569,10 @@ def _extract_clip(vss_project: str, sensor: str, start: str, end: str, dest: Pat
         raise RuntimeError("downloaded clip is empty")
 
 
-def _sample_frames(clip: Path, dest: Path, fps: float, frames_needed: int) -> list[Path]:
+def _sample_frames(
+    clip: Path, dest: Path, fps: float, frames_needed: int
+) -> tuple[list[Path], list[float | None]]:
+    """Sample frames and return them with their measured presentation times."""
     dest.mkdir(parents=True, exist_ok=True)
     pattern = dest / "frame_%04d.jpg"
     completed = subprocess.run(
@@ -493,12 +580,12 @@ def _sample_frames(clip: Path, dest: Path, fps: float, frames_needed: int) -> li
             _ffmpeg_bin(),
             "-hide_banner",
             "-loglevel",
-            "error",
+            "info",
             "-y",
             "-i",
             str(clip),
             "-vf",
-            f"fps={fps}",
+            f"fps={fps},showinfo",
             "-frames:v",
             str(frames_needed),
             "-q:v",
@@ -515,7 +602,130 @@ def _sample_frames(clip: Path, dest: Path, fps: float, frames_needed: int) -> li
     frames = sorted(dest.glob("frame_*.jpg"))
     if not frames:
         raise RuntimeError("ffmpeg produced no frames")
-    return frames
+    return frames, _showinfo_times(completed.stderr or "", len(frames))
+
+
+def _showinfo_times(stderr: str, count: int) -> list[float | None]:
+    """Parse ffmpeg showinfo times; missing entries stay unavailable."""
+    times: dict[int, float] = {}
+    for line in stderr.splitlines():
+        if "showinfo" not in line:
+            continue
+        match = _SHOWINFO_PTS.search(line)
+        if match is not None:
+            times.setdefault(int(match.group(1)), float(match.group(2)))
+    return [times.get(index) for index in range(count)]
+
+
+def jpeg_dimensions(data: bytes) -> tuple[int, int] | None:
+    """Return (width, height) from a baseline or progressive JPEG header."""
+    if len(data) < 4 or data[:2] != b"\xff\xd8":
+        return None
+    index = 2
+    while index + 9 < len(data):
+        if data[index] != 0xFF:
+            index += 1
+            continue
+        marker = data[index + 1]
+        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+            index += 2
+            continue
+        length = int.from_bytes(data[index + 2 : index + 4], "big")
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            height = int.from_bytes(data[index + 5 : index + 7], "big")
+            width = int.from_bytes(data[index + 7 : index + 9], "big")
+            return width, height
+        if length < 2:
+            return None
+        index += 2 + length
+    return None
+
+
+def _probe_clip(clip: Path) -> dict[str, Any]:
+    """Measure clip container timing when ffprobe is available."""
+    probe = shutil.which("ffprobe")
+    if probe is None:
+        ffmpeg = Path(_ffmpeg_bin())
+        sibling = ffmpeg.with_name("ffprobe")
+        probe = str(sibling) if sibling.is_file() else None
+    if probe is None:
+        return {"duration_seconds": None, "start_time_seconds": None, "probe": "unavailable"}
+    completed = subprocess.run(
+        [
+            probe,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration,start_time",
+            "-of",
+            "json",
+            str(clip),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    try:
+        fmt = json.loads(completed.stdout or "{}").get("format") or {}
+        duration = float(fmt["duration"]) if fmt.get("duration") else None
+        start_time = float(fmt["start_time"]) if fmt.get("start_time") else None
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return {"duration_seconds": None, "start_time_seconds": None, "probe": "failed"}
+    return {"duration_seconds": duration, "start_time_seconds": start_time, "probe": "ffprobe"}
+
+
+def frame_manifest(
+    frames: Sequence[Path], times: Sequence[float | None]
+) -> list[dict[str, Any]]:
+    """Describe each submitted frame from its exact bytes."""
+    manifest: list[dict[str, Any]] = []
+    for index, path in enumerate(frames):
+        data = path.read_bytes()
+        size = jpeg_dimensions(data)
+        manifest.append(
+            {
+                "index": index + 1,
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "bytes": len(data),
+                "width": size[0] if size else None,
+                "height": size[1] if size else None,
+                "clip_time_seconds": times[index] if index < len(times) else None,
+            }
+        )
+    return manifest
+
+
+def _input_manifest(
+    clip: Path,
+    frames: Sequence[Path],
+    times: Sequence[float | None],
+    *,
+    archive_dir: Path | None,
+) -> dict[str, Any]:
+    clip_bytes = clip.read_bytes()
+    retained: str | None = None
+    if archive_dir is not None:
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        for path in frames:
+            shutil.copy2(path, archive_dir / path.name)
+        retained = str(archive_dir)
+    entries = frame_manifest(frames, times)
+    return {
+        "basis": "measured",
+        "clip": {
+            "sha256": hashlib.sha256(clip_bytes).hexdigest(),
+            "bytes": len(clip_bytes),
+            **_probe_clip(clip),
+        },
+        "frame_count": len(entries),
+        "frames_sha256": hashlib.sha256(
+            "".join(entry["sha256"] for entry in entries).encode("ascii")
+        ).hexdigest(),
+        "frames": entries,
+        "timestamp_basis": MEASURED_TIMESTAMP_BASIS,
+        "frames_retained": retained,
+    }
 
 
 def _extract_remote_text(payload: Any) -> str:
@@ -552,7 +762,57 @@ def _extract_remote_text(payload: Any) -> str:
     return json.dumps(payload)[:20000]
 
 
+def _usage_numbers(usage: Any) -> dict[str, Any] | None:
+    """Keep numeric token accounting only."""
+    if not isinstance(usage, dict):
+        return None
+    kept: dict[str, Any] = {}
+    for key, value in usage.items():
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            kept[key] = value
+        elif isinstance(value, dict):
+            nested = {
+                inner: number
+                for inner, number in value.items()
+                if isinstance(number, (int, float)) and not isinstance(number, bool)
+            }
+            if nested:
+                kept[key] = nested
+    return kept
+
+
+def response_metadata(payload: Any, raw_sha256: str | None) -> dict[str, Any]:
+    """Model identity and accounting from a response, without reasoning content."""
+    if not isinstance(payload, dict):
+        return {"raw_response_sha256": raw_sha256, "returned_model": None}
+    reasoning = payload.get("reasoning")
+    reasoning_config = (
+        {key: reasoning.get(key) for key in ("effort", "summary") if key in reasoning}
+        if isinstance(reasoning, dict)
+        else None
+    )
+    return {
+        "response_id": payload.get("id"),
+        "returned_model": payload.get("model"),
+        "response_status": payload.get("status"),
+        "usage": _usage_numbers(payload.get("usage")),
+        "returned_reasoning_config": reasoning_config,
+        "raw_response_sha256": raw_sha256,
+        "raw_response_retained": False,
+    }
+
+
 def _post_inference(url: str, payload: dict[str, Any], timeout: int) -> tuple[int, Any]:
+    status, parsed, _ = _post_inference_traced(url, payload, timeout)
+    return status, parsed
+
+
+def _post_inference_traced(
+    url: str, payload: dict[str, Any], timeout: int
+) -> tuple[int, Any, str | None]:
+    """POST and also return the SHA-256 of the raw response body."""
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url,
@@ -566,18 +826,22 @@ def _post_inference(url: str, payload: dict[str, Any], timeout: int) -> tuple[in
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8", errors="replace")
+            data = response.read()
+            digest = hashlib.sha256(data).hexdigest()
+            raw = data.decode("utf-8", errors="replace")
             try:
-                return response.status, json.loads(raw)
+                return response.status, json.loads(raw), digest
             except json.JSONDecodeError:
-                return response.status, raw
+                return response.status, raw, digest
     except urllib.error.HTTPError as error:
-        raw = error.read().decode("utf-8", errors="replace")
+        data = error.read()
+        digest = hashlib.sha256(data).hexdigest()
+        raw = data.decode("utf-8", errors="replace")
         try:
             parsed: Any = json.loads(raw)
         except json.JSONDecodeError:
             parsed = raw
-        return error.code, parsed
+        return error.code, parsed, digest
 
 
 def _call_remote_vlm(spec: dict[str, Any], prompt: str, frame_paths: list[Path]) -> dict[str, Any]:
@@ -621,12 +885,26 @@ def _call_remote_vlm(spec: dict[str, Any], prompt: str, frame_paths: list[Path])
                 }
             ],
         }
+    request_metadata = {
+        "requested_model": model_id,
+        "api": api,
+        "max_output_tokens": max_tokens,
+        "temperature": payload.get("temperature"),
+        "reasoning_requested": payload.get("reasoning"),
+        "image_detail_requested": None,
+        "image_count": len(images),
+        "content_order": "images_then_text",
+        "timeout_seconds": timeout,
+    }
     last_status = 0
     last_payload: Any = {}
+    last_digest: str | None = None
     errors: list[str] = []
+    transport_attempts = 0
     for attempt in range(4):
-        status, response = _post_inference(url, payload, timeout)
-        last_status, last_payload = status, response
+        status, response, digest = _post_inference_traced(url, payload, timeout)
+        transport_attempts += 1
+        last_status, last_payload, last_digest = status, response, digest
         if status in {429, 500, 502, 503, 504} and attempt < 3:
             errors.append(f"transport {status}")
             continue
@@ -639,6 +917,12 @@ def _call_remote_vlm(spec: dict[str, Any], prompt: str, frame_paths: list[Path])
         "text": text,
         "error": None if ok else (str(last_payload)[:1500] or "; ".join(errors)),
         "job_id": "vlm-remote-" + uuid4().hex.upper(),
+        "request_metadata": request_metadata,
+        "response_metadata": {
+            **response_metadata(last_payload, last_digest),
+            "transport_attempts": transport_attempts,
+            "transport_errors": errors,
+        },
     }
 
 
@@ -651,15 +935,18 @@ def _run_remote_vlm(
     end: str,
     fps: float,
     prompt: str,
+    frame_archive_dir: Path | None = None,
 ) -> dict[str, Any]:
     duration = window_duration_seconds(start, end)
     frames_needed = min(MAX_VLM_FRAMES, frames_requested(fps, duration))
+    manifest: dict[str, Any] | None = None
     with tempfile.TemporaryDirectory(prefix="vss-remote-vlm-") as raw:
         root = Path(raw)
         clip = root / "clip.mp4"
         try:
             _extract_clip(vss_project, sensor, start, end, clip)
-            frames = _sample_frames(clip, root / "frames", fps, frames_needed)
+            frames, times = _sample_frames(clip, root / "frames", fps, frames_needed)
+            manifest = _input_manifest(clip, frames, times, archive_dir=frame_archive_dir)
             result = _call_remote_vlm(spec, prompt, frames)
         except Exception as error:
             return {
@@ -675,6 +962,8 @@ def _run_remote_vlm(
                 "remote_model": spec.get("model"),
                 "remote_api": spec.get("api"),
                 "frames_sent": 0,
+                "input_manifest": manifest
+                or {"basis": "unavailable", "reason": "frame sampling did not complete"},
             }
     raw_answer = result.get("text") if isinstance(result.get("text"), str) else ""
     verdict = classify_vlm_output(raw_answer)
@@ -692,7 +981,10 @@ def _run_remote_vlm(
         "remote_model": spec.get("model"),
         "remote_api": spec.get("api"),
         "http_status": result.get("http_status"),
-        "frames_sent": frames_needed,
+        "frames_sent": manifest["frame_count"] if manifest else 0,
+        "input_manifest": manifest,
+        "request_metadata": result.get("request_metadata"),
+        "response_metadata": result.get("response_metadata"),
     }
 
 
@@ -704,6 +996,7 @@ def _run_vlm(
     end: str,
     fps: float,
     prompt: str,
+    frame_archive_dir: Path | None = None,
 ) -> dict[str, Any]:
     spec = remote_vlm_spec()
     if spec is not None:
@@ -715,6 +1008,7 @@ def _run_vlm(
             end=end,
             fps=fps,
             prompt=prompt,
+            frame_archive_dir=frame_archive_dir if spec.get("retain_frames") is True else None,
         )
     command = [
         "uv",
@@ -751,6 +1045,10 @@ def _run_vlm(
         "persistence_limited": completed.returncode == 6,
         "quality_reason": verdict["reason"],
         "error": completed.stderr.strip() or payload.get("error"),
+        "input_manifest": {
+            "basis": "unavailable",
+            "reason": LOCAL_SERVICE_FRAMES_UNAVAILABLE,
+        },
     }
 
 
@@ -773,10 +1071,14 @@ def inspect_sensor_scope(
     task_call_allocation: int | None = None,
     claim_id: str | None = None,
     output_mode: str = OUTPUT_MODE_LEGACY,
+    recording_start: str | None = None,
+    recording_end: str | None = None,
+    frame_archive_root: Path | None = None,
 ) -> dict[str, Any]:
     """Inspect every affordable subwindow before bounded quality retries."""
     if output_mode not in OUTPUT_MODES:
         raise ValueError(f"unknown output mode: {output_mode}")
+    recording_context(start, end, recording_start, recording_end)
     if calls_budget < 1:
         raise ValueError("calls_budget must be at least one")
     if (
@@ -884,27 +1186,38 @@ def inspect_sensor_scope(
             }
         )
 
-    def _window_prompt(window: dict[str, Any], *, repair: bool) -> tuple[str, str, float]:
+    def _window_prompt(
+        window: dict[str, Any], *, repair: bool
+    ) -> tuple[str, str, float, dict[str, float] | None]:
         duration = window_duration_seconds(window["start"], window["end"])
+        context = recording_context(
+            window["start"], window["end"], recording_start, recording_end
+        )
         effective = effective_inspection_prompt(
             prompt,
             output_mode=output_mode,
             duration_seconds=duration,
             repair=repair,
+            context=context,
         )
-        return effective, _prompt_digest(effective), duration
+        return effective, _prompt_digest(effective), duration, context
 
-    for window_index, window in enumerate(windows):
-        effective_prompt, prompt_sha256, duration = _window_prompt(window, repair=False)
+    def _attempt(window_index: int, window: dict[str, Any], retry: int) -> dict[str, Any] | None:
+        effective_prompt, prompt_sha256, duration, context = _window_prompt(
+            window, repair=bool(retry)
+        )
         call_key = _call_key(
             sensor, window["start"], window["end"], fps, prompt_sha256, bound_claim
         )
         priors = priors_by_key.get(call_key, [])
         if priors:
-            _remember_duplicate(window_index, window, prompt_sha256, 0, priors)
-            continue
-        if len(attempts) >= calls_budget:
-            continue
+            _remember_duplicate(window_index, window, prompt_sha256, retry, priors)
+            return None
+        archive = (
+            frame_archive_root / f"window-{window_index}-retry-{retry}"
+            if frame_archive_root is not None
+            else None
+        )
         attempt = _run_vlm(
             vss_project=vss_project,
             sensor=sensor,
@@ -912,6 +1225,11 @@ def inspect_sensor_scope(
             end=window["end"],
             fps=fps,
             prompt=effective_prompt,
+            frame_archive_dir=archive,
+        )
+        attempt.setdefault(
+            "input_manifest",
+            {"basis": "unavailable", "reason": "the VLM runner returned no frame manifest"},
         )
         attempt.update(
             {
@@ -921,60 +1239,51 @@ def inspect_sensor_scope(
                 "end": window["end"],
                 "fps": fps,
                 "frames_requested": window["frames_requested"],
+                "requested_sampling": {
+                    "basis": "requested",
+                    "start": window["start"],
+                    "end": window["end"],
+                    "fps": fps,
+                    "frames_requested": window["frames_requested"],
+                    "max_frames_per_call": max_frames,
+                },
+                "recording_context": context,
                 "submitted_duration_seconds": duration,
                 "output_mode": output_mode,
                 "inspection_focus": prompt,
                 "effective_prompt": effective_prompt,
                 "prompt_sha256": prompt_sha256,
-                "retry": 0,
+                "retry": retry,
             }
         )
+        if output_mode == OUTPUT_MODE_TIMESTAMPED:
+            attempt["caption_annotations"] = caption_annotations(
+                str(attempt.get("answer") or ""), duration
+            )
         attempts.append(attempt)
         priors_by_key.setdefault(call_key, []).append(attempt)
         if attempt["usable"]:
             completed_windows.add(window_index)
-        elif max_degenerate_retries:
+        return attempt
+
+    for window_index, window in enumerate(windows):
+        if len(attempts) >= calls_budget:
+            effective_prompt, prompt_sha256, _, _ = _window_prompt(window, repair=False)
+            priors = priors_by_key.get(
+                _call_key(sensor, window["start"], window["end"], fps, prompt_sha256, bound_claim),
+                [],
+            )
+            if priors:
+                _remember_duplicate(window_index, window, prompt_sha256, 0, priors)
+            continue
+        attempt = _attempt(window_index, window, 0)
+        if attempt is not None and not attempt["usable"] and max_degenerate_retries:
             retry_windows.append((window_index, window))
 
     for window_index, window in retry_windows:
         if len(attempts) >= calls_budget:
             break
-        effective_prompt, prompt_sha256, duration = _window_prompt(window, repair=True)
-        call_key = _call_key(
-            sensor, window["start"], window["end"], fps, prompt_sha256, bound_claim
-        )
-        priors = priors_by_key.get(call_key, [])
-        if priors:
-            _remember_duplicate(window_index, window, prompt_sha256, 1, priors)
-            continue
-        attempt = _run_vlm(
-            vss_project=vss_project,
-            sensor=sensor,
-            start=window["start"],
-            end=window["end"],
-            fps=fps,
-            prompt=effective_prompt,
-        )
-        attempt.update(
-            {
-                "window_index": window_index,
-                "sensor_id": sensor,
-                "start": window["start"],
-                "end": window["end"],
-                "fps": fps,
-                "frames_requested": window["frames_requested"],
-                "submitted_duration_seconds": duration,
-                "output_mode": output_mode,
-                "inspection_focus": prompt,
-                "effective_prompt": effective_prompt,
-                "prompt_sha256": prompt_sha256,
-                "retry": 1,
-            }
-        )
-        attempts.append(attempt)
-        priors_by_key.setdefault(call_key, []).append(attempt)
-        if attempt["usable"]:
-            completed_windows.add(window_index)
+        _attempt(window_index, window, 1)
     covered = len(completed_windows)
     total = len(windows)
     if covered == total:
@@ -995,6 +1304,11 @@ def inspect_sensor_scope(
         "reused_evidence": reused_evidence,
         "rejected_duplicates": rejected_duplicates,
         "vlm_calls_used": len(attempts),
+        "recording_interval": (
+            {"start": recording_start, "end": recording_end}
+            if recording_start is not None
+            else None
+        ),
         "complete": covered == total,
         "window_inspection": window_inspection,
         "claim_sufficiency": None,
@@ -1049,8 +1363,24 @@ def _parser() -> argparse.ArgumentParser:
     inspect.add_argument("--calls-budget", required=True, type=int)
     inspect.add_argument("--max-frames", type=int, default=MAX_VLM_FRAMES)
     inspect.add_argument("--history", action="append", default=[])
+    inspect.add_argument(
+        "--recording-start",
+        help="Recording start from vss vios timeline. Gives the VLM its place in the recording.",
+    )
+    inspect.add_argument(
+        "--recording-end",
+        help="Recording end from vss vios timeline. Required with --recording-start.",
+    )
     inspect.add_argument("--output")
     return parser
+
+
+def frame_archive_root(output: str | None) -> Path | None:
+    """Directory beside the inspection artifact for opt-in frame retention."""
+    if not output:
+        return None
+    destination = Path(output)
+    return destination.with_name(destination.stem + ".frames")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1100,6 +1430,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     and isinstance(selected["claim"].get("claim_id"), str)
                     else None
                 ),
+                recording_start=args.recording_start,
+                recording_end=args.recording_end,
+                frame_archive_root=frame_archive_root(args.output),
             ),
         )
     return 0

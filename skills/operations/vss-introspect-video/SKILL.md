@@ -453,8 +453,16 @@ python3 "${VLM_HELPER}" inspect \
   --output-mode "${VLM_OUTPUT_MODE:-legacy}" \
   --calls-budget "${TASK_MAX_VLM_CALLS}" \
   --history "${PRIOR_INSPECTION_PATH}" \
+  --recording-start "${RECORDING_START}" \
+  --recording-end "${RECORDING_END}" \
   --output "${ROUND_DIR}/inspection-${CLAIM_ID}.json"
 ```
+
+Take `RECORDING_START` and `RECORDING_END` from `vss vios timeline` for the
+sensor. Pass both or neither. With both, the helper tells the VLM where each
+subwindow sits in the recording and how long the recording lasts, so it does
+not treat a subwindow as the whole video. This is the grounded media interval,
+never a human-verified event time or count.
 
 `OPTION_BLIND_CLAIM_PROMPT` is the agent-written inspection focus for this claim.
 It is not a fixed dataset prompt. Customize it from the assigned claim and the
@@ -485,13 +493,30 @@ window duration as `[0:duration]` unless that fact is unchanged for the whole
 span. The inspection artifact records `output_mode`, the inspection focus, the
 exact effective prompt and its hash, the raw answer, normalized text, the
 request window, FPS, frame limit, job ID, attempt number, exit status, and
-call accounting. The helper does not parse or validate caption syntax after
-the VLM returns. Well-formatted captions are not visual correctness,
+call accounting. The helper does not validate caption syntax after the VLM
+returns. In timestamped mode it adds `caption_annotations`, counting caption
+lines, uncaptioned lines, spans outside the subwindow, and reversed spans.
+These timestamps are `model_generated`; the annotation never changes
+`usable` and is not a reason to discard output. Well-formatted captions are not visual correctness,
 exhaustive coverage, or claim sufficiency. Absence from the sampled captions
 is not evidence that an event did not occur. When a caption visibly supports
 or contradicts the claim, put the timestamped line in the existing observation
 `text` field. Do not add caption-metadata fields to ledger observations or
 task results.
+
+Each attempt separates what was requested from what was verified.
+`requested_sampling` holds the requested window, FPS, and frame count.
+`input_manifest` holds the measured input when the helper sampled the frames
+itself: clip hash and probed duration, the actual frame count, and each frame's
+hash, size, dimensions, and decoder timestamp in clip seconds. Measured frame
+timestamps are separate from the model's caption timestamps. When a service
+samples frames internally, `input_manifest.basis` is `unavailable`; do not
+infer actual frames from the request. `request_metadata` and
+`response_metadata` record the requested and returned model, response ID,
+status, token usage, and the returned reasoning configuration. Reasoning
+content is never stored; only a hash of the raw response is kept. A remote VLM
+configuration with `"retain_frames": true` also copies the sampled frames
+beside the inspection artifact for audit.
 
 Timestamped mode is supported on the guarded sensor helper above. A direct
 `vss vlm run` with `--media-url` or `--file` does not attach the caption
