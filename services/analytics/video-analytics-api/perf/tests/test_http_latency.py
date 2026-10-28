@@ -242,6 +242,7 @@ class HttpLatencyTests(unittest.TestCase):
         generate_env = (INTEGRATION / "generate_env.sh").read_text()
         self.assertIn("Docker Compose --env-file does not accept", text)
         self.assertIn("ELASTICSEARCH_HOST_PORT=$ELASTICSEARCH_HOST_PORT", text)
+        self.assertIn('COMPOSE_EXTRA_FILES="$COMPOSE_EXTRA_FILES"', text)
         self.assertNotIn("export ELASTICSEARCH_HOST_PORT=", text)
         self.assertNotIn("export COMPOSE_PROJECT_NAME=", generate_env)
         self.assertIn("PERF_CONFIG_PATH", text)
