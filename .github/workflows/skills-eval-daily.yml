@@ -32,6 +32,67 @@ on:
         options:
           - claude-code
           - codex
+  # Reusable nightly-style entry point for narrowly-scoped canaries. Scheduled
+  # and ordinary manual runs leave these inputs empty and retain the full-sweep
+  # behavior above.
+  workflow_call:
+    inputs:
+      target_skill:
+        type: string
+        required: false
+        default: ""
+      target_spec:
+        type: string
+        required: false
+        default: ""
+      target_platform:
+        type: string
+        required: false
+        default: ""
+      coding_harness:
+        type: string
+        required: false
+        default: claude-code
+      operational_harness:
+        type: string
+        required: false
+        default: claude-code
+      coding_deployment:
+        type: string
+        required: false
+        default: hosted-nvidia-inference
+      operational_deployment:
+        type: string
+        required: false
+        default: hosted-nvidia-inference
+      coding_model:
+        type: string
+        required: false
+        default: ""
+      operational_model:
+        type: string
+        required: false
+        default: ""
+      artifact_prefix:
+        type: string
+        required: false
+        default: skills-eval-daily-results
+      max_parallel:
+        type: number
+        required: false
+        default: 8
+      concurrency_group:
+        type: string
+        required: false
+        default: ""
+      cleanup_worker:
+        type: boolean
+        required: false
+        default: false
+      non_authoritative:
+        type: boolean
+        required: false
+        default: false
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -55,8 +116,10 @@ permissions:
 # Same path handles SIGKILL (the 14h timeout-minutes terminator) and host reboots
 # — there's no exit-side cleanup machinery to bypass.
 concurrency:
-  group: skills-eval-daily-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ inputs.concurrency_group || format('skills-eval-daily-{0}', github.ref) }}
+  # A scheduled/manual Daily run remains authoritative and cancels an older
+  # run. A caller (the canary) queues instead, so it can never cancel Daily.
+  cancel-in-progress: ${{ !inputs.non_authoritative }}
 
 defaults:
   run:
@@ -128,7 +191,13 @@ jobs:
       - name: Compute matrix
         id: plan
         env:
-          DAILY_RUN: true
+          # Empty target_skill means the original full nightly sweep. A caller
+          # can select exactly one skill/spec/platform without entering the PR
+          # workflow or changing the scheduled path.
+          DAILY_RUN: ${{ inputs.target_skill == '' && 'true' || '' }}
+          MANUAL_SKILLS_FILTER: ${{ inputs.target_skill || '' }}
+          MANUAL_SPECS_FILTER: ${{ inputs.target_spec || '' }}
+          MANUAL_PLATFORM_FILTER: ${{ inputs.target_platform || '' }}
         run: python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------
@@ -144,7 +213,7 @@ jobs:
       fail-fast: false
       # Match the PR workflow's eight-leg limit. Unavailable runner slots
       # queue in Actions; per-instance flock still serializes each GPU box.
-      max-parallel: 8
+      max-parallel: ${{ inputs.max_parallel || 8 }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1.5 h agent ceiling
@@ -201,7 +270,13 @@ jobs:
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
-          DAILY_HARNESS_INPUT: ${{ inputs.agent || 'claude-code' }}
+          CODING_HARNESS_INPUT: ${{ inputs.coding_harness || inputs.agent || 'claude-code' }}
+          OPERATIONAL_HARNESS_INPUT: ${{ inputs.operational_harness || inputs.agent || 'claude-code' }}
+          CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
+          OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
+          CODING_MODEL_INPUT: ${{ inputs.coding_model || '' }}
+          OPERATIONAL_MODEL_INPUT: ${{ inputs.operational_model || '' }}
+          CLEANUP_WORKER_INPUT: ${{ inputs.cleanup_worker && 'true' || 'false' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -215,7 +290,13 @@ jobs:
           mkdir -p "$GH_CONFIG_DIR"
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
-          daily_harness="$DAILY_HARNESS_INPUT"
+          coding_harness="$CODING_HARNESS_INPUT"
+          operational_harness="$OPERATIONAL_HARNESS_INPUT"
+          coding_deployment="$CODING_DEPLOYMENT_INPUT"
+          operational_deployment="$OPERATIONAL_DEPLOYMENT_INPUT"
+          coding_model="$CODING_MODEL_INPUT"
+          operational_model="$OPERATIONAL_MODEL_INPUT"
+          cleanup_worker="$CLEANUP_WORKER_INPUT"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
@@ -225,13 +306,27 @@ jobs:
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
           export PATH="$skill_eval_venv_dir/bin:$PATH"
-          # The Daily workflow intentionally keeps one agent selector. Apply
-          # it to both explicit routes so a Codex run also uses Codex for
-          # coding/deployment tasks rather than silently falling back to
-          # Claude Code.
-          export EVAL_AGENT="$daily_harness"
-          export SKILLS_EVAL_CODING_HARNESS="$daily_harness"
-          export SKILLS_EVAL_OPERATIONAL_HARNESS="$daily_harness"
+          # Scheduled/manual Daily keeps one selector through the fallbacks
+          # above. Reusable callers may split setup from operations (the
+          # NemoClaw canary uses Codex -> NemoClaw).
+          export EVAL_AGENT="$operational_harness"
+          export SKILLS_EVAL_CODING_HARNESS="$coding_harness"
+          export SKILLS_EVAL_OPERATIONAL_HARNESS="$operational_harness"
+          export SKILLS_EVAL_CODING_DEPLOYMENT="$coding_deployment"
+          export SKILLS_EVAL_OPERATIONAL_DEPLOYMENT="$operational_deployment"
+          if [ -n "$coding_model" ]; then
+            export SKILLS_EVAL_CODING_MODEL="$coding_model"
+          else
+            unset SKILLS_EVAL_CODING_MODEL
+          fi
+          if [ -n "$operational_model" ]; then
+            export SKILLS_EVAL_OPERATIONAL_MODEL="$operational_model"
+          else
+            unset SKILLS_EVAL_OPERATIONAL_MODEL
+          fi
+          unset SKILLS_EVAL_CODING_ENDPOINT_URL SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL
+          unset SKILLS_EVAL_CODING_PROVIDER SKILLS_EVAL_OPERATIONAL_PROVIDER
+          export SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG="$cleanup_worker"
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
@@ -270,6 +365,7 @@ jobs:
           export PR_HEAD_SHA="$(git rev-parse HEAD)"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
+          export GITHUB_RUN_ATTEMPT="${{ github.run_attempt }}"
           # Single-spec mode — plan already decided this leg's target, so
           # the agent skips the diff and processes exactly one (skill, spec).
           export EVAL_KIND="${{ matrix.kind }}"
@@ -293,6 +389,11 @@ jobs:
         if: always()
         env:
           EVAL_SLUG: ${{ matrix.slug }}
+          EVAL_SPEC_PATH: ${{ matrix.spec_path }}
+          OPERATIONAL_HARNESS: ${{ inputs.operational_harness || inputs.agent || 'claude-code' }}
+          CLEANUP_JOB_STATUS: ${{ job.status }}
+          CLEANUP_WORKER: ${{ inputs.cleanup_worker && 'true' || 'false' }}
+          ARTIFACT_PREFIX: ${{ inputs.artifact_prefix || 'skills-eval-daily-results' }}
         run: |
           # This leg's harbor output lives under its own scratch scope,
           # /tmp/skill-eval/results/<slug>/<run_id>/, so the artifact
@@ -302,6 +403,28 @@ jobs:
           if [ ! -d "$LEG_RESULTS" ]; then
             echo "no results dir for this leg — blocked before running a trial (expected for blocker outcomes)"
             exit 0
+          fi
+          # A cancelled outer agent can bypass run_leg.py's finalizer. Reclaim
+          # only this leg's NemoClaw gateway receipt under the same worker lock
+          # before packaging results; ordinary successful cleanup is idempotent.
+          if [ "$OPERATIONAL_HARNESS" = nemoclaw ] && [[ "$EVAL_SPEC_PATH" == skills/operations/* ]]; then
+            cleanup_python="$SKILL_EVAL_VENV/bin/python"
+            cleanup_pythonpath="$PWD/.github/skill-eval"
+            cleanup_slug="$EVAL_SLUG"
+            cleanup_run_id="$GITHUB_RUN_ID"
+            cleanup_attempt="$GITHUB_RUN_ATTEMPT"
+            cleanup_status="$CLEANUP_JOB_STATUS"
+            set -a
+            source /home/ubuntu/eval-coordinator/.env
+            set +a
+            export EVAL_SLUG="$cleanup_slug" GITHUB_RUN_ID="$cleanup_run_id" GITHUB_RUN_ATTEMPT="$cleanup_attempt"
+            export SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG="$CLEANUP_WORKER"
+            eval "$(ssh-agent -s)" > /dev/null
+            trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
+            cleanup_code='import sys; from pathlib import Path; from run_leg import cleanup_after_agent_exit'
+            cleanup_code+='; print("Gateway cleanup:", cleanup_after_agent_exit(Path(sys.argv[1]), cancelled=sys.argv[2] == "cancelled"))'
+            PYTHONPATH="$cleanup_pythonpath:${PYTHONPATH:-}" "$cleanup_python" -c "$cleanup_code" "$LEG_RESULTS" "$cleanup_status" || \
+              echo 'Gateway cleanup failed; continuing result collection'
           fi
           # Exclude per-trial agent/ trajectory subdirs from the tarball
           # (NOT from the on-disk tree the Harbor viewer serves). Those
@@ -331,7 +454,7 @@ jobs:
           # self-hosted runner, and `if: always()` upload would otherwise
           # ship a stale, unredacted archive from a previous attempt when
           # this attempt's scan fails.
-          LEG_TARBALL="/tmp/skills-eval-daily-results-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
+          LEG_TARBALL="/tmp/${ARTIFACT_PREFIX}-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
           rm -f "$LEG_TARBALL"
           python3 .github/skill-eval/redact_secrets.py --tree "$LEG_RESULTS"
           RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
@@ -347,7 +470,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: skills-eval-daily-results-${{ matrix.slug }}-${{ github.run_id }}
-          path: /tmp/skills-eval-daily-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
+          name: ${{ inputs.artifact_prefix || 'skills-eval-daily-results' }}-${{ matrix.slug }}-${{ github.run_id }}
+          path: /tmp/${{ inputs.artifact_prefix || 'skills-eval-daily-results' }}-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
           retention-days: 28   # 4 weeks (was 7) — longer window for trend ingest + investigation

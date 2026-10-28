@@ -672,6 +672,37 @@ class FocusedManualDispatch(unittest.TestCase):
                 self.assertEqual(rc, 0)
                 emit.assert_called_once_with([row for row in rows if row["platform"] == platform])
 
+    def test_exact_platform_selection_keeps_one_leg(self):
+        path = "skills/operations/alerts/evals/cv.json"
+        rows = [
+            {"spec_path": path, "platform": "DGX-SPARK"},
+            {"spec_path": path, "platform": "L40S"},
+        ]
+        rc, _, emit = self.run_plan(
+            {
+                "MANUAL_SKILLS_FILTER": "alerts",
+                "MANUAL_SPECS_FILTER": "cv",
+                "MANUAL_PLATFORM_FILTER": "L40S",
+            },
+            [path],
+            rows,
+        )
+        self.assertEqual(rc, 0)
+        emit.assert_called_once_with(rows[1:])
+
+    def test_exact_platform_selection_rejects_unknown_platform(self):
+        path = "skills/operations/alerts/evals/cv.json"
+        with self.assertRaisesRegex(ValueError, "no eval targets match platform"):
+            self.run_plan(
+                {
+                    "MANUAL_SKILLS_FILTER": "alerts",
+                    "MANUAL_SPECS_FILTER": "cv",
+                    "MANUAL_PLATFORM_FILTER": "H100",
+                },
+                [path],
+                [{"spec_path": path, "platform": "L40S"}],
+            )
+
     def test_unrestricted_sweep_can_filter_out_unsupported_specs(self):
         paths = [f"skills/operations/alerts/evals/{name}.json" for name in ("cv", "realtime")]
         rows = [{"spec_path": paths[0], "platform": "DGX-SPARK"},

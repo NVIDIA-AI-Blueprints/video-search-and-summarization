@@ -38,6 +38,8 @@ Env:
     MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name, `operations`, or `*`
                    (all skills) — enumerates those specs instead of diffing,
                    so the matrix fans per-(spec, platform) like a push
+    MANUAL_SPECS_FILTER   optional comma-separated spec filename stems
+    MANUAL_PLATFORM_FILTER optional exact resources.platforms key
     CHANGED_FILES  optional newline-separated override (tests / local)
     GITHUB_OUTPUT  optional; when set, key=value lines are appended here
 """
@@ -522,10 +524,11 @@ def main() -> int:
     else:
         changed = list_changed_files()
     specs_filter = os.environ.get("MANUAL_SPECS_FILTER", "").strip()
+    platform_filter = os.environ.get("MANUAL_PLATFORM_FILTER", "").strip()
     setup_only = os.environ.get("SKILLS_EVAL_SETUP_ONLY") == "true"
-    if specs_filter or setup_only:
+    if specs_filter or platform_filter or setup_only:
         if not os.environ.get("MANUAL_SKILLS_FILTER") or DAILY_RUN:
-            raise ValueError("specs/setup_only are manual-dispatch options only")
+            raise ValueError("specs/platform/setup_only are manual-dispatch options only")
         if specs_filter:
             requested = {stem.strip() for stem in specs_filter.split(",")}
             if any(not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_-]*", stem) for stem in requested):
@@ -542,6 +545,16 @@ def main() -> int:
     matrix = build_matrix(changed)
     # Adapter-creation blockers have no spec path and must remain dispatchable.
     planned_specs = {row["spec_path"] for row in matrix if row.get("spec_path")}
+    if platform_filter:
+        if not SAFE_SLUG_RE.fullmatch(platform_filter):
+            raise ValueError("platform must match a resources.platforms key ([A-Za-z0-9_-]+)")
+        matrix = [
+            row for row in matrix
+            if row.get("platform") == platform_filter
+            or (not row.get("platform") and row.get("kind") in {"missing_adapter", "missing_platform"})
+        ]
+        if not matrix:
+            raise ValueError(f"no eval targets match platform {platform_filter!r}")
     if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
         matrix = [row for row in matrix if row.get("platform") == "DGX-SPARK"
                   or (not row.get("platform") and row.get("kind") in {"missing_adapter", "missing_platform"})]
@@ -551,7 +564,7 @@ def main() -> int:
         # Platform support is not permission to use the operator's Spark box.
         # Push runs and unchecked manual sweeps use only the normal fleet.
         matrix = [row for row in matrix if row.get("platform") != "DGX-SPARK"]
-    if (specs_filter or setup_only) and not matrix:
+    if (specs_filter or platform_filter or setup_only) and not matrix:
         raise ValueError("no eval targets match the selected specs/platform")
     if specs_filter:
         surviving_specs = {row["spec_path"] for row in matrix if row.get("spec_path")}

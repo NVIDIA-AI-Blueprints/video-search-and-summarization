@@ -2672,6 +2672,27 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                 run_leg.cleanup_after_agent_exit(root)
         self.assertFalse(held)
 
+    def test_opt_in_worker_cleanup_destroys_sandbox_and_resets_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {
+            "EVAL_SLUG": "alerts__cv_mode_gate__L40S", "GITHUB_RUN_ID": "123",
+        }), mock.patch.object(run_leg, "harbor_env", return_value={}), \
+             mock.patch.object(
+                 run_leg.subprocess,
+                 "run",
+                 return_value=subprocess.CompletedProcess([], 0, stdout="worker cleanup OK\n", stderr=""),
+             ) as execute:
+            root = Path(tmp)
+            run_leg.cleanup_worker_after_leg("box-a", root)
+            command = execute.call_args.args[0][-2]
+            sandbox = run_leg.nemoclaw_sandbox_name("123", "alerts__cv_mode_gate__L40S")
+            self.assertIn(f"nemoclaw {sandbox} destroy --yes --cleanup-gateway", command)
+            self.assertIn("docker rm -f", command)
+            self.assertIn("docker volume rm -f", command)
+            self.assertIn("sudo find", command)
+            receipt = (root / "worker-cleanup.txt").read_text()
+            self.assertIn("status=ok", receipt)
+            self.assertIn(f"sandbox={sandbox}", receipt)
+
     def test_cancelled_workflow_stops_only_its_recorded_wrapper_then_locks_worker(self):
         if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
             self.skipTest("Linux pidfd required")

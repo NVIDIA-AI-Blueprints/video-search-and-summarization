@@ -175,6 +175,7 @@ WORK_DEADLINE_ENV = "SKILL_EVAL_HARBOR_DEADLINE_MONOTONIC"
 SDK_DEADLINE_ENV = "SKILL_EVAL_WORK_DEADLINE_MONOTONIC"
 TRANSPORT_PGID_REGISTRY_ENV = "BREV_TRANSPORT_PGID_FILE"
 GATEWAY_CANCEL_CLEANUP_ROOT_ENV = "SKILL_EVAL_GATEWAY_CANCEL_CLEANUP_ROOT"
+CLEAN_WORKER_AFTER_LEG_ENV = "SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1704,6 +1705,99 @@ def cleanup_gateway_network_policy(instance: str, results_root: Path, *, timeout
         print(f"[run-leg] owned gateway network policy cleanup failed: {type(exc).__name__}", file=sys.stderr)
 
 
+def cleanup_worker_after_leg(instance: str, results_root: Path, *, timeout_sec: int = 720) -> None:
+    """Destroy this leg's NemoClaw client and wipe trial state from its locked worker.
+
+    The Brev instance and cached images remain. This is opt-in because the
+    production nightly historically leaves the final deployment for operator
+    inspection; the one-leg canary requests a fully clean hand-back instead.
+    """
+    slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
+    run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
+    sandbox = nemoclaw_sandbox_name(run_id, slug)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", sandbox):
+        raise ValueError("invalid derived NemoClaw sandbox name")
+    sandbox_re = re.escape(sandbox)
+    command = f"""set -uo pipefail
+export PATH="$HOME/.local/bin:$PATH"
+cleanup_failed=0
+if command -v openshell >/dev/null 2>&1 && openshell sandbox get {shlex.quote(sandbox)} >/dev/null 2>&1; then
+  if ! command -v nemoclaw >/dev/null 2>&1; then
+    echo "nemoclaw CLI missing while sandbox still exists" >&2
+    cleanup_failed=1
+  elif ! nemoclaw {shlex.quote(sandbox)} destroy --yes --cleanup-gateway; then
+    echo "failed to destroy NemoClaw sandbox {sandbox}" >&2
+    cleanup_failed=1
+  fi
+fi
+pkill -f -- '[d]ashboard-forward-watchdog\\.py --sandbox {sandbox_re}( |$)' 2>/dev/null || true
+pkill -f -- '[d]ashboard-relay\\.py --sandbox {sandbox_re}( |$)' 2>/dev/null || true
+rm -f /tmp/nemoclaw-dashboard-relay.log /tmp/nemoclaw-dashboard-watchdog.log
+sudo rm -rf /tmp/vss-sample-data /tmp/skill-eval/uploads
+sudo rm -f /tmp/.harbor_dl_*.b64
+docker info >/dev/null 2>&1 || {{ echo "docker daemon unreachable" >&2; exit 1; }}
+cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
+vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
+docker network prune -f >/dev/null 2>&1 || true
+docker info >/dev/null 2>&1 || {{ echo "docker daemon died during reset" >&2; exit 1; }}
+rc=$(docker ps -aq | wc -l | tr -d ' ')
+rv=$(docker volume ls -q | wc -l | tr -d ' ')
+rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
+if [ "$rc" != 0 ] || [ "$rv" != 0 ] || [ "$rn" != 0 ]; then
+  echo "docker reset incomplete: $rc containers, $rv volumes, $rn custom networks" >&2
+  exit 1
+fi
+purged=""
+for root in /opt/vss-data "$HOME"/vss-data; do
+  [ -d "$root" ] || continue
+  for sub in data_log nvstreamer/videos nvstreamer/videos-upload nvstreamer/vst_data videos/nvstreamer; do
+    d="$root/$sub"; [ -d "$d" ] || continue
+    sudo find "$d" -mindepth 1 -delete || {{ echo "failed to purge $d" >&2; exit 1; }}
+    purged="$purged $d"
+  done
+done
+if command -v openshell >/dev/null 2>&1 && openshell sandbox get {shlex.quote(sandbox)} >/dev/null 2>&1; then
+  echo "NemoClaw sandbox survived teardown: {sandbox}" >&2
+  cleanup_failed=1
+fi
+[ "$cleanup_failed" = 0 ] || exit 1
+echo "worker cleanup OK: sandbox absent; docker runtime empty; host trial data purged"
+"""
+    result = subprocess.run(
+        [
+            "uvx", "--python", sys.executable, "--from", HARBOR_REQUIREMENT,
+            "python", "-c",
+            "import asyncio,sys; from envs.brev_env import _run_brev_exec_retry; "
+            "r=asyncio.run(_run_brev_exec_retry(sys.argv[1],sys.argv[2],timeout=int(sys.argv[3]))); "
+            "print(r.stdout or ''); print(r.stderr or '',file=sys.stderr); sys.exit(r.return_code)",
+            instance, command, str(max(1, timeout_sec - 30)),
+        ],
+        cwd=REPO_ROOT,
+        env=harbor_env(instance),
+        timeout=timeout_sec,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    detail = (result.stdout or result.stderr or "").strip()[-2000:]
+    status = "ok" if result.returncode == 0 else f"failed (exit {result.returncode})"
+    try:
+        fd, name = tempfile.mkstemp(prefix=".worker-cleanup-", dir=results_root)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(
+                    f"status={status}\nworker={instance}\nsandbox={sandbox}\n{detail}\n"
+                )
+            os.replace(name, results_root / "worker-cleanup.txt")
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(name)
+    except OSError:
+        pass
+    if result.returncode:
+        raise RuntimeError(f"worker cleanup failed on {instance}: {detail[-500:]}")
+
+
 
 def _process_start_time(pid: int) -> str:
     # comm can contain spaces and parentheses; field 22 follows the final ')'.
@@ -1800,6 +1894,16 @@ def cleanup_after_agent_exit(results_root: Path, *, lock_dir: Path = Path("/tmp/
         # Never reconcile even an owned chain while a sibling holds the worker.
         # A busy worker remains untouched; the fallback has a bounded CI budget.
         with hold_pool_lock(lambda: [instance], lock_dir, 120 if cancelled else 60):
+            if os.environ.get(CLEAN_WORKER_AFTER_LEG_ENV) == "true":
+                cleanup_receipt = results_root / "worker-cleanup.txt"
+                already_clean = (
+                    cleanup_receipt.is_file()
+                    and not cleanup_receipt.is_symlink()
+                    and cleanup_receipt.stat().st_size <= 4096
+                    and cleanup_receipt.read_text(encoding="utf-8").startswith("status=ok\n")
+                )
+                if not already_clean:
+                    cleanup_worker_after_leg(instance, results_root)
             cleanup_gateway_network_policy(instance, results_root)
         return "attempted"
     except LockTimeoutError:
@@ -2473,7 +2577,11 @@ def main(argv: list[str] | None = None) -> int:
                             model_routes.operational.runtime == "nemoclaw"
                             and os.environ.get("EVAL_SPEC_PATH", "").startswith("skills/operations/")
                         ):
-                            cleanup_gateway_network_policy(instance, args.results_root)
+                            try:
+                                if os.environ.get(CLEAN_WORKER_AFTER_LEG_ENV) == "true":
+                                    cleanup_worker_after_leg(instance, args.results_root)
+                            finally:
+                                cleanup_gateway_network_policy(instance, args.results_root)
                     if rc == 0:
                         return rc
                     refusal = box_rejected_for_capacity(

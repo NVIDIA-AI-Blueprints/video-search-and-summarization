@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Skills Eval NemoClaw Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      operational_model:
+        description: "Optional hosted NemoClaw model override; empty uses the configured default."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+# Only one canary request may be waiting/running. The called nightly workflow
+# also joins Daily's default-branch concurrency group without cancellation.
+concurrency:
+  group: skills-eval-nemoclaw-canary
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Ensure Daily is idle
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 10
+    steps:
+      - name: Refuse to compete with an active Daily run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          active="$({ gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow skills-eval-daily.yml \
+            --limit 30 \
+            --json status \
+            --jq '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "pending" or .status == "requested")] | length'; } 2>/dev/null)"
+          if [ -z "$active" ]; then
+            echo "Could not verify Daily workflow state; refusing to consume the pool."
+            exit 1
+          fi
+          if [ "$active" -ne 0 ]; then
+            echo "Skills Eval Daily has $active active run(s); retry the canary after Daily finishes."
+            exit 1
+          fi
+          echo "Daily is idle; the called workflow will still share its concurrency group and each worker flock."
+
+  canary:
+    name: vss-manage-alerts · cv_mode_gate · L40S
+    needs: guard
+    uses: ./.github/workflows/skills-eval-daily.yml
+    with:
+      target_skill: vss-manage-alerts
+      target_spec: cv_mode_gate
+      target_platform: L40S
+      coding_harness: codex
+      operational_harness: nemoclaw
+      coding_deployment: hosted-nvidia-inference
+      operational_deployment: hosted-nvidia-inference
+      operational_model: ${{ inputs.operational_model }}
+      artifact_prefix: skills-eval-nemoclaw-canary-results
+      max_parallel: 1
+      cleanup_worker: true
+      non_authoritative: true
+      # Scheduled Daily runs execute from the default branch and use this
+      # group. This caller queues behind an existing run and cannot cancel it;
+      # a newly-started Daily run remains authoritative and cancels the canary.
+      concurrency_group: ${{ format('skills-eval-daily-refs/heads/{0}', github.event.repository.default_branch) }}
+    secrets: inherit
