@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# Keep the service-native benchmark implementation unchanged while exposing the
+# common performance-package entrypoint expected by Jenkins.
+exec "${SCRIPT_DIR}/../run_benchmark.sh" "$@"

@@ -13,7 +13,7 @@ Playback does not use a GPU. The result is the Behavior Analytics overhead on re
 Set `ARTIFACT_REF` to the promoted image, then run:
 
 ```bash
-./perf/run_benchmark.sh
+./perf/scripts/run_benchmark.sh
 ```
 
 Benchmark-runner dependencies are separate from the deployed Behavior Analytics
@@ -40,9 +40,11 @@ only around the Jenkins-owned publisher and are not passed to this benchmark.
 
 ## Jenkins
 
-The shared job checks out this service with
-`SCM_FOLDER=services/analytics/behavior-analytics` and archives
-the configured `PERF_REPORT_DIR`. `perf/configs/perf-configs.yaml` declares the
+The shared job checks out the VSS repository with
+`PERF_ROOT=services/analytics/behavior-analytics/perf` and invokes the common
+`scripts/run_benchmark.sh` entrypoint beneath that root. The wrapper delegates
+to the unchanged service-native benchmark implementation. Jenkins archives the
+configured `PERF_REPORT_DIR`. `perf/configs/perf-configs.yaml` declares the
 integration and shared-infrastructure paths that the benchmark needs in
 addition to the service-owned `perf/` package. It also declares the single
 playback fixture that must be hydrated from Git LFS.
