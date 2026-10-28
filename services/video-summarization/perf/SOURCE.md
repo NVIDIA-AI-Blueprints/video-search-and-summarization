@@ -16,9 +16,7 @@
 |---|---|
 | `ci/perf-configs.yaml` | `configs/perf-configs.yaml` |
 | `perf/benchmark/*.yaml` | `configs/` |
-| `perf/benchmark/overrides/` | `configs/overrides/` |
 | `perf/benchmark/*.py` | `benchmark/core/` |
-| `perf/benchmark/examples/` | `benchmark/examples/` |
 | `perf/benchmark/requirements.txt` | Dependencies migrated to `setup/pyproject.toml`; exact resolution in `setup/uv.lock` |
 | N/A | `setup/setup_environment.sh` standardizes locked environment creation |
 | `perf/benchmark/README.md` | `benchmark/README.md` |
@@ -35,6 +33,8 @@
   orchestration.
 - `compose/BlueprintBuilderGenerated/`: contains generated profile content and
   tracked `.env` files and is not referenced by `ci/perf-configs.yaml`.
+- Unreferenced benchmark overrides, the standalone MinIO example, and legacy
+  Cosmos/Nemotron NGINX configs.
 - Application source, image-build files, general functional/integration tests,
   videos, model artifacts, caches, virtual environments, and generated results.
 
