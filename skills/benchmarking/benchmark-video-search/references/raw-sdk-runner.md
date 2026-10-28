@@ -137,16 +137,18 @@ Measured gains and limitations are in [person-state-evidence.md](person-state-ev
 
 ## Generate a shareable HTML report
 
-After an evaluation, generate a self-contained report from its output directory:
+`run_raw_clip_eval.py` writes `report.html` in its output directory after a
+completed run; pass `--no-report` to skip it. To rewrite it later, or to write
+it elsewhere:
 
 ```bash
 python skills/benchmarking/benchmark-video-search/scripts/report_raw_clip_eval.py \
-  --run-dir /path/to/results
+  --run-dir /path/to/results --output /path/to/report.html
 ```
 
-The report is written to `report.html` in that directory. Use `--output
-/path/to/report.html` to choose another destination. It reads saved run artifacts
-only; it does not contact the deployment or rerun searches. The summary includes
+`--output` is optional and defaults to `report.html` in the run directory. It
+reads saved run artifacts only; it does not contact the deployment or rerun
+searches. The summary includes
 per-mode/per-depth accuracy and latency, route and domain diagnostic cuts,
 configuration, prompt, token usage, and GPU telemetry when recorded. The query
 table has one row per query and mode, with AP@10, deepest-depth AP, route, query

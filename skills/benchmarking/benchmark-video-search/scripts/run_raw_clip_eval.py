@@ -23,6 +23,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
+import report_raw_clip_eval as report
 from flows import clip_metrics, routing
 from flows.base import REPO_ROOT
 from flows.decompose import MAX_TOKENS, LiveDecomposer
@@ -867,6 +868,11 @@ def parse_args(argv=None):
         action="store_true",
         help="Validate inputs and print the plan without any backend calls or output files",
     )
+    p.add_argument(
+        "--no-report",
+        action="store_true",
+        help="Do not write report.html into the output directory after a completed run",
+    )
     args = p.parse_args(argv)
     if args.deployment_manifest:
         recorded = read(args.deployment_manifest)
@@ -945,6 +951,8 @@ def main():
             {"type": type(error).__name__, "message": str(error), "complete": False},
         )
         raise
+    if not args.no_report:
+        print(f"Wrote {report.write_report(args.output_dir)}")
 
 
 if __name__ == "__main__":

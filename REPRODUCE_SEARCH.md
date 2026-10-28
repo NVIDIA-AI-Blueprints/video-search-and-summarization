@@ -85,10 +85,10 @@ To add the Cosmos 3 Nano reranker to a finished run, see
 "$PY" "$SCRIPTS/ingest_clip_gallery.py" --workspace "$WORK" \
   --audit-only --output "$WORK/gallery-after-benchmark.json"
 cat "$WORK/results/metrics.json"
-"$PY" "$SCRIPTS/report_raw_clip_eval.py" --run-dir "$WORK/results"
 ```
 
-This writes a self-contained `report.html` beside the run artifacts, with
+A completed run writes a self-contained `report.html` beside the run artifacts
+(pass `--no-report` to skip it; `report_raw_clip_eval.py --run-dir` rewrites it), with
 aggregate diagnostics and searchable per-query routes, scores, latencies, ground
 truth, and retrieval details. Review the report before sharing because it
 contains query text, model decompositions, prompts, and retrieval results.

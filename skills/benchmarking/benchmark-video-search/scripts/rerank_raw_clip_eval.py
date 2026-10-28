@@ -23,6 +23,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Protocol
 
+import report_raw_clip_eval as report
 import run_raw_clip_eval as runner
 from flows import clip_metrics
 
@@ -705,6 +706,11 @@ def parse_args(argv=None):
         default=32,
         help="Must cover the adapter rank; the bundled fine-tuned adapter is rank 32",
     )
+    p.add_argument(
+        "--no-report",
+        action="store_true",
+        help="Do not regenerate report.html in the run directory after reranking",
+    )
     args = p.parse_args(argv)
     if Path(args.output_name).name != args.output_name or args.output_name in {
         ".",
@@ -737,7 +743,10 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
-    run(parse_args(argv))
+    args = parse_args(argv)
+    run(args)
+    if not args.no_report:
+        print(f"Wrote {report.write_report(args.run_dir)}")
 
 
 if __name__ == "__main__":

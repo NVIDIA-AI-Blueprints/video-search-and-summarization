@@ -79,10 +79,10 @@ SCRIPTS=skills/benchmarking/benchmark-video-search/scripts
   --output-name fine-tuned --model-id "$MERGED_MODEL" \
   --lora-path "$ADAPTER/language" --rerank-depth 20 --fps 2 --max-frames 32 \
   --fusion-alphas 0.3 0.5
-
-# Regenerate the HTML report; it adds a reranker comparison section
-"$RERANK_PY" "$SCRIPTS/report_raw_clip_eval.py" --run-dir "$WORK/results"
 ```
+
+Each rerank run regenerates `report.html` in the run directory, adding the
+reranker comparison section. Pass `--no-report` to skip it.
 
 `--reranker identity` loads no model and keeps the stage-1 order. Run it first
 to check the inputs: `reranked` and every `fused-aX` must match `stage1-pool`.

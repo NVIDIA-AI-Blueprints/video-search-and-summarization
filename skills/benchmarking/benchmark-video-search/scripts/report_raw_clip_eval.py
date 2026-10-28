@@ -708,20 +708,22 @@ document.querySelectorAll('#queries th').forEach((head,index)=>head.addEventList
 </script></body></html>"""
 
 
+def write_report(run_dir: Path, output: Path | None = None) -> Path:
+    root = run_dir.resolve(strict=True)
+    output = (output or root / "report.html").resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    temporary.write_text(build_html(root), encoding="utf-8")
+    temporary.replace(output)
+    return output
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True, type=Path, help="Evaluator output directory")
     parser.add_argument("--output", type=Path, help="HTML output path (default: <run-dir>/report.html)")
     args = parser.parse_args(argv)
-    root = args.run_dir.resolve(strict=True)
-    output = args.output or (root / "report.html")
-    output = output.resolve()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    report = build_html(root)
-    temporary = output.with_suffix(output.suffix + ".tmp")
-    temporary.write_text(report, encoding="utf-8")
-    temporary.replace(output)
-    print(f"Wrote {output}")
+    print(f"Wrote {write_report(args.run_dir, args.output)}")
 
 
 if __name__ == "__main__":

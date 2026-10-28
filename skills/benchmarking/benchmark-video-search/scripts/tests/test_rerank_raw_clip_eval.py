@@ -363,3 +363,13 @@ def test_latency_ignores_queries_without_hits_and_counts_out_of_clip_windows():
     assert not rerank.hit_window(
         hit("s", 1, 9, 0.5), 0, clips, origin, 0.0
     ).outside_clip
+
+
+def test_main_writes_the_report_unless_told_not_to(evaluated):
+    run, common = evaluated
+    rerank.main(
+        [*common, "--output-name", "quiet", "--reranker", "identity", "--no-report"]
+    )
+    assert not (run / "report.html").exists()
+    rerank.main([*common, "--output-name", "loud", "--reranker", "identity"])
+    assert "Reranker comparison" in (run / "report.html").read_text()
