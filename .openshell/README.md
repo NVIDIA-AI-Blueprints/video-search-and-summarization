@@ -648,7 +648,7 @@ what it covered.
 **3 — Build the image and bake the policy in**, so one artifact carries the
 plugin, skills, workspace docs, `vss` CLI and the access boundary at one
 `VSS_REF`. `.hermes/` already produces that image;
-[`openshell-harness/Dockerfile.policy`](Dockerfile.policy)
+[`.openshell/Dockerfile.policy`](Dockerfile.policy)
 derives from it and adds the policy plus two fixes for assumptions the NemoClaw
 base makes about its runtime:
 
@@ -666,9 +666,9 @@ provider's real key, so only its presence matters.
 
 ```bash
 docker build -t vss-harness-hermes:$VSS_REF .hermes
-docker build -f openshell-harness/Dockerfile.policy \
+docker build -f .openshell/Dockerfile.policy \
   --build-arg HARNESS_IMAGE=vss-harness-hermes:$VSS_REF \
-  -t vss-harness-hermes:$VSS_REF-policy openshell-harness
+  -t vss-harness-hermes:$VSS_REF-policy .openshell
 ```
 
 Precedence is `--policy` > `OPENSHELL_SANDBOX_POLICY` > image policy > built-in
@@ -681,7 +681,7 @@ for Compose.
 `COMPATIBLE_API_KEY` at onboard):
 
 ```yaml
-# openshell-harness/vss-inference-profile.yaml
+# .openshell/vss-inference-profile.yaml
 id: vss-inference
 display_name: VSS agent inference
 category: inference
@@ -704,8 +704,8 @@ binaries:
 ```
 
 ```bash
-openshell profile lint   -f openshell-harness/vss-inference-profile.yaml
-openshell profile import -f openshell-harness/vss-inference-profile.yaml
+openshell profile lint   -f .openshell/vss-inference-profile.yaml
+openshell profile import -f .openshell/vss-inference-profile.yaml
 COMPATIBLE_API_KEY=... openshell provider create \
   --name vss-inference --type vss-inference --credential COMPATIBLE_API_KEY
 ```
