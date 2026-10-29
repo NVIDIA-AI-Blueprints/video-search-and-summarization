@@ -1442,6 +1442,7 @@ class VlmPipeline:
         end_of_stream: bool = False
         total_chunks_at_eos: int = 0
         all_chunks_processed: bool = False
+        evs_sessions_closed: bool = False
         gpu_id: int = -1
         decode_signature: tuple = field(default_factory=tuple)
 
@@ -1740,8 +1741,8 @@ class VlmPipeline:
                         callback(chunk_result)
                 if close_sessions:
                     Thread(
-                        target=self.close_evs_sessions,
-                        args=(live_stream_id,),
+                        target=self._close_evs_sessions_after_eos,
+                        args=(lsinfo, live_stream_id),
                         daemon=True,
                     ).start()
                 continue
@@ -1851,14 +1852,23 @@ class VlmPipeline:
                         callback(live_stream_ended)
                 if close_sessions:
                     Thread(
-                        target=self.close_evs_sessions,
-                        args=(stream_id,),
+                        target=self._close_evs_sessions_after_eos,
+                        args=(lsinfo, stream_id),
                         daemon=True,
                     ).start()
                 continue
             callback = self._chunk_callback_map.pop(item["chunk_id"], None)
             if callback:
                 callback(chunk_result)
+
+    def _close_evs_sessions_after_eos(self, lsinfo: "VlmPipeline._LiveStreamInfo", stream_id: str):
+        try:
+            self.close_evs_sessions(stream_id)
+        finally:
+            # A restart must not start before this close finishes: both runs
+            # share the stream id, so a late close would delete the new
+            # run's EVS sessions.
+            lsinfo.evs_sessions_closed = True
 
     def close_evs_sessions(self, stream_id: str):
         for proc in self._vlm_procs:
@@ -2070,6 +2080,21 @@ class VlmPipeline:
 
         with self._live_stream_lock:
             lsinfo = self._live_stream_id_map.get(asset.asset_id)
+            if lsinfo and lsinfo.end_of_stream and lsinfo.all_chunks_processed:
+                if not lsinfo.evs_sessions_closed:
+                    # The EOS cleanup is still closing this stream's EVS sessions
+                    # under the same stream id; starting now would let it delete
+                    # the restarted stream's sessions.
+                    raise ServiceException(
+                        f"Live stream {asset.asset_id} is still shutting down; retry",
+                        "StreamNotActive",
+                        409,
+                    )
+                # The decoder dropped this stream at EOS and every subscriber has
+                # seen its final chunk, so the entry is stale: subscribing to it
+                # would fail with StreamNotActive forever. Start a fresh decoder.
+                self._live_stream_id_map.pop(asset.asset_id, None)
+                lsinfo = None
             if lsinfo:
                 if lsinfo.decode_signature != decode_signature:
                     raise ServiceException(
@@ -2099,13 +2124,22 @@ class VlmPipeline:
 
             try:
                 if should_start_decoder:
-                    self._decoder_procs[gpu_id].send_command(
+                    started = self._decoder_procs[gpu_id].send_command(
                         "start-live-stream",
                         asset=asset,
                         vlm_query=vlm_query,
                         request_params=request_params,
                         request_id=request_id,
                     )
+                    if started == "already-running":
+                        # The previous decoder handle is still tearing down after EOS, so no
+                        # decoder will serve this request. Fail retryably instead of leaving
+                        # it without a terminal callback.
+                        raise ServiceException(
+                            f"Live stream {asset.asset_id} is still shutting down; retry",
+                            "StreamNotActive",
+                            409,
+                        )
                 else:
                     added = self._decoder_procs[gpu_id].send_command(
                         "add-live-stream-subscriber",
