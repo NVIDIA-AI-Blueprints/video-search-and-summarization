@@ -226,9 +226,12 @@ describe('AlertsComponent', () => {
       />,
     );
 
-    const handled = answerHandler?.(
-      '<vss-ui-artifact>{"version":"1.0","kind":"vss.alert.incidents","payload":{"incidents":[]}}</vss-ui-artifact>',
-    );
+    let handled: boolean | void;
+    act(() => {
+      handled = answerHandler?.(
+        '<vss-ui-artifact>{"version":"1.0","kind":"vss.alert.incidents","payload":{"incidents":[]}}</vss-ui-artifact>',
+      );
+    });
 
     expect(handled).toBe(true);
     expect(mockRefetch).toHaveBeenCalledWith({ includeSensorList: true });

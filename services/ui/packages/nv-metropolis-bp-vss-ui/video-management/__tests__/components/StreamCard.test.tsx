@@ -295,5 +295,8 @@ describe('StreamCard — copy and chat context', () => {
       contextType: 'media/video',
       data: { sensorName: rtspStream.name, streamId: rtspStream.streamId, mediaType: 'rtsp' },
     });
+    await waitFor(() => {
+      expect(mockCopyToClipboard).toHaveBeenCalled();
+    });
   });
 });

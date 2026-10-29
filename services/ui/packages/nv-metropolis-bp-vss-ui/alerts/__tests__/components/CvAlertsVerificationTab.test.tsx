@@ -88,7 +88,7 @@ describe('CV Alerts Verification rules tab', () => {
     global.fetch = originalFetch;
   });
 
-  it('hides disabled Manage Alerts kinds', () => {
+  it('hides disabled Manage Alerts kinds', async () => {
     render(
       <CreateAlertRulesView
         isDark={false}
@@ -107,6 +107,9 @@ describe('CV Alerts Verification rules tab', () => {
       'Button',
     );
     expect(screen.getByTestId('verification-filter').tagName).toBe('INPUT');
+    await waitFor(() =>
+      expect(screen.getByText(/No rules found/i)).toBeInTheDocument(),
+    );
   });
 
   it('switches tabs and creates, edits, then deletes a verification rule', async () => {

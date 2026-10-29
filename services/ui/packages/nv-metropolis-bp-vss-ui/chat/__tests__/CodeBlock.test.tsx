@@ -29,24 +29,24 @@ describe('CodeBlock highlighting', () => {
     jest.useRealTimers();
   });
 
-  it('does not load the highlighter for a large JSON payload', () => {
+  it('does not load the highlighter for a large JSON payload', async () => {
     const value = JSON.stringify({ blob: 'x'.repeat(CODE_HIGHLIGHT_MAX_CHARS) });
     const { container, queryByTestId } = render(<CodeBlock language="json" value={value} />);
 
     expect(container.querySelector('[data-highlighted="false"]')).toBeInTheDocument();
-    act(() => {
-      jest.advanceTimersByTime(2_000);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(2_000);
     });
     expect(container.querySelector('[data-highlighted="false"]')).toBeInTheDocument();
     expect(queryByTestId('syntax-highlighter')).not.toBeInTheDocument();
   });
 
-  it('attempts to highlight a small JSON payload once it is stable', () => {
+  it('attempts to highlight a small JSON payload once it is stable', async () => {
     const { container } = render(<CodeBlock language="json" value='{"query":"forklift"}' />);
 
     expect(container.querySelector('[data-highlighted="false"]')).toBeInTheDocument();
-    act(() => {
-      jest.advanceTimersByTime(500);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(500);
     });
     expect(container.querySelector('[data-highlighted="true"]')).toBeInTheDocument();
   });
