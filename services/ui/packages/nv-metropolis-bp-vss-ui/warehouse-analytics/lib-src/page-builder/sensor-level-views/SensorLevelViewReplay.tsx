@@ -126,8 +126,14 @@ class SensorLevelViewReplay extends React.Component {
       cameraSourceMedia === "vst" ||
       cameraSourceMedia !== "mms"
     ) {
-      // since tripwire events are very short, play only the video for longer and start animation
-      // after initial padding duration
+      // ROI/tripwire clips are often under a second (the card can show the
+      // same start and end second). VST overlay DASH will not publish a
+      // manifest for a window that short — it stays HTTP 202 until the
+      // player times out. Ask for 3s of media on each side of the event.
+      // Floor animation still uses the unpadded eventInfo and waits 3s
+      // after the first video frame so it starts when the clip reaches
+      // the original event, not this packaging pad.
+      // DashVideo must not invent this window; it only plays what it is given.
       let modifiedEventForVideo = Object.assign({}, eventInfo, {
         timeInterval: eventInfo.timeInterval + 6,
         timestamp: new Date(
