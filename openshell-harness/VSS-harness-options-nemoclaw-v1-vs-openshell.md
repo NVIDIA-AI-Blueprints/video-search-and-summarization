@@ -448,6 +448,7 @@ services:
     image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_TAG}  # keys the Docker
     profiles: [harness]                                       # driver requires
     command: [generate-certs, --output-dir, /var/lib/openshell/tls]
+    user: "0"                    # seeds a root-owned fresh named volume
     environment: { HOME: /var/lib/openshell }
     volumes: [openshell-data:/var/lib/openshell]
   openshell-gateway:
@@ -457,8 +458,7 @@ services:
     restart: unless-stopped
     network_mode: host           # the supervisor dials the host's own loopback
     command: ["--bind-address", "127.0.0.1", "--port", "8080"]
-    group_add: ["988"]           # numeric: the distroless image has no
-                                 # /etc/group to resolve `docker` against
+    group_add: ["988"]           # docker GID, numeric: distroless, no /etc/group
     environment:
       OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
       OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"  # barred from the TOML
@@ -521,18 +521,11 @@ Three constraints the service has to respect:
   sandboxes and read credentials while `allow_unauthenticated_users` is `true`.
 - **Pass the bind flags explicitly.** The image's `CMD` is `--bind-address
   0.0.0.0 --port 8080` and flags beat the TOML, so the TOML's `bind_address` is
-  ignored unless the command is replaced. Upstream clears it with `command:
-  []`, but Compose v2.39.1 treats an empty list as unset and the image `CMD`
-  still applied — verified against gateway 0.1.5. Naming the flags is what
-  actually binds loopback.
+  ignored unless the command is replaced. Name the flags rather than clearing
+  the command with `command: []`, which Compose treats as unset.
 - **Docker socket, not privilege.** This is Docker-outside-of-Docker: the
   gateway creates sibling containers on the host. It needs read/write on the
   socket via `group_add`, not `--privileged`, and not root in production.
-- **Chown the volume before the first `up`.** Both services run as the image's
-  `1000:1000`; a fresh named volume is root-owned, so `openshell-init` exits 1
-  on `failed to create /var/lib/openshell/tls`. Upstream sidesteps this with
-  `user: "0"` on `init`. Keeping both non-root costs one command:
-  `docker run --rm -v <project>_openshell-data:/d busybox chown -R 1000:1000 /d`.
 
 The data directory is a named volume, and needs backups rather than being
 treated as cache: it holds the SQLite record of every sandbox, the JWT signing
@@ -599,18 +592,14 @@ makes the same point with `pip`. Inspecting the image also gives `sandbox` as
 cannot cover both harnesses: the prover compares process identity and exact
 binary paths, and the two images agree on neither.
 
-**`access: full` is an L7 preset, and L4 cannot share a named policy with
-REST.** A plain TCP grant is `protocol: tcp`; writing `access: full` next to
-REST endpoints makes the prover reject the whole policy with `unsupported:
-mixes REST controls into L4 authority`. The VSS ports and the harness's REST
-hosts therefore have to be separate named entries, which is why `vss-backend`
-above carries no `rules` block.
+**A plain TCP grant is `protocol: tcp`, not the preset's `access: full`, and an
+L4 grant cannot share a named policy with REST rules.** That is why the VSS
+ports and the harness's REST hosts are separate named entries above.
 
-The `allowed_ips` the preset carries from 0.0.116 are dropped above. With the
+The `allowed_ips` the preset carries from 0.0.116 are dropped above: with the
 default host-mode supervisor the driver publishes host loopback as the backend
-address for `host.openshell.internal`, and the supervisor confirms it —
-`host.openshell.internal maps to a non-link-local IP` — so the
-`172.17.0.0/16`-style grants match nothing.
+address for `host.openshell.internal`, so the `172.17.0.0/16`-style grants
+match nothing.
 
 `boundary-policy.yaml` is the ceiling VSS is willing to grant a harness sandbox,
 written once by hand. Same paths and same binaries, deliberately wider where it
@@ -658,23 +647,28 @@ what it covered.
 
 **3 — Build the image and bake the policy in**, so one artifact carries the
 plugin, skills, workspace docs, `vss` CLI and the access boundary at one
-`VSS_REF`. `.hermes/` already produces that image; the policy is the one line
-it does not yet carry:
+`VSS_REF`. `.hermes/` already produces that image;
+[`openshell-harness/Dockerfile.policy`](openshell-harness/Dockerfile.policy)
+derives from it and adds the policy plus two fixes for assumptions the NemoClaw
+base makes about its runtime:
 
-```dockerfile
-# .hermes/Dockerfile
-COPY policy-hermes.yaml /etc/openshell/policy.yaml
-```
+- **CA bundle.** The image's certifi `cacert.pem` links to NemoClaw's proxy-CA
+  path, so the overlay links that path to where OpenShell 0.1.6 mounts the
+  bundle, `/run/openshell-supervisor-ca/material/ca-bundle.crt`.
+- **Inference target.** `config.yaml` names the managed inference route 0.1.6
+  replaced with sandbox-scoped provider attachments. Under that model the base
+  URL and model are the workload's to set, so the overlay leaves them as
+  `${env:VSS_HERMES_BASE_URL}` and `${env:VSS_HERMES_MODEL}` for step 5.
 
-It has to stay one layer, and it has to carry no `--chmod`. The built image
-already sits at 125 layers against overlay2's limit of 127, so a `COPY` plus a
-`RUN chmod` builds and then fails every `docker run` with `max depth exceeded`
-— which also rules out a derived image. `--chmod` is applied to the parent
-directory `COPY` creates, and a mode without the execute bit leaves
-`/etc/openshell` untraversable by the sandbox user.
+The model `api_key` becomes `${env:COMPATIBLE_API_KEY}` and stays a
+placeholder: the proxy strips whatever bearer the agent sends and injects the
+provider's real key, so only its presence matters.
 
 ```bash
 docker build -t vss-harness-hermes:$VSS_REF .hermes
+docker build -f openshell-harness/Dockerfile.policy \
+  --build-arg HARNESS_IMAGE=vss-harness-hermes:$VSS_REF \
+  -t vss-harness-hermes:$VSS_REF-policy openshell-harness
 ```
 
 Precedence is `--policy` > `OPENSHELL_SANDBOX_POLICY` > image policy > built-in
@@ -687,7 +681,7 @@ for Compose.
 `COMPATIBLE_API_KEY` at onboard):
 
 ```yaml
-# assets/vss-inference-profile.yaml
+# openshell-harness/vss-inference-profile.yaml
 id: vss-inference
 display_name: VSS agent inference
 category: inference
@@ -710,24 +704,47 @@ binaries:
 ```
 
 ```bash
-openshell profile lint   -f assets/vss-inference-profile.yaml
-openshell profile import -f assets/vss-inference-profile.yaml
+openshell profile lint   -f openshell-harness/vss-inference-profile.yaml
+openshell profile import -f openshell-harness/vss-inference-profile.yaml
 COMPATIBLE_API_KEY=... openshell provider create \
-  --name vss-inference --type vss-inference --from-existing
+  --name vss-inference --type vss-inference --credential COMPATIBLE_API_KEY
 ```
+
+`--credential KEY` reads the value from the environment, which is the form a
+custom profile needs: `--from-existing` has no stored credentials to read. The
+CLI has to be the gateway's own release, since the two speak Protobuf.
+
+The profile is per endpoint family, because it is what authorizes the host.
+One file each covers the notebook's three choices, and step 5 names the one it
+imported:
+
+| `deploy_nemoclaw.ipynb` | Profile | Credential |
+|---|---|---|
+| (a) OpenAI-compatible endpoint | `vss-inference-profile.yaml` | `COMPATIBLE_API_KEY` |
+| (b) model served on this host | `vss-inference-local-profile.yaml` | optional |
+| (c) build.nvidia.com | `vss-inference-build-profile.yaml` | `NVIDIA_API_KEY` |
+
+A server on a port (b) does not declare is unreachable until the profile
+declares it, which is the one thing `NEMOCLAW_ENDPOINT_URL` did not have to
+care about. Within a family the model id is free, and step 5 sets it.
 
 **5 — Create the sandbox and expose the harness API:**
 
 ```bash
 openshell sandbox create \
   --name vss-harness-hermes \
-  --from vss-harness-hermes:$VSS_REF \
+  --from vss-harness-hermes:$VSS_REF-policy \
   --policy ./policy-hermes.yaml \
   --provider vss-inference \
   --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
+  --env VSS_HERMES_BASE_URL=https://inference-api.nvidia.com/v1 \
+  --env VSS_HERMES_MODEL=aws/anthropic/bedrock-claude-opus-5 \
   --restart-policy on-failure \
   --expose 18642 --expose-authorization-mode bearer-passthrough --detach \
   -- sh -c 'chmod 770 /sandbox;
+            C=/sandbox/.hermes/config.yaml
+            sed -i -e "s#\${env:VSS_HERMES_BASE_URL}#$VSS_HERMES_BASE_URL#g" \
+                   -e "s#\${env:VSS_HERMES_MODEL}#$VSS_HERMES_MODEL#g" "$C"
             E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
@@ -741,6 +758,34 @@ openshell sandbox exec -n vss-harness-hermes -- vss-hermes-sync
 openshell policy get vss-harness-hermes --full         # verify effective policy
 ```
 
+To verify, run the CLI agent, then the API server the UI uses:
+
+```bash
+openshell sandbox exec -n vss-harness-hermes -- \
+  hermes chat -Q -q 'Reply with the single word: pong'
+
+KEY=$(openshell sandbox exec -n vss-harness-hermes --no-tty -- \
+  sh -c '. /sandbox/.hermes/.env; printf %s "$API_SERVER_KEY"')
+curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  http://default--vss-harness-hermes.openshell.localhost:8080/v1/chat/completions \
+  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"List the VIOS sensors."}]}'
+```
+
+`sandbox connect` attaches to the main process's output, not a shell — detach
+with Ctrl-P Ctrl-Q, since Ctrl-C reaches `hermes gateway run`. For a shell, use
+`openshell sandbox exec -n vss-harness-hermes --tty -- bash`. A `Connection
+error` from the agent means the proxy denied the call; the supervisor
+container's log names the host and reason.
+
+**The two `--env` values are the model choice, and the `sed` is what makes
+them stick.** They replace `NEMOCLAW_ENDPOINT_URL`/`NEMOCLAW_MODEL`, so a
+redeploy against a different model is a flag rather than a rebuild. Rendering
+them into the file is not redundant: `hermes chat` expands a `${env:}` ref, but
+the API server the UI talks to reads the file as written and sends the
+placeholder as the model id, which the endpoint rejects with `HTTP 403`. The
+model `api_key` ref needs no rendering — the proxy replaces the bearer either
+way.
+
 **The trailing command is the harness itself, not a start script.** OpenShell
 treats it as the sandbox's canonical main process: it streams the output and
 returns the exit status, so a dead agent surfaces as `Error` with
@@ -750,23 +795,13 @@ exec-driven sandbox stays alive — which means today nothing watches the agent.
 Taking OpenShell's contract costs the work `nemoclaw-start` does on the way up;
 see step 6.
 
-**The two lines wrapping it are the cost, measured.** Bare `hermes gateway run`
-does not start on 0.1.6, and neither fix is optional:
-
-- OpenShell leaves `/sandbox` as `sandbox:sandbox 700`, which Hermes's
-  secret-boundary guard rejects — it accepts only `(root,root,700|755)`,
-  `(sandbox,sandbox,755|770)` or `(root,sandbox,1775)`.
-- Hermes then needs `API_SERVER_KEY`, which `nemoclaw-start` normally mints.
-  Passing it with `--env` is refused — `the process environment contains raw
-  secret-shaped values` — so the sandbox has to mint it into
-  `/sandbox/.hermes/.env` at mode 640, where the guard expects it.
-
-**Letting the image do it instead is not an option.** `nemoclaw-start`, which
-ships in the image for exactly this, needs `/proc/1` to have euid 0, and the
-gateway rejects `run_as_user: "0"` — `must be 'sandbox' or a numeric UID/GID in
-range [1, 4294967294]`. Keeping `BASE_IMAGE` therefore inherits a bring-up that
-assumes NemoClaw's PID 1 and cannot run under OpenShell at all, which is what
-these two lines replace.
+**The command carries the two preconditions the image's own launcher would have
+met.** Hermes's secret-boundary guard requires `/sandbox` to be group-readable,
+which OpenShell does not leave it, and it requires `API_SERVER_KEY` in
+`/sandbox/.hermes/.env` at mode 640 rather than in the environment. Both are
+the sandbox's to satisfy under Option 2, because `nemoclaw-start` — which does
+this work in the image — requires a root PID 1 that the gateway's policy
+validation refuses.
 
 `--expose` publishes one of the sandbox's loopback ports at a URL the gateway
 manages, so the path becomes client → gateway listener → supervisor → sandbox
@@ -868,10 +903,10 @@ being reimplemented. The script's own steps, and where each lands:
 | Clear raw inference keys, tighten rlimits, `setpriv` | Dropped — OpenShell owns this boundary and `no-new-privileges` blocks the `setpriv` step anyway (§1) |
 | `wait` on the gateway process | OpenShell's canonical main process does this |
 
-What remains is a config file in the image, not a launcher. The key is not
-VSS's to generate: the image mints one into `/sandbox/.hermes/.env` on first
-start, and `hermes gateway run` enrols the API server only when it finds a
-usable one. Passing one with `--env` is worse than redundant — the image aborts
+What remains is a config file in the image, not a launcher. The key never
+leaves the sandbox: step 5's command mints one into `/sandbox/.hermes/.env`,
+and `hermes gateway run` enrols the API server only when it finds a usable one
+there. Passing one with `--env` is worse than redundant — the image aborts
 with `[SECURITY] Refusing Hermes startup because the process environment
 contains raw secret-shaped values`, naming `API_SERVER_KEY`. So the UI's token
 is read out of the sandbox with `sandbox exec` after create, the same shape as
