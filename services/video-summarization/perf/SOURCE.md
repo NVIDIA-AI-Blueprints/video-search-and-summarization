@@ -4,8 +4,8 @@
 |---|---|
 | Source repository | `ssh://git@gitlab-master.nvidia.com:12051/via/long-video-summarization.git` |
 | Source branch inspected | `main` |
-| Source commit | `60c40b9b8beb61bf1cc6865e510a498677060483` |
-| Port date | 2026-10-13 |
+| Source commit | `46720ff15883d9a92228a680247822ebffee5e14` |
+| Port date | 2026-10-29 |
 | Jira | AAAI-1222 |
 | POC package repository | `a3ie-infra/benchmarking-perf-eval` |
 | POC package commit | `02bb6fd955520cd8288583a536d0237e173637f3` |
@@ -38,5 +38,14 @@
 - Application source, image-build files, general functional/integration tests,
   videos, model artifacts, caches, virtual environments, and generated results.
 
-The verification utility compares the ported files with this pinned working
-tree and reports missing, extra, mode-changed, or content-changed files.
+Use the pinned source commit and mapping above when reviewing later upstream
+synchronizations. Compare benchmark behavior separately from the documented
+VSS repository adaptations so service-owned integration changes are preserved.
+
+## Upstream synchronization
+
+The 2026-10-29 synchronization applied the benchmark-relevant upstream range
+`60c40b9b8beb61bf1cc6865e510a498677060483..46720ff15883d9a92228a680247822ebffee5e14`.
+Native benchmark behavior was ported hunk-for-hunk; service-owned paths, locked
+`uv` setup, shared reporting, centralized publication, and hardened cleanup remain
+VSS repository adaptations.

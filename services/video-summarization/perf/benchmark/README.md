@@ -129,6 +129,7 @@ This mode tests the complete video processing workflow from file upload through 
 - `videos`: List of video configurations
   - `filepath`: Path to video file (required)
   - `chunk_sizes`: List of chunk durations to test (required)
+  - `iterations`: Override the scenario `iterations` for this video (optional)
   - `summarize_api_params`: Override global summarize parameters (optional)
     - `events`: List of events to monitor
     - `scenario`: Scenario description

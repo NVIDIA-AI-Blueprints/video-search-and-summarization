@@ -67,6 +67,7 @@ class TriggerSource(str, Enum):
     CI_PIPELINE = "ci_pipeline"
     MANUAL = "manual"
     SCHEDULED = "scheduled"
+    ARTIFACT_PROMOTION = "artifact_promotion"
     SQA = "sqa"
     PERF_LAB = "perf-lab"
 
@@ -99,7 +100,7 @@ class RunInfo(BaseModel):
     duration_seconds: Optional[float] = Field(None, description="Scenario duration (s)")
     triggered_by: str = Field(
         DEFAULT_TRIGGERED_BY,
-        description="ci_pipeline | manual | scheduled | sqa | perf-lab",
+        description="ci_pipeline | manual | scheduled | artifact_promotion | sqa | perf-lab",
     )
     pipeline_url: str = Field("", description="Optional CI pipeline URL")
     release: str = Field("", description="Release identifier (e.g. EA2)")

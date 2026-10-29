@@ -13,6 +13,7 @@ from vss_perf_reporting import (
     DEFAULT_MINIO_SECRET_KEY,
     VSSBenchmarkResult,
     MinIOUploader,
+    TriggerSource,
     build_and_save,
     build_result,
     generate_run_id,
@@ -174,3 +175,7 @@ def test_publish_directory_rejects_unsafe_service(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="unsafe or missing metadata.service"):
         publish_result_directory(tmp_path)
+
+
+def test_artifact_promotion_trigger_source_is_supported() -> None:
+    assert TriggerSource.ARTIFACT_PROMOTION.value == "artifact_promotion"
