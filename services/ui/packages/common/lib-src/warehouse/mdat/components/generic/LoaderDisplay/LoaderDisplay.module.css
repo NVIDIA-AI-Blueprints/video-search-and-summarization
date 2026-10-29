@@ -12,6 +12,7 @@
   justify-content: center;
   flex-direction: column;
   background: #ddd;
+  font-size: 0.8125rem;
 }
 
 .iconDiv {
@@ -32,7 +33,7 @@
   overflow: auto;
   margin-top: 0.5rem;
   padding: 0 1rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   line-height: 1.4;
   font-weight: 400;
   color: #1a1a1a;
@@ -52,11 +53,11 @@
 
 .errorIcon {
   color: red;
-  font-size: 3vw !important;
+  font-size: 1.5rem !important;
 }
 
 .successIcon {
   color: green;
-  font-size: 3vw !important;
+  font-size: 1.5rem !important;
 }
 

@@ -31,8 +31,18 @@ jest.mock('common/warehouse', () => {
     }
   }
 
-  const LoaderDisplay = ({ userMessage }: { userMessage?: { getShortString?: () => string } }) =>
-    ReactLib.createElement('div', null, userMessage?.getShortString?.() || 'loading');
+  const LoaderDisplay = ({
+    userMessage,
+  }: {
+    userMessage?: string | { getShortString?: () => string };
+  }) =>
+    ReactLib.createElement(
+      'div',
+      null,
+      typeof userMessage === 'string'
+        ? userMessage
+        : userMessage?.getShortString?.() || 'loading',
+    );
   LoaderDisplay.TYPE = { LOADING: 0, LOAD_FAILURE: 1, LOAD_SUCCESS: 2 };
   LoaderDisplay.SIZE = { SMALL: 0, MEDIUM: 1, LARGE: 2 };
 
@@ -89,6 +99,6 @@ describe('WarehouseAnalyticsComponent', () => {
       <WarehouseAnalyticsComponent theme="dark" warehouseData={{ apiUrl: 'http://example.test' }} />,
     );
     expect(container.firstChild).toHaveClass('bg-black');
-    expect(screen.getByText(/invoke app/i)).toBeInTheDocument();
+    expect(screen.getByText(/loading map/i)).toBeInTheDocument();
   });
 });
