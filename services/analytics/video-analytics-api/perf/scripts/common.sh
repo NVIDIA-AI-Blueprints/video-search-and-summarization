@@ -53,6 +53,13 @@ refuse_symlink() {
     fi
 }
 
+ensure_host_dir() {
+    local path="$1"
+    refuse_symlink "$path"
+    mkdir -p -- "$path"
+    refuse_symlink "$path"
+}
+
 refuse_symlink_components() {
     local path="$1"
     local current="$path"
