@@ -173,8 +173,11 @@ function LoadedGoogleMap(props) {
   } = props;
   const usrMsgPurpose = "Load Map" + (name ? "(" + name + ")" : "");
 
-  libraries = libraries || DefaultLibraries;
   version = version || "quarterly";
+  // useLoadScript warns if `libraries` identity changes across renders
+  // (including Fast Refresh recreating the module const). Freeze the first
+  // array we pass and never replace it.
+  const googleMapsLibraries = useRef(libraries || DefaultLibraries);
 
   const [oms, setOms] = useState(null);
   const pendingMarkers = useRef([]); // Array of { marker, handler } objects
@@ -185,7 +188,7 @@ function LoadedGoogleMap(props) {
   const containerRef = useRef(null); // React ref for the wrapper container
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: apiKey,
-    libraries: libraries,
+    libraries: googleMapsLibraries.current,
     version: version,
   });
 
@@ -332,18 +335,7 @@ function LoadedGoogleMap(props) {
   const onMapLoad = useCallback((map) => {
     // Store reference to map div for context menu prevention
     mapDivRef.current = map.getDiv();
-    
-    // Prevent context menu on the map div using Google Maps event system
     const mapDiv = map.getDiv();
-    
-    if (mapDiv && window.google && window.google.maps) {
-      window.google.maps.event.addDomListener(mapDiv, 'contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        return false;
-      }, true); // true = capture phase
-    }
     
     // Also add to all child elements and watch for new ones
     if (mapDiv) {

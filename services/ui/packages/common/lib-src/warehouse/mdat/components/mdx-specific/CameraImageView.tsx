@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { Stage, Layer, Image } from "react-konva";
+import { Stage, Layer, Image, Group } from "react-konva";
 
 import Image2CanvasCartesianCoordinateConverter from "./../../utils/Image2CanvasCartesianCoordinateConverter";
 import Canvas2WorldCartesianCoordinateConverter from "./../../utils/Canvas2WorldCartesianCoordinateConverter";
@@ -88,10 +88,11 @@ export default class CameraImageView extends React.Component {
                 y={0}
                 width={this.props.viewImage.width * this.scaleFactor}
                 height={this.props.viewImage.height * this.scaleFactor}
+                listening={false}
               />
               {this.props.children}
+              <Group name="top-layer" />
             </Layer>
-            <Layer name="top-layer" />
           </Stage>
         )}
       </div>

@@ -744,7 +744,22 @@ export class DashStream {
         // holds three to four seconds and does not stall.  The element is muted
         // for audio-less sessions above, so autoplay is permitted; the listener
         // below stays as a fallback for when Chrome refuses anyway.
-        player.initialize(config.videoElement, manifestUrl, true);
+        // dash.js always probes EME during initialize.  HTTP (and browsers
+        // without ClearKey) have no EME, so Protection logs a warning even
+        // when the stream is not encrypted.  Its logger binds console.warn at
+        // setup, so the only way to keep that probe quiet is to drop the
+        // player's log level past WARNING for this call.
+        const previousLogLevel = player.getSettings()?.debug?.logLevel;
+        const errorLogLevel =
+            (dashjs as { Debug?: { LOG_LEVEL_ERROR?: number } }).Debug?.LOG_LEVEL_ERROR ?? 2;
+        player.updateSettings({ debug: { logLevel: errorLogLevel } });
+        try {
+            player.initialize(config.videoElement, manifestUrl, true);
+        } finally {
+            if (previousLogLevel !== undefined) {
+                player.updateSettings({ debug: { logLevel: previousLogLevel } });
+            }
+        }
     }
 
     // Gap jumping is dash.js' own recovery and it handles the ordinary case.
