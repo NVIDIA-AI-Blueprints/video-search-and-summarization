@@ -1273,7 +1273,7 @@ deep-is,0.1.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtim
 deep-is,0.1.4,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 deep_search,UNKNOWN,UNKNOWN,services/agent,python,usage,services/agent/packages/vss_agents/src/vss_agents/video_analytics/interface.py,runtime,no,no,no,imported-only,Unknown
 deepcopy,1.0.1,MIT,services/analytics/video-analytics-api,node,lockfile;manifest,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/app/package.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package.json;services/analytics/video-analytics-api/test/package-lock.json;services/analytics/video-analytics-api/test/package.json,runtime,no,no,no,declared-manifest,None
-deepmerge,4.3.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+deepmerge,4.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 deepmerge,4.3.1,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 deepspeed,0.15.1,Apache Software License 2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 deepspeed,0.15.1,Apache Software License 2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -4025,7 +4025,7 @@ unbzip2-stream,1.4.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json
 undici,6.28.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici,7.29.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici,7.29.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-undici,7.30.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+undici,7.30.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici,8.5.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici-types,6.19.8,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici-types,6.21.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
