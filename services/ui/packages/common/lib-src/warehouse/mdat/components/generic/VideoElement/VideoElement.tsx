@@ -3,7 +3,7 @@
 // @ts-nocheck
 import React from "react";
 import PropTypes from "prop-types";
-import { IconButton } from "common/warehouse/mui";
+import { IconButton, Tooltip } from "common/warehouse/mui";
 import {
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
@@ -355,19 +355,21 @@ export default class VideoElement extends React.PureComponent {
    */
   _renderFullscreenButtonControl() {
     return (
-      <IconButton
-        ref={(ref) => (this.videoControlFullScreen = ref)}
-        className={CssClasses.controlsButton}
-        onClick={this.onClickBtnFullscreen}
-        title={
-          this.state.isFullscreen ? "Exit Fullscreen" : "Fullscreen"
-        }
-        aria-label={
-          this.state.isFullscreen ? "Exit Fullscreen" : "Fullscreen"
-        }
+      <Tooltip
+        title={this.state.isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+        placement="top"
       >
-        {this._renderFullscreenButton()}
-      </IconButton>
+        <IconButton
+          ref={(ref) => (this.videoControlFullScreen = ref)}
+          className={CssClasses.controlsButton}
+          onClick={this.onClickBtnFullscreen}
+          aria-label={
+            this.state.isFullscreen ? "Exit Fullscreen" : "Fullscreen"
+          }
+        >
+          {this._renderFullscreenButton()}
+        </IconButton>
+      </Tooltip>
     );
   }
 
@@ -376,15 +378,16 @@ export default class VideoElement extends React.PureComponent {
    */
   _renderPlayPauseButtonControl() {
     return (
-      <IconButton
-        ref={(ref) => (this.videoControlPlaypause = ref)}
-        className={CssClasses.controlsButton}
-        onClick={this.onClickBtnPlaypause}
-        title={this.state.videoControlPlaypauseLabel}
-        aria-label={this.state.videoControlPlaypauseLabel}
-      >
-        {this._renderPlayPauseIcon()}
-      </IconButton>
+      <Tooltip title={this.state.videoControlPlaypauseLabel} placement="top">
+        <IconButton
+          ref={(ref) => (this.videoControlPlaypause = ref)}
+          className={CssClasses.controlsButton}
+          onClick={this.onClickBtnPlaypause}
+          aria-label={this.state.videoControlPlaypauseLabel}
+        >
+          {this._renderPlayPauseIcon()}
+        </IconButton>
+      </Tooltip>
     );
   }
 

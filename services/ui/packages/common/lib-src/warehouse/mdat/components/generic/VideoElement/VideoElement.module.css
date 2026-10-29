@@ -41,15 +41,16 @@
 }
 
 .controlsButton,
+.controlsButton:global(.nv-button.nv-button--kind-tertiary),
 :global(.dark .nv-light) .controlsButton:global(.nv-button.nv-button--kind-tertiary),
 :global(.nv-dark .nv-light) .controlsButton:global(.nv-button.nv-button--kind-tertiary) {
   box-sizing: border-box;
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
-  max-width: 32px;
-  max-height: 32px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  max-width: 28px;
+  max-height: 28px;
   padding: 0;
   margin: 0;
   aspect-ratio: 1;
@@ -57,21 +58,29 @@
   align-items: center;
   justify-content: center;
   line-height: 0;
-  color: #76b900;
-  border: 2px solid white;
-  border-radius: 5px;
-  background: #505050;
-  opacity: 0.75;
+  /* Same translucent light frost as the seek bar (DashVideo.module.css). */
+  color: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.32);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   font-size: 0;
-  font-weight: bolder;
   cursor: pointer;
-  box-shadow: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.controlsButton:global(.nv-button.nv-button--kind-tertiary):hover:not(:disabled),
+:global(.dark .nv-light) .controlsButton:global(.nv-button.nv-button--kind-tertiary):hover:not(:disabled),
+:global(.nv-dark .nv-light) .controlsButton:global(.nv-button.nv-button--kind-tertiary):hover:not(:disabled) {
+  color: #1a1a1a;
+  background: rgba(255, 255, 255, 0.55);
 }
 
 .controlsButton > span {
   display: flex;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   align-items: center;
   justify-content: center;
 }
