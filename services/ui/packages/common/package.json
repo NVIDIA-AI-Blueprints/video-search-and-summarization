@@ -9,13 +9,38 @@
       "import": "./lib/index.js",
       "require": "./lib/index.js",
       "types": "./lib/index.d.ts"
+    },
+    "./warehouse": {
+      "import": "./lib/warehouse/index.js",
+      "require": "./lib/warehouse/index.js",
+      "types": "./lib/warehouse/index.d.ts"
+    },
+    "./warehouse/mdat": {
+      "import": "./lib/warehouse/mdat/index.js",
+      "require": "./lib/warehouse/mdat/index.js",
+      "types": "./lib/warehouse/mdat/index.d.ts"
+    },
+    "./warehouse/nv": {
+      "import": "./lib/warehouse/nv/index.js",
+      "require": "./lib/warehouse/nv/index.js",
+      "types": "./lib/warehouse/nv/index.d.ts"
+    },
+    "./warehouse/mui": {
+      "import": "./lib/warehouse/mui.js",
+      "require": "./lib/warehouse/mui.js",
+      "types": "./lib/warehouse/mui.d.ts"
+    },
+    "./warehouse/mui-icons": {
+      "import": "./lib/warehouse/mui-icons.js",
+      "require": "./lib/warehouse/mui-icons.js",
+      "types": "./lib/warehouse/mui-icons.d.ts"
     }
   },
   "files": [
     "lib/**/*"
   ],
   "scripts": {
-    "build": "rm -rf lib && swc lib-src -d lib --config-file .swcrc && mv lib/lib-src/* lib/ && rmdir lib/lib-src && tsc --project tsconfig.lib.json",
+    "build": "rm -rf lib && swc lib-src -d lib --config-file .swcrc && mv lib/lib-src/* lib/ && rmdir lib/lib-src && bash -c 'find lib-src -type f \\( -name \"*.css\" -o -name \"*.json\" -o -name \"*.png\" -o -name \"*.svg\" \\) | while read -r f; do dest=\"lib/${f#lib-src/}\"; mkdir -p \"$(dirname \"$dest\")\"; cp \"$f\" \"$dest\"; done' && tsc --project tsconfig.lib.json",
     "dev": "swc lib-src -d lib --config-file .swcrc -w",
     "clean": "rm -rf lib && rm -rf node_modules",
     "typecheck": "tsc --noEmit",
@@ -25,18 +50,44 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "@nvidia/foundations-react-core": "1.17.0",
+    "@react-google-maps/api": "^2.20.8",
+    "@reduxjs/toolkit": "^2.11.2",
     "@tabler/icons-react": "^3.46.0",
+    "@xmldom/xmldom": "^0.9.12",
+    "dashjs": "^5.2.1",
+    "hls.js": "^1.6.15",
+    "konva": "^9.3.22",
+    "lodash": "^4.18.1",
+    "mathjs": "^14.5.2",
+    "moment": "^2.30.1",
+    "next-runtime-env": "^1.8.0",
+    "prop-types": "^15.8.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-hot-toast": "^2.6.0"
+    "react-hot-toast": "^2.6.0",
+    "react-konva": "^19.2.1",
+    "react-konva-utils": "^1.1.3",
+    "react-redux": "^9.2.0",
+    "recharts": "^2.15.4",
+    "rsuite": "^6.2.4",
+    "serialize-javascript": "^6.0.2",
+    "ts-overlapping-marker-spiderfier": "^1.0.3",
+    "uuid": "^11.1.1",
+    "vst-streaming-lib": "file:../../../vios/ui/streaming-lib",
+    "wellknown": "^0.5.0"
   },
   "devDependencies": {
     "@swc/cli": "^0.8.1",
     "@swc/core": "^1.16.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "^16.3.3",
+    "@types/lodash": "^4.17.20",
+    "@types/prop-types": "^15.7.15",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
+    "@types/serialize-javascript": "^5.0.4",
+    "@types/wellknown": "^0.5.8",
     "identity-obj-proxy": "^3.0.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",

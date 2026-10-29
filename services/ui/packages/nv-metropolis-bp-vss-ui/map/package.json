@@ -29,6 +29,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "@nv-metropolis-bp-vss-ui/warehouse-analytics": "*",
     "jsdom": "27.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
@@ -38,6 +39,7 @@
     "@swc/core": "^1.16.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "^16.3.3",
+    "identity-obj-proxy": "^3.0.0",
     "@types/jest": "^30.0.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",

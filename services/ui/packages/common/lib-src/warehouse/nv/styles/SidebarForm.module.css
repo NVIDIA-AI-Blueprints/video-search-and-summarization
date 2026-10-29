@@ -1,0 +1,269 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background: #fff;
+  color: #1a1a1a;
+  font-size: 13px;
+  color-scheme: light;
+}
+
+:global(.dark) .panel,
+:global(.nv-dark) .panel {
+  border-color: #3f3f46;
+  background: #171717;
+  color: #e5e5e5;
+  color-scheme: dark;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 4px 8px 4px 4px;
+}
+
+.headerToggle,
+:global(.dark) .headerToggle:global(.nv-button.nv-button--kind-tertiary),
+:global(.nv-dark) .headerToggle:global(.nv-button.nv-button--kind-tertiary) {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.headerToggle:hover {
+  background: #f4f4f5;
+}
+
+:global(.dark) .headerToggle:hover,
+:global(.nv-dark) .headerToggle:hover {
+  background: #262626;
+}
+
+.headerStatic {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px;
+}
+
+.title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.bodyHidden {
+  display: none;
+}
+
+.iconBtn,
+:global(.dark) .iconBtn:global(.nv-button.nv-button--kind-tertiary),
+:global(.nv-dark) .iconBtn:global(.nv-button.nv-button--kind-tertiary) {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  max-width: 28px;
+  max-height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d4d4d8;
+  border-radius: 999px;
+  background: #f4f4f5;
+  color: #3f3f46;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.iconBtn :global(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+.iconBtn:hover {
+  background: #e4e4e7;
+  color: #18181b;
+}
+
+:global(.dark) .iconBtn,
+:global(.nv-dark) .iconBtn {
+  border-color: #52525b;
+  background: #262626;
+  color: #e4e4e7;
+}
+
+:global(.dark) .iconBtn:hover,
+:global(.nv-dark) .iconBtn:hover {
+  background: #3f3f46;
+  color: #fff;
+  border-color: #76b900;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3f3f46;
+}
+
+:global(.dark) .label,
+:global(.nv-dark) .label {
+  color: #d4d4d8;
+}
+
+.info {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #52525b;
+}
+
+.info :global(svg) {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+:global(.dark) .info,
+:global(.nv-dark) .info {
+  color: #a1a1aa;
+}
+
+.select,
+.file,
+.textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  background: #fff;
+  color: #1a1a1a;
+  font-size: 13px;
+}
+
+.select:focus,
+.file:focus,
+.textarea:focus {
+  outline: none;
+  border-color: #76b900;
+  box-shadow: 0 0 0 1px rgba(118, 185, 0, 0.35);
+}
+
+.select:disabled,
+.file:disabled,
+.textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+:global(.dark) .select,
+:global(.dark) .file,
+:global(.dark) .textarea,
+:global(.nv-dark) .select,
+:global(.nv-dark) .file,
+:global(.nv-dark) .textarea {
+  border-color: #52525b;
+  background: #0a0a0a;
+  color: #f5f5f5;
+}
+
+.file {
+  padding: 4px;
+}
+
+.file::file-selector-button {
+  margin-right: 10px;
+  padding: 6px 10px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  background: #f4f4f5;
+  color: #18181b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.file::file-selector-button:hover {
+  border-color: #76b900;
+}
+
+:global(.dark) .file::file-selector-button,
+:global(.nv-dark) .file::file-selector-button {
+  border-color: #52525b;
+  background: #262626;
+  color: #f5f5f5;
+}
+
+:global(.dark) .file::file-selector-button:hover,
+:global(.nv-dark) .file::file-selector-button:hover {
+  background: #3f3f46;
+  border-color: #76b900;
+}
+
+.textarea {
+  min-height: 8rem;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.submit {
+  width: 100%;
+}
+
+.status {
+  font-size: 12px;
+  font-style: italic;
+  color: #52525b;
+  word-break: break-word;
+}
+
+:global(.dark) .status,
+:global(.nv-dark) .status {
+  color: #a1a1aa;
+}

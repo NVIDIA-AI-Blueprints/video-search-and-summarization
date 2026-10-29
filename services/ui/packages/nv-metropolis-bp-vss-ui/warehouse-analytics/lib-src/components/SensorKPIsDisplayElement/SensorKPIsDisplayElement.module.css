@@ -1,0 +1,130 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+/* Sensor level KPIs: Interval (static) + 3 rolling KPIs (Type, IN, OUT) */
+
+.kpiPanel {
+  --kpi-panel-width: 100%;
+  --kpi-panel-height: 3rem;
+  color: #1a1a1a;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  min-height: var(--kpi-panel-height);
+  max-height: var(--kpi-panel-height);
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 0.75rem;
+}
+
+.metricsLabel {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding-right: 1rem;
+  margin-right: 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #1a1a1a;
+  letter-spacing: 0.08em;
+  border-right: 2px solid rgba(0, 0, 0, 0.2);
+  height: 100%;
+}
+
+.errorIndicator {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding-right: 0.5rem;
+  z-index: 10;
+  cursor: help;
+}
+
+.errorIcon {
+  font-size: 1rem;
+  color: #d32f2f;
+}
+
+.intervalDisplay {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  min-width: 8rem;
+  padding-right: 1.5rem;
+}
+
+.intervalName,
+.kpiPairR1Name,
+.kpiPairR2Name,
+.kpiPairR3Name {
+  font-size: 0.9rem;
+  margin-right: 0.5rem;
+  color: #1a1a1a;
+}
+
+.intervalValue,
+.kpiPairR1Value,
+.kpiPairR2Value,
+.kpiPairR3Value {
+  font-size: 1.15rem;
+  font-weight: bold;
+  color: #1a1a1a;
+}
+
+.kpiTupleCenter {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--kpi-panel-height);
+  max-height: var(--kpi-panel-height);
+  overflow: hidden;
+}
+
+.kpiPairR1,
+.kpiPairR2,
+.kpiPairR3 {
+  position: absolute;
+  top: 0;
+  display: flex;
+  align-items: center;
+  min-height: var(--kpi-panel-height);
+  max-height: var(--kpi-panel-height);
+}
+
+.kpiPairR1 {
+  left: 0;
+  width: 36%;
+}
+
+.kpiPairR2 {
+  left: 36%;
+  width: 32%;
+}
+
+.kpiPairR3 {
+  left: 68%;
+  width: 32%;
+}
+
+.kpiTupleCenter.clickable {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.kpiTupleCenter.clickable:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.kpiTupleCenter.clickable.paused {
+  background-color: rgba(255, 200, 0, 0.15);
+}
+
+.kpiTupleCenter.clickable.paused:hover {
+  background-color: rgba(255, 200, 0, 0.15);
+}

@@ -12,7 +12,16 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve"
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "common": ["lib-src/index.ts"],
+      "common/warehouse": ["lib-src/warehouse/index.ts"],
+      "common/warehouse/mdat": ["lib-src/warehouse/mdat/index.ts"],
+      "common/warehouse/nv": ["lib-src/warehouse/nv/index.ts"],
+      "common/warehouse/mui": ["lib-src/warehouse/mui.tsx"],
+      "common/warehouse/mui-icons": ["lib-src/warehouse/mui-icons.tsx"]
+    }
   },
   "include": ["lib-src/**/*"],
   "exclude": ["node_modules", "lib"]

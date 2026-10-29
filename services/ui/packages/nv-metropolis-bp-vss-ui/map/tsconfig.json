@@ -12,7 +12,12 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve"
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "@nv-metropolis-bp-vss-ui/warehouse-analytics": ["../warehouse-analytics/lib-src/index.ts"],
+      "@nv-metropolis-bp-vss-ui/warehouse-analytics/server": ["../warehouse-analytics/lib-src/server.ts"]
+    }
   },
   "include": ["lib-src/**/*"],
   "exclude": ["node_modules", "lib"]

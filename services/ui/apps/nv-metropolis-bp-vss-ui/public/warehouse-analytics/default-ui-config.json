@@ -1,0 +1,48 @@
+{
+  "uiDelaySeconds": 20,
+  "docType": "uiConfig",
+  "alertQueryDurationInHours": 2,
+  "alertListLength": 20,
+  "mapVizPollingIntervalMs": 100,
+  "cartesianMapVizContentsRenderUpdateFps": 2,
+  "apiRefreshIntervalSeconds": 5,
+  "isLive": false,
+  "liveSyncVideoRefreshIntervalMin": 10,
+  "isRemoveDashCV": true,
+  "mapOptions": {
+    "map": "Google",
+    "city": {
+      "zoom": {
+        "default": 14,
+        "min": 13,
+        "max": 15
+      },
+      "mapType": {
+        "showControl": true,
+        "id": "roadmap"
+      }
+    },
+    "building": {
+      "zoom": {
+        "default": 17,
+        "min": 16,
+        "max": 18
+      },
+      "mapType": {
+        "showControl": true,
+        "id": "roadmap"
+      }
+    },
+    "room": {
+      "zoom": {
+        "default": 20,
+        "min": 19,
+        "max": 21
+      },
+      "mapType": {
+        "showControl": true,
+        "id": "roadmap"
+      }
+    }
+  }
+}
