@@ -21,7 +21,7 @@ DEFAULT_MINIO_ACCESS_KEY = ""
 DEFAULT_MINIO_SECRET_KEY = ""
 
 _CANONICAL_FIELDS = {"schema_version", "metadata", "summary", "test_cases"}
-_CANONICAL_MARKERS = {"metadata", "summary", "test_cases"}
+_CANONICAL_DIRECTORY = "vss-perf-results"
 _SAFE_SERVICE = re.compile(r"[A-Za-z0-9._-]+")
 
 
@@ -175,12 +175,18 @@ def _canonical_reports(report_dir: str | Path) -> list[tuple[Path, str]]:
     for path in sorted(root.rglob("*.json")):
         if path.name.endswith(".upload.json"):
             continue
+        relative_parts = path.relative_to(root).parts
+        if (
+            root.name != _CANONICAL_DIRECTORY
+            and _CANONICAL_DIRECTORY not in relative_parts[:-1]
+        ):
+            continue
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError(f"Invalid JSON report candidate {path}: {exc}") from exc
-        if not isinstance(payload, dict) or not _CANONICAL_MARKERS.intersection(payload):
-            continue
+        if not isinstance(payload, dict):
+            raise ValueError(f"Canonical report {path} must contain a JSON object")
         missing = sorted(_CANONICAL_FIELDS.difference(payload))
         if missing:
             raise ValueError(
