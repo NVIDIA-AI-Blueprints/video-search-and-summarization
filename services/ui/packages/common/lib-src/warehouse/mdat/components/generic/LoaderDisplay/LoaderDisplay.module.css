@@ -30,11 +30,24 @@
   justify-content: center;
   text-align: center;
   overflow: auto;
+  margin-top: 0.5rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  font-weight: 400;
+  color: #1a1a1a;
 }
 
 .userMessagePostActionElementDiv {
   display: flex;
   justify-content: center;
+}
+
+.userMessagePostActionElementDiv h4 {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #1a1a1a;
 }
 
 .errorIcon {
