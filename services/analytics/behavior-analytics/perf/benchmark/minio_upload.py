@@ -54,7 +54,7 @@ def publish_result(result_path: Path, *, config_path: Path, config_id: str) -> d
     access_key = os.environ.get("MINIO_ACCESS_KEY", "")
     secret_key = os.environ.get("MINIO_SECRET_KEY", "")
     if not access_key or not secret_key:
-        raise ValueError("MinIO credentials are required for upload")
+        raise ValueError("MINIO_ACCESS_KEY and MINIO_SECRET_KEY are required for upload")
     return publish_result_file(
         result_path,
         settings["service"],

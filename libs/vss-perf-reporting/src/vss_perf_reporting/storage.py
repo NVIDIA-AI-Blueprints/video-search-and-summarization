@@ -16,8 +16,9 @@ from typing import Any
 from .schema import VSSBenchmarkResult
 
 DEFAULT_MINIO_BUCKET = "perf-results"
-DEFAULT_MINIO_ACCESS_KEY = "admin"
-DEFAULT_MINIO_SECRET_KEY = "vss_automation"
+# Backward-compatible sentinels; uploads never treat these as credentials.
+DEFAULT_MINIO_ACCESS_KEY = ""
+DEFAULT_MINIO_SECRET_KEY = ""
 
 _CANONICAL_FIELDS = {"schema_version", "metadata", "summary", "test_cases"}
 _CANONICAL_MARKERS = {"metadata", "summary", "test_cases"}
@@ -35,6 +36,22 @@ def get_minio_bucket() -> str:
     return os.environ.get("MINIO_BUCKET", DEFAULT_MINIO_BUCKET)
 
 
+def get_minio_credentials(
+    access_key: str | None = None,
+    secret_key: str | None = None,
+) -> tuple[str, str]:
+    resolved_access_key = access_key if access_key is not None else os.getenv("MINIO_ACCESS_KEY", "")
+    resolved_secret_key = secret_key if secret_key is not None else os.getenv("MINIO_SECRET_KEY", "")
+    missing = []
+    if not resolved_access_key:
+        missing.append("MINIO_ACCESS_KEY")
+    if not resolved_secret_key:
+        missing.append("MINIO_SECRET_KEY")
+    if missing:
+        raise ValueError(f"{' and '.join(missing)} required for MinIO uploads")
+    return resolved_access_key, resolved_secret_key
+
+
 class MinIOUploader:
     def __init__(
         self,
@@ -43,12 +60,11 @@ class MinIOUploader:
         secret_key: str | None = None,
         secure: bool = False,
     ) -> None:
+        self.endpoint = endpoint if endpoint is not None else get_minio_endpoint()
+        self.access_key, self.secret_key = get_minio_credentials(access_key, secret_key)
+        self.secure = secure
         from minio import Minio
 
-        self.endpoint = endpoint if endpoint is not None else get_minio_endpoint()
-        self.access_key = access_key or os.getenv("MINIO_ACCESS_KEY", DEFAULT_MINIO_ACCESS_KEY)
-        self.secret_key = secret_key or os.getenv("MINIO_SECRET_KEY", DEFAULT_MINIO_SECRET_KEY)
-        self.secure = secure
         self.client = Minio(
             endpoint=self.endpoint,
             access_key=self.access_key,

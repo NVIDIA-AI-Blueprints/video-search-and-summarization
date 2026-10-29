@@ -661,7 +661,8 @@ INCIDENTS MESSAGES
         ).read_text()
         self.assertIn("scenario_config.py", common)
         self.assertIn("PERF_CONFIG_FILE", common)
-        self.assertIn("Refusing to delete symlink", common)
+        self.assertIn("Refusing symlink", common)
+        self.assertIn(".vss-ba-perf-owned", common)
         service_run = (
             REPO_ROOT
             / "services"
@@ -690,7 +691,8 @@ INCIDENTS MESSAGES
         self.assertIn("BA_PERF_DATA_DIR", generate_env)
         self.assertIn("profile_services=", deploy)
         self.assertIn("compose up -d --build --force-recreate $profile_services analytics-stream", deploy)
-        self.assertIn("docker volume rm -f", deploy)
+        self.assertIn("cleanup_legacy_mdx_volumes", deploy)
+        self.assertNotIn("docker volume rm -f", deploy)
 
     def test_overlay_turns_emit_once_off_without_editing_fixture(self) -> None:
         spec = importlib.util.spec_from_file_location("overlay_app_config", OVERLAY)
@@ -861,6 +863,147 @@ INCIDENTS MESSAGES
         ):
             self.assertIn(key, text, f"{rel} is missing {key} for Jenkins")
         self.assertIn("- libs/vss-perf-reporting/", text)
+
+    def _run_ba_cleanup_shell(self, body: str, **environment: str) -> subprocess.CompletedProcess:
+        common = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "perf"
+            / "scripts"
+            / "common.sh"
+        )
+        env = os.environ.copy()
+        env.update(environment)
+        env["BA_PERF_COMMON_SH"] = str(common)
+        return subprocess.run(
+            ["bash", "-c", 'source "$BA_PERF_COMMON_SH"; ' + body],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_ba_cleanup_accepts_default_and_safe_custom_directories(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ba-perf-safety-") as default_root:
+            default_path = str(Path(default_root) / "run")
+            completed = self._run_ba_cleanup_shell(
+                'prepare_benchmark_dir "$BA_PERF_DATA_DIR" >/dev/null; '
+                'test -f "$BA_PERF_DATA_DIR/.vss-ba-perf-owned"',
+                BA_PERF_DATA_DIR=default_path,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        with tempfile.TemporaryDirectory() as custom_root:
+            custom_path = str(Path(custom_root) / "dedicated-run")
+            completed = self._run_ba_cleanup_shell(
+                'prepare_benchmark_dir "$BA_PERF_DATA_DIR" >/dev/null; '
+                'test -f "$BA_PERF_DATA_DIR/.vss-ba-perf-owned"',
+                BA_PERF_ALLOWED_ROOT=custom_root,
+                BA_PERF_DATA_DIR=custom_path,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_ba_cleanup_rejects_broad_and_empty_paths(self) -> None:
+        workspace = str(REPO_ROOT.parent)
+        cases = ("", "/", "/tmp", str(REPO_ROOT), workspace)
+        for unsafe_path in cases:
+            with self.subTest(path=unsafe_path):
+                completed = self._run_ba_cleanup_shell(
+                    'canonical_benchmark_dir "$UNSAFE_PATH"',
+                    BA_PERF_ALLOWED_ROOT=str(REPO_ROOT.parent.parent),
+                    WORKSPACE=workspace,
+                    UNSAFE_PATH=unsafe_path,
+                )
+                self.assertNotEqual(completed.returncode, 0)
+
+    def test_ba_cleanup_rejects_symlinks_and_unowned_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as custom_root:
+            target = Path(custom_root) / "target"
+            target.mkdir()
+            link = Path(custom_root) / "link"
+            link.symlink_to(target, target_is_directory=True)
+            symlink_result = self._run_ba_cleanup_shell(
+                'canonical_benchmark_dir "$UNSAFE_PATH"',
+                BA_PERF_ALLOWED_ROOT=custom_root,
+                UNSAFE_PATH=str(link),
+            )
+            self.assertNotEqual(symlink_result.returncode, 0)
+
+            unowned = Path(custom_root) / "unowned"
+            unowned.mkdir()
+            missing_result = self._run_ba_cleanup_shell(
+                'remove_root_tree "$BA_PERF_DATA_DIR"',
+                BA_PERF_ALLOWED_ROOT=custom_root,
+                BA_PERF_DATA_DIR=str(unowned),
+            )
+            self.assertNotEqual(missing_result.returncode, 0)
+            self.assertTrue(unowned.is_dir())
+
+            marker = unowned / ".vss-ba-perf-owned"
+            marker.write_text("wrong-owner\n")
+            invalid_result = self._run_ba_cleanup_shell(
+                'remove_root_tree "$BA_PERF_DATA_DIR"',
+                BA_PERF_ALLOWED_ROOT=custom_root,
+                BA_PERF_DATA_DIR=str(unowned),
+            )
+            self.assertNotEqual(invalid_result.returncode, 0)
+            self.assertTrue(unowned.is_dir())
+
+    def test_ba_cleanup_removes_only_marked_benchmark_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as custom_root:
+            owned = Path(custom_root) / "owned"
+            completed = self._run_ba_cleanup_shell(
+                'docker() { '
+                'local arg mounted=""; '
+                'for arg in "$@"; do case "$arg" in *:/data) mounted="${arg%:/data}" ;; esac; done; '
+                'find "$mounted" -mindepth 1 -delete; '
+                '}; '
+                'prepare_benchmark_dir "$BA_PERF_DATA_DIR" >/dev/null; '
+                'touch "$BA_PERF_DATA_DIR/payload"; '
+                'remove_root_tree "$BA_PERF_DATA_DIR"; '
+                'test ! -e "$BA_PERF_DATA_DIR"',
+                BA_PERF_ALLOWED_ROOT=custom_root,
+                BA_PERF_DATA_DIR=str(owned),
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+
+
+
+    def test_legacy_mdx_volume_cleanup_is_explicit_and_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            capture = Path(tmp) / "docker-args"
+            shell = (
+                'docker() { printf "%s\\n" "$*" > "$CAPTURE_FILE"; }; '
+                'cleanup_legacy_mdx_volumes'
+            )
+            disabled = self._run_ba_cleanup_shell(
+                shell,
+                CAPTURE_FILE=str(capture),
+                BA_PERF_CLEAN_LEGACY_MDX_VOLUMES="false",
+            )
+            self.assertEqual(disabled.returncode, 0, disabled.stderr)
+            self.assertFalse(capture.exists())
+
+            enabled = self._run_ba_cleanup_shell(
+                shell,
+                CAPTURE_FILE=str(capture),
+                BA_PERF_CLEAN_LEGACY_MDX_VOLUMES="true",
+            )
+            self.assertEqual(enabled.returncode, 0, enabled.stderr)
+            self.assertIn("WARNING", enabled.stderr)
+            self.assertIn("mdx_elastic-data", capture.read_text())
+            self.assertNotIn(f"{os.environ.get('COMPOSE_PROJECT_NAME', 'ba-perf')}_", capture.read_text())
+
+            invalid = self._run_ba_cleanup_shell(
+                shell,
+                CAPTURE_FILE=str(capture),
+                BA_PERF_CLEAN_LEGACY_MDX_VOLUMES="yes",
+            )
+            self.assertNotEqual(invalid.returncode, 0)
+
+
 
     def test_service_owned_jenkins_package_and_shared_infra_exist(self) -> None:
         perf_root = REPO_ROOT / "services" / "analytics" / "behavior-analytics" / "perf"

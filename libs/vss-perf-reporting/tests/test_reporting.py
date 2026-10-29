@@ -9,7 +9,10 @@ from datetime import datetime, timezone
 import pytest
 
 from vss_perf_reporting import (
+    DEFAULT_MINIO_ACCESS_KEY,
+    DEFAULT_MINIO_SECRET_KEY,
     VSSBenchmarkResult,
+    MinIOUploader,
     build_and_save,
     build_result,
     generate_run_id,
@@ -84,6 +87,28 @@ def test_minio_endpoint_is_required(monkeypatch) -> None:
     monkeypatch.delenv("MINIO_ENDPOINT", raising=False)
     with pytest.raises(ValueError, match="MINIO_ENDPOINT is required"):
         get_minio_endpoint()
+
+
+
+def test_minio_credentials_are_required(monkeypatch) -> None:
+    assert DEFAULT_MINIO_ACCESS_KEY == ""
+    assert DEFAULT_MINIO_SECRET_KEY == ""
+    monkeypatch.delenv("MINIO_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("MINIO_SECRET_KEY", raising=False)
+    with pytest.raises(ValueError, match="MINIO_ACCESS_KEY and MINIO_SECRET_KEY required"):
+        MinIOUploader(endpoint="minio.example.internal:9443")
+
+
+def test_minio_explicit_credentials_are_accepted(monkeypatch) -> None:
+    monkeypatch.delenv("MINIO_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("MINIO_SECRET_KEY", raising=False)
+    uploader = MinIOUploader(
+        endpoint="minio.example.internal:9443",
+        access_key="explicit-access",
+        secret_key="explicit-secret",
+    )
+    assert uploader.access_key == "explicit-access"
+    assert uploader.secret_key == "explicit-secret"
 
 
 def test_summary_totals_are_validated() -> None:

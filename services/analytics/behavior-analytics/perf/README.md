@@ -76,6 +76,33 @@ The directory contains the native `execution_summary.json` and a canonical
 report under `vss-perf-results/`. A failed KPI check sets `success` to `false`
 and records the violations in the native summary.
 
+
+## Cleanup safety
+
+The benchmark uses a dedicated data directory beneath `/tmp`:
+
+```text
+/tmp/ba-perf-<compose-project>-<uid>
+```
+
+Directories under `/tmp` must start with `ba-perf-`. For a custom location,
+set both `BA_PERF_ALLOWED_ROOT` and a child `BA_PERF_DATA_DIR`:
+
+```bash
+export BA_PERF_ALLOWED_ROOT=/mnt/perf-work
+export BA_PERF_DATA_DIR=/mnt/perf-work/behavior-analytics-run
+```
+
+The runner rejects broad paths, symlinks, repository and workspace roots. It
+creates a `.vss-ba-perf-owned` marker and teardown removes a directory only
+when that marker belongs to the active Compose project.
+
+Normal teardown removes volumes belonging to the active benchmark project only.
+Removal of legacy global `mdx_*` volumes is disabled by default. Use
+`BA_PERF_CLEAN_LEGACY_MDX_VOLUMES=true` only for an intentional one-time
+cleanup; the runner prints a warning before doing so.
+
+
 ## Tests
 
 Prepare the benchmark environment, then run the focused tests from the

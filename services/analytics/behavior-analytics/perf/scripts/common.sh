@@ -26,6 +26,8 @@ OUTPUT_DIR="${OUTPUT_DIR:-${PERF_OUTPUT_DIR:-$PERF_DIR/results/${PERF_SERVICE:-b
 COMPOSE_DIR="$INTEGRATION_DIR/docker_compose"
 export BA_PERF_DATA_DIR="${BA_PERF_DATA_DIR:-/tmp/ba-perf-${COMPOSE_PROJECT_NAME}-$(id -u)}"
 export BA_PERF_OVERLAY_STAMP="${BA_PERF_OVERLAY_STAMP:-$BA_PERF_DATA_DIR/perf_app_overlay.json}"
+BA_PERF_OWNERSHIP_MARKER=".vss-ba-perf-owned"
+BA_PERF_REPO_ROOT="$(git -C "$PERF_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
 
 refuse_symlink() {
     local path="$1"
@@ -35,29 +37,110 @@ refuse_symlink() {
     fi
 }
 
-ensure_host_dir() {
+refuse_symlink_components() {
     local path="$1"
-    refuse_symlink "$path"
-    mkdir -p "$path"
-    refuse_symlink "$path"
+    local current="$path"
+    while [[ "$current" != "/" && "$current" != "." ]]; do
+        refuse_symlink "$current"
+        current="$(dirname "$current")"
+    done
+}
+
+canonical_benchmark_dir() {
+    local requested="${1:-}"
+    local allowed_root="${BA_PERF_ALLOWED_ROOT:-/tmp}"
+    local canonical_path canonical_root relative_path first_component
+
+    if [[ -z "$requested" || "$requested" != /* ]]; then
+        echo "BA_PERF_DATA_DIR must be a non-empty absolute path" >&2
+        return 1
+    fi
+    refuse_symlink_components "$requested"
+    refuse_symlink_components "$allowed_root"
+    canonical_path="$(realpath -m -- "$requested")"
+    canonical_root="$(realpath -m -- "$allowed_root")"
+
+    case "$canonical_path" in
+        /|/tmp|"$BA_PERF_REPO_ROOT"|"${WORKSPACE:-__unset_workspace__}")
+            echo "Refusing unsafe BA_PERF_DATA_DIR: $canonical_path" >&2
+            return 1
+            ;;
+    esac
+    if [[ "$canonical_root" == "/" || "$canonical_path" != "$canonical_root"/* ]]; then
+        echo "BA_PERF_DATA_DIR must be below BA_PERF_ALLOWED_ROOT ($canonical_root)" >&2
+        return 1
+    fi
+
+    relative_path="${canonical_path#"$canonical_root"/}"
+    first_component="${relative_path%%/*}"
+    if [[ "$canonical_root" == "/tmp" && "$first_component" != ba-perf-* ]]; then
+        echo "BA_PERF_DATA_DIR below /tmp must start with ba-perf-" >&2
+        return 1
+    fi
+    printf '%s\n' "$canonical_path"
+}
+
+prepare_benchmark_dir() {
+    local path marker expected_marker
+    path="$(canonical_benchmark_dir "${1:-}")"
+    marker="$path/$BA_PERF_OWNERSHIP_MARKER"
+    expected_marker="vss-ba-perf:$COMPOSE_PROJECT_NAME"
+
+    if [[ -e "$path" ]]; then
+        [[ -d "$path" ]] || { echo "Refusing non-directory $path" >&2; return 1; }
+        [[ -f "$marker" ]] || {
+            echo "Refusing existing unowned benchmark directory $path" >&2
+            return 1
+        }
+        [[ "$(cat "$marker")" == "$expected_marker" ]] || {
+            echo "Refusing benchmark directory with an invalid ownership marker: $path" >&2
+            return 1
+        }
+    else
+        mkdir -p -- "$path"
+        printf '%s\n' "$expected_marker" > "$marker"
+    fi
+    printf '%s\n' "$path"
 }
 
 remove_root_tree() {
-    local path="$1"
+    local path marker expected_marker
+    path="$(canonical_benchmark_dir "${1:-}")"
     [[ -e "$path" || -L "$path" ]] || return 0
-    if [[ -L "$path" ]]; then
-        echo "Refusing to delete symlink $path" >&2
-        return 0
-    fi
-    if [[ ! -d "$path" ]]; then
-        echo "Refusing to delete non-directory $path" >&2
-        return 0
-    fi
+    [[ -d "$path" ]] || { echo "Refusing to delete non-directory $path" >&2; return 1; }
+    marker="$path/$BA_PERF_OWNERSHIP_MARKER"
+    expected_marker="vss-ba-perf:$COMPOSE_PROJECT_NAME"
+    [[ -f "$marker" && "$(cat "$marker")" == "$expected_marker" ]] || {
+        echo "Refusing to delete unowned benchmark directory $path" >&2
+        return 1
+    }
     docker run --rm -u 0 -v "$path:/data" alpine:3.20 \
         sh -c 'chmod -R a+rwX /data 2>/dev/null; rm -rf /data/..?* /data/.[!.]* /data/*' \
-        >/dev/null 2>&1 || true
-    rm -rf "$path" >/dev/null 2>&1 || true
+        >/dev/null 2>&1 || {
+            echo "Container-assisted cleanup failed for $path" >&2
+            return 1
+        }
+    rmdir -- "$path"
 }
+
+
+cleanup_legacy_mdx_volumes() {
+    case "${BA_PERF_CLEAN_LEGACY_MDX_VOLUMES:-false}" in
+        false|"")
+            return 0
+            ;;
+        true)
+            echo "WARNING: removing legacy global mdx_* volumes by explicit request" >&2
+            docker volume rm -f \
+                mdx_elastic-data mdx_elastic-logs mdx_kafka-data mdx_logstash-libs || true
+            ;;
+        *)
+            echo "BA_PERF_CLEAN_LEGACY_MDX_VOLUMES must be true or false" >&2
+            return 1
+            ;;
+    esac
+}
+
 
 resolve_image() {
     if [[ -n "${ARTIFACT_REF:-}" ]]; then

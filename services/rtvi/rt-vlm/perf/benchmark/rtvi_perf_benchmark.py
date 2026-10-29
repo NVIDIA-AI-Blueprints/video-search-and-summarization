@@ -361,8 +361,8 @@ def run_single_scenario(
                             logger.info("Uploaded to MinIO: %s/%s", service_name, json_path.name)
                         else:
                             logger.warning(
-                                "Upload failed. Optional: set MINIO_ACCESS_KEY, MINIO_SECRET_KEY if your "
-                                "server does not use default (minioadmin). Check MINIO_ENDPOINT is reachable."
+                                "Upload failed. Set MINIO_ACCESS_KEY and MINIO_SECRET_KEY and ensure "
+                                "MINIO_ENDPOINT is reachable."
                             )
             except Exception as e:
                 logger.warning("VSS JSON/upload failed: %s", e)
