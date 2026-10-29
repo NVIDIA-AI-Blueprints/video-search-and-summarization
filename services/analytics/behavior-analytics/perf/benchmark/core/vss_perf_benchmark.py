@@ -234,7 +234,7 @@ def _upload(dest: Path, args: argparse.Namespace) -> dict[str, str]:
     access_key = os.environ.get("MINIO_ACCESS_KEY", "")
     secret_key = os.environ.get("MINIO_SECRET_KEY", "")
     if not access_key or not secret_key:
-        raise ValueError("MinIO credentials are required for upload")
+        raise ValueError("MINIO_ACCESS_KEY and MINIO_SECRET_KEY are required for upload")
     published = publish_result_file(
         dest,
         settings["service"],

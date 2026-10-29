@@ -27,7 +27,7 @@ this module provides the shared schema, build_and_save, and upload.
 - MinIOUploader, upload_result_file: upload result files to MinIO.
 
 MinIO: MINIO_ENDPOINT is required unless an endpoint is passed explicitly.
-Keys optional: default minioadmin/minioadmin if MINIO_ACCESS_KEY / MINIO_SECRET_KEY not set.
+Keys required for upload: set MINIO_ACCESS_KEY and MINIO_SECRET_KEY or pass them explicitly.
 """
 
 from __future__ import annotations
@@ -81,8 +81,8 @@ DEFAULT_PLATFORM_PLACEHOLDER: Dict[str, Any] = {
 }
 # MinIO endpoint is required via MINIO_ENDPOINT or an explicit function argument.
 DEFAULT_MINIO_BUCKET = "perf-results"
-DEFAULT_MINIO_ACCESS_KEY = "admin"
-DEFAULT_MINIO_SECRET_KEY = "vss_automation"
+DEFAULT_MINIO_ACCESS_KEY = ""
+DEFAULT_MINIO_SECRET_KEY = ""
 
 
 # -----------------------------------------------------------------------------
@@ -451,8 +451,15 @@ class MinIOUploader:
         secure: bool = False,
     ):
         self.endpoint = endpoint if endpoint is not None else get_minio_endpoint()
-        self.access_key = access_key or os.getenv("MINIO_ACCESS_KEY", DEFAULT_MINIO_ACCESS_KEY)
-        self.secret_key = secret_key or os.getenv("MINIO_SECRET_KEY", DEFAULT_MINIO_SECRET_KEY)
+        self.access_key = access_key if access_key is not None else os.getenv("MINIO_ACCESS_KEY", "")
+        self.secret_key = secret_key if secret_key is not None else os.getenv("MINIO_SECRET_KEY", "")
+        missing = []
+        if not self.access_key:
+            missing.append("MINIO_ACCESS_KEY")
+        if not self.secret_key:
+            missing.append("MINIO_SECRET_KEY")
+        if missing:
+            raise ValueError(f"{' and '.join(missing)} required for MinIO uploads")
         self.secure = secure
         try:
             self.client = Minio(

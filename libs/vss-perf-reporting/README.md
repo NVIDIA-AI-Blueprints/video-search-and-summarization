@@ -69,6 +69,9 @@ must not be passed as command-line arguments.
 
 `MINIO_ENDPOINT` is required for publication. The committed `uv.lock` makes the
 publisher independent of system Python packages such as `pip`.
+Generating and validating local reports does not require MinIO credentials.
+Only publication requires the endpoint, bucket, access key, and secret key.
+
 
 `publish_result_file` remains available for trusted local tooling, but service
 benchmark scripts must leave CI publication and credential ownership to

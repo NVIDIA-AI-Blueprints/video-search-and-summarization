@@ -161,6 +161,9 @@ To inspect results locally before publishing to the dashboard, run the benchmark
 - `-T TRIGGER` stamps `metadata.run_info.triggered_by` in each JSON before upload (`ci_pipeline | manual | scheduled | sqa | perf-lab`). Omit to keep whatever's in the file.
 - Set `MINIO_ENDPOINT` to the target MinIO `host:port` before uploading. The
   script synchronizes and reuses the locked environment from `perf/setup/`.
+  Set `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY` explicitly, and use
+  `MINIO_BUCKET` to override the target bucket. Creating local reports without
+  publishing requires none of these variables.
 
 Run `../scripts/upload_perf_results.sh -h` for all options.
 

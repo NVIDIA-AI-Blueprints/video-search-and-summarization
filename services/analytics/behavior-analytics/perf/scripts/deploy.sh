@@ -20,7 +20,8 @@ docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 # integration app settings into BA_PERF_DATA_DIR and overlay that copy so
 # git fixtures stay true. Restore fixture behavior with
 # BA_PERF_BEHAVIOR_EMIT_ONCE=true.
-ensure_host_dir "$BA_PERF_DATA_DIR"
+BA_PERF_DATA_DIR="$(prepare_benchmark_dir "$BA_PERF_DATA_DIR")"
+export BA_PERF_DATA_DIR
 app_src="$MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}"
 app_dst="$BA_PERF_DATA_DIR/apps/${APP_NAME}${APP_MODE}"
 mkdir -p "$BA_PERF_DATA_DIR/apps"
@@ -43,17 +44,10 @@ mkdir -p \
 chmod -R a+rwX "$BA_PERF_DATA_DIR"
 
 cd "$COMPOSE_DIR"
-# Jenkins #64: leftover compose project `mdx` still had named volumes bound to
-# the deleted checkouts/behavior-analytics tree. Non-interactive `up` reused
-# them (`Recreate (data will be lost)?`) and elasticsearch failed to mount.
+# Remove only this benchmark's Compose resources by default. Legacy global
+# mdx_* cleanup is available solely through an explicit opt-in.
 compose down --remove-orphans -v >/dev/null 2>&1 || true
-docker volume rm -f \
-    mdx_elastic-data mdx_elastic-logs mdx_kafka-data mdx_logstash-libs \
-    "${COMPOSE_PROJECT_NAME}_elastic-data" \
-    "${COMPOSE_PROJECT_NAME}_elastic-logs" \
-    "${COMPOSE_PROJECT_NAME}_kafka-data" \
-    "${COMPOSE_PROJECT_NAME}_logstash-libs" \
-    >/dev/null 2>&1 || true
+cleanup_legacy_mdx_volumes
 
 # Pull the promoted BA image above. `up --build` only builds Compose services
 # that have a Dockerfile (broker-health-check, elasticsearch, kafka-topic-init).
