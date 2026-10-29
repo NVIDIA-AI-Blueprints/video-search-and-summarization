@@ -287,6 +287,7 @@ export default class DashVideo extends React.Component {
 
   render() {
     const windowMs = this.replayWindowMs();
+    const info = this.props.videoConnectionInfo;
     const showTimeline =
       Boolean(windowMs) &&
       this.state.isTimelineSeekable &&
@@ -294,7 +295,10 @@ export default class DashVideo extends React.Component {
       this.state.currentTimeMs !== null;
 
     return (
-      <div className={Styles.main} data-testid="warehouse-dash-video">
+      <div
+        className={showTimeline ? `${Styles.main} ${Styles.withTimeline}` : Styles.main}
+        data-testid="warehouse-dash-video"
+      >
         <div className={Styles.videoElementContainer}>
           <VideoElement
             ref={(ref) => {
@@ -303,16 +307,21 @@ export default class DashVideo extends React.Component {
             htmlVideoTagOptions={this.props.htmlVideoTagOptions}
             videoControls={this.props.videoControls}
             htmlMediaElementEventHandlers={this.props.htmlMediaElementEventHandlers}
+            controlsClassName={showTimeline ? Styles.dockedControls : undefined}
           />
         </div>
         {showTimeline ? (
-          <DashVideoTimeline
-            startMs={windowMs.startMs}
-            endMs={this.state.timelineEndMs ?? windowMs.endMs}
-            currentTimeMs={this.state.currentTimeMs}
-            seekable={this.state.isTimelineSeekable}
-            onSeekEnd={this.seekTo}
-          />
+          <div className={Styles.overlayDock}>
+            <DashVideoTimeline
+              startMs={windowMs.startMs}
+              endMs={this.state.timelineEndMs ?? windowMs.endMs}
+              currentTimeMs={this.state.currentTimeMs}
+              startTime={info?.startTime}
+              endTime={info?.endTime}
+              seekable={this.state.isTimelineSeekable}
+              onSeekEnd={this.seekTo}
+            />
+          </div>
         ) : null}
       </div>
     );

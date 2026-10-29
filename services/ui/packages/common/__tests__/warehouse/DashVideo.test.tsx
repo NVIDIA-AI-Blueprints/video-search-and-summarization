@@ -3,7 +3,10 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { parseReplayWindowMs } from '../../lib-src/warehouse/mdat/components/generic/DashVideo/DashVideoTimeline';
+import {
+  formatReplayTimestring,
+  parseReplayWindowMs,
+} from '../../lib-src/warehouse/mdat/components/generic/DashVideo/DashVideoTimeline';
 
 const start = jest.fn();
 const stop = jest.fn();
@@ -58,6 +61,19 @@ describe('parseReplayWindowMs', () => {
 
   it('returns null for live sessions without a window', () => {
     expect(parseReplayWindowMs(undefined, undefined)).toBeNull();
+  });
+});
+
+describe('formatReplayTimestring', () => {
+  it('keeps the source timestring when it matches the instant', () => {
+    const source = '2026-01-01T00:00:00.000Z';
+    expect(formatReplayTimestring(Date.parse(source), source)).toBe(source);
+  });
+
+  it('falls back to ISO when no source timestring matches', () => {
+    expect(formatReplayTimestring(Date.parse('2026-01-01T00:00:20.000Z'))).toBe(
+      '2026-01-01T00:00:20.000Z',
+    );
   });
 });
 
@@ -126,6 +142,43 @@ describe('DashVideo recorded seek', () => {
     );
     await waitFor(() => expect(start).toHaveBeenCalled());
     expect(screen.queryByLabelText('Seek recorded video')).not.toBeInTheDocument();
+  });
+
+  it('labels start/end markers and shows pointer/current time bubbles on hover', async () => {
+    render(
+      <DashVideo
+        videoConnectionInfo={{
+          endpoint: 'http://example.test',
+          streamId: 'cam-1',
+          startTime,
+          endTime,
+        }}
+        htmlVideoTagOptions={{ width: '100%', height: '100%' }}
+        videoControls={{ playpause: true }}
+      />,
+    );
+    await screen.findByLabelText('Seek recorded video');
+    expect(screen.getByLabelText(`Start ${startTime}`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`End ${endTime}`)).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    const slider = screen.getByLabelText('Seek recorded video');
+    jest.spyOn(slider, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 216, bottom: 14, width: 216, height: 14, x: 0, y: 0,
+      toJSON: () => ({}),
+    });
+
+    // Over the thumb (at the start of the bar): current-time bubble.
+    fireEvent.mouseMove(slider, { clientX: 8 });
+    expect(screen.getByLabelText(`Current time ${startTime}`)).toHaveTextContent(startTime);
+
+    // Elsewhere on the bar: bubble with the time under the pointer.
+    fireEvent.mouseMove(slider, { clientX: 208 });
+    expect(screen.getByLabelText(`Time at pointer ${endTime}`)).toHaveTextContent(endTime);
+    expect(screen.queryByLabelText(/^Current time/)).not.toBeInTheDocument();
+
+    fireEvent.mouseLeave(slider);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('scrubs recorded DASH inside the current clip without VST seekReplay', async () => {
