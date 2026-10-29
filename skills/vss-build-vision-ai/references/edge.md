@@ -10,12 +10,12 @@ manifest carries the same profile id with only `min_vram_per_device_gb: 32.0`
 and no GPU allow-list, and Spark's GB10 has 128 GB of unified memory.
 
 **AGX Thor and IGX Thor** run the same default. They ship
-`hw-AGX-THOR` / `hw-IGX-THOR` env pairs of their own, so `dev-profile.sh` no
-longer rewrites `LLM_NAME` on any edge platform.
+`hw-AGX-THOR` / `hw-IGX-THOR` env pairs of their own. Select the model and its
+slug explicitly in the build override when changing the Foundation defaults.
 
 `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` (slug `nvidia-nemotron-nano-9b-v2-fp8`)
-remains in the tree as an explicit `--llm` fallback for all three. It is served
-by raw vLLM rather than a NIM:
+remains in the tree as an explicit model-selection fallback for all three. It
+is served by raw vLLM rather than a NIM:
 
 ```text
 nvcr.io/nvidia/vllm:26.07-py3
@@ -28,7 +28,7 @@ needs no standalone container.
 
 > The Spark sizing (`NIM_GPU_MEM_FRACTION=0.3` of unified memory, ~38 GB against
 > the profile's 32 GB floor) has **not** been measured on Spark hardware. Verify
-> before relying on it, and fall back to `--llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`
+> before relying on it, and fall back to `LLM_NAME=nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`
 > or a remote endpoint if the NIM fails to load.
 
 ## Ask first — the local edge LLM is latency-limited
@@ -175,15 +175,16 @@ these values to `_builds/<name>/override.env`:
 | `LLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 | `RT_VLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 
-`dev-profile.sh` rewrites the two `LLM_NAME*` values only on `AGX-THOR` and
-`IGX-THOR`; on `DGX-SPARK` the blueprint default already applies. Either way,
-set them by hand only because a build override is written directly.
+Keep `LLM_NAME` and `LLM_NAME_SLUG` aligned with the selected model on all
+three edge platforms. The default is Lightning; a model change must also
+materialize the corresponding service-profile selection and dependent values
+in the build override before resolving Compose.
 
 Both Lightning variants load `NIM_GPU_MEM_FRACTION=0.3` and
 `NIM_MAX_MODEL_LEN=65536` from `hw-DGX-SPARK-shared.env` / `hw-DGX-SPARK.env`,
 and pin the architecture-neutral INT4 profile. Neither needs `HF_TOKEN`. If the
 NIM fails to load on GB10, fall back to
-`--llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, whose `-shared-gpu` variant runs
+`LLM_NAME=nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, whose `-shared-gpu` variant runs
 `--gpu-memory-utilization 0.40` (dedicated `0.85`) and fetches the Nemotron
 tool-call parser from a public Hugging Face repo.
 
@@ -266,8 +267,12 @@ the better option for latency — see
   tag to its `-sbsa` variant (the commented
   `# …-sbsa` line in the profile's `.env`): `VSS_RT_VLM_TAG` (RT-VLM),
   `VSS_RT_CV_TAG` (RT-CV), and `LVS_TAG` (LVS).
-- **The FP8 fallback is raw vLLM, not a NIM.** This applies only if you select
-  it with `--llm`; the default Lightning NIM reads its `NIM_*` keys normally. On
+- **The FP8 fallback is raw vLLM, not a NIM.** This applies when the build
+  override (`_builds/<name>/override.env`) selects
+  `LLM_NAME=nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` and
+  `LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2-fp8`, with the corresponding
+  service-profile selection described above. The default Lightning NIM reads
+  its `NIM_*` keys normally. On
   the FP8 build those keys are inert — the effective knobs are the flags in the
   compose `command:` block (`--gpu-memory-utilization`, …) and the health path is
   `/health`, not `/v1/health/ready`.

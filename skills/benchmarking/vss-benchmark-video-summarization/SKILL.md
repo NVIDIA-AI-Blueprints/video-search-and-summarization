@@ -66,45 +66,60 @@ Measure the latency and throughput limits of a deployed LVS (Long Video Summariz
 
 ## Deploy LVS for Benchmarking
 
-Before benchmarking, deploy a fresh LVS instance using `vss-build-vision-ai`. On shared systems, always use a unique `COMPOSE_PROJECT_NAME` so your containers and volumes are isolated from other users.
+Use `/vss-build-vision-ai` with the LVS Foundation, the actual hardware
+profile, and your designated `LLM_DEVICE_ID` / `RT_VLM_DEVICE_ID`. Follow its
+Steps 7–9 and `references/deployment.md` for build-local artifacts, ordered env
+resolution, normalization, validation, data-directory preparation, deployment,
+and readiness. Do not edit the checked-in Foundation or service env files.
 
-```bash
-# Choose a unique project name (e.g. your username)
-export COMPOSE_PROJECT_NAME="lvs-bench-$(whoami)"
+Use a unique `COMPOSE_PROJECT_NAME` for project-scoped resources. This does
+**not** isolate fixed container names (the LVS service declares `vss-lvs`),
+published ports, or bind-mounted host paths. Do not stop or replace another
+user's deployment to run this benchmark. Retain Step 0's existing ownership,
+port, and GPU checks before measuring.
 
-cd <repo>/deploy/docker
+### Benchmark-only dev API patch
 
-# REQUIRED FOR BENCHMARKING: the benchmark uploads videos via the LVS dev /files
-# route, which is gated by VIA_DEV_API (default false; POST /files returns 404 when
-# off). The lvs-server container loads its environment from
-# services/video-summarization/.env (the compose `env_file:`), so VIA_DEV_API must
-# be set THERE — putting it in any other env file will NOT reach the container.
-# Set it before deploying:
-grep -q '^VIA_DEV_API=' services/video-summarization/.env \
-  && sed -i 's/^VIA_DEV_API=.*/VIA_DEV_API=true/' services/video-summarization/.env \
-  || echo 'VIA_DEV_API=true' >> services/video-summarization/.env
+The benchmark uploads videos through `/files`, which requires
+`VIA_DEV_API=true` in the **LVS container**. The full-stack
+`deploy/docker/services/video-summarization/compose.yml` does not pass that
+variable through; adding it only to `override.env` is insufficient.
 
-# Deploy LVS on your designated GPUs
-./scripts/dev-profile.sh up \
-  --profile lvs \
-  --hardware-profile RTXPRO6000BW \
-  --llm-device-id <LLM_GPU> \
-  --vlm-device-id <VLM_GPU>
+During build artifact creation, add `_builds/<name>/patches/lvs-server.yml`:
 
-# If LVS was already running, re-run the deploy command above so compose
-# recreates the container with the new env (a plain `docker restart` does
-# NOT re-read env_file changes).
+```yaml
+services:
+  lvs-server:
+    environment:
+      VIA_DEV_API: "true"
 ```
 
-Note the LVS endpoint (`http://<HOST_IP>:38111`) and container name: the compose file sets it statically to `vss-lvs` (verify with `docker ps --filter name=lvs`). Set these before continuing:
-```bash
-export LVS_BACKEND=http://localhost:38111
-export LVS_CONTAINER_NAME=vss-lvs
-export VLM_GPUS=<VLM_GPU>
-export LLM_GPUS=<LLM_GPU>
+Include the patch after the root model in `_builds/<name>/compose.yml`:
+
+```yaml
+include:
+  - path:
+      - ../../deploy/docker/compose.yml
+      - ./patches/lvs-server.yml
 ```
 
-> **Model downloads:** First deployment downloads LLM (~20 GB) and VLM (~17 GB) model weights. This takes 20–40 minutes depending on network speed. Subsequent deployments reuse the volumes created under your `COMPOSE_PROJECT_NAME` and start in minutes.
+Keep any other required build patches in that ordered list. Resolve and
+validate the build with the build skill, then confirm `lvs-server` has
+`VIA_DEV_API=true` in `resolved.yml` before deploying that exact file. For an
+existing benchmark build, regenerate, revalidate, and run its resolved Compose
+lifecycle to recreate LVS; a plain container restart cannot apply new settings.
+
+### Deployment handoff
+
+Record `LVS_BACKEND` from the deployment's actual reachable LVS endpoint and
+`LVS_CONTAINER_NAME` from the running `lvs-server` service in that build's
+Compose project. Do not infer ownership from the name `vss-lvs` alone. Set
+`VLM_GPUS` and `LLM_GPUS` to the actual device IDs selected for that build.
+These four values are required by Step 0; do not default to another deployment.
+
+First deployment may download model weights. Reusing the same deployment's
+model caches avoids repeating downloads; startup time depends on the selected
+models and host.
 
 ---
 
@@ -114,8 +129,9 @@ export LLM_GPUS=<LLM_GPU>
 
 Set your deployment's values, then run the pre-flight check:
 ```bash
-export LVS_BACKEND=http://localhost:38111                          # YOUR LVS /summarize endpoint
-export LVS_CONTAINER_NAME=vss-lvs                                   # YOUR LVS container (see deploy step)
+: "${LVS_BACKEND:?Set to your deployed LVS endpoint}"
+: "${LVS_CONTAINER_NAME:?Set to your deployed LVS container}"
+export LVS_BACKEND LVS_CONTAINER_NAME
 export VLM_GPUS=<VLM_GPU>                                           # GPU(s) your VLM uses
 export LLM_GPUS=<LLM_GPU>                                           # GPU(s) your LLM uses
 export VSS_PUBLIC_URL=http://localhost:8000                         # origin serving the VSS agent
@@ -383,7 +399,7 @@ cd "${SKILL_DIR}"
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `POST /files` returns 404 | `VIA_DEV_API` not set or set to `false` | Set `VIA_DEV_API=true` in `services/video-summarization/.env` (the lvs-server `env_file`) and recreate the LVS service |
+| `POST /files` returns 404 | `VIA_DEV_API` not set or set to `false` | Set `VIA_DEV_API=true` in the benchmark build's `patches/lvs-server.yml`, regenerate and validate `resolved.yml`, then recreate LVS through that file |
 | GPU metrics all zeros | GPU monitoring requires local execution with NVML access | Run the benchmark on the GPU host directly (not via SSH without GPU passthrough) |
 | Videos not found on media server | `VSS_BENCHMARK_DATA_DIR` not set correctly or `videos/` subdirectory missing | Check path with `ls ${VSS_BENCHMARK_DATA_DIR}/videos/`; ensure Step 2 clips were created |
 | OOM on LVS container during file_burst | Too many concurrent requests consuming GPU memory | Reduce `concurrency_levels` in `config.yaml` (remove the highest levels) |

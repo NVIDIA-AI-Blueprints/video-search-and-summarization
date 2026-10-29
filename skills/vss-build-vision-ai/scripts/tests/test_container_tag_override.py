@@ -360,40 +360,45 @@ def _compose_config(override: Path) -> dict:
 
 @requires_docker_compose
 @pytest.mark.parametrize("mode,expected_cv", [("2d_vlm", "false"), ("2d_cv", "true")])
-def test_compose_flags_match_standard_alerts_launcher(tmp_path, mode, expected_cv):
+def test_compose_flags_follow_explicit_alerts_mode_contract(
+    tmp_path, mode, expected_cv
+):
+    backend_enabled = "true" if mode == "2d_vlm" else "false"
+    message_bus = "kafka" if mode == "2d_vlm" else ""
     override = tmp_path / "override.env"
     override.write_text(
         f"MODE={mode}\nCOMPOSE_PROFILES=vss-ui,alert-bridge,rtvi-vlm\n"
         f"VSS_APPS_DIR={REPOSITORY / 'deploy/docker'}\n"
-        f"ALERT_AGENT_ALWAYS_ON={'true' if mode == '2d_vlm' else 'false'}\n"
+        f"ALERT_AGENT_ALWAYS_ON={backend_enabled}\n"
     )
-    # Reproduce the omission with the real Compose env layers before applying
-    # the launcher's mode-specific settings. MODE alone leaves the CV editor on.
+    # Reproduce the omission with the real Compose env layers before writing
+    # the build's explicit settings. MODE alone leaves the CV editor and
+    # generated-message output on, despite the legacy KAFKA_ENABLED=false.
     omitted = _compose_config(override)
     assert omitted["services"]["vss-ui"]["environment"][CV_FLAG] == "true"
     assert bool(alerts_ui_errors(omitted)) == (mode == "2d_vlm")
+    assert omitted["services"]["rtvi-vlm"]["environment"]["KAFKA_ENABLED"] == "false"
+    assert omitted["services"]["rtvi-vlm"]["environment"]["MESSAGE_BUS"] == "kafka"
 
-    # Run the checked-in helper, without running the launcher's deployment main.
-    launcher = (REPOSITORY / "deploy/docker/scripts/dev-profile.sh").read_text()
-    helper = launcher[launcher.index("function set_alerts_ui_rule_kinds_from_mode()") :]
-    helper = helper[: helper.index("\n}\n") + 3]
-    result = subprocess.run(
-        [
-            "bash",
-            "-c",
-            'get_env_value() { sed -n "s/^${2}=//p" "$1"; }\n'
-            + helper
-            + '\nset_alerts_ui_rule_kinds_from_mode "$1"',
-            "alerts-ui-test",
-            str(override),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
+    # Apply the supported build override contract directly. Neither resolving
+    # Compose nor validating its UI contract depends on a deployment launcher.
+    with override.open("a") as env_file:
+        env_file.write(
+            f"{REALTIME_FLAG}=true\n{CV_FLAG}={expected_cv}\n"
+            f"RTVI_VLM_KAFKA_ENABLED={backend_enabled}\n"
+            f"RTVI_VLM_MESSAGE_BUS={message_bus}\n"
+        )
     configured = _compose_config(override)
     ui_env = configured["services"]["vss-ui"]["environment"]
     assert ui_env[REALTIME_FLAG] == "true"
     assert ui_env[CV_FLAG] == expected_cv
     assert alerts_ui_errors(configured) == []
+    assert (
+        configured["services"]["alert-bridge"]["environment"]["ALERT_AGENT_ALWAYS_ON"]
+        == backend_enabled
+    )
+    rt_vlm_env = configured["services"]["rtvi-vlm"]["environment"]
+    assert rt_vlm_env["KAFKA_ENABLED"] == backend_enabled
+    assert rt_vlm_env["MESSAGE_BUS"] == message_bus
+    if message_bus == "kafka":
+        assert rt_vlm_env["KAFKA_BOOTSTRAP_SERVERS"].strip()

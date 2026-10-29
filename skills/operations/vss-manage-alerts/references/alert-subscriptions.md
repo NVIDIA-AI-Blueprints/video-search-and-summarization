@@ -6,7 +6,7 @@ Operational reference for Workflow D (Alert Bridge realtime subscriptions) on th
 
 This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workflow D). The parent routes here when the user's message either contains rule-management keywords (`rule`, `subscription`, rule ID) **or** pairs a specific sensor name with a specific detection condition.
 
-**Precondition: VLM real-time mode only.** Parent SKILL gates invocation of this playbook; assume the VLM (`-m real-time` / `MODE=2d_vlm`) profile is deployed and Alert Bridge is reachable at `$AB` (Kubernetes `${VSS_PUBLIC_URL}/alert-bridge`, Docker `http://${HOST_IP}:9080`). CV-mode deployments do not invoke this playbook (parent SKILL refuses with a redeploy hint).
+**Precondition: VLM real-time mode only.** Parent SKILL gates invocation of this playbook; assume the VLM (real-time / `MODE=2d_vlm`) profile is deployed and Alert Bridge is reachable at `$AB` (Kubernetes `${VSS_PUBLIC_URL}/alert-bridge`, Docker `http://${HOST_IP}:9080`). CV-mode deployments do not invoke this playbook (parent SKILL refuses with a redeploy hint).
 
 > **⛔ HARD RULE — a missing sensor means STOP, never a workaround.** If the sensor the user named does not resolve in VIOS (or VIOS is unreachable), the ONLY acceptable outcome is: report **not found** (or the connectivity error), list the sensors that DO exist, and ask the user to pick. Registering a NEW sensor to stand in for it, POSTing a rule anyway, or replying that the alert "is live" are **critical failures** — completing the task is NOT a justification. This rule outranks every instruction below it.
 
