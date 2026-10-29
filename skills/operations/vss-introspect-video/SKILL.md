@@ -130,6 +130,11 @@ Each candidate has `candidate_id` (`evt-<slug>`), `status`, `counted`,
   window; set `duplicate_of` to the original candidate;
 - `excluded`: seen, but it does not meet the claim's definition.
 
+Keep the inventory compact: one sentence each for `description` and
+`justification`, citing observation IDs and spans instead of restating VLM
+text. Report activity that does not qualify as a few grouped `excluded`
+candidates, not one per moment.
+
 Only `observed` and `inferred` candidates may be `counted`. A disappearance,
 retrieval, or other visible change is not counted merely because it occurred;
 count it only when the visible evidence meets the claim's definition.
@@ -480,7 +485,10 @@ it to:
 - put tool failures in `error`, never in `observations`; exit 6 may retain
   usable evidence while recording the persistence limitation;
 - return exactly one contract-valid result without changing claims, canonical
-  state, or the final answer.
+  state, or the final answer;
+- write the result file directly from the inspection output, without pasting
+  raw VLM answers or the whole result into a message; end with the result path
+  and a few lines of summary.
 
 For sensor work, use the helper instead of one unbounded VLM invocation.
 Pass the round's `VLM_FPS` chosen above:
