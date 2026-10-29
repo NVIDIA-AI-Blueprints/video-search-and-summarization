@@ -409,14 +409,44 @@ fi
 STACK_LAUNCH_ATTEMPTED=false
 LVS_LOG_PID=""
 
+collect_perf_diagnostics() {
+    local exit_code="${1:-1}"
+    local outcome="failure"
+    local collector="${PERF_DIAGNOSTICS_COLLECTOR:-}"
+    local output_dir="${PERF_DIAGNOSTICS_DIR:-${PERF_OUTPUT_DIR:-$PERF_ROOT/results}/diagnostics}"
+    local container_id
+    local -a collector_args
+
+    [[ "$exit_code" -eq 0 ]] && outcome="success"
+    [[ -n "$collector" && -x "$collector" ]] || return 0
+
+    collector_args=(
+        --output "$output_dir"
+        --outcome "$outcome"
+        --service "LVS"
+        --since "${PERF_RUN_STARTED_AT:-}"
+    )
+    while IFS= read -r container_id; do
+        [[ -n "$container_id" ]] && collector_args+=(--container "$container_id")
+    done < <(${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" ps -aq 2>/dev/null || true)
+
+    "$collector" "${collector_args[@]}" || \
+        warn "LVS diagnostics collection failed; preserving original exit status $exit_code"
+}
+
 cleanup() {
     local exit_code=$?
-    trap - EXIT
+    trap - EXIT INT TERM
     set +e
 
     if [ -n "$LVS_LOG_PID" ]; then
         kill -- -"$LVS_LOG_PID" 2>/dev/null || true
     fi
+
+    # Capture every Compose service before teardown removes the containers.
+    # This also covers failures from the first docker compose up invocation,
+    # before the background log streamer has had a chance to start.
+    collect_perf_diagnostics "$exit_code"
 
     if [ "$TEARDOWN" = true ] && [ "$STACK_LAUNCH_ATTEMPTED" = true ]; then
         step "Tearing down compose stack..."
@@ -431,6 +461,8 @@ cleanup() {
     exit "$exit_code"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # --- Step 1: Launch compose stack ---
 step "Starting compose stack: $COMPOSE_FILE${OVERLAY_FILE_PATH:+ + overlays/$(basename "$OVERLAY_FILE_PATH")}"
