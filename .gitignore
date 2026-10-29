@@ -52,3 +52,5 @@ deploy/helm/**/charts/*.tgz
 # the Dockerfiles' pinned VSS_REF fetch).
 .openclaw/.vss-src/
 .hermes/.vss-src/
+.cursor/*
+assets/*.mmd

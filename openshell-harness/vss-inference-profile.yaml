@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Step 4: the provider profile replacing NEMOCLAW_PROVIDER / NEMOCLAW_MODEL /
+# COMPATIBLE_API_KEY at onboard. Gateway 0.1.6 ships no built-in profiles, so
+# this has to be imported before `provider create` has a type to name.
+# Host matches what deploy_nemoclaw.ipynb uses for NEMOCLAW_PROVIDER="build".
+
+id: vss-inference
+display_name: VSS agent inference
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    env_vars: [COMPATIBLE_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: inference-api.nvidia.com
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow: { method: POST, path: "/v1/**" }
+binaries:
+  - { path: /usr/bin/python3.13 }

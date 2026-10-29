@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Step 3 bakes the access boundary into the harness image, so one artifact
+# carries the plugin, skills, workspace docs, `vss` CLI and the policy at one
+# VSS_REF. Kept as a derived stage here rather than a line in
+# .hermes/Dockerfile so the harness build stays untouched.
+
+ARG HARNESS_IMAGE=vss-harness-hermes:develop
+FROM ${HARNESS_IMAGE}
+
+# A single COPY, deliberately. The harness image already carries 125 layers
+# and Docker's overlay2 depth limit is 127, so a second filesystem layer here
+# fails the run with "max depth exceeded".
+#
+# No --chmod: it is applied to the parent directory COPY creates as well, and
+# a mode without the execute bit leaves /etc/openshell untraversable by the
+# sandbox user.
+COPY --chown=root:root policy-hermes.yaml /etc/openshell/policy.yaml

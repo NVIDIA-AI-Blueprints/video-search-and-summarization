@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  openshell-init:                # one-shot: writes the sandbox JWT signing
+    image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_TAG}  # keys the Docker
+    profiles: [harness]                                       # driver requires
+    command: [generate-certs, --output-dir, /var/lib/openshell/tls]
+    environment: { HOME: /var/lib/openshell }
+    volumes: [openshell-data:/var/lib/openshell]
+  openshell-gateway:
+    image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_TAG}
+    profiles: [harness]          # never materialises for a no-harness build
+    depends_on: { openshell-init: { condition: service_completed_successfully } }
+    restart: unless-stopped
+    network_mode: host           # the supervisor dials the host's own loopback
+    command: ["--bind-address", "127.0.0.1", "--port", "8080"]
+    group_add: ["988"]           # docker GID; distroless has no /etc/group
+                                 # to resolve the name against
+    environment:
+      OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
+      OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"  # barred from the TOML
+      XDG_DATA_HOME: /var/lib/openshell
+      HOME: /var/lib/openshell
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - openshell-data:/var/lib/openshell
+      - ./gateway.toml:/etc/openshell/gateway.toml:ro
+volumes:
+  openshell-data: {}
