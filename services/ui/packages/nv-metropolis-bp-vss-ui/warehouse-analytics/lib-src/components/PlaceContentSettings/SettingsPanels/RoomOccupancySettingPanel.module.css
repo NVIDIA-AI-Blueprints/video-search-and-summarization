@@ -57,22 +57,4 @@
 .submitButton {
   margin: 4px 0 0;
   align-self: flex-start;
-  padding: 8px 14px;
-  border: none;
-  border-radius: 6px;
-  background: #76b900;
-  color: #111;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.submitButton:hover:not(:disabled) {
-  background: #87c50a;
-}
-
-.submitButton:disabled {
-  background: rgba(228, 228, 231, 0.45);
-  color: #52525b;
-  cursor: not-allowed;
 }

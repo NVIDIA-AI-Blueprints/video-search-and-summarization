@@ -3,7 +3,7 @@
 // @ts-nocheck
 import React from "react";
 
-import { DateTimePicker } from "common/warehouse/mui";
+import { Button, DateTimePicker, IconButton } from "common/warehouse/mui";
 import Styles from "./LightForm.module.css";
 
 class StartEndDateTimeSelector extends React.PureComponent {
@@ -55,15 +55,14 @@ class StartEndDateTimeSelector extends React.PureComponent {
       <div className={Styles.panel}>
         {this.props.onClose ? (
           <div className={Styles.header}>
-            <button
-              type="button"
+            <IconButton
               className={Styles.close}
               onClick={this.props.onClose}
               aria-label="Close"
               title="Close"
             >
               ×
-            </button>
+            </IconButton>
           </div>
         ) : null}
         <DateTimePicker
@@ -84,9 +83,9 @@ class StartEndDateTimeSelector extends React.PureComponent {
           <div className={Styles.error}>Start time must be before end time</div>
         ) : null}
         {this.props.onTimeRangeSelected !== undefined ? (
-          <button type="button" className={Styles.apply} onClick={this.onSubmit}>
+          <Button variant="contained" size="small" className={Styles.apply} onClick={this.onSubmit}>
             Apply
-          </button>
+          </Button>
         ) : null}
       </div>
     );

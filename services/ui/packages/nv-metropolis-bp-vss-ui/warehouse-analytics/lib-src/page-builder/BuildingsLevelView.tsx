@@ -45,6 +45,10 @@ class BuildingsLevelView extends Component {
   };
 
   render() {
+    if (!this.props.metadata?.buildingsMap) {
+      return null;
+    }
+
     let content = (
       <RoomsLevelView
         onClickForBackToBuildingsView={this.onClickForBackToBuildingsView.bind(

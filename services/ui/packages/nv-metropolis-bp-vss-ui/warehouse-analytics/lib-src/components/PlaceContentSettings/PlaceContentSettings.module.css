@@ -12,11 +12,17 @@
   gap: 8px;
 }
 
-.settingsBtn {
+.settingsBtn,
+:global(.dark .nv-light) .settingsBtn:global(.nv-button.nv-button--kind-tertiary),
+:global(.nv-dark .nv-light) .settingsBtn:global(.nv-button.nv-button--kind-tertiary) {
   position: relative;
   box-sizing: border-box;
   width: 34px;
   height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  max-width: 34px;
+  max-height: 34px;
   padding: 0;
   margin: 0;
   border: 1px solid rgba(255, 255, 255, 0.4);

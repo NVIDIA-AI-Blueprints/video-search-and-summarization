@@ -7,6 +7,7 @@ import { GoogleMap, useLoadScript } from "@react-google-maps/api";
 import { OverlappingMarkerSpiderfier } from "ts-overlapping-marker-spiderfier";
 import _ from "lodash";
 
+import { Button } from "common/warehouse/mui";
 import LoaderDisplay from "./LoaderDisplay/LoaderDisplay";
 import UserMessage from "../../utils/UserMessage";
 
@@ -30,9 +31,9 @@ function MapPlacesFallback({ children }) {
           const title = child.props?.title || `Place ${index + 1}`;
           const label = String(title).split("\n")[0];
           return (
-            <button
+            <Button
               key={child.key || index}
-              type="button"
+              variant="outlined"
               className="rounded border border-neutral-400 bg-white px-3 py-2 text-left text-sm text-neutral-900 hover:border-[#76b900]"
               onClick={() => child.props?.onLeftClick?.()}
               onContextMenu={(event) => {
@@ -42,7 +43,7 @@ function MapPlacesFallback({ children }) {
               title={title}
             >
               {label}
-            </button>
+            </Button>
           );
         })}
       </div>

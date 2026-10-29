@@ -13,6 +13,7 @@ import {
 
 import World2CanvasCartesianCoordinateConverter from "./../../utils/World2CanvasCartesianCoordinateConverter";
 import Canvas2WorldCartesianCoordinateConverter from "./../../utils/Canvas2WorldCartesianCoordinateConverter";
+import { IconButton } from "common/warehouse/mui";
 import { TopViewContext } from "./TopViewContext";
 
 import Styles from "./TopView.module.css";
@@ -518,55 +519,55 @@ export default class TopView extends React.Component {
               </svg>
             )}
             <div className={Styles.zoomControls} role="toolbar" aria-label="Map controls">
-              <button
-                type="button"
+              <IconButton
                 className={`${Styles.zoomButton} ${this.state.showInfoPopup ? Styles.zoomButtonActive : ""}`}
                 onClick={this.toggleInfoPopup}
                 data-tooltip="Help: drag to pan, scroll or use +/− to zoom, reset to restore the view"
                 aria-label="Help: drag to pan, scroll or use +/− to zoom, reset to restore the view"
                 aria-expanded={this.state.showInfoPopup}
+                title="Help"
               >
                 <IconHelpCircle size={18} stroke={1.75} />
-              </button>
+              </IconButton>
               <span className={Styles.controlDivider} aria-hidden="true" />
-              <button
-                type="button"
+              <IconButton
                 className={Styles.zoomButton}
                 onClick={this.handleZoomIn}
                 disabled={this.state.stageScale >= 10}
                 data-tooltip="Zoom in"
                 aria-label="Zoom in"
+                title="Zoom in"
               >
                 <IconZoomIn size={18} stroke={1.75} />
-              </button>
-              <button
-                type="button"
+              </IconButton>
+              <IconButton
                 className={Styles.zoomButton}
                 onClick={this.handleZoomOut}
                 disabled={this.state.stageScale <= 0.5}
                 data-tooltip="Zoom out"
                 aria-label="Zoom out"
+                title="Zoom out"
               >
                 <IconZoomOut size={18} stroke={1.75} />
-              </button>
-              <button
-                type="button"
+              </IconButton>
+              <IconButton
                 className={Styles.zoomButton}
                 onClick={this.handleResetZoom}
                 data-tooltip="Reset zoom to 100%"
                 aria-label="Reset zoom to 100%"
+                title="Reset zoom to 100%"
               >
                 <IconZoomReset size={18} stroke={1.75} />
-              </button>
-              <button
-                type="button"
+              </IconButton>
+              <IconButton
                 className={Styles.zoomButton}
                 onClick={this.handleResetPosition}
                 data-tooltip="Recenter the floor plan"
                 aria-label="Recenter the floor plan"
+                title="Recenter the floor plan"
               >
                 <IconFocusCentered size={18} stroke={1.75} />
-              </button>
+              </IconButton>
             </div>
           </TopViewContext.Provider>
         )}

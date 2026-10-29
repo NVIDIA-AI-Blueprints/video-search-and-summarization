@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
+import { CircularProgress } from "common/warehouse/mui";
 import classes from "./KPIStatusDisplay.module.css";
 
 /**
@@ -12,7 +13,7 @@ const KPIStatusDisplay = ({ type }) => {
     if (type === "loading") {
       return (
         <>
-          <div className={classes.loadingSpinner}></div>
+          <CircularProgress size={16} />
           <span className={classes.statusText}>Loading Metrics</span>
         </>
       );

@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
+import { IconButton } from "common/warehouse/mui";
 import {
   Close as CloseIcon,
   Minimize as MinimizeIcon,
 } from "common/warehouse/mui-icons";
 
 import Styles from "./Window.module.css";
-
-const iconStyle = { color: "white", cursor: "pointer" };
 
 /**
  * Standard wrapping Window for Widgets.
@@ -29,16 +28,24 @@ export default class Window extends React.PureComponent {
             {(this.props.onClose || this.props.onMinimize) && (
               <div className={Styles.headerActions}>
                 {this.props.onMinimize ? (
-                  <MinimizeIcon
-                    style={iconStyle}
+                  <IconButton
+                    className={Styles.headerAction}
+                    title="Minimize"
+                    aria-label="Minimize"
                     onClick={(e) => this.props.onMinimize(e)}
-                  />
+                  >
+                    <MinimizeIcon />
+                  </IconButton>
                 ) : null}
                 {this.props.onClose ? (
-                  <CloseIcon
-                    style={iconStyle}
+                  <IconButton
+                    className={Styles.headerAction}
+                    title="Close"
+                    aria-label="Close"
                     onClick={(e) => this.props.onClose(e)}
-                  />
+                  >
+                    <CloseIcon />
+                  </IconButton>
                 ) : null}
               </div>
             )}

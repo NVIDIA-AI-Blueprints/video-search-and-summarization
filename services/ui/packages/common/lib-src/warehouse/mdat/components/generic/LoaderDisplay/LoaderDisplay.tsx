@@ -35,7 +35,7 @@ const LoaderDisplay = (props) => {
   if (props.type === LoaderDisplay.TYPE.LOADING) {
     iconDivContent = (
       <KaizenSpinner
-        kind="ring"
+        kind="default"
         size={
           props.size === LoaderDisplay.SIZE.LARGE
             ? "large"

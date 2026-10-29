@@ -42,22 +42,6 @@
   padding-left: 0.5rem;
 }
 
-/* Loading spinner */
-.loadingSpinner {
-  width: 1rem;
-  height: 1rem;
-  border: 2px solid rgba(0, 0, 0, 0.2);
-  border-top-color: #76b900; /* NVIDIA green */
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .statusText {
   font-size: 0.95rem;
   color: #1a1a1a;

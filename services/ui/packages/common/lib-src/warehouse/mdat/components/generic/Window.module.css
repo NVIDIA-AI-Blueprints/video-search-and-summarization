@@ -57,6 +57,33 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
+.headerAction,
+:global(.dark) .headerAction:global(.nv-button.nv-button--kind-tertiary),
+:global(.nv-dark) .headerAction:global(.nv-button.nv-button--kind-tertiary) {
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  max-width: 32px;
+  max-height: 32px;
+  padding: 0;
+  color: #ffffff;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.headerAction:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.headerAction :global(svg) {
+  width: 18px;
+  height: 18px;
+  color: #ffffff;
+}
+
 .headerStart :global(svg) {
   width: 18px;
   height: 18px;

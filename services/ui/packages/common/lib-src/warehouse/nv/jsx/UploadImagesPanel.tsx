@@ -4,6 +4,7 @@
 import { readJson } from "common/warehouse";
 import PropTypes from "prop-types";
 import React from "react";
+import { Button, IconButton } from "common/warehouse/mui";
 import {
   Close as CloseIcon,
   ExpandLess as ExpandLessIcon,
@@ -73,8 +74,8 @@ export default class UploadImagesPanel extends React.PureComponent {
       <div className={Styles.panel}>
         <div className={Styles.header}>
           {canToggle ? (
-            <button
-              type="button"
+            <Button
+              variant="text"
               className={Styles.headerToggle}
               title={expanded ? "Collapse" : "Expand"}
               aria-expanded={expanded}
@@ -83,15 +84,14 @@ export default class UploadImagesPanel extends React.PureComponent {
             >
               {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
               <span className={Styles.title}>Upload Calibration Images</span>
-            </button>
+            </Button>
           ) : (
             <div className={Styles.headerStatic}>
               <span className={Styles.title}>Upload Calibration Images</span>
             </div>
           )}
           {expanded ? (
-            <button
-              type="button"
+            <IconButton
               className={Styles.iconBtn}
               title="Reset output"
               aria-label="Reset output"
@@ -100,18 +100,17 @@ export default class UploadImagesPanel extends React.PureComponent {
               }}
             >
               <RefreshIcon />
-            </button>
+            </IconButton>
           ) : null}
           {this.props.onClose ? (
-            <button
-              type="button"
+            <IconButton
               className={Styles.iconBtn}
               title="Close"
               aria-label="Close"
               onClick={() => this.props.onClose?.()}
             >
               <CloseIcon />
-            </button>
+            </IconButton>
           ) : null}
         </div>
         <div className={`${Styles.body} ${expanded ? "" : Styles.bodyHidden}`}>
@@ -133,13 +132,13 @@ export default class UploadImagesPanel extends React.PureComponent {
             onChange={(e) => this.handleImagesMetadataFileInput(e)}
           />
         </label>
-        <button
-          type="button"
+        <Button
+          variant="contained"
           className={Styles.submit}
           onClick={this.onUpload.bind(this)}
         >
           Upload
-        </button>
+        </Button>
         <label className={Styles.field}>
           <span className={Styles.label}>Output</span>
           <textarea

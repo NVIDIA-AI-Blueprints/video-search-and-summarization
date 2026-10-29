@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import { readJson } from "common/warehouse";
+import { Button } from "common/warehouse/mui";
 import React from "react";
 
 import { MetricsOccupancyResetUrl } from "common/warehouse";
@@ -154,15 +155,16 @@ export default class RoomOccupancySettingPanel extends React.PureComponent {
           }}
           required
         />
-        <button
-          type="button"
+        <Button
+          variant="contained"
+          size="small"
           onClick={this.onSubmit.bind(this)}
           className={CssClasses.submitButton}
           disabled={validationErrors.length > 0}
           title={validationErrors.length > 0 ? validationErrors.join(". ") : ""}
         >
           Submit
-        </button>
+        </Button>
         {notificationComponent}
       </div>
     );

@@ -39,10 +39,17 @@
   background: rgba(63, 63, 70, 0.18);
 }
 
-.zoomButton {
+.zoomButton,
+:global(.dark .nv-light) .zoomButton:global(.nv-button.nv-button--kind-tertiary),
+:global(.nv-dark .nv-light) .zoomButton:global(.nv-button.nv-button--kind-tertiary) {
   position: relative;
+  box-sizing: border-box;
   width: 34px;
   height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  max-width: 34px;
+  max-height: 34px;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -54,6 +61,7 @@
   transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
   user-select: none;
   padding: 0;
+  box-shadow: none;
 }
 
 .zoomButton[data-tooltip]:hover::after {

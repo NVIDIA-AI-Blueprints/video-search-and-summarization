@@ -3,6 +3,7 @@
 // @ts-nocheck
 import React from "react";
 
+import { Button, IconButton } from "common/warehouse/mui";
 import Styles from "./LightForm.module.css";
 
 class NewValueApplier extends React.PureComponent {
@@ -35,15 +36,14 @@ class NewValueApplier extends React.PureComponent {
       <div className={Styles.panel}>
         {this.props.onClose ? (
           <div className={Styles.header}>
-            <button
-              type="button"
+            <IconButton
               className={Styles.close}
               onClick={this.props.onClose}
               aria-label="Close"
               title="Close"
             >
               ×
-            </button>
+            </IconButton>
           </div>
         ) : null}
         <label className={Styles.field}>
@@ -59,14 +59,15 @@ class NewValueApplier extends React.PureComponent {
         {this.state.showError ? (
           <div className={Styles.error}>{this.state.showError}</div>
         ) : null}
-        <button
-          type="button"
+        <Button
+          variant="contained"
+          size="small"
           className={Styles.apply}
           onClick={this.onSubmit}
           disabled={this.state.showError !== ""}
         >
           Apply
-        </button>
+        </Button>
         {this.props.infoString ? (
           <div className={Styles.info}>{this.props.infoString}</div>
         ) : null}
