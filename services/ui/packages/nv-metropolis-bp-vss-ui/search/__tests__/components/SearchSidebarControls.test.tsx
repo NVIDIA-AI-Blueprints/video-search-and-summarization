@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { SearchSidebarControls } from '../../lib-src/components/SearchSidebarControls';
 import { SIMILARITY_TAG_TOOLTIP } from '../../lib-src/utils/searchFilters';
 
@@ -65,5 +65,49 @@ describe('SearchSidebarControls', () => {
     const tags = screen.getByTestId('search-filter-tags');
     const clearAll = screen.getByTestId('search-clear-all-filters');
     expect(tags.lastElementChild).toBe(clearAll);
+  });
+
+  it('resets the similarity input when Clear All runs with filters expanded', () => {
+    const setFilterParams = jest.fn();
+    const addFilter = jest.fn();
+    const applied = { ...defaultProps.filterParams, similarity: 0.01 };
+    const appliedTags = [
+      { key: 'topK', title: 'Show top K Results', value: '10' },
+      { key: 'similarity', title: 'Similarity', value: '0.01' },
+    ];
+    const { rerender } = render(
+      <SearchSidebarControls
+        {...defaultProps}
+        filterParams={applied}
+        filterTags={appliedTags}
+        setFilterParams={setFilterParams}
+        addFilter={addFilter}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('search-filter-button'));
+    const similarityInput = () =>
+      screen.getByTestId('search-filter-similarity').querySelector('input') as HTMLInputElement;
+    expect(similarityInput().value).toBe('0.01');
+
+    fireEvent.click(screen.getByTestId('search-clear-all-filters'));
+    expect(setFilterParams).toHaveBeenCalledWith(
+      expect.objectContaining({ similarity: 0, topK: 10, videoSources: [] }),
+    );
+
+    rerender(
+      <SearchSidebarControls
+        {...defaultProps}
+        filterParams={{ ...defaultProps.filterParams, similarity: 0 }}
+        filterTags={[
+          { key: 'topK', title: 'Show top K Results', value: '10' },
+          { key: 'similarity', title: 'Similarity', value: '0.00' },
+        ]}
+        setFilterParams={setFilterParams}
+        addFilter={addFilter}
+      />,
+    );
+
+    expect(similarityInput().value).toBe('0.00');
   });
 });

@@ -40,15 +40,16 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
   inline = false,
 }) => {
   const [pendingParams, setPendingParams] = useState(filterParams);
-  const [wasOpen, setWasOpen] = useState(isOpen);
   const [portalPosition, setPortalPosition] = useState<{ top: number; left: number } | null>(null);
 
+  // Copy parent params while open so Clear All / tag resets update the inputs.
+  // The previous open-toggle-only sync left pending similarity at the last typed
+  // value (e.g. 0.01) when the inline sidebar stayed expanded.
   useEffect(() => {
-    if (isOpen !== wasOpen) {
+    if (isOpen) {
       setPendingParams(filterParams);
     }
-    setWasOpen(isOpen);
-  }, [isOpen, wasOpen, filterParams]);
+  }, [isOpen, filterParams]);
 
   // Position for portal: below trigger, so popover is not hidden behind Chat sidebar
   const updatePortalPosition = useCallback(() => {

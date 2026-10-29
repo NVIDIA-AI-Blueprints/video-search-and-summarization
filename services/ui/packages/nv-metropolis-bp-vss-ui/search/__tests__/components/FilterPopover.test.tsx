@@ -163,4 +163,28 @@ describe('FilterDialog', () => {
     const last = handleConfirm.mock.calls[handleConfirm.mock.calls.length - 1][0];
     expect(Number(last.topK)).toBe(25);
   });
+
+  it('resets the similarity input when filterParams clear while inline stays open', () => {
+    const { rerender } = render(
+      <FilterDialog
+        {...defaultProps}
+        inline
+        filterParams={{ ...defaultProps.filterParams, similarity: 0.01 }}
+      />,
+    );
+
+    const similarityInput = () =>
+      screen.getByTestId('search-filter-similarity').querySelector('input') as HTMLInputElement;
+    expect(similarityInput().value).toBe('0.01');
+
+    rerender(
+      <FilterDialog
+        {...defaultProps}
+        inline
+        filterParams={{ ...defaultProps.filterParams, similarity: 0 }}
+      />,
+    );
+
+    expect(similarityInput().value).toBe('0.00');
+  });
 });
