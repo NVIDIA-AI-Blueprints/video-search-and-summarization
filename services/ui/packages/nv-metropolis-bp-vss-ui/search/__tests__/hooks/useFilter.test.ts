@@ -40,7 +40,7 @@ describe('useFilter', () => {
   it('initializes with default state', () => {
     global.fetch = mockFetchResponse([]);
 
-    const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
+    const { result } = renderHook(() => useFilter({ viosApiUrl: undefined }));
 
     expect(result.current.filterParams).toEqual({
       videoSources: [],
@@ -115,7 +115,7 @@ describe('useFilter', () => {
     it('creates tags for all provided filter params', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: undefined }));
 
       act(() => {
         result.current.addFilter({
@@ -134,7 +134,7 @@ describe('useFilter', () => {
     it('keeps the similarity tag when the threshold is zero', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: undefined }));
 
       act(() => {
         result.current.addFilter({
@@ -153,7 +153,7 @@ describe('useFilter', () => {
     it('uses filterParams when no params argument passed', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: undefined }));
 
       act(() => {
         result.current.addFilter();
@@ -168,7 +168,7 @@ describe('useFilter', () => {
     it('formats similarity value to 2 decimal places', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: undefined }));
 
       act(() => {
         result.current.addFilter({ similarity: 0.7, topK: 10 });
@@ -183,7 +183,7 @@ describe('useFilter', () => {
     it('removes a specific tag', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: undefined }));
 
       act(() => {
         result.current.addFilter({
@@ -207,7 +207,7 @@ describe('useFilter', () => {
     it('resets to default topK tag when null is passed (clear all)', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: undefined }));
 
       // Update filterParams topK to 20
       act(() => {
@@ -237,7 +237,7 @@ describe('useFilter', () => {
     it('allows updating filter params directly', () => {
       global.fetch = mockFetchResponse([]);
 
-      const { result } = renderHook(() => useFilter({ viosApiUrl: 'http://vios.test' }));
+      const { result } = renderHook(() => useFilter({ viosApiUrl: undefined }));
 
       act(() => {
         result.current.setFilterParams({

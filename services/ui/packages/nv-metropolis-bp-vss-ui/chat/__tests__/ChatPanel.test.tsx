@@ -226,12 +226,13 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('first question');
   });
 
-  it('reflows a narrow chat panel when conversation history opens', () => {
+  it('reflows a narrow chat panel when conversation history opens', async () => {
     render(
       <div style={{ width: 380 }}>
         <ChatPanel endpoint={endpoint} features={noHeader} />
       </div>,
     );
+    await act(async () => {});
 
     expect(screen.queryByRole('complementary', { name: 'Conversation history' })).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-textarea')).toBeInTheDocument();
@@ -246,8 +247,9 @@ describe('ChatPanel', () => {
     expect(screen.getByRole('button', { name: 'Show conversation history' })).toBeInTheDocument();
   });
 
-  it('shows only one new-chat action while conversation history is open', () => {
+  it('shows only one new-chat action while conversation history is open', async () => {
     render(<ChatPanel endpoint={endpoint} />);
+    await act(async () => {});
 
     expect(screen.getAllByRole('button', { name: 'New chat' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Show conversation history' }));
@@ -505,10 +507,11 @@ describe('ChatPanel', () => {
     );
   });
 
-  it('paints the Chat History switch NVIDIA green when on, in both themes', () => {
+  it('paints the Chat History switch NVIDIA green when on, in both themes', async () => {
     const { rerender } = render(
       <ChatPanel endpoint={endpoint} features={{ ...noHeader, headerMenu: true }} theme="light" />,
     );
+    await act(async () => {});
     const toggle = screen.getByRole('switch', { name: 'Chat History' });
     expect(toggle).toHaveAttribute('aria-checked', 'true');
     expect(toggle).toHaveClass('bg-[#76b900]');
