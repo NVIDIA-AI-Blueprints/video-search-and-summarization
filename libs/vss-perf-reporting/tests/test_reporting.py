@@ -125,7 +125,7 @@ def test_summary_totals_are_validated() -> None:
 
 def test_publish_directory_writes_jenkins_compatible_receipt(monkeypatch, tmp_path) -> None:
     result = build_and_save(
-        tmp_path / "nested",
+        tmp_path / "nested" / "vss-perf-results",
         "Behavior-Analytics",
         [{"test_case_id": "playback", "status": "PASS", "metrics": {}}],
         config_id="warehouse-2d",
@@ -133,7 +133,9 @@ def test_publish_directory_writes_jenkins_compatible_receipt(monkeypatch, tmp_pa
         passed=1,
         failed=0,
     )
-    (tmp_path / "execution_summary.json").write_text('{"success": true}\n')
+    (tmp_path / "execution_summary.json").write_text(
+        '{"success": true, "test_cases": []}\n'
+    )
     uploads = []
 
     class FakeUploader:
@@ -171,9 +173,20 @@ def test_publish_directory_rejects_unsafe_service(tmp_path) -> None:
         passed=0,
         failed=0,
     )
-    (tmp_path / "unsafe.json").write_text(json.dumps(payload))
+    canonical_dir = tmp_path / "vss-perf-results"
+    canonical_dir.mkdir()
+    (canonical_dir / "unsafe.json").write_text(json.dumps(payload))
 
     with pytest.raises(ValueError, match="unsafe or missing metadata.service"):
+        publish_result_directory(tmp_path)
+
+
+def test_publish_directory_rejects_malformed_canonical_report(tmp_path) -> None:
+    canonical_dir = tmp_path / "vss-perf-results"
+    canonical_dir.mkdir()
+    (canonical_dir / "malformed.json").write_text('{"test_cases": []}\n')
+
+    with pytest.raises(ValueError, match="Canonical report .* is missing"):
         publish_result_directory(tmp_path)
 
 
