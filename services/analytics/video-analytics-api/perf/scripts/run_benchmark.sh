@@ -13,9 +13,16 @@ if [[ "${PERF_NATIVE_ONLY:-false}" != "true" ]]; then
 fi
 
 cleanup() {
+    local exit_code=$?
+    trap - EXIT INT TERM
+    set +e
+    collect_perf_diagnostics "$exit_code"
     "$PERF_DIR/scripts/teardown.sh" || true
+    exit "$exit_code"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 "$PERF_DIR/scripts/pre_flight.sh"
 "$PERF_DIR/scripts/deploy.sh"

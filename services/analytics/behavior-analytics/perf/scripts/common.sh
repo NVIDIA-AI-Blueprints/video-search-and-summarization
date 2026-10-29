@@ -29,6 +29,23 @@ export BA_PERF_OVERLAY_STAMP="${BA_PERF_OVERLAY_STAMP:-$BA_PERF_DATA_DIR/perf_ap
 BA_PERF_OWNERSHIP_MARKER=".vss-ba-perf-owned"
 BA_PERF_REPO_ROOT="$(git -C "$PERF_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
 
+collect_perf_diagnostics() {
+    local exit_code="${1:-1}"
+    local outcome="failure"
+    [[ "$exit_code" -eq 0 ]] && outcome="success"
+    [[ -n "${PERF_DIAGNOSTICS_COLLECTOR:-}" ]] || return 0
+    [[ -x "$PERF_DIAGNOSTICS_COLLECTOR" ]] || return 0
+
+    "$PERF_DIAGNOSTICS_COLLECTOR" \
+        --output "${PERF_DIAGNOSTICS_DIR:-$OUTPUT_DIR/diagnostics}" \
+        --outcome "$outcome" \
+        --service "Behavior-Analytics" \
+        --since "${PERF_RUN_STARTED_AT:-}" \
+        --compose-project "$COMPOSE_PROJECT_NAME" \
+        --container "$MONITOR_NAME" || \
+        echo "WARNING: Behavior Analytics diagnostics collection failed" >&2
+}
+
 refuse_symlink() {
     local path="$1"
     if [[ -L "$path" ]]; then

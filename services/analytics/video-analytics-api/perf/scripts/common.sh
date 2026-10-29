@@ -45,6 +45,25 @@ source "$INTEGRATION_DIR/lifecycle.sh"
 source "$INTEGRATION_DIR/cleanup.sh"
 export INTEGRATION_TEST_DIR COMPOSE_ENV_FILE COMPOSE_EXTRA_FILES COMPOSE_PROJECT_NAME
 
+collect_perf_diagnostics() {
+    local exit_code="${1:-1}"
+    local outcome="failure"
+    [[ "$exit_code" -eq 0 ]] && outcome="success"
+    [[ -n "${PERF_DIAGNOSTICS_COLLECTOR:-}" ]] || return 0
+    [[ -x "$PERF_DIAGNOSTICS_COLLECTOR" ]] || return 0
+
+    "$PERF_DIAGNOSTICS_COLLECTOR" \
+        --output "${PERF_DIAGNOSTICS_DIR:-$OUTPUT_DIR/diagnostics}" \
+        --outcome "$outcome" \
+        --service "Video-Analytics-API" \
+        --since "${PERF_RUN_STARTED_AT:-}" \
+        --compose-project "$COMPOSE_PROJECT_NAME" \
+        --container "$APP_CONTAINER" \
+        --container "$ES_CONTAINER" \
+        --container "$ES_INIT_CONTAINER" || \
+        echo "WARNING: Video Analytics API diagnostics collection failed" >&2
+}
+
 refuse_symlink() {
     local path="$1"
     if [[ -L "$path" ]]; then
