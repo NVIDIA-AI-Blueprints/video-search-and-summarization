@@ -22,27 +22,24 @@ const BACKGROUND_RGB = "221, 221, 221";
  * Loader Display Element.
  * Presents Loading, Failure and Success scenarios.
  */
+const spinnerPxToKind = (displaySize) => {
+  if (displaySize === LoaderDisplay.SIZE.LARGE) {
+    return "large";
+  }
+  if (displaySize === LoaderDisplay.SIZE.MEDIUM) {
+    return "medium";
+  }
+  return "small";
+};
+
 const LoaderDisplay = (props) => {
   let iconDiv, iconDivContent, userMessageDiv;
-  let size = { fontSize: "1vw" }; // default size
-
-  if (props.size === LoaderDisplay.SIZE.MEDIUM) {
-    size = { fontSize: "2vw" };
-  } else if (props.size === LoaderDisplay.SIZE.LARGE) {
-    size = { fontSize: "3vw" };
-  }
 
   if (props.type === LoaderDisplay.TYPE.LOADING) {
     iconDivContent = (
       <KaizenSpinner
         kind="default"
-        size={
-          props.size === LoaderDisplay.SIZE.LARGE
-            ? "large"
-            : props.size === LoaderDisplay.SIZE.MEDIUM
-              ? "medium"
-              : "small"
-        }
+        size={spinnerPxToKind(props.size)}
         aria-label="Loading"
       />
     );
@@ -89,14 +86,12 @@ const LoaderDisplay = (props) => {
 
   const backgroundOpacity =
     props.backgroundOpacity !== undefined ? props.backgroundOpacity : 1;
-  const rootStyle = {
-    ...size,
-    ...(backgroundOpacity === 0
-      ? { background: "transparent" }
-      : backgroundOpacity < 1
-        ? { background: `rgba(${BACKGROUND_RGB}, ${backgroundOpacity})` }
-        : {}),
-  };
+  let rootStyle;
+  if (backgroundOpacity === 0) {
+    rootStyle = { background: "transparent" };
+  } else if (backgroundOpacity < 1) {
+    rootStyle = { background: `rgba(${BACKGROUND_RGB}, ${backgroundOpacity})` };
+  }
 
   return (
     <div
