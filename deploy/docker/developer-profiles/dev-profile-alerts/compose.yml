@@ -20,6 +20,9 @@ services:
       service: vss-behavior-analytics-base
     profiles: ["vss-behavior-analytics-alerts"]
     volumes:
+      # Docker Compose only: this edge config selection is intentionally scoped
+      # to Compose deployments on DGX-SPARK, IGX-THOR, and AGX-THOR.
+      # Helm keeps its existing Behavior Analytics config in this change.
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/${PERCEPTION_DOCKERFILE_PREFIX:-}vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics
     networks:
