@@ -26,8 +26,9 @@ on:
       - "release/**"
   workflow_dispatch:
 
+# Only PR runs supersede each other; each push owns its diff range and must finish.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -54,6 +55,7 @@ jobs:
             --event-name "${{ github.event_name }}" \
             --base-ref "${{ github.base_ref }}" \
             --pr-base-sha "${{ github.event.pull_request.base.sha }}" \
+            --push-before-sha "${{ github.event.before }}" \
             --github-output "$GITHUB_OUTPUT"
 
   sonarqube:

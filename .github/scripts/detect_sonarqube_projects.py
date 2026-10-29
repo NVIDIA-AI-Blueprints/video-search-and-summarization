@@ -15,9 +15,12 @@ Diff-range rules:
   rest so a later ruleset addition cannot stall merge). Untouched legs
   run as no-ops (``scan=false``). A real scan runs only when that tree
   changed — that is when the check can fail and actually gate the PR.
-* ``push`` to ``main`` / ``develop`` / ``release/**``, and
-  ``workflow_dispatch`` → scan every project. Branch analysis and a manual
-  run must not silently drop a leg.
+* ``push`` to ``main`` / ``develop`` / ``release/**`` → diff
+  ``<event.before>..HEAD`` and scan only changed projects.
+* ``workflow_dispatch`` → scan every project. A manual scan must not
+  silently drop a leg.
+* A push with no affected project emits one no-op matrix entry. GitHub Actions
+  requires a non-empty matrix even when no scan is needed.
 * Unresolvable PR base, or a failed ``git diff`` → **scan everything**.
   Scanning too much is safe; skipping a project that changed is the
   failure mode this replaces.
@@ -41,6 +44,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from detect_changed_images import (  # noqa: E402
+    ZERO_SHA,
     changed_paths,
     commit_exists,
     paths_changed_under,
@@ -195,9 +199,23 @@ PROJECTS: list[dict[str, Any]] = [
 
 
 def resolve_sonar_diff_base(
-    repo: Path, event_name: str, base_ref: str, pr_base_sha: str
+    repo: Path,
+    event_name: str,
+    base_ref: str,
+    pr_base_sha: str,
+    push_before_sha: str,
 ) -> tuple[str | None, str]:
     """Return ``(base_commit, reason)``; ``None`` means scan every project."""
+    if event_name == "push":
+        if not push_before_sha or push_before_sha == ZERO_SHA:
+            return None, "initial push (zero before SHA); scanning all projects"
+        if not commit_exists(repo, push_before_sha):
+            return (
+                None,
+                f"push before-SHA {push_before_sha[:12]} unreachable; "
+                "scanning all projects",
+            )
+        return push_before_sha, f"push range {push_before_sha[:12]}..HEAD"
     if event_name != "pull_request":
         return None, f"{event_name}; scanning all projects"
 
@@ -224,6 +242,11 @@ def matrix_entry(project: dict[str, Any], *, scan: bool) -> dict[str, Any]:
     return entry
 
 
+def no_op_matrix_entry() -> dict[str, str]:
+    """Return the valid matrix entry used when a push changes no project."""
+    return {"name": "no changes", "scan": "false", "runner": SKIP_RUNNER}
+
+
 def to_matrix(entries: list[dict[str, Any]]) -> dict[str, Any]:
     return {"include": entries}
 
@@ -238,7 +261,11 @@ def matrix_for(
             matrix_entry(project, scan=project["name"] in selected_names)
             for project in PROJECTS
         ]
-    return [matrix_entry(project, scan=True) for project in selected]
+    return (
+        [matrix_entry(project, scan=True) for project in selected]
+        if selected
+        else [no_op_matrix_entry()]
+    )
 
 
 def contract_changed(changed: list[str]) -> bool:
@@ -268,9 +295,15 @@ def select_projects(
 
 
 def plan(
-    repo: Path, event_name: str, base_ref: str, pr_base_sha: str
+    repo: Path,
+    event_name: str,
+    base_ref: str,
+    pr_base_sha: str,
+    push_before_sha: str = "",
 ) -> dict[str, Any]:
-    base, reason = resolve_sonar_diff_base(repo, event_name, base_ref, pr_base_sha)
+    base, reason = resolve_sonar_diff_base(
+        repo, event_name, base_ref, pr_base_sha, push_before_sha
+    )
     changed = changed_paths(repo, base) if base else None
     if base and changed is None:
         reason += "; diff failed; scanning all projects"
@@ -303,6 +336,7 @@ def main() -> int:
     parser.add_argument("--event-name", required=True)
     parser.add_argument("--base-ref", default="")
     parser.add_argument("--pr-base-sha", default="")
+    parser.add_argument("--push-before-sha", default="")
     parser.add_argument(
         "--github-output",
         type=Path,
@@ -315,6 +349,7 @@ def main() -> int:
         args.event_name,
         args.base_ref,
         args.pr_base_sha,
+        args.push_before_sha,
     )
     print(json.dumps(result, indent=2))
     print(result["reason"], file=sys.stderr)
