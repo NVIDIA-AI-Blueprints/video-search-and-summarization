@@ -6,7 +6,7 @@ perf_configs:
     hardwareProfile: query
     profile: warehouse_2d
     broker: none
-    composePath: services/analytics/video-analytics-api/test/integration-test/docker_compose/infra/video-analytics-api-infra.yml
+    composePath: test/integration-test/docker_compose/infra/video-analytics-api-infra.yml
     checkoutPaths:
       - services/analytics/video-analytics-api/test/integration-test/
       - deploy/docker/services/
