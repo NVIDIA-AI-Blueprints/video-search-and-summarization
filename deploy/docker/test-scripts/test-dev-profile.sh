@@ -2546,6 +2546,43 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
  -i 127.0.0.1 -H OTHER -m real-time --use-remote-llm --llm x --use-remote-vlm --vlm y -d -- \
   "PERCEPTION_DOCKERFILE_PREFIX" "" "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" ""
 
+# Behavior Analytics config resolved from the compose mount + generated PERCEPTION_DOCKERFILE_PREFIX.
+# Edge hardware selects the longer incident expiration window in verification mode.
+_alerts_dir="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts"
+check_alerts_ba_expiration() {
+  local name="${1}" hw="${2}" expected_prefix="${3}" expected="${4}"
+  local gen_env prefix cfg actual
+  run_dry_run_up_and_check_generated_env "${name} (generated.env)" "alerts" \
+    -i 127.0.0.1 -H "${hw}" -m verification -d -- \
+    "PERCEPTION_DOCKERFILE_PREFIX" "${expected_prefix}"
+  gen_env="$(generated_env_path alerts)"
+  prefix="$(grep -E '^PERCEPTION_DOCKERFILE_PREFIX=' "${gen_env}" | cut -d= -f2- | tr -d "'\"")"
+  # The mount must be keyed on the prefix, not hardcoded.
+  if ! grep -Fq 'configs/${PERCEPTION_DOCKERFILE_PREFIX:-}vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json' "${_alerts_dir}/compose.yml"; then
+    echo "FAIL: ${name}: compose.yml BA mount is not keyed on PERCEPTION_DOCKERFILE_PREFIX"
+    ((TESTS_FAILED++)) || true
+    return
+  fi
+  cfg="${_alerts_dir}/vss-behavior-analytics/configs/${prefix}vss-behavior-analytics-config.json"
+  actual="$(jq -r '.app[] | select(.name=="fovCountViolationIncidentExpirationWindow") | .value' "${cfg}" 2>/dev/null || true)"
+  if [[ "${actual}" == "${expected}" ]]; then
+    echo "PASS: ${name}: ${cfg##*/} expiration window = ${expected}"
+    ((TESTS_PASSED++)) || true
+  else
+    echo "FAIL: ${name}: ${cfg##*/} expiration window '${actual}', expected '${expected}'"
+    ((TESTS_FAILED++)) || true
+  fi
+}
+
+if command -v jq >/dev/null 2>&1; then
+  check_alerts_ba_expiration "alerts BA config non-edge OTHER" OTHER "" "0.5"
+  for _edge_hw in DGX-SPARK IGX-THOR AGX-THOR; do
+    check_alerts_ba_expiration "alerts BA config edge ${_edge_hw}" "${_edge_hw}" "EDGE-" "2"
+  done
+else
+  echo "SKIP: alerts BA expiration checks (jq not found)"
+fi
+
 # --- Remote with explicit model name via --llm/--vlm (no API call) ---
 LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env LLM_NAME from --llm when remote" "base" \
  -i 127.0.0.1 --use-remote-llm --llm my-remote-llm --use-remote-vlm --vlm my-remote-vlm -d -- \

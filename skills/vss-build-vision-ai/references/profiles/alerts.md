@@ -60,10 +60,31 @@ without the agent add `vss-va-mcp` explicitly (`services/sop.md`).
 | `NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION` | Set `false` for `2d_vlm`; keep `true` for `2d_cv`. |
 | `DS_MODEL_FAMILY`, `MODEL_NAME_2D`, `RT_CV_DEVICE_ID`, `VSS_RT_CV_TAG` | Configure RT-CV in `2d_cv`. |
 | `VLM_NAME`, `VLM_MODE`, `VLM_BASE_URL`, `RTVI_VLM_*` | Configure verification or real-time VLM routing. |
+| `PERCEPTION_DOCKERFILE_PREFIX` | Set `EDGE-` on `DGX-SPARK`, `IGX-THOR`, or `AGX-THOR`; leave empty on other hardware. Also selects the perception Dockerfile. Selects the incident expiration window JSON (2 vs 0.5); Behavior Analytics is absent in real-time mode. |
 | `VLM_AS_VERIFIER_CONFIG_FILE*` | Select mounted alert verifier and real-time rule configs. |
 | `ALERT_BRIDGE_HOST_PORT`, `VIDEO_ANALYTICS_API_HOST_PORT`, `RTVI_CV_HOST_PORT`, `RTVI_VLM_PORT` | Change alert-facing host ports. |
 | `VSS_VA_MCP_HOST_PORT` | Change the optional legacy VA-MCP host port when that service is explicitly selected. |
 | `NVSTREAMER_HTTP_HOST_PORT` | Select source playback host port. |
+
+### Edge verification Behavior Analytics config
+
+When writing `_builds/<name>/override.env`, set
+`PERCEPTION_DOCKERFILE_PREFIX=EDGE-` for Alerts verification
+(`MODE=2d_cv`) on `DGX-SPARK`, `IGX-THOR`, or `AGX-THOR`. For direct Compose,
+set it in `user-overrides.env`, copied from the checked-in `overrides.env`
+template. Leave it empty for other hardware. Real-time mode does not run Behavior
+Analytics; keep the hardware-specific perception prefix when switching modes. This applies
+regardless of whether the verification VLM is local or remote.
+
+The prefix selects `EDGE-vss-behavior-analytics-config.json` in the alerts
+profile's `vss-behavior-analytics/configs/` directory, where
+`fovCountViolationIncidentExpirationWindow` is `"2"`; the default JSON keeps
+`"0.5"`. No service Compose patch or `dev-profile.sh` invocation is needed.
+Direct Compose does not derive the prefix from `HARDWARE_PROFILE` or `MODE`.
+The legacy `dev-profile.sh` helper derives it automatically in `generated.env`
+for edge hardware. Real-time mode does not run Behavior Analytics.
+Verify the resolved `vss-behavior-analytics-alerts` config bind source selects
+the expected file before deployment.
 
 ### Mode-selected Manage Alerts editors
 
