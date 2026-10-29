@@ -1,0 +1,127 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# VSS OpenClaw harness policy — the OpenShell-native translation of
+# assets/vss_nemoclaw_policy.yaml, in the same form as policy-hermes.yaml.
+#
+#   - `binaries` names /usr/local/bin/node: `openclaw` is a `#!/usr/bin/env
+#     node` script, so no process carries its path. The `vss` CLI venv is
+#     built on /usr/bin/python3, so it runs as /usr/bin/python3.13.
+#   - L4 and REST endpoints live in separate named policies, and a plain TCP
+#     grant is `protocol: tcp`, not `access: full`.
+
+version: 1
+
+filesystem_policy:
+  read_only:  [/usr, /bin, /sbin, /lib, /lib64, /etc, /opt, /proc]
+  read_write: [/sandbox, /tmp, /dev/null, /dev/urandom]
+
+landlock: { compatibility: best_effort }
+
+# 998:998 is `sandbox` in the OpenClaw base image; 999 is its `gateway` user.
+process:  { run_as_user: "998", run_as_group: "998" }
+
+network_policies:
+  vss-backend:
+    name: vss-backend-readwrite
+    endpoints:
+      - { host: host.openshell.internal, port: 7777, protocol: tcp }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/python3.13 }
+
+  anthropic:
+    name: anthropic
+    endpoints:
+      - host: api.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce        # audit-mode REST is `unsupported`, not a pass
+        rules:
+          - allow: { method: POST, path: "/v1/**" }
+    binaries: [{ path: /usr/local/bin/node }]
+
+  openclaw-phone-home:
+    name: openclaw-phone-home
+    endpoints:
+      - host: openclaw.ai
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+    binaries: [{ path: /usr/local/bin/node }]
+
+  clawhub:
+    name: clawhub
+    endpoints:
+      - host: clawhub.ai
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+      - host: registry.clawhub.ai
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
+      - host: cdn.clawhub.ai
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+    binaries: [{ path: /usr/local/bin/node }]
+
+  pypi:
+    name: pypi
+    endpoints:
+      - host: pypi.org
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+      - host: files.pythonhosted.org
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+      - host: pypi.nvidia.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+    binaries: [{ path: /usr/bin/python3.13 }]
+
+  github:
+    name: github
+    endpoints:
+      - host: api.github.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+      - host: github.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+    binaries:
+      - { path: /usr/bin/git }
+      - { path: /usr/local/bin/node }
+
+  ngc:
+    name: ngc
+    endpoints:
+      - { host: authn.nvidia.com,      port: 443, protocol: tcp }
+      - { host: api.ngc.nvidia.com,    port: 443, protocol: tcp }
+      - { host: xfiles.ngc.nvidia.com, port: 443, protocol: tcp }
+    binaries: [{ path: /usr/local/lib/ngc-cli/ngc }]

@@ -11,7 +11,8 @@ For why VSS drives OpenShell directly rather than through NemoClaw V1, see
 | File | Role |
 |---|---|
 | [`docker-compose.yml`](docker-compose.yml), [`.env`](.env), [`gateway.toml`](gateway.toml) | Step 1 — the `openshell-init` and `openshell-gateway` services and their version-2 gateway config |
-| [`policy-hermes.yaml`](policy-hermes.yaml), [`boundary-policy.yaml`](boundary-policy.yaml) | Step 2 — the Hermes sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
+| [`policy-hermes.yaml`](policy-hermes.yaml), [`boundary-hermes.yaml`](boundary-hermes.yaml) | Step 2 — the Hermes sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
+| [`policy-openclaw.yaml`](policy-openclaw.yaml), [`boundary-openclaw.yaml`](boundary-openclaw.yaml) | The same pair for OpenClaw; see [Adding a second harness later](#adding-a-second-harness-later) |
 | [`Dockerfile.policy`](Dockerfile.policy) | Step 3 — overlay on `vss-harness-hermes` that bakes the policy, links the 0.1.6 CA bundle path, and parameterises the inference endpoint and model |
 | [`vss-inference-profile.yaml`](vss-inference-profile.yaml), [`vss-inference-build-profile.yaml`](vss-inference-build-profile.yaml), [`vss-inference-local-profile.yaml`](vss-inference-local-profile.yaml) | Step 4 — provider profiles for an OpenAI-compatible endpoint, `build.nvidia.com`, and a host-local model server |
 
@@ -307,8 +308,8 @@ process by the real path the kernel reports, and every `hermes` entry point in
 the image is a Python script, so no process ever carries one of those paths —
 the connection is opened by `/usr/bin/python3.13`. OpenShell's documentation
 makes the same point with `pip`. Inspecting the image also gives `sandbox` as
-`998:999`, not the `10001` of the OpenClaw base, so one `boundary-policy.yaml`
-cannot cover both harnesses: the prover compares process identity and exact
+`998:999`, where the OpenClaw base has `998:998`, so one boundary file cannot
+cover both harnesses: the prover compares process identity and exact
 binary paths, and the two images agree on neither.
 
 **A plain TCP grant is `protocol: tcp`, not the preset's `access: full`, and an
@@ -320,7 +321,7 @@ default host-mode supervisor the driver publishes host loopback as the backend
 address for `host.openshell.internal`, so the `172.17.0.0/16`-style grants
 match nothing.
 
-`boundary-policy.yaml` is the ceiling VSS is willing to grant a harness sandbox,
+`boundary-hermes.yaml` is the ceiling VSS is willing to grant a Hermes sandbox,
 written once by hand. Same paths and same binaries, deliberately wider where it
 matters — every method on Anthropic rather than `POST /v1/**`:
 
@@ -352,7 +353,7 @@ network_policies:
 ```
 
 ```bash
-openshell-prover check policy-hermes.yaml --boundary boundary-policy.yaml
+openshell-prover check policy-hermes.yaml --boundary boundary-hermes.yaml
 # result: within_boundary
 # coverage: domains=filesystem,network_l4,network_rest,process,landlock
 ```
@@ -627,11 +628,13 @@ with SandboxClient.from_active_cluster() as client:
 
 The work above is per-harness, so OpenClaw returns as a parallel set of the
 same artifacts — no new code path, because OpenShell has no harness concept to
-teach. Concretely: build `.openclaw/` to a second image, write
-`policy-openclaw.yaml` (same shared blocks, but `binaries` naming
-`/usr/local/bin/openclaw` and `/usr/local/bin/node`, and `clawhub.ai` and
-`openclaw.ai` in place of `nousresearch.com`), bake the OpenClaw config into
-that image, and create with `-- openclaw gateway run --port 18789`.
+teach. Concretely: build `.openclaw/` to a second image, bake in
+[`policy-openclaw.yaml`](policy-openclaw.yaml) — proven against
+[`boundary-openclaw.yaml`](boundary-openclaw.yaml) — and the OpenClaw config,
+and create with `-- openclaw gateway run --port 18789`. The policy differs from
+Hermes's in three places: `binaries` name `/usr/local/bin/node`, since
+`openclaw` is a Node script; `clawhub.ai` and `openclaw.ai` replace
+`nousresearch.com`; and the process group is `998`.
 
 Only two differences between the harnesses change anything structural (see
 [What each manifest declares](nemoclaw-v1-vs-openshell.md#what-each-manifest-declares)).
@@ -653,7 +656,7 @@ inference provider and the VSS backend grant:
 ```bash
 # 1. Policy stays inside the boundary ceiling
 openshell-prover check .openshell/policy-hermes.yaml \
-  --boundary .openshell/boundary-policy.yaml
+  --boundary .openshell/boundary-hermes.yaml
 # -> result: within_boundary
 # -> coverage: domains=filesystem,network_l4,network_rest,process,landlock
 
