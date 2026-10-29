@@ -246,9 +246,10 @@ All measurements use 20 frames per 10-second chunk, 9k vision tokens, and `max_t
 With EVS++ on, VLM input tokens per chunk drop from about 10.1k to about 2.3k (vision and prompt
 tokens combined).
 
-1-GPU settings: with the LLM on the same GPU, the VLM uses `VLLM_GPU_MEMORY_UTILIZATION=0.35` and
-the LLM is limited to 40% of GPU memory. RTX Pro 4500 SE uses `VLLM_GPU_MEMORY_UTILIZATION=0.45`,
-`VLLM_MAX_NUM_BATCHED_TOKENS=2048`, and `RTVI_VLM_ADMISSION_MODE=adaptive`.
+1-GPU settings: with the LLM on the same GPU, the VLM uses `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35`
+and the LLM is limited to 40% of GPU memory. RTX Pro 4500 SE uses
+`RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.45`, `RTVI_VLLM_MAX_NUM_BATCHED_TOKENS=2048`, and
+`RTVI_VLM_ADMISSION_MODE=adaptive`.
 
 AGX Thor runs in the MAXN power mode with clocks pinned (`sudo nvpmodel -m 0` and
 `sudo jetson_clocks`). Lower power modes give longer latencies.
