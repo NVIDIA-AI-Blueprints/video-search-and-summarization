@@ -464,10 +464,11 @@ def test_add_live_stream_starts_fresh_decoder_after_natural_eos():
         pipeline._processed_chunk_queue.put(
             {"live_stream_ended": True, "live_stream_id": asset_id, "total_chunks": 0}
         )
-        _wait_for(lambda: stale_info.all_chunks_processed)
+        _wait_for(lambda: stale_info.evs_sessions_closed)
     finally:
         pipeline._processed_chunk_queue_watcher_stop_event.set()
         watcher.join(timeout=2)
+    pipeline.close_evs_sessions.assert_called_once_with(asset_id)
 
     decoder = pipeline._decoder_procs[0]
     decoder.send_command.reset_mock()
@@ -487,6 +488,72 @@ def test_add_live_stream_starts_fresh_decoder_after_natural_eos():
     assert fresh_info.end_of_stream is False
     assert set(fresh_info.subscribers) == {"request-2"}
     assert fresh_info.subscribers["request-2"].on_chunk_result is second_callback
+
+
+@pytest.mark.no_gpu
+def test_add_live_stream_waits_for_eos_evs_cleanup_before_restart():
+    pipeline = _make_pipeline()
+    pipeline._processed_chunk_queue = Queue()
+    pipeline._processed_chunk_queue_watcher_stop_event = Event()
+    close_started = Event()
+    release_close = Event()
+
+    def blocked_close(_stream_id):
+        close_started.set()
+        release_close.wait(timeout=5)
+
+    pipeline.close_evs_sessions = MagicMock(side_effect=blocked_close)
+    asset_id = str(uuid.uuid4())
+    asset = _make_asset(asset_id)
+
+    pipeline.add_live_stream(
+        asset,
+        _make_query(asset_id, "Describe vehicles."),
+        MagicMock(),
+        request_id="request-1",
+    )
+    stale_info = pipeline._live_stream_id_map[asset_id]
+
+    watcher = Thread(target=pipeline._watch_processed_chunk_queue)
+    watcher.start()
+    try:
+        pipeline._processed_chunk_queue.put(
+            {"live_stream_ended": True, "live_stream_id": asset_id, "total_chunks": 0}
+        )
+        _wait_for(close_started.is_set)
+        assert stale_info.all_chunks_processed
+        assert not stale_info.evs_sessions_closed
+
+        decoder = pipeline._decoder_procs[0]
+        decoder.send_command.reset_mock()
+        decoder.send_command.side_effect = _decoder_without_stream_after_eos
+        with pytest.raises(ServiceException) as exc_info:
+            pipeline.add_live_stream(
+                asset,
+                _make_query(asset_id, "Describe people."),
+                MagicMock(),
+                request_id="request-2",
+            )
+        assert exc_info.value.status_code == 409
+        decoder.send_command.assert_not_called()
+        assert pipeline._live_stream_id_map[asset_id] is stale_info
+
+        release_close.set()
+        _wait_for(lambda: stale_info.evs_sessions_closed)
+    finally:
+        release_close.set()
+        pipeline._processed_chunk_queue_watcher_stop_event.set()
+        watcher.join(timeout=2)
+
+    pipeline.add_live_stream(
+        asset,
+        _make_query(asset_id, "Describe people."),
+        MagicMock(),
+        request_id="request-2",
+    )
+    assert [call.args[0] for call in decoder.send_command.call_args_list] == ["start-live-stream"]
+    assert pipeline._live_stream_id_map[asset_id] is not stale_info
+    pipeline.close_evs_sessions.assert_called_once_with(asset_id)
 
 
 @pytest.mark.no_gpu
