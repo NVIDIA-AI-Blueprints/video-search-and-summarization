@@ -57,19 +57,19 @@ const withLoaderDisplay = (BaseComponent) => {
       } = this.props;
 
       if (loaderDisplayType === LoaderDisplay.TYPE.LOAD_SUCCESS) {
-        // First show success display for 1s and then the base component
+        const afterSuccessDelayMs =
+          loaderAfterSuccessDelayMs !== undefined && loaderAfterSuccessDelayMs !== null
+            ? loaderAfterSuccessDelayMs
+            : BaseWithLoaderDisplay.DEFAULT_AFTER_SUCCESS_DELAY_MS;
 
-        if (this.state.didShowSuccess === true) {
+        if (this.state.didShowSuccess === true || afterSuccessDelayMs === 0) {
           return <BaseComponent {...baseComponentProps} />;
         }
-        // else schedule to show base component after a while
         this.uponSuccessDelayTimerId = setTimeout(
           () => {
             this.setState({ didShowSuccess: true });
           },
-          loaderAfterSuccessDelayMs
-            ? loaderAfterSuccessDelayMs
-            : BaseWithLoaderDisplay.DEFAULT_AFTER_SUCCESS_DELAY_MS
+          afterSuccessDelayMs
         );
       }
 

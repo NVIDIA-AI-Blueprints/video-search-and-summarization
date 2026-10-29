@@ -71,12 +71,7 @@ const createStore = () =>
       }),
   });
 
-const DEFAULT_INITIAL_USER_MESSAGE = new UserMessage(
-  UserMessage.SRC_TYPE.GENERIC,
-  UserMessage.MESSAGE_LEVEL.INFO,
-  'Invoke App',
-  'Content Loading',
-);
+const DEFAULT_INITIAL_USER_MESSAGE = 'Loading map…';
 
 const selectInitialView = (metadata: {
   buildingsMap?: Map<string, { rooms?: Set<string> }>;
@@ -127,9 +122,9 @@ const WarehouseAnalyticsAppInner: React.FC<AppInnerProps> = ({
 }) => {
   const data = warehouseData || mapData;
   const [loadState, setLoadState] = useState(LoaderDisplay.TYPE.LOADING);
-  const [userMessage, setUserMessage] = useState<InstanceType<typeof UserMessage> | null>(
-    DEFAULT_INITIAL_USER_MESSAGE,
-  );
+  const [userMessage, setUserMessage] = useState<
+    InstanceType<typeof UserMessage> | string | null
+  >(DEFAULT_INITIAL_USER_MESSAGE);
 
   useEffect(() => {
     if (onControlsReady && renderControlsInLeftSidebar) {
@@ -214,7 +209,8 @@ const WarehouseAnalyticsAppInner: React.FC<AppInnerProps> = ({
           <BuildingsLevelViewWithLoaderDisplay
             loaderDisplayType={loadState}
             loaderDisplayUserMessage={userMessage}
-            loaderDisplaySize={LoaderDisplay.SIZE.LARGE}
+            loaderDisplaySize={LoaderDisplay.SIZE.SMALL}
+            loaderAfterSuccessDelayMs={0}
           />
         </div>
       </div>
