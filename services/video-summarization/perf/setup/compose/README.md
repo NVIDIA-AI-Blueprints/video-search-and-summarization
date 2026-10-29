@@ -35,6 +35,10 @@ Run the interactive setup script to complete all prerequisites in one go:
 ./scripts/setup.sh
 ```
 
+If `.env` does not exist, the script creates it from `compose/.env.tpl`, selects
+the SBSA image overrides on DGX Spark, and appends the credentials and paths
+you enter. An existing `.env` is left unchanged.
+
 ## Prerequisites
 
 The setup script handles the steps below automatically. If you prefer to do them manually:
@@ -50,6 +54,10 @@ The setup script handles the steps below automatically. If you prefer to do them
    ARTIFACTORY_TOKEN=<your-artifactory-api-key>
    # MODEL_PATH=<override>              # Optional — usually picked automatically (see "GPU overlays" below)
    ```
+
+   To use the VSS 3.3 LVS and RT-VLM defaults, start from the image overrides
+   in `compose/.env.tpl`. The setup script does this automatically for a new
+   `.env` and selects the `-sbsa` variants on DGX Spark.
 
 2. **Set NIM cache permissions:**
 
@@ -145,6 +153,12 @@ Use `run_benchmark.sh` to launch a stack, wait for health, and run the benchmark
 
 Run `../scripts/run_benchmark.sh -h` for all options.
 
+The benchmark config defaults to `../configs/config.yaml`. Thor, Orin NX, and
+DGX Spark stacks default to `../configs/tegra_config.yaml`, matching the SQA
+durations and edge-device latency tolerances. Pass `-c` to override it. Thor
+runs also require `nvpmodel` and `jetson_clocks`; Thor and Spark perform an
+unmeasured `quick_test` warmup before other selected scenarios.
+
 ### Uploading Results to MinIO After Review
 
 To inspect results locally before publishing to the dashboard, run the benchmark with `-O <name>` (writes a schema-conformant `lvs_*.json` to `../benchmark/vss-perf-report/`) and skip `UPLOAD_TO_MINIO`. When ready, push with `upload_perf_results.sh`:
@@ -158,7 +172,7 @@ To inspect results locally before publishing to the dashboard, run the benchmark
 ```
 
 - First arg is a single `lvs_*.json` file or a directory (globs `lvs_*.json` inside).
-- `-T TRIGGER` stamps `metadata.run_info.triggered_by` in each JSON before upload (`ci_pipeline | manual | scheduled | sqa | perf-lab`). Omit to keep whatever's in the file.
+- `-T TRIGGER` stamps `metadata.run_info.triggered_by` in each JSON before upload (`ci_pipeline | manual | scheduled | artifact_promotion | sqa | perf-lab`). Omit to keep whatever's in the file.
 - Set `MINIO_ENDPOINT` to the target MinIO `host:port` before uploading. The
   script synchronizes and reuses the locked environment from `perf/setup/`.
   Set `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY` explicitly, and use
@@ -288,7 +302,7 @@ docker compose -f compose/orin-nx-rtvi-cr-remote-llm.yaml --profile media up -d
 # Tail logs
 docker compose -f compose/orin-nx-rtvi-cr-remote-llm.yaml logs -f lvs rtvi-vlm
 
-# Run a quick benchmark (-G none skips overlay auto-detect; BF16 MODEL_PATH in .env wins)
+# Run a quick benchmark (-G none skips overlay auto-detect, so MODEL_PATH comes from .env or the NVFP4 compose default)
 ../scripts/run_benchmark.sh -f orin-nx-rtvi-cr-remote-llm.yaml -s single_file_test -G none
 
 # Tear down

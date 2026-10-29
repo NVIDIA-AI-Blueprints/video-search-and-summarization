@@ -84,7 +84,7 @@ services:
 
   # ── LVS (VIA Engine) ──────────────────────────────────────
   lvs:
-    image: ${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1}
+    image: ${LVS_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-21f686e37db7}
     environment:
       NGC_API_KEY: ${NGC_API_KEY:-}
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
@@ -165,7 +165,7 @@ services:
 
   # ── RTVI-VLM (proxy mode, shares GPUs 0..3 with cosmos) ─
   rtvi-vlm:
-    image: ${RTVI_VLM_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1}
+    image: ${RTVI_VLM_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d}
     user: "1001:1001"
     environment:
       NGC_API_KEY: ${NGC_API_KEY:-}

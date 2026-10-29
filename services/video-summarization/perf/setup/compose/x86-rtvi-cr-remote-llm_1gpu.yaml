@@ -89,7 +89,7 @@ services:
 
   # ── LVS (VIA Engine) ──────────────────────────────────────
   lvs:
-    image: ${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1}
+    image: ${LVS_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-21f686e37db7}
     environment:
       # API keys
       NGC_API_KEY: ${NGC_API_KEY:-}
@@ -175,7 +175,7 @@ services:
   # No local LLM contending for GPU memory → bump VLLM_GPU_MEMORY_UTILIZATION
   # to ~0.75 so KV cache has room on a 24 GB RTX 4500 Ada.
   rtvi-vlm:
-    image: ${RTVI_VLM_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1}
+    image: ${RTVI_VLM_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d}
     user: "1001:1001"
     environment:
       NGC_API_KEY: ${NGC_API_KEY:-}
@@ -183,9 +183,13 @@ services:
       BACKEND_PORT: "8000"
       VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-32}"
       VLM_MODEL_TO_USE: ${VLM_MODEL_TO_USE:-cosmos-reason3}
-      VLLM_GPU_MEMORY_UTILIZATION: ${VLLM_GPU_MEMORY_UTILIZATION:-0.75}
+      VLLM_GPU_MEMORY_UTILIZATION: ${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.75}
+      # Empty keeps the vLLM default. The RTX PRO 4500 1-GPU runs set 2048 here
+      # and RTVI_VLM_ADMISSION_MODE=adaptive below.
+      VLLM_MAX_NUM_BATCHED_TOKENS: "${RTVI_VLLM_MAX_NUM_BATCHED_TOKENS:-}"
       VLLM_DISABLE_MM_PREPROCESSOR_CACHE: "${VLLM_DISABLE_MM_PREPROCESSOR_CACHE:-true}"
       VLLM_ENABLE_PREFIX_CACHING: "${VLLM_ENABLE_PREFIX_CACHING:-false}"
+      RTVI_VLM_ADMISSION_MODE: "${RTVI_VLM_ADMISSION_MODE:-off}"
       # CR3_VARIANT=super swaps Nano for Super at this same precision. A GPU
       # overlay (overlays/gpu-*.yaml) re-picks the precision for the detected
       # card; an explicit MODEL_PATH overrides both.

@@ -25,6 +25,7 @@ class TriggerSource(str, Enum):
     CI_PIPELINE = "ci_pipeline"
     MANUAL = "manual"
     SCHEDULED = "scheduled"
+    ARTIFACT_PROMOTION = "artifact_promotion"
     SQA = "sqa"
     PERF_LAB = "perf-lab"
 

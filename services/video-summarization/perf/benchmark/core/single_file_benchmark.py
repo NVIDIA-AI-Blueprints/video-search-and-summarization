@@ -231,7 +231,7 @@ class SingleFileBenchmark(BenchmarkBase):
         video_config_with_id = video_config.copy()
         video_config_with_id["video_id"] = file_id
 
-        iterations = benchmark_config["iterations"]
+        iterations = video_config.get("iterations", benchmark_config["iterations"])
         iteration_results = []
 
         try:

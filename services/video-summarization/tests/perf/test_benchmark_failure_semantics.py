@@ -254,3 +254,32 @@ def test_requested_upload_failure_propagates(monkeypatch, tmp_path):
     )
 
     assert result is None
+
+
+def test_single_file_video_iterations_override_scenario_default(monkeypatch, tmp_path):
+    benchmark = object.__new__(SingleFileBenchmark)
+    benchmark.logger = logging.getLogger("single-file-video-iterations-test")
+    benchmark._upload_video = lambda config: "file-1"
+    benchmark._delete_video = lambda *_: None
+    calls = []
+
+    def execute_iteration(*args):
+        calls.append(args)
+        return {"iteration": len(calls), "success": True}
+
+    benchmark._execute_single_iteration = execute_iteration
+    benchmark.save_json_data = lambda *args: None
+    monkeypatch.setattr(single_file_module.time, "sleep", lambda *_: None)
+
+    result = benchmark._execute_single_test_case(
+        "case",
+        {"url": "http://media/video.mp4", "iterations": 1},
+        10,
+        {"iterations": 3},
+        "model",
+        str(tmp_path),
+    )
+
+    assert len(calls) == 1
+    assert result["successful_iterations"] == 1
+    assert result["success"] is True

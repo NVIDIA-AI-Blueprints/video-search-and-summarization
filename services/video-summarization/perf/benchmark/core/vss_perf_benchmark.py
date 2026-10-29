@@ -537,7 +537,7 @@ def main():
         "--triggered-by",
         type=str,
         default="manual",
-        choices=["ci_pipeline", "manual", "scheduled"],
+        choices=["ci_pipeline", "manual", "scheduled", "artifact_promotion"],
         help="Trigger source for result metadata (default: %(default)s).",
     )
     parser.add_argument(

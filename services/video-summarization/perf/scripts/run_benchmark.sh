@@ -24,13 +24,16 @@
 # Automates the full workflow:
 #   1. Launches the Docker Compose stack (main file + media server)
 #   2. Polls the lvs container until it's healthy
-#   3. Runs the perf benchmark against lvs
+#   3. Runs the perf benchmark against lvs (after a quick_test warmup on Thor and Spark)
 #   4. Optionally tears down the stack on completion
 #
 # Prerequisites:
 #   - Run ../setup/scripts/setup.sh first to create setup/compose/.env and the shared media volume
 #   - Set ARTIFACTORY_USER and ARTIFACTORY_TOKEN (in environment or .env)
-#   - A benchmark config in ../configs/ (default: config.yaml)
+#   - A benchmark config in ../configs/ (default: config.yaml, or
+#     tegra_config.yaml for thor-*, orin-nx-* and spark-* compose files)
+#   - Jetson Thor: sudo access for nvpmodel and jetson_clocks (the script switches
+#     the board to MAXN and pins its clocks before starting the stack)
 #
 # Run with -h for full usage and examples.
 #
@@ -78,7 +81,8 @@ Required:
   -f FILE        Compose file (name under compose/ or absolute path, e.g. x86-rtvi-cr-nemo3-nano_4gpu.yaml)
 
 Options:
-  -c CONFIG      Benchmark config file (default: config.yaml)
+  -c CONFIG      Benchmark config file (default: tegra_config.yaml for thor-*, orin-nx-*
+                 and spark-* compose files, config.yaml otherwise)
   -s SCENARIO    Benchmark scenario to run; repeat -s for multiple (or comma-separated in one -s)
   -p PORT        LVS backend port (default: 38111)
   -R PORT        RTVI host port (default: 8000; use a distinct port for parallel stacks)
@@ -120,7 +124,7 @@ EOF
 }
 
 COMPOSE_FILE=""
-BENCHMARK_CONFIG="config.yaml"
+BENCHMARK_CONFIG=""
 SCENARIO_ARGS=()
 LVS_PORT=38111
 RTVI_PORT="${RTVI_PORT:-8000}"
@@ -180,17 +184,6 @@ if [[ ! "$RTVI_PORT" =~ ^[0-9]+$ ]] || [ "$RTVI_PORT" -lt 1 ] || [ "$RTVI_PORT" 
 fi
 export RTVI_PORT
 
-# Resolve benchmark config: absolute or relative to perf/configs/.
-if [[ "$BENCHMARK_CONFIG" == /* ]]; then
-    BENCHMARK_CONFIG_PATH="$BENCHMARK_CONFIG"
-else
-    BENCHMARK_CONFIG_PATH="$CONFIG_DIR/$BENCHMARK_CONFIG"
-fi
-if [ ! -f "$BENCHMARK_CONFIG_PATH" ]; then
-    error "Benchmark config not found: $BENCHMARK_CONFIG_PATH"
-    exit 1
-fi
-
 # Resolve compose file: absolute or relative to perf/setup/compose/.
 if [[ "$COMPOSE_FILE" == /* ]]; then
     COMPOSE_FILE_PATH="$COMPOSE_FILE"
@@ -199,6 +192,26 @@ else
 fi
 if [ ! -f "$COMPOSE_FILE_PATH" ]; then
     error "Compose file not found: $COMPOSE_FILE_PATH"
+    exit 1
+fi
+
+# Thor, Orin NX and DGX Spark default to tegra_config.yaml, which runs only the
+# 1/10/30/60min single-file videos and the 1min/5min burst videos. -c overrides.
+if [ -z "$BENCHMARK_CONFIG" ]; then
+    case "$(basename "$COMPOSE_FILE_PATH")" in
+        thor-*|orin-nx-*|spark-*) BENCHMARK_CONFIG="tegra_config.yaml" ;;
+        *)                        BENCHMARK_CONFIG="config.yaml" ;;
+    esac
+fi
+
+# Resolve benchmark config: absolute or relative to perf/configs/.
+if [[ "$BENCHMARK_CONFIG" == /* ]]; then
+    BENCHMARK_CONFIG_PATH="$BENCHMARK_CONFIG"
+else
+    BENCHMARK_CONFIG_PATH="$CONFIG_DIR/$BENCHMARK_CONFIG"
+fi
+if [ ! -f "$BENCHMARK_CONFIG_PATH" ]; then
+    error "Benchmark config not found: $BENCHMARK_CONFIG_PATH"
     exit 1
 fi
 
@@ -372,6 +385,27 @@ else
     DOCKER_PREFIX=""
 fi
 
+# --- Thor: MAXN power mode and pinned clocks ---
+# Thor benchmarks run in MAXN with clocks pinned by jetson_clocks. If either step
+# fails, stop so the user can fix it and rerun.
+if [[ "$(basename "$COMPOSE_FILE_PATH")" == thor-* ]]; then
+    THOR_SUDO=""
+    if [ "$(id -u)" -ne 0 ]; then
+        THOR_SUDO="sudo "
+    fi
+    step "Switching Thor to MAXN and pinning clocks (nvpmodel -m 0, jetson_clocks)"
+    if ! ${THOR_SUDO}nvpmodel -m 0 \
+        || [ "$(${THOR_SUDO}nvpmodel -q 2>/dev/null | sed -n 's/^NV Power Mode: *//p')" != "MAXN" ]; then
+        error "Could not switch Thor to MAXN. Run 'sudo nvpmodel -m 0' (reboot if it asks), then rerun this script."
+        exit 1
+    fi
+    if ! ${THOR_SUDO}jetson_clocks; then
+        error "Could not run jetson_clocks. Run 'sudo jetson_clocks', then rerun this script."
+        exit 1
+    fi
+    info "Thor: MAXN power mode, clocks pinned"
+fi
+
 STACK_LAUNCH_ATTEMPTED=false
 LVS_LOG_PID=""
 
@@ -536,6 +570,25 @@ info "Activated virtualenv: $VENV_DIR"
 export VIA_BACKEND="http://localhost:$LVS_PORT"
 [ -n "$VLM_GPUS" ] && export VIA_VLM_GPUS="$VLM_GPUS"
 [ -n "$LLM_GPUS" ] && export VIA_LLM_GPUS="$LLM_GPUS"
+
+# Thor and Spark: warm up the stack with one quick_test run before measuring,
+# unless quick_test already runs first. Warmup output is kept outside the final
+# report directory and is not included in the measured report.
+case "$(basename "$COMPOSE_FILE_PATH")" in
+    thor-*|spark-*)
+        if [ "${#SCENARIO_ARGS[@]}" -eq 0 ] || [ "${SCENARIO_ARGS[0]}" = "quick_test" ]; then
+            info "Warmup skipped: quick_test is the first scenario"
+        else
+            step "Warmup: quick_test (results in ${VIA_OUTPUT_DIR}-warmup, not part of the report)"
+            if ! python3 vss_perf_benchmark.py --config "$BENCHMARK_CONFIG_PATH" --scenario quick_test \
+                --output-dir "${VIA_OUTPUT_DIR}-warmup"; then
+                error "Warmup run failed; check the stack logs, then rerun this script."
+                exit 1
+            fi
+        fi
+        ;;
+esac
+
 if "${BENCHMARK_CMD[@]}"; then
     benchmark_exit=0
 else

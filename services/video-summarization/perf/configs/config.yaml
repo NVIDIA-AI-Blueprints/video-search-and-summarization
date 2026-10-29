@@ -98,6 +98,7 @@ test_scenarios:
         chunk_sizes: [10]
       - url: "http://media-server/720min.mkv"
         chunk_sizes: [10]
+        iterations: 1
 
   # Mode 2: File Burst Test (Concurrency video files)
   file_burst_test:

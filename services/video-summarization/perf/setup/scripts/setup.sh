@@ -31,10 +31,27 @@ error() { echo -e "${RED}[✗]${NC} $*"; }
 prompt() { echo -en "${YELLOW}$*${NC}"; }
 
 # --- Step 1: .env file ---
+# A new .env starts from .env.tpl (image overrides) and the values
+# prompted for below are appended to it.
 if [ -f .env ]; then
     info ".env file already exists"
 else
-    warn ".env file not found — creating from template"
+    warn ".env file not found — creating from .env.tpl"
+    cp .env.tpl .env
+    gpu_name=""
+    if command -v nvidia-smi &>/dev/null; then
+        gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader -i 0 2>/dev/null | head -1 || true)
+    fi
+    case "$(echo "$gpu_name" | tr '[:upper:]' '[:lower:]')" in
+        *gb10*|*spark*)
+            # DGX Spark needs the -sbsa images: comment out the default pair
+            # and enable the -sbsa pair.
+            sed -i -e 's/^\(LVS_IMAGE\|RTVI_VLM_IMAGE\)=/# &/' \
+                   -e 's/^# \(\(LVS_IMAGE\|RTVI_VLM_IMAGE\)=.*-sbsa\)$/\1/' .env
+            ;;
+    esac
+    grep -E '^(LVS_IMAGE|RTVI_VLM_IMAGE)=' .env | while read -r line; do info "Using $line"; done
+
     prompt "NGC_API_KEY: "; read -r ngc_key
     prompt "NVIDIA_API_KEY (enter to reuse NGC_API_KEY): "; read -r nvidia_key
     nvidia_key="${nvidia_key:-$ngc_key}"
@@ -43,7 +60,8 @@ else
     prompt "Artifactory username: "; read -r artif_user
     prompt "Artifactory API key: "; read -r artif_key
 
-    cat > .env <<EOF
+    cat >> .env <<EOF
+
 NGC_API_KEY=${ngc_key}
 NVIDIA_API_KEY=${nvidia_key}
 LOCAL_NIM_CACHE=${nim_cache}
