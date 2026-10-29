@@ -648,7 +648,7 @@ what it covered.
 **3 — Build the image and bake the policy in**, so one artifact carries the
 plugin, skills, workspace docs, `vss` CLI and the access boundary at one
 `VSS_REF`. `.hermes/` already produces that image;
-[`openshell-harness/Dockerfile.policy`](openshell-harness/Dockerfile.policy)
+[`openshell-harness/Dockerfile.policy`](Dockerfile.policy)
 derives from it and adds the policy plus two fixes for assumptions the NemoClaw
 base makes about its runtime:
 
@@ -938,7 +938,7 @@ with SandboxClient.from_active_cluster() as client:
 ### What VSS does not carry over from NemoClaw
 
 Not every step in
-[`deploy/docker/scripts/nemoclaw/README.md`](deploy/docker/scripts/nemoclaw/README.md)
+[`deploy/docker/scripts/nemoclaw/README.md`](../deploy/docker/scripts/nemoclaw/README.md)
 has an Option 2 equivalent. These drop out rather than move:
 
 - **The installer and `onboard`.** Both exist to produce a gateway and a

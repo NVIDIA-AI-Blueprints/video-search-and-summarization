@@ -1,0 +1,37 @@
+%%{init: {"fontFamily": "Arial, Liberation Sans, Helvetica, sans-serif", "flowchart": {"nodeSpacing": 24, "rankSpacing": 50, "padding": 18, "wrappingWidth": 340}, "themeVariables": {"fontSize": "24px"}}}%%
+flowchart TB
+    subgraph ops["Operators"]
+        direction LR
+        NB["Notebooks · CI<br/>openshell CLI / SDK"] ~~~ BVAI["vss-build-vision-ai<br/>host coding agent"] ~~~ BUILD["Image build<br/>+ prover check"]
+    end
+
+    subgraph os["OpenShell"]
+        direction LR
+        GW["Gateway :8080 · Compose service<br/>lifecycle · JWTs<br/>policy · prover"]
+        subgraph box["Sandbox = two containers"]
+            direction TB
+            SUP["Supervisor container<br/>trusted · policy · keys"]
+            WL["Workload container<br/>no network · OpenClaw"]
+            SUP <-->|"only way out"| WL
+        end
+        GW <-->|"policy · logs"| box
+    end
+
+    subgraph vss["VSS · Compose"]
+        direction LR
+        HAP["HAProxy :7777"] ~~~ MCP["MCP :9988"] ~~~ SVC["Services · NIMs"]
+    end
+
+    EXT["Inference<br/>chat · NGC"]
+
+    ops -->|"create · exec"| os
+    ops -->|"compose up"| vss
+    os -->|"vss CLI · MCP"| vss
+    os -->|"keys at egress"| EXT
+
+    classDef osc fill:#e8f1fb,stroke:#4a7fc1,color:#0b2e59
+    classDef vssc fill:#eef7e6,stroke:#76b900,color:#1f3d00
+    classDef wl fill:#fff4e5,stroke:#e08a00,color:#4a2c00
+    class GW,SUP osc
+    class HAP,MCP,SVC,BUILD,BVAI vssc
+    class WL wl

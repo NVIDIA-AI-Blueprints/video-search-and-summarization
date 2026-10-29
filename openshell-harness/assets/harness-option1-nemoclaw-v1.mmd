@@ -1,0 +1,22 @@
+%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 35, "padding": 6, "wrappingWidth": 320}, "themeVariables": {"fontSize": "13px"}}}%%
+flowchart TB
+    subgraph ctl["Control plane (host)"]
+        direction LR
+        Y["deployment.yaml<br/>v1alpha1"] --> CLI["nemoclaw CLI<br/>plan · apply · destroy"] --> SDK["Rust SDK"] --> TOFU["OpenTofu"] --> PROV["Providers<br/>Docker · Helm · OpenShell<br/>Fabric · NemoClaw"]
+        BUNDLE["Source bundle<br/>Rust 1.98.1 + protoc"] -.->|hash-verified| CLI
+    end
+    subgraph run["Runtime host: Docker · Podman · K8s"]
+        direction LR
+        OS["OpenShell gateway<br/>managed | external"] --> sb
+        IMG["cargo images build<br/>Fabric-labelled image"] -.->|image.ref| sb
+        subgraph sb["Sandbox ×1..32"]
+            direction LR
+            FAB["NeMo Fabric"] --> H["nvidia.fabric.openclaw<br/>+ VSS plugin ❓"]
+        end
+    end
+    subgraph inf["Inference (via OpenShell routing)"]
+        direction LR
+        CLOUD["Cloud: NVIDIA Hub · Anthropic<br/>OpenAI · Bedrock · OpenRouter"] ~~~ SELF["Self-hosted:<br/>vLLM · Ollama"]
+    end
+    ctl --> run
+    run --> inf

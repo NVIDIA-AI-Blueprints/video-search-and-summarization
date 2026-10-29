@@ -1,0 +1,46 @@
+sequenceDiagram
+    autonumber
+    actor Op as Operator (host)
+    participant C as Docker Compose
+    participant I as openshell-init
+    participant G as openshell-gateway
+    participant D as Docker driver<br/>(via docker.sock)
+    participant S as Supervisor container
+    participant W as Workload container
+    participant A as Agent<br/>(hermes gateway run)
+
+    rect rgb(235, 242, 255)
+    Note over Op,G: Per deployment — compose --profile harness up
+    Op->>C: docker compose --profile harness up -d
+    C->>I: run generate-certs
+    I-->>C: JWT signing key + mTLS certs written to openshell-data, exit 0
+    C->>G: start (after init completes)
+    G->>G: open gateway.db, load signing key,<br/>bind 127.0.0.1:8080
+    Op->>G: openshell gateway add http://127.0.0.1:8080
+    end
+
+    rect rgb(240, 250, 240)
+    Note over Op,A: Per sandbox — openshell sandbox create
+    Op->>G: sandbox create --from image --policy --provider<br/>--expose 18642 -- hermes gateway run
+    G->>G: validate policy, record sandbox in gateway.db,<br/>mint launch-scoped JWT
+    G->>D: provision sandbox
+    D->>D: create channel volume, write launch token<br/>into its bootstrap material
+    D->>W: create from harness image, network_mode=none,<br/>openshell-sandbox as PID 1, then start
+    D->>D: stage supervisor bundle into<br/>supervisor-only volume (JWT, credentials)
+    D->>S: create from supervisor image, host networking, then start
+    S->>G: dial 127.0.0.1:8080 with launch JWT
+    G-->>S: session bearer, policy, provider credentials
+    W->>S: dial control.sock on the channel volume
+    S-->>W: verify pinned identity, supply bearer
+    W->>W: apply Landlock + seccomp, drop to sandbox UID
+    W->>A: launch the command after -- as a child
+    G->>G: sandbox Ready, register the --expose route
+    end
+
+    rect rgb(255, 245, 235)
+    Note over A,G: Runtime — every outbound connection
+    A->>W: connect() trapped by seccomp
+    W->>S: request over the Unix socket
+    S->>S: match destination + binary against policy,<br/>inject credential
+    S-->>A: upstream connection, or deny
+    end

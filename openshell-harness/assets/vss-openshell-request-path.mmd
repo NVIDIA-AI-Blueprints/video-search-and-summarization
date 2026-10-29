@@ -1,0 +1,31 @@
+%%{init: {"theme": "default", "themeVariables": {"fontFamily": "Arial", "fontSize": "16px"}}}%%
+sequenceDiagram
+    participant B as Browser
+    participant UI as vss-ui agent adapter<br/>(Next.js, responses connector)
+    participant GW as openshell-gateway<br/>127.0.0.1:8080
+    participant SUP as Supervisor
+    participant WL as Workload (netns none)
+    participant AG as Hermes API server<br/>127.0.0.1:18642
+
+    Note over GW,SUP: At sandbox create
+    SUP->>GW: dial out over gRPC, the session stays open
+    Note over AG: hermes gateway run enrolls the api_server platform<br/>only because the image minted API_SERVER_KEY
+
+    B->>UI: POST /api/agent/runs (same origin)
+    UI->>GW: POST /v1/responses<br/>Host: default--#lt;sandbox#gt;.openshell.localhost:8080<br/>Authorization: Bearer API_SERVER_KEY
+    Note over GW: route by Host, rewrite Host to 127.0.0.1:18642,<br/>add x-request-id, keep Authorization (bearer-passthrough)
+    GW->>SUP: over the open supervisor session
+    SUP->>WL: Unix socket on the driver volume
+    WL->>AG: connect 127.0.0.1:18642
+    AG->>AG: validate bearer, else 401 gateway_auth_failed
+
+    B->>UI: GET /api/agent/runs/#lt;id#gt;/events (SSE)
+    AG-->>UI: 200 text/event-stream, response.created
+    loop until the run ends
+        AG-->>UI: response.output_text.delta
+        UI-->>B: SSE event
+    end
+    AG-->>UI: response.completed
+    UI-->>B: final SSE event
+
+    Note over UI,AG: Response bytes retrace the same path:<br/>Hermes to workload to supervisor to gateway to adapter

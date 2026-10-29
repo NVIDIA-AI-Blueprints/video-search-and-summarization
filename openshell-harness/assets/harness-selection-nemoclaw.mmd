@@ -1,0 +1,31 @@
+%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 35, "padding": 6, "wrappingWidth": 320}, "themeVariables": {"fontSize": "13px"}}}%%
+flowchart TB
+    subgraph sel["Choosing a harness — NemoClaw, on the host"]
+        direction TB
+        IN["<b>1 · You name the harness you want</b><br/>nemoclaw onboard --agent hermes<br/>or NEMOCLAW_AGENT=hermes, or just run nemohermes"]
+        AL["<b>2 · Nicknames map to a folder name</b><br/>nemohermes → hermes · nemoclaw → openclaw<br/>dcode / deepagents → langchain-deepagents-code<br/>(case, spaces and underscores ignored)"]
+        LS["<b>3 · The result must be a real folder</b><br/>one folder per harness under agents/<br/>release candidates stay hidden unless enabled"]
+        LD["<b>4 · That folder's manifest.yaml is read</b><br/>the contract that drives everything below"]
+        IN --> AL --> LS --> LD
+    end
+    subgraph dir["agents/&lt;name&gt;/ — the per-harness cost"]
+        direction LR
+        DF["Dockerfile<br/>npm · pip · curl"]
+        POL["policy-additions.yaml<br/>endpoints + binary paths"]
+        SH["start.sh<br/>the harness's launcher"]
+        MF["manifest.yaml<br/>ports · health · config · inference keys"]
+    end
+    LD --> dir
+    CR["openshell sandbox create<br/>--from IMAGE --policy POLICY --provider P -- start.sh"]
+    DF -->|"build image"| CR
+    POL -->|"merged with presets"| CR
+    SH -->|"startupCommand"| CR
+    MF -->|"--forward · provider attach<br/>post-create config writes"| CR
+    subgraph sb["OpenShell sandbox — carries no harness identity"]
+        direction TB
+        P1["PID 1 · openshell-sandbox --workdir /sandbox<br/>image ENTRYPOINT discarded"]
+        P2["start.sh<br/>lock down · write config + auth · launch harness · wait on it"]
+        P3["openclaw-gateway · hermes · pi · dcode"]
+        P1 --> P2 --> P3
+    end
+    CR --> sb
