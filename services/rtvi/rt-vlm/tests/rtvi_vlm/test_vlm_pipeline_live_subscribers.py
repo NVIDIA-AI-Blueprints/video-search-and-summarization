@@ -614,6 +614,8 @@ def test_add_live_stream_keeps_stream_still_draining_after_eos():
 
     assert first_callback.call_count == 3
     assert draining_info.all_chunks_processed is True
+    # The EOS cleanup runs in its own thread; a restart must wait for it.
+    _wait_for(lambda: draining_info.evs_sessions_closed)
 
     # Once drained, the stream can be restarted.
     decoder.send_command.reset_mock()
