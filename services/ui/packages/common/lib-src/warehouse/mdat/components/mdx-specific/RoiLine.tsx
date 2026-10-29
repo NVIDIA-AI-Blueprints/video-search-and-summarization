@@ -29,16 +29,18 @@ const RoiLine = ({ id, points, scaleFactor, stroke = "green" }) => {
     tooltipRootRef.current = createRoot(tooltipContainerRef.current);
 
     return () => {
-      // Cleanup on unmount using React 18 API
-      if (tooltipRootRef.current) {
-        tooltipRootRef.current.unmount();
-        tooltipRootRef.current = null;
-      }
-      
-      if (tooltipContainerRef.current && document.body.contains(tooltipContainerRef.current)) {
-        document.body.removeChild(tooltipContainerRef.current);
-        tooltipContainerRef.current = null;
-      }
+      const root = tooltipRootRef.current;
+      const el = tooltipContainerRef.current;
+      tooltipRootRef.current = null;
+      tooltipContainerRef.current = null;
+      // Defer unmount: Konva can tear this down while React is still
+      // rendering the Stage, and createRoot().unmount() is not allowed then.
+      queueMicrotask(() => {
+        root?.unmount();
+        if (el && document.body.contains(el)) {
+          document.body.removeChild(el);
+        }
+      });
     };
   }, []);
 

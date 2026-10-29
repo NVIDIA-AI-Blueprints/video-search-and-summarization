@@ -74,7 +74,7 @@ class PeopleTrajectoryClustersFloorMap extends React.PureComponent {
   _displayClusterGroups = null;
   _lastDisplayTrajectoryUpdateTime = 0;
 
-  /** Konva Group per cluster (one layer per cluster); used for per-group cache() on unfocus. */
+  /** Konva Group per cluster; used for per-group cache() on unfocus. */
   _clusterGroupRefs = new Map();
 
   /** Geometry + legend visibility fingerprint; clears raster cache when it changes. */

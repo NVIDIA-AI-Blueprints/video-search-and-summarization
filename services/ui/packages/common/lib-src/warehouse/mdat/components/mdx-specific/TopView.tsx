@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { Stage, Layer, Image, Line } from "react-konva";
+import { Stage, Layer, Image, Line, Group } from "react-konva";
 import {
   IconFocusCentered,
   IconHelpCircle,
@@ -386,95 +386,65 @@ export default class TopView extends React.Component {
                 onDragMove={this.handleDragMove}
                 onDragEnd={this.handleDragEnd}
               >
-              {this.props.trajectoryLayers &&
-              this.props.trajectoryLayers.length > 0 ? (
-                <React.Fragment>
-                  <Layer>
-                    <Image
-                      image={this.props.topViewImage}
-                      x={0}
-                      y={0}
-                      width={
-                        this.props.topViewImage.width * this.scaleFactor
-                      }
-                      height={
-                        this.props.topViewImage.height * this.scaleFactor
-                      }
+              <Layer>
+                <Image
+                  image={this.props.topViewImage}
+                  x={0}
+                  y={0}
+                  width={this.props.topViewImage.width * this.scaleFactor}
+                  height={this.props.topViewImage.height * this.scaleFactor}
+                  listening={false}
+                />
+                {(this.props.trajectoryLayers || []).map(({ name, content }) => (
+                  <Group key={name} name={name}>
+                    {content}
+                  </Group>
+                ))}
+                {/*
+                  CameraView children (e.g. VizCameraIcon Portals) must live
+                  inside a Layer. Direct Stage children can only be Layers.
+                  Named overlay/camera Groups stay findable via Portal selectors.
+                */}
+                {this.props.children}
+                {(this.props.overlayLayerNames &&
+                this.props.overlayLayerNames.length > 0
+                  ? this.props.overlayLayerNames
+                  : ["top-layer"]
+                ).map((name) => (
+                  <Group key={name} name={name} />
+                ))}
+                <Group name="camera-viz-layer" />
+                {this.state.isDragging && (
+                  <Group listening={false}>
+                    <Line
+                      points={[
+                        0,
+                        (this.props.topViewImage.height * this.scaleFactor) / 2,
+                        this.props.topViewImage.width * this.scaleFactor * 10,
+                        (this.props.topViewImage.height * this.scaleFactor) / 2,
+                      ]}
+                      stroke="rgba(255, 0, 0, 0.8)"
+                      strokeWidth={3}
+                      dash={[10, 10]}
+                      shadowColor="rgba(255, 0, 0, 1)"
+                      shadowBlur={6}
                     />
-                  </Layer>
-                  {this.props.trajectoryLayers.map(({ name, content }) => (
-                    <Layer key={name} name={name}>
-                      {content}
-                    </Layer>
-                  ))}
-                  {/*
-                    CameraView children (e.g. VizCameraIcon Portals) must live inside a Layer.
-                    Direct Stage children can only be Layers — raw Portal Groups caused
-                    "You may only add layers to the stage."
-                  */}
-                  <Layer listening={false} name="trajectory-topview-children">
-                    {this.props.children}
-                  </Layer>
-                </React.Fragment>
-              ) : (
-                <Layer listening={false}>
-                  <Image
-                    image={this.props.topViewImage}
-                    x={0}
-                    y={0}
-                    width={
-                      this.props.topViewImage.width * this.scaleFactor
-                    }
-                    height={
-                      this.props.topViewImage.height * this.scaleFactor
-                    }
-                  />
-                  {this.props.children}
-                </Layer>
-              )}
-              {this.state.isDragging && (
-                <Layer>
-                  {/* Red lines - content center */}
-                  <Line
-                    points={[
-                      0,
-                      (this.props.topViewImage.height * this.scaleFactor) / 2,
-                      this.props.topViewImage.width * this.scaleFactor * 10,
-                      (this.props.topViewImage.height * this.scaleFactor) / 2,
-                    ]}
-                    stroke="rgba(255, 0, 0, 0.8)"
-                    strokeWidth={3}
-                    dash={[10, 10]}
-                    shadowColor="rgba(255, 0, 0, 1)"
-                    shadowBlur={6}
-                  />
-                  <Line
-                    points={[
-                      (this.props.topViewImage.width * this.scaleFactor) / 2,
-                      0,
-                      (this.props.topViewImage.width * this.scaleFactor) / 2,
-                      this.props.topViewImage.height * this.scaleFactor * 10,
-                    ]}
-                    stroke="rgba(255, 0, 0, 0.8)"
-                    strokeWidth={3}
-                    dash={[10, 10]}
-                    shadowColor="rgba(255, 0, 0, 1)"
-                    shadowBlur={6}
-                  />
-                </Layer>
-              )}
-              {this.props.overlayLayerNames && this.props.overlayLayerNames.length > 0
-                ? this.props.overlayLayerNames.map((name) => (
-                    <Layer key={name} name={name} />
-                  ))
-                : (
-                    <Layer name="top-layer" />
-                  )}
-              {/*
-                Camera icons + FOV (VizCameraIcon) portal here so they sit above
-                dots/lines on top-layer without sharing the same canvas layer.
-              */}
-              <Layer name="camera-viz-layer" />
+                    <Line
+                      points={[
+                        (this.props.topViewImage.width * this.scaleFactor) / 2,
+                        0,
+                        (this.props.topViewImage.width * this.scaleFactor) / 2,
+                        this.props.topViewImage.height * this.scaleFactor * 10,
+                      ]}
+                      stroke="rgba(255, 0, 0, 0.8)"
+                      strokeWidth={3}
+                      dash={[10, 10]}
+                      shadowColor="rgba(255, 0, 0, 1)"
+                      shadowBlur={6}
+                    />
+                  </Group>
+                )}
+              </Layer>
             </Stage>
             </div>
             {this.state.showInfoPopup && (
