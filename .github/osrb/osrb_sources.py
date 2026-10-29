@@ -430,6 +430,9 @@ def _image_identity(ref: str) -> tuple[str, str]:
     Keeping the tag out of the package name is what makes a version bump read
     as ``updated`` in the diff instead of one ``removed`` plus one ``added``.
     """
+    if "${" in ref:
+        # A colon inside `${VAR:?message}` is shell syntax, not an image tag.
+        return ref, ""
     if "@" in ref:
         # `python:3.12-slim@sha256:…` — the tag belongs with the version, not
         # the name, or every digest-pinned image becomes its own package and no
