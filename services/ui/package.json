@@ -1,6 +1,6 @@
 {
     "name": "vss-ui-monorepo",
-    "version": "0.1.1",
+    "version": "3.3-dev",
     "private": true,
     "engines": {
         "node": "22.23.3"
@@ -48,7 +48,8 @@
         "lodash-es": "4.18.1",
         "i18next-fs-backend": "2.6.7",
         "dompurify": "3.4.17",
-        "undici": "7.30.0",
+        "undici": "7.30.1",
+        "deepmerge": "4.1.1",
         "ws": "8.21.3",
         "sharp": "0.35.5",
         "form-data": "4.0.6",
