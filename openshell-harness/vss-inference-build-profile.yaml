@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Step 4, option (c): build.nvidia.com, deploy_nemoclaw.ipynb's
+# NEMOCLAW_PROVIDER="build" — NVIDIA_API_KEY and nothing else.
+
+id: vss-inference-build
+display_name: VSS agent inference (build.nvidia.com)
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    env_vars: [NVIDIA_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: integrate.api.nvidia.com
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow: { method: POST, path: "/v1/**" }
+binaries:
+  - { path: /usr/bin/python3.13 }

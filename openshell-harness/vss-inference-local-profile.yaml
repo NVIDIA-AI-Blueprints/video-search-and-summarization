@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Step 4, option (b): a model served on this host — deploy_nemoclaw.ipynb's
+# install-vllm / ollama / nim-local. Ports are the profile's to declare, so a
+# server on anything else needs an entry added here before it is reachable.
+
+id: vss-inference-local
+display_name: VSS agent inference (host-local server)
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    env_vars: [COMPATIBLE_API_KEY]
+    required: false
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - { host: host.openshell.internal, port: 8000, protocol: tcp }    # vLLM, NIM
+  - { host: host.openshell.internal, port: 11434, protocol: tcp }   # Ollama
+binaries:
+  - { path: /usr/bin/python3.13 }

@@ -7,13 +7,39 @@
 # .hermes/Dockerfile so the harness build stays untouched.
 
 ARG HARNESS_IMAGE=vss-harness-hermes:develop
+
+# The NemoClaw base assumes NemoClaw's runtime in two places this stage fixes:
+# - certifi's cacert.pem links to /etc/openshell-tls, but OpenShell 0.1.6
+#   mounts the proxy CA under /run/openshell-supervisor-ca.
+# - config.yaml targets https://inference.local, the managed route 0.1.6
+#   removed in favour of sandbox-scoped provider attachments. The agent now
+#   calls the provider host itself with the placeholder the provider puts in
+#   COMPATIBLE_API_KEY, which the proxy swaps for the real key at egress.
+#
+# Endpoint and model stay ${env:} refs rather than build args: they are a
+# per-deployment choice. The create command renders them from --env at first
+# start, because only the CLI's loader expands a ref — the API server reads
+# the file as written and would send the placeholder as the model id.
+FROM ${HARNESS_IMAGE} AS overlay
+USER root
+COPY policy-hermes.yaml /out/etc/openshell/policy.yaml
+RUN mkdir -p /out/etc/openshell-tls /out/sandbox/.hermes \
+ && ln -s /run/openshell-supervisor-ca/material/ca-bundle.crt /out/etc/openshell-tls/ca-bundle.pem \
+ && chown -R root:root /out/etc && chmod 755 /out/etc /out/etc/openshell /out/etc/openshell-tls \
+ && chmod 644 /out/etc/openshell/policy.yaml \
+ && C=/sandbox/.hermes/config.yaml \
+ && sed -e 's#https://inference\.local/v1#${env:VSS_HERMES_BASE_URL}#' \
+        -e 's#nvidia/nemotron-3-super-120b-a12b#${env:VSS_HERMES_MODEL}#' \
+        -e '/^model:/,$ s#^\(\s*api_key:\).*#\1 "${env:COMPATIBLE_API_KEY}"#' \
+        "$C" > /out$C \
+ && chown --reference=$C /out$C && chmod --reference=$C /out$C \
+ && chown --reference=/sandbox/.hermes /out/sandbox/.hermes && chmod --reference=/sandbox/.hermes /out/sandbox/.hermes \
+ && chown --reference=/sandbox /out/sandbox && chmod --reference=/sandbox /out/sandbox \
+ && chown root:root /out && chmod 755 /out
+
 FROM ${HARNESS_IMAGE}
 
 # A single COPY, deliberately. The harness image already carries 125 layers
 # and Docker's overlay2 depth limit is 127, so a second filesystem layer here
 # fails the run with "max depth exceeded".
-#
-# No --chmod: it is applied to the parent directory COPY creates as well, and
-# a mode without the execute bit leaves /etc/openshell untraversable by the
-# sandbox user.
-COPY --chown=root:root policy-hermes.yaml /etc/openshell/policy.yaml
+COPY --from=overlay /out/ /
