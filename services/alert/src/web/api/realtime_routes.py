@@ -121,8 +121,8 @@ def _always_on_response(
 
     ``details`` is included only when the service actually fanned out
     across rules (add-path or remove-path). Short-circuit responses
-    (disabled feature, bad payload, config error, dedupe short-circuit)
-    omit it since there's nothing per-rule to report.
+    (disabled feature, bad payload, non-RTSP skip, config error, dedupe
+    short-circuit) omit it since there's nothing per-rule to report.
 
     The status line reason phrase (``"OK"`` / ``"Bad Gateway"`` / …)
     comes from stdlib :class:`http.HTTPStatus` so we don't hand-roll a
@@ -735,12 +735,15 @@ async def get_realtime_alert(
         "**Behavior by `event.change`:**\n\n"
         "- `camera_streaming` — starts one rule per entry in the "
         "always-on rules config. Idempotent per `camera_id`: repeats "
-        "return reason `STREAM_ADD_ALREADY_ACTIVE`.\n"
+        "return reason `STREAM_ADD_ALREADY_ACTIVE`. A non-RTSP "
+        "`camera_url` (an uploaded file) starts no rule and returns "
+        "200 with reason `STREAM_ADD_SKIPPED`.\n"
         "- `camera_remove` — stops every rule previously started for "
         "that `camera_id`.\n\n"
         "Responses carry a `reason` code (`STREAM_ADD_SUCCESS`, "
         "`STREAM_ADD_PARTIAL_SUCCESS`, `STREAM_ADD_ALREADY_ACTIVE`, "
-        "`STREAM_ADD_FAILED`, or `ALWAYS_ON_DISABLED`) and a "
+        "`STREAM_ADD_SKIPPED`, `STREAM_ADD_FAILED`, or "
+        "`ALWAYS_ON_DISABLED`) and a "
         "`details` array with one entry per rule."
     ),
     # The handler takes ``payload: Dict[str, Any]`` and validates
@@ -757,7 +760,10 @@ async def get_realtime_alert(
     # document root.
     responses={
         200: {
-            "description": "Rules started/stopped successfully",
+            "description": (
+                "Request handled: rules started or stopped, already "
+                "active, or skipped for a non-RTSP `camera_url`"
+            ),
             "content": {
                 "application/json": {
                     "schema": {
@@ -942,6 +948,9 @@ async def always_on_realtime(
         camera_id=event.camera_id,
         camera_url=event.camera_url,
         camera_name=event.camera_name,
+        # VIOS sends camera_type as an extra event field; other senders
+        # may omit it.
+        camera_type=(event.model_extra or {}).get("camera_type"),
     )
     return _always_on_response(
         status_code=result.status_code,
