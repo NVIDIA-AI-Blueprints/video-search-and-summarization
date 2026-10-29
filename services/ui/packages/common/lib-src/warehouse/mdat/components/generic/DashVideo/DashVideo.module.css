@@ -4,8 +4,6 @@
 .main {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
   width: 100%;
   height: 100%;
   max-width: 100%;
@@ -14,8 +12,8 @@
 }
 
 .videoElementContainer {
-  position: relative;
-  flex: 1 1 auto;
+  position: absolute;
+  inset: 0;
   min-height: 0;
   min-width: 0;
   width: 100%;
@@ -23,38 +21,105 @@
   overflow: hidden;
 }
 
+.withTimeline {
+  /* Fixed seek dock height so the control row can sit strictly above it. */
+  --seek-dock-height: 1.375rem;
+  --seek-dock-gap: 6px;
+  --seek-dock-bottom: 8px;
+  --seek-dock-width: min(68%, calc(100% - 16px));
+}
+
+.overlayDock {
+  position: absolute;
+  left: 50%;
+  bottom: var(--seek-dock-bottom, 8px);
+  z-index: 4;
+  width: var(--seek-dock-width, min(68%, calc(100% - 16px)));
+  height: var(--seek-dock-height, 1.375rem);
+  transform: translateX(-50%);
+}
+
+/* Fullscreen / play-pause: own row above the seek dock, right-aligned to it. */
+.withTimeline .dockedControls {
+  top: auto;
+  left: auto;
+  right: max(8px, calc((100% - var(--seek-dock-width)) / 2));
+  bottom: calc(
+    var(--seek-dock-bottom) + var(--seek-dock-height) + var(--seek-dock-gap)
+  );
+  z-index: 5;
+}
+
 .timelineContainer {
-  flex: 0 0 auto;
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  box-sizing: border-box;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 2px;
-  width: calc(100% - 16px);
-  align-self: center;
-  margin: 4px 8px 8px;
-  padding: 4px 12px 6px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 4px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   color: #1a1a1a;
 }
 
-.timeLabel {
-  font-size: 0.6875rem;
+.seekRow {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.playheadLayer {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: -1.75rem;
+  height: 1.3rem;
+  pointer-events: none;
+}
+
+.playheadBubble {
+  position: absolute;
+  left: calc(var(--playhead, 0) * 100%);
+  top: 0;
+  transform: translateX(-50%);
+  max-width: min(100%, 16rem);
+  padding: 2px 6px 3px;
+  border-radius: 4px;
+  background: rgba(26, 26, 26, 0.92);
+  color: #f4f4f4;
+  font-size: 0.625rem;
   line-height: 1.2;
   font-weight: 500;
-  color: #1a1a1a;
-  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+
+.playheadBubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: rgba(26, 26, 26, 0.92);
 }
 
 .seekInput {
   width: 100%;
-  height: 18px;
+  height: 14px;
   margin: 0;
   accent-color: #76b900;
   cursor: pointer;
@@ -63,4 +128,26 @@
 .seekInput:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.endMarker {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.endMarkerTick {
+  display: block;
+  width: 2px;
+  height: 10px;
+  border-radius: 1px;
+  background: #1a1a1a;
 }

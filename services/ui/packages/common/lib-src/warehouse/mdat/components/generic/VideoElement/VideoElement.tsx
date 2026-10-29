@@ -402,7 +402,9 @@ export default class VideoElement extends React.PureComponent {
     return (
       <div
         ref={(ref) => (this.videoControls = ref)}
-        className={CssClasses.videoControls}
+        className={[CssClasses.videoControls, this.props.controlsClassName]
+          .filter(Boolean)
+          .join(" ")}
       >
         {isFullscreenControl === true
           ? this._renderFullscreenButtonControl()
@@ -466,6 +468,11 @@ VideoElement.propTypes = {
    * }
    */
   videoControls: PropTypes.object,
+  /**
+   * Extra class for the fullscreen / play-pause cluster (e.g. park it
+   * above a recorded seek bar).
+   */
+  controlsClassName: PropTypes.string,
   /**
    * Object containing callbacks for HTMLMediaElement event handlers as described under
    * https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement
