@@ -3,6 +3,7 @@
 // @ts-nocheck
 import { readJson } from "common/warehouse";
 import React from "react";
+import { Button, IconButton } from "common/warehouse/mui";
 import {
   Close as CloseIcon,
   ExpandLess as ExpandLessIcon,
@@ -189,8 +190,8 @@ export default class ConfigFileActionsPanel extends React.PureComponent {
       <div className={Styles.panel}>
         <div className={Styles.header}>
           {canToggle ? (
-            <button
-              type="button"
+            <Button
+              variant="text"
               className={Styles.headerToggle}
               title={expanded ? "Collapse" : "Expand"}
               aria-expanded={expanded}
@@ -199,22 +200,21 @@ export default class ConfigFileActionsPanel extends React.PureComponent {
             >
               {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
               <span className={Styles.title}>View/Update Config Files</span>
-            </button>
+            </Button>
           ) : (
             <div className={Styles.headerStatic}>
               <span className={Styles.title}>View/Update Config Files</span>
             </div>
           )}
           {this.props.onClose ? (
-            <button
-              type="button"
+            <IconButton
               className={Styles.iconBtn}
               title="Close"
               aria-label="Close"
               onClick={() => this.props.onClose?.()}
             >
               <CloseIcon />
-            </button>
+            </IconButton>
           ) : null}
         </div>
         <div className={`${Styles.body} ${expanded ? "" : Styles.bodyHidden}`}>
@@ -265,14 +265,14 @@ export default class ConfigFileActionsPanel extends React.PureComponent {
           </select>
         </label>
         {actionSubPanel}
-        <button
-          type="button"
+        <Button
+          variant="contained"
           className={Styles.submit}
           disabled={this.state.selectedConfigType === undefined}
           onClick={this.onSubmit.bind(this)}
         >
           Submit
-        </button>
+        </Button>
         {this.state.postSubmitInfo !== null ? (
           <div className={Styles.status}>Last action: {this.state.postSubmitInfo}</div>
         ) : null}

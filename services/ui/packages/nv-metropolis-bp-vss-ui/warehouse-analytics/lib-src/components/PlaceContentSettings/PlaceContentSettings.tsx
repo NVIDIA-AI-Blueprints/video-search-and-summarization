@@ -2,12 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { Settings as SettingsIcon } from "common/warehouse/mui-icons";
-import { Accordion as Accordion } from "common/warehouse/mui";
-import { AccordionSummary as AccordionSummary } from "common/warehouse/mui";
-import { AccordionDetails as AccordionDetails } from "common/warehouse/mui";
-import { Typography as Typography } from "common/warehouse/mui";
-import { ExpandMore as ExpandMoreIcon } from "common/warehouse/mui-icons";
+import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  IconButton,
+  Typography,
+} from "common/warehouse/mui";
+import {
+  ExpandMore as ExpandMoreIcon,
+  Settings as SettingsIcon,
+} from "common/warehouse/mui-icons";
 
 import RoomOccupancySettingPanel from "./SettingsPanels/RoomOccupancySettingPanel";
 
@@ -56,16 +61,16 @@ export default class PlaceContentSettings extends React.PureComponent {
 
     return (
       <div className={CssClasses.main}>
-        <button
-          type="button"
+        <IconButton
           className={`${CssClasses.settingsBtn} ${this.state.showMenu ? CssClasses.settingsBtnActive : ""}`}
           data-tooltip={this.state.showMenu ? undefined : "Room settings"}
           aria-label="Room settings"
           aria-expanded={this.state.showMenu}
+          title="Room settings"
           onClick={this.onSettingsBtnClick}
         >
           <SettingsIcon />
-        </button>
+        </IconButton>
         {menu}
       </div>
     );

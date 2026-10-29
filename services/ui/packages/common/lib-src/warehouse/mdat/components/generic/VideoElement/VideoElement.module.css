@@ -40,7 +40,9 @@
   height: auto;
 }
 
-.controlsButton {
+.controlsButton,
+:global(.dark .nv-light) .controlsButton:global(.nv-button.nv-button--kind-tertiary),
+:global(.nv-dark .nv-light) .controlsButton:global(.nv-button.nv-button--kind-tertiary) {
   box-sizing: border-box;
   width: 32px;
   height: 32px;
@@ -63,6 +65,7 @@
   font-size: 0;
   font-weight: bolder;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .controlsButton > span {

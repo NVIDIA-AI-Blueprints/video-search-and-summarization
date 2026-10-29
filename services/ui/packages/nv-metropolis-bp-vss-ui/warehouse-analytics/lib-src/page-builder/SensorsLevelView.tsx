@@ -61,6 +61,10 @@ class SensorsLevelView extends Component {
   };
 
   render() {
+    if (!this.props.metadata?.roomsMap) {
+      return null;
+    }
+
     let content = (
       <SensorLevelView
         onClickForBackToSensorsView={this.onClickForBackToSensorsView.bind(

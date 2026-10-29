@@ -3,6 +3,7 @@
 // @ts-nocheck
 import React from "react";
 import PropTypes from "prop-types";
+import { IconButton } from "common/warehouse/mui";
 import {
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
@@ -354,17 +355,19 @@ export default class VideoElement extends React.PureComponent {
    */
   _renderFullscreenButtonControl() {
     return (
-      <button
+      <IconButton
         ref={(ref) => (this.videoControlFullScreen = ref)}
         className={CssClasses.controlsButton}
-        type="button"
         onClick={this.onClickBtnFullscreen}
         title={
           this.state.isFullscreen ? "Exit Fullscreen" : "Fullscreen"
         }
+        aria-label={
+          this.state.isFullscreen ? "Exit Fullscreen" : "Fullscreen"
+        }
       >
         {this._renderFullscreenButton()}
-      </button>
+      </IconButton>
     );
   }
 
@@ -373,15 +376,15 @@ export default class VideoElement extends React.PureComponent {
    */
   _renderPlayPauseButtonControl() {
     return (
-      <button
+      <IconButton
         ref={(ref) => (this.videoControlPlaypause = ref)}
         className={CssClasses.controlsButton}
-        type="button"
         onClick={this.onClickBtnPlaypause}
         title={this.state.videoControlPlaypauseLabel}
+        aria-label={this.state.videoControlPlaypauseLabel}
       >
         {this._renderPlayPauseIcon()}
-      </button>
+      </IconButton>
     );
   }
 

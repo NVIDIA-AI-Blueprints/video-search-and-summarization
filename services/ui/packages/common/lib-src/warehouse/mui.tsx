@@ -59,8 +59,9 @@ export const List = ({ children, className, ...rest }: DivProps) => (
   <div className={cx('flex flex-col gap-1 overflow-auto [&>*]:shrink-0', className)} {...rest}>{children}</div>
 );
 
-export const Button = ({
+export const Button = React.forwardRef(({
   children, onClick, disabled, className, variant, color, size, startIcon, style, title, type = 'button',
+  ...rest
 }: {
   children?: React.ReactNode;
   onClick?: React.MouseEventHandler;
@@ -73,26 +74,31 @@ export const Button = ({
   style?: React.CSSProperties;
   title?: string;
   type?: 'button' | 'submit' | 'reset';
-}) => {
+} & React.ButtonHTMLAttributes<HTMLButtonElement>, ref) => {
   const kind = color === 'success' || variant === 'contained' ? 'primary' : variant === 'text' ? 'tertiary' : 'secondary';
+  const kaizenColor = color === 'error' || color === 'danger' ? 'danger' : kind === 'primary' ? 'brand' : 'neutral';
   return (
     <KaizenButton
+      ref={ref}
       type={type}
       kind={kind as 'primary' | 'secondary' | 'tertiary'}
-      size={size === 'small' ? 'small' : 'medium'}
+      color={kaizenColor as 'brand' | 'neutral' | 'danger'}
+      size={size === 'small' ? 'small' : size === 'large' ? 'large' : 'medium'}
       disabled={disabled}
       onClick={onClick}
       className={className}
       style={style}
       title={title}
+      {...rest}
     >
       {startIcon}
       {children}
     </KaizenButton>
   );
-};
+});
+Button.displayName = 'Button';
 
-export const IconButton = ({
+export const IconButton = React.forwardRef(({
   children, onClick, disabled, className, title, style, ...rest
 }: {
   children?: React.ReactNode;
@@ -101,19 +107,25 @@ export const IconButton = ({
   className?: string;
   title?: string;
   style?: React.CSSProperties;
-} & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-  <button
+} & React.ButtonHTMLAttributes<HTMLButtonElement>, ref) => (
+  <KaizenButton
+    ref={ref}
     type="button"
-    onClick={onClick}
+    kind="tertiary"
+    color="neutral"
+    size="small"
     disabled={disabled}
-    title={title}
-    className={cx('inline-flex items-center justify-center rounded p-1 hover:bg-black/10', className)}
+    onClick={onClick}
+    className={cx('inline-flex items-center justify-center', className)}
     style={style}
+    title={title}
     {...rest}
+    aria-label={rest['aria-label'] || (typeof title === 'string' ? title : undefined)}
   >
     {children}
-  </button>
-);
+  </KaizenButton>
+));
+IconButton.displayName = 'IconButton';
 
 export const TextField = ({
   value, defaultValue, onChange, label, type = 'text', className, size, multiline, rows, disabled, placeholder, fullWidth, InputProps, inputRef, helperText, error,
@@ -248,8 +260,11 @@ export const MenuItem = ({
   onClick?: React.MouseEventHandler;
   className?: string;
 }) => (
-  <button
+  <KaizenButton
     type="button"
+    kind="tertiary"
+    color="neutral"
+    size="small"
     value={value as string | number}
     className={cx(
       'block w-full cursor-pointer px-3 py-1.5 text-left text-sm text-neutral-900 hover:bg-neutral-100',
@@ -258,7 +273,7 @@ export const MenuItem = ({
     onClick={onClick}
   >
     {children}
-  </button>
+  </KaizenButton>
 );
 
 export const Select = ({
@@ -376,7 +391,7 @@ export const Chip = ({
 export const CircularProgress = ({ size = 24, className }: { size?: number; className?: string }) => (
   <KaizenSpinner
     className={className}
-    kind="ring"
+    kind="default"
     size={size >= 48 ? 'large' : size >= 24 ? 'medium' : 'small'}
     aria-label="Loading"
   />

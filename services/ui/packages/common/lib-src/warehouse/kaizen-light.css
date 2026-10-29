@@ -55,6 +55,20 @@
   color: #1a1a1a;
 }
 
+.dark .nv-light .nv-button.nv-button--kind-primary,
+.nv-dark .nv-light .nv-button.nv-button--kind-primary {
+  background-color: #76b900;
+  color: #111;
+  border-color: #76b900;
+}
+
+.dark .nv-light .nv-button.nv-button--kind-primary:hover,
+.nv-dark .nv-light .nv-button.nv-button--kind-primary:hover {
+  background-color: #5a8f00;
+  color: #111;
+  border-color: #5a8f00;
+}
+
 .dark .nv-light .nv-button.nv-button--kind-secondary,
 .nv-dark .nv-light .nv-button.nv-button--kind-secondary {
   color: #1a1a1a;

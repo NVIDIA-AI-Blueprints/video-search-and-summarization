@@ -11,7 +11,13 @@
 .trigger {
   width: 32px;
   height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  max-width: 32px;
+  max-height: 32px;
   padding: 0;
+  border: none;
+  background: transparent;
   color: inherit;
 }
 
@@ -33,12 +39,17 @@
   list-style: none;
 }
 
-.item {
-  display: block;
+.item,
+:global(.dark .nv-light) .item:global(.nv-button.nv-button--kind-tertiary),
+:global(.nv-dark .nv-light) .item:global(.nv-button.nv-button--kind-tertiary) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
   box-sizing: border-box;
   width: 100%;
   min-width: 18rem;
   height: auto !important;
+  min-height: 0;
   padding: 8px 12px !important;
   border: none;
   border-radius: 0;
@@ -51,6 +62,7 @@
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .item:hover {

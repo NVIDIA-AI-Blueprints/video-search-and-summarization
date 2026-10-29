@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { IconButton } from "common/warehouse/mui";
+import { Button, IconButton } from "common/warehouse/mui";
 import { Menu as MenuIcon } from "common/warehouse/mui-icons";
 import PropTypes from "prop-types";
 import React from "react";
@@ -35,8 +35,8 @@ class CustomMenu extends React.PureComponent {
           <ul className={CssClasses.menu} role="menu">
             {this.props.items.map((item, key) => (
               <li key={key}>
-                <button
-                  type="button"
+                <Button
+                  variant="text"
                   role="menuitem"
                   className={CssClasses.item}
                   onClick={(e) => {
@@ -45,7 +45,7 @@ class CustomMenu extends React.PureComponent {
                   }}
                 >
                   {item.label}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

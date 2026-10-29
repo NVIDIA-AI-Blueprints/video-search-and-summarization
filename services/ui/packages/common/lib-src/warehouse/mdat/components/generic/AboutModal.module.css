@@ -36,10 +36,16 @@
   color: #18181b;
 }
 
-.close {
+.close,
+:global(.dark .nv-light) .close:global(.nv-button.nv-button--kind-tertiary),
+:global(.nv-dark .nv-light) .close:global(.nv-button.nv-button--kind-tertiary) {
   flex: 0 0 auto;
   width: 28px;
   height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  max-width: 28px;
+  max-height: 28px;
   padding: 0;
   border: none;
   border-radius: 6px;
@@ -48,6 +54,7 @@
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .close:hover {
@@ -122,16 +129,5 @@
 }
 
 .closeBtn {
-  padding: 8px 14px;
-  border: none;
-  border-radius: 6px;
-  background: #76b900;
-  color: #111;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.closeBtn:hover {
-  background: #87c50a;
+  min-width: 5.5rem;
 }
