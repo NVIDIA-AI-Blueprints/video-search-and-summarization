@@ -533,7 +533,7 @@ eval:
 
 The evaluation can be run using the `nat eval` command:
 
-```bash
+```bash title="Run in the deployment host terminal"
 nat eval --config_file <agent-config-file>
 ```
 
@@ -546,7 +546,7 @@ If the evaluation dataset includes queries referencing videos, ensure the videos
 You can use the `DATASET_FILTER` environment variable to run evaluation only for specific evaluator types.
 This filters dataset items by their `evaluation_method` field before evaluation begins.
 
-```bash
+```bash title="Run in the deployment host terminal"
 DATASET_FILTER=qa nat eval --config_file <agent-config-file>
 ```
 
@@ -559,7 +559,7 @@ Supported values:
 
 Multiple values can be combined with commas:
 
-```bash
+```bash title="Run in the deployment host terminal"
 DATASET_FILTER=qa,trajectory nat eval --config_file <agent-config-file>
 ```
 
@@ -600,13 +600,13 @@ To enable experiment tracking, follow these steps:
 
 1. Install Weave Dependencies.
 
-   ```bash
+   ```bash title="Run in the deployment host terminal"
    uv sync --group eval
    ```
 
 2. Log in to wandb:
 
-   ```bash
+   ```bash title="Run in the deployment host terminal"
    wandb login --host <wandb-host>
    export WANDB_BASE_URL="<wandb-base-url>"
    ```
