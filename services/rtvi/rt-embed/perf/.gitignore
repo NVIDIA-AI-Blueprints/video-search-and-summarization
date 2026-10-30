@@ -1,0 +1,7 @@
+**/rtvi-perf-env
+
+setup/.venv/
+results/
+__pycache__/
+*.pyc
+*.xlsx

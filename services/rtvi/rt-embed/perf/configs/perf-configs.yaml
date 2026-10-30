@@ -1,0 +1,11 @@
+perf_configs:
+  - id: rtvi-embed-rtxpro6000bw-se-1gpu
+    nodeLabel: RTXPRO6000BW-SE
+    imageArch: amd64
+    enabled: true
+    composePath: perf/setup/compose/compose.perf.yaml
+    vlmGpus: "0"
+    llmGpus: "unused"
+    vlmModel: "cosmos-embed1-448p"
+    llmModel: "unused"
+    vision_input_tokens: "unused"

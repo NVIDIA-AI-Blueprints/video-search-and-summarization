@@ -480,6 +480,10 @@ log()  {
 warn() { echo -e "${_C_YELLOW}[setup_perf_env] WARNING:${_C_RESET} $*" >&2; }
 die() {
     echo -e "${_C_RED}[setup_perf_env] ERROR:${_C_RESET} $*" >&2
+    if [[ -n "${PERF_DIAGNOSTICS_COLLECTOR:-}" && -x "${PERF_DIAGNOSTICS_COLLECTOR}" ]]; then
+        "${PERF_DIAGNOSTICS_COLLECTOR}" --output "${PERF_DIAGNOSTICS_DIR:-.}" --outcome failure --service RTVI-VLM --since "${PERF_RUN_STARTED_AT:-}" --compose-project "${COMPOSE_PROJECT_NAME:-}" || true
+        "${PERF_DIAGNOSTICS_COLLECTOR}" --output "${PERF_DIAGNOSTICS_DIR:-.}" --outcome failure --service RTVI-VLM --since "${PERF_RUN_STARTED_AT:-}" --compose-project "${VST_COMPOSE_PROJECT:-}" || true
+    fi
     # When compose containers were started this run, bring them down automatically
     # so their ports are released and a re-run doesn't hit conflicts.
     if [[ "${RTVI_STARTED:-false}" == "true" ]] && [[ -f "${COMPOSE_PERF_YAML:-}" ]]; then
@@ -1696,22 +1700,22 @@ section "Python Environment"
 # ---------------------------------------------------------------------------
 log "Step 10/12: Setting up Python virtual environment at ${VENV_DIR} ..."
 
-if [[ ! -d "${VENV_DIR}" ]]; then
-    python3 -m venv "${VENV_DIR}" || die "Failed to create Python venv at ${VENV_DIR}"
+if [[ "${PERF_VENV_PREPARED:-false}" != "true" ]]; then
+    if [[ ! -d "${VENV_DIR}" ]]; then
+        python3 -m venv "${VENV_DIR}" || die "Failed to create Python venv at ${VENV_DIR}"
+    fi
+    source "${VENV_DIR}/bin/activate"
+    pip install --quiet --upgrade pip
+    if [[ -f "${REQUIREMENTS_FILE}" ]]; then
+        log "  Installing requirements from ${REQUIREMENTS_FILE} ..."
+        pip install --quiet -r "${REQUIREMENTS_FILE}"
+    fi
+    log "  Installing extra benchmark dependencies ..."
+    pip install --quiet sseclient-py requests tabulate tqdm pyyaml protobuf
+else
+    source "${VENV_DIR}/bin/activate"
+    log "  Reusing locked uv environment prepared by the service entrypoint."
 fi
-
-# shellcheck source=/dev/null
-source "${VENV_DIR}/bin/activate"
-
-pip install --quiet --upgrade pip
-
-if [[ -f "${REQUIREMENTS_FILE}" ]]; then
-    log "  Installing requirements from ${REQUIREMENTS_FILE} ..."
-    pip install --quiet -r "${REQUIREMENTS_FILE}"
-fi
-
-log "  Installing extra benchmark dependencies ..."
-pip install --quiet sseclient-py requests tabulate tqdm pyyaml protobuf
 
 log "  Virtual environment ready."
 
@@ -1921,7 +1925,7 @@ EOF
 
     # Derive compose project name from the compose file's directory (docker compose default).
     # Used for docker label filters — avoids re-parsing the compose file (which hits BACKEND_PORT?).
-    _compose_project=$(basename "$(dirname "${COMPOSE_PERF_YAML}")" | tr '[:upper:]' '[:lower:]')
+    _compose_project="${COMPOSE_PROJECT_NAME:-$(basename "$(dirname "${COMPOSE_PERF_YAML}")" | tr '[:upper:]' '[:lower:]')}"
 
     log "  Launching RTVI VLM (this may take several minutes for model download/load)..."
     docker compose -f "${COMPOSE_PERF_YAML}" --env-file "${ENV_PERF_FILE}" up -d "${_compose_services[@]}" \
