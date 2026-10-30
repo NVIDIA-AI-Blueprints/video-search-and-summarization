@@ -113,7 +113,7 @@ Optional environment variables (sensible defaults shown):
                         WARNING: disables IPv6 system-wide and persists across
                         reboots via /etc/sysctl.d/99-vss.conf. May break other
                         services or container networks that rely on IPv6.
-  NODE_EXPORTER_PORT    Node Exporter host port            (default: 9100)
+  NODE_EXPORTER_PORT    Node Exporter host port            (default: 9101)
   DCGM_EXPORTER_PORT    DCGM Exporter host port            (default: 9400)
   PROMETHEUS_PORT       Prometheus host port               (default: 9090)
   BENCHMARK_CONFIG      Benchmark YAML path                (default: perf/benchmark/rtvi_vlm_config_test.yaml)
@@ -389,7 +389,7 @@ MODEL_PATH="${MODEL_PATH:-}"
 BACKEND_PORT="${BACKEND_PORT:-8010}"
 NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-}"  # required — no default; user must specify GPU
 # Monitoring service ports — override if the defaults conflict with existing services
-NODE_EXPORTER_PORT="${NODE_EXPORTER_PORT:-9100}"
+NODE_EXPORTER_PORT="${NODE_EXPORTER_PORT:-9101}"
 DCGM_EXPORTER_PORT="${DCGM_EXPORTER_PORT:-9400}"
 PROMETHEUS_PORT="${PROMETHEUS_PORT:-9090}"
 # tmpfs size for /tmp/assets inside the RTVI container (backed by RAM for zero-I/O asset serving)
@@ -775,7 +775,7 @@ if [[ "${#_missing[@]}" -gt 0 ]]; then
     echo "    export BACKEND_PORT=${BACKEND_PORT}            # default: 8010" >&2
     echo "    export REDIS_PORT=${REDIS_PORT}              # default: 6379" >&2
     echo "    export CENTRALIZE_DB_PORT=${CENTRALIZE_DB_PORT}  # default: 5432" >&2
-    echo "    export NODE_EXPORTER_PORT=9100  # default: 9100" >&2
+    echo "    export NODE_EXPORTER_PORT=9101  # default: 9101" >&2
     echo "    export DCGM_EXPORTER_PORT=9400  # default: 9400" >&2
     echo "    export PROMETHEUS_PORT=9090     # default: 9090" >&2
     echo "" >&2

@@ -48,6 +48,18 @@ class RTVIVLMPerfContractTest(unittest.TestCase):
         self.assertIn("require_ffmpeg_encoder libx264", setup)
         self.assertIn("docker compose version", setup)
 
+    def test_node_exporter_uses_nonstandard_host_port_by_default(self):
+        setup = (PERF_ROOT / "scripts/native_setup_perf_env.sh").read_text()
+        compose = (PERF_ROOT / "setup/compose/compose.perf.yaml").read_text()
+        config = yaml.safe_load((PERF_ROOT / "configs/config.yaml").read_text())
+
+        self.assertIn('NODE_EXPORTER_PORT="${NODE_EXPORTER_PORT:-9101}"', setup)
+        self.assertIn('"${NODE_EXPORTER_PORT:-9101}:9100"', compose)
+        self.assertEqual(
+            config["global"]["gpu_monitoring"]["prometheus"]["node_exporter_url"],
+            "http://localhost:9101/metrics",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
