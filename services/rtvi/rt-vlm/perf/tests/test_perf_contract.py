@@ -37,6 +37,11 @@ class RTVIVLMPerfContractTest(unittest.TestCase):
         self.assertNotIn("--upload", runner)
         self.assertIn("--output-json", runner)
 
+    def test_setup_validates_required_media_encoder(self):
+        setup = (PERF_ROOT / "scripts/native_setup_perf_env.sh").read_text()
+        self.assertIn("require_ffmpeg_encoder libx264", setup)
+        self.assertIn("docker compose version", setup)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -121,7 +121,7 @@ if [[ ! -f "${PID_FILE}" ]]; then
 else
     PID=$(cat "${PID_FILE}" 2>/dev/null || true)
     if [[ -n "${PID}" ]]; then
-        sudo kill "${PID}" 2>/dev/null \
+        sudo -n kill "${PID}" 2>/dev/null \
             && log "  ${_C_GREEN}Cache cleaner (PID ${PID}) stopped.${_C_RESET}" \
             || warn "  Could not kill PID ${PID} (may have already exited)."
         rm -f "${PID_FILE}"

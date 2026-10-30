@@ -505,7 +505,7 @@ die() {
         local _pid
         _pid=$(cat "${_pid_file}" 2>/dev/null || true)
         if [[ -n "${_pid}" ]]; then
-            sudo kill "${_pid}" 2>/dev/null || true
+            sudo -n kill "${_pid}" 2>/dev/null || true
             rm -f "${_pid_file}"
         fi
     fi
@@ -619,6 +619,16 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not found. Please install it."
 }
 
+require_ffmpeg_encoder() {
+    local encoder="$1"
+    local encoders
+    encoders="$(ffmpeg -hide_banner -encoders 2>/dev/null)" \
+        || die "Unable to query ffmpeg encoders."
+    awk -v required="${encoder}" '$2 == required { found = 1 } END { exit !found }' \
+        <<< "${encoders}" \
+        || die "ffmpeg encoder '${encoder}' is required to prepare benchmark videos."
+}
+
 nvstreamer_has_bcd_streams() {
     jq -e --arg short "${BCD_10S_VIDEO_FILENAME%.*}" \
         --arg medium "${BCD_10M_VIDEO_FILENAME%.*}" \
@@ -679,7 +689,7 @@ cleanup() {
         local pid
         pid=$(cat "${pid_file}" 2>/dev/null || true)
         if [[ -n "${pid}" ]]; then
-            sudo kill "${pid}" 2>/dev/null || true
+            sudo -n kill "${pid}" 2>/dev/null || true
             rm -f "${pid_file}"
             log "  Cache cleaner stopped."
         fi
@@ -791,6 +801,10 @@ require_cmd tar
 require_cmd python3
 require_cmd sed
 require_cmd ffprobe
+require_cmd awk
+require_cmd docker
+require_cmd ss
+docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required but not available."
 prepare_source_mountpoints
 _needs_lvs_generation="${REFRESH_BCD_VIDEOS}"
 if [[ -z "${BCD_10S_VIDEO_SOURCE_PATH}" ]] \
@@ -803,6 +817,7 @@ validate_bcd_video "${PERF_VIDEOS_DIR}/${BCD_60M_VIDEO_FILENAME}" 3600 \
     || _needs_lvs_generation=true
 if [[ "${_needs_lvs_generation}" == "true" ]]; then
     require_cmd ffmpeg
+    require_ffmpeg_encoder libx264
     if [[ ! -f "${LVS_VIDEO_SOURCE_PATH}" || "${REFRESH_BCD_VIDEOS}" == "true" ]]; then
         require_cmd ngc
     fi
@@ -972,8 +987,11 @@ if [[ "${PLATFORM}" == "jetson" || "${PLATFORM}" == "dgx_spark" ]]; then
     if [[ ! -f "${CACHE_CLEANER_SCRIPT}" ]]; then
         warn "  Cache cleaner script not found at ${CACHE_CLEANER_SCRIPT} — skipping."
     else
+        require_cmd sudo
+        sudo -n true >/dev/null 2>&1 \
+            || die "Passwordless sudo is required to start the platform cache cleaner."
         log "  Starting sys_cache_cleaner.sh in background (requires sudo)..."
-        sudo bash "${CACHE_CLEANER_SCRIPT}" &
+        sudo -n bash "${CACHE_CLEANER_SCRIPT}" &
         CACHE_CLEANER_PID=$!
         echo "${CACHE_CLEANER_PID}" > /tmp/sys_cache_cleaner.pid
         log "  Cache cleaner started (PID ${CACHE_CLEANER_PID}, saved to /tmp/sys_cache_cleaner.pid)"
