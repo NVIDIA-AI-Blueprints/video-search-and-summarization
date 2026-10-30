@@ -19,7 +19,7 @@ python3 perf/benchmark/rtvi_perf_benchmark.py \
   --list-scenarios
 ```
 
-See [`perf/benchmark/README.RTVI_VLM.md`](perf/benchmark/README.RTVI_VLM.md) for setup and execution instructions. The VST package and benchmark videos are downloaded by `perf/setup_perf_env.sh` and are intentionally not stored in Git.
+See [`perf/benchmark/README.RTVI_VLM.md`](perf/benchmark/README.RTVI_VLM.md) for setup and execution instructions. The VST package and benchmark videos are downloaded by `perf/scripts/native_setup_perf_env.sh` and are intentionally not stored in Git.
 
 ## Prerequisites
 - **NGC API key** to download the base container and any NGC-hosted model.

@@ -68,14 +68,14 @@ cleanup() {
     trap - EXIT INT TERM
     set +e
     collect_diagnostics "$status"
-    "$PERF_ROOT/setup/native_teardown_perf_env.sh"
+    "$PERF_ROOT/scripts/native_teardown_perf_env.sh"
     exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"$PERF_ROOT/setup/native_setup_perf_env.sh"
+"$PERF_ROOT/scripts/native_setup_perf_env.sh"
 
 args=(--config "$runtime_config" --output-json "$output/vss-perf-results" \
       --config-id "$config_id")

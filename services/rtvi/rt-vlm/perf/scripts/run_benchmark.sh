@@ -5,7 +5,6 @@
 set -euo pipefail
 
 PERF_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SERVICE_ROOT="$(cd "$PERF_ROOT/.." && pwd)"
 config="${PERF_CONFIG:-$PERF_ROOT/configs/config.yaml}"
 output="${PERF_OUTPUT_DIR:-$PERF_ROOT/results}"
 config_id="${PERF_CONFIG_ID:-rtvi-vlm}"
@@ -13,7 +12,7 @@ scenario=""
 triggered_by="${TRIGGERED_BY:-manual}"
 pipeline_url="${PIPELINE_URL:-}"
 release="${RELEASE:-}"
-compose_file="${COMPOSE_FILE:-$SERVICE_ROOT/docker/compose.perf.yaml}"
+compose_file="${COMPOSE_FILE:-$PERF_ROOT/setup/compose/compose.perf.yaml}"
 gpus="${VLM_GPUS:-0}"
 
 while (($#)); do
@@ -44,6 +43,8 @@ export RTVI_IMAGE="${IMAGE_TAG:-${RTVI_IMAGE:-}}"
 export NVIDIA_VISIBLE_DEVICES="$gpus"
 export BENCHMARK_CONFIG="$runtime_config"
 export COMPOSE_PERF_YAML="$compose_file"
+export PROMETHEUS_CONFIG="$PERF_ROOT/setup/compose/prometheus.perf.yml"
+export DCGM_METRICS_CONFIG="$PERF_ROOT/dcgm/dcgm-metrics-config.csv"
 export ENV_PERF_FILE="$output/native/.env.perf"
 export VENV_DIR="$PERF_VENV_DIR"
 export PERF_VENV_PREPARED=true
@@ -67,14 +68,14 @@ cleanup() {
     trap - EXIT INT TERM
     set +e
     collect_diagnostics "$status"
-    "$PERF_ROOT/teardown_perf_env.sh"
+    "$PERF_ROOT/scripts/native_teardown_perf_env.sh"
     exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"$PERF_ROOT/setup_perf_env.sh"
+"$PERF_ROOT/scripts/native_setup_perf_env.sh"
 
 args=(--config "$runtime_config" --output-json "$output/vss-perf-results" \
       --config-id "$config_id")

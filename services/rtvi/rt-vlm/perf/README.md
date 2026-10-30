@@ -11,7 +11,7 @@ export IMAGE_TAG=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
 export NGC_API_KEY=<key>
 export PERF_UV_BIN=uv
 ./perf/scripts/run_benchmark.sh --config perf/configs/config.yaml \
-  --compose-file docker/compose.perf.yaml \
+  --compose-file perf/setup/compose/compose.perf.yaml \
   --scenario e2e_latency_1_token_2k --config-id local-rtvi-vlm \
   --vlm-gpus 0 --output-json perf-results
 ```

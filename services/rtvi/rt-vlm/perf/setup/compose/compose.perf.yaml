@@ -66,7 +66,7 @@ services:
       - "${RTVI_LOG_DIR:-/dummy}${RTVI_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
       - "${RTVI_IPC_SOCKET_HOST_DIR:-/dummy}${RTVI_IPC_SOCKET_HOST_DIR:+:${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}:ro}"
       # Perf benchmark videos (warehouse_gopro_*.mp4).
-      # Set PERF_VIDEOS_DIR to the host path printed by perf/setup_perf_env.sh.
+      # Set PERF_VIDEOS_DIR to the host path printed by perf/scripts/native_setup_perf_env.sh.
       # Videos become visible inside the container at /opt/nvidia/rtvi/streams/perf/
       # and are also used by nvstreamer (VST) for RTSP streaming.
       - "${PERF_VIDEOS_DIR:-/dummy}${PERF_VIDEOS_DIR:+:/opt/nvidia/rtvi/streams/perf}"
@@ -272,7 +272,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
       - DCGM_EXPORTER_INTERVAL=${DCGM_EXPORTER_INTERVAL:-500}
     volumes:
-      - ${DCGM_METRICS_CONFIG:-../perf/dcgm/dcgm-metrics-config.csv}:/etc/dcgm-exporter/custom-metrics.csv:ro
+      - ${DCGM_METRICS_CONFIG:-../../dcgm/dcgm-metrics-config.csv}:/etc/dcgm-exporter/custom-metrics.csv:ro
     cap_add:
       - SYS_ADMIN
     networks:

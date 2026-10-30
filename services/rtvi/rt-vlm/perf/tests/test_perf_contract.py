@@ -16,9 +16,13 @@ class RTVIVLMPerfContractTest(unittest.TestCase):
             "configs/config.yaml",
             "configs/perf-configs.yaml",
             "scripts/run_benchmark.sh",
+            "scripts/native_setup_perf_env.sh",
+            "scripts/native_teardown_perf_env.sh",
             "setup/pyproject.toml",
             "setup/uv.lock",
             "setup/setup_environment.sh",
+            "setup/compose/compose.perf.yaml",
+            "setup/compose/prometheus.perf.yml",
         ):
             self.assertTrue((PERF_ROOT / relative_path).is_file(), relative_path)
 

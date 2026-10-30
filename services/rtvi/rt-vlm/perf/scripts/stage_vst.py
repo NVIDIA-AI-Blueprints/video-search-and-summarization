@@ -27,7 +27,8 @@ def update_env(path, values):
 
 
 def stage():
-    perf = Path(__file__).resolve().parent
+    scripts = Path(__file__).resolve().parent
+    perf = scripts.parent
     source = perf.parents[2] / "vios/deployment/stream-processing/docker-compose"
     root = Path(os.environ["VST_DIR"]).resolve()
     videos = Path(os.environ.get("PERF_VIDEOS_DIR", root / "videos")).resolve()
@@ -54,7 +55,7 @@ def stage():
     shutil.copytree(source / "nvstreamer", nvstreamer)
     # The nvstreamer Compose file mounts ../scripts; keep that relative path valid.
     shutil.copytree(source / "scripts", root / "scripts")
-    shutil.copyfile(perf / "deploy_vst.sh", root / "deploy.sh")
+    shutil.copyfile(scripts / "deploy_vst.sh", root / "deploy.sh")
     (root / ".compose-project").write_text(project + "\n")
     update_env(stream / "compose.env", {
         "HOST_IP": "127.0.0.1", "VST_CONFIG_PATH": stream / "configs",

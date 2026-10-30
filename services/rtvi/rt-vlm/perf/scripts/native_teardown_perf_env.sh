@@ -18,29 +18,28 @@
 # teardown_perf_env.sh — Tear down all services started by setup_perf_env.sh
 #
 # Stops in reverse startup order:
-#   1. RTVI Embed service (compose.perf.yaml)
+#   1. RTVI VLM service (compose.perf.yaml)
 #   2. VST
 #   3. nvstreamer
 #   4. sys_cache_cleaner (DGX Spark / Jetson only)
 #
 # All steps are idempotent — safe to run even if a service is not running.
 #
-# Optional environment variable overrides (same defaults as setup_perf_env_rtvi_embed.sh):
-#   VST_DIR              — VST package directory (default: ~/rtvi-perf/vst_package)
-#   VST_COMPOSE_PROJECT   — Docker Compose project name for VST/nvstreamer (default: rtvi-embed-perf-vst)
-#   COMPOSE_PERF_YAML    — path to compose.perf.yaml
-#   ENV_PERF_FILE        — path to .env.perf (used for --env-file if present)
+# Optional environment variable overrides (same defaults as setup_perf_env.sh):
+#   VST_DIR            — VST package directory (default: ~/rtvi-perf/vst_package)
+#   COMPOSE_PERF_YAML  — path to compose.perf.yaml
+#   ENV_PERF_FILE      — path to .env.perf (used for --env-file if present)
 # =============================================================================
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PERF_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 VST_DIR="${VST_DIR:-${HOME}/rtvi-perf/vst_package}"
-VST_COMPOSE_PROJECT="${VST_COMPOSE_PROJECT:-rtvi-embed-perf-vst}"
-COMPOSE_PERF_YAML="${COMPOSE_PERF_YAML:-${REPO_ROOT}/docker/rtvi_embed/deploy/compose.perf.yaml}"
-ENV_PERF_FILE="${ENV_PERF_FILE:-${REPO_ROOT}/docker/rtvi_embed/deploy/.env.perf}"
+VST_COMPOSE_PROJECT="${VST_COMPOSE_PROJECT:-rtvi-perf-vst}"
+
+COMPOSE_PERF_YAML="${COMPOSE_PERF_YAML:-${PERF_ROOT}/setup/compose/compose.perf.yaml}"
+ENV_PERF_FILE="${ENV_PERF_FILE:-${PERF_ROOT}/setup/compose/.env.perf}"
 
 # Colors — disabled when stdout is not a terminal
 if [[ -t 1 ]]; then
@@ -65,24 +64,24 @@ warn() { echo -e "${_C_YELLOW}[teardown_perf_env] WARNING:${_C_RESET} $*" >&2; }
 
 echo ""
 echo -e "${_C_BOLD}============================================================${_C_RESET}"
-echo -e "${_C_BOLD}  RTVI Embed Performance Environment — Teardown${_C_RESET}"
+echo -e "${_C_BOLD}  RTVI VLM Performance Environment — Teardown${_C_RESET}"
 echo -e "${_C_BOLD}============================================================${_C_RESET}"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 1: Stop RTVI Embed service
+# Step 1: Stop RTVI VLM service
 # ---------------------------------------------------------------------------
-log "Step 1/4: Stopping RTVI Embed service..."
+log "Step 1/4: Stopping RTVI VLM service..."
 if [[ ! -f "${COMPOSE_PERF_YAML}" ]]; then
     warn "  compose.perf.yaml not found at ${COMPOSE_PERF_YAML} — skipping."
 else
     if [[ -f "${ENV_PERF_FILE}" ]]; then
         docker compose -f "${COMPOSE_PERF_YAML}" --env-file "${ENV_PERF_FILE}" down 2>/dev/null \
-            && log "  ${_C_GREEN}RTVI Embed stopped.${_C_RESET}" \
+            && log "  ${_C_GREEN}RTVI VLM stopped.${_C_RESET}" \
             || warn "  docker compose down returned non-zero (service may not have been running)."
     else
         docker compose -f "${COMPOSE_PERF_YAML}" down 2>/dev/null \
-            && log "  ${_C_GREEN}RTVI Embed stopped.${_C_RESET}" \
+            && log "  ${_C_GREEN}RTVI VLM stopped.${_C_RESET}" \
             || warn "  docker compose down returned non-zero (service may not have been running)."
     fi
 fi
