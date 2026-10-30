@@ -1438,7 +1438,7 @@ class RTVIServer:
                     400,
                 )
 
-            if not value.camera_url:
+            if not value.camera_url and value.frame_source is None:
                 if is_vios_request and value.change == "camera_add":
                     logger.info(
                         "Received VIOS camera_add registration without stream URL: camera_id=%s",
@@ -1457,12 +1457,13 @@ class RTVIServer:
                 )
 
             logger.info(
-                "Received stream/add request: camera_id=%s, url=%s",
+                "Received stream/add request: camera_id=%s, url=%s, shared_decode=%s",
                 value.camera_id,
-                value.camera_url,
+                value.camera_url or "",
+                value.frame_source is not None,
             )
 
-            is_vios_file_sensor = self._is_vios_file_sensor(
+            is_vios_file_sensor = value.frame_source is None and self._is_vios_file_sensor(
                 request, value.camera_url, value.camera_type
             )
             if is_vios_file_sensor:
@@ -1479,11 +1480,17 @@ class RTVIServer:
                 # Reuse camera_id as the internal stream/asset id so downstream
                 # correlation stays consistent with the caller-supplied id.
                 video_id = self._asset_manager.add_live_stream(
-                    url=value.camera_url,
+                    url=value.camera_url
+                    or f"rtsp://shared-decode/{value.camera_id}",
                     description=value.camera_name or value.camera_id,
                     camera_id=value.camera_id,
                     sensor_name=value.camera_id,
                     stream_id=value.camera_id,
+                    frame_source=(
+                        value.frame_source.model_dump()
+                        if value.frame_source is not None
+                        else None
+                    ),
                 )
 
                 logger.info(
@@ -2021,6 +2028,10 @@ class RTVIServer:
                 chunk_duration=query.chunk_duration,
                 chunk_overlap_duration=query.chunk_overlap_duration,
                 media_info=query.media_info,
+                media_type=query.media_type,
+                frame_times=query.frame_times,
+                frame_chunk_start=query.frame_chunk_start,
+                frame_chunk_end=query.frame_chunk_end,
                 prompt="dummy",
             )
 
