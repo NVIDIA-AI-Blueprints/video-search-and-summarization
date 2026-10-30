@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Merge with the shared infra file inside include: Compose cannot override
+# imported services in the including file. These test builds need ordinary
+# outbound access, so Bake must not request the network.host entitlement.
+services:
+  elasticsearch:
+    build:
+      network: default
+  elasticsearch-init-container:
+    build:
+      network: default
+  broker-health-check:
+    build:
+      network: default
