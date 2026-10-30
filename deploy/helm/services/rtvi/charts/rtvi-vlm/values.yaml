@@ -176,6 +176,8 @@ env:
     value: "INFO"
   - name: LOG_LEVEL
     value: "INFO"
+  - name: RTVI_FILE_DECODER_GC_INTERVAL
+    value: "10"
   - name: ENABLE_OTEL_MONITORING
     value: "false"
   - name: ENABLE_REDIS_ERROR_MESSAGES

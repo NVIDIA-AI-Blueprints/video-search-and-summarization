@@ -63,6 +63,7 @@ from common.chunk_info import ChunkInfo
 from common.logger import TimeMeasure, logger
 from utils.media_file_info import MediaFileInfo
 from vlm_pipeline.errors import format_cuda_oom_error
+from vlm_pipeline.file_decoder_gc import FileDecoderGarbageCollector
 from vlm_pipeline.ipc_frame_source import (
     DEFAULT_IPC_META_DESERIALIZATION_LIB,
     resolve_ipc_socket_path,
@@ -85,6 +86,7 @@ Gst.init(None)
 # leaking VRAM permanently. Tune via env if needed in future.
 DECODER_TEARDOWN_TIMEOUT_NS = 120 * Gst.SECOND
 CUDA_OOM_RECOVERY_ENV = "RTVI_ENABLE_CUDA_OOM_RECOVERY"
+_FILE_DECODER_GC = FileDecoderGarbageCollector()
 
 # Handle FORCE_SW_AV1_DECODER environment variable
 # When set to true/True/TRUE/1, forces software AV1 decoder instead of hardware decoder
@@ -3414,7 +3416,7 @@ class VideoFileFrameGetter:
         self._pipeline = None
         self._clear_pipeline_elements(clear_decoder_cache=not preserve_decoder_cache)
 
-    def destroy_pipeline(self, preserve_decoder_cache: bool = False):
+    def destroy_pipeline(self, preserve_decoder_cache: bool = False, *, force_gc: bool = True):
         # Release cached CUDA frame tensors before pipeline teardown
         with self._file_frame_cache_lock:
             self._cached_frames = None
@@ -3433,8 +3435,8 @@ class VideoFileFrameGetter:
         self._set_pipeline_null_and_clear_refs(preserve_decoder_cache=preserve_decoder_cache)
         if self._gdino:
             self._gdino = None
-        # Force PyTorch to return freed CUDA memory to the device
-        gc.collect()
+        # Normal file cleanup shares a cadence; failures and shutdown still force GC.
+        _FILE_DECODER_GC.collect(force=force_gc)
         torch.cuda.empty_cache()
 
     def _destroy_pipeline_before_current_decode(self, preserve_decoder_cache: bool = False):
@@ -3455,7 +3457,7 @@ class VideoFileFrameGetter:
             self._cached_frames_pts = None
 
         try:
-            self.destroy_pipeline(preserve_decoder_cache=preserve_decoder_cache)
+            self.destroy_pipeline(preserve_decoder_cache=preserve_decoder_cache, force_gc=False)
         finally:
             with self._file_frame_cache_lock:
                 if current_cached_frames is not None and current_cached_frames_pts is not None:
