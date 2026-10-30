@@ -39,6 +39,24 @@ QUALITY_REPAIR_SUFFIX = (
 OUTPUT_MODE_LEGACY = "legacy"
 OUTPUT_MODE_TIMESTAMPED = "timestamped-caption"
 OUTPUT_MODES = (OUTPUT_MODE_LEGACY, OUTPUT_MODE_TIMESTAMPED)
+OUTPUT_MODE_ENV = "VLM_OUTPUT_MODE"
+
+
+def resolve_output_mode(requested: str | None) -> str:
+    """The deployment's VLM_OUTPUT_MODE wins; otherwise the flag; otherwise legacy.
+
+    An evaluation sets the mode once for the whole run, so the agent never has
+    to pass --output-mode. A set variable overrides an explicit flag, so one run
+    cannot mix modes. An unknown value fails loudly rather than falling back.
+    """
+    forced = (os.environ.get(OUTPUT_MODE_ENV) or "").strip()
+    if forced:
+        if forced not in OUTPUT_MODES:
+            raise SystemExit(f"{OUTPUT_MODE_ENV}={forced!r} is not one of {', '.join(OUTPUT_MODES)}")
+        return forced
+    return requested or OUTPUT_MODE_LEGACY
+
+
 TIMESTAMPED_QUALITY_REPAIR_SUFFIX = (
     "\n\nQuality repair: emit one [start_seconds:end_seconds] line per event "
     "or unchanged state, ordered by start time. Do not narrate the whole "
@@ -1354,7 +1372,7 @@ def _parser() -> argparse.ArgumentParser:
     inspect.add_argument(
         "--output-mode",
         choices=OUTPUT_MODES,
-        default=OUTPUT_MODE_LEGACY,
+        default=None,
         help=(
             "legacy keeps the agent prompt unchanged. "
             "timestamped-caption appends the caption reporting instructions to each subwindow."
@@ -1385,6 +1403,8 @@ def frame_archive_root(output: str | None) -> Path | None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "inspect":
+        args.output_mode = resolve_output_mode(args.output_mode)
     if args.command == "plan-windows":
         windows = split_sensor_window(
             args.start, args.end, args.fps, max_frames=args.max_frames

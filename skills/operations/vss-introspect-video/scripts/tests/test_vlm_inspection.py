@@ -1362,3 +1362,18 @@ def test_sampled_frames_match_their_measured_manifest(tmp_path: Path) -> None:
     assert len(manifest) == 4
     assert [entry["clip_time_seconds"] for entry in manifest] == [0.0, 1.0, 2.0, 3.0]
     assert {(entry["width"], entry["height"]) for entry in manifest} == {(160, 90)}
+
+
+def test_output_mode_env_overrides_and_defaults(monkeypatch) -> None:
+    monkeypatch.delenv("VLM_OUTPUT_MODE", raising=False)
+    assert vlm.resolve_output_mode(None) == vlm.OUTPUT_MODE_LEGACY
+    assert vlm.resolve_output_mode("timestamped-caption") == "timestamped-caption"
+    monkeypatch.setenv("VLM_OUTPUT_MODE", "timestamped-caption")
+    assert vlm.resolve_output_mode(None) == "timestamped-caption"
+    assert vlm.resolve_output_mode("legacy") == "timestamped-caption"
+    monkeypatch.setenv("VLM_OUTPUT_MODE", "  ")
+    assert vlm.resolve_output_mode(None) == vlm.OUTPUT_MODE_LEGACY
+    monkeypatch.setenv("VLM_OUTPUT_MODE", "bogus")
+    import pytest as _pytest
+    with _pytest.raises(SystemExit):
+        vlm.resolve_output_mode(None)

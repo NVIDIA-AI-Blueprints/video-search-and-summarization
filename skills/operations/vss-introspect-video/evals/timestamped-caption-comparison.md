@@ -4,9 +4,11 @@ Do not launch this comparison without approval. It does not change scoring,
 budgets, models, or dataset contents. It contains no questions, answer options,
 or expected labels.
 
-Enable the experiment with `VLM_OUTPUT_MODE=timestamped-caption` on the guarded
-sensor helper. Leave the variable unset, or set `VLM_OUTPUT_MODE=legacy`, for
-the control. Both arms use the same budgets, FPS limits, models, and ledger
+Enable the experiment with `VLM_OUTPUT_MODE=timestamped-caption` in the
+environment the guarded sensor helper runs in (the evaluation's run
+environment). The helper reads the variable itself and it overrides any
+`--output-mode` flag, so every inspection in the run uses that mode. Leave the
+variable unset, or set `VLM_OUTPUT_MODE=legacy`, for the control. Both arms use the same budgets, FPS limits, models, and ledger
 rules.
 
 ## Case IDs

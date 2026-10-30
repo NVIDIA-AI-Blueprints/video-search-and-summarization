@@ -450,7 +450,6 @@ python3 "${VLM_HELPER}" inspect \
   --end "${END_TIME}" \
   --fps "${VLM_FPS}" \
   --prompt "${OPTION_BLIND_CLAIM_PROMPT}" \
-  --output-mode "${VLM_OUTPUT_MODE:-legacy}" \
   --calls-budget "${TASK_MAX_VLM_CALLS}" \
   --history "${PRIOR_INSPECTION_PATH}" \
   --recording-start "${RECORDING_START}" \
@@ -480,10 +479,12 @@ type only as generic guidance:
 - attribute: require a clear view of the correct entity and the relevant region;
 - cause: describe visible physical links, not merely temporal succession.
 
-`--output-mode` selects how the helper asks the VLM to report. `legacy` is the
+The output mode selects how the helper asks the VLM to report. `legacy` is the
 default and the control: the helper sends the inspection focus unchanged.
-`timestamped-caption` is the experiment. Set `VLM_OUTPUT_MODE=timestamped-caption`
-only for that arm. The helper keeps the inspection focus and appends caption
+`timestamped-caption` is the experiment. The deployment selects the mode with
+the `VLM_OUTPUT_MODE` environment variable, which the helper reads itself and
+which overrides `--output-mode`; leave both alone. Do not set the variable or
+pass the flag to change modes. The helper keeps the inspection focus and appends caption
 reporting instructions separately to each submitted subwindow, using that
 subwindow's duration. The requested report shape is
 `[start_seconds:end_seconds] caption`, with offsets from the start of that
