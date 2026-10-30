@@ -434,6 +434,19 @@ class DecoderProcess(ProcessBase):
                     ex,
                 )
         frame_times = [float("%.2f" % frame_ele) for frame_ele in frame_times]
+        if vlm_query.frame_times is not None:
+            assert vlm_query.frame_chunk_start is not None
+            assert vlm_query.frame_chunk_end is not None
+            if len(frames) != len(vlm_query.frame_times):
+                error = (
+                    "external frame count does not match frame_times: "
+                    f"decoded {len(frames)}, received "
+                    f"{len(vlm_query.frame_times)} timestamps"
+                )
+            else:
+                frame_times = list(vlm_query.frame_times)
+                chunk.start_pts = int(vlm_query.frame_chunk_start * 1e9)
+                chunk.end_pts = int(vlm_query.frame_chunk_end * 1e9)
 
         nvtx.end_range(nvtx_decode_start)
 
