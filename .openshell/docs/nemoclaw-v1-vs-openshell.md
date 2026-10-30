@@ -525,7 +525,7 @@ on `aarch64` and run as sandboxes against a live deployment:
 
 The layer figure is the operational one: at 126 of 127 the current image is one
 layer from failing to run, which is why `.hermes/Dockerfile` must not split its
-`RUN` and why `hermes/Dockerfile.policy` collapses its overlay into a single `COPY`.
+`RUN` and why `backup/Dockerfile.policy` collapses its overlay into a single `COPY`.
 Both constraints lift. Process identity is unchanged, so `hermes/policy.yaml`
 and `hermes/boundary.yaml` apply as written.
 
@@ -535,7 +535,7 @@ build and run:
 | Lost | Mitigation |
 |---|---|
 | Toolchain purge — `gcc` and `make` are present | Purge in `.hermes/Dockerfile`, where VSS already owns the layer |
-| `config.yaml` — the base ships none | Author one with `hermes config set`, so `hermes/Dockerfile.policy` writes a file instead of patching one. Seven lines carry it; see below. Set `model.default` and `model.provider`, not `model.model` — the latter is accepted and then rejected upstream at request time |
+| `config.yaml` — the base ships none | Author one with `hermes config set`, so `backup/Dockerfile.policy` writes a file instead of patching one. Seven lines carry it; see below. Set `model.default` and `model.provider`, not `model.model` — the latter is accepted and then rejected upstream at request time |
 | `API_SERVER_PORT`/`API_SERVER_HOST` in `.env` | Hermes binds its documented default `8642`, so `--expose 8642` replaces `--expose 18642` and the port note in `README.md` goes away |
 | certifi's bundle is a real file, not a symlink | Append the supervisor CA at start rather than repointing `/etc/openshell-tls/ca-bundle.pem` |
 | Bundled Hermes skills differ — no `github`, `mlops`, `smart-home`; adds `web` | `.hermes/Dockerfile` checks that Hermes' built-in skills still install, using `github` as the example; switch it to `devops`, which both images ship |
@@ -611,7 +611,7 @@ Three properties make this cheaper than its line count suggests:
   `ca-certificates` and `git`, so there is nothing to strip — and no purge step
   to keep in sync with a base image that might reintroduce one.
 - **The layer budget stops mattering.** At 13 layers the policy can be baked
-  directly, so `hermes/Dockerfile.policy` and its single-`COPY` constraint fall away
+  directly, so `backup/Dockerfile.policy` and its single-`COPY` constraint fall away
   along with the unsplittable `RUN` in `.hermes/Dockerfile`.
 
 Two install settings are load-bearing and not obvious from Hermes' own docs.

@@ -4,8 +4,9 @@
 # Hermes harness with no NemoClaw layer: Hermes is built from its own public
 # source instead of inherited from a managed image, so nothing in this file is
 # copied out of NemoClaw. Produces the same artifact ../../.hermes/Dockerfile
-# plus Dockerfile.policy produce together — harness, `vss` CLI, skills, workspace
-# docs, the vss_cli plugin and the baked access boundary in one image.
+# plus ../backup/Dockerfile.policy produce together — harness, `vss` CLI,
+# skills, workspace docs, the vss_cli plugin and the baked access boundary in
+# one image.
 #
 # The security posture is unchanged and needs no edits elsewhere: policy.yaml,
 # boundary.yaml and ../providers/vss-inference-profile.yaml all apply as
@@ -200,8 +201,8 @@ RUN su sandbox -s /bin/sh -c 'set -e; cd /sandbox; H=/opt/hermes/.venv/bin/herme
       $H config set browser.restrict_evaluate true' \
     && test -f /sandbox/.hermes/config.yaml
 # The access boundary, baked so one artifact carries harness and policy. The
-# layer budget that forced Dockerfile.policy into a separate overlay does not
-# apply here: this image has 12 filesystem layers against overlay2's 127.
+# layer budget that forced ../backup/Dockerfile.policy into a separate overlay
+# does not apply here: this image has 12 filesystem layers against overlay2's 127.
 # The directory is made here rather than left to COPY, which would give it the
 # --chmod mode and leave it unsearchable.
 RUN mkdir -p /etc/openshell && chmod 0755 /etc/openshell
