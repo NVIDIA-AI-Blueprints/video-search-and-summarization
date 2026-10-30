@@ -36,6 +36,12 @@ class RTVIEmbedPerfContractTest(unittest.TestCase):
         self.assertNotIn("--upload", runner)
         self.assertIn("--output-json", runner)
 
+    def test_runner_uses_run_scoped_vst_directory(self):
+        runner = (PERF_ROOT / "scripts/run_benchmark.sh").read_text()
+        self.assertIn(
+            'export VST_DIR="${VST_DIR:-$output/native/vst_package}"', runner
+        )
+
     def test_setup_validates_host_prerequisites(self):
         setup = (PERF_ROOT / "scripts/native_setup_perf_env.sh").read_text()
         self.assertIn("require_cmd docker", setup)
