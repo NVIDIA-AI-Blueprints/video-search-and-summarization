@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 import yaml
@@ -36,6 +39,39 @@ class RTVIVLMPerfContractTest(unittest.TestCase):
         runner = (PERF_ROOT / "scripts/run_benchmark.sh").read_text()
         self.assertNotIn("--upload", runner)
         self.assertIn("--output-json", runner)
+
+    def test_runtime_config_generator_owns_gpu_assignment(self):
+        generator = PERF_ROOT / "scripts/prepare_runtime_config.py"
+        source = PERF_ROOT / "configs/config.yaml"
+        for gpus, expected in (("0", [0]), ("0,1", [0, 1])):
+            with self.subTest(gpus=gpus), tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / "runtime-config.yaml"
+                native_output = Path(directory) / "native"
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(generator),
+                        "--source",
+                        str(source),
+                        "--destination",
+                        str(destination),
+                        "--native-output",
+                        str(native_output),
+                        "--gpus",
+                        gpus,
+                    ],
+                    check=True,
+                )
+                runtime_config = yaml.safe_load(destination.read_text())
+                self.assertEqual(runtime_config["global"]["vlm_gpus"], expected)
+
+    def test_setup_does_not_rewrite_prepared_gpu_assignment(self):
+        setup = (PERF_ROOT / "scripts/native_setup_perf_env.sh").read_text()
+        runner = (PERF_ROOT / "scripts/run_benchmark.sh").read_text()
+        self.assertNotIn('sed -i "s|vlm_gpus:', setup)
+        self.assertIn('--gpus "$gpus"', runner)
+        self.assertIn('export NVIDIA_VISIBLE_DEVICES="$gpus"', runner)
+        self.assertIn('export BENCHMARK_CONFIG="$runtime_config"', runner)
 
     def test_runner_uses_managed_vst_directory_outside_checkout(self):
         runner = (PERF_ROOT / "scripts/run_benchmark.sh").read_text()
