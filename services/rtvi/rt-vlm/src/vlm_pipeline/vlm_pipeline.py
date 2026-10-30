@@ -1233,6 +1233,9 @@ class VlmProcess(ProcessBase):
             else multiprocessing.get_context("spawn").Event()
         )
         self._next_model_health_check_at = 0.0
+        self._request_cancel_lock = multiprocessing.get_context("spawn").Lock()
+        self._cancelled_request_ids = set()
+        self._request_futures = {}
 
     def _initialize(self):
         # Determine the class path to use
@@ -1253,6 +1256,18 @@ class VlmProcess(ProcessBase):
         return True
 
     def _handle_command(self, command, **kwargs):
+        if command == "abort-request":
+            request_id = kwargs["request_id"]
+            with self._request_cancel_lock:
+                self._cancelled_request_ids.add(request_id)
+                futures = tuple(self._request_futures.get(request_id, ()))
+            for future in futures:
+                future.cancel()
+            return None
+        if command == "finish-request-abort":
+            with self._request_cancel_lock:
+                self._cancelled_request_ids.discard(kwargs["request_id"])
+            return None
         if command == "close-evs-session":
             if hasattr(self._model, "_close_evs_session"):
                 self._model._close_evs_session(kwargs["stream_id"])
@@ -1292,6 +1307,8 @@ class VlmProcess(ProcessBase):
         return True
 
     def _can_batch(self, item1, item2):
+        if item1.get("request_id") != item2.get("request_id"):
+            return False
         if item1.get("is_live_stream", False) or item2.get("is_live_stream", False):
             return False
         if hasattr(self._model, "can_batch"):
@@ -1373,6 +1390,10 @@ class VlmProcess(ProcessBase):
         self, chunk: list[ChunkInfo], request_params: list[VlmRequestParams | None], **kwargs
     ):
         """Generate VLM output for a batch of chunks"""
+
+        request_id = kwargs.get("request_id", [None])[0]
+        if request_id in getattr(self, "_cancelled_request_ids", ()):
+            return {}
 
         if not self._refresh_model_health(force=True):
             raise ServiceException(MODEL_BACKEND_UNAVAILABLE_MESSAGE, "ServiceUnavailable", 503)
@@ -1607,12 +1628,33 @@ class VlmProcess(ProcessBase):
         )
 
         if isinstance(vlm_output_batch, concurrent.futures.Future):
+            self._track_request_future(request_id, vlm_output_batch)
             return self._handle_future_result(
                 process_vlm_output,
                 *process_output_args,
             )
         else:
             return process_vlm_output(*process_output_args)
+
+    def _track_request_future(self, request_id, future):
+        if not request_id:
+            return
+
+        def release(completed):
+            with self._request_cancel_lock:
+                futures = self._request_futures.get(request_id)
+                if futures is not None:
+                    futures.discard(completed)
+                    if not futures:
+                        self._request_futures.pop(request_id, None)
+
+        with self._request_cancel_lock:
+            self._request_futures.setdefault(request_id, set()).add(future)
+            cancelled = request_id in self._cancelled_request_ids
+        future.add_done_callback(release)
+        # Cancellation can arrive while generate() is submitting the coroutine.
+        if cancelled:
+            future.cancel()
 
 
 class AsrProcess(ProcessBase):
@@ -2403,6 +2445,14 @@ class VlmPipeline:
     def abort_chunks_done(self, stream_id: str):
         for proc in self._decoder_procs + self._vlm_procs + self._asr_procs:
             proc.send_command("stop-drop-chunks", stream_id=stream_id)
+
+    def abort_request(self, request_id: str):
+        for proc in self._vlm_procs:
+            proc.send_command("abort-request", request_id=request_id)
+
+    def finish_request_abort(self, request_id: str):
+        for proc in self._vlm_procs:
+            proc.send_command("finish-request-abort", request_id=request_id)
 
     def stop(self, force=False):
         """Stop the VLM Pipeline"""

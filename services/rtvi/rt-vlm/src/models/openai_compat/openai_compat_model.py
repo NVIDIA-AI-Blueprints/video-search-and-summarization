@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import base64
 import concurrent.futures
 import io
@@ -23,6 +24,7 @@ import sys
 import threading
 import time as _time
 import uuid
+from functools import partial
 from typing import List, Optional
 
 import numpy
@@ -30,6 +32,7 @@ import torch
 from langchain_openai import AzureChatOpenAI
 from PIL import Image
 
+from common.cancellable_coroutine_future import _CancellableCoroutineFuture
 from common.chunk_info import ChunkInfo
 from common.logger import TimeMeasure, logger
 from common.service_exception import ServiceException
@@ -831,7 +834,7 @@ class CompOpenAIModel(BaseVlmModel):
             logger.error("VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME is not configured")
 
     def configure_openai(self):
-        from openai import OpenAI
+        from openai import AsyncOpenAI, OpenAI
 
         if "OPENAI_API_KEY" in os.environ and os.environ["OPENAI_API_KEY"]:
             logger.info("OPENAI_API_KEY configured")
@@ -844,18 +847,20 @@ class CompOpenAIModel(BaseVlmModel):
                 if "VIA_VLM_API_KEY" in os.environ and os.environ["VIA_VLM_API_KEY"]:
                     logger.info("VIA_VLM_API_KEY is configured")
                     self._key = os.environ["VIA_VLM_API_KEY"]
-                    self._client = OpenAI(
+                    client_kwargs = dict(
                         base_url=base_url, api_key=self._key, max_retries=OPENAI_RECONNECT_ATTEMPTS
                     )
                 else:
                     logger.info("VIA_VLM_API_KEY is not configured; will try use OPENAI_API_KEY")
-                    self._client = OpenAI(base_url=base_url, max_retries=OPENAI_RECONNECT_ATTEMPTS)
+                    client_kwargs = dict(base_url=base_url, max_retries=OPENAI_RECONNECT_ATTEMPTS)
             else:
                 logger.info("VIA_VLM_ENDPOINT is not configured; using OpenAI() default")
-                self._client = OpenAI(max_retries=OPENAI_RECONNECT_ATTEMPTS)
+                client_kwargs = dict(max_retries=OPENAI_RECONNECT_ATTEMPTS)
                 self._endpoint = "https://api.openai.com/v1/"  # default
                 if not os.environ.get("OPENAI_API_KEY", ""):
                     raise Exception("OPENAI_API_KEY not configured")
+            self._client = OpenAI(**client_kwargs)
+            self._async_client = AsyncOpenAI(**client_kwargs)
 
     def init_gpt_4(self, key=None):
         self._key = key
@@ -893,6 +898,7 @@ class CompOpenAIModel(BaseVlmModel):
         self._model_name = None
         self._model = None
         self._client = None
+        self._async_client = None
         self._endpoint = ""
 
         self.init_gpt_4()
@@ -906,6 +912,37 @@ class CompOpenAIModel(BaseVlmModel):
         )
         logger.info(f"Initializing OpenAI thread pool with max_workers={max_parallel}")
         self._output_tpool = concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel)
+        self._request_loop = request_loop = asyncio.new_event_loop()
+
+        def run_requests():
+            try:
+                request_loop.run_forever()
+            finally:
+                request_loop.close()
+
+        self._request_thread = threading.Thread(
+            target=run_requests, name="openai-requests", daemon=True
+        )
+        self._request_thread.start()
+
+    async def _invoke_async(self, messages, **kwargs):
+        if self._model:
+            return await self._model.ainvoke(messages, **kwargs)
+        return await self._async_client.chat.completions.create(
+            model=self._model_name, messages=messages, **kwargs
+        )
+
+    def _invoke_cancellable(self, generation_future, messages, **kwargs):
+        if generation_future.cancelled():
+            raise concurrent.futures.CancelledError()
+        request_future = _CancellableCoroutineFuture(
+            self._invoke_async(messages, **kwargs), self._request_loop
+        )
+        # add_done_callback also runs immediately if cancellation won the submission race.
+        generation_future.add_done_callback(
+            lambda done: request_future.cancel() if done.cancelled() else None
+        )
+        return request_future.result()
 
     def warmup(self):
         # Call the synchronous version directly for warmup
@@ -985,6 +1022,9 @@ class CompOpenAIModel(BaseVlmModel):
         Returns:
             List of responses for the batch of chunks
         """
+        generation_future = kwargs.pop("_generation_future", None)
+        if generation_future is not None and generation_future.cancelled():
+            raise concurrent.futures.CancelledError()
         query_text = query
 
         logger.debug(f"query is {str(query_text)}")
@@ -1005,6 +1045,8 @@ class CompOpenAIModel(BaseVlmModel):
         is_remote_video_input = _remote_video_input_enabled()
 
         for tidx, video_frames_times_ in enumerate(video_frames_times):
+            if generation_future is not None and generation_future.cancelled():
+                raise concurrent.futures.CancelledError()
             is_single_image = int(len(video_frames_times_)) == 1
             num_of_frames_in_one_chunk = int(len(video_frames_times_))
             video_list = []
@@ -1190,27 +1232,36 @@ class CompOpenAIModel(BaseVlmModel):
                     token_kwargs = _openai_token_kwargs(config.max_new_tokens)
                     _nim_t0 = _time.time()
                     if self._model:
-                        response_obj = self._model.invoke(
-                            messages,
+                        params = dict(
                             **token_kwargs,
                             temperature=config.temperature,
                             seed=config.seed,
                             top_p=config.top_p,
                             extra_body=extra_body,
                         )
+                        response_obj = (
+                            self._invoke_cancellable(generation_future, messages, **params)
+                            if generation_future is not None
+                            else self._model.invoke(messages, **params)
+                        )
                         content = response_obj.content
                         if hasattr(response_obj, "usage_metadata"):
                             input_tokens = getattr(response_obj.usage_metadata, "input_tokens", 0)
                             output_tokens = getattr(response_obj.usage_metadata, "output_tokens", 0)
                     elif self._client:
-                        resp = self._client.chat.completions.create(
-                            model=self._model_name,
-                            messages=messages,
+                        params = dict(
                             **token_kwargs,
                             temperature=config.temperature,
                             seed=config.seed,
                             top_p=config.top_p,
                             extra_body=extra_body,
+                        )
+                        resp = (
+                            self._invoke_cancellable(generation_future, messages, **params)
+                            if generation_future is not None
+                            else self._client.chat.completions.create(
+                                model=self._model_name, messages=messages, **params
+                            )
                         )
                         content = ""
                         for choice in resp.choices:
@@ -1238,6 +1289,8 @@ class CompOpenAIModel(BaseVlmModel):
                         logger.debug("OpenAI reasoning description: %s", reasoning_description)
                         logger.debug("OpenAI cleaned text output: %s", content)
                     generated_text = content
+                except concurrent.futures.CancelledError:
+                    raise
                 except Exception as ex:
                     # Map OpenAI HTTP errors to ServiceException so FastAPI returns
                     # the correct status code instead of a generic 500.
@@ -1289,8 +1342,7 @@ class CompOpenAIModel(BaseVlmModel):
     ) -> concurrent.futures.Future[List[VlmModelOutput]]:
         """Generate a response for prompt using the video frames.
 
-        This method submits the generation task to a thread pool and returns a Future
-        that will resolve to the list of VlmModelOutput objects.
+        The returned Future cancels any active HTTP request and drains preprocessing.
 
         Args:
             query: Prompt for the VLM model
@@ -1305,15 +1357,34 @@ class CompOpenAIModel(BaseVlmModel):
         Returns:
             A Future that resolves to a list of VlmModelOutput objects (one per chunk)
         """
-        return self._output_tpool.submit(
-            self._generate_sync,
-            query,
-            chunks,
-            video_frames,
-            video_frames_times,
-            generation_config,
-            **kwargs,
-        )
+
+        async def generate_and_drain():
+            cancellation = concurrent.futures.Future()
+            worker = self._request_loop.run_in_executor(
+                self._output_tpool,
+                partial(
+                    self._generate_sync,
+                    query,
+                    chunks,
+                    video_frames,
+                    video_frames_times,
+                    generation_config,
+                    _generation_future=cancellation,
+                    **kwargs,
+                ),
+            )
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                cancellation.cancel()
+                # Preprocessing owns frame tensors until its worker actually exits.
+                try:
+                    await asyncio.shield(worker)
+                except (asyncio.CancelledError, Exception):
+                    pass
+                raise
+
+        return _CancellableCoroutineFuture(generate_and_drain(), self._request_loop)
 
     def generate_text_only(
         self,
@@ -1430,29 +1501,67 @@ class CompOpenAIModel(BaseVlmModel):
         """
         return True
 
-    def _shutdown_model(self):
-        """Shutdown the model and clean up resources."""
+    def _shutdown_model(self, wait=True):
+        """Close owned clients and stop the HTTP event loop after generation drains."""
+        if getattr(self, "_shutdown_started", False):
+            return
+        self._shutdown_started = True
         logger.info("Shutting down CompOpenAIModel...")
-
-        # Shutdown thread pool executor
-        if self._output_tpool is not None:
-            logger.debug("Shutting down thread pool executor")
-            self._output_tpool.shutdown(wait=True)
+        pool = getattr(self, "_output_tpool", None)
+        if pool is not None:
+            pool.shutdown(wait=wait)
             self._output_tpool = None
 
-        # Clean up client and model references
-        if self._client is not None:
-            logger.debug("Cleaning up OpenAI client")
-            # OpenAI client doesn't have an explicit close method, just delete reference
-            del self._client
-            self._client = None
+        client = getattr(self, "_client", None)
+        async_client = getattr(self, "_async_client", None)
+        model = getattr(self, "_model", None)
+        self._client = self._async_client = self._model = None
 
-        if self._model is not None:
-            logger.debug("Cleaning up AzureChatOpenAI model")
-            del self._model
-            self._model = None
+        async def close_async_clients():
+            try:
+                if async_client is not None:
+                    await async_client.close()
+            finally:
+                if model is not None:
+                    await model.root_async_client.close()
 
+        try:
+            if client is not None:
+                client.close()
+            if model is not None:
+                model.root_client.close()
+        finally:
+            request_loop = getattr(self, "_request_loop", None)
+            request_thread = getattr(self, "_request_thread", None)
+            if (
+                request_loop is not None
+                and request_thread is not None
+                and request_thread.is_alive()
+            ):
+                if threading.current_thread() is request_thread:
+                    closing = request_loop.create_task(close_async_clients())
+                    closing.add_done_callback(lambda _: request_loop.stop())
+                else:
+                    closing = asyncio.run_coroutine_threadsafe(close_async_clients(), request_loop)
+                    if wait:
+                        try:
+                            closing.result()
+                        finally:
+                            request_loop.call_soon_threadsafe(request_loop.stop)
+                            request_thread.join()
+                    else:
+                        closing.add_done_callback(
+                            lambda _: request_loop.call_soon_threadsafe(request_loop.stop)
+                        )
+            else:
+                if async_client is not None or model is not None:
+                    asyncio.run(close_async_clients())
+                if request_loop is not None and not request_loop.is_closed():
+                    request_loop.close()
         logger.info("CompOpenAIModel shutdown complete")
+
+    def __del__(self):
+        self._shutdown_model(wait=False)
 
 
 if __name__ == "__main__":
