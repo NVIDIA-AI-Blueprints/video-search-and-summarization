@@ -18,3 +18,6 @@ perf_configs:
       - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-behavior.json
       - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-events.json
       - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-incidents.json
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-space-utilization.json
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-vlm-incidents.json
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/warehouse-verification-incidents.json
