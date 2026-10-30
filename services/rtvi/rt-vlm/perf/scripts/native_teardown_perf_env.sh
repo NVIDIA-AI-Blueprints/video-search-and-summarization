@@ -22,11 +22,13 @@
 #   2. VST
 #   3. nvstreamer
 #   4. sys_cache_cleaner (DGX Spark / Jetson only)
+#   5. Pipeline-owned VST runtime directory
 #
 # All steps are idempotent — safe to run even if a service is not running.
 #
 # Optional environment variable overrides (same defaults as setup_perf_env.sh):
 #   VST_DIR            — VST package directory (default: ~/rtvi-perf/vst_package)
+#   RTVI_MANAGED_VST_DIR — exact pipeline-owned VST directory eligible for cleanup
 #   COMPOSE_PERF_YAML  — path to compose.perf.yaml
 #   ENV_PERF_FILE      — path to .env.perf (used for --env-file if present)
 # =============================================================================
@@ -36,6 +38,7 @@ set -uo pipefail
 PERF_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 VST_DIR="${VST_DIR:-${HOME}/rtvi-perf/vst_package}"
+RTVI_MANAGED_VST_DIR="${RTVI_MANAGED_VST_DIR:-}"
 VST_COMPOSE_PROJECT="${VST_COMPOSE_PROJECT:-rtvi-perf-vst}"
 
 COMPOSE_PERF_YAML="${COMPOSE_PERF_YAML:-${PERF_ROOT}/setup/compose/compose.perf.yaml}"
@@ -62,6 +65,44 @@ log()  {
 }
 warn() { echo -e "${_C_YELLOW}[teardown_perf_env] WARNING:${_C_RESET} $*" >&2; }
 
+cleanup_managed_vst_dir() {
+    [[ -n "${RTVI_MANAGED_VST_DIR}" ]] || return 0
+    if [[ "${RTVI_MANAGED_VST_DIR}" != "${VST_DIR}" ]]; then
+        warn "  Managed VST marker does not match VST_DIR — preserving both paths."
+        return 0
+    fi
+
+    local expected_prefix="/tmp/vss-perf-$(id -u)/rtvi-vlm/run."
+    case "${RTVI_MANAGED_VST_DIR}" in
+        "${expected_prefix}"*) ;;
+        *)
+            warn "  Refusing to remove unexpected managed VST path: ${RTVI_MANAGED_VST_DIR}"
+            return 0
+            ;;
+    esac
+    [[ -d "${RTVI_MANAGED_VST_DIR}" ]] || return 0
+
+    if rm -rf -- "${RTVI_MANAGED_VST_DIR}" 2>/dev/null; then
+        log "  ${_C_GREEN}Pipeline-owned VST runtime removed.${_C_RESET}"
+        return 0
+    fi
+
+    local registry="${VST_IMAGE_REGISTRY:-nvcr.io/nvidia/vss-core}"
+    local cleanup_image="${VST_NVSTREAMER_IMAGE:-${registry}/vss-vios-nvstreamer:${VST_IMAGE_TAG:-3.2.0}}"
+    local owner="$(id -u):$(id -g)"
+    warn "  Repairing ownership of Docker-created VST runtime files before cleanup."
+    if docker image inspect "${cleanup_image}" >/dev/null 2>&1 && \
+        docker run --rm --user 0 --entrypoint sh \
+            --mount "type=bind,src=${RTVI_MANAGED_VST_DIR},dst=/cleanup" \
+            "${cleanup_image}" -c "chown -R ${owner} /cleanup" >/dev/null 2>&1; then
+        rm -rf -- "${RTVI_MANAGED_VST_DIR}" 2>/dev/null \
+            && log "  ${_C_GREEN}Pipeline-owned VST runtime removed after ownership repair.${_C_RESET}" \
+            || warn "  Could not remove managed VST runtime after ownership repair: ${RTVI_MANAGED_VST_DIR}"
+    else
+        warn "  Could not repair managed VST runtime ownership with local image ${cleanup_image}."
+    fi
+}
+
 echo ""
 echo -e "${_C_BOLD}============================================================${_C_RESET}"
 echo -e "${_C_BOLD}  RTVI VLM Performance Environment — Teardown${_C_RESET}"
@@ -71,7 +112,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 1: Stop RTVI VLM service
 # ---------------------------------------------------------------------------
-log "Step 1/4: Stopping RTVI VLM service..."
+log "Step 1/5: Stopping RTVI VLM service..."
 if [[ ! -f "${COMPOSE_PERF_YAML}" ]]; then
     warn "  compose.perf.yaml not found at ${COMPOSE_PERF_YAML} — skipping."
 else
@@ -89,7 +130,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 2: Stop VST
 # ---------------------------------------------------------------------------
-log "Step 2/4: Stopping VST..."
+log "Step 2/5: Stopping VST..."
 if [[ ! -f "${VST_DIR}/deploy.sh" ]]; then
     warn "  deploy.sh not found at ${VST_DIR}/deploy.sh — skipping."
 else
@@ -101,7 +142,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 3: Stop nvstreamer
 # ---------------------------------------------------------------------------
-log "Step 3/4: Stopping nvstreamer..."
+log "Step 3/5: Stopping nvstreamer..."
 if [[ ! -f "${VST_DIR}/deploy.sh" ]]; then
     warn "  deploy.sh not found — skipping."
 else
@@ -113,7 +154,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 4: Stop sys_cache_cleaner
 # ---------------------------------------------------------------------------
-log "Step 4/4: Stopping sys_cache_cleaner..."
+log "Step 4/5: Stopping sys_cache_cleaner..."
 PID_FILE="/tmp/sys_cache_cleaner.pid"
 if [[ ! -f "${PID_FILE}" ]]; then
     log "  No cache cleaner PID file found — skipping."
@@ -129,6 +170,12 @@ else
         rm -f "${PID_FILE}"
     fi
 fi
+
+# ---------------------------------------------------------------------------
+# Step 5: Remove pipeline-owned VST runtime data
+# ---------------------------------------------------------------------------
+log "Step 5/5: Cleaning pipeline-owned VST runtime..."
+cleanup_managed_vst_dir
 
 echo ""
 echo -e "${_C_BOLD}============================================================${_C_RESET}"

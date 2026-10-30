@@ -36,11 +36,20 @@ class RTVIEmbedPerfContractTest(unittest.TestCase):
         self.assertNotIn("--upload", runner)
         self.assertIn("--output-json", runner)
 
-    def test_runner_uses_run_scoped_vst_directory(self):
+    def test_runner_uses_managed_vst_directory_outside_checkout(self):
         runner = (PERF_ROOT / "scripts/run_benchmark.sh").read_text()
-        self.assertIn(
-            'export VST_DIR="${VST_DIR:-$output/native/vst_package}"', runner
-        )
+        self.assertIn('if [[ -z "${VST_DIR:-}" ]]; then', runner)
+        self.assertIn('runtime_base="/tmp/vss-perf-$(id -u)/rtvi-embed"', runner)
+        self.assertIn('VST_DIR="$(mktemp -d "${runtime_base}/run.XXXXXXXX")"', runner)
+        self.assertIn('export RTVI_MANAGED_VST_DIR="$VST_DIR"', runner)
+        self.assertNotIn("$output/native/vst_package", runner)
+
+    def test_teardown_only_removes_marked_managed_vst_directory(self):
+        teardown = (PERF_ROOT / "scripts/native_teardown_perf_env.sh").read_text()
+        self.assertIn('"${RTVI_MANAGED_VST_DIR}" != "${VST_DIR}"', teardown)
+        self.assertIn('/tmp/vss-perf-$(id -u)/rtvi-embed/run.', teardown)
+        self.assertIn('docker run --rm --user 0', teardown)
+        self.assertIn('chown -R ${owner} /cleanup', teardown)
 
     def test_setup_validates_host_prerequisites(self):
         setup = (PERF_ROOT / "scripts/native_setup_perf_env.sh").read_text()
