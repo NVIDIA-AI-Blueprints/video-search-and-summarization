@@ -11,12 +11,15 @@ semantics are tested against real git, not mocks.
 
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -166,7 +169,49 @@ class ResolveDiffBaseTest(unittest.TestCase):
                 repo, "workflow_dispatch", "develop", "", "develop"
             )
             self.assertIsNone(base)
-            self.assertIn("unsupported event", reason)
+            self.assertIn("manual regeneration", reason)
+
+
+class RegenerationSelectionTest(unittest.TestCase):
+    def detect(self, repo, event, before):
+        out = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "detect_changed_images.py",
+                "--repo-root",
+                str(repo),
+                "--event-name",
+                event,
+                "--ref-name",
+                "develop",
+                "--before",
+                before,
+                "--owner",
+                "",
+            ],
+        ):
+            with redirect_stdout(out):
+                self.assertEqual(dci.main(), 0)
+        return json.loads(out.getvalue())
+
+    def test_dispatch_and_contract_changes_bypass_reuse_but_source_changes_do_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            before = git(repo, "rev-parse", "HEAD")
+            dispatched = self.detect(repo, "workflow_dispatch", "")
+            self.assertEqual(dispatched["count"], 2)
+            self.assertTrue(dispatched["rebuild_all"])
+            commit_change(repo, "services/ui/app.js", "v2\n", "source")
+            self.assertFalse(self.detect(repo, "push", before)["rebuild_all"])
+            before = git(repo, "rev-parse", "HEAD")
+            commit_change(
+                repo, ".github/workflows/build-dev-images.yml", "changed\n", "contract"
+            )
+            contract = self.detect(repo, "push", before)
+            self.assertEqual(contract["count"], 2)
+            self.assertTrue(contract["rebuild_all"])
 
 
 class SelectImagesTest(unittest.TestCase):

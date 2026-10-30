@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Plan GHCR coordinates and verify published multiarch manifests."""
+
 from __future__ import annotations
 
 import argparse
@@ -42,10 +43,13 @@ def candidate_coordinates(
     image_name: str,
     tree_sha: str,
     tag_suffix: str = "",
+    rebuild_id: str = "",
 ) -> CandidateCoordinates:
     short = commit_sha[:12]
     if not re.fullmatch(r"[0-9a-f]{12}", short):
-        raise ValueError("commit SHA must start with at least 12 lowercase hex characters")
+        raise ValueError(
+            "commit SHA must start with at least 12 lowercase hex characters"
+        )
     if not re.fullmatch(r"[0-9a-f]{40}", tree_sha):
         raise ValueError("source tree SHA must be 40 lowercase hex characters")
     if match := re.fullmatch(r"pull-request/(\d+)", ref_name):
@@ -67,6 +71,10 @@ def candidate_coordinates(
             f"tag suffix must be empty or start with '-' and contain only "
             f"tag-safe characters, got {tag_suffix!r}"
         )
+    if rebuild_id:
+        if not re.fullmatch(r"[0-9]+-[0-9]+", rebuild_id):
+            raise ValueError("rebuild ID must be <run_id>-<run_attempt>")
+        tag = f"{tag}-rebuild-{rebuild_id}"
     return CandidateCoordinates(
         image=f"ghcr.io/{normalized_owner}/vss/{image_name}",
         tag=f"{tag}{tag_suffix}",
@@ -99,13 +107,68 @@ def validate_manifest(
     return ManifestEvidence(digest=digest, platforms=tuple(actual))
 
 
+def validate_legacy_provenance(
+    ref: str, manifest: dict, runner: Runner | None = None
+) -> None:
+    """Require one legacy SLSA attestation for each runnable platform digest.
+
+    This checks the exported representation that the NGC copy consumes, not
+    just the workflow inputs. It does not claim to validate LaunchAPI policy.
+    """
+    runner = runner or command_runner
+    repository = ref.split("@", 1)[0]
+    if ":" in repository.rsplit("/", 1)[-1]:
+        repository = repository.rsplit(":", 1)[0]
+    platforms = {
+        item["digest"]
+        for item in manifest.get("manifests", [])
+        if item.get("platform", {}).get("os") not in (None, "unknown")
+    }
+    attested: set[str] = set()
+    for item in manifest.get("manifests", []):
+        annotations = item.get("annotations", {})
+        if annotations.get("vnd.docker.reference.type") != "attestation-manifest":
+            continue
+        target = annotations.get("vnd.docker.reference.digest")
+        raw = json.loads(
+            runner(
+                [
+                    "docker",
+                    "buildx",
+                    "imagetools",
+                    "inspect",
+                    f"{repository}@{item['digest']}",
+                    "--raw",
+                ]
+            )
+        )
+        if raw.get("subject") or raw.get("artifactType"):
+            raise ValueError(
+                "expected legacy provenance, found an OCI artifact referrer"
+            )
+        if not any(
+            layer.get("mediaType") == "application/vnd.in-toto+json"
+            and layer.get("annotations", {})
+            .get("in-toto.io/predicate-type", "")
+            .startswith("https://slsa.dev/provenance/")
+            for layer in raw.get("layers", [])
+        ):
+            raise ValueError(
+                f"attestation for {target} has no SLSA provenance predicate"
+            )
+        if target in attested:
+            raise ValueError(f"duplicate provenance attestation for {target}")
+        attested.add(target)
+    if not platforms or attested != platforms:
+        raise ValueError("each runnable platform must have legacy SLSA provenance")
+
+
 def command_runner(command: list[str]) -> str:
     result = subprocess.run(command, text=True, capture_output=True)
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(
-            f"{command[0]} command failed with exit {result.returncode}: "
-            f"{detail[:500]}"
+            f"{command[0]} command failed with exit {result.returncode}: {detail[:500]}"
         )
     return result.stdout.strip()
 
@@ -148,10 +211,12 @@ def main() -> int:
     metadata.add_argument("--image-name", required=True)
     metadata.add_argument("--tree-sha", required=True)
     metadata.add_argument("--tag-suffix", default="")
+    metadata.add_argument("--rebuild-id", default="")
     metadata.add_argument("--github-output", type=Path, required=True)
 
     verify = subparsers.add_parser("verify-manifest")
     verify.add_argument("--ref", required=True)
+    verify.add_argument("--require-legacy-provenance", action="store_true")
     verify.add_argument("--platforms", required=True)
     verify.add_argument("--github-output", type=Path, required=True)
 
@@ -164,6 +229,7 @@ def main() -> int:
             image_name=args.image_name,
             tree_sha=args.tree_sha,
             tag_suffix=args.tag_suffix,
+            rebuild_id=args.rebuild_id,
         )
         write_github_outputs(
             args.github_output,
@@ -184,6 +250,8 @@ def main() -> int:
     evidence = validate_manifest(
         manifest, [item for item in args.platforms.split(",") if item]
     )
+    if args.require_legacy_provenance:
+        validate_legacy_provenance(args.ref, manifest)
     write_github_outputs(args.github_output, {"digest": evidence.digest})
     print(
         f"[container-build-plan] ref={args.ref} digest={evidence.digest} "
