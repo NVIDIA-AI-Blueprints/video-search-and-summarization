@@ -27,6 +27,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import StrictInt
 
 from ..errors import InvalidInputError
 
@@ -46,6 +47,14 @@ class AttributeSearchInput(BaseModel):
     timestamp_start: datetime | None = None
     timestamp_end: datetime | None = None
     video_sources: list[str] | None = None
+    candidate_limit: int | None = Field(default=None, ge=1, le=100000)
+    max_hits_per_source: StrictInt | None = Field(default=None, ge=1, le=1000)
+    attribute_frame_pool_size: StrictInt = Field(
+        default=1,
+        ge=1,
+        le=32,
+        description="Mean score of the strongest N embedded frames per object; the strongest frame supplies its screenshot.",
+    )
     top_k: int | None = Field(default=None, ge=1, le=1000)
     min_similarity: float = Field(default=0.3, ge=0.0, le=1.0)
     fuse_multi_attribute: bool = True
@@ -100,6 +109,12 @@ class AttributeSearchInput(BaseModel):
                 f"timestamp_start ({self.timestamp_start.isoformat()}) must not be after "
                 f"timestamp_end ({self.timestamp_end.isoformat()})"
             )
+        if self.max_hits_per_source is not None and self.candidate_limit is None:
+            raise InvalidInputError("max_hits_per_source requires an explicit candidate_limit")
+        # Without the exact budget, results stay in behavior-score order, so a
+        # pooled frame score would be reported but never rank anything.
+        if self.attribute_frame_pool_size != 1 and self.candidate_limit is None:
+            raise InvalidInputError("attribute_frame_pool_size requires an explicit candidate_limit")
 
 
 class AttributeSearchMetadata(BaseModel):
@@ -120,7 +135,10 @@ class AttributeSearchMetadata(BaseModel):
     end_time: str | None = None
     bbox: dict[str, Any] | None = None
     behavior_score: float = 0.0
-    frame_score: float | None = None
+    frame_score: float | None = Field(
+        default=None,
+        description="Frame-based rank score, averaged over the requested pool; frame_timestamp and bbox describe its strongest frame.",
+    )
     video_name: str | None = None
 
 

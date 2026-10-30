@@ -325,6 +325,147 @@ class ElasticClient:
         except (ESConnectionError, ESApiError, ESTransportError) as e:
             raise BackendUnreachableError("elasticsearch", str(e), e) from e
 
+    async def msearch(
+        self, *, index: str | list[str], searches: list[dict[str, Any]], max_concurrent_searches: int
+    ) -> Any:
+        """Forward batched search bodies through the existing endpoint transport."""
+        from ._frame_json import encode_frame_searches
+
+        try:
+            client = await self._client_for_active_loop()
+            return await client.msearch(
+                index=index, searches=encode_frame_searches(searches), max_concurrent_searches=max_concurrent_searches
+            )
+        except ESNotFoundError as e:
+            raise IndexNotFoundError(index, e) from e
+        except (ESConnectionError, ESApiError, ESTransportError) as e:
+            raise BackendUnreachableError("elasticsearch", str(e), e) from e
+    async def exhaustive_vector_search(
+        self,
+        *,
+        index: str | list[str],
+        filters: list[dict[str, Any]],
+        vector: list[float],
+        field: str,
+        candidate_limit: int,
+        min_score: float = 0.0,
+        nested_path: str | None = None,
+        source_includes: list[str] | None = None,
+    ) -> Any:
+        """Exact score all eligible indexed documents using bounded scroll pages.
+
+        The budget counts eligible documents before score filtering and dedup.
+        Crossing it is an error: no partial ranking is advertised as exhaustive.
+        Scroll state is always released, including when scoring or paging fails.
+        Vector payloads are excluded unless their exact field names are
+        explicitly requested in ``source_includes``.
+        """
+        from ..errors import InvalidInputError
+
+        if type(candidate_limit) is not int or not 1 <= candidate_limit <= 100000:
+            raise InvalidInputError("candidate_limit must be between 1 and 100000")
+        base_query = {"bool": {"filter": filters}} if filters else {"match_all": {}}
+        scored = {
+            "script_score": {
+                "query": {"exists": {"field": field}},
+                "script": {
+                    "source": "(cosineSimilarity(params.vector, '" + field + "') + 1.0) / 2.0",
+                    "params": {"vector": vector},
+                },
+            }
+        }
+        if nested_path:
+            scored = {"nested": {"path": nested_path, "score_mode": "max", "query": scored}}
+        query = {"bool": {"must": [scored], "filter": [base_query]}}
+        scroll_id = None
+        hits = []
+        count = 0
+        seen_documents: set[tuple[str, str]] = set()
+        try:
+            client = await self._client_for_active_loop()
+            response = await client.search(
+                index=index,
+                body={
+                    "query": query,
+                    "size": min(512, candidate_limit + 1),
+                    "sort": ["_doc"],
+                    "track_scores": True,
+                    "track_total_hits": True,
+                    "_source": {
+                        **({"includes": source_includes} if source_includes is not None else {}),
+                        "excludes": sorted(
+                            {
+                                field,
+                                "embeddings.vector",
+                                "llm.visionEmbeddings.vector",
+                                "objects.embedding.vector",
+                                "object.embedding.vector",
+                            }
+                            - set(source_includes or [])
+                        ),
+                    },
+                },
+                allow_partial_search_results=False,
+                scroll="2m",
+            )
+            expected_total = None
+            while True:
+                scroll_id = response.get("_scroll_id", scroll_id)
+                if response.get("timed_out") or response.get("_shards", {}).get("failed", 0):
+                    raise BackendUnreachableError("elasticsearch", "Exact scan returned a partial search response")
+                total = response.get("hits", {}).get("total")
+                if (
+                    not isinstance(total, dict)
+                    or total.get("relation") != "eq"
+                    or type(total.get("value")) is not int
+                    or total["value"] < 0
+                ):
+                    raise BackendUnreachableError("elasticsearch", "Exact scan omitted an exact hit count")
+                if expected_total is None:
+                    expected_total = total["value"]
+                    if expected_total > candidate_limit:
+                        raise InvalidInputError(
+                            f"Indexed candidate coverage exceeds candidate_limit={candidate_limit}; increase the explicit budget"
+                        )
+                elif total["value"] != expected_total:
+                    raise BackendUnreachableError("elasticsearch", "Exact scan hit count changed during pagination")
+                page = response["hits"]["hits"]
+                if not page:
+                    break
+                for hit in page:
+                    identity = (str(hit.get("_index", "")), str(hit["_id"]))
+                    if identity in seen_documents:
+                        raise BackendUnreachableError("elasticsearch", "Exact scan returned a duplicate document")
+                    seen_documents.add(identity)
+                count += len(page)
+                if count > candidate_limit:
+                    raise InvalidInputError(
+                        f"Indexed candidate coverage exceeds candidate_limit={candidate_limit}; increase the explicit budget"
+                    )
+                hits.extend(hit for hit in page if hit["_score"] >= min_score)
+                if not scroll_id:
+                    raise BackendUnreachableError("elasticsearch", "Exact scan response omitted scroll identity")
+                response = await client.scroll(scroll_id=scroll_id, scroll="2m")
+            if count != expected_total:
+                raise BackendUnreachableError(
+                    "elasticsearch", "Exact scan ended before all indexed candidates were returned"
+                )
+            hits.sort(key=lambda hit: (-hit["_score"], str(hit.get("_index", "")), str(hit.get("_id", ""))))
+            return {
+                "hits": {"hits": hits, "total": {"value": count, "relation": "eq"}},
+                "candidate_coverage": {"indexed": count, "exhaustive": True, "budget": candidate_limit},
+            }
+        except ESNotFoundError as exc:
+            raise IndexNotFoundError(index, exc) from exc
+        except (ESConnectionError, ESApiError, ESTransportError) as exc:
+            raise BackendUnreachableError("elasticsearch", str(exc), exc) from exc
+        finally:
+            if scroll_id:
+                try:
+                    await client.clear_scroll(scroll_id=scroll_id)
+                except Exception:
+                    logger.warning("Could not release exact scan scroll", exc_info=True)
+
     async def index(
         self,
         *,

@@ -40,6 +40,7 @@ dependencies = [
   "elasticsearch[requests]~=8.17.0",
   "httpx~=0.28",
   "opencv-python-headless>=4.13.0.92",
+  "orjson>=3.10,<4",
   "pydantic >=2.11,<3",
   "PyYAML~=6.0",
   "tenacity~=9.0",

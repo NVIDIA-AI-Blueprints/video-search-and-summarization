@@ -104,3 +104,12 @@ class ElasticIndex(Protocol):
         forward it to helpers that re-resolve clients (e.g. the object-id
         re-search path), so the protocol exposes it."""
         ...
+
+
+@runtime_checkable
+class MultiSearchIndex(Protocol):
+    """Optional batched search capability; existing single-search clients still work."""
+
+    async def msearch(
+        self, *, index: str | list[str], searches: list[dict[str, Any]], max_concurrent_searches: int
+    ) -> Any: ...
