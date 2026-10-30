@@ -32,6 +32,7 @@ src/models/openai_compat/__init__.py
 src/models/openai_compat/internal/util.py
 src/models/openai_compat/openai_compat_model.py
 src/models/vllm_compatible/adaptive_preprocess_limiter.py
+src/models/vllm_compatible/request_generation_tracker.py
 src/models/vllm_compatible/__init__.py
 src/models/vllm_compatible/vllm_compatible_model.py
 src/scripts/install_codecs_nonroot.sh
@@ -76,6 +77,7 @@ tests/model/openai_compat/internal/test_openai_compat_nvllmg.py
 tests/model/openai_compat/internal/test_warehouse_timestamp_etc_manual.py
 tests/model/openai_compat/test_migrated_features.py
 tests/model/openai_compat/test_openai_compat.py
+tests/model/test_request_cancellation.py
 tests/model/vllm_compatible/test_adaptive_preprocess_limiter.py
 tests/model/vllm_compatible/test_evs_encode_error.py
 tests/model/vllm_compatible/test_evs_min_frames.py
