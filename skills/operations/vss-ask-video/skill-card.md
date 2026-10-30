@@ -1,5 +1,5 @@
 ## Description: <br>
-Routes VSS video questions through hot conversation context, exact stored-memory reads, bounded memory introspection, or an exact-window `vss vlm run`. Direct VLM HTTP is reserved for an explicitly separate non-VSS local-file fallback. <br>
+Entry point for direct VSS video answers. Preserves hot-context answers, exact stored-memory reads, and explicit one-scope `vss vlm run` requests, while delegating requested, enabled, evidence-intensive, and answer-choice introspection once to the agent-owned `vss-introspect-video` loop. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -15,8 +15,8 @@ Developers and operators answering ad-hoc questions about current or previously 
 Global <br>
 
 ## Known Risks and Mitigations: <br>
-Risk: Answers can be misleading if an agent invents a media window or treats missing memory as visual evidence. <br>
-Mitigation: The skill requires grounded scope, routes `no_memory` explicitly, and uses the project-local VSS CLI. <br>
+Risk: Answers can be misleading if an agent invents a media window, leaks answer options into evidence gathering, or treats missing memory as visual evidence. <br>
+Mitigation: The skill preserves exact simple routes, requires grounded scope, and delegates complex questions to an option-blind, provenance-preserving evidence loop that uses the project-local VSS CLI. <br>
 
 ## Reference(s): <br>
 - [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
@@ -26,7 +26,7 @@ Mitigation: The skill requires grounded scope, routes `no_memory` explicitly, an
 **Output Type(s):** [Analysis, CLI Calls] <br>
 **Output Format:** [Markdown grounded in conversation, memory, or VLM job output] <br>
 **Output Parameters:** [1D] <br>
-**Other Properties Related to Output:** [Includes available VSS job/record provenance. VLM reasoning (`<think>...</think>`) blocks are stripped before returning the final answer] <br>
+**Other Properties Related to Output:** [Includes available VSS job/record provenance. Delegated results include observation IDs, unresolved gaps, final ledger revision, and artifact path.] <br>
 
 ## Evaluation Agents Used: <br>
 - Claude Code (`claude-code`) <br>
@@ -35,7 +35,7 @@ Mitigation: The skill requires grounded scope, routes `no_memory` explicitly, an
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 evaluation task (1 positive skill-activation case) in the astra-sandbox environment using the NVSkills-Eval external profile. <br>
+Evaluated with lightweight exact-route and delegation fixtures; evidence-loop behavior is exercised by the dispatchable `vss-introspect-video` mocked-loop evaluation. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -57,13 +57,7 @@ Underlying evaluation signals used in this run: <br>
 
 
 ## Evaluation Results: <br>
-| Dimension | Num | `claude-code` | `codex` |
-|---|---:|---:|---:|
-| Security | 1 | 100% (+0%) | 100% (+0%) |
-| Correctness | 1 | 50% (+50%) | 50% (+50%) |
-| Discoverability | 1 | 0% (+0%) | 0% (+0%) |
-| Effectiveness | 1 | 50% (+50%) | 50% (+50%) |
-| Efficiency | 1 | 27% (+0%) | 28% (-0%) |
+The updated routing fixtures and adapter contracts are validated statically. No new model benchmark result is claimed for this documentation-only routing revision. <br>
 
 ## Skill Version(s): <br>
 3.3.0 (source: frontmatter) <br>
