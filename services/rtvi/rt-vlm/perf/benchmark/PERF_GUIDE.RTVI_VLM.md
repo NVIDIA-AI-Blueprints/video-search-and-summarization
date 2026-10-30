@@ -583,7 +583,7 @@ global:
       enabled: true
       dcgm_exporter_url: "http://localhost:9400/metrics"
       node_exporter_enabled: true  # Enable CPU and memory metrics collection
-      node_exporter_url: "http://localhost:9101/metrics"  # injected by setup_perf_env.sh from NODE_EXPORTER_PORT
+      node_exporter_url: "http://localhost:9102/metrics"  # injected by setup_perf_env.sh from NODE_EXPORTER_PORT
       scrape_interval_seconds: 1  # defaults to gpu_monitoring.interval_seconds
 
   # /generate_captions API parameters Global
@@ -1199,8 +1199,8 @@ CPU and memory metrics are collected via Node Exporter when `node_exporter_enabl
 | `nodeexporter_load5_mean` | Average 5-minute load average |
 
 **Prerequisites for CPU Metrics:**
-- Node Exporter must be running and accessible at the configured URL (default: `http://localhost:9101/metrics`)
-- For Docker deployments, ensure the Node Exporter container's port 9100 is exposed on host port 9101
+- Node Exporter must be running and accessible at the configured URL (default: `http://localhost:9102/metrics`)
+- For Docker deployments, ensure the Node Exporter container's port 9100 is exposed on host port 9102
 - Metrics are collected by directly scraping Node Exporter's `/metrics` endpoint
 
 ### Per-Request Metrics
@@ -1303,7 +1303,7 @@ results:
 |---------|-----|-------------|
 | Prometheus | http://localhost:9090 | Metrics storage and querying |
 | DCGM Exporter | http://localhost:9400/metrics | GPU metrics |
-| Node Exporter | http://localhost:9101/metrics | CPU and system metrics |
+| Node Exporter | http://localhost:9102/metrics | CPU and system metrics |
 
 ### View Real-Time Metrics
 
@@ -1557,10 +1557,10 @@ re-running:
 
 ```bash
 # Check which ports are occupied
-ss -tlnp | grep -E "9101|9400|9090"
+ss -tlnp | grep -E "9102|9400|9090"
 
 # Override whichever port(s) are in use
-export NODE_EXPORTER_PORT=9102   # default 9101
+export NODE_EXPORTER_PORT=9103   # default 9102
 export DCGM_EXPORTER_PORT=9401   # default 9400
 export PROMETHEUS_PORT=9091      # default 9090
 ```
@@ -1592,7 +1592,7 @@ docker compose -f perf/setup/compose/compose.perf.yaml logs prometheus
 
 ```bash
 # Node Exporter (CPU / memory / disk metrics)
-curl -sf http://localhost:9101/metrics | head -5
+curl -sf http://localhost:9102/metrics | head -5
 
 # DCGM Exporter (GPU metrics)
 curl -sf http://localhost:9400/metrics | head -5
@@ -1601,7 +1601,7 @@ curl -sf http://localhost:9400/metrics | head -5
 curl -sf http://localhost:9090/-/healthy
 ```
 
-If you used custom ports, replace 9101 / 9400 / 9090 with your overrides.
+If you used custom ports, replace 9102 / 9400 / 9090 with your overrides.
 
 On Jetson, if DCGM Exporter cannot initialize, retry in a fresh run with this
 explicit fallback. Copy the platform benchmark YAML into the run directory and set
