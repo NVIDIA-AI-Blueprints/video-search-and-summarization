@@ -298,7 +298,8 @@ jobs:
           provenance: mode=max
           outputs: type=image,oci-artifact=false
           cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # Cache uploads are optional; image push/verification remain required.
+          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ matrix.name }}
           # Publish the content-addressed alias too so a later build of the same
           # source tree can re-tag from it instead of rebuilding.
           tags: |
@@ -535,7 +536,7 @@ jobs:
           else
             scope="${IMAGE_NAME}-${IMAGE_ARCH}"
             echo "from=type=gha,scope=${scope}" >> "$GITHUB_OUTPUT"
-            echo "to=type=gha,mode=max,scope=${scope}" >> "$GITHUB_OUTPUT"
+            echo "to=type=gha,mode=max,ignore-error=true,scope=${scope}" >> "$GITHUB_OUTPUT"
             echo "buildcache backend: gha (${scope})"
           fi
 
