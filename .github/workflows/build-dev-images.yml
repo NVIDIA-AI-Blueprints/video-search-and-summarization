@@ -30,6 +30,8 @@
 name: Build Dev Images (GHCR)
 
 on:
+  # Manual dispatch regenerates every first-party GHCR image.
+  workflow_dispatch:
   push:
     branches:
       - develop
@@ -45,6 +47,11 @@ defaults:
   run:
     shell: bash
 
+# A manual rebuild gets fresh immutable coordinates even at an already-built
+# commit. All native platform and merge jobs must use the same rebuild ID.
+env:
+  IMAGE_REBUILD_ID: ${{ github.event_name == 'workflow_dispatch' && format('{0}-{1}', github.run_id, github.run_attempt) || '' }}
+
 permissions:
   contents: read
   packages: write
@@ -52,6 +59,7 @@ permissions:
 jobs:
   changes:
     name: Detect changed first-party images
+    if: github.event_name == 'push' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -63,6 +71,7 @@ jobs:
       native-platform-matrix: ${{ steps.detect.outputs.native_platform_matrix }}
       native-count: ${{ steps.detect.outputs.native_count }}
       release-line: ${{ steps.release.outputs.line }}
+      rebuild-all: ${{ steps.detect.outputs.rebuild_all }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
@@ -136,6 +145,7 @@ jobs:
           cat detection.json
           {
             echo "matrix=$(jq -c '.matrix' detection.json)"
+            echo "rebuild_all=$(jq -r '.rebuild_all' detection.json)"
             echo "count=$(jq -r '.count' detection.json)"
             echo "standard_matrix=$(jq -c '.standard_matrix' detection.json)"
             echo "standard_count=$(jq -r '.standard_count' detection.json)"
@@ -184,6 +194,7 @@ jobs:
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
+            --rebuild-id="$IMAGE_REBUILD_ID" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -205,6 +216,7 @@ jobs:
             --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
             --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
 
+      # Build-contract changes and manual regeneration skip reuse.
       # Content-addressed reuse: if this exact source tree was already built and
       # published under the content tag (tree-<tree_sha>), re-tag that multiarch
       # manifest onto the per-commit tag instead of rebuilding identical content
@@ -212,7 +224,7 @@ jobs:
       # a missing/mislabelled content tag or any error just builds normally.
       - name: Check for reusable image (identical content)
         id: reuse
-        if: steps.preflight.outputs.skip != 'true'
+        if: needs.changes.outputs.rebuild-all != 'true' && steps.preflight.outputs.skip != 'true'
         env:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -273,6 +285,11 @@ jobs:
             VSS_PACKAGE_VERSION=${{ needs.changes.outputs.release-line }}+tree.${{ steps.meta.outputs.tree_sha }}
             VSS_REF=${{ github.sha }}
           push: true
+          # Keep SLSA provenance, using the legacy index-attached format.
+          # NGC's referrer classifier currently expects Sigstore annotations
+          # and rejects BuildKit OCI artifact referrers as predicate "none".
+          provenance: mode=max
+          outputs: type=image,oci-artifact=false
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           # Publish the content-addressed alias too so a later build of the same
@@ -280,7 +297,10 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}
+          # Change platform digests too: old OCI referrers in dev NGC remain
+          # attached to their subject even after a tag is replaced.
           labels: |
+            com.nvidia.vss.attestation_policy=buildkit-legacy-slsa-v1
             com.nvidia.vss.image_name=${{ matrix.name }}
             com.nvidia.vss.source_path=${{ matrix.source_path }}
             com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}
@@ -318,6 +338,7 @@ jobs:
           python3 .github/scripts/container_build_plan.py verify-manifest \
             --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
             --platforms "${{ matrix.platforms }}" \
+            --require-legacy-provenance \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Emit release-set fragment
@@ -400,6 +421,7 @@ jobs:
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
+            --rebuild-id="$IMAGE_REBUILD_ID" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Compute platform staging tag
@@ -425,7 +447,7 @@ jobs:
 
       - name: Check for reusable multiarch image (identical content)
         id: reuse
-        if: steps.candidate-preflight.outputs.skip != 'true'
+        if: needs.changes.outputs.rebuild-all != 'true' && steps.candidate-preflight.outputs.skip != 'true'
         env:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -524,10 +546,18 @@ jobs:
             VSS_PACKAGE_VERSION=${{ needs.changes.outputs.release-line }}+tree.${{ steps.meta.outputs.tree_sha }}
             VSS_REF=${{ github.sha }}
           push: true
+          # Keep SLSA provenance, using the legacy index-attached format.
+          # NGC's referrer classifier currently expects Sigstore annotations
+          # and rejects BuildKit OCI artifact referrers as predicate "none".
+          provenance: mode=max
+          outputs: type=image,oci-artifact=false
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}
           tags: ${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}
+          # Change platform digests too: old OCI referrers in dev NGC remain
+          # attached to their subject even after a tag is replaced.
           labels: |
+            com.nvidia.vss.attestation_policy=buildkit-legacy-slsa-v1
             com.nvidia.vss.image_name=${{ matrix.name }}
             com.nvidia.vss.source_path=${{ matrix.source_path }}
             com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}
@@ -596,6 +626,7 @@ jobs:
             --image-name "${{ matrix.repository }}" \
             --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
+            --rebuild-id="$IMAGE_REBUILD_ID" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -617,7 +648,7 @@ jobs:
 
       - name: Check for reusable image (identical content)
         id: reuse
-        if: steps.preflight.outputs.skip != 'true'
+        if: needs.changes.outputs.rebuild-all != 'true' && steps.preflight.outputs.skip != 'true'
         env:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -677,6 +708,7 @@ jobs:
           python3 .github/scripts/container_build_plan.py verify-manifest \
             --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
             --platforms "${{ matrix.platforms }}" \
+            --require-legacy-provenance \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Emit release-set fragment
@@ -801,10 +833,14 @@ jobs:
             pull-request/[0-9]*) prefix="pr-${GITHUB_REF_NAME#pull-request/}" ;;
             *) echo "::notice::no candidate set retagged for ${GITHUB_REF_NAME}"; exit 0 ;;
           esac
+          candidate_alias="${prefix}-${short}"
+          if [ -n "$IMAGE_REBUILD_ID" ]; then
+            candidate_alias="${candidate_alias}-rebuild-${IMAGE_REBUILD_ID}"
+          fi
           python3 .github/scripts/advance_ghcr_alias.py \
             --release-set release-set.json \
             --alias "${prefix}-latest" \
-            --alias "${prefix}-${short}" \
+            --alias "$candidate_alias" \
             --verify-tree-sha \
             --repo-root . \
             --commit "${GITHUB_SHA}"

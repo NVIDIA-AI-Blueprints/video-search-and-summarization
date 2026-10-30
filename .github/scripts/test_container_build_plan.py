@@ -16,6 +16,7 @@ from container_build_plan import (  # noqa: E402
     candidate_coordinates,
     inspect_manifest,
     validate_manifest,
+    validate_legacy_provenance,
 )
 
 DIGEST = "sha256:" + "1" * 64
@@ -76,6 +77,94 @@ class CandidateCoordinatesTest(unittest.TestCase):
                 tag_suffix="sbsa",
             )
 
+    def test_rebuild_coordinates_preserve_content_and_variant_aliases(self):
+        base = dict(
+            ref_name="develop",
+            commit_sha=COMMIT,
+            owner="NVIDIA-AI-Blueprints",
+            image_name="vss-rt-cv",
+            tree_sha=TREE,
+            tag_suffix="-sbsa",
+        )
+        original = candidate_coordinates(**base)
+        first = candidate_coordinates(**base, rebuild_id="123-1")
+        rerun = candidate_coordinates(**base, rebuild_id="123-2")
+        self.assertEqual(first.tag, "develop-" + COMMIT[:12] + "-rebuild-123-1-sbsa")
+        self.assertEqual(first.content_tag, original.content_tag)
+        self.assertNotEqual(first.tag, rerun.tag)
+        self.assertNotEqual(first.tag, original.tag)
+        with self.assertRaisesRegex(ValueError, "rebuild ID"):
+            candidate_coordinates(**base, rebuild_id="bad/tag")
+
+
+class LegacyProvenanceTest(unittest.TestCase):
+    def setUp(self):
+        self.manifest = {"manifests": []}
+        self.raw = {}
+        for arch, digit in (("amd64", "1"), ("arm64", "2")):
+            digest = "sha256:" + digit * 64
+            attestation = "sha256:" + str(int(digit) + 2) * 64
+            self.manifest["manifests"].extend(
+                [
+                    {
+                        "digest": digest,
+                        "platform": {"os": "linux", "architecture": arch},
+                    },
+                    {
+                        "digest": attestation,
+                        "platform": {"os": "unknown", "architecture": "unknown"},
+                        "annotations": {
+                            "vnd.docker.reference.type": "attestation-manifest",
+                            "vnd.docker.reference.digest": digest,
+                        },
+                    },
+                ]
+            )
+            self.raw[attestation] = {
+                "layers": [
+                    {
+                        "mediaType": "application/vnd.in-toto+json",
+                        "annotations": {
+                            "in-toto.io/predicate-type": "https://slsa.dev/provenance/v0.2"
+                        },
+                    }
+                ]
+            }
+
+    def runner(self, command):
+        self.assertEqual(command[:4], ["docker", "buildx", "imagetools", "inspect"])
+        self.assertEqual(command[-1], "--raw")
+        self.assertTrue(command[-2].startswith("ghcr.io/org/vss/image@sha256:"))
+        return json.dumps(self.raw[command[-2].split("@", 1)[1]])
+
+    def verify(self):
+        validate_legacy_provenance(
+            "ghcr.io/org/vss/image:tag", self.manifest, self.runner
+        )
+
+    def test_both_platforms_keep_slsa(self):
+        self.verify()
+
+    def test_missing_platform_provenance_fails(self):
+        self.manifest["manifests"].pop()
+        with self.assertRaisesRegex(ValueError, "each runnable platform"):
+            self.verify()
+
+    def test_oci_referrer_fails(self):
+        next(iter(self.raw.values()))["subject"] = {"digest": DIGEST}
+        with self.assertRaisesRegex(ValueError, "OCI artifact referrer"):
+            self.verify()
+
+    def test_non_slsa_fails(self):
+        next(iter(self.raw.values()))["layers"][0]["annotations"] = {}
+        with self.assertRaisesRegex(ValueError, "no SLSA"):
+            self.verify()
+
+    def test_duplicate_fails(self):
+        self.manifest["manifests"].append(self.manifest["manifests"][1])
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            self.verify()
+
 
 class ManifestValidationTest(unittest.TestCase):
     def test_exact_platforms_ignore_attestations(self):
@@ -91,9 +180,7 @@ class ManifestValidationTest(unittest.TestCase):
             ["linux/amd64", "linux/arm64"],
         )
         self.assertEqual(evidence.digest, DIGEST)
-        self.assertEqual(
-            evidence.platforms, ("linux/amd64", "linux/arm64")
-        )
+        self.assertEqual(evidence.platforms, ("linux/amd64", "linux/arm64"))
 
     def test_extra_platform_fails(self):
         with self.assertRaisesRegex(ValueError, "does not match inventory"):
@@ -117,7 +204,9 @@ class ManifestValidationTest(unittest.TestCase):
 
         manifest = inspect_manifest("ghcr.io/org/vss/image:tag", runner)
         self.assertEqual(manifest["digest"], DIGEST)
-        self.assertEqual(commands[0][0:4], ["docker", "buildx", "imagetools", "inspect"])
+        self.assertEqual(
+            commands[0][0:4], ["docker", "buildx", "imagetools", "inspect"]
+        )
 
 
 class WorkflowTagSuffixInvocationTest(unittest.TestCase):
@@ -142,11 +231,21 @@ class WorkflowTagSuffixInvocationTest(unittest.TestCase):
             out = Path(tmp) / "github-output"
             out.touch()
             argv = [
-                "container_build_plan.py", "metadata",
-                "--ref-name", "pull-request/1", "--commit-sha", "0" * 40,
-                "--owner", "NVIDIA-AI-Blueprints", "--image-name", "vss-rt-cv",
-                "--tree-sha", "a" * 40, "--tag-suffix=-sbsa",
-                "--github-output", str(out),
+                "container_build_plan.py",
+                "metadata",
+                "--ref-name",
+                "pull-request/1",
+                "--commit-sha",
+                "0" * 40,
+                "--owner",
+                "NVIDIA-AI-Blueprints",
+                "--image-name",
+                "vss-rt-cv",
+                "--tree-sha",
+                "a" * 40,
+                "--tag-suffix=-sbsa",
+                "--github-output",
+                str(out),
             ]
             with unittest.mock.patch.object(sys, "argv", argv):
                 self.assertEqual(container_build_plan.main(), 0)
