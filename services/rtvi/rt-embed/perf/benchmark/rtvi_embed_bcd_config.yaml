@@ -1,0 +1,139 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+######################################################################################################
+
+# RTVI Embed Sample Performance Test Configuration
+# This file demonstrates all benchmark modes using videos available in the RTVI container
+
+# Global test settings
+global:
+  # RTVI Embed backend URL for the API (can be overridden by RTVI_BACKEND env var)
+  rtvi_backend: "http://localhost:8017/v1"
+
+  # Backend type - set to "rtvi_embed" to use embedding API
+  backend_type: "rtvi_embed"
+
+  # Output directory for test results
+  output_dir: "rtvi-embed-perf-report"
+
+  # GPU configuration for embedding workloads
+  vlm_gpus: [0]  # from NVIDIA_VISIBLE_DEVICES=0
+
+  # GPU monitoring settings
+  gpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+    # Optional: Prometheus/DCGM exporter (runs alongside legacy pynvml monitoring)
+    # Requires DCGM Exporter container exposing /metrics (default port 9400)
+    prometheus:
+      enabled: true
+      dcgm_exporter_url: "http://localhost:9400/metrics"
+      node_exporter_enabled: true
+      node_exporter_url: "http://localhost:9101/metrics"
+      scrape_interval_seconds: 1  # defaults to gpu_monitoring.interval_seconds
+
+  # Default embedding model
+  model: "cosmos-embed1-448p"
+
+  # /generate_video_embeddings API parameters
+  generate_video_embeddings_params:
+    model: "cosmos-embed1-448p"
+    chunk_duration: 10
+
+  # /generate_text_embeddings API parameters
+  generate_text_embeddings_params:
+    model: "cosmos-embed1-448p"
+
+# Test scenarios
+test_scenarios:
+
+  # Warmup run
+  warmup_test:
+    description: "Quick embedding test with single video"
+    benchmark_mode: "single_file"
+    iterations: 1
+    videos:
+      - filepath: "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h264.mp4"
+        chunk_sizes: [10]
+
+  # Max Live Streams Mode - Testing stream capacity
+  max_live_streams_test:
+    description: "Maximum concurrent live streams capacity"
+    benchmark_mode: "max_live_streams"
+    generate_video_embeddings_params:
+      model: "cosmos-embed1-448p"
+    videos:
+      # Input RTSP stream, long duration/looping
+      - name: "warehouse_cam_10_sec_latency"
+        rtsp_url: "RTSP_STREAM_URL"
+        unique_rtsp_url_per_stream: false
+        chunk_sizes: [10]
+        latency_threshold_seconds: 10
+        stability_check_interval: 30  # Seconds between stability checks (default: 60)
+        initial_stream_count: 25
+        binary_search_refinement: true
+        add_stream_count: 5
+
+  concurrent_live_streams_test:
+    description: "Test N concurrent live streams and measure latencies"
+    benchmark_mode: "concurrent_live_streams"
+    generate_video_embeddings_params:
+      model: "cosmos-embed1-448p"
+    videos:
+      - name: "traffic_cam_concurrent"
+        rtsp_url: "RTSP_STREAM_URL"
+        unique_rtsp_url_per_stream: false
+        chunk_sizes: [10]
+        stream_count: [1, 16, 32]   # Number of concurrent streams to run simultaneously
+        duration_seconds: 60        # How long to run the test (seconds)
+
+  # Single File E2E latency Mode
+  single_file_test:
+    description: "Single video file embedding generation"
+    benchmark_mode: "single_file"
+    iterations: 5
+    videos:
+      - filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10s.mp4"
+        chunk_sizes: [0]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m.mp4"
+        chunk_sizes: [10]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m.mp4"
+        chunk_sizes: [10]
+
+  # Video Embeddings Concurrent Request
+  concurrency_test:
+    description: "Test video embeddings generation performance with concurrent requests"
+    benchmark_mode: "concurrency"
+    generate_video_embeddings_params:
+      model: "cosmos-embed1-448p"
+    videos:
+      - filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10s.mp4"
+        chunk_sizes: [0]
+        concurrency_levels: [1, 2, 4, 8, 16, 32]    # Test values to derive optimal concurrency for target latency
+
+  # Text Embedding Concurrency Test
+  text_embedding_concurrency_test:
+    description: "Test concurrent batched text embedding requests"
+    benchmark_mode: "text_embedding_concurrency"
+    generate_text_embeddings_params:
+      model: "cosmos-embed1-448p"
+    text_inputs:
+      - name: "isl20"
+        texts:
+          - "a person riding a motorcycle on a city street a person riding a motorcycle on a city street "
+        # concurrency_level = total texts; auto-batched into ≤100 texts per API call
+        # e.g., 256 → 3 parallel calls: [100, 100, 56]
+        concurrency_levels: [1, 2, 4, 8, 16, 32]

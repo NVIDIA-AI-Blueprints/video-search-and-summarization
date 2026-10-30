@@ -1,0 +1,142 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+######################################################################################################
+
+# Thor / DGX Spark: non-streaming + text concurrency [1, 8, 16]; same clip paths as BCD 3.2 embed.
+# rtvi_perf_benchmark.py reads only `global` and `test_scenarios`. Setup: PERF_GUIDE.RTVI_EMBED.md
+
+global:
+  rtvi_backend: "http://localhost:8017/v1"
+  backend_type: "rtvi_embed"
+  output_dir: "rtvi-embed-perf-report-bcd-thor"
+
+  vlm_gpus: [0]
+
+  gpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+    prometheus:
+      enabled: true
+      dcgm_exporter_url: "http://localhost:9400/metrics"
+      node_exporter_enabled: true
+      node_exporter_url: "http://localhost:9101/metrics"
+      scrape_interval_seconds: 1
+
+  model: "cosmos-embed1-448p"
+
+  generate_video_embeddings_params:
+    model: "cosmos-embed1-448p"
+    chunk_duration: 10
+
+  generate_text_embeddings_params:
+    model: "cosmos-embed1-448p"
+
+test_scenarios:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Warmup — not a BCD metric; primes the service before timed scenarios.
+  # ─────────────────────────────────────────────────────────────────────────────
+  warmup_test:
+    description: "Quick embedding warmup (single file)"
+    benchmark_mode: "single_file"
+    iterations: 1
+    videos:
+      - filepath: "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h264.mp4"
+        chunk_sizes: [10]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # BCD: Maximum streams per GPU [Stream Processing] — Camera Streaming (RTSP)
+  # Real-time definition: inference time per chunk < chunk duration (10 s), no drops,
+  # steady state ≥ 5 min. RTSP URL replaced by setup_perf_env_rtvi_embed.sh.
+  # ─────────────────────────────────────────────────────────────────────────────
+  max_live_streams_test:
+    description: "BCD Thor/DGX — max concurrent RTSP streams (Cosmos Embed 1 448p, 10 s chunks)"
+    benchmark_mode: "max_live_streams"
+    generate_video_embeddings_params:
+      model: "cosmos-embed1-448p"
+    videos:
+      - name: "warehouse_cam_bcd_thor"
+        rtsp_url: "RTSP_STREAM_URL"
+        unique_rtsp_url_per_stream: false
+        chunk_sizes: [10]
+        latency_threshold_seconds: 10
+        stability_check_interval: 30
+        initial_stream_count: 25
+        binary_search_refinement: true
+        add_stream_count: 5
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # BCD: E2E Latency [Stream Processing] — Camera Streaming; steady-state window 5 min
+  # Concurrent stream counts per BCD: 1, 16, 32
+  # ─────────────────────────────────────────────────────────────────────────────
+  concurrent_live_streams_test:
+    description: "BCD Thor/DGX — concurrent live streams chunk E2E latency (5 min per sweep)"
+    benchmark_mode: "concurrent_live_streams"
+    generate_video_embeddings_params:
+      model: "cosmos-embed1-448p"
+    videos:
+      - name: "warehouse_cam_concurrent_bcd_thor"
+        rtsp_url: "RTSP_STREAM_URL"
+        unique_rtsp_url_per_stream: false
+        chunk_sizes: [10]
+        stream_count: [1, 16, 32]
+        duration_seconds: 300
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # BCD: E2E request latency [Non-Streaming] — Video Link (file paths in container)
+  # Video durations 10 s / 600 s / 3600 s at concurrency 1; 10 FPS 1080p H.264 assets.
+  # ─────────────────────────────────────────────────────────────────────────────
+  single_file_test:
+    description: "BCD Thor/DGX — single-file E2E latency across clip durations (Video Link)"
+    benchmark_mode: "single_file"
+    iterations: 5
+    videos:
+      - filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
+        chunk_sizes: [0]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m_10fps.mp4"
+        chunk_sizes: [10]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m_10fps.mp4"
+        chunk_sizes: [10]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # BCD: E2E request throughput [Non-Streaming] — Thor AGX (T5000), DGX Spark
+  # Video: 10 s, 10 FPS / 1080p / H.264 (BCD); concurrency [1, 8, 16]
+  # chunk_sizes [0] + chunk_duration 10 → ~one chunk per request for 10 s clip
+  # ─────────────────────────────────────────────────────────────────────────────
+  concurrency_test:
+    description: "BCD Thor/DGX — non-streaming throughput (1, 8, 16 concurrent requests, 10s 10fps nominal)"
+    benchmark_mode: "concurrency"
+    generate_video_embeddings_params:
+      model: "cosmos-embed1-448p"
+    videos:
+      - filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
+        chunk_sizes: [0]
+        concurrency_levels: [1, 8, 16]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # BCD: Text side — Text ISL 20; concurrency ladder [1, 8, 16] aligned with Thor / DGX Spark
+  # non-streaming throughput row (concurrency_test above).
+  # ─────────────────────────────────────────────────────────────────────────────
+  text_embedding_concurrency_test:
+    description: "BCD Thor/DGX — concurrent text embeddings; ladder [1, 8, 16]"
+    benchmark_mode: "text_embedding_concurrency"
+    generate_text_embeddings_params:
+      model: "cosmos-embed1-448p"
+    text_inputs:
+      - name: "isl20_bcd_thor"
+        texts:
+          - "a person riding a motorcycle on a city street a person riding a motorcycle on a city street "
+        concurrency_levels: [1, 8, 16]

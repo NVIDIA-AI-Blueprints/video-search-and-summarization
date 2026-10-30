@@ -1,0 +1,15 @@
+perf_configs:
+  - id: rtvi-vlm-rtxpro6000bw-se-1gpu
+    nodeLabel: RTXPRO6000BW-SE
+    imageArch: amd64
+    enabled: true
+    composePath: docker/compose.perf.yaml
+    vlmGpus: "0"
+    llmGpus: "unused"
+    vlmModel: "cr3-super-reasoner-nvfp4"
+    llmModel: "unused"
+    vision_input_tokens: "2k"
+    checkoutPaths:
+      - deploy/docker/services/vst/
+      - libs/vss-perf-reporting/
+      - skills/benchmarking/vss-benchmark-video-summarization/
