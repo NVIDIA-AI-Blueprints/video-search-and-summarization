@@ -25,7 +25,7 @@ services:
       - "${RTVI_SRC_DIR:-/dummy}${RTVI_SRC_DIR:+:/opt/nvidia/rtvi:ro}"
       - "${RTVI_LOG_DIR:-/dummy}${RTVI_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
       # Perf benchmark videos (warehouse_gopro_*.mp4).
-      # Set PERF_VIDEOS_DIR to the host path printed by perf/setup_perf_env.sh.
+      # Set PERF_VIDEOS_DIR to the host path printed by perf/scripts/native_setup_perf_env.sh.
       # Videos become visible inside the container at /opt/nvidia/rtvi/streams/perf/
       # and are also used by nvstreamer (VST) for RTSP streaming.
       - "${PERF_VIDEOS_DIR:-/dummy}${PERF_VIDEOS_DIR:+:/opt/nvidia/rtvi/streams/perf}"

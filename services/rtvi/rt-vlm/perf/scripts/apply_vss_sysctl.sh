@@ -23,7 +23,7 @@
 #   net.ipv4.tcp_rmem, net.ipv4.tcp_wmem.
 # Optionally disables IPv6 when DISABLE_IPV6=true (system-wide, persistent).
 #
-# Must be run with sudo (e.g. sudo bash perf/apply_vss_sysctl.sh).
+# Must be run with sudo (e.g. sudo bash perf/scripts/apply_vss_sysctl.sh).
 #
 # Optional environment variable:
 #   DISABLE_IPV6 — Set to 'true' to add net.ipv6.conf.* disable entries (default: false)

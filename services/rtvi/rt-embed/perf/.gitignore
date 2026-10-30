@@ -1,6 +1,7 @@
 **/rtvi-perf-env
 
 setup/.venv/
+setup/compose/.env.perf
 results/
 __pycache__/
 *.pyc

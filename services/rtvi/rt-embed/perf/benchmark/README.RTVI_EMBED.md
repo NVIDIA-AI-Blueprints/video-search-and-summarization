@@ -6,7 +6,7 @@ Performance benchmarking framework for RTVI Embed backend services.
 
 Before running benchmarks, you need to have RTVI Embed deployed and running.
 
-On Jetson/Thor, `perf/setup_perf_env_rtvi_embed.sh` automatically and
+On Jetson/Thor, `perf/scripts/native_setup_perf_env.sh` automatically and
 idempotently patches the
 extracted VST launchers so their expected
 `/usr/lib/aarch64-linux-gnu/libcuda.so` path resolves to Thor's host CUDA

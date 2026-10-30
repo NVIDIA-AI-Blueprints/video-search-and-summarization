@@ -41,7 +41,7 @@ chronyc sources -v  # At least one source should show "*" (selected) or "+" (acc
 chronyc tracking  # "System time" offset should be < 1ms for accurate latency measurements
 
 # Apply VSS kernel socket buffer tuning (persistent across reboots; run with sudo)
-sudo bash perf/apply_vss_sysctl.sh
+sudo bash perf/scripts/apply_vss_sysctl.sh
 
 # Benchmark setup script:
 #   Downloads input videos from Artifactory
@@ -52,14 +52,14 @@ sudo bash perf/apply_vss_sysctl.sh
 #   Injects host IP into the selected config file
 
 # For x86 dgpu like H100 etc
-CONFIG=perf/benchmark/rtvi_embed_bcd_3_2_config.yaml  bash perf/setup_perf_env_rtvi_embed.sh
+CONFIG=perf/benchmark/rtvi_embed_bcd_3_2_config.yaml  bash perf/scripts/native_setup_perf_env.sh
 
 # Or For Thor/Spark
-# CONFIG=perf/benchmark/rtvi_embed_bcd_3_2_thor_config.yaml bash perf/setup_perf_env_rtvi_embed.sh
+# CONFIG=perf/benchmark/rtvi_embed_bcd_3_2_thor_config.yaml bash perf/scripts/native_setup_perf_env.sh
 ```
 
 Override `VST_IMAGE_REGISTRY`, `VST_IMAGE_TAG`, or the per-image variables from
-`bash perf/setup_perf_env_rtvi_embed.sh -h` when testing a different VST build.
+`bash perf/scripts/native_setup_perf_env.sh -h` when testing a different VST build.
 Check in `perf/vst_package.tar.gz` or set `VST_LOCAL_PACKAGE` to use a local VST
 tarball instead of downloading the package. Artifactory credentials are required
 when setup must download the VST tarball or any missing benchmark video.
@@ -123,7 +123,7 @@ ls perf/benchmark/rtvi-embed-perf-report/
 ### Step 4 - Stop Deployment
 
 ```bash
-bash perf/teardown_perf_env_rtvi_embed.sh
+bash perf/scripts/native_teardown_perf_env.sh
 ```
 
 ---
