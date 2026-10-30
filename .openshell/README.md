@@ -31,8 +31,9 @@ Run the rest from the repository root.
 
 ```bash
 # 0. CLI and prover at the gateway's release: an older CLI fails to decode the
-#    gateway's replies rather than reporting a version skew.
-mkdir -p ~/.local/bin
+#    gateway's replies rather than reporting a version skew. Release tarballs,
+#    not install.sh, which also starts a systemd gateway beside step 1's.
+mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
 ( cd "$(mktemp -d)" && V=0.1.6 A=$(uname -m) &&
   for p in openshell openshell-prover; do
     curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-$A-unknown-linux-musl.tar.gz"
