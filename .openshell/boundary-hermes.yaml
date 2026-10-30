@@ -41,13 +41,6 @@ network_policies:
         rules:
           - allow: { method: GET,  path: "/**" }
           - allow: { method: POST, path: "/**" }
-      - host: nousresearch.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        rules:
-          - allow: { method: GET,  path: "/**" }
-          - allow: { method: POST, path: "/**" }
       - host: pypi.org
         port: 443
         protocol: rest

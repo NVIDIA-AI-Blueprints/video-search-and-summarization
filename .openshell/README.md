@@ -649,8 +649,8 @@ teach. Concretely: build `.openclaw/` to a second image, bake in
 [`boundary-openclaw.yaml`](boundary-openclaw.yaml) — and the OpenClaw config,
 and create with `-- openclaw gateway run --port 18789`. The policy differs from
 Hermes's in three places: `binaries` name `/usr/local/bin/node`, since
-`openclaw` is a Node script; `clawhub.ai` and `openclaw.ai` replace
-`nousresearch.com`; and the process group is `998`.
+`openclaw` is a Node script; it adds `clawhub.ai` and `openclaw.ai`; and the
+process group is `998`.
 
 Only two differences between the harnesses change anything structural (see
 [What each manifest declares](nemoclaw-v1-vs-openshell.md#what-each-manifest-declares)).

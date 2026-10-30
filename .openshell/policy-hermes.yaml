@@ -48,17 +48,6 @@ network_policies:
           - allow: { method: POST, path: "/v1/**" }
     binaries: [{ path: /usr/bin/python3.13 }]
 
-  hermes-phone-home:
-    name: hermes-phone-home
-    endpoints:
-      - host: nousresearch.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        rules:
-          - allow: { method: GET, path: "/**" }
-    binaries: [{ path: /usr/bin/python3.13 }]
-
   pypi:
     name: pypi
     endpoints:
