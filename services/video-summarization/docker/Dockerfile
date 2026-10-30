@@ -16,7 +16,7 @@
 # Runtime base stages: distroless Python + apt/uv package install from
 # docker/base/{requirements_apt.txt,py_deps}. Final image starts FROM runtime-base.
 
-FROM nvcr.io/nvidia/distroless/python:3.13-v4.0.8 AS runtime-base-python
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.0.9 AS runtime-base-python
 
 # Shared jammy builder base. ldconfig is diverted to a no-op because it
 # segfaults under QEMU arm64 emulation (Launchpad #2072564), and libc-bin's
