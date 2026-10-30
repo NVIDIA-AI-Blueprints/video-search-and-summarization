@@ -1327,17 +1327,10 @@ print(f'{best_match or \"(default)\"}\t{best_value}')
         || die "Failed to update node_exporter_url in ${BENCHMARK_CONFIG}"
     log "  Updated node_exporter_url    → http://localhost:${NODE_EXPORTER_PORT}/metrics"
 
-    # GPU list — convert NVIDIA_VISIBLE_DEVICES (e.g. "0" or "0,1" or "3") to a YAML array.
-    # Falls back to [0] if the value is non-numeric (e.g. "all").
-    if echo "${NVIDIA_VISIBLE_DEVICES}" | grep -qE '^[0-9]+(,[0-9]+)*$'; then
-        _vlm_gpus="[$(echo "${NVIDIA_VISIBLE_DEVICES}" | sed 's/,/, /g')]"
-    else
-        _vlm_gpus="[0]"
-        warn "  NVIDIA_VISIBLE_DEVICES='${NVIDIA_VISIBLE_DEVICES}' is not a numeric list; defaulting vlm_gpus to [0]"
-    fi
-    sed -i "s|vlm_gpus:.*|vlm_gpus: ${_vlm_gpus}  # from NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES}|" "${BENCHMARK_CONFIG}" \
-        || die "Failed to update vlm_gpus in ${BENCHMARK_CONFIG}"
-    log "  Updated vlm_gpus             → ${_vlm_gpus}"
+    # The service entrypoint owns global.vlm_gpus and writes it to the runtime
+    # config before setup. Do not rewrite the YAML here; line-based replacement
+    # corrupts block-style lists emitted by PyYAML.
+    log "  Preserving vlm_gpus from the prepared benchmark config"
 else
     warn "  ${BENCHMARK_CONFIG} not found — skipping RTSP URL substitution."
 fi
