@@ -19,7 +19,8 @@
 # Build context is this directory (.openshell):
 #
 #   docker build -f .openshell/Dockerfile.hermes-from-source \
-#     -t vss-harness-hermes:from-source .openshell
+#     --build-arg VSS_REF=$VSS_REF \
+#     -t vss-harness-hermes:$VSS_REF-from-source .openshell
 
 ARG BASE_IMAGE=nvcr.io/nvidia/base/ubuntu:24.04
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
