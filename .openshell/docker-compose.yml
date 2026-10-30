@@ -6,6 +6,7 @@ services:
     image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_TAG}  # keys the Docker
     profiles: [harness]                                       # driver requires
     command: [generate-certs, --output-dir, /var/lib/openshell/tls]
+    user: "0"                    # a fresh named volume is root-owned
     environment: { HOME: /var/lib/openshell }
     volumes: [openshell-data:/var/lib/openshell]
   openshell-gateway:
@@ -15,8 +16,7 @@ services:
     restart: unless-stopped
     network_mode: host           # the supervisor dials the host's own loopback
     command: ["--bind-address", "127.0.0.1", "--port", "8080"]
-    group_add: ["988"]           # docker GID; distroless has no /etc/group
-                                 # to resolve the name against
+    user: "0"                    # as upstream: uid 1000 can't read the keys or socket
     environment:
       OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
       OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"  # barred from the TOML

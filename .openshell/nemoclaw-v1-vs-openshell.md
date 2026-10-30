@@ -566,8 +566,9 @@ authored `config.yaml`, `--expose 8642`, the appended supervisor CA and the
 `/health` 200 and returns `hermes-agent` for a bearer `GET /v1/models` (401
 without), `vss configure check` reports the same groups as the current sandbox,
 `vss vios list` returns the sensor, and an agent turn completes through the
-provider. The `vss_cli` tool handler fails on both images alike, so it is a
-pre-existing plugin bug rather than anything the base change introduces.
+provider. The `vss_cli` tool handler failed on both images alike — Hermes 0.21
+refuses a handler result that is neither a string nor its multimodal envelope —
+so the plugin now JSON-encodes its result rather than returning a bare dict.
 
 The one judgement call is the Hermes version: the base tracks 0.21.3 where the
 current image is 0.20.6, so the move is a base swap and a Hermes upgrade at
@@ -622,6 +623,11 @@ itself, so the source tree at `/opt/hermes` is the installed package.
 
 The API server needs no `platforms` entry: it starts by default and binds its
 documented `8642`, so `--expose 8642` applies here too.
+
+The `vss` CLI needs one symlink. It installs into its own venv at
+`/usr/local/vss`, which `PATH` covers but the `vss_cli` plugin's absolute
+`VSS_BIN` default does not, so without `/usr/local/bin/vss` the tool reports
+`FileNotFoundError` while the CLI works in a shell.
 
 Run under the unmodified policy against a live deployment, it passes the
 same checks as the current sandbox ([README §4](README.md#4-verification)).

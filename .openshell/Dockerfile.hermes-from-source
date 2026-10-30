@@ -148,6 +148,8 @@ RUN set -eux; \
     uv venv --python /usr/bin/python3.13 /usr/local/vss \
     && VIRTUAL_ENV=/usr/local/vss uv pip install /opt/vss-assets/wheels/*.whl \
     && vss --version \
+    # The vss_cli plugin resolves an absolute VSS_BIN, not a PATH lookup.
+    && ln -s /usr/local/vss/bin/vss /usr/local/bin/vss \
     # The shipped set stays read-only under /opt/vss-skills/skills. Hermes
     # loads skills from $HERMES_HOME/skills only and seeds that directory from
     # its bundled library on every launch, so the VSS set ships inside the

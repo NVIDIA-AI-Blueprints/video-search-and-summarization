@@ -12,10 +12,93 @@ For why VSS drives OpenShell directly rather than through NemoClaw V1, see
 |---|---|
 | [`docker-compose.yml`](docker-compose.yml), [`.env`](.env), [`gateway.toml`](gateway.toml) | Step 1 — the `openshell-init` and `openshell-gateway` services and their version-2 gateway config |
 | [`policy-hermes.yaml`](policy-hermes.yaml), [`boundary-hermes.yaml`](boundary-hermes.yaml) | Step 2 — the Hermes sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
-| [`policy-openclaw.yaml`](policy-openclaw.yaml), [`boundary-openclaw.yaml`](boundary-openclaw.yaml) | The same pair for OpenClaw; see [Adding a second harness later](#adding-a-second-harness-later) |
-| [`Dockerfile.policy`](Dockerfile.policy) | Step 3 — overlay on `vss-harness-hermes` that bakes the policy, links the 0.1.6 CA bundle path, and parameterises the inference endpoint and model |
-| [`Dockerfile.hermes-from-source`](Dockerfile.hermes-from-source) | Step 3, alternative — the same artifact built from upstream Hermes source on a standard Ubuntu base |
+| [`Dockerfile.hermes-from-source`](Dockerfile.hermes-from-source) | Step 3 — the Hermes harness image with the policy baked in, built from upstream Hermes source on a standard Ubuntu base |
 | [`vss-inference-profile.yaml`](vss-inference-profile.yaml), [`vss-inference-build-profile.yaml`](vss-inference-build-profile.yaml), [`vss-inference-local-profile.yaml`](vss-inference-local-profile.yaml) | Step 4 — provider profiles for an OpenAI-compatible endpoint, `build.nvidia.com`, and a host-local model server |
+
+---
+
+## Quickstart
+
+Brings up a Hermes sandbox against a VSS deployment that is already running.
+Every file in the table above is pre-created and needs no editing: the Compose
+services and the `OPENSHELL_TAG` they read, the version-2 gateway config, the
+policy and the boundary it is proven against, the harness Dockerfile, and the
+provider profiles. Section 3 is the same five steps with the reasoning; §4 is
+how to check the result.
+
+Three things have to exist first:
+
+- **A running VSS deployment**, since the harness installs against a build that
+  is already up — deploy one with
+  [`/vss-build-vision-ai`](../skills/vss-build-vision-ai/SKILL.md).
+- **`openshell` and `openshell-prover` 0.1.6 on `PATH`.** A CLI older than the
+  gateway fails to decode its replies rather than reporting a version skew.
+- **An inference endpoint, model id and key** for the agent's own model, which
+  is unrelated to the VLM the deployment serves.
+
+```bash
+cd .openshell
+export VSS_REF=develop
+export VSS_PUBLIC_URL=http://host.openshell.internal:7777  # VSS as the sandbox reaches it
+export COMPATIBLE_API_KEY=...                              # never passed on a flag
+
+# 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
+docker compose --profile harness up -d
+openshell gateway add http://127.0.0.1:8080 --local --name vss
+
+# 2. Harness image: upstream Hermes, the vss CLI, the skills and the baked policy.
+docker build -f Dockerfile.hermes-from-source --build-arg VSS_REF="$VSS_REF" \
+  -t "vss-harness-hermes:$VSS_REF-from-source" .
+
+# 3. Inference provider. The profile authorizes the host; the provider seals the
+#    key, which the proxy injects at egress so the agent never holds it.
+openshell profile import -f vss-inference-profile.yaml
+openshell provider create --name vss-inference --type vss-inference \
+  --credential COMPATIBLE_API_KEY
+
+# 4. Sandbox. The trailing command is the harness itself, and the two --env
+#    values are the model choice.
+openshell sandbox create \
+  --name vss-harness-hermes \
+  --from "vss-harness-hermes:$VSS_REF-from-source" \
+  --policy ./policy-hermes.yaml \
+  --provider vss-inference \
+  --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
+  --env VSS_HERMES_BASE_URL=https://inference-api.nvidia.com/v1 \
+  --env VSS_HERMES_MODEL=aws/anthropic/bedrock-claude-opus-5 \
+  --restart-policy on-failure \
+  --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
+  -- sh -c 'chmod 770 /sandbox;
+            vss-trust-supervisor-ca
+            C=/sandbox/.hermes/config.yaml
+            sed -i -e "s#\${env:VSS_HERMES_BASE_URL}#$VSS_HERMES_BASE_URL#g" \
+                   -e "s#\${env:VSS_HERMES_MODEL}#$VSS_HERMES_MODEL#g" "$C"
+            E=/sandbox/.hermes/.env
+            grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
+              K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
+              printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
+            chmod 640 "$E"
+            exec hermes gateway run'
+
+# 5. Point the CLI at VSS, then re-select the skills those services can serve.
+openshell sandbox exec -n vss-harness-hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
+openshell sandbox exec -n vss-harness-hermes -- vss-hermes-sync
+```
+
+Step 5 prints which command groups the deployment can serve and which skills
+went active; a partial deployment is normal, and the inactive skills name the
+service they wanted. From here the agent is reachable two ways — a shell turn
+with `openshell sandbox exec -n vss-harness-hermes -- hermes chat -q '…'`, or
+the API server at
+`http://default--vss-harness-hermes.openshell.localhost:8080/v1/chat/completions`
+with the `API_SERVER_KEY` as the bearer. [Section 4](#4-verification) checks
+both, plus the policy proof and the VSS grant.
+
+To use a model this endpoint does not serve, change the two `--env` values; the
+profile is per endpoint family, so a different family means importing one of the
+other two profiles. To start over, `openshell sandbox delete
+vss-harness-hermes` and re-run step 4 — the gateway, image and provider all
+survive it.
 
 ---
 
@@ -178,7 +261,7 @@ services:
     restart: unless-stopped
     network_mode: host           # the supervisor dials the host's own loopback
     command: ["--bind-address", "127.0.0.1", "--port", "8080"]
-    group_add: ["988"]           # docker GID, numeric: distroless, no /etc/group
+    user: "0"                    # as upstream: uid 1000 can't read the keys or socket
     environment:
       OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
       OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"  # barred from the TOML
@@ -244,7 +327,11 @@ Three constraints the service has to respect:
   the command with `command: []`, which Compose treats as unset.
 - **Docker socket, not privilege.** This is Docker-outside-of-Docker: the
   gateway creates sibling containers on the host. It needs read/write on the
-  socket via `group_add`, not `--privileged`, and not root in production.
+  socket, which upstream's recipe gets with `user: "0"` — never
+  `--privileged`. A `group_add` of the docker GID is not enough on its own:
+  the image's declared UID 1000 has no `/etc/passwd` entry and no writable
+  state directory, so it cannot read the keys `init` wrote either. Root in the
+  gateway container is why the listener stays on loopback.
 
 The data directory is a named volume, and needs backups rather than being
 treated as cache: it holds the SQLite record of every sandbox, the JWT signing
