@@ -865,7 +865,7 @@ class BenchmarkBase(ABC):
             and NodeExporterCollector is not None
         ):
             node_exporter_url = prometheus_config.get(
-                "node_exporter_url", "http://localhost:9101/metrics"
+                "node_exporter_url", "http://localhost:9102/metrics"
             )
             try:
                 self.node_exporter_collector = NodeExporterCollector(

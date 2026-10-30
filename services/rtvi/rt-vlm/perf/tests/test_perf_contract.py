@@ -62,11 +62,11 @@ class RTVIVLMPerfContractTest(unittest.TestCase):
         compose = (PERF_ROOT / "setup/compose/compose.perf.yaml").read_text()
         config = yaml.safe_load((PERF_ROOT / "configs/config.yaml").read_text())
 
-        self.assertIn('NODE_EXPORTER_PORT="${NODE_EXPORTER_PORT:-9101}"', setup)
-        self.assertIn('"${NODE_EXPORTER_PORT:-9101}:9100"', compose)
+        self.assertIn('NODE_EXPORTER_PORT="${NODE_EXPORTER_PORT:-9102}"', setup)
+        self.assertIn('"${NODE_EXPORTER_PORT:-9102}:9100"', compose)
         self.assertEqual(
             config["global"]["gpu_monitoring"]["prometheus"]["node_exporter_url"],
-            "http://localhost:9101/metrics",
+            "http://localhost:9102/metrics",
         )
 
 

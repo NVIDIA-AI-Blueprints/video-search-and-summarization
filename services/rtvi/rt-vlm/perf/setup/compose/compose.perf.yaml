@@ -282,7 +282,7 @@ services:
   node-exporter:
     image: prom/node-exporter:latest
     ports:
-      - "${NODE_EXPORTER_PORT:-9101}:9100"
+      - "${NODE_EXPORTER_PORT:-9102}:9100"
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
