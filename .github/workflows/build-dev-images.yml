@@ -47,11 +47,6 @@ defaults:
   run:
     shell: bash
 
-# A manual rebuild gets fresh immutable coordinates even at an already-built
-# commit. All native platform and merge jobs must use the same rebuild ID.
-env:
-  IMAGE_REBUILD_ID: ${{ github.event_name == 'workflow_dispatch' && format('{0}-{1}', github.run_id, github.run_attempt) || '' }}
-
 permissions:
   contents: read
   packages: write
@@ -72,11 +67,21 @@ jobs:
       native-count: ${{ steps.detect.outputs.native_count }}
       release-line: ${{ steps.release.outputs.line }}
       rebuild-all: ${{ steps.detect.outputs.rebuild_all }}
+      rebuild-id: ${{ steps.rebuild.outputs.id }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      # Plan once: partial retries retain this successful job's output and
+      # reuse the staging tags already published by successful platform jobs.
+      # Re-running all jobs plans a fresh ID and rebuilds every platform.
+      - name: Plan image rebuild ID
+        id: rebuild
+        env:
+          PLANNED_REBUILD_ID: ${{ github.event_name == 'workflow_dispatch' && format('{0}-{1}', github.run_id, github.run_attempt) || '' }}
+        run: echo "id=$PLANNED_REBUILD_ID" >> "$GITHUB_OUTPUT"
 
       # The release line is the nearest `v*` tag reachable from this commit --
       # the same `git describe --match 'v[0-9]*'` every pyproject's hatch-vcs
@@ -156,6 +161,8 @@ jobs:
 
   build:
     name: Build ${{ matrix.name }} → GHCR
+    env:
+      IMAGE_REBUILD_ID: ${{ needs.changes.outputs.rebuild-id }}
     needs: changes
     if: fromJSON(needs.changes.outputs.standard-count) > 0
     runs-on: ubuntu-latest
@@ -376,6 +383,8 @@ jobs:
   # its matching GitHub-hosted runner, then combine the platform images.
   build-native-platforms:
     name: Build ${{ matrix.name }} (${{ matrix.arch }}, native)
+    env:
+      IMAGE_REBUILD_ID: ${{ needs.changes.outputs.rebuild-id }}
     needs: changes
     if: fromJSON(needs.changes.outputs.native-count) > 0
     runs-on: ${{ matrix.runner }}
@@ -599,6 +608,8 @@ jobs:
 
   publish-native-images:
     name: Publish ${{ matrix.name }} multiarch manifest
+    env:
+      IMAGE_REBUILD_ID: ${{ needs.changes.outputs.rebuild-id }}
     needs: [changes, build-native-platforms]
     if: >-
       always() &&
@@ -747,6 +758,8 @@ jobs:
   # the resulting set is still complete and testable.
   assemble:
     name: Assemble release set
+    env:
+      IMAGE_REBUILD_ID: ${{ needs.changes.outputs.rebuild-id }}
     needs: [changes, build, publish-native-images]
     if: >-
       always() && needs.changes.result == 'success' &&

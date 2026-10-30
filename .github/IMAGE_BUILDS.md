@@ -48,8 +48,11 @@ develop-<sha12>-rebuild-<run_id>-<run_attempt>
 develop-<sha12>-rebuild-<run_id>-<run_attempt>-sbsa
 ```
 
-Native staging tags and the merged images share that ID. Re-running a manual
-run changes `run_attempt`, giving fresh coordinates again. Existing immutable
+The planning job generates that ID once and passes it to every build and
+publication job. **Re-run failed jobs** or retrying only publication retains
+the original ID, so successful platforms' staging tags remain usable.
+**Re-run all jobs** reruns planning with a new `run_attempt`, giving fresh
+coordinates consistently across every platform. Existing immutable
 `develop-<sha12>` tags are preserved. Content aliases and `develop-latest` are
 refreshed only as the existing publication steps succeed.
 

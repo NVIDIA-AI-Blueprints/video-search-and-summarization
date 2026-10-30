@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -253,6 +256,68 @@ class WorkflowTagSuffixInvocationTest(unittest.TestCase):
 
         self.assertIn("tag=pr-1-000000000000-sbsa", written)
         self.assertIn(f"content_tag=tree-{'a' * 40}-sbsa", written)
+
+
+class WorkflowRebuildPlanningTest(unittest.TestCase):
+    def setUp(self):
+        self.workflow = (
+            Path(__file__).resolve().parents[1] / "workflows" / "build-dev-images.yml"
+        ).read_text()
+
+    def job(self, name):
+        match = re.search(
+            rf"^  {re.escape(name)}:\n.*?(?=^  [a-z][a-z-]*:\n|\Z)",
+            self.workflow,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        return match.group()
+
+    def test_partial_retries_use_retained_planning_output_in_every_consumer(self):
+        # A failed ARM64 job and its merge can run on attempt 2 while the
+        # successful AMD64 job keeps attempt-1 tags. All consumers must use
+        # the retained planning output, including final alias publication.
+        self.assertNotIn("IMAGE_REBUILD_ID:", self.workflow.split("jobs:", 1)[0])
+        planning = self.job("changes")
+        self.assertIn("rebuild-id: ${{ steps.rebuild.outputs.id }}", planning)
+        self.assertIn("github.run_attempt", planning)
+        for name in (
+            "build",
+            "build-native-platforms",
+            "publish-native-images",
+            "assemble",
+        ):
+            with self.subTest(job=name):
+                job = self.job(name)
+                self.assertIn(
+                    "IMAGE_REBUILD_ID: ${{ needs.changes.outputs.rebuild-id }}", job
+                )
+                self.assertNotIn("github.run_attempt", job)
+                self.assertIn("$IMAGE_REBUILD_ID", job)
+
+    def test_planning_emits_id_for_dispatch_and_empty_for_push(self):
+        # Execute the actual output-writing command, including the empty-ID
+        # push path, so callers never invent their own fallback nonce.
+        planning = self.job("changes").split(
+            "      - name: Plan image rebuild ID\n", 1
+        )[1]
+        command = re.search(r"^        run: (.+)$", planning, re.MULTILINE).group(1)
+        for rebuild_id in ("123-1", "123-2", ""):
+            with (
+                self.subTest(rebuild_id=rebuild_id),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
+                output = Path(tmp) / "output"
+                subprocess.run(
+                    ["bash", "-c", command],
+                    check=True,
+                    env={
+                        **os.environ,
+                        "GITHUB_OUTPUT": str(output),
+                        "PLANNED_REBUILD_ID": rebuild_id,
+                    },
+                )
+                self.assertEqual(output.read_text(), f"id={rebuild_id}\n")
 
 
 class WorkflowDiskReclamationTest(unittest.TestCase):
