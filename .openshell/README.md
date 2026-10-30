@@ -45,7 +45,8 @@ openshell --version && openshell-prover --version     # both 0.1.6
 
 cd .openshell
 set -a; . ./.env; set +a          # OPENSHELL_TAG, VSS_REF, VSS_PUBLIC_URL, VSS_HERMES_*
-export COMPATIBLE_API_KEY=...     # never committed, never passed on a flag
+TAG="${VSS_REF//\//-}-from-source" # VSS_REF may be a branch; a Docker tag cannot hold "/"
+export COMPATIBLE_API_KEY=...     # bare value: quotes would be sealed into the credential
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --profile harness up -d
@@ -53,7 +54,7 @@ openshell gateway add http://127.0.0.1:8080 --local --name vss
 
 # 2. Harness image: upstream Hermes, the vss CLI, the skills and the baked policy.
 docker build -f Dockerfile.hermes-from-source --build-arg VSS_REF="$VSS_REF" \
-  -t "vss-harness-hermes:$VSS_REF-from-source" .
+  -t "vss-harness-hermes:$TAG" .
 
 # 3. Inference provider. The profile authorizes the host; the provider seals the
 #    key, which the proxy injects at egress so the agent never holds it.
@@ -64,7 +65,7 @@ openshell provider create --name vss-inference --type vss-inference \
 # 4. Sandbox. The trailing command is the harness itself.
 openshell sandbox create \
   --name vss-harness-hermes \
-  --from "vss-harness-hermes:$VSS_REF-from-source" \
+  --from "vss-harness-hermes:$TAG" \
   --policy ./policy-hermes.yaml \
   --provider vss-inference \
   --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
@@ -464,9 +465,10 @@ rather than deriving from `hermes-sandbox` is in
 [`nemoclaw-v1-vs-openshell.md`](nemoclaw-v1-vs-openshell.md#removing-the-last-nemoclaw-dependency-the-base-image).
 
 ```bash
+TAG="${VSS_REF//\//-}-from-source"   # a branch's "/" is not valid in a Docker tag
 docker build -f .openshell/Dockerfile.hermes-from-source \
   --build-arg VSS_REF=$VSS_REF \
-  -t vss-harness-hermes:$VSS_REF-from-source .openshell
+  -t vss-harness-hermes:$TAG .openshell
 ```
 
 `VSS_REF` has to name a ref on `VSS_REPO`: the build fetches the VSS checkout
@@ -554,7 +556,7 @@ declares it. Within a family the model id is free, and step 5 sets it.
 ```bash
 openshell sandbox create \
   --name vss-harness-hermes \
-  --from vss-harness-hermes:$VSS_REF-from-source \
+  --from vss-harness-hermes:$TAG \
   --policy ./policy-hermes.yaml \
   --provider vss-inference \
   --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
