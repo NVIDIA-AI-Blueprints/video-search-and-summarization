@@ -215,7 +215,7 @@ Drawn for the 0.1.x target, not the deployed 0.0.116.
   orchestrator MCP `:9988` for VSS, and to external inference and chat services
   with the real credential added at egress. The agent never holds a key.
 - **Gateway link** delivers policy and credentials to the supervisor and
-  carries logs, exec sessions and the exposed harness API, whose `:18642` is the
+  carries logs, exec sessions and the exposed harness API, whose `:8642` is the
   loopback target inside the sandbox; the URL itself is served on the gateway's
   own port under a per-sandbox hostname.
 
@@ -453,40 +453,10 @@ what it covered.
 
 **3 — Build the image and bake the policy in**, so one artifact carries the
 plugin, skills, workspace docs, `vss` CLI and the access boundary at one
-`VSS_REF`. `.hermes/` already produces that image;
-[`.openshell/Dockerfile.policy`](Dockerfile.policy)
-derives from it and adds the policy plus two fixes for assumptions the NemoClaw
-base makes about its runtime:
-
-- **CA bundle.** The image's certifi `cacert.pem` links to NemoClaw's proxy-CA
-  path, so the overlay links that path to where OpenShell 0.1.6 mounts the
-  bundle, `/run/openshell-supervisor-ca/material/ca-bundle.crt`.
-- **Inference target.** `config.yaml` names the managed inference route 0.1.6
-  replaced with sandbox-scoped provider attachments. Under that model the base
-  URL and model are the workload's to set, so the overlay leaves them as
-  `${env:VSS_HERMES_BASE_URL}` and `${env:VSS_HERMES_MODEL}` for step 5.
-
-The model `api_key` becomes `${env:COMPATIBLE_API_KEY}` and stays a
-placeholder: the proxy strips whatever bearer the agent sends and injects the
-provider's real key, so only its presence matters.
-
-```bash
-docker build -t vss-harness-hermes:$VSS_REF .hermes
-docker build -f .openshell/Dockerfile.policy \
-  --build-arg HARNESS_IMAGE=vss-harness-hermes:$VSS_REF \
-  -t vss-harness-hermes:$VSS_REF-policy .openshell
-```
-
-[`Dockerfile.hermes-from-source`](Dockerfile.hermes-from-source) produces the
-same artifact in one build, from upstream Hermes on
-`nvcr.io/nvidia/base/ubuntu:24.04`, and so needs neither fix above — it bakes
-the policy itself and writes a `config.yaml` rather than patching one. It takes
-the same `--policy` file, `--provider` and `--env` values in steps 4 and 5, with
-two differences: the API server binds the documented `8642`, so `--expose 8642`
-replaces `--expose 18642`, and the start command runs
-`vss-trust-supervisor-ca` before the agent instead of relying on a baked
-symlink. The NGC CLI is not in it, so a skill that resolves a sample video by
-name fails there. Choosing between the two builds is covered in
+`VSS_REF`. [`Dockerfile.hermes-from-source`](Dockerfile.hermes-from-source)
+builds all of it in one pass from upstream Hermes on
+`nvcr.io/nvidia/base/ubuntu:24.04`, with no NemoClaw image underneath; why that
+rather than deriving from `hermes-sandbox` is in
 [`nemoclaw-v1-vs-openshell.md`](nemoclaw-v1-vs-openshell.md#removing-the-last-nemoclaw-dependency-the-base-image).
 
 ```bash
@@ -494,6 +464,30 @@ docker build -f .openshell/Dockerfile.hermes-from-source \
   --build-arg VSS_REF=$VSS_REF \
   -t vss-harness-hermes:$VSS_REF-from-source .openshell
 ```
+
+`VSS_REF` has to name a ref on `VSS_REPO`: the build fetches the VSS checkout
+rather than reading the working tree, so a local commit reaches the image only
+once it is pushed. That is what keeps the skills and the `vss` CLI in the image
+at one reproducible version.
+
+Two things the image leaves to the start command in step 5, both because of
+what 0.1.6 changed:
+
+- **CA bundle.** certifi's `cacert.pem` is a real file and the supervisor's CA
+  is mounted only once the sandbox exists, so the image ships
+  `vss-trust-supervisor-ca` to append
+  `/run/openshell-supervisor-ca/material/ca-bundle.crt` to it.
+- **Inference target.** 0.1.6 replaced managed inference routes with
+  sandbox-scoped provider attachments, which makes the base URL and the model
+  the workload's to set, so `config.yaml` carries them as
+  `${env:VSS_HERMES_BASE_URL}` and `${env:VSS_HERMES_MODEL}`.
+
+The model `api_key` is `${env:COMPATIBLE_API_KEY}` and stays a placeholder: the
+proxy strips whatever bearer the agent sends and injects the provider's real
+key, so only its presence matters.
+
+The NGC CLI is not in the image, so an operation skill that resolves a sample
+video by name fails and the `ngc` entry in `policy-hermes.yaml` never matches.
 
 Precedence is `--policy` > `OPENSHELL_SANDBOX_POLICY` > image policy > built-in
 default. Keep the runtime-discovered parts — `allowed_ips` from
@@ -556,20 +550,21 @@ declares it. Within a family the model id is free, and step 5 sets it.
 ```bash
 openshell sandbox create \
   --name vss-harness-hermes \
-  --from vss-harness-hermes:$VSS_REF-policy \
+  --from vss-harness-hermes:$VSS_REF-from-source \
   --policy ./policy-hermes.yaml \
   --provider vss-inference \
   --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
   --env VSS_HERMES_BASE_URL=https://inference-api.nvidia.com/v1 \
   --env VSS_HERMES_MODEL=aws/anthropic/bedrock-claude-opus-5 \
   --restart-policy on-failure \
-  --expose 18642 --expose-authorization-mode bearer-passthrough --detach \
+  --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
   -- sh -c 'chmod 770 /sandbox;
+            vss-trust-supervisor-ca
             C=/sandbox/.hermes/config.yaml
             sed -i -e "s#\${env:VSS_HERMES_BASE_URL}#$VSS_HERMES_BASE_URL#g" \
                    -e "s#\${env:VSS_HERMES_MODEL}#$VSS_HERMES_MODEL#g" "$C"
             E=/sandbox/.hermes/.env
-            grep -q "^API_SERVER_KEY=" "$E" || {
+            grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
               printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
             chmod 640 "$E"
@@ -616,22 +611,22 @@ returns the exit status, so a dead agent surfaces as `Error` with
 `CMD ["sleep", "infinity"]` only keeps an exec-driven sandbox alive and
 watches nothing.
 
-**The command carries the two preconditions the image's own launcher would have
-met.** Hermes's secret-boundary guard requires `/sandbox` to be group-readable,
-which OpenShell does not leave it, and it requires `API_SERVER_KEY` in
-`/sandbox/.hermes/.env` at mode 640 rather than in the environment. Both are
-the sandbox's to satisfy here, because `nemoclaw-start` — which does this work
-in the image — requires a root PID 1 that the gateway's policy validation
-refuses. One image value also needs changing if `nemoclaw-start` does not run:
-`HERMES_ENVIRONMENT_HINT` tells the agent its "inference [is] routed through
-NemoClaw", and the hint is what the model reads.
+**The rest of the command is three preconditions, none of which a launcher
+baked into the image could meet.** Hermes's secret-boundary guard requires
+`/sandbox` to be group-readable, which OpenShell does not leave it, and
+`API_SERVER_KEY` in `/sandbox/.hermes/.env` at mode 640 rather than in the
+environment — a file the image deliberately ships without, so the key is minted
+per sandbox. `vss-trust-supervisor-ca` is third, and has to run here because
+the CA it appends is mounted only once the sandbox exists. A script in the
+image could do none of it: a root PID 1 is what the gateway's policy validation
+refuses.
 
 `--expose` publishes one of the sandbox's loopback ports at a URL the gateway
 manages, so the path becomes client → gateway listener → supervisor → sandbox
 with no host-side forward process in it. The URL is
 `http://<workspace>--<sandbox>.openshell.localhost:<gateway port>/` — the
 gateway's **own** listener, routed by `Host`, so the exposed port is a target
-rather than an address and `--expose 18642` publishes nothing on 18642.
+rather than an address and `--expose 8642` publishes nothing on 8642.
 `openshell.localhost` is the built-in default domain, so reaching it needs no
 certificate, SAN or DNS work; `--server-san` is what admits a different domain,
 and is the knob the Brev check below turns. Measured against gateway 0.1.5,
@@ -643,16 +638,13 @@ bind in step 1, not by the route — the loopback bind is what refuses a
 bridge-networked client, so putting the gateway on a network the UI can reach
 is a decision about who may create sandboxes, not a data-path constraint.
 
-**Expose `:18642`, the API server, not `:18789`, the dashboard.** The API
-server is what the UI adapter talks to and where Hermes serves `/health`. The
-port is `18642`, not the documented `8642`: measured in the harness image, the
-API server binds the sandbox's own loopback at `API_SERVER_PORT` from
-`/sandbox/.hermes/.env`, and `gateway.api_server.port` in `config.yaml` does not
-move it. `8642` and `18789` are not Hermes listeners at all — `nemoclaw-start`
-runs socat forwarders that republish them from private loopback ports, because
-NemoClaw's forward arrives from outside the network namespace. OpenShell
-exposes a loopback port from the inside, so `--expose 18642` reaches the API
-server directly and the socat pair goes away with the script.
+**Expose `:8642`, the API server, not `:18789`, the dashboard.** The API server
+is what the UI adapter talks to and where Hermes serves `/health`. It binds the
+sandbox's own loopback at its documented default, because the image ships no
+`API_SERVER_PORT`; note that `gateway.api_server.port` in `config.yaml` does
+not move it, so overriding the port means the `.env`. OpenShell exposes a
+loopback port from the inside, so `--expose 8642` reaches the API server
+directly, with no forwarder in between.
 
 The dashboard does not survive the route as shipped: Hermes refuses a WebSocket
 upgrade whose `Host` or `Origin` does not match the address it bound, and the
