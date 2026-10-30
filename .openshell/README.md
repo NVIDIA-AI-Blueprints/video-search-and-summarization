@@ -44,13 +44,8 @@ mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
 openshell --version && openshell-prover --version     # both 0.1.6
 
 cd .openshell
-export VSS_REF=develop
-export VSS_PUBLIC_URL=http://host.openshell.internal:7777  # VSS as the sandbox reaches it
-# The agent's own model, unrelated to the VLM the deployment serves. Step 3's
-# profile authorizes this host; another host needs one of the other profiles.
-export VSS_HERMES_BASE_URL=https://inference-api.nvidia.com/v1
-export VSS_HERMES_MODEL=aws/anthropic/bedrock-claude-opus-5
-export COMPATIBLE_API_KEY=...                              # never passed on a flag
+set -a; . ./.env; set +a          # OPENSHELL_TAG, VSS_REF, VSS_PUBLIC_URL, VSS_HERMES_*
+export COMPATIBLE_API_KEY=...     # never committed, never passed on a flag
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --profile harness up -d
@@ -103,8 +98,8 @@ the API server at
 with the `API_SERVER_KEY` as the bearer. [Section 4](#4-verification) checks
 both, plus the policy proof and the VSS grant.
 
-To use a different model, change the two `VSS_HERMES_*` exports and re-run
-step 4; the profile is per endpoint family, so a different family means
+To use a different model, change the two `VSS_HERMES_*` values in `.env`,
+re-source it and re-run step 4; the profile is per endpoint family, so a different family means
 importing one of the other two profiles. To start over, `openshell sandbox delete
 vss-harness-hermes` and re-run step 4 — the gateway, image and provider all
 survive it.
