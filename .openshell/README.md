@@ -58,6 +58,7 @@ docker build -f Dockerfile.hermes-from-source --build-arg VSS_REF="$VSS_REF" \
 
 # 3. Inference provider. The profile authorizes the host; the provider seals the
 #    key, which the proxy injects at egress so the agent never holds it.
+case "$COMPATIBLE_API_KEY" in ''|\"*|\'*) echo "COMPATIBLE_API_KEY must be set, without quotes" >&2; false;; esac
 openshell profile import -f vss-inference-profile.yaml
 openshell provider create --name vss-inference --type vss-inference \
   --credential COMPATIBLE_API_KEY
@@ -102,8 +103,9 @@ both, plus the policy proof and the VSS grant.
 To use a different model, change the two `VSS_HERMES_*` values in `.env`,
 re-source it and re-run step 4; the profile is per endpoint family, so a different family means
 importing one of the other two profiles. To start over, `openshell sandbox delete
-vss-harness-hermes` and re-run step 4 — the gateway, image and provider all
-survive it.
+vss-harness-hermes` and re-run steps 4 and 5 — the gateway, image and provider all
+survive it. Do the same after `openshell provider update`: a new credential
+reaches only processes started after it, and the API server is already running.
 
 ---
 
