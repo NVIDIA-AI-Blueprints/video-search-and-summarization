@@ -473,11 +473,11 @@ joins the image; the relay and watchdog scripts are replaced by
 
 **Cons**
 
-- **Image hardening stays with a NemoClaw artifact.** Of the two additions that
-  are real (§1), the toolchain purge sits in the published base image that
-  `.openclaw/Dockerfile` pins by digest, not in the CLI — so Option 2 keeps it
-  by keeping `BASE_IMAGE`, still tracking a NemoClaw release for it. Only a
-  rebuild on OpenShell's community image makes the purge VSS's own work.
+- **Image hardening sits in a NemoClaw artifact, not in the CLI.** Of the two
+  additions that are real (§1), the toolchain purge is baked into the published
+  base image that `.openclaw/Dockerfile` pins by digest, so keeping
+  `BASE_IMAGE` is what keeps it — and keeps a NemoClaw release to track. The
+  section below removes the dependency rather than pricing it.
 - **The build-arg denylist becomes VSS's job.** Narrow today — `onboard-args`
   forwards only model and UI values — so this guards a future build arg rather
   than a current leak.
@@ -496,6 +496,140 @@ joins the image; the relay and watchdog scripts are replaced by
   a VSS-owned file, a loopback bind that the UI service has to be placed to
   reach, and bind flags that must be named on the command because the image
   `CMD` overrides the TOML.
+
+### Removing the last NemoClaw dependency: the base image
+
+Option 2 leaves no NemoClaw code on the runtime path: the `.openshell/` configs
+name it only in provenance comments, and `nemoclaw-start` is already replaced
+by the trailing command. What stays is `BASE_IMAGE`. Both ways out were built
+on `aarch64` and run as sandboxes against a live deployment:
+
+| | What it means | Verdict |
+|---|---|---|
+| **Keep `hermes-sandbox`** | Status quo: Hermes plus NemoClaw's plugin, config, launcher and env | Works, but carries everything below |
+| **Move to `hermes-sandbox-base`** | NemoClaw's own `agents/hermes/Dockerfile` builds from it — Hermes without the integration layer | The smaller step; still a NemoClaw artifact |
+| **Build Hermes from source** | `uv sync` the upstream checkout onto a standard base | **Recommended** — the only one that leaves no NemoClaw artifact |
+
+**What `hermes-sandbox-base` gives**, measured on `aarch64` by building
+`.hermes/Dockerfile` against it and running the result as a sandbox:
+
+| | `hermes-sandbox` | `hermes-sandbox-base` |
+|---|---|---|
+| Layers, built image | 126 of overlay2's 127 | **50** |
+| Size, built image | 2.15 GB | **1.8 GB** |
+| Hermes | 0.20.6 | 0.21.3 |
+| `NEMOCLAW_*` env vars | 12 | **0** |
+| `nemoclaw-start`, NemoClaw plugin, rlimit hooks | present | **absent** |
+| `HERMES_ENVIRONMENT_HINT` | names NemoClaw | **unset** |
+| `sandbox` user, `/sandbox/.hermes` | 998:999 | **unchanged** |
+
+The layer figure is the operational one: at 126 of 127 the current image is one
+layer from failing to run, which is why `.hermes/Dockerfile` must not split its
+`RUN` and why `Dockerfile.policy` collapses its overlay into a single `COPY`.
+Both constraints lift. Process identity is unchanged, so `policy-hermes.yaml`
+and `boundary-hermes.yaml` apply as written.
+
+**What is lost, and what replaces it.** Every row was hit during the trial
+build and run:
+
+| Lost | Mitigation |
+|---|---|
+| Toolchain purge — `gcc` and `make` are present | Purge in `.hermes/Dockerfile`, where VSS already owns the layer |
+| `config.yaml` — the base ships none | Author one with `hermes config set`, so `Dockerfile.policy` writes a file instead of patching one. Seven lines carry it; see below. Set `model.default` and `model.provider`, not `model.model` — the latter is accepted and then rejected upstream at request time |
+| `API_SERVER_PORT`/`API_SERVER_HOST` in `.env` | Hermes binds its documented default `8642`, so `--expose 8642` replaces `--expose 18642` and the port note in `README.md` goes away |
+| certifi's bundle is a real file, not a symlink | Append the supervisor CA at start rather than repointing `/etc/openshell-tls/ca-bundle.pem` |
+| Bundled Hermes skills differ — no `github`, `mlops`, `smart-home`; adds `web` | `.hermes/Dockerfile` checks that Hermes' built-in skills still install, using `github` as the example; switch it to `devops`, which both images ship |
+
+**What replacing the config does and does not drop.** NemoClaw's file is 175
+lines and 91 leaf keys, compared against the image's own `DEFAULT_CONFIG`:
+
+| | Keys | Carry over? |
+|---|---|---|
+| Restate the Hermes default exactly | 21 | No — noise |
+| `platforms.<name>.enabled: false` for 30 channels | 30 | No — a platform absent from the config is not enabled, so the block asserts the default |
+| NemoClaw bookkeeping — `_nemoclaw_upstream`, `plugins.enabled: [nemoclaw]`, `_config_version: 33` (behind the image's 44) | 5 | No — and the version is stale enough to force a migration |
+| Endpoint restated as `providers.custom` and `custom_providers` | 9 | No — `model.*` already carries it |
+| `platform_toolsets.api_server` | 1 | No — measured identical, 39 tools either way, and its list names `audio`, `nemoclaw` and `vss`, which the current sandbox already warns are unknown |
+| `platforms.api_server.extra.port: 18642` | 2 | No — replaced by the `8642` default |
+| Genuinely differ from the default | 12 | Three of them, below |
+
+Only three of the twelve change behaviour worth keeping, and each is one line:
+`agent.max_turns: 60` (default is uncapped), `approvals.mode: manual` (default
+`smart`) and `browser.restrict_evaluate: true` (default `false`). The other
+nine are curator retention windows, tool-search limits, update preferences and
+display cosmetics. So four lines of model wiring plus those three is a faithful
+port, and nothing mandatory is lost.
+
+With all five mitigations in the table above applied — toolchain purge,
+authored `config.yaml`, `--expose 8642`, the appended supervisor CA and the
+`github`→`devops` skill check — the sandbox reaches `Ready`, the exposed route answers
+`/health` 200 and returns `hermes-agent` for a bearer `GET /v1/models` (401
+without), `vss configure check` reports the same groups as the current sandbox,
+`vss vios list` returns the sensor, and an agent turn completes through the
+provider. The `vss_cli` tool handler fails on both images alike, so it is a
+pre-existing plugin bug rather than anything the base change introduces.
+
+The one judgement call is the Hermes version: the base tracks 0.21.3 where the
+current image is 0.20.6, so the move is a base swap and a Hermes upgrade at
+once. Pin it by digest, as `.hermes/Dockerfile` already pins today.
+
+**Building Hermes from source removes the artifact instead of trading it.**
+[`Dockerfile.hermes-from-source`](Dockerfile.hermes-from-source) is the built
+and verified form: upstream Hermes at tag `v2026.9.14` (0.21.3) installed onto
+`nvcr.io/nvidia/base/ubuntu:24.04`, with the `vss` CLI, skills, workspace docs,
+plugin and baked boundary added as before.
+
+- **Hermes comes from source, not PyPI.** The PyPI package stops at `0.19.0`
+  (§4), so the build clones the GitHub repo at a release tag.
+- **Installing it is one command.** `uv sync` in that checkout installs Hermes;
+  its code needs no changes.
+- **Hermes' own Dockerfile is not used.** It packages Hermes as a standalone
+  service, with its own process supervisor (s6-overlay), its own user (uid
+  10000) and a startup script. In a sandbox OpenShell supervises the process,
+  the image runs as uid 998 and `sandbox create` starts Hermes, so none of it
+  applies.
+
+| | `hermes-sandbox` | From source |
+|---|---|---|
+| Layers, built image | 126 of overlay2's 127 | **13** |
+| Size, built image | 2.15 GB | **0.73 GB** |
+| Python packages in Hermes' venv | 248 | **72** |
+| `config.yaml` | 175 lines, patched by `sed` | **11 lines, authored** |
+| Build and network tools | `node`, `npm`, `ssh`, `curl` present; `gcc` purged | **none installed** |
+| NemoClaw artifacts on the build | base image | **none** |
+
+Three properties make this cheaper than its line count suggests:
+
+- **No security configuration changes.** `policy-hermes.yaml`,
+  `boundary-hermes.yaml` and `vss-inference-profile.yaml` apply unedited,
+  because the interpreter keeps the `/usr/bin/python3.13` path they name and
+  the process keeps its 998:999 identity. Staging uv's whole prefix under
+  `usr/` is what puts it there; the base ships no `python3` to collide with,
+  and the OPA check reads `/proc/<pid>/exe`, which a symlink cannot redirect.
+- **The toolchain purge is by construction.** The runtime stage installs only
+  `ca-certificates` and `git`, so there is nothing to strip — and no purge step
+  to keep in sync with a base image that might reintroduce one.
+- **The layer budget stops mattering.** At 13 layers the policy can be baked
+  directly, so `Dockerfile.policy` and its single-`COPY` constraint fall away
+  along with the unsplittable `RUN` in `.hermes/Dockerfile`.
+
+Two install settings are load-bearing and not obvious from Hermes' own docs.
+Install with `uv sync --extra sms`, Hermes' aiohttp-only extra: the
+`api_server` platform's adapter needs aiohttp, which is not a core dependency,
+and taking it as an extra holds the version to `uv.lock`'s pin. Keep the
+install editable — Hermes' `setup.py` refuses to build a wheel or sdist of
+itself, so the source tree at `/opt/hermes` is the installed package.
+
+The API server needs no `platforms` entry: it starts by default and binds its
+documented `8642`, so `--expose 8642` applies here too.
+
+Run under the unmodified policy against a live deployment, it passes the
+same checks as the current sandbox ([README §4](README.md#4-verification)).
+
+What it costs: VSS owns a Hermes build it did not own before, so `HERMES_REF`
+joins `VSS_REF` as a pin to move, and upstream's weekly tags are the cadence to
+track. The NGC CLI is also absent, so an operation skill that resolves a sample
+video by name fails and the `ngc` entry in `policy-hermes.yaml` never matches.
 
 ---
 
@@ -584,8 +718,10 @@ same shape, sharing `scripts/lib/sandbox-init.sh` for the security steps.
 The OpenClaw script runs to about 5,600 lines, most of it migration, permission
 and pairing logic — which is where NemoClaw's knowledge of a harness actually
 lives. VSS does not own it: `.openclaw/Dockerfile` inherits it from
-`BASE_IMAGE`, so under Option 2 it either keeps that base image or takes on an
-equivalent launcher.
+`BASE_IMAGE`, so under Option 2 OpenClaw either keeps that base image or takes
+on an equivalent launcher. Hermes is the measured counter-case — the
+from-source build in §3 needs none of it, because the handful of preconditions
+its launcher met are the trailing command's.
 
 ### What each manifest declares
 

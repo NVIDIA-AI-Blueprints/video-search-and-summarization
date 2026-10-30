@@ -14,6 +14,7 @@ For why VSS drives OpenShell directly rather than through NemoClaw V1, see
 | [`policy-hermes.yaml`](policy-hermes.yaml), [`boundary-hermes.yaml`](boundary-hermes.yaml) | Step 2 — the Hermes sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
 | [`policy-openclaw.yaml`](policy-openclaw.yaml), [`boundary-openclaw.yaml`](boundary-openclaw.yaml) | The same pair for OpenClaw; see [Adding a second harness later](#adding-a-second-harness-later) |
 | [`Dockerfile.policy`](Dockerfile.policy) | Step 3 — overlay on `vss-harness-hermes` that bakes the policy, links the 0.1.6 CA bundle path, and parameterises the inference endpoint and model |
+| [`Dockerfile.hermes-from-source`](Dockerfile.hermes-from-source) | Step 3, alternative — the same artifact built from upstream Hermes source on a standard Ubuntu base |
 | [`vss-inference-profile.yaml`](vss-inference-profile.yaml), [`vss-inference-build-profile.yaml`](vss-inference-build-profile.yaml), [`vss-inference-local-profile.yaml`](vss-inference-local-profile.yaml) | Step 4 — provider profiles for an OpenAI-compatible endpoint, `build.nvidia.com`, and a host-local model server |
 
 ---
@@ -157,8 +158,7 @@ Docker's networking-off as the outer fence.
 ## 3. Steps
 
 **1 — Gateway becomes a Compose service.** Decided: the gateway is a container
-VSS declares, replacing the systemd unit NemoClaw installs today. OpenShell
-publishes a reference
+VSS declares. OpenShell publishes a reference
 [`deploy/docker/docker-compose.yml`](https://docs.nvidia.com/openshell/latest/how-it-works/gateways/container-deployment)
 to start from:
 
@@ -201,13 +201,12 @@ JWT key paths `init` writes. Three edits VSS has to make to it:
   release.** Upstream ships both as `latest`. Since 0.1.6 a new sandbox
   requires matching supervisor and sandbox-runtime binaries, so a drifting tag
   is a sandbox that refuses to start, not a version-hygiene nicety.
-- **Write the version 2 schema.** 0.1.5 rejects the `version = 1` file NemoClaw
-  installs on this host: `this build requires version 2; migrate legacy
-  fields`. The renames that bite, each a separate startup failure:
-  `compute_drivers = ["docker"]` becomes `compute_driver = "docker"`,
-  `[openshell.drivers.docker].sandbox_namespace` is gone, and
-  `gateway_jwt.ttl_secs = 0` — what NemoClaw writes — is refused as "expected a
-  nonzero u64".
+- **Write the version 2 schema.** 0.1.5 rejects a `version = 1` file:
+  `this build requires version 2; migrate legacy fields`. The renames that
+  bite, each a separate startup failure: `compute_drivers = ["docker"]` becomes
+  `compute_driver = "docker"`, `[openshell.drivers.docker].sandbox_namespace`
+  is gone, and `gateway_jwt.ttl_secs = 0` is refused as "expected a nonzero
+  u64".
 - **Decide the authentication posture, and configure the sandbox JWT
   regardless.** 0.1.6 refuses to start unless some user authentication is
   configured; upstream's recipe takes the opt-out,
@@ -391,6 +390,24 @@ docker build -f .openshell/Dockerfile.policy \
   -t vss-harness-hermes:$VSS_REF-policy .openshell
 ```
 
+[`Dockerfile.hermes-from-source`](Dockerfile.hermes-from-source) produces the
+same artifact in one build, from upstream Hermes on
+`nvcr.io/nvidia/base/ubuntu:24.04`, and so needs neither fix above — it bakes
+the policy itself and writes a `config.yaml` rather than patching one. It takes
+the same `--policy` file, `--provider` and `--env` values in steps 4 and 5, with
+two differences: the API server binds the documented `8642`, so `--expose 8642`
+replaces `--expose 18642`, and the start command runs
+`vss-trust-supervisor-ca` before the agent instead of relying on a baked
+symlink. The NGC CLI is not in it, so a skill that resolves a sample video by
+name fails there. Choosing between the two builds is covered in
+[`nemoclaw-v1-vs-openshell.md`](nemoclaw-v1-vs-openshell.md#removing-the-last-nemoclaw-dependency-the-base-image).
+
+```bash
+docker build -f .openshell/Dockerfile.hermes-from-source \
+  --build-arg VSS_REF=$VSS_REF \
+  -t vss-harness-hermes:$VSS_REF-from-source .openshell
+```
+
 Precedence is `--policy` > `OPENSHELL_SANDBOX_POLICY` > image policy > built-in
 default. Keep the runtime-discovered parts — `allowed_ips` from
 `orchestrator_mcp_helper.sandbox_host_cidrs`, the `.invalid` Kubernetes ingress
@@ -445,8 +462,7 @@ imported:
 | (c) build.nvidia.com | `vss-inference-build-profile.yaml` | `NVIDIA_API_KEY` |
 
 A server on a port (b) does not declare is unreachable until the profile
-declares it, which is the one thing `NEMOCLAW_ENDPOINT_URL` did not have to
-care about. Within a family the model id is free, and step 5 sets it.
+declares it. Within a family the model id is free, and step 5 sets it.
 
 **5 — Create the sandbox and expose the harness API:**
 
@@ -509,9 +525,9 @@ way.
 **The trailing command is the harness itself, not a start script.** OpenShell
 treats it as the sandbox's canonical main process: it streams the output and
 returns the exit status, so a dead agent surfaces as `Error` with
-`MainProcessFailed` instead of a healthy-looking container. NemoClaw instead
-runs `nemoclaw-start`, and VSS's images carry `CMD ["sleep", "infinity"]` so an
-exec-driven sandbox stays alive — which means today nothing watches the agent.
+`MainProcessFailed` instead of a healthy-looking container. The image's own
+`CMD ["sleep", "infinity"]` only keeps an exec-driven sandbox alive and
+watches nothing.
 
 **The command carries the two preconditions the image's own launcher would have
 met.** Hermes's secret-boundary guard requires `/sandbox` to be group-readable,
