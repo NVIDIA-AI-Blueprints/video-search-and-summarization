@@ -48,6 +48,7 @@ export DCGM_METRICS_CONFIG="$PERF_ROOT/dcgm/dcgm-metrics-config.csv"
 export ENV_PERF_FILE="$output/native/.env.perf"
 export VENV_DIR="$PERF_VENV_DIR"
 export PERF_VENV_PREPARED=true
+export VST_DIR="${VST_DIR:-$output/native/vst_package}"
 export COMPOSE_PROJECT_NAME="rtvi-embed-perf-${BUILD_NUMBER:-$(id -u)}"
 export VST_COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME}-vst"
 
