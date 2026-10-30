@@ -26,20 +26,29 @@ policy and the boundary it is proven against, the harness Dockerfile, and the
 provider profiles. Section 3 is the same five steps with the reasoning; §4 is
 how to check the result.
 
-Three things have to exist first:
-
-- **A running VSS deployment**, since the harness installs against a build that
-  is already up — deploy one with
-  [`/vss-build-vision-ai`](../skills/vss-build-vision-ai/SKILL.md).
-- **`openshell` and `openshell-prover` 0.1.6 on `PATH`.** A CLI older than the
-  gateway fails to decode its replies rather than reporting a version skew.
-- **An inference endpoint, model id and key** for the agent's own model, which
-  is unrelated to the VLM the deployment serves.
+The harness installs against a VSS deployment that is already up.
+Run the rest from the repository root.
 
 ```bash
+# 0. CLI and prover at the gateway's release: an older CLI fails to decode the
+#    gateway's replies rather than reporting a version skew.
+mkdir -p ~/.local/bin
+( cd "$(mktemp -d)" && V=0.1.6 A=$(uname -m) &&
+  for p in openshell openshell-prover; do
+    curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-$A-unknown-linux-musl.tar.gz"
+    curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-checksums-sha256.txt"
+    grep " $p-$A-unknown-linux-musl.tar.gz\$" "$p-checksums-sha256.txt" | sha256sum -c - &&
+    tar -xzf "$p-$A-unknown-linux-musl.tar.gz" -C ~/.local/bin
+  done )
+openshell --version && openshell-prover --version     # both 0.1.6
+
 cd .openshell
 export VSS_REF=develop
 export VSS_PUBLIC_URL=http://host.openshell.internal:7777  # VSS as the sandbox reaches it
+# The agent's own model, unrelated to the VLM the deployment serves. Step 3's
+# profile authorizes this host; another host needs one of the other profiles.
+export VSS_HERMES_BASE_URL=https://inference-api.nvidia.com/v1
+export VSS_HERMES_MODEL=aws/anthropic/bedrock-claude-opus-5
 export COMPATIBLE_API_KEY=...                              # never passed on a flag
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
@@ -56,16 +65,15 @@ openshell profile import -f vss-inference-profile.yaml
 openshell provider create --name vss-inference --type vss-inference \
   --credential COMPATIBLE_API_KEY
 
-# 4. Sandbox. The trailing command is the harness itself, and the two --env
-#    values are the model choice.
+# 4. Sandbox. The trailing command is the harness itself.
 openshell sandbox create \
   --name vss-harness-hermes \
   --from "vss-harness-hermes:$VSS_REF-from-source" \
   --policy ./policy-hermes.yaml \
   --provider vss-inference \
   --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
-  --env VSS_HERMES_BASE_URL=https://inference-api.nvidia.com/v1 \
-  --env VSS_HERMES_MODEL=aws/anthropic/bedrock-claude-opus-5 \
+  --env VSS_HERMES_BASE_URL="$VSS_HERMES_BASE_URL" \
+  --env VSS_HERMES_MODEL="$VSS_HERMES_MODEL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
   -- sh -c 'chmod 770 /sandbox;
@@ -94,9 +102,9 @@ the API server at
 with the `API_SERVER_KEY` as the bearer. [Section 4](#4-verification) checks
 both, plus the policy proof and the VSS grant.
 
-To use a model this endpoint does not serve, change the two `--env` values; the
-profile is per endpoint family, so a different family means importing one of the
-other two profiles. To start over, `openshell sandbox delete
+To use a different model, change the two `VSS_HERMES_*` exports and re-run
+step 4; the profile is per endpoint family, so a different family means
+importing one of the other two profiles. To start over, `openshell sandbox delete
 vss-harness-hermes` and re-run step 4 — the gateway, image and provider all
 survive it.
 
