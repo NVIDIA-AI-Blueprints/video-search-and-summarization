@@ -1743,53 +1743,23 @@ log "  Virtual environment ready."
 log "Step 11/12: Updating ${BENCHMARK_CONFIG} with live ports and stream URL..."
 
 if [[ -f "${BENCHMARK_CONFIG}" ]]; then
-    # RTSP stream URL (warehouse_gopro_60m_10fps selected in Step 9).
-    # Pattern matches both the RTSP_STREAM_URL placeholder (first run) and any
-    # existing rtsp:// value (re-runs), making the substitution idempotent.
-    sed -i "s|rtsp_url: \"[^\"]*\"|rtsp_url: \"${INJECT_RTSP_URL}\"|g" "${BENCHMARK_CONFIG}" \
-        || die "Failed to update rtsp_url in ${BENCHMARK_CONFIG}"
-    log "  Updated rtsp_url             → ${INJECT_RTSP_URL}"
-
-    # Backend URL — always overwrite so a changed BACKEND_PORT is picked up on re-runs
-    sed -i "s|rtvi_backend:.*|rtvi_backend: \"http://localhost:${BACKEND_PORT}/v1\"|" "${BENCHMARK_CONFIG}" \
-        || die "Failed to update rtvi_backend in ${BENCHMARK_CONFIG}"
-    log "  Updated rtvi_backend         → http://localhost:${BACKEND_PORT}/v1"
-
-    # DCGM exporter URL
-    sed -i "s|dcgm_exporter_url:.*|dcgm_exporter_url: \"http://localhost:${DCGM_EXPORTER_PORT}/metrics\"|" "${BENCHMARK_CONFIG}" \
-        || die "Failed to update dcgm_exporter_url in ${BENCHMARK_CONFIG}"
-    log "  Updated dcgm_exporter_url    → http://localhost:${DCGM_EXPORTER_PORT}/metrics"
-
-    # Node exporter URL
-    sed -i "s|node_exporter_url:.*|node_exporter_url: \"http://localhost:${NODE_EXPORTER_PORT}/metrics\"|" "${BENCHMARK_CONFIG}" \
-        || die "Failed to update node_exporter_url in ${BENCHMARK_CONFIG}"
-    log "  Updated node_exporter_url    → http://localhost:${NODE_EXPORTER_PORT}/metrics"
-
-    # The service entrypoint owns global.vlm_gpus and writes it to the runtime
-    # config before setup. Do not rewrite the YAML here; line-based replacement
-    # corrupts block-style lists emitted by PyYAML.
+    _runtime_config_updater="${SCRIPT_DIR}/scripts/update_runtime_config.py"
+    [[ -f "${_runtime_config_updater}" ]] \
+        || die "Runtime config updater not found: ${_runtime_config_updater}"
+    "${VENV_DIR}/bin/python" "${_runtime_config_updater}" \
+        --config "${BENCHMARK_CONFIG}" \
+        --rtsp-url "${INJECT_RTSP_URL}" \
+        --rtvi-backend "http://localhost:${BACKEND_PORT}/v1" \
+        --dcgm-exporter-url "http://localhost:${DCGM_EXPORTER_PORT}/metrics" \
+        --node-exporter-url "http://localhost:${NODE_EXPORTER_PORT}/metrics" \
+        || die "Failed to update and validate runtime config: ${BENCHMARK_CONFIG}"
+    log "  Validated rtsp_url           → ${INJECT_RTSP_URL}"
+    log "  Validated rtvi_backend       → http://localhost:${BACKEND_PORT}/v1"
+    log "  Validated dcgm_exporter_url  → http://localhost:${DCGM_EXPORTER_PORT}/metrics"
+    log "  Validated node_exporter_url  → http://localhost:${NODE_EXPORTER_PORT}/metrics"
     log "  Preserving vlm_gpus from the prepared benchmark config"
-
-    # Apply the same substitutions to all platform-specific configs
-    for _platform_cfg in \
-        "${BENCHMARK_DIR}/rtvi_vlm_config_h100.yaml" \
-        "${BENCHMARK_DIR}/rtvi_vlm_config_rtx_pro.yaml" \
-        "${BENCHMARK_DIR}/rtvi_vlm_config_l40s.yaml" \
-        "${BENCHMARK_DIR}/rtvi_vlm_config_jetson.yaml" \
-        "${BENCHMARK_DIR}/rtvi_vlm_config_spark.yaml" \
-        "${BENCHMARK_DIR}/rtvi_vlm_bcd_3_2_config.yaml" \
-        "${BENCHMARK_DIR}/rtvi_vlm_bcd_3_2_spark_config.yaml" \
-        "${BENCHMARK_DIR}/rtvi_vlm_bcd_3_2_thor_config.yaml"; do
-        if [[ -f "${_platform_cfg}" ]]; then
-            sed -i "s|rtsp_url: \"[^\"]*\"|rtsp_url: \"${INJECT_RTSP_URL}\"|g" "${_platform_cfg}"
-            sed -i "s|rtvi_backend:.*|rtvi_backend: \"http://localhost:${BACKEND_PORT}/v1\"|" "${_platform_cfg}"
-            sed -i "s|dcgm_exporter_url:.*|dcgm_exporter_url: \"http://localhost:${DCGM_EXPORTER_PORT}/metrics\"|" "${_platform_cfg}"
-            sed -i "s|node_exporter_url:.*|node_exporter_url: \"http://localhost:${NODE_EXPORTER_PORT}/metrics\"|" "${_platform_cfg}"
-            log "  Patched $(basename "${_platform_cfg}")"
-        fi
-    done
 else
-    warn "  ${BENCHMARK_CONFIG} not found — skipping RTSP URL substitution."
+    die "Benchmark config not found: ${BENCHMARK_CONFIG}"
 fi
 
 section "RTVI VLM"

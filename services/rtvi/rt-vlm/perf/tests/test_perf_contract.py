@@ -21,6 +21,7 @@ class RTVIVLMPerfContractTest(unittest.TestCase):
             "scripts/run_benchmark.sh",
             "scripts/native_setup_perf_env.sh",
             "scripts/native_teardown_perf_env.sh",
+            "scripts/update_runtime_config.py",
             "setup/pyproject.toml",
             "setup/uv.lock",
             "setup/setup_environment.sh",
@@ -69,6 +70,9 @@ class RTVIVLMPerfContractTest(unittest.TestCase):
         setup = (PERF_ROOT / "scripts/native_setup_perf_env.sh").read_text()
         runner = (PERF_ROOT / "scripts/run_benchmark.sh").read_text()
         self.assertNotIn('sed -i "s|vlm_gpus:', setup)
+        self.assertNotIn('sed -i "s|rtsp_url:', setup)
+        self.assertNotIn('sed -i "s|rtvi_backend:', setup)
+        self.assertIn('scripts/update_runtime_config.py', setup)
         self.assertIn('--gpus "$gpus"', runner)
         self.assertIn('export NVIDIA_VISIBLE_DEVICES="$gpus"', runner)
         self.assertIn('export BENCHMARK_CONFIG="$runtime_config"', runner)
