@@ -1271,13 +1271,6 @@ log "  Virtual environment ready."
 log "Step 11/12: Updating ${BENCHMARK_CONFIG} with live ports and stream URL..."
 
 if [[ -f "${BENCHMARK_CONFIG}" ]]; then
-    # RTSP stream URL (warehouse_gopro_60m selected in Step 9).
-    # Pattern matches both the RTSP_STREAM_URL placeholder (first run) and any
-    # existing rtsp:// value (re-runs), making the substitution idempotent.
-    sed -i "s|rtsp_url: \"[^\"]*\"|rtsp_url: \"${INJECT_RTSP_URL}\"|g" "${BENCHMARK_CONFIG}" \
-        || die "Failed to update rtsp_url in ${BENCHMARK_CONFIG}"
-    log "  Updated rtsp_url             → ${INJECT_RTSP_URL}"
-
     # initial_stream_count — use INITIAL_STREAM_COUNT env var if set; else lookup by GPU name
     if [[ -n "${INITIAL_STREAM_COUNT}" ]]; then
         _initial_count="${INITIAL_STREAM_COUNT}"
@@ -1307,32 +1300,29 @@ print(f'{best_match or \"(default)\"}\t{best_value}')
             _initial_count=""
         fi
     fi
+
+    _runtime_config_updater="${SCRIPT_DIR}/scripts/update_runtime_config.py"
+    [[ -f "${_runtime_config_updater}" ]] \
+        || die "Runtime config updater not found: ${_runtime_config_updater}"
+    _runtime_config_args=(
+        --config "${BENCHMARK_CONFIG}"
+        --rtsp-url "${INJECT_RTSP_URL}"
+        --rtvi-backend "http://localhost:${BACKEND_PORT}/v1"
+        --dcgm-exporter-url "http://localhost:${DCGM_EXPORTER_PORT}/metrics"
+        --node-exporter-url "http://localhost:${NODE_EXPORTER_PORT}/metrics"
+    )
     if [[ -n "${_initial_count}" ]]; then
-        sed -i "s|initial_stream_count:.*|initial_stream_count: ${_initial_count}|" "${BENCHMARK_CONFIG}" \
-            || die "Failed to update initial_stream_count in ${BENCHMARK_CONFIG}"
+        _runtime_config_args+=(--initial-stream-count "${_initial_count}")
     fi
-
-    # Backend URL — always overwrite so a changed BACKEND_PORT is picked up on re-runs
-    sed -i "s|rtvi_backend:.*|rtvi_backend: \"http://localhost:${BACKEND_PORT}/v1\"|" "${BENCHMARK_CONFIG}" \
-        || die "Failed to update rtvi_backend in ${BENCHMARK_CONFIG}"
-    log "  Updated rtvi_backend         → http://localhost:${BACKEND_PORT}/v1"
-
-    # DCGM exporter URL
-    sed -i "s|dcgm_exporter_url:.*|dcgm_exporter_url: \"http://localhost:${DCGM_EXPORTER_PORT}/metrics\"|" "${BENCHMARK_CONFIG}" \
-        || die "Failed to update dcgm_exporter_url in ${BENCHMARK_CONFIG}"
-    log "  Updated dcgm_exporter_url    → http://localhost:${DCGM_EXPORTER_PORT}/metrics"
-
-    # Node exporter URL
-    sed -i "s|node_exporter_url:.*|node_exporter_url: \"http://localhost:${NODE_EXPORTER_PORT}/metrics\"|" "${BENCHMARK_CONFIG}" \
-        || die "Failed to update node_exporter_url in ${BENCHMARK_CONFIG}"
-    log "  Updated node_exporter_url    → http://localhost:${NODE_EXPORTER_PORT}/metrics"
-
-    # The service entrypoint owns global.vlm_gpus and writes it to the runtime
-    # config before setup. Do not rewrite the YAML here; line-based replacement
-    # corrupts block-style lists emitted by PyYAML.
+    "${VENV_DIR}/bin/python" "${_runtime_config_updater}" "${_runtime_config_args[@]}" \
+        || die "Failed to update and validate runtime config: ${BENCHMARK_CONFIG}"
+    log "  Validated rtsp_url           → ${INJECT_RTSP_URL}"
+    log "  Validated rtvi_backend       → http://localhost:${BACKEND_PORT}/v1"
+    log "  Validated dcgm_exporter_url  → http://localhost:${DCGM_EXPORTER_PORT}/metrics"
+    log "  Validated node_exporter_url  → http://localhost:${NODE_EXPORTER_PORT}/metrics"
     log "  Preserving vlm_gpus from the prepared benchmark config"
 else
-    warn "  ${BENCHMARK_CONFIG} not found — skipping RTSP URL substitution."
+    die "Benchmark config not found: ${BENCHMARK_CONFIG}"
 fi
 
 section "RTVI Embed"
