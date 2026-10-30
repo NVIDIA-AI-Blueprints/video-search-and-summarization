@@ -22,7 +22,7 @@ ARG HARNESS_IMAGE=vss-harness-hermes:develop
 # the file as written and would send the placeholder as the model id.
 FROM ${HARNESS_IMAGE} AS overlay
 USER root
-COPY policy-hermes.yaml /out/etc/openshell/policy.yaml
+COPY policy.yaml /out/etc/openshell/policy.yaml
 RUN mkdir -p /out/etc/openshell-tls /out/sandbox/.hermes \
  && ln -s /run/openshell-supervisor-ca/material/ca-bundle.crt /out/etc/openshell-tls/ca-bundle.pem \
  && chown -R root:root /out/etc && chmod 755 /out/etc /out/etc/openshell /out/etc/openshell-tls \

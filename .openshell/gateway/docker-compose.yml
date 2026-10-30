@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# Pinned so the project, and its openshell-data volume, keep their name
+# rather than taking this directory's.
+name: openshell
+
 services:
   openshell-init:                # one-shot: writes the sandbox JWT signing
     image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_TAG}  # keys the Docker

@@ -29,7 +29,7 @@ Seven imperative steps; three coupled version pins (`BASE_IMAGE`,
 
 
 The OpenShell architecture, design and step-by-step bring-up live in
-[`README.md`](README.md); this note holds the comparison against NemoClaw V1,
+[`README.md`](../README.md); this note holds the comparison against NemoClaw V1,
 the multi-harness analysis and the verdict.
 
 ### What NemoClaw adds
@@ -331,7 +331,7 @@ omits those labels, so `plan` cannot select the result.
 
 
 The concrete steps, policy conversion and architecture are in
-[`README.md`](README.md).
+[`README.md`](../README.md).
 
 ### Command mapping
 
@@ -383,7 +383,7 @@ status still reaches OpenShell. One image value does need changing:
 ### What VSS does not carry over from NemoClaw
 
 Not every step in
-[`deploy/docker/scripts/nemoclaw/README.md`](../deploy/docker/scripts/nemoclaw/README.md)
+[`deploy/docker/scripts/nemoclaw/README.md`](../../deploy/docker/scripts/nemoclaw/README.md)
 has an Option 2 equivalent. These drop out rather than move:
 
 - **The installer and `onboard`.** Both exist to produce a gateway and a
@@ -525,9 +525,9 @@ on `aarch64` and run as sandboxes against a live deployment:
 
 The layer figure is the operational one: at 126 of 127 the current image is one
 layer from failing to run, which is why `.hermes/Dockerfile` must not split its
-`RUN` and why `Dockerfile.policy` collapses its overlay into a single `COPY`.
-Both constraints lift. Process identity is unchanged, so `policy-hermes.yaml`
-and `boundary-hermes.yaml` apply as written.
+`RUN` and why `hermes/Dockerfile.policy` collapses its overlay into a single `COPY`.
+Both constraints lift. Process identity is unchanged, so `hermes/policy.yaml`
+and `hermes/boundary.yaml` apply as written.
 
 **What is lost, and what replaces it.** Every row was hit during the trial
 build and run:
@@ -535,7 +535,7 @@ build and run:
 | Lost | Mitigation |
 |---|---|
 | Toolchain purge — `gcc` and `make` are present | Purge in `.hermes/Dockerfile`, where VSS already owns the layer |
-| `config.yaml` — the base ships none | Author one with `hermes config set`, so `Dockerfile.policy` writes a file instead of patching one. Seven lines carry it; see below. Set `model.default` and `model.provider`, not `model.model` — the latter is accepted and then rejected upstream at request time |
+| `config.yaml` — the base ships none | Author one with `hermes config set`, so `hermes/Dockerfile.policy` writes a file instead of patching one. Seven lines carry it; see below. Set `model.default` and `model.provider`, not `model.model` — the latter is accepted and then rejected upstream at request time |
 | `API_SERVER_PORT`/`API_SERVER_HOST` in `.env` | Hermes binds its documented default `8642`, so `--expose 8642` replaces `--expose 18642` and the port note in `README.md` goes away |
 | certifi's bundle is a real file, not a symlink | Append the supervisor CA at start rather than repointing `/etc/openshell-tls/ca-bundle.pem` |
 | Bundled Hermes skills differ — no `github`, `mlops`, `smart-home`; adds `web` | `.hermes/Dockerfile` checks that Hermes' built-in skills still install, using `github` as the example; switch it to `devops`, which both images ship |
@@ -575,7 +575,7 @@ current image is 0.20.6, so the move is a base swap and a Hermes upgrade at
 once. Pin it by digest, as `.hermes/Dockerfile` already pins today.
 
 **Building Hermes from source removes the artifact instead of trading it.**
-[`Dockerfile.hermes-from-source`](Dockerfile.hermes-from-source) is the built
+[`hermes/Dockerfile`](../hermes/Dockerfile) is the built
 and verified form: upstream Hermes at tag `v2026.9.14` (0.21.3) installed onto
 `nvcr.io/nvidia/base/ubuntu:24.04`, with the `vss` CLI, skills, workspace docs,
 plugin and baked boundary added as before.
@@ -601,8 +601,8 @@ plugin and baked boundary added as before.
 
 Three properties make this cheaper than its line count suggests:
 
-- **No security configuration changes.** `policy-hermes.yaml`,
-  `boundary-hermes.yaml` and `vss-inference-profile.yaml` apply unedited,
+- **No security configuration changes.** `hermes/policy.yaml`,
+  `hermes/boundary.yaml` and `providers/vss-inference-profile.yaml` apply unedited,
   because the interpreter keeps the `/usr/bin/python3.13` path they name and
   the process keeps its 998:999 identity. Staging uv's whole prefix under
   `usr/` is what puts it there; the base ships no `python3` to collide with,
@@ -611,7 +611,7 @@ Three properties make this cheaper than its line count suggests:
   `ca-certificates` and `git`, so there is nothing to strip — and no purge step
   to keep in sync with a base image that might reintroduce one.
 - **The layer budget stops mattering.** At 13 layers the policy can be baked
-  directly, so `Dockerfile.policy` and its single-`COPY` constraint fall away
+  directly, so `hermes/Dockerfile.policy` and its single-`COPY` constraint fall away
   along with the unsplittable `RUN` in `.hermes/Dockerfile`.
 
 Two install settings are load-bearing and not obvious from Hermes' own docs.
@@ -630,12 +630,12 @@ The `vss` CLI needs one symlink. It installs into its own venv at
 `FileNotFoundError` while the CLI works in a shell.
 
 Run under the unmodified policy against a live deployment, it passes the
-same checks as the current sandbox ([README §4](README.md#4-verification)).
+same checks as the current sandbox ([README §4](../README.md#4-verification)).
 
 What it costs: VSS owns a Hermes build it did not own before, so `HERMES_REF`
 joins `VSS_REF` as a pin to move, and upstream's weekly tags are the cadence to
 track. The NGC CLI is also absent, so an operation skill that resolves a sample
-video by name fails and the `ngc` entry in `policy-hermes.yaml` never matches.
+video by name fails and the `ngc` entry in `hermes/policy.yaml` never matches.
 
 ---
 

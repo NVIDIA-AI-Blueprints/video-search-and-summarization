@@ -6,14 +6,14 @@ the gateway declared as a Compose service alongside VSS and driven directly by
 the `openshell` CLI or Python SDK.
 
 For why VSS drives OpenShell directly rather than through NemoClaw V1, see
-[`nemoclaw-v1-vs-openshell.md`](nemoclaw-v1-vs-openshell.md).
+[`docs/nemoclaw-v1-vs-openshell.md`](docs/nemoclaw-v1-vs-openshell.md).
 
 | File | Role |
 |---|---|
-| [`docker-compose.yml`](docker-compose.yml), [`.env`](.env), [`gateway.toml`](gateway.toml) | Step 1 — the `openshell-init` and `openshell-gateway` services and their version-2 gateway config |
-| [`policy-hermes.yaml`](policy-hermes.yaml), [`boundary-hermes.yaml`](boundary-hermes.yaml) | Step 2 — the Hermes sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
-| [`Dockerfile.hermes-from-source`](Dockerfile.hermes-from-source) | Step 3 — the Hermes harness image with the policy baked in, built from upstream Hermes source on a standard Ubuntu base |
-| [`vss-inference-profile.yaml`](vss-inference-profile.yaml), [`vss-inference-build-profile.yaml`](vss-inference-build-profile.yaml), [`vss-inference-local-profile.yaml`](vss-inference-local-profile.yaml) | Step 4 — provider profiles for an OpenAI-compatible endpoint, `build.nvidia.com`, and a host-local model server |
+| [`.env`](.env), [`gateway/docker-compose.yml`](gateway/docker-compose.yml), [`gateway/gateway.toml`](gateway/gateway.toml) | Step 1 — the `openshell-init` and `openshell-gateway` services and their version-2 gateway config |
+| [`hermes/policy.yaml`](hermes/policy.yaml), [`hermes/boundary.yaml`](hermes/boundary.yaml) | Step 2 — the Hermes sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
+| [`hermes/Dockerfile`](hermes/Dockerfile) | Step 3 — the Hermes harness image with the policy baked in, built from upstream Hermes source on a standard Ubuntu base |
+| [`providers/`](providers/) — `vss-inference-profile.yaml`, `vss-inference-build-profile.yaml`, `vss-inference-local-profile.yaml` | Step 4 — provider profiles for an OpenAI-compatible endpoint, `build.nvidia.com`, and a host-local model server |
 
 ---
 
@@ -49,17 +49,16 @@ TAG="${VSS_REF//\//-}-from-source" # VSS_REF may be a branch; a Docker tag canno
 export COMPATIBLE_API_KEY=...     # bare value: quotes would be sealed into the credential
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
-docker compose --profile harness up -d
+docker compose --env-file .env -f gateway/docker-compose.yml --profile harness up -d
 openshell gateway add http://127.0.0.1:8080 --local --name vss
 
 # 2. Harness image: upstream Hermes, the vss CLI, the skills and the baked policy.
-docker build -f Dockerfile.hermes-from-source --build-arg VSS_REF="$VSS_REF" \
-  -t "vss-harness-hermes:$TAG" .
+docker build --build-arg VSS_REF="$VSS_REF" -t "vss-harness-hermes:$TAG" hermes
 
 # 3. Inference provider. The profile authorizes the host; the provider seals the
 #    key, which the proxy injects at egress so the agent never holds it.
 case "$COMPATIBLE_API_KEY" in ''|\"*|\'*) echo "COMPATIBLE_API_KEY must be set, without quotes" >&2; false;; esac
-openshell profile import -f vss-inference-profile.yaml
+openshell profile import -f providers/vss-inference-profile.yaml
 openshell provider create --name vss-inference --type vss-inference \
   --credential COMPATIBLE_API_KEY
 
@@ -67,7 +66,7 @@ openshell provider create --name vss-inference --type vss-inference \
 openshell sandbox create \
   --name vss-harness-hermes \
   --from "vss-harness-hermes:$TAG" \
-  --policy ./policy-hermes.yaml \
+  --policy hermes/policy.yaml \
   --provider vss-inference \
   --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
   --env VSS_HERMES_BASE_URL="$VSS_HERMES_BASE_URL" \
@@ -172,7 +171,7 @@ decision.
 | Channel volumes | — | Sandbox bootstrap keys, and the Unix socket the two containers speak over — never the network |
 | Supervisor-only volume | — | The supervisor's JWT and gateway credentials; never mounted into the workload |
 
-![How OpenShell brings up the gateway and a sandbox](assets/vss-openshell-deploy-sequence.svg)
+![How OpenShell brings up the gateway and a sandbox](docs/assets/vss-openshell-deploy-sequence.svg)
 
 0.1.6 reversed which end of that socket dials the other, which imposes a
 version rule: a new sandbox needs matching supervisor and sandbox-runtime
@@ -206,7 +205,7 @@ domain, so a compromised agent cannot switch it off:
 
 Drawn for the 0.1.x target, not the deployed 0.0.116.
 
-![VSS on OpenShell](assets/vss-openshell-architecture.svg)
+![VSS on OpenShell](docs/assets/vss-openshell-architecture.svg)
 
 - **Gateway** is the control plane, a Compose service behind the `harness`
   profile. It owns sandbox lifecycle and state,
@@ -229,7 +228,7 @@ Drawn for the 0.1.x target, not the deployed 0.0.116.
 A chat turn from the VSS UI to Hermes. The gateway hops were measured on 0.1.5
 with a probe server; the Hermes end was measured against the harness image.
 
-![Request path from the VSS UI to the harness](assets/vss-openshell-request-path.svg)
+![Request path from the VSS UI to the harness](docs/assets/vss-openshell-request-path.svg)
 
 **Deployed from the host.** VSS and the harness are both deployed from the
 host — by notebooks, CI, or the `vss-build-vision-ai` coding agent. Each
@@ -310,7 +309,7 @@ JWT key paths `init` writes. Three edits VSS has to make to it:
   above is for.
 
 ```bash
-docker compose --profile harness up -d
+docker compose --env-file .env -f gateway/docker-compose.yml --profile harness up -d
 openshell gateway add http://127.0.0.1:8080 --local --name vss
 ```
 
@@ -363,7 +362,7 @@ state. The cost is the socket mount above.
 **2 — Convert the policy and prove it.** Translate the preset to OpenShell policy
 YAML, then verify the result rather than eyeballing it.
 
-`policy-hermes.yaml` is the candidate — the preset's 11 policies in explicit
+`hermes/policy.yaml` is the candidate — the preset's 11 policies in explicit
 form, plus the filesystem, landlock and process sections the preset used to
 inherit from the base policy (abridged). It is per-harness because OpenShell
 matches a connection on its destination *and* its calling binary, so the
@@ -414,7 +413,7 @@ default host-mode supervisor the driver publishes host loopback as the backend
 address for `host.openshell.internal`, so the `172.17.0.0/16`-style grants
 match nothing.
 
-`boundary-hermes.yaml` is the ceiling VSS is willing to grant a Hermes sandbox,
+`hermes/boundary.yaml` is the ceiling VSS is willing to grant a Hermes sandbox,
 written once by hand. Same paths and same binaries, deliberately wider where it
 matters — every method on Anthropic rather than `POST /v1/**`:
 
@@ -446,7 +445,7 @@ network_policies:
 ```
 
 ```bash
-openshell-prover check policy-hermes.yaml --boundary boundary-hermes.yaml
+openshell-prover check hermes/policy.yaml --boundary hermes/boundary.yaml
 # result: within_boundary
 # coverage: domains=filesystem,network_l4,network_rest,process,landlock
 ```
@@ -460,17 +459,16 @@ what it covered.
 
 **3 — Build the image and bake the policy in**, so one artifact carries the
 plugin, skills, workspace docs, `vss` CLI and the access boundary at one
-`VSS_REF`. [`Dockerfile.hermes-from-source`](Dockerfile.hermes-from-source)
+`VSS_REF`. [`hermes/Dockerfile`](hermes/Dockerfile)
 builds all of it in one pass from upstream Hermes on
 `nvcr.io/nvidia/base/ubuntu:24.04`, with no NemoClaw image underneath; why that
 rather than deriving from `hermes-sandbox` is in
-[`nemoclaw-v1-vs-openshell.md`](nemoclaw-v1-vs-openshell.md#removing-the-last-nemoclaw-dependency-the-base-image).
+[`docs/nemoclaw-v1-vs-openshell.md`](docs/nemoclaw-v1-vs-openshell.md#removing-the-last-nemoclaw-dependency-the-base-image).
 
 ```bash
 TAG="${VSS_REF//\//-}-from-source"   # a branch's "/" is not valid in a Docker tag
-docker build -f .openshell/Dockerfile.hermes-from-source \
-  --build-arg VSS_REF=$VSS_REF \
-  -t vss-harness-hermes:$TAG .openshell
+docker build --build-arg VSS_REF=$VSS_REF \
+  -t vss-harness-hermes:$TAG .openshell/hermes
 ```
 
 `VSS_REF` has to name a ref on `VSS_REPO`: the build fetches the VSS checkout
@@ -495,7 +493,7 @@ proxy strips whatever bearer the agent sends and injects the provider's real
 key, so only its presence matters.
 
 The NGC CLI is not in the image, so an operation skill that resolves a sample
-video by name fails and the `ngc` entry in `policy-hermes.yaml` never matches.
+video by name fails and the `ngc` entry in `hermes/policy.yaml` never matches.
 
 Precedence is `--policy` > `OPENSHELL_SANDBOX_POLICY` > image policy > built-in
 default. Keep the runtime-discovered parts — `allowed_ips` from
@@ -507,7 +505,7 @@ for Compose.
 `COMPATIBLE_API_KEY` at onboard):
 
 ```yaml
-# .openshell/vss-inference-profile.yaml
+# .openshell/providers/vss-inference-profile.yaml
 id: vss-inference
 display_name: VSS agent inference
 category: inference
@@ -530,8 +528,8 @@ binaries:
 ```
 
 ```bash
-openshell profile lint   -f .openshell/vss-inference-profile.yaml
-openshell profile import -f .openshell/vss-inference-profile.yaml
+openshell profile lint   -f .openshell/providers/vss-inference-profile.yaml
+openshell profile import -f .openshell/providers/vss-inference-profile.yaml
 COMPATIBLE_API_KEY=... openshell provider create \
   --name vss-inference --type vss-inference --credential COMPATIBLE_API_KEY
 ```
@@ -546,9 +544,9 @@ imported:
 
 | `deploy_nemoclaw.ipynb` | Profile | Credential |
 |---|---|---|
-| (a) OpenAI-compatible endpoint | `vss-inference-profile.yaml` | `COMPATIBLE_API_KEY` |
-| (b) model served on this host | `vss-inference-local-profile.yaml` | optional |
-| (c) build.nvidia.com | `vss-inference-build-profile.yaml` | `NVIDIA_API_KEY` |
+| (a) OpenAI-compatible endpoint | `providers/vss-inference-profile.yaml` | `COMPATIBLE_API_KEY` |
+| (b) model served on this host | `providers/vss-inference-local-profile.yaml` | optional |
+| (c) build.nvidia.com | `providers/vss-inference-build-profile.yaml` | `NVIDIA_API_KEY` |
 
 A server on a port (b) does not declare is unreachable until the profile
 declares it. Within a family the model id is free, and step 5 sets it.
@@ -559,7 +557,7 @@ declares it. Within a family the model id is free, and step 5 sets it.
 openshell sandbox create \
   --name vss-harness-hermes \
   --from vss-harness-hermes:$TAG \
-  --policy ./policy-hermes.yaml \
+  --policy hermes/policy.yaml \
   --provider vss-inference \
   --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
   --env VSS_HERMES_BASE_URL=https://inference-api.nvidia.com/v1 \
@@ -732,15 +730,15 @@ with SandboxClient.from_active_cluster() as client:
 The work above is per-harness, so OpenClaw returns as a parallel set of the
 same artifacts — no new code path, because OpenShell has no harness concept to
 teach. Concretely: build `.openclaw/` to a second image, bake in
-[`policy-openclaw.yaml`](policy-openclaw.yaml) — proven against
-[`boundary-openclaw.yaml`](boundary-openclaw.yaml) — and the OpenClaw config,
+[`openclaw/policy.yaml`](openclaw/policy.yaml) — proven against
+[`openclaw/boundary.yaml`](openclaw/boundary.yaml) — and the OpenClaw config,
 and create with `-- openclaw gateway run --port 18789`. The policy differs from
 Hermes's in three places: `binaries` name `/usr/local/bin/node`, since
 `openclaw` is a Node script; it adds `clawhub.ai` and `openclaw.ai`; and the
 process group is `998`.
 
 Only two differences between the harnesses change anything structural (see
-[What each manifest declares](nemoclaw-v1-vs-openshell.md#what-each-manifest-declares)).
+[What each manifest declares](docs/nemoclaw-v1-vs-openshell.md#what-each-manifest-declares)).
 OpenClaw authenticates its dashboard by device pairing rather than a bearer
 key, so the auto-approval that `nemoclaw-start` performed has to be replaced or
 the pairing accepted by hand. And its `inference.provider_type` is
@@ -758,8 +756,8 @@ inference provider and the VSS backend grant:
 
 ```bash
 # 1. Policy stays inside the boundary ceiling
-openshell-prover check .openshell/policy-hermes.yaml \
-  --boundary .openshell/boundary-hermes.yaml
+openshell-prover check .openshell/hermes/policy.yaml \
+  --boundary .openshell/hermes/boundary.yaml
 # -> result: within_boundary
 # -> coverage: domains=filesystem,network_l4,network_rest,process,landlock
 

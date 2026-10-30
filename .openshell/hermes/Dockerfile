@@ -3,24 +3,23 @@
 
 # Hermes harness with no NemoClaw layer: Hermes is built from its own public
 # source instead of inherited from a managed image, so nothing in this file is
-# copied out of NemoClaw. Produces the same artifact ../.hermes/Dockerfile plus
-# Dockerfile.policy produce together — harness, `vss` CLI, skills, workspace
+# copied out of NemoClaw. Produces the same artifact ../../.hermes/Dockerfile
+# plus Dockerfile.policy produce together — harness, `vss` CLI, skills, workspace
 # docs, the vss_cli plugin and the baked access boundary in one image.
 #
-# The security posture is unchanged and needs no edits elsewhere:
-# policy-hermes.yaml, boundary-hermes.yaml and vss-inference-profile.yaml all
-# apply as written, because the interpreter keeps its /usr/bin/python3.13 path
-# and the process keeps its 998:999 identity.
+# The security posture is unchanged and needs no edits elsewhere: policy.yaml,
+# boundary.yaml and ../providers/vss-inference-profile.yaml all apply as
+# written, because the interpreter keeps its /usr/bin/python3.13 path and the
+# process keeps its 998:999 identity.
 #
 # Not carried over: the NGC CLI. An operation skill that resolves a sample
 # video by name shells out to `ngc`, and that call fails here; the `ngc` entry
-# in policy-hermes.yaml simply never matches.
+# in policy.yaml simply never matches.
 #
-# Build context is this directory (.openshell):
+# Build context is this directory (.openshell/hermes):
 #
-#   docker build -f .openshell/Dockerfile.hermes-from-source \
-#     --build-arg VSS_REF=$VSS_REF \
-#     -t vss-harness-hermes:$VSS_REF-from-source .openshell
+#   docker build --build-arg VSS_REF=$VSS_REF \
+#     -t "vss-harness-hermes:${VSS_REF//\//-}-from-source" .openshell/hermes
 
 ARG BASE_IMAGE=nvcr.io/nvidia/base/ubuntu:24.04
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
@@ -29,7 +28,7 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
 ARG HERMES_REPO=https://github.com/NousResearch/hermes-agent
 ARG HERMES_REF=v2026.9.14
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-# Keep in lockstep with ../.hermes/Dockerfile, which explains the choice.
+# Keep in lockstep with ../../.hermes/Dockerfile, which explains the choice.
 ARG VSS_REF=develop
 
 FROM ${UV_IMAGE} AS uv
@@ -87,7 +86,7 @@ RUN rm -rf /opt/hermes/.git /opt/hermes/tests /opt/hermes/tests-js /opt/hermes/e
       /opt/hermes/package-lock.json
 
 # ── VSS source checkout: skills + workspace docs + CLI wheels ──────────────────
-# Same selection rules as ../.hermes/Dockerfile's vss-src stage. The vss_cli
+# Same selection rules as ../../.hermes/Dockerfile's vss-src stage. The vss_cli
 # plugin comes from the pinned checkout rather than the build context, since
 # the context here carries the boundary, not harness code.
 FROM ${BASE_IMAGE} AS vss-src
@@ -134,7 +133,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH=/usr/local/vss/bin:/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/* \
-    # 998:999 is the process identity policy-hermes.yaml requires.
+    # 998:999 is the process identity policy.yaml requires.
     && groupadd -g 999 sandbox \
     && useradd -u 998 -g 999 -m -d /sandbox -s /bin/bash sandbox
 COPY --from=python /opt/pystage/ /
@@ -206,7 +205,7 @@ RUN su sandbox -s /bin/sh -c 'set -e; cd /sandbox; H=/opt/hermes/.venv/bin/herme
 # The directory is made here rather than left to COPY, which would give it the
 # --chmod mode and leave it unsearchable.
 RUN mkdir -p /etc/openshell && chmod 0755 /etc/openshell
-COPY --chmod=0644 policy-hermes.yaml /etc/openshell/policy.yaml
+COPY --chmod=0644 policy.yaml /etc/openshell/policy.yaml
 
 # ── VLM request defaults for `vss vlm run` ────────────────────────────────────
 # Runtime variables, declared empty: the CLI reads empty as unset, so the VLM

@@ -1,14 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# VSS OpenClaw harness policy — the OpenShell-native translation of
-# assets/vss_nemoclaw_policy.yaml, in the same form as policy-hermes.yaml.
-#
-#   - `binaries` names /usr/local/bin/node: `openclaw` is a `#!/usr/bin/env
-#     node` script, so no process carries its path. The `vss` CLI venv is
-#     built on /usr/bin/python3, so it runs as /usr/bin/python3.13.
-#   - L4 and REST endpoints live in separate named policies, and a plain TCP
-#     grant is `protocol: tcp`, not `access: full`.
+# The ceiling VSS is willing to grant an OpenClaw harness sandbox; the
+# counterpart of ../hermes/boundary.yaml, with the same rules. Same filesystem
+# paths, process identity and exact binary paths as policy.yaml,
+# wider where it matters: every method on each host.
 
 version: 1
 
@@ -18,108 +14,97 @@ filesystem_policy:
 
 landlock: { compatibility: best_effort }
 
-# 998:998 is `sandbox` in the OpenClaw base image; 999 is its `gateway` user.
-process:  { run_as_user: "998", run_as_group: "998" }
+process:  { run_as_user: "998", run_as_group: "998" }   # `sandbox` in .openclaw
 
 network_policies:
-  vss-backend:
-    name: vss-backend-readwrite
+  vss-backend-max:
+    name: vss-backend-max
     endpoints:
       - { host: host.openshell.internal, port: 7777, protocol: tcp }
     binaries:
       - { path: /usr/local/bin/node }
       - { path: /usr/bin/python3.13 }
 
-  anthropic:
-    name: anthropic
+  harness-rest-max:
+    name: harness-rest-max
     endpoints:
       - host: api.anthropic.com
         port: 443
         protocol: rest
-        enforcement: enforce        # audit-mode REST is `unsupported`, not a pass
+        enforcement: enforce
         rules:
-          - allow: { method: POST, path: "/v1/**" }
-    binaries: [{ path: /usr/local/bin/node }]
-
-  openclaw-phone-home:
-    name: openclaw-phone-home
-    endpoints:
+          - allow: { method: GET,  path: "/**" }
+          - allow: { method: POST, path: "/**" }
       - host: openclaw.ai
         port: 443
         protocol: rest
         enforcement: enforce
         rules:
-          - allow: { method: GET, path: "/**" }
-    binaries: [{ path: /usr/local/bin/node }]
-
-  clawhub:
-    name: clawhub
-    endpoints:
+          - allow: { method: GET,  path: "/**" }
+          - allow: { method: POST, path: "/**" }
       - host: clawhub.ai
         port: 443
         protocol: rest
         enforcement: enforce
         rules:
-          - allow: { method: GET, path: "/**" }
+          - allow: { method: GET,  path: "/**" }
+          - allow: { method: POST, path: "/**" }
       - host: registry.clawhub.ai
         port: 443
         protocol: rest
         enforcement: enforce
         rules:
-          - allow: { method: GET, path: "/**" }
+          - allow: { method: GET,  path: "/**" }
           - allow: { method: POST, path: "/**" }
       - host: cdn.clawhub.ai
         port: 443
         protocol: rest
         enforcement: enforce
         rules:
-          - allow: { method: GET, path: "/**" }
-    binaries: [{ path: /usr/local/bin/node }]
-
-  pypi:
-    name: pypi
-    endpoints:
+          - allow: { method: GET,  path: "/**" }
+          - allow: { method: POST, path: "/**" }
       - host: pypi.org
         port: 443
         protocol: rest
         enforcement: enforce
         rules:
-          - allow: { method: GET, path: "/**" }
+          - allow: { method: GET,  path: "/**" }
+          - allow: { method: POST, path: "/**" }
       - host: files.pythonhosted.org
         port: 443
         protocol: rest
         enforcement: enforce
         rules:
-          - allow: { method: GET, path: "/**" }
+          - allow: { method: GET,  path: "/**" }
+          - allow: { method: POST, path: "/**" }
       - host: pypi.nvidia.com
         port: 443
         protocol: rest
         enforcement: enforce
         rules:
-          - allow: { method: GET, path: "/**" }
-    binaries: [{ path: /usr/bin/python3.13 }]
-
-  github:
-    name: github
-    endpoints:
+          - allow: { method: GET,  path: "/**" }
+          - allow: { method: POST, path: "/**" }
       - host: api.github.com
         port: 443
         protocol: rest
         enforcement: enforce
         rules:
-          - allow: { method: GET, path: "/**" }
+          - allow: { method: GET,  path: "/**" }
+          - allow: { method: POST, path: "/**" }
       - host: github.com
         port: 443
         protocol: rest
         enforcement: enforce
         rules:
-          - allow: { method: GET, path: "/**" }
+          - allow: { method: GET,  path: "/**" }
+          - allow: { method: POST, path: "/**" }
     binaries:
-      - { path: /usr/bin/git }
       - { path: /usr/local/bin/node }
+      - { path: /usr/bin/python3.13 }
+      - { path: /usr/bin/git }
 
-  ngc:
-    name: ngc
+  ngc-max:
+    name: ngc-max
     endpoints:
       - { host: authn.nvidia.com,      port: 443, protocol: tcp }
       - { host: api.ngc.nvidia.com,    port: 443, protocol: tcp }
