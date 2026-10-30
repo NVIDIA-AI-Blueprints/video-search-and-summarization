@@ -184,6 +184,11 @@ def test_remove_live_stream_subscriber_removes_only_target():
         live_stream_id=stream_id,
         request_id="request-1",
     )
+    pipeline._vlm_procs[0].send_command.assert_called_once_with(
+        "close-streaming-vlm-session",
+        stream_id=stream_id,
+        request_id="request-1",
+    )
 
 
 @pytest.mark.no_gpu

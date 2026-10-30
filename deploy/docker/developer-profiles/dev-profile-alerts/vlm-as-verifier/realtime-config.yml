@@ -11,3 +11,4 @@ always_on_rules:
       system_prompt: "You are a helpful assistant."
       prompt: "Is there a ladder in the scene, if no you must always answer no. If there is a ladder, determine if anyone on the ladder without a hardhat or safety vest? Answer yes or no."
       model: "${VLM_NAME}"
+      inference_mode: "chunked"

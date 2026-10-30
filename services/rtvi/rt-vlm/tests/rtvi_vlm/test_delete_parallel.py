@@ -403,6 +403,24 @@ def test_remove_live_stream_times_out_and_retains_state(monkeypatch, stream_hand
 
 
 @pytest.mark.no_gpu
+def test_forced_remove_timeout_closes_streaming_sessions(stream_handler):
+    pipeline = stream_handler._vlm_pipeline
+    pipeline.remove_live_stream = types.MethodType(VlmPipeline.remove_live_stream, pipeline)
+    pipeline._abort_live_stream_vlm_requests = MagicMock(return_value=1)
+    pipeline._vlm_procs = [MagicMock()]
+    pipeline._asr_procs = [MagicMock()]
+    pipeline._decoder_procs = [MagicMock()]
+    pipeline._live_stream_id_map = {
+        "wedged": SimpleNamespace(all_chunks_processed=False, gpu_id=0)
+    }
+
+    with pytest.raises(ServiceException):
+        pipeline.remove_live_stream("wedged", timeout_sec=0, abort_inflight=True)
+
+    pipeline.close_evs_sessions.assert_called_once_with("wedged")
+
+
+@pytest.mark.no_gpu
 def test_forced_delete_eos_waits_for_dropped_tail_chunk():
     """Decoder EOS cannot close EVS while a final VLM-queue chunk remains unaccounted."""
     pipeline = object.__new__(VlmPipeline)

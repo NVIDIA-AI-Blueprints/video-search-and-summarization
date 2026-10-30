@@ -1,0 +1,130 @@
+--- a/vllm/entrypoints/openai/streaming/chunking.py
++++ b/vllm/entrypoints/openai/streaming/chunking.py
+@@ -249,103 +249,28 @@
+     open_user_turn: bool = True,
+     coalesce_prefill_user_turns: bool = False,
+ ) -> StreamingInput:
+-    """Render one decoded frame batch into native temporal video inputs.
+-
+-    The renderer contributes the model's video placeholder tokens; decoded
+-    frames replace UUID-only placeholders in-memory without codec or HTTP work.
+-    """
+-    frame_index_offset = (
+-        round(start_time_s * fps) if absolute_segment_timestamps else 0
+-    )
+-    video_items = build_temporal_video_items(frames, fps, frame_index_offset)
+-    video_uuids = [str(uuid4()) for _ in video_items]
+-    messages = cast(
+-        "list[ChatCompletionMessageParam]",
+-        build_messages(
+-            video_uuids,
+-            system_prompt,
+-            question,
+-            is_first,
+-            (not question_on_decode and is_first)
+-            or (question_on_decode and generate),
+-            previous_text,
+-            start_time_s,
+-            end_time_s,
+-        ),
++    """Render decoded frames with the same incremental image turns as NIM."""
++    if not frames:
++        raise ValueError("streaming frame batch cannot be empty")
++    user_content = [
++        {"type": "image_pil", "image_pil": frame} for frame in frames
++    ]
++    include_question = (not question_on_decode and is_first) or (
++        question_on_decode and generate
+     )
+-    if coalesce_prefill_user_turns:
+-        params = ChatParams(
+-            chat_template=_CONTINUOUS_USER_CHAT_TEMPLATE,
+-            chat_template_content_format="auto",
+-            chat_template_kwargs={
+-                "streaming_is_first": open_user_turn,
+-                "streaming_generate": generate,
+-            },
+-        )
+-    else:
+-        # Preserve the checkpoint's native chat contract. The released MIT
+-        # StreamingVLM model is sensitive to these exact role delimiters.
+-        params = ChatParams(
+-            chat_template_content_format="auto",
+-            chat_template_kwargs={"add_generation_prompt": True},
+-        )
+-    prompt_extras = {
+-        "multi_modal_data": {"video": video_items},
+-        "multi_modal_uuids": {"video": video_uuids},
+-    }
+-    if mm_processor_kwargs:
+-        prompt_extras["mm_processor_kwargs"] = dict(mm_processor_kwargs)
+-    _, engine_prompts = await renderer.render_chat_async(
+-        [messages],
+-        params,
+-        prompt_extras=prompt_extras,
+-    )
+-    previous_text_range = None
++    if include_question and question:
++        user_content.append({"type": "text", "text": question})
++    messages = [{"role": "user", "content": user_content}]
+     if is_first:
+-        try:
+-            previous_text_range = previous_text_token_range(
+-                engine_prompts[0], renderer, renderer.get_eos_token_id()
+-            )
+-        except ValueError as error:
+-            if (
+-                coalesce_prefill_user_turns
+-                or str(error) != "expected one previous-text role, found 0"
+-            ):
+-                raise
+-            fallback_params = ChatParams(
+-                chat_template=_STREAMING_CHAT_TEMPLATE,
+-                chat_template_content_format="auto",
+-                chat_template_kwargs={"add_generation_prompt": True},
+-            )
+-            _, engine_prompts = await renderer.render_chat_async(
+-                [messages],
+-                fallback_params,
+-                prompt_extras=prompt_extras,
+-            )
+-            previous_text_range = previous_text_token_range(
+-                engine_prompts[0], renderer, renderer.get_eos_token_id()
+-            )
+-    chunk_sp = sp.clone() if is_first or not generate else sp
+-    if is_first:
+-        chunk_sp.extra_args = dict(sp.extra_args or {})
+-        chunk_sp.extra_args["streaming_eos_token_id"] = renderer.get_eos_token_id()
+-        chunk_sp.extra_args["streaming_assistant_continuation_token_ids"] = (
+-            assistant_continuation_token_ids(renderer)
+-        )
+-        chunk_sp.extra_args["streaming_role_end_token_ids"] = (
+-            role_end_token_ids(renderer)
+-        )
+-        chunk_sp.extra_args["streaming_user_role_start_token_ids"] = (
+-            user_role_start_token_ids(renderer)
+-        )
+-        chunk_sp.extra_args["streaming_vision_start_token_id"] = (
+-            vision_start_token_id(renderer)
+-        )
+-        assert previous_text_range is not None
+-        previous_start, previous_end = previous_text_range
+-        chunk_sp.extra_args["streaming_previous_text_start_token"] = previous_start
+-        chunk_sp.extra_args["streaming_previous_text_end_token"] = previous_end
++        messages.insert(0, {"role": "system", "content": system_prompt})
++    params = ChatParams(
++        chat_template_content_format="auto",
++        chat_template_kwargs={"add_generation_prompt": True},
++    )
++    prompt_extras = {}
++    if mm_processor_kwargs:
++        prompt_extras["mm_processor_kwargs"] = dict(mm_processor_kwargs)
++    _, engine_prompts = await renderer.render_chat_async(
++        [messages], params, prompt_extras=prompt_extras
++    )
++    chunk_sp = sp
+     if not generate:
++        chunk_sp = sp.clone()
+         chunk_sp.extra_args = dict(chunk_sp.extra_args or {})
+         chunk_sp.extra_args["streaming_prefill_only"] = True
+     return StreamingInput(prompt=engine_prompts[0], sampling_params=chunk_sp)

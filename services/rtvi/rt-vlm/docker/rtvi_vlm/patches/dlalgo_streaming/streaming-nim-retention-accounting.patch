@@ -1,0 +1,32 @@
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -1811,15 +1811,10 @@
+                 else:
+                     session.session_history.append(
+                         HistorySegment(
+-                            segment_type=(
+-                                "video" if anchor_feature is not None else "user_text"
+-                            ),
++                            # NIM 0.28 keeps the initial multimodal turn as a
++                            # pinned text anchor; its image remains in mm_features.
++                            segment_type="user_text",
+                             token_range=(0, prior_response_start),
+-                            mm_item_id=(
+-                                anchor_feature.identifier
+-                                if anchor_feature is not None
+-                                else None
+-                            ),
+                             pinned=True,
+                         )
+                     )
+@@ -1835,10 +1830,6 @@
+                 HistorySegment(
+                     segment_type="assistant_text",
+                     token_range=(prior_response_start, segment_start_idx),
+-                    # This caption belongs to the prior turn, whose video was
+-                    # aged above. Start at one so text and visual retention
+-                    # cross their boundary in the same scheduler update.
+-                    age_chunks=1,
+                 )
+             )
+

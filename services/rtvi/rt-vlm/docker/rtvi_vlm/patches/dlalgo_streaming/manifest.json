@@ -1,0 +1,33 @@
+{
+  "name": "dlalgo-streaming-native-tot-v017-full-compat-nightly-20260918",
+  "source_repository": "ssh://git@gitlab-master.nvidia.com:12051/bfalk/streaming-vllm.git",
+  "source_branch": "streaming-video",
+  "source_base_commit": "06a5fc2e23f7dad43a55e3528835bd5447c1ddd0",
+  "source_commit": "9bccd09c84422241043c1e514d52cd394f7749b4",
+  "target_base_image": "nvcr.io/nvidia/vllm:26.03-py3@sha256:13e327dad79e6e417f6687fec2ba76b0386d597082ec0ee003c1e964ec6ad0e7",
+  "target_vllm_version": "0.17.1+a03ca76a.nv26.3.46967107.cu132",
+  "patch_file": "dlalgo-streaming-native-tot-v017-full-compat.patch",
+  "patch_sha256": "74f926ac6ca0fc382c522e0806bf5b27c9a8ec68fb78a624627fad3d216b2566",
+  "evs_merged_patch_sha256": "f952ba6cad3cdd9ff43012a69b6de5a37d85c0cc18cff4de4093d62f78fca6b8",
+  "overlay_patches": [
+    {
+      "patch_file": "streaming-output-token-decode.patch",
+      "patch_sha256": "a403ef2175da80c28a28618ecf8dfa1b49e6cb2606a869e95c3e83b0e54e900e"
+    },
+    {
+      "patch_file": "streaming-exact-choice-trie.patch",
+      "patch_sha256": "edfbe4a0381cc9cc566f7af03492371591e30abcf095b9cb066a2be580cb25c4"
+    },
+    {
+      "patch_file": "streaming-nim-image-prompts.patch",
+      "patch_sha256": "8965a0bc0d812045744dc30236b03ae5f1ad95f4540dc707e8490126818845f5"
+    },
+    {
+      "patch_file": "streaming-nim-retention-accounting.patch",
+      "patch_sha256": "d1980eed093869717a3b5150188911f91f2d02e651ea4bbc91ab2114a1d514cc",
+      "exclude_evs_merged_paths": false
+    }
+  ],
+  "transport": "native-decoded-frame",
+  "rest_api_included": false
+}

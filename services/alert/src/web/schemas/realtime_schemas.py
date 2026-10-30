@@ -39,7 +39,9 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictBool,
     field_validator,
+    model_validator,
 )
 
 from realtime import (
@@ -48,6 +50,12 @@ from realtime import (
     AlwaysOnRulesFile,
     ResponseStatus,
     RuleStatus,
+)
+from realtime.schemas import (
+    InferenceMode,
+    StreamingFramePolicy,
+    StreamingWindowFrames,
+    require_streaming_mode_for_options,
 )
 
 
@@ -299,6 +307,41 @@ class RealtimeAlertRequest(BaseModel):
         default=None,
         description="RTVI: additional multimodal processor kwargs",
     )
+    # Native StreamingVLM options — require an RTVI build with streaming
+    # session support; stock RTVI builds reject them.
+    inference_mode: Optional[InferenceMode] = Field(
+        default=None,
+        description=(
+            "RTVI: inference strategy. 'chunked' sends independent per-chunk "
+            "requests; 'streaming_vlm' keeps one persistent VLM session per "
+            "live stream"
+        ),
+    )
+    streaming_frame_policy: Optional[StreamingFramePolicy] = Field(
+        default=None,
+        description="RTVI: StreamingVLM frame policy (e.g. 'ordered')",
+    )
+    streaming_window_frames: Optional[StreamingWindowFrames] = Field(
+        default=None,
+        description="RTVI: decoded frames retained by the StreamingVLM session",
+    )
+    streaming_question_on_decode: Optional[StrictBool] = Field(
+        default=None,
+        description=(
+            "RTVI: repeat the prompt on every StreamingVLM decode step instead "
+            "of only at session start"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _streaming_options_need_streaming_mode(self) -> "RealtimeAlertRequest":
+        require_streaming_mode_for_options(
+            self.inference_mode,
+            self.streaming_frame_policy,
+            self.streaming_window_frames,
+            self.streaming_question_on_decode,
+        )
+        return self
 
 
 class RealtimeAlertResponse(BaseModel):
@@ -400,6 +443,10 @@ class RealtimeAlertRule(BaseModel):
     media_info: Optional[Dict[str, Any]] = None
     enable_audio: Optional[bool] = None
     mm_processor_kwargs: Optional[Dict[str, Any]] = None
+    inference_mode: Optional[InferenceMode] = None
+    streaming_frame_policy: Optional[StreamingFramePolicy] = None
+    streaming_window_frames: Optional[StreamingWindowFrames] = None
+    streaming_question_on_decode: Optional[StrictBool] = None
 
 
 class RealtimeAlertListResponse(BaseModel):

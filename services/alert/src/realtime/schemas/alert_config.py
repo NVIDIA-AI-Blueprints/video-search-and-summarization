@@ -19,7 +19,40 @@ Typed configuration dataclass for real-time VLM alert rules.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Annotated, Any, Dict, Literal, Optional, Tuple
+
+from pydantic import Field, StrictBool, StrictInt
+
+
+# StreamingVLM field types, shared with the REST schemas so the REST API and
+# the always-on YAML (generated from this dataclass) validate them alike.
+# The window has no upper bound here: RTVI enforces its own maximum. Strict
+# types, so `true` or "8" is rejected instead of quietly becoming 1 or 8.
+InferenceMode = Literal["chunked", "streaming_vlm"]
+StreamingWindowFrames = Annotated[StrictInt, Field(ge=1)]
+# Non-empty only: the accepted policy names are owned and validated by RTVI.
+StreamingFramePolicy = Annotated[str, Field(min_length=1)]
+
+
+def require_streaming_mode_for_options(
+    inference_mode: Optional[str],
+    streaming_frame_policy: Optional[str],
+    streaming_window_frames: Optional[int],
+    streaming_question_on_decode: Optional[bool],
+) -> None:
+    """Raise ValueError if a ``streaming_*`` option is set without
+    ``inference_mode="streaming_vlm"`` (RTVI would reject or ignore it)."""
+    if inference_mode != "streaming_vlm" and any(
+        v is not None
+        for v in (
+            streaming_frame_policy,
+            streaming_window_frames,
+            streaming_question_on_decode,
+        )
+    ):
+        raise ValueError(
+            "streaming_* options require inference_mode='streaming_vlm'"
+        )
 
 
 # Single source of truth for the optional RTVI VLM fields that are omitted
@@ -39,6 +72,10 @@ EXTENDED_OPTIONAL_FIELDS: Tuple[str, ...] = (
     "media_info",
     "enable_audio",
     "mm_processor_kwargs",
+    "inference_mode",
+    "streaming_frame_policy",
+    "streaming_window_frames",
+    "streaming_question_on_decode",
 )
 
 
@@ -85,7 +122,8 @@ class AlertRuleConfig:
     set to None, letting RTVI use its own server-side defaults):
       api_type, response_format, stream_options, max_tokens, temperature,
       top_p, top_k, ignore_eos, seed, media_info, enable_audio,
-      mm_processor_kwargs.
+      mm_processor_kwargs, inference_mode, streaming_frame_policy,
+      streaming_window_frames, streaming_question_on_decode.
     """
 
     live_stream_url: str
@@ -137,3 +175,13 @@ class AlertRuleConfig:
     media_info: Optional[Dict[str, Any]] = None
     enable_audio: Optional[bool] = None
     mm_processor_kwargs: Optional[Dict[str, Any]] = None
+    # Native StreamingVLM options — only understood by RTVI builds that
+    # ship the persistent streaming session. "streaming_vlm" keeps one
+    # incremental VLM session per live stream instead of independent
+    # per-chunk requests. streaming_frame_policy is validated by RTVI.
+    inference_mode: Optional[InferenceMode] = None
+    streaming_frame_policy: Optional[StreamingFramePolicy] = None
+    streaming_window_frames: Optional[StreamingWindowFrames] = None
+    # Repeat the prompt on every streaming step; by default the session only
+    # sees it once, at session start.
+    streaming_question_on_decode: Optional[StrictBool] = None

@@ -1,0 +1,39 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "alerts-realtime-inference-intake",
+  "runtime_deploy": false,
+  "expects": [
+    {
+      "artifact_expected": false,
+      "query": "Deploy the dev Alerts Docker Compose profile in real-time mode. I have not selected the VLM inference mode. Collect the missing deployment choices first; do not generate artifacts or start services yet.",
+      "checks": [
+        "The agent asks the user to choose Chunking (default) or Streaming for VLM inference before generating artifacts, selecting GPUs, or deploying.",
+        "The choice explains that chunking waits for a completed chunk while streaming processes sampled frames incrementally for lower alert latency.",
+        "The agent does not interpret real-time as a request for streaming, silently select chunking, or ask for a native/separate-NIM variant before Streaming is chosen.",
+        "No deployment, host setup, or build-artifact side effects occur before the user answers."
+      ]
+    },
+    {
+      "artifact_expected": false,
+      "query": "Use streaming. Ask me the remaining streaming deployment choice before generating anything.",
+      "checks": [
+        "The agent asks whether to use Native inside RTVI VLM or Separate streaming NIM.",
+        "It explains that native inference retains context inside RTVI while separate NIM receives frames from RTVI and owns inference/context.",
+        "It does not repeat the chunking/streaming question, select a backend without an answer, rebuild RTVI, generate a build, or start containers."
+      ]
+    },
+    {
+      "artifact_expected": false,
+      "query": "Use a separate streaming NIM. For now, explain the deployment changes only; do not generate files or deploy. The model ID and GPU placement are still undecided.",
+      "checks": [
+        "The explanation selects the checked-in dev Alerts compose.streaming-nim.yml overlay and keeps native streaming disabled.",
+        "It uses the default STREAMING_NIM_IMAGE nvcr.io/nim/nvidia/cosmos3:2.1.0 and identifies the still-undecided served VLM model ID and GPU placement rather than inventing them.",
+        "It keeps Alert Bridge and the Agent routed through RTVI and describes the existing forwarding support without editing RTVI source or building a custom RTVI image.",
+        "It describes a build-local streaming rule config selected by VLM_AS_VERIFIER_CONFIG_FILE_REALTIME, with the checked-in Foundation left unchanged.",
+        "It does not ask the user to choose the inference mode or backend again, and performs no deployment or file generation."
+      ]
+    }
+  ]
+}

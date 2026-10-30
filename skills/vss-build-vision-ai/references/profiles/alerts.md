@@ -11,6 +11,16 @@
   [`services/alerts.md`](../services/alerts.md#custom-vlm-response-parser-alert-enhancement).
 - RTX PRO 4500 Blackwell (`RTXPRO4500BW`) is supported only with a remote LLM.
 
+## Real-time VLM inference selection
+
+For Docker `MODE=2d_vlm`, collect the inference choice before generating or
+deploying a build: **Chunking (default)** or **Streaming**. If Streaming is
+selected, collect **Native inside RTVI VLM** or **Separate streaming NIM**.
+Honor choices already supplied by the user and wait for missing answers.
+The exact intake and build branches are in
+[`alerts-streaming.md`](alerts-streaming.md); read it for every real-time
+Docker Alerts build. CV verification and Helm keep their existing flow.
+
 ## Profile Service Set
 
 Authoritative source:
@@ -168,5 +178,7 @@ probe `http://${HOST_IP}:8018/v1/health/ready`.
 - `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
 - `docs/agent-workflow-alert-verification.mdx`
+- `docs/agent-workflow-rt-alert.mdx`
+- `deploy/docker/developer-profiles/dev-profile-alerts/compose.streaming-nim.yml`
 - `skills/operations/vss-manage-alerts/references/integrate-alerts.md`
 - `skills/deployment/vss-setup-behavior-analytics/references/configuration.md`

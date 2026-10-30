@@ -88,6 +88,16 @@ principal data flows and topics).
 The modes are exclusive: do not enable Behavior Analytics incident generation for
 real-time alerts, and do not route CV verification through the real-time rule path.
 
+## Real-time dev Alerts inference
+
+When this owner is selected on the Docker `alerts` Foundation with
+`MODE=2d_vlm`, follow the required chunking/streaming and native/separate-NIM
+intake in [`profiles/alerts-streaming.md`](../profiles/alerts-streaming.md).
+This also applies to prompt-driven and custom builds. Streaming rule configs
+belong in the build's `patches/` directory and are selected through
+`VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`; the existing Alert Bridge mount needs
+no service-definition patch. Do not change the checked-in rule defaults.
+
 ## Alert Bridge config rendering
 
 `alert-bridge` entrypoint (`env-substitute.py`) renders the required main verifier
