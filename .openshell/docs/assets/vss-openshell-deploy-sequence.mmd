@@ -21,7 +21,7 @@ sequenceDiagram
 
     rect rgb(240, 250, 240)
     Note over Op,A: Per sandbox — openshell sandbox create
-    Op->>G: sandbox create --from image --policy --provider<br/>--expose 18642 -- hermes gateway run
+    Op->>G: sandbox create --from image --policy --provider<br/>--expose 8642 -- hermes gateway run
     G->>G: validate policy, record sandbox in gateway.db,<br/>mint launch-scoped JWT
     G->>D: provision sandbox
     D->>D: create channel volume, write launch token<br/>into its bootstrap material
