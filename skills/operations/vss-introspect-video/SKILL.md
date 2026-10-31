@@ -50,7 +50,7 @@ The evidence plan fields are:
 - `mode`: `"initial"` or `"expansion"`;
 - `question_id`, `question_text`: non-empty strings;
 - `asset_id`: string or null;
-- `claims`: exactly two initial claims, or exactly one expansion claim.
+- `claims`: a minimum of two initial claims, or exactly one new claim in an expansion.
 
 Each claim has `claim_id`, `requirement`, `evidence_type`,
 `coverage_requirement`, `support_test`, and `falsification_test`.
@@ -263,7 +263,8 @@ Apply these claim-classification rules:
 
 - classify the smallest visible answer-bearing outcome, not every locating fact;
 - use exactly one strict evidence type and one strict coverage requirement;
-- start with exactly two initial claims, not one and not more than two;
+- start with a minimum of two initial claims;
+- after a sufficiency check identifies a missing independent requirement, add one new claim at a time;
 - Each claim must express one specific visual fact or relationship that can be assessed separately. Keep the requirement to one sentence naming the subject, the fact to establish, and the relevant temporal scope. Split a claim when an answer-critical prerequisite and the conclusion it supports require different evidence tests and could have different resolution states. Record their dependency explicitly; do not resolve the dependent conclusion while its prerequisite remains uncertain. Do not create separate claims for incidental details that cannot affect the answer.
 - keep entity, location, event, and temporal grounding inside the requirement
   and tests;
@@ -633,10 +634,12 @@ window and higher FPS targeted at the remaining gap, not another full-interval
 skim. If no budget remains, stop. Do not answer from a note while the ledger
 is `in_progress`.
 
-Invoke planner expansion mode only when an independently assessable answer
-requirement is absent from the plan. Pass the prior plan and demonstrated
-planning gap, still option-blind. An expansion adds exactly one new claim and
-must preserve every existing claim ID and all evidence. Accept no more than the
+After a sufficiency check identifies a missing independent requirement, add one
+new claim at a time. Pass the prior plan and demonstrated planning gap, still
+option-blind. That expansion contains exactly one new claim and must preserve
+every existing claim ID and all evidence. Do not add a claim because evidence
+for an existing claim is missing, ambiguous, or occluded. Run another
+sufficiency check before adding a further claim. Accept no more than the
 loaded expansion and total-claim budgets. Bind memory and reassess the new
 claim before inspecting it.
 

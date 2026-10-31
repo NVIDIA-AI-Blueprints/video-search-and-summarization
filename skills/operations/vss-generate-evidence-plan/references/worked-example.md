@@ -4,7 +4,7 @@
 
 **Question ID:** `vss-sample-warehouse-ladder-combined-g1-4`
 
-The initial plan uses exactly two claims. Which completed climb is last, and what that person is wearing, need different evidence tests and can resolve separately: the last climber can be known while their clothing is not, or the reverse. Because `last` requires ruling out later qualifying climbs, both claims need whole-video coverage. The clothing claim names the climb claim as its prerequisite.
+The initial plan uses a minimum of two claims. Which completed climb is last, and what that person is wearing, need different evidence tests and can resolve separately: the last climber can be known while their clothing is not, or the reverse. Because `last` requires ruling out later qualifying climbs, both claims need whole-video coverage. The clothing claim names the climb claim as its prerequisite.
 
 ```json
 {

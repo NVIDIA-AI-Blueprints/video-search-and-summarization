@@ -4,17 +4,17 @@ Classification is based on the smallest visible outcome needed to answer the que
 
 ## Claim-count rule
 
-The initial plan contains exactly two claims, not one and not more than two.
+The initial plan contains a minimum of two claims. Do not start with one. After a sufficiency check identifies a missing independent requirement, add one new claim at a time.
 
 Each claim must express one specific visual fact or relationship that can be assessed separately. Keep the requirement to one sentence naming the subject, the fact to establish, and the relevant temporal scope. Split a claim when an answer-critical prerequisite and the conclusion it supports require different evidence tests and could have different resolution states. Record their dependency explicitly by naming the prerequisite `claim_id` in the dependent claim's requirement; do not resolve the dependent conclusion while its prerequisite remains uncertain. Do not create separate claims for incidental details that cannot affect the answer.
 
-Put entity, location, temporal, and scene qualifiers inside the claim requirement or tests. Do not create a third claim merely to establish that a stop line, intersection, person, vehicle, or other referenced object exists.
+Put entity, location, temporal, and scene qualifiers inside the claim requirement or tests. Do not create a separate claim merely to establish that a stop line, intersection, person, vehicle, or other referenced object exists.
 
 Examples:
 
 - “What color is the car that stops before the line?” is two claims: which car stops before the line, and the color of that car. The color claim names the stopping claim as its prerequisite. The line itself is not a claim.
 - “How many and which vehicles collide?” is two claims: one `count` claim and one `identity` claim, because the outputs and tests differ.
-- “What caused the vehicle to stop?” is two claims: that the vehicle stops, and the visible cause of that stop. The cause claim names the stopping claim as its prerequisite. The target vehicle is a qualifier, not a third claim.
+- “What caused the vehicle to stop?” is two claims: that the vehicle stops, and the visible cause of that stop. The cause claim names the stopping claim as its prerequisite. The target vehicle is a qualifier, not another claim.
 
 ## Primary evidence type
 
@@ -56,7 +56,7 @@ Avoid circular wording such as “the evidence confirms the claim.” For counts
 
 ## Expansion gate
 
-After sufficiency checking, add one claim only when the current claim cannot represent a necessary independent answer requirement. Do not add a claim because evidence is absent, ambiguous, or occluded; create an evidence-gathering gap instead.
+After a sufficiency check identifies a missing independent requirement, add one new claim at a time. Do not add a claim because evidence is absent, ambiguous, or occluded; create an evidence-gathering gap instead. Run another sufficiency check before adding a further claim.
 
 Valid expansion reasons include:
 

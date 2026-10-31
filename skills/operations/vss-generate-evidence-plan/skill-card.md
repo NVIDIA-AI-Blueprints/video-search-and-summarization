@@ -1,5 +1,5 @@
 ## Description: <br>
-Generates a minimal, option-blind evidence plan for a video question before memory binding or visual inspection. It begins with exactly two claims, and adds one claim only when a later sufficiency check proves an independently assessable requirement is missing. <br>
+Generates a minimal, option-blind evidence plan for a video question before memory binding or visual inspection. It begins with a minimum of two claims, and adds one new claim at a time after a sufficiency check identifies a missing independent requirement. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -17,7 +17,7 @@ Global <br>
 
 ## Known Risks and Mitigations: <br>
 Risk: Over-decomposition can increase latency and visual inspection cost, while answer-choice leakage can bias the plan. <br>
-Mitigation: The skill is option-blind, starts with exactly two claims, and treats missing evidence as a gathering gap rather than automatically creating another claim. <br>
+Mitigation: The skill is option-blind, starts with a minimum of two claims, adds one new claim at a time only after a sufficiency check identifies a missing independent requirement, and treats missing evidence as a gathering gap rather than automatically creating another claim. <br>
 
 ## Reference(s): <br>
 - [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
