@@ -48,7 +48,7 @@ global:
       enabled: true
       dcgm_exporter_url: "http://localhost:9400/metrics"
       node_exporter_enabled: true
-      node_exporter_url: "http://localhost:9100/metrics"
+      node_exporter_url: "http://localhost:9102/metrics"
       scrape_interval_seconds: 1
 
   generate_captions_params:

@@ -1,0 +1,23 @@
+perf_configs:
+  - id: warehouse-es-dump
+    nodeLabel: RTXPRO6000BW-SE
+    imageArch: amd64
+    enabled: true
+    hardwareProfile: query
+    profile: warehouse_2d
+    broker: none
+    composePath: test/integration-test/docker_compose/infra/video-analytics-api-infra.yml
+    checkoutPaths:
+      - services/analytics/video-analytics-api/src/app/specification/openapi.json
+      - services/analytics/video-analytics-api/test/integration-test/
+      - deploy/docker/services/
+      - libs/vss-perf-reporting/
+    lfsPaths:
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-frames.json
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-raw.json
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-behavior.json
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-events.json
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-incidents.json
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-space-utilization.json
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/mdx-vlm-incidents.json
+      - services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/warehouse-verification-incidents.json

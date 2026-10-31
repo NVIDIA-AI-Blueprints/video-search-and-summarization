@@ -68,7 +68,7 @@ global:
 test_scenarios:
 
   # Mode 3: Max Live Streams Mode - Testing stream capacity
-  # RTSP streams come from VST (started via perf/setup_perf_env.sh).
+  # RTSP streams come from VST (started via perf/scripts/native_setup_perf_env.sh).
   # rtsp://10.78.14.129:30557/live/warehouse_gopro_60m is replaced by the setup script with the VST live stream URL.
   max_live_streams_test_1_token:
     description: "Demo maximum concurrent live streams capacity"
@@ -185,7 +185,7 @@ test_scenarios:
   # Concurrency tests at 448x448 using VST live streams.
   # Uses concurrent_live_streams mode: starts all N streams simultaneously and
   # measures per-chunk latency for stream_count in [1, 10, 20].
-  # rtsp://10.78.14.129:30557/live/warehouse_gopro_60m is replaced by perf/setup_perf_env.sh.
+  # rtsp://10.78.14.129:30557/live/warehouse_gopro_60m is replaced by perf/scripts/native_setup_perf_env.sh.
   concurrency_test_1_token:
     description: "Concurrent VST live streams at 448x448 resolution, 1-token generation"
     benchmark_mode: "concurrent_live_streams"
@@ -250,7 +250,7 @@ test_scenarios:
   #     warehouse_gopro_10m_10fps.mp4  =  600 s →  60 chunks → concurrency [1]
   #     warehouse_gopro_60m_10fps.mp4  = 3600 s → 360 chunks → concurrency [1]
   #
-  #   Videos are downloaded by perf/setup_perf_env.sh to PERF_VIDEOS_DIR
+  #   Videos are downloaded by perf/scripts/native_setup_perf_env.sh to PERF_VIDEOS_DIR
   #   (default: ${VST_DIR}/videos) and mounted into the container at
   #   /opt/nvidia/rtvi/streams/perf/ via the PERF_VIDEOS_DIR volume in compose.perf.yaml.
   # ──────────────────────────────────────────────────────────────────────────────

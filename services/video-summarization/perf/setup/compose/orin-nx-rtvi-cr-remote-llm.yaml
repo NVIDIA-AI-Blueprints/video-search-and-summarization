@@ -1,0 +1,263 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Jetson Orin NX — RTVI-VLM local, LLM remote.
+#
+# Required env vars:
+#   NGC_API_KEY=...
+#   REMOTE_LLM_BASE_URL=http://<llm-host>:<port>/v1
+#   REMOTE_LLM_MODEL_NAME=nvidia/nvidia-nemotron-nano-9b-v2
+#   ASSET_DOWNLOAD_AUTH_TOKENS="artifactory.nvidia.com=Bearer <token>"
+#
+# Usage:
+#   export NGC_API_KEY=...
+#   export REMOTE_LLM_BASE_URL=http://10.0.0.5:9233/v1
+#   export REMOTE_LLM_MODEL_NAME=nvidia/nvidia-nemotron-nano-9b-v2
+#   export ASSET_DOWNLOAD_AUTH_TOKENS="artifactory.nvidia.com=Bearer <token>"
+#   docker compose -f compose/orin-nx-rtvi-cr-remote-llm.yaml up -d
+#   perf/scripts/run_benchmark.sh -f orin-nx-rtvi-cr-remote-llm.yaml -s single_file_test
+
+name: orin-nx-rtvi-cr-remote-llm
+
+include:
+  - media-server.yaml
+  - sys-cache-cleaner.yaml
+
+services:
+  # ── Health check sidecars ──────────────────────────────────
+  wait-for-rtvi:
+    image: curlimages/curl:latest
+    command:
+      - sh
+      - -c
+      - >-
+        until curl -f http://rtvi-vlm:8000/v1/health/ready; do
+          echo 'Waiting for rtvi-vlm...'; sleep 2;
+        done; echo 'rtvi-vlm is ready!'
+    networks: [app-network]
+    restart: "no"
+
+  # Blocks LVS until the remote LLM endpoint is reachable.
+  wait-for-llm:
+    image: curlimages/curl:latest
+    environment:
+      REMOTE_LLM_BASE_URL: ${REMOTE_LLM_BASE_URL:?set REMOTE_LLM_BASE_URL to remote LLM /v1 endpoint}
+      REMOTE_LLM_API_KEY: ${REMOTE_LLM_API_KEY:-${NVIDIA_API_KEY:-}}
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$$REMOTE_LLM_API_KEY" ]; then
+          set -- -H "Authorization: Bearer $$REMOTE_LLM_API_KEY";
+        else set --; fi;
+        until curl -fs "$$@" "$$REMOTE_LLM_BASE_URL/health/ready" >/dev/null 2>&1 || curl -fs "$$@" "$$REMOTE_LLM_BASE_URL/models" >/dev/null 2>&1; do
+          echo "Waiting for remote LLM at $$REMOTE_LLM_BASE_URL ..."; sleep 5;
+        done; echo "remote LLM is ready!"
+    networks: [app-network]
+    restart: "no"
+
+  wait-for-elasticsearch:
+    image: curlimages/curl:latest
+    command:
+      - sh
+      - -c
+      - >-
+        until nc -z elasticsearch 9300; do
+          echo 'Waiting for elasticsearch...'; sleep 2;
+        done; echo 'elasticsearch is ready!'
+    networks: [app-network]
+    restart: "no"
+
+  # ── LVS (VIA Engine, arm64 image; CPU-only orchestration) ──────────────
+  lvs:
+    image: ${LVS_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-21f686e37db7}
+    environment:
+      # API keys
+      NGC_API_KEY: ${NGC_API_KEY:-}
+      NVIDIA_API_KEY: ${REMOTE_LLM_API_KEY:-${NVIDIA_API_KEY:-}}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+
+      # Server
+      BACKEND_PORT: "38111"
+      LVS_MCP_PORT: "38112"
+      VIA_DEV_API: "true"
+
+      # RTVI-VLM backend
+      RTVI_VLM_URL: http://rtvi-vlm:8000
+
+      # CA-RAG config
+      CA_RAG_CONFIG: /opt/nvidia/via/config/default_config.yaml
+      DISABLE_CA_RAG: ${DISABLE_CA_RAG:-false}
+      FORCE_CA_RAG_RESET: ${FORCE_CA_RAG_RESET:-}
+
+      # LLM — REMOTE endpoint (not managed by this compose stack)
+      LVS_LLM_ENABLE: "true"
+      LVS_LLM_BASE_URL: ${REMOTE_LLM_BASE_URL:?set REMOTE_LLM_BASE_URL to remote LLM /v1 endpoint}
+      LVS_LLM_MODEL_NAME: ${REMOTE_LLM_MODEL_NAME:-nvidia/nvidia-nemotron-nano-9b-v2}
+      LVS_EMB_ENABLE: "false"
+      LVS_ENABLE_LLM_MERGING: "true"
+
+      # Database
+      LVS_DATABASE_BACKEND: elasticsearch_db
+      ES_HOST: elasticsearch
+      ES_PORT: "9200"
+      ES_TRANSPORT_PORT: "9300"
+
+      # Audio
+      ENABLE_AUDIO: ${ENABLE_AUDIO:-false}
+
+      # OTEL (optional)
+      VIA_ENABLE_OTEL: ${VIA_ENABLE_OTEL:-false}
+      VIA_OTEL_ENDPOINT: ${VIA_OTEL_ENDPOINT:-http://otel-collector:4318}
+      VIA_OTEL_EXPORTER: ${VIA_OTEL_EXPORTER:-console}
+      VIA_CTX_RAG_ENABLE_OTEL: ${VIA_CTX_RAG_ENABLE_OTEL:-false}
+      VIA_CTX_RAG_EXPORTER: ${VIA_OTEL_EXPORTER:-console}
+      VIA_CTX_RAG_OTEL_ENDPOINT: ${VIA_OTEL_ENDPOINT:-http://otel-collector:4318}
+
+      # Logging
+      VSS_LOG_LEVEL: ${VSS_LOG_LEVEL:-INFO}
+
+    ports:
+      - ${LVS_BACKEND_PORT:-38111}:38111
+      - "38112"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ${VIA_LOG_DIR:-/dummy}${VIA_LOG_DIR:+:/tmp/via-logs}
+      - ${VIA_SRC_DIR:-/dummy}${VIA_SRC_DIR:+:/opt/nvidia/via:ro}
+      - ${EXAMPLE_STREAMS_DIR:-/dummy}${EXAMPLE_STREAMS_DIR:+:/opt/nvidia/via/streams:ro}
+      - ./configmaps/config.yaml:/opt/nvidia/via/config/default_config.yaml:ro
+      - via-hf-cache:/tmp/huggingface
+    depends_on:
+      rtvi-vlm:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_started
+      wait-for-rtvi:
+        condition: service_completed_successfully
+      wait-for-llm:
+        condition: service_completed_successfully
+      wait-for-elasticsearch:
+        condition: service_completed_successfully
+      media-server:
+        condition: service_started
+        required: false  # gated by `media` profile
+    networks: [app-network]
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:38111/v1/ready"]
+      interval: 10s
+      timeout: 1s
+      retries: 100
+
+  # ── RTVI-VLM (Cosmos3-Nano-Reasoner NVFP4, Orin NX iGPU) ─────────────
+  rtvi-vlm:
+    image: ${RTVI_VLM_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d}
+    user: "1001:1001"
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      BACKEND_PORT: "8000"
+      VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
+      VLM_MODEL_TO_USE: ${VLM_MODEL_TO_USE:-cosmos-reason3}
+      VLLM_GPU_MEMORY_UTILIZATION: ${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.6}
+      VLM_MAX_MODEL_LEN: "${VLM_MAX_MODEL_LEN:-10240}"
+      VLLM_MAX_NUM_BATCHED_TOKENS: "${RTVI_VLLM_MAX_NUM_BATCHED_TOKENS:-4096}"
+      VLLM_ENFORCE_EAGER: "${VLLM_ENFORCE_EAGER:-true}"
+      VLLM_USE_NVFP4_CT_EMULATIONS: "${VLLM_USE_NVFP4_CT_EMULATIONS:-0}"
+      VLLM_DISABLE_MM_PREPROCESSOR_CACHE: "${VLLM_DISABLE_MM_PREPROCESSOR_CACHE:-true}"
+      VLLM_ENABLE_PREFIX_CACHING: "${VLLM_ENABLE_PREFIX_CACHING:-false}"
+      MODEL_PATH: ${MODEL_PATH:-ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix}
+      ASSET_DOWNLOAD_AUTH_TOKENS: ${ASSET_DOWNLOAD_AUTH_TOKENS:-}
+      ASSET_DOWNLOAD_MAX_FILE_SIZE_GB: "${ASSET_DOWNLOAD_MAX_FILE_SIZE_GB:-16}"
+      ASSET_TMPFS_SIZE: "${ASSET_TMPFS_SIZE:-16g}"
+      MAX_ASSET_STORAGE_SIZE_GB: "${MAX_ASSET_STORAGE_SIZE_GB:-16}"
+      # EVS / EVS++ passthrough (RTVI VLM only). Empty defaults leave
+      # feature/runtime defaults in effect inside rtvi-vlm.
+      VLM_VIDEO_PRUNING_RATE: ${VLM_VIDEO_PRUNING_RATE:-}
+      VIA_EVS_SESSION: ${VIA_EVS_SESSION:-}
+      VLLM_EVS_SIMILARITY_THRESHOLD: ${VLLM_EVS_SIMILARITY_THRESHOLD:-}
+      VLLM_NUM_PREPROCESS_WORKERS: ${VLLM_NUM_PREPROCESS_WORKERS:-}
+      VIA_EVS_TOKEN_BUDGET: ${VIA_EVS_TOKEN_BUDGET:-}
+      VIA_EVS_MIN_CLIPS: ${VIA_EVS_MIN_CLIPS:-}
+      VIA_EVS_EVENT_ONLY: ${VIA_EVS_EVENT_ONLY:-}
+      VIA_EVS_EMA_MEMORY_S: ${VIA_EVS_EMA_MEMORY_S:-}
+      VIA_EVS_SPIKE_STD_K: ${VIA_EVS_SPIKE_STD_K:-}
+      VIA_EVS_SETTLING_STD_K: ${VIA_EVS_SETTLING_STD_K:-}
+      VIA_EVS_STD_FLOOR_RATIO: ${VIA_EVS_STD_FLOOR_RATIO:-}
+      VIA_EVS_DOWNWARD_BASELINE_MIN: ${VIA_EVS_DOWNWARD_BASELINE_MIN:-}
+      VIA_EVS_STREAMING_PREFILL: ${VIA_EVS_STREAMING_PREFILL:-}
+      VLLM_IGNORE_EOS: ${VLLM_IGNORE_EOS:-}
+      RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS: true
+    ports:
+      - "${RTVI_PORT:-8000}:8000"
+    volumes:
+      - rtvi-hf-cache:/tmp/huggingface
+    networks: [app-network]
+    restart: "no"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              driver: nvidia
+              device_ids: ["${RTVI_GPU_0:-0}"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
+      interval: 10s
+      timeout: 10s
+      retries: 100
+      start_period: 60s
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      stack: 67108864
+      nofile: { soft: 65535, hard: 65535 }
+    runtime: nvidia
+    shm_size: 16g
+    ipc: host
+
+  # ── Elasticsearch ──────────────────────────────────────────
+  elasticsearch:
+    image: elasticsearch:9.1.2
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      cluster.max_shards_per_node: ${ES_MAX_SHARDS_PER_NODE:-2000}
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx2g}
+    ports:
+      - "9200"
+      - "9300"
+    networks: [app-network]
+    restart: "no"
+    # Start ES only after the VLM has finished loading/profiling, so it doesn't
+    # contend for iGPU memory during the encoder profiling pass.
+    depends_on:
+      rtvi-vlm:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${ES_MEM_LIMIT:-3g}
+
+volumes:
+  via-hf-cache:
+  rtvi-hf-cache:
+
+networks:
+  app-network:
+    driver: bridge

@@ -35,7 +35,7 @@ def without_setup_bindings(value):
 class PlatformConfigTest(unittest.TestCase):
     def test_platform_model_selection_resolves_exact_artifact(self):
         # Exercise setup's real model-selection block without deployment side effects.
-        setup = (HERE.parent / "setup_perf_env.sh").read_text()
+        setup = (HERE.parent / "scripts/native_setup_perf_env.sh").read_text()
         selection = setup[
             setup.index("apply_model_preset() {"):
             setup.index('if [[ "${VLLM_ENABLE_PREFIX_CACHING,,}')
@@ -77,7 +77,7 @@ class PlatformConfigTest(unittest.TestCase):
                     self.assertEqual(result.stdout.splitlines(), expected_model)
 
     def test_explicit_super_path_infers_cr3_backend(self):
-        setup = (HERE.parent / "setup_perf_env.sh").read_text()
+        setup = (HERE.parent / "scripts/native_setup_perf_env.sh").read_text()
         function = setup[
             setup.index("infer_vlm_model_from_model_path() {"):
             setup.index('[[ -f "${BENCHMARK_CONFIG}" ]]')
@@ -93,7 +93,7 @@ class PlatformConfigTest(unittest.TestCase):
                 self.assertEqual(result.stdout, "cosmos-reason3")
 
     def test_tegrastats_fallback_disables_nvml_and_dcgm_but_keeps_node_exporter(self):
-        setup = (HERE.parent / "setup_perf_env.sh").read_text()
+        setup = (HERE.parent / "scripts/native_setup_perf_env.sh").read_text()
         validator = re.search(r"python3 -c '([^']+)' \"\$\{BENCHMARK_CONFIG\}\"", setup)
         self.assertIsNotNone(validator)
         with tempfile.TemporaryDirectory() as directory:
@@ -172,7 +172,7 @@ class PlatformConfigTest(unittest.TestCase):
         self.assertEqual(len(PROFILES), 10)
         self.assertEqual(PROFILES["agx_orin"][0], "cosmos3-edge-bf16")
         self.assertRegex(
-            (HERE.parent / "setup_perf_env.sh").read_text(),
+            (HERE.parent / "scripts/native_setup_perf_env.sh").read_text(),
             r'cosmos3-edge-bf16\)\s+_preset_model="vllm-compatible"\s+'
             r'_preset_path="git:https://huggingface.co/nvidia/Cosmos3-Edge@'
             r'344d602b128d1bbdacb43b08d0a3626f46343e29"',
@@ -216,10 +216,10 @@ class PlatformConfigTest(unittest.TestCase):
                             self.assertEqual(video["concurrency_levels"], levels)
 
     def test_perf_compose_mounts_keep_source_and_monitoring_files_valid(self):
-        compose = (HERE.parent.parent / "docker/compose.perf.yaml").read_text()
-        setup = (HERE.parent / "setup_perf_env.sh").read_text()
+        compose = (HERE.parent.parent / "perf/setup/compose/compose.perf.yaml").read_text()
+        setup = (HERE.parent / "scripts/native_setup_perf_env.sh").read_text()
         self.assertIn("${RTVI_SRC_DIR:+/rtvi:/opt/nvidia/rtvi/rtvi:ro}", compose)
-        self.assertIn("${DCGM_METRICS_CONFIG:-../perf/dcgm/dcgm-metrics-config.csv}", compose)
+        self.assertIn("${DCGM_METRICS_CONFIG:-../../dcgm/dcgm-metrics-config.csv}", compose)
         self.assertIn("${PROMETHEUS_CONFIG:-./prometheus.perf.yml}", compose)
         self.assertIn('[[ -f "${DCGM_METRICS_CONFIG}" ]]', setup)
         self.assertIn('[[ -f "${PROMETHEUS_CONFIG}" ]]', setup)

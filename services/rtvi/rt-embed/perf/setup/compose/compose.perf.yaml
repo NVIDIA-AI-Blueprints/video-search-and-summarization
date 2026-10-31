@@ -1,0 +1,206 @@
+################################################################################
+# Copyright (c) 2024-2026, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA Corporation and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA Corporation is strictly prohibited.
+#
+################################################################################
+
+services:
+  rtvi-server:
+    image: ${RTVI_IMAGE:-gitlab-master.nvidia.com:5005/via/rtvi-microservices/rtvi_embed:main}
+    container_name: "rtvi-server-${USER}"
+    shm_size: '16gb'
+    runtime: nvidia
+    user: "1001:1001"
+    ports:
+      - "${BACKEND_PORT?}:8000"
+    volumes:
+      - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
+      - "${MODEL_ROOT_DIR:-/dummy}${MODEL_ROOT_DIR:+:${MODEL_ROOT_DIR:-}}"
+      - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
+      - "${RTVI_SRC_DIR:-/dummy}${RTVI_SRC_DIR:+:/opt/nvidia/rtvi:ro}"
+      - "${RTVI_LOG_DIR:-/dummy}${RTVI_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
+      # Perf benchmark videos (warehouse_gopro_*.mp4).
+      # Set PERF_VIDEOS_DIR to the host path printed by perf/scripts/native_setup_perf_env.sh.
+      # Videos become visible inside the container at /opt/nvidia/rtvi/streams/perf/
+      # and are also used by nvstreamer (VST) for RTSP streaming.
+      - "${PERF_VIDEOS_DIR:-/dummy}${PERF_VIDEOS_DIR:+:/opt/nvidia/rtvi/streams/perf}"
+      - rtvi-hf-cache:/tmp/huggingface
+      - rtvi-triton-model-repo:/tmp/triton_model_repo
+    # tmpfs: back /tmp/assets with RAM so uploaded video assets are served
+    # from memory rather than disk, eliminating storage I/O from the benchmark
+    # hot path.  Overridden by an ASSET_STORAGE_DIR bind-mount when that var
+    # is set (Docker applies bind-mounts after tmpfs for the same path).
+    # Size: default 8 GB — set ASSET_TMPFS_SIZE in .env.perf to adjust.
+    tmpfs:
+      - /tmp/assets:size=${ASSET_TMPFS_SIZE:-8g},mode=1777
+
+    environment:
+      MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
+      RTVI_ENFORCE_MODEL_PATH_ALLOWLIST: "${RTVI_ENFORCE_MODEL_PATH_ALLOWLIST:-false}"
+      RTVI_MODEL_PATH_ALLOWLIST: "${RTVI_MODEL_PATH_ALLOWLIST:-}"
+      MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1}"
+      MODEL_REPOSITORY_SCRIPT_PATH: "${MODEL_REPOSITORY_SCRIPT_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py}"
+      COSMOS_EMBED1_TRT_PRECISION: "${COSMOS_EMBED1_TRT_PRECISION:-fp16}"
+      COSMOS_EMBED1_TRT_EXTRA_ARGS: "${COSMOS_EMBED1_TRT_EXTRA_ARGS:-}"
+      NGC_API_KEY: "${NGC_API_KEY:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
+      VIA_VLM_API_KEY: "${VIA_VLM_API_KEY:-}"
+      VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
+      VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-custom}"
+      NUM_VLM_PROCS: "${NUM_VLM_PROCS:-}"
+      NUM_GPUS: "${NUM_GPUS:-}"
+      INSTALL_PROPRIETARY_CODECS: "${INSTALL_PROPRIETARY_CODECS:-false}"
+      FORCE_SW_AV1_DECODER: "${FORCE_SW_AV1_DECODER:-}"
+      LOG_LEVEL: "${LOG_LEVEL:-WARNING}"
+      RTVI_EXTRA_ARGS: "${RTVI_EXTRA_ARGS:-}"
+      # BCD max-stream latency is measured from the last frame NTP timestamp
+      # to embedding output. Keep the RTSP jitter buffer low enough that buffer
+      # delay does not dominate the measured inference latency.
+      RTVI_RTSP_LATENCY: "${RTVI_RTSP_LATENCY:-300}"
+      RTVI_RTSP_TIMEOUT: "${RTVI_RTSP_TIMEOUT:-}"
+      RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY: "${RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY:-false}"
+      RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS: "${RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS:-2}"
+      RTVI_RTSP_RECONNECTION_INTERVAL: "${RTVI_RTSP_RECONNECTION_INTERVAL:-5}"
+      RTVI_RTSP_RECONNECTION_WINDOW: "${RTVI_RTSP_RECONNECTION_WINDOW:-60}"
+      RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS: "${RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS:-10}"
+      RTVI_DISABLE_LIVESTREAM_PREVIEW: "${RTVI_DISABLE_LIVESTREAM_PREVIEW:-true}"
+      RTVI_ENABLE_LIVE_TIMESTAMP_FILTER: "${RTVI_ENABLE_LIVE_TIMESTAMP_FILTER:-false}"
+      RTVI_ENABLE_FILE_TIMESTAMP_FILTER: "${RTVI_ENABLE_FILE_TIMESTAMP_FILTER:-true}"
+      RTVI_EMPTY_CUDA_CACHE_ON_RESULT: "${RTVI_EMPTY_CUDA_CACHE_ON_RESULT:-false}"
+      RTVI_ENABLE_CUDA_OOM_RECOVERY: "${RTVI_ENABLE_CUDA_OOM_RECOVERY:-true}"
+      VSS_NUM_GPUS_PER_VLM_PROC: "${VSS_NUM_GPUS_PER_VLM_PROC:-}"
+      VLM_SYSTEM_PROMPT: "${VLM_SYSTEM_PROMPT:-}"
+      VLM_SYSTEM_PROMPT_MAX_LENGTH: "${VLM_SYSTEM_PROMPT_MAX_LENGTH:-10240}"
+      VLM_PROMPT_MAX_LENGTH: "${VLM_PROMPT_MAX_LENGTH:-10240}"
+      ENABLE_VIA_HEALTH_EVAL: "${ENABLE_VIA_HEALTH_EVAL:-false}"
+      # Standard OTEL environment variables (see https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/)
+      ENABLE_OTEL_MONITORING: "false"  # Set to 'true' to enable OpenTelemetry
+      MESSAGE_BUS: "${MESSAGE_BUS:-}"
+      MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-embed}"
+      ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT: "${ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT:-false}"
+      ERROR_MESSAGE_TOPIC: "${ERROR_MESSAGE_TOPIC:-mdx-embed-errors}"
+      ERROR_BUS: "${ERROR_BUS:-}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
+      ENABLE_REDIS_ERROR_MESSAGES: "${ENABLE_REDIS_ERROR_MESSAGES:-false}"
+      REDIS_HOST: "${REDIS_HOST:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_DB: "${REDIS_DB:-0}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+      ASSET_DOWNLOAD_TOTAL_TIMEOUT: "${ASSET_DOWNLOAD_TOTAL_TIMEOUT:-300}"
+      ASSET_DOWNLOAD_CONNECT_TIMEOUT: "${ASSET_DOWNLOAD_CONNECT_TIMEOUT:-10}"
+      ASSET_DOWNLOAD_MAX_FILE_SIZE_GB: "${ASSET_DOWNLOAD_MAX_FILE_SIZE_GB:-8}"
+      # Debug file dumping (PNG/CSV/JSON in /tmp/rtvi-logs/) - development only
+      # WARNING: Generates significant disk I/O and storage usage
+      # Use PROFILING=1 for clean observability without filesystem pollution
+      ENABLE_REQUEST_PROFILING: "${ENABLE_REQUEST_PROFILING:-false}"
+      VSS_SKIP_INPUT_MEDIA_VERIFICATION: "${VSS_SKIP_INPUT_MEDIA_VERIFICATION:-1}"
+      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"
+      FILE_URL_ALLOWED_DIRS: "${FILE_URL_ALLOWED_DIRS:-}"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack: 67108864
+      nofile:
+        soft: 65535
+        hard: 65535
+    ipc: host
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      host.docker.internal: host-gateway
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 1200s
+
+  # Prometheus - Metrics collection and storage for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ${PROMETHEUS_CONFIG:-./prometheus.perf.yml}:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=2d'
+    restart: unless-stopped
+    depends_on:
+      - dcgm-exporter
+      - node-exporter
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # DCGM Exporter - GPU metrics collection
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.2.0-4.1.0-ubuntu22.04
+    runtime: nvidia
+    ports:
+      - "${DCGM_EXPORTER_PORT:-9400}:9400"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - DCGM_EXPORTER_INTERVAL=${DCGM_EXPORTER_INTERVAL:-500}
+    volumes:
+      - ${DCGM_METRICS_CONFIG:-../../dcgm/dcgm-metrics-config.csv}:/etc/dcgm-exporter/custom-metrics.csv:ro
+    cap_add:
+      - SYS_ADMIN
+    networks:
+      - default
+
+  # Node Exporter - CPU and system metrics collection
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run|snap|boot)($$|/)'
+      - '--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|nfs|nfs4|cifs|smbfs|fuse\.sshfs)$$'
+      - '--no-collector.netstat'
+      - '--no-collector.ntp'
+      - '--no-collector.wifi'
+      - '--no-collector.arp'
+      - '--no-collector.ipvs'
+      - '--no-collector.nfsd'
+    restart: unless-stopped
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9100/metrics"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  rtvi-hf-cache:
+  rtvi-ngc-model-cache:
+  prometheus-data:
+  rtvi-triton-model-repo:
