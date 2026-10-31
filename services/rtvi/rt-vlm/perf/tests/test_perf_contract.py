@@ -41,6 +41,15 @@ class RTVIVLMPerfContractTest(unittest.TestCase):
         self.assertNotIn("--upload", runner)
         self.assertIn("--output-json", runner)
 
+    def test_runner_publishes_test_failures_but_preserves_operational_failures(self):
+        runner = (PERF_ROOT / "scripts/run_benchmark.sh").read_text()
+        self.assertIn('"$benchmark_status" -ne 0 && "$benchmark_status" -ne 3', runner)
+        self.assertIn('exit "$benchmark_status"', runner)
+        self.assertLess(
+            runner.index("benchmark_status=$?"),
+            runner.index("finalize_result_metadata.py"),
+        )
+
     def test_runtime_config_generator_owns_gpu_assignment(self):
         generator = PERF_ROOT / "scripts/prepare_runtime_config.py"
         source = PERF_ROOT / "configs/config.yaml"
