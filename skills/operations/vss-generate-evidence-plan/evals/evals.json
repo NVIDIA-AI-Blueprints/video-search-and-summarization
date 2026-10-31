@@ -3,20 +3,20 @@
     "id": "single-attribute-claim",
     "question": "Create an evidence plan for question warehouse-ladder-q4: What was the last person who climbed the ladder wearing?",
     "expected_skill": "vss-generate-evidence-plan",
-    "ground_truth": "Return one option-blind attribute claim with whole-video coverage so the last ladder climber can be identified before clothing is assessed.",
+    "ground_truth": "Return exactly two option-blind claims with whole-video coverage: which completed climb is last, and the clothing of that climber. The clothing claim names the climb claim as its prerequisite.",
     "expected_behavior": [
-      "Returns one initial claim, not separate claims for the ladder, climbing event, person identity, and clothing.",
-      "Classifies the primary evidence type as attribute and uses whole_video coverage.",
-      "Includes observable support and falsification tests without asserting what the person wore."
+      "Returns exactly two initial claims, not one claim and not separate claims for the ladder or each person.",
+      "Splits the last-climb prerequisite from the clothing conclusion and records that dependency in the clothing requirement.",
+      "Uses whole_video coverage and includes observable support and falsification tests without asserting what the person wore."
     ]
   },
   {
     "id": "two-independent-outcomes",
     "question": "Create an evidence plan for question vehicle-summary-q2: How many vehicles entered the loading area, and what types were they?",
     "expected_skill": "vss-generate-evidence-plan",
-    "ground_truth": "Return no more than two initial claims because the question independently asks for a count and vehicle types with different evidence tests.",
+    "ground_truth": "Return exactly two initial claims because the question asks for a count and vehicle types with different evidence tests.",
     "expected_behavior": [
-      "Returns one or two claims and never three or more.",
+      "Returns exactly two claims and never one or three or more.",
       "If split, uses one count claim and one object claim with whole_video coverage.",
       "Does not use answer choices or observed vehicle types in the plan."
     ]

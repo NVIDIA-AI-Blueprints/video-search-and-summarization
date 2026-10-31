@@ -4,7 +4,7 @@
 
 **Question ID:** `vss-sample-warehouse-ladder-combined-g1-4`
 
-The initial plan uses one claim. The requested outcome is a visible attribute: the clothing worn by a qualified person. “Last” and “climbed the ladder” identify which person must be assessed; they are temporal and action qualifiers, not separate requested outcomes. Because `last` requires ruling out later qualifying climbs, the claim needs whole-video coverage.
+The initial plan uses exactly two claims. Which completed climb is last, and what that person is wearing, need different evidence tests and can resolve separately: the last climber can be known while their clothing is not, or the reverse. Because `last` requires ruling out later qualifying climbs, both claims need whole-video coverage. The clothing claim names the climb claim as its prerequisite.
 
 ```json
 {
@@ -15,31 +15,39 @@ The initial plan uses one claim. The requested outcome is a visible attribute: t
   "asset_id": "vss-sample-warehouse-ladder-combined",
   "claims": [
     {
+      "claim_id": "claim-last-completed-ladder-climb",
+      "requirement": "Identify the person whose completed ladder climb is the last one in the video.",
+      "evidence_type": "order",
+      "coverage_requirement": "whole_video",
+      "support_test": "Complete video coverage identifies and deduplicates every completed ladder-climb event and shows which one is chronologically last.",
+      "falsification_test": "Complete video coverage shows a different person completing a ladder climb later than the candidate."
+    },
+    {
       "claim_id": "claim-last-ladder-climber-clothing",
-      "requirement": "Determine the visible clothing worn by the person whose completed ladder climb occurs last in the video.",
+      "requirement": "Determine the visible clothing of the person in claim-last-completed-ladder-climb during that last climb in the video.",
       "evidence_type": "attribute",
       "coverage_requirement": "whole_video",
-      "support_test": "Complete video coverage identifies and deduplicates every completed ladder-climb event, establishes the chronologically last climber, and shows that person's clothing attributes.",
-      "falsification_test": "Complete video coverage shows that another person completes a ladder climb later, or that the last climber visibly wears clothing with different attributes."
+      "support_test": "The last climber established by claim-last-completed-ladder-climb is visible closely enough to name their clothing.",
+      "falsification_test": "That same climber is visible wearing clothing different from the candidate description."
     }
   ]
 }
 ```
 
-Do not create separate initial claims for the ladder, each person, the climbing action, or the event order. Those facts are grounding requirements inside the one answer-relevant attribute claim.
+Do not create separate initial claims for the ladder, each person, or other incidental details that cannot affect the answer. Those facts stay inside the requirement sentence. Do not resolve the clothing claim while claim-last-completed-ladder-climb remains uncertain.
 
 ## Sufficiency-loop decision
 
-Suppose memory shows a ladder climb and describes a climber's clothing, but does not establish that the memory covers every qualifying climb. That is missing evidence for the existing claim, not a missing independent answer requirement. The expansion decision should request gathering against the same claim:
+Suppose memory shows a ladder climb and describes a climber's clothing, but does not establish that the memory covers every qualifying climb. That is missing evidence for `claim-last-completed-ladder-climb`, not a reason to add a third claim. The clothing claim stays unresolved while that prerequisite is uncertain. The expansion decision should request gathering against the prerequisite:
 
 ```json
 {
   "decision": "gather_evidence",
-  "claim_id": "claim-last-ladder-climber-clothing",
-  "missing_visible_fact": "Complete video coverage is needed to enumerate the ladder-climb events, establish which completed climb is last, and inspect that climber's clothing."
+  "claim_id": "claim-last-completed-ladder-climb",
+  "missing_visible_fact": "Complete video coverage is needed to enumerate the ladder-climb events and establish which completed climb is last."
 }
 ```
 
-Likewise, if the last climb is established but the climber's clothing is occluded, create a claim-specific gathering gap. Do not add an `order`, `action`, or `identity` claim merely because one part of the existing test remains unsupported.
+Likewise, if the last climb is established but the climber's clothing is occluded, create a gathering gap on `claim-last-ladder-climber-clothing`. Do not add another claim merely because one of the two requirements remains unsupported.
 
 An expansion would be justified only if the question independently requested another reportable outcome—for example, both what the last climber wore and how many people climbed the ladder—and that second outcome had been omitted from the initial plan.

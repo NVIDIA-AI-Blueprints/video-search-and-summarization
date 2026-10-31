@@ -1,6 +1,6 @@
 ---
 name: vss-generate-evidence-plan
-description: Generate a minimal, option-blind evidence plan for a video question, starting with one or two visible claims and expanding only when the agent loop proves another claim is necessary. Use this skill before memory retrieval or visual inspection, or to add one claim after a sufficiency failure. Do not use it to bind evidence, answer the question, or pre-plan every possible supporting fact.
+description: Generate a minimal, option-blind evidence plan for a video question, starting with exactly two visible claims and expanding only when the agent loop proves another claim is necessary. Use this skill before memory retrieval or visual inspection, or to add one claim after a sufficiency failure. Do not use it to bind evidence, answer the question, or pre-plan every possible supporting fact.
 license: Apache-2.0
 metadata:
   version: "3.3.0"
@@ -11,7 +11,7 @@ metadata:
 
 # Generate a VSS evidence plan
 
-Create the smallest auditable evidence plan that could answer a video question. The initial plan contains one claim by default and never more than two. Plan from the question alone; do not assess whether claims are true.
+Create the smallest auditable evidence plan that could answer a video question. The initial plan contains exactly two claims. Plan from the question alone; do not assess whether claims are true.
 
 ## Required inputs
 
@@ -23,10 +23,9 @@ Reject claims that require audio, speech, ASR, transcripts, external subtitles, 
 
 1. Read [the claim-classification rubric](references/claim-classification.md) in full.
 2. Substitute the inputs into [the planner prompt](references/prompt-template.md). Preserve its option-blind boundary and output contract.
-3. Start with one answer-relevant claim. Put grounding details such as entity, location, and time inside its requirement and tests rather than creating setup claims.
-4. Add a second claim only when the question explicitly asks for two independently assessable outcomes that require different evidence tests or coverage. Never emit three or more initial claims.
-5. For each claim, choose one primary `evidence_type` and `coverage_requirement`, then write observable support and falsification tests.
-6. Return one JSON object conforming to [the evidence-plan schema](references/evidence-plan.schema.json) with `mode="initial"`.
+3. Return exactly two initial claims. Each claim must express one specific visual fact or relationship that can be assessed separately. Keep the requirement to one sentence naming the subject, the fact to establish, and the relevant temporal scope. Split a claim when an answer-critical prerequisite and the conclusion it supports require different evidence tests and could have different resolution states. Record their dependency explicitly; do not resolve the dependent conclusion while its prerequisite remains uncertain. Do not create separate claims for incidental details that cannot affect the answer. Name the prerequisite `claim_id` in the dependent claim's requirement, because the plan has no separate dependency field.
+4. For each claim, choose one primary `evidence_type` and `coverage_requirement`, then write observable support and falsification tests.
+5. Return one JSON object conforming to [the evidence-plan schema](references/evidence-plan.schema.json) with `mode="initial"`.
 
 ## Loop expansion
 
@@ -39,7 +38,7 @@ Create one additional claim only when the sufficiency result shows that an indep
 - Remain option-blind. Never expose or infer answer choices in planning.
 - State requirements neutrally; do not presuppose that an event occurred.
 - Use visible and independently assessable claims only.
-- Prefer one compound-but-testable answer claim over separate setup claims. Split only when the tests or coverage genuinely differ.
+- Start with exactly two claims. Split an answer-critical prerequisite from the conclusion it supports when they need different evidence tests and could resolve differently. Do not create separate claims for incidental details that cannot affect the answer.
 - Treat scene objects, target identification, event anchors, and spatial qualifiers as parts of the requirement unless the question independently asks about them.
 - Keep one primary evidence type per claim.
 - Do not cite evidence, observations, events, timestamps, or memory IDs at this stage.
@@ -51,7 +50,7 @@ Create one additional claim only when the sufficiency result shows that an indep
 
 After schema validation, verify that:
 
-- an initial plan contains one or two claims and an expansion contains exactly one;
+- an initial plan contains exactly two claims and an expansion contains exactly one;
 - each claim directly contributes to answering the question;
 - no claim merely establishes a noun, landmark, target, or event already usable as a qualifier in another claim;
 - support and falsification tests name observable and incompatible outcomes;

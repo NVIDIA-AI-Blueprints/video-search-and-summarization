@@ -50,7 +50,7 @@ The evidence plan fields are:
 - `mode`: `"initial"` or `"expansion"`;
 - `question_id`, `question_text`: non-empty strings;
 - `asset_id`: string or null;
-- `claims`: one or two initial claims, or exactly one expansion claim.
+- `claims`: exactly two initial claims, or exactly one expansion claim.
 
 Each claim has `claim_id`, `requirement`, `evidence_type`,
 `coverage_requirement`, `support_test`, and `falsification_test`.
@@ -263,9 +263,8 @@ Apply these claim-classification rules:
 
 - classify the smallest visible answer-bearing outcome, not every locating fact;
 - use exactly one strict evidence type and one strict coverage requirement;
-- default to one initial claim;
-- allow a second initial claim only for two independently reportable outcomes
-  requiring independent tests or coverage;
+- start with exactly two initial claims, not one and not more than two;
+- Each claim must express one specific visual fact or relationship that can be assessed separately. Keep the requirement to one sentence naming the subject, the fact to establish, and the relevant temporal scope. Split a claim when an answer-critical prerequisite and the conclusion it supports require different evidence tests and could have different resolution states. Record their dependency explicitly; do not resolve the dependent conclusion while its prerequisite remains uncertain. Do not create separate claims for incidental details that cannot affect the answer.
 - keep entity, location, event, and temporal grounding inside the requirement
   and tests;
 - treat missing or ambiguous evidence as a gathering gap, not a new claim;
@@ -618,6 +617,8 @@ The deterministic sufficiency gate passes only when every claim:
 - has `sufficient` coverage;
 - cites at least one accepted observation;
 - does not contain both supporting and contradicting observations.
+
+Do not resolve the dependent conclusion while its prerequisite remains uncertain. A dependent claim stays unresolved until the claim it names as its prerequisite is itself supported or contradicted with sufficient coverage.
 
 If the gate passes, the ledger becomes `answered` with stop reason `resolved`.
 If a round adds no observation and improves no coverage, it stops unresolved

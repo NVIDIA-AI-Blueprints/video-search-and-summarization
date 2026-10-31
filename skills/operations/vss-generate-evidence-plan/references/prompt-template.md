@@ -9,13 +9,13 @@ asset_id: {{asset_id}}
 allowed_modalities: {{allowed_modalities}}
 task_constraints: {{task_constraints}}
 
-Start with exactly one claim. Add a second claim only when the question explicitly asks for two independently reportable outcomes that require different visual tests or coverage. Never return more than two claims.
+Return exactly two claims. Each claim must express one specific visual fact or relationship that can be assessed separately. Keep the requirement to one sentence naming the subject, the fact to establish, and the relevant temporal scope. Split a claim when an answer-critical prerequisite and the conclusion it supports require different evidence tests and could have different resolution states. Record their dependency explicitly by naming the prerequisite claim_id in the dependent claim's requirement; do not resolve the dependent conclusion while its prerequisite remains uncertain. Do not create separate claims for incidental details that cannot affect the answer.
 
-Do not create setup claims for referenced objects, locations, target identity, event anchors, or parts of an action. Include those as qualifiers in the requirement and tests. Examples: color of the car that stops before a line is one attribute claim; cause of a vehicle stopping is one cause claim; “how many and which” may need separate count and identity claims.
+Do not create separate claims for referenced objects, locations, or event anchors that only identify the subject. Those stay inside the requirement sentence.
 
 For each claim return only:
 - claim_id: stable claim-<slug> identifier;
-- requirement: one neutral, answer-relevant visible requirement including necessary entity, location, and temporal qualifiers;
+- requirement: one sentence naming the subject, the fact to establish, and the relevant temporal scope;
 - evidence_type: attribute, object, count, action, state_change, order, duration, trajectory, identity, spatial, cause, prediction, counterfactual, or negative. Use identity only for sameness across separated observations; use object for a vehicle, sign, or object's category/type;
 - coverage_requirement: local_window, before_after, repeated_observation, or whole_video;
 - support_test: visible outcome that satisfies the requirement;

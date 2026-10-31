@@ -4,19 +4,17 @@ Classification is based on the smallest visible outcome needed to answer the que
 
 ## Claim-count rule
 
-Start with one claim. Add a second initial claim only if all three conditions hold:
+The initial plan contains exactly two claims, not one and not more than two.
 
-1. the question explicitly asks for two independently reportable outcomes;
-2. each outcome can be supported or contradicted independently; and
-3. they need different visual tests or coverage.
+Each claim must express one specific visual fact or relationship that can be assessed separately. Keep the requirement to one sentence naming the subject, the fact to establish, and the relevant temporal scope. Split a claim when an answer-critical prerequisite and the conclusion it supports require different evidence tests and could have different resolution states. Record their dependency explicitly by naming the prerequisite `claim_id` in the dependent claim's requirement; do not resolve the dependent conclusion while its prerequisite remains uncertain. Do not create separate claims for incidental details that cannot affect the answer.
 
-Never create an initial third claim. Put entity, location, temporal, and scene qualifiers inside the claim requirement or tests. Do not create separate claims merely to establish that a stop line, intersection, person, vehicle, or other referenced object exists.
+Put entity, location, temporal, and scene qualifiers inside the claim requirement or tests. Do not create a third claim merely to establish that a stop line, intersection, person, vehicle, or other referenced object exists.
 
 Examples:
 
-- “What color is the car that stops before the line?” is one `attribute` claim. Stopping before the line identifies the car; it is not a separate initial claim.
-- “How many and which vehicles collide?” may use two claims: one `count` claim and one `identity` claim, because the outputs and tests differ.
-- “What caused the vehicle to stop?” is one `cause` claim. The stopping transition and target vehicle belong in its test.
+- “What color is the car that stops before the line?” is two claims: which car stops before the line, and the color of that car. The color claim names the stopping claim as its prerequisite. The line itself is not a claim.
+- “How many and which vehicles collide?” is two claims: one `count` claim and one `identity` claim, because the outputs and tests differ.
+- “What caused the vehicle to stop?” is two claims: that the vehicle stops, and the visible cause of that stop. The cause claim names the stopping claim as its prerequisite. The target vehicle is a qualifier, not a third claim.
 
 ## Primary evidence type
 
