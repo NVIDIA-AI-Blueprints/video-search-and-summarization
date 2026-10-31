@@ -106,6 +106,86 @@ vss-harness-hermes` and re-run steps 4 and 5 — the gateway, image and provider
 survive it. Do the same after `openshell provider update`: a new credential
 reaches only processes started after it, and the API server is already running.
 
+### Optional — answer from the VSS UI
+
+Steps 1–5 are enough for the CLI and the API server. This option additionally
+points the UI's chat sidebar and Chat tab at the sandbox. Deploying VSS itself
+is [`vss-build-vision-ai`](../skills/vss-build-vision-ai/SKILL.md)'s job;
+`<build>` below is the `_builds/<name>` it wrote.
+
+Nothing moves on the browser's side: it still enters through the deployment's
+ingress, and `vss-ui` stays on its Compose network, which HAProxy resolves it
+by. Only the UI's own outbound hop is new, and it cannot be the gateway-managed
+URL — step 1 binds the gateway to the host's loopback, which a bridged
+container has no route to. Publish the sandbox's API server on the address
+`host.docker.internal` already resolves to inside the UI container instead:
+
+```bash
+HG=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
+openshell forward service --target-port 8642 --local "$HG:8642" vss-harness-hermes
+```
+
+The forward holds the terminal, so background it. Only the agent's port
+crosses; the gateway's own listener, whose user API is unauthenticated, stays
+on loopback.
+
+Then give the adapter the endpoint and the key. `AGENT_BACKEND_PATH` keeps its
+`/v1/responses` default:
+
+```bash
+openshell sandbox exec -n vss-harness-hermes --no-tty -- \
+  sh -c '. /sandbox/.hermes/.env; printf %s "$API_SERVER_KEY"'   # the token below
+```
+
+A build that is already up carries its resolved values in `resolved.yml`, so
+recreate the one service against an overlay rather than editing what the
+resolver wrote:
+
+```yaml
+# _builds/<build>/ui-hermes.override.yml
+services:
+  vss-ui:
+    environment:
+      AGENT_ADAPTER_ENABLED: "true"
+      AGENT_BACKEND_PROTOCOL: responses
+      AGENT_BACKEND_URL: http://host.docker.internal:8642
+      AGENT_BACKEND_MODEL: hermes-agent
+      AGENT_BACKEND_TOKEN: "<API_SERVER_KEY>"
+      NEXT_PUBLIC_AGENT_ADAPTER_ENABLED: "true"
+      NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT: "true"
+      NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR: "true"
+      NEXT_PUBLIC_ENABLE_CHAT_TAB: "true"
+```
+
+```bash
+cd _builds/<build>
+docker compose -p "$(docker inspect vss-agent-ui \
+  --format '{{index .Config.Labels "com.docker.compose.project"}}')" \
+  -f resolved.yml -f ui-hermes.override.yml up -d --no-deps vss-ui
+```
+
+A build that is not up yet takes the same settings in
+`_builds/<build>/override.env`: the adapter keys under a `VSS_` prefix
+(`VSS_AGENT_ADAPTER_ENABLED` and so on), from which the resolver derives the
+two `NEXT_PUBLIC_` adapter flags, plus `NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR` and
+`NEXT_PUBLIC_ENABLE_CHAT_TAB`, which a harness build leaves `false` for lack
+of an in-stack agent.
+
+Verify through the ingress, not the container, so the check covers the path the
+browser takes — `<origin>` is the deployment's own origin:
+
+```bash
+curl -s <origin>/api/agent/connection          # -> {"state":"connected"}
+curl -s -X POST <origin>/api/agent/runs -H 'Content-Type: application/json' \
+  -d '{"thread_id":"t1","input":[{"role":"user","content":"List the VIOS sensors."}]}'
+curl -s <origin>/api/agent/runs/<run_id>/events
+```
+
+The reply streams back as `message.delta` events, with each `vss` call shown as
+a tool event before them. This connects the two chat surfaces only: the Search
+tab and the ingress `/api`, `/chat` and `/websocket` routes address the
+in-stack `vss-agent`, which a harness build does not run.
+
 ---
 
 ## 1. How OpenShell works
@@ -322,11 +402,12 @@ Three constraints the service has to respect:
   and no bridge peers that can reach it; a LAN machine dialling `127.0.0.1`
   only ever reaches itself. Do not switch the supervisor to `bridge`: it would
   then have its own loopback, and the driver rejects a loopback-only gateway
-  for it. The alternative — a dedicated Compose network joined only by the
-  gateway and `vss-ui`, with the gateway bound there — is defensible and keeps
-  the UI on Compose DNS, but it trades a boundary Docker enforces for one a
-  network declaration enforces, and whoever reaches the listener can create
-  sandboxes and read credentials while `allow_unauthenticated_users` is `true`.
+  for it. Binding the listener anywhere a container can reach — a dedicated
+  Compose network joined by `vss-ui`, say — trades a boundary Docker enforces
+  for one a network declaration enforces, and whoever reaches the listener can
+  create sandboxes and read credentials while `allow_unauthenticated_users` is
+  `true`. The UI needs no such widening: a forward publishes the one port it
+  calls.
 - **Pass the bind flags explicitly.** The image's `CMD` is `--bind-address
   0.0.0.0 --port 8080` and flags beat the TOML, so the TOML's `bind_address` is
   ignored unless the command is replaced. Name the flags rather than clearing
@@ -660,11 +741,12 @@ clears that, so routing the dashboard is a config decision rather than a dead
 end; until then operators reach it with `openshell forward start 18789`, where
 the browser origin is loopback.
 
-That one forward is all that survives of three host-side processes.
-`dashboard-relay.py` exists only to reach a forward pinned to loopback and
-`dashboard-forward-watchdog.py` only to repair one that holds its port while
-carrying no HTTP — neither has a job once the UI's path is a URL and the
-remaining forward is an operator starting it by hand.
+Two forwards survive of three host-side processes: that one, and the UI's, from
+the Quickstart's UI option. `dashboard-relay.py` exists only to reach a forward
+pinned to loopback and `dashboard-forward-watchdog.py` only to repair one that
+holds its port while carrying no HTTP — neither has a job once
+`openshell forward service` binds the off-loopback address itself and nothing
+retires the forward behind its back.
 
 `--restart-policy` defaults to `no`, which leaves an exited Hermes dead and the
 route silently unanswered; `on-failure` has the driver replace the runtime after
@@ -686,28 +768,33 @@ link.
 `services/ui/apps/nv-metropolis-bp-vss-ui/utils/server/agentAdapter/` already
 connects browser chat to an external harness from inside the UI's Next.js
 process — a Responses connector for Hermes, an OpenClaw native-WebSocket one,
-session mapping, SSE replay, cancellation and snapshot-artifact validation. It reaches the harness today at `ws://host.docker.internal:<relay-port>`, so
-this setup repoints `AGENT_BACKEND_URL` at the gateway-managed URL; the Compose
-plumbing (`VSS_AGENT_ADAPTER_ENABLED`, `VSS_AGENT_BACKEND_URL`) is already in
-place.
-Two constraints come with it. The UI has to reach the gateway's listener, and
-under step 1's loopback bind that means `vss-ui` moves to `network_mode: host`
-and its Compose-DNS `VSS_PROXY_BASE_URL` becomes
-`http://127.0.0.1:${HAPROXY_PORT}`; the alternative is to put the gateway and
-`vss-ui` alone on a dedicated Compose network and bind the gateway there, which
-keeps both on Compose DNS at the cost of giving one more container the right to
-create sandboxes. And Hermes is served by the `responses` connector — already
-the default `VSS_AGENT_BACKEND_PROTOCOL` in every profile — so
-`AGENT_BACKEND_PATH` keeps its `/v1/responses` default and
-`AGENT_BACKEND_TOKEN` carries the `API_SERVER_KEY`. Custom headers are a limit
-of the OpenClaw connector alone, so Hermes' `X-Hermes-Session-Key` stays
-configuration rather than a code change.
+session mapping, SSE replay, cancellation and snapshot-artifact validation. It
+reaches the harness today at `ws://host.docker.internal:<relay-port>`, and
+keeps that shape here: the Compose plumbing
+(`VSS_AGENT_ADAPTER_ENABLED`, `VSS_AGENT_BACKEND_URL`) is already in place, and
+the [Quickstart's UI option](#optional--answer-from-the-vss-ui) is the wiring.
+
+The gateway-managed URL is not what the adapter points at. HAProxy resolves
+`vss-ui` over Compose DNS, so the UI cannot leave that network, and from it the
+gateway's loopback listener has no route; `openshell forward service` publishes
+the sandbox's `8642` on the bridge-gateway address `host.docker.internal`
+already names, which leaves the listener untouched and exposes only the agent's
+own port.
+
+Hermes is served by the `responses` connector — already the default
+`VSS_AGENT_BACKEND_PROTOCOL` in every profile — so `AGENT_BACKEND_PATH` keeps
+its `/v1/responses` default and `AGENT_BACKEND_TOKEN` carries the
+`API_SERVER_KEY`. Custom headers are a limit of the OpenClaw connector alone,
+so Hermes' `X-Hermes-Session-Key` stays configuration rather than a code
+change.
 
 Measured against the harness image, the connector needs no changes: the wire
 format it already sends is the stateful Responses semantics the API server
 implements, `/health` answers unauthenticated, `/v1/responses` rejects a
 missing or wrong bearer with `401 gateway_auth_failed`, and the minted key
-returns the SSE event names the connector parses.
+returns the SSE event names the connector parses. Run end to end, a browser
+turn through the deployment's ingress reaches Hermes, calls the `vss` CLI and
+streams the reply back as `message.delta` events.
 
 **6 — Or drive it from Python**, which fits the notebooks and the orchestrator
 MCP helper better than shelling out to two CLIs. OpenShell publishes SDKs for

@@ -345,7 +345,7 @@ The concrete steps, policy conversion and architecture are in
 | `mcp add` | network grant in the policy; the HTTP path already needs nothing |
 | `gateway-token` | Still a read-out, both harnesses: Hermes mints its own `API_SERVER_KEY` in the sandbox, OpenClaw keeps a gateway token the UI adapter uses to bypass device pairing. `sandbox exec` fetches either |
 | `upload` ENV.md | `--env` at create; `openshell sandbox upload` for the Kubernetes-only rendered copy |
-| forward + relay + watchdog | `openshell service expose` — a gateway-managed URL |
+| forward + relay + watchdog | `openshell service expose` for a gateway-managed URL, `openshell forward service` where the caller is a container |
 | `nemoclaw-start` as the entrypoint | the harness command itself after `--`, so OpenShell tracks the agent's exit status |
 
 
@@ -391,9 +391,10 @@ has an Option 2 equivalent. These drop out rather than move:
 - **`policy-add` after create.** OpenShell takes the policy at create, so the
   window where a sandbox is up without its boundary never opens.
 - **`dashboard-relay.py` and `dashboard-forward-watchdog.py`.** Both exist to
-  get past a forward pinned to loopback. `--expose` gives a gateway-managed URL
-  instead, so the UI's path carries no forward process; `openshell forward`
-  survives as the operator's way to open the dashboard, which is not routed.
+  get past a forward pinned to loopback. `openshell forward service` binds the
+  off-loopback address itself and nothing retires it behind the caller's back,
+  so the UI needs neither; `openshell forward` also stays the operator's way to
+  open the dashboard, which is not routed.
   `gateway-token` does **not** drop out with them: the UI adapter still needs a
   bearer — Hermes' minted `API_SERVER_KEY`, OpenClaw's shared gateway token —
   so only its source moves, from `nemoclaw <sandbox> gateway-token` to a
@@ -438,12 +439,12 @@ joins the image; the relay and watchdog scripts are replaced by
   0.1.x-compatible policy and the same end to `policy-add`, `config set`,
   `mcp add` and `upload`. Doing that work now leaves V1 one
   `deployment.yaml` away instead of undoing anything.
-- **The UI's host-side relay and watchdog collapse to one gateway URL, verified
-  to carry the adapter's WebSocket.** Both exist for a NemoClaw constraint, not
+- **The UI's host-side relay and watchdog collapse to one forward, verified
+  end to end from the browser.** Both exist for a NemoClaw constraint, not
   an OpenShell one — `nemoclaw recover` retires a non-loopback forward as stale
   and re-creates the loopback one, then judges the replacement by a TCP connect
-  that a wedged forward still accepts. `--expose` removes the forward and both
-  scripts outright. The Hermes dashboard is the exception: it stays behind an
+  that a wedged forward still accepts. Neither applies to `openshell forward
+  service`, so both scripts drop outright. The Hermes dashboard is the exception: it stays behind an
   operator-side `forward` until `dashboard.public_url` is set (step 5).
 - **The harness set stays VSS's decision.** OpenShell takes any image at
   `sandbox create --from`, so `.openclaw/` and `.hermes/` are build choices, not
