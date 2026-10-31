@@ -122,12 +122,15 @@ container has no route to. Publish the sandbox's API server on the address
 
 ```bash
 HG=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
-openshell forward service --target-port 8642 --local "$HG:8642" vss-harness-hermes
+openshell forward start -d "$HG:8642" vss-harness-hermes   # do not pipe: -d holds the pipe open
 ```
 
-The forward holds the terminal, so background it. Only the agent's port
-crosses; the gateway's own listener, whose user API is unauthenticated, stays
-on loopback.
+`-d` reparents the forward to init, so it outlives the terminal;
+`openshell forward list` names it and `openshell forward stop 8642
+vss-harness-hermes` ends it. Only the agent's port crosses; the gateway's own
+listener, whose user API is unauthenticated, stays on loopback. Nothing
+restarts it after a reboot, and a recreated sandbox invalidates both the
+forward and the key below, so redo this step and the next one together.
 
 Then give the adapter the endpoint and the key. `AGENT_BACKEND_PATH` keeps its
 `/v1/responses` default:
@@ -745,7 +748,7 @@ Two forwards survive of three host-side processes: that one, and the UI's, from
 the Quickstart's UI option. `dashboard-relay.py` exists only to reach a forward
 pinned to loopback and `dashboard-forward-watchdog.py` only to repair one that
 holds its port while carrying no HTTP — neither has a job once
-`openshell forward service` binds the off-loopback address itself and nothing
+`openshell forward start` binds the off-loopback address itself and nothing
 retires the forward behind its back.
 
 `--restart-policy` defaults to `no`, which leaves an exited Hermes dead and the
@@ -776,10 +779,10 @@ the [Quickstart's UI option](#optional--answer-from-the-vss-ui) is the wiring.
 
 The gateway-managed URL is not what the adapter points at. HAProxy resolves
 `vss-ui` over Compose DNS, so the UI cannot leave that network, and from it the
-gateway's loopback listener has no route; `openshell forward service` publishes
-the sandbox's `8642` on the bridge-gateway address `host.docker.internal`
-already names, which leaves the listener untouched and exposes only the agent's
-own port.
+gateway's loopback listener has no route; a detached `openshell forward start`
+publishes the sandbox's `8642` on the bridge-gateway address
+`host.docker.internal` already names, which leaves the listener untouched and
+exposes only the agent's own port.
 
 Hermes is served by the `responses` connector — already the default
 `VSS_AGENT_BACKEND_PROTOCOL` in every profile — so `AGENT_BACKEND_PATH` keeps

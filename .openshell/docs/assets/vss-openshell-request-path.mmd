@@ -2,7 +2,7 @@
 sequenceDiagram
     participant B as Browser
     participant UI as vss-ui agent adapter<br/>(Next.js, responses connector)
-    participant FW as openshell forward service<br/>host.docker.internal:8642
+    participant FW as openshell forward start -d<br/>host.docker.internal:8642
     participant GW as openshell-gateway<br/>127.0.0.1:8080
     participant SUP as Supervisor
     participant WL as Workload (netns none)

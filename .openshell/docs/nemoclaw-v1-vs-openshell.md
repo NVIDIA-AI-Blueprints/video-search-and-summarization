@@ -345,7 +345,7 @@ The concrete steps, policy conversion and architecture are in
 | `mcp add` | network grant in the policy; the HTTP path already needs nothing |
 | `gateway-token` | Still a read-out, both harnesses: Hermes mints its own `API_SERVER_KEY` in the sandbox, OpenClaw keeps a gateway token the UI adapter uses to bypass device pairing. `sandbox exec` fetches either |
 | `upload` ENV.md | `--env` at create; `openshell sandbox upload` for the Kubernetes-only rendered copy |
-| forward + relay + watchdog | `openshell service expose` for a gateway-managed URL, `openshell forward service` where the caller is a container |
+| forward + relay + watchdog | `openshell service expose` for a gateway-managed URL, a detached `openshell forward start` where the caller is a container |
 | `nemoclaw-start` as the entrypoint | the harness command itself after `--`, so OpenShell tracks the agent's exit status |
 
 
@@ -391,7 +391,7 @@ has an Option 2 equivalent. These drop out rather than move:
 - **`policy-add` after create.** OpenShell takes the policy at create, so the
   window where a sandbox is up without its boundary never opens.
 - **`dashboard-relay.py` and `dashboard-forward-watchdog.py`.** Both exist to
-  get past a forward pinned to loopback. `openshell forward service` binds the
+  get past a forward pinned to loopback. `openshell forward start` binds the
   off-loopback address itself and nothing retires it behind the caller's back,
   so the UI needs neither; `openshell forward` also stays the operator's way to
   open the dashboard, which is not routed.
