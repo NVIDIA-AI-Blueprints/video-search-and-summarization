@@ -87,7 +87,20 @@ trap 'exit 143' TERM
 args=(--config "$runtime_config" --output-json "$output/vss-perf-results" \
       --config-id "$config_id")
 [[ -z "$scenario" ]] || args+=(--scenario "$scenario")
+set +e
 "$PERF_VENV_DIR/bin/python" "$PERF_ROOT/benchmark/rtvi_perf_benchmark.py" "${args[@]}"
+benchmark_status=$?
+set -e
+
+if [[ "$benchmark_status" -ne 0 && "$benchmark_status" -ne 3 ]]; then
+    echo "[PERF] Benchmark failed operationally (exit $benchmark_status); Jenkins will fail." >&2
+    exit "$benchmark_status"
+fi
+
 "$PERF_VENV_DIR/bin/python" "$PERF_ROOT/scripts/finalize_result_metadata.py" \
     --results "$output/vss-perf-results" --triggered-by "$triggered_by" \
     --pipeline-url "$pipeline_url"
+
+if [[ "$benchmark_status" -eq 3 ]]; then
+    echo "[PERF] Evaluation completed with failed test case(s); canonical report published as FAIL/PARTIAL."
+fi
