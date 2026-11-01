@@ -42,7 +42,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - The OpenAI-compatible adapter (`openai_compat.py`) covers Switchyard, the NVIDIA API catalog and a local vLLM or NIM endpoint.
     - It charges every attempt before sending it and applies V1's retry policy.
     - It classifies failures as V1 does.
-    - It stores the request and response bodies but never the key.
+    - It stores the request and response bodies but never the key, and never a signed URL's signature: the stored request drops every content URL's query string (`stored_request`); the request sent is unchanged.
   - A scripted `fake.py` adapter supports plumbing runs.
   - The Track B adapter (`vss.py`) runs a whole pipeline as one subject: one experimental `/analyze` call per run on a loopback experiment agent (`EVALV2_VSS_AGENT_URL`, default `http://127.0.0.1:8765`), never the shared VM agent.
     - **Before sending:** every ledger's worst case is checked, and nothing is sent when a cap could be passed.

@@ -30,7 +30,7 @@ from typing import Any
 
 import httpx
 
-from evalv2.adapters.base import AdapterConfigError, CallContext, CallResult, Capabilities
+from evalv2.adapters.base import AdapterConfigError, CallContext, CallResult, Capabilities, stored_request
 from evalv2.core.budget import BudgetExceeded
 from evalv2.core.instrument import Stopwatch, Usage
 from evalv2.core.retry import Failure, classify_http_status, run_with_retry
@@ -81,7 +81,7 @@ class OpenAICompatAdapter:
         if request.get("model") != self.model:
             raise ValueError(f"request names model {request.get('model')!r}, adapter serves {self.model!r}")
         base_url, api_key = self._credentials()  # before anything is charged or sent
-        request_ref = ctx.store.put("request", dict(request))
+        request_ref = ctx.store.put("request", stored_request(request))
         attempts: list[dict[str, Any]] = []
         last: dict[str, Any] = {}
 

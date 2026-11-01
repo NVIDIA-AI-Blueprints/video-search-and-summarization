@@ -23,10 +23,12 @@ validation and scoring belong to tasks.
 
 from __future__ import annotations
 
+import copy
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
+from urllib.parse import urlsplit, urlunsplit
 
 from evalv2.core.artifacts import ArtifactRef, ArtifactStore
 from evalv2.core.budget import BudgetLedger
@@ -38,6 +40,29 @@ CAPABILITY_NAMES = ("video_input", "image_input", "text_input", "json_schema", "
 
 class AdapterConfigError(RuntimeError):
     """The adapter is not configured (for example a missing endpoint or key); nothing was sent."""
+
+
+def redact_url(url: str) -> str:
+    """An http(s) URL without its query string: a signed URL's signature is a short-lived credential, never stored."""
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.query:
+        return url
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
+def stored_request(request: Mapping[str, Any]) -> dict[str, Any]:
+    """The request as stored: every ``url`` in its message content parts (a video or image) without a signature.
+
+    The request sent is unchanged; only the stored copy is redacted, so a re-signed URL makes the same artifact.
+    """
+    stored = copy.deepcopy(dict(request))
+    for message in stored.get("messages") or []:
+        content = message.get("content") if isinstance(message, dict) else None
+        for part in content if isinstance(content, list) else []:
+            for value in part.values() if isinstance(part, dict) else []:
+                if isinstance(value, dict) and isinstance(value.get("url"), str):
+                    value["url"] = redact_url(value["url"])
+    return stored
 
 
 @dataclass(frozen=True)

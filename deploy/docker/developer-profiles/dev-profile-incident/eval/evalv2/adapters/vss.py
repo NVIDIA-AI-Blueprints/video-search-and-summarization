@@ -42,11 +42,11 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import httpx
 
-from evalv2.adapters.base import AdapterConfigError, CallContext, Capabilities, PipelineResult
+from evalv2.adapters.base import AdapterConfigError, CallContext, Capabilities, PipelineResult, redact_url
 
 AGENT_URL_ENV = "EVALV2_VSS_AGENT_URL"
 DEFAULT_AGENT_URL = "http://127.0.0.1:8765"  # experiments/agent/start-experiment-agent.sh
@@ -64,12 +64,6 @@ class ProfileMismatchError(RuntimeError):
 
 class AgentRefusedError(RuntimeError):
     """The agent refused the request as configured (400, 403, 409 or 501)."""
-
-
-def redact_url(url: str) -> str:
-    """A signed URL without its query string: the signature is a short-lived credential and is never stored."""
-    parts = urlsplit(url)
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
 @dataclass

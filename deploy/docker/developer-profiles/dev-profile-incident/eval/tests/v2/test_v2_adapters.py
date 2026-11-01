@@ -11,7 +11,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-from evalv2.adapters.base import AdapterConfigError, CallContext, Capabilities, ModelAdapter
+from evalv2.adapters.base import (
+    AdapterConfigError,
+    CallContext,
+    Capabilities,
+    ModelAdapter,
+    redact_url,
+    stored_request,
+)
 from evalv2.adapters.fake import FakeAdapter, Scripted
 from evalv2.adapters.openai_compat import ENDPOINTS, OpenAICompatAdapter
 from evalv2.adapters.registry import build_adapter, capabilities_for, load_capabilities
@@ -92,7 +99,10 @@ def test_a_successful_call_stores_artifacts_and_settles_measured_tokens(tmp_path
     result = _adapter(server).complete(_request(), ctx)
     assert result.ok and result.text == '{"incident": {}}' and result.finish_reason == "stop"
     assert result.usage.total_tokens == 8900 and ctx.ledger.totals("inference").tokens == 8900
-    assert ctx.store.get(result.request_ref) == _request() and ctx.store.get(result.response_ref) == COMPLETION
+    assert ctx.store.get(result.request_ref) == stored_request(_request())
+    assert ctx.store.get(result.response_ref) == COMPLETION
+    assert "A.mp4?sig" in server.requests[0].content.decode(), "the signed URL is sent as given"
+    assert "?sig" not in json.dumps(ctx.store.get(result.request_ref)), "and stored without its signature"
     assert str(server.requests[0].url) == "https://gateway.example/v1/chat/completions"
     assert server.requests[0].headers["authorization"] == f"Bearer {KEY}"
     stored = b"".join(p.read_bytes() for p in (tmp_path / "store").rglob("*") if p.is_file())
@@ -180,3 +190,18 @@ def test_the_registry_builds_adapters_from_subject_configs():
         build_adapter(SubjectConfig(id="x", adapter="openai_compat", endpoint="nowhere", model=MODEL))
     with pytest.raises(ValueError, match="unknown adapter"):
         build_adapter(SubjectConfig(id="x", adapter="carrier_pigeon", model=MODEL))
+
+
+def test_stored_requests_never_keep_a_url_signature():
+    request = {"model": MODEL, "messages": [{"role": "user", "content": [
+        {"type": "video_url", "video_url": {"url": "https://r2.example/v/A.mp4?X-Amz-Signature=s&X-Amz-Expires=60"}},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}},
+        {"type": "image_url", "image_url": {"url": "https://cdn.example/frame.jpg"}},
+        {"type": "text", "text": "Describe it."}]}]}
+    stored = stored_request(request)
+    parts = stored["messages"][0]["content"]
+    assert parts[0]["video_url"]["url"] == "https://r2.example/v/A.mp4"
+    assert parts[1]["image_url"]["url"] == "data:image/jpeg;base64,AAAA" and parts[2] == request["messages"][0][
+        "content"][2]
+    assert request["messages"][0]["content"][0]["video_url"]["url"].endswith("X-Amz-Expires=60"), "input untouched"
+    assert redact_url("s3://bucket/key?x=1") == "s3://bucket/key?x=1"
