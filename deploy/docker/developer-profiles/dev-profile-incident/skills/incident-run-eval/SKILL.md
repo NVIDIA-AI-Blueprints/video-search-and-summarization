@@ -106,7 +106,7 @@ The V2 package sits beside the V1 modules and changes none of them. It does not 
 
 ```bash
 uv run python -m evalv2 plan --config <config.json>             # work items per task and subject; no calls
-uv run python -m evalv2 preflight --config <config.json>        # config rules + every cap covers the worst case
+uv run python -m evalv2 preflight --config <config.json>        # config rules + each cap covers the summed worst case of every task and subject it scopes; every charged task, subject and ledger has a cap
 uv run python -m evalv2 run --config <config.json> --dry-run    # plan + preflight as one statement
 uv run python -m evalv2 audit frozen-v1                         # V1's frozen artifacts unchanged (90 files)
 uv run python -m evalv2 audit run --store <dir> --run <run id>  # a sealed run's index and artifacts intact

@@ -32,7 +32,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - content-addressed, append-only artifacts and sealed runs (`artifacts.py`);
   - separate, retry-proof budget ledgers (`budget.py`; every HTTP attempt is charged before it is sent);
   - V1's retry policies, mirrored and tested for parity (`retry.py`);
-  - checkpoints keyed by idempotency key (`checkpoint.py`);
+  - checkpoints keyed by idempotency key (`checkpoint.py`): every outcome name is classified explicitly, and only an infrastructure failure, a budget refusal or an unsent attempt stays open for recovery (an HTTP error status or a reply that is not a completion is final, as in V1's `recovery-v1`);
   - strict JSON run configs (`config.py`);
   - run manifests (`manifest.py`);
   - the offline network block (`netguard.py`);
@@ -40,7 +40,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - the frozen-V1 guard (`frozen_v1.py` with `frozen_v1.json`, the SHA-256 of 90 frozen V1 files).
 - **`evalv2.adapters`:** provider specifics only, never scoring.
   - The OpenAI-compatible adapter (`openai_compat.py`) covers Switchyard, the NVIDIA API catalog and a local vLLM or NIM endpoint.
-    - It charges every attempt before sending it and applies V1's retry policy.
+    - It charges every attempt before sending it, at V1's P1 ceiling (35,000 tokens, `P1_TOKENS_CEILING`) until usage is measured, and applies V1's retry policy. Any failed attempt that spanned a host suspend is `host_suspended`, whatever it failed with, as in V1.
     - It classifies failures as V1 does.
     - It stores the request and response bodies but never the key.
   - A scripted `fake.py` adapter supports plumbing runs.
