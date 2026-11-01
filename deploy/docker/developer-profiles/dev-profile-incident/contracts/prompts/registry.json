@@ -1,0 +1,201 @@
+{
+  "registry_version": 1,
+  "note": "Append a new id for a changed prompt only when its old text must stay readable; otherwise edit the file, update its sha256, and the request goldens (contracts/golden/) show the change. Agent prompts are vendored by sync.py; chart/* are exported from the console's TypeScript by `npm run export:prompts`.",
+  "prompts": [
+    {
+      "id": "caption/system",
+      "file": "caption/system.txt",
+      "sha256": "1a793af76f470a262d4205004a678ad88a8a0197749cda563ef588d1bfbbce8d",
+      "stage": "caption",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "The caption pass's system message (the base profile's video_report_gen system prompt)."
+    },
+    {
+      "id": "caption/window",
+      "file": "caption/window.txt",
+      "sha256": "37aa7c8d0a2c2a3739091cde32bf79dc31a06db37e76b06884d3974d54fdd593",
+      "stage": "caption",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "The caption request's text (the base profile's video_report_gen.vlm_prompt), before the time range."
+    },
+    {
+      "id": "caption/time-range",
+      "file": "caption/time-range.txt",
+      "sha256": "5315668936f9ede74cff70ee186bf2764159591cce476e0f6d771de5ac7c1554",
+      "stage": "caption",
+      "placeholders": [
+        "end_time",
+        "start_time"
+      ],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "The time range appended to the caption text (video_report_gen's CHUNK_TIMESTAMP_PROMPT)."
+    },
+    {
+      "id": "caption/context-preamble",
+      "file": "caption/context-preamble.txt",
+      "sha256": "89e4eea1c51fdae9a23d5f731594bef21f20ef336af3e93d7b39ec8ae2435cdf",
+      "stage": "p1",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "Heads the caption context message P1 receives (clips over 30 s)."
+    },
+    {
+      "id": "p1/reviewer-preamble",
+      "file": "p1/reviewer-preamble.txt",
+      "sha256": "bab5f1bc985dd51cb45401b7a2161d5f2eb087e34ce604b3f015e640a39e1b9e",
+      "stage": "p1",
+      "placeholders": [],
+      "used_by": [
+        "agent",
+        "console"
+      ],
+      "purpose": "Heads a reviewer's instruction in P1, in both analysis modes (console and agent)."
+    },
+    {
+      "id": "p1/marks-preamble",
+      "file": "p1/marks-preamble.txt",
+      "sha256": "9fc9c2dcd5998dd74ce5f5ba1134c5bb38303003a3bb3c30f37fe7f163f6310e",
+      "stage": "p1",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "Heads the set-of-marks message P1 receives (flag, off by default)."
+    },
+    {
+      "id": "grounding/best-match",
+      "file": "grounding/best-match.txt",
+      "sha256": "1fa6ac8ee584d405fbd9d48ebb90d53a6837232a456a91ac8e535cf5af73c581",
+      "stage": "grounding",
+      "placeholders": [
+        "query"
+      ],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "One box for a report item's label (grounding; object tracking's re-anchoring)."
+    },
+    {
+      "id": "grounding/every-match",
+      "file": "grounding/every-match.txt",
+      "sha256": "0609320c61eec1d61e98e80f3167ef3af89998e334ed6795baef23050c31cc33",
+      "stage": "grounding",
+      "placeholders": [
+        "query"
+      ],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "Every match of a query (the privacy blur's whole-frame head search)."
+    },
+    {
+      "id": "zoom/look-entity-frame",
+      "file": "zoom/look-entity-frame.txt",
+      "sha256": "8917b6e889a0eb1cdc8bbbd3cccc4425cbe31e66784b38cf2fc9ec25ffa80ee3",
+      "stage": "zoom",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "Blind look at a person: the frame with the box drawn."
+    },
+    {
+      "id": "zoom/look-entity-close-up",
+      "file": "zoom/look-entity-close-up.txt",
+      "sha256": "ab44a0c974a33b2c2d51e99e87bf7038bc62614d9d9de1484d2d77f2425a9d19",
+      "stage": "zoom",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "Blind look at a person: the frame, then the close-up."
+    },
+    {
+      "id": "zoom/look-object-frame",
+      "file": "zoom/look-object-frame.txt",
+      "sha256": "a525cc21da4155a119177b487b0693c2e31f4050d8986e90414245cff9dfb7a5",
+      "stage": "zoom",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "Blind look at an instrument or asset: the frame with the box drawn."
+    },
+    {
+      "id": "zoom/look-object-close-up",
+      "file": "zoom/look-object-close-up.txt",
+      "sha256": "0c589b888f855cf82ea06bbc0ab354ababe9f3f64fab4d6065ddb74a7ac2cb3e",
+      "stage": "zoom",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "Blind look at an instrument or asset: the frame, then the close-up."
+    },
+    {
+      "id": "zoom/merge-entity",
+      "file": "zoom/merge-entity.txt",
+      "sha256": "bac2a034cc9ebea474812bfacb7c431c1c5b1063caf4b0be8146e1f06a414309",
+      "stage": "zoom",
+      "placeholders": [
+        "description",
+        "look_description",
+        "look_name",
+        "name"
+      ],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "Text-only merge of the agreeing looks with a person's report text."
+    },
+    {
+      "id": "zoom/merge-object",
+      "file": "zoom/merge-object.txt",
+      "sha256": "5c73a8dcebfd47367d785e9801b742e123246a15f2281f3a06563422ee0f3d83",
+      "stage": "zoom",
+      "placeholders": [
+        "description",
+        "item_type",
+        "look_description",
+        "look_name",
+        "name"
+      ],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "Text-only merge of the agreeing looks with an instrument's or asset's report text."
+    },
+    {
+      "id": "chart/system",
+      "file": "chart/system.txt",
+      "sha256": "c6cf07800e90541b63650db8e2bd279e4fc2cf482207176cb749b6a361a27c70",
+      "stage": "chart",
+      "placeholders": [],
+      "used_by": [
+        "console"
+      ],
+      "purpose": "The dashboard chart interpreter's system prompt, built from the allowlist (source: chart-interpreter.ts)."
+    },
+    {
+      "id": "chart/allowlist",
+      "file": "chart/allowlist.json",
+      "sha256": "cbf157bac2b7250c879469ad467a5bbf071d65c4aed4ef949ca73fc518e1a7a8",
+      "stage": "chart",
+      "placeholders": [],
+      "used_by": [
+        "console"
+      ],
+      "purpose": "The chart allowlist (metrics, dimensions, periods, severities, incident types; source: chart-spec.ts)."
+    }
+  ]
+}

@@ -86,6 +86,25 @@ export function schemaSha256(): string {
   return sha256(schemaText());
 }
 
+interface PromptEntry {
+  id: string;
+  file: string;
+  sha256: string;
+  used_by: string[];
+}
+
+/** A prompt the console uses from contracts/prompts/registry.json, after checking its file's SHA-256. */
+export function prompt(id: string): string {
+  const registry = JSON.parse(readContractFile('prompts/registry.json')) as { prompts: PromptEntry[] };
+  const entry = registry.prompts.find((item) => item.id === id && item.used_by.includes('console'));
+  if (!entry) throw new Error(`contracts/prompts/registry.json has no console prompt ${id}`);
+  const text = readContractFile(`prompts/${entry.file}`);
+  if (sha256(text) !== entry.sha256) {
+    throw new Error(`contracts/prompts/${entry.file} does not match its registered sha256`);
+  }
+  return text;
+}
+
 export class FileContractCatalog implements ContractCatalog {
   contractVersion(): string {
     return contractVersion();
@@ -113,6 +132,9 @@ export class FileContractCatalog implements ContractCatalog {
   }
   schemaSha256(): string {
     return schemaSha256();
+  }
+  prompt(id: string): string {
+    return prompt(id);
   }
 }
 

@@ -78,6 +78,7 @@ import numpy as np
 from PIL import Image
 from PIL import ImageDraw
 
+from vss_agents import incident_contract
 from vss_agents.utils import privacy_blur
 from vss_agents.utils import track_evidence
 from vss_agents.utils.optional_cv2 import ensure_codecs
@@ -218,22 +219,8 @@ class ZoomNamer(Protocol):
 
 def look_prompt(item_type: str, with_close_up: bool) -> str:
     """A blind look: name the marked item from the image(s) alone, with no report text to lean on."""
-    images = (
-        "The first image is a video frame with one {thing} marked by a red box; the second is a close-up of that box."
-        if with_close_up
-        else "The image is a video frame with one {thing} marked by a red box."
-    )
-    if item_type == "entity":
-        return (
-            f"{images.format(thing='person')} Describe the marked person from what is visible: clothing, build, "
-            'what they carry or hold. Return JSON only, in the form {"name": "person", "description": "<one sentence>", '
-            '"confidence": <0 to 1: how sure you are>}.'
-        )
-    return (
-        f"{images.format(thing='object')} What is the object inside the red box? Ignore things that are only partly "
-        'inside it. Return JSON only, in the form {"name": "<one to four plain words>", "description": "<one '
-        'sentence>", "confidence": <0 to 1: how sure you are>}.'
-    )
+    kind = "entity" if item_type == "entity" else "object"
+    return incident_contract.prompt(f"zoom/look-{kind}-{'close-up' if with_close_up else 'frame'}")
 
 
 _LOOK_STOP_WORDS = frozenset({"a", "an", "the", "some", "small", "large", "big", "little"})
@@ -260,24 +247,10 @@ def merge_prompt(item_type: str, name: str, description: str, look: ZoomLook) ->
     25-pixel smudge confirms "soccer ball"; here the model only reconciles what the looks found with what the
     report says, and it is only asked when the two looks agree (:func:`looks_agree`).
     """
-    found = f'A close look at the video frame found: "{look.name}" ({look.description}).'
+    fields = {"name": name, "description": description, "look_name": look.name, "look_description": look.description}
     if item_type == "entity":
-        rule = (
-            'The entity type is fixed: return it unchanged as "name". Keep the report\'s description unless the close '
-            "look shows it is wrong about the person's appearance (clothing, build, what they carry); then correct "
-            "only the wrong parts and keep what the report says about their behaviour and context."
-        )
-    else:
-        rule = (
-            "Keep the report's name and description unless the close look shows the report is wrong about what the "
-            "object is; then correct the name (one to four plain words) and only the wrong parts of the description, "
-            "keeping what the report says about context."
-        )
-    return (
-        f'An incident report lists an {item_type} named "{name}" with the description: "{description}". {found} '
-        f'{rule} Return JSON only, in the form {{"name": "<name>", "description": "<description>", "changed": <true '
-        'when either differs from the report>, "confidence": <0 to 1: how sure you are the result is right>}.'
-    )
+        return incident_contract.render_prompt("zoom/merge-entity", **fields)
+    return incident_contract.render_prompt("zoom/merge-object", item_type=item_type, **fields)
 
 
 def zoom_crop(frame: np.ndarray, box: Sequence[int | float]) -> bytes | None:
@@ -754,11 +727,7 @@ class DefaultDetector:
         if not jpeg:
             return []
 
-        prompt = (
-            f'Locate the single best match for "{query}" in this image. Return JSON only, in the form '
-            '{"bbox_2d": [xmin, ymin, xmax, ymax], "label": "<what the box contains>"} with integer coordinates '
-            'normalised to 0-1000 (0,0 is the top-left corner). If it is not visible, return {"bbox_2d": null}.'
-        )
+        prompt = incident_contract.render_prompt("grounding/best-match", query=query)
         body = {
             "model": self.model_name,
             "messages": [
@@ -801,12 +770,7 @@ class DefaultDetector:
         jpeg = encode_jpeg(np.ascontiguousarray(frame), quality=85)
         if not jpeg:
             return []
-        prompt = (
-            f'Locate every instance of "{query}" in this image, including small, distant, partly hidden, turned-away, '
-            "lying or covered ones, and any shown on a screen or in a picture. Return JSON only, in the form "
-            '{"detections": [{"bbox_2d": [xmin, ymin, xmax, ymax], "label": "<what the box contains>"}]} with integer '
-            'coordinates normalised to 0-1000 (0,0 is the top-left corner). If there is none, return {"detections": []}.'
-        )
+        prompt = incident_contract.render_prompt("grounding/every-match", query=query)
         body = {
             "model": self.model_name,
             "messages": [
