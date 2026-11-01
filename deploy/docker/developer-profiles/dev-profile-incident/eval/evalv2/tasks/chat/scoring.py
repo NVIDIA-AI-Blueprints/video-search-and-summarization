@@ -52,7 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from evalv2.datasets.records import effective_payload
-from evalv2.references.chat import has_phrase, words
+from evalv2.references.chat import words
 from evalv2.tasks.chat import v1
 from evalv2.tasks.judging import Judge, JudgeIdentity
 
@@ -211,11 +211,32 @@ def retrieval(answer: ChatAnswer, targets: Sequence[str], k_values: Sequence[int
     return out
 
 
-def exact(answer: ChatAnswer, expected: Mapping[str, Any], space: Mapping[str, Any] | None = None) -> bool | None:
+# A question about the most common type is answered by the type(s) the answer calls the most common; an answer may go
+# on to rank the others ("assault is the most common type, followed by burglary (1)"), which names no extra answer.
+RANKED_CLASSES = frozenset({"library.most_common_type"})
+_SUPERLATIVE = re.compile(r"\b(?:most|commonest|top|leading)\b")
+_CLAUSE_BREAK = re.compile(r"[.;:!?,()]|\b(?:followed by|then|while|whereas|but|ahead of)\b")
+
+
+def superlative_clauses(text: str | None) -> str | None:
+    """The clauses of an answer that state a superlative ("assault is the most common type"), joined; ``None`` when
+    no clause does. Clauses break at punctuation and at words that move on to the rest of a ranking."""
+    clauses = [c for c in _CLAUSE_BREAK.split((text or "").lower()) if _SUPERLATIVE.search(c)]
+    return " ".join(clauses) if clauses else None
+
+
+def exact(
+    answer: ChatAnswer,
+    expected: Mapping[str, Any],
+    space: Mapping[str, Any] | None = None,
+    *,
+    question_class: str | None = None,
+) -> bool | None:
     """Whether the answer gives exactly the computed answer; ``None`` for facts and holders (judged instead).
 
     ``space`` is the reference's ``answer_space`` (the candidates or vocabulary an answer could name instead);
-    without it a value or list can only be checked for the expected words, never for an extra one.
+    without it a value or list can only be checked for the expected words, never for an extra one. For a ranked
+    class (the most common type) the answer is what its superlative clauses name, when they name any vocabulary item.
     """
     kind, value = expected["kind"], expected.get("value")
     space = space or {}
@@ -230,7 +251,12 @@ def exact(answer: ChatAnswer, expected: Mapping[str, Any], space: Mapping[str, A
     if kind == "value":
         return value is not None and asserted_value(answer.text, value, space) == value
     if kind == "list":
-        return asserted_items(answer.text, list(value or []), space)
+        text = answer.text
+        if question_class in RANKED_CLASSES:
+            stated = superlative_clauses(text)
+            if stated and any(_asserted(words(stated), str(item)) for item in space.get("vocabulary") or []):
+                text = stated
+        return asserted_items(text, list(value or []), space)
     if kind == "window":
         numbers = [int(w) for w in _tokens(answer.text) if w.isdigit()]
         return value is not None and all(v in numbers for v in value)
@@ -274,7 +300,7 @@ def score_answer(record: Mapping[str, Any], answer: ChatAnswer, *, corpus: str, 
     out: dict[str, Any] = {"record_id": record["record_id"], "status": "scored", "class": payload["class"],
                            "scope": payload["scope"],
                            "tier": record["tier"], "corpus": corpus, "refusal_expected": expected["kind"] == "refusal",
-                           "refused": answer.refused, "exact": exact(answer, expected, payload.get("answer_space")),
+                           "refused": answer.refused, "exact": exact(answer, expected, payload.get("answer_space"), question_class=payload["class"]),
                            "citations": (citations(answer, expected_citations(payload))
                                          if expected["kind"] != "refusal" else None)}
     if payload["class"] == "library.retrieval":
