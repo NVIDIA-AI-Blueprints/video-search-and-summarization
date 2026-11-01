@@ -97,6 +97,13 @@ def test_reference_tooling_imports_no_model_client_task_or_v1_module():
             assert name.split(".")[0] not in NETWORK_MODULES | V1_MODULES, (path.name, name)
 
 
+def test_crop_scoring_is_offline_and_v1_free():
+    for path in _modules("tasks/crops"):
+        for name in _imports(path):
+            assert name.split(".")[0] not in NETWORK_MODULES | V1_MODULES, (path.name, name)
+            assert not name.startswith(("evalv2.adapters", "evalv2.cli")), (path.name, name)
+
+
 def test_scorers_never_import_a_network_client():
     for path in _modules("tasks"):
         if path.stem.startswith("scorer"):

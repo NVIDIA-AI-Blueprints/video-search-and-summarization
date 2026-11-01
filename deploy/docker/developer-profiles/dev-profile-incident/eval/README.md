@@ -52,6 +52,12 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - **`runner.py`:** sends V1's P1 body through a subject's adapter, validates the reply with V1's contract policy, stores the prediction, and labels the outcome as V1 does.
     - **`scoring.py`:** follows V1's `run_evaluation` and calls V1's own rules through `v1.py`, the task's only bridge to V1. Similarity and judge scores are injected providers whose results are recorded, so a run's full similarity matrices and judgements make re-scoring offline and exact.
     - **`aggregate.py`:** reports V1's own aggregates as `continuity_v1`, plus the V2 metrics: type macro-F1 and confusion, severity quadratic-weighted κ, timestamp errors with a tolerance curve, the incident window's temporal IoU, and attribute accuracies.
+  - **`tasks/crops/scoring.py`:** evidence boxes against box references, per reference tier.
+    - **Operational:** was a box located? A crop-call cap, a missing detector or store, or a crop error makes the entry unscorable, never a miss.
+    - **Temporal:** the evidence second (`box_seconds`, else the requested one) against the item's visible seconds.
+    - **Same-second IoU:** correct evidence means IoU ≥ 0.5 at a visible second.
+    - Primary metrics use `human_verified` references; the AI tiers are reported beside them.
+    - The agent stores a 5%-padded box. A recorded `detected_box` is preferred; otherwise the padding is inverted and counted as an estimate.
   - **`tasks/judging.py`:** judge results as data. A cache is keyed by judge model, prompt hash, settings and texts. An offline judge never calls a model, and a missing judgement is unscored, not failed.
 - **`evalv2.references`:** the box-reference tooling (R2). Making references is the approved run RA1.
   - **`boxes.py`:**
