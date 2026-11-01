@@ -145,6 +145,23 @@ class AnalyzeIncidentRequest(BaseModel):
             "(grounding HTTP attempts, retries included). Required when an experimental request crops."
         ),
     )
+    max_zoom_calls: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_CROP_CALLS_LIMIT,
+        description=(
+            "Experimental (INCIDENT_EXPERIMENTS_ENABLED=1 only): the cap of the zoomed second look's HTTP attempts "
+            "(retries included) in a crops-on request; items beyond it keep a zoom_gap. Without it the second look "
+            "runs uncapped, as before."
+        ),
+    )
+    experiment_object_tracking: bool = Field(
+        default=False,
+        description=(
+            "Experimental (INCIDENT_EXPERIMENTS_ENABLED=1 only): follow instruments and assets with the object tracker "
+            "in a crops-on request, under its own detector-call budget (INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS)."
+        ),
+    )
 
     blur_faces: bool = Field(
         default=False,
@@ -156,7 +173,13 @@ class AnalyzeIncidentRequest(BaseModel):
     )
 
     def is_experimental(self) -> bool:
-        return self.experiment_prompt_id is not None or self.skip_crops or self.max_crop_calls is not None
+        return (
+            self.experiment_prompt_id is not None
+            or self.skip_crops
+            or self.max_crop_calls is not None
+            or self.max_zoom_calls is not None
+            or self.experiment_object_tracking
+        )
 
 
 def create_incident_analyze_router(config: Any, builder: WorkflowBuilder) -> APIRouter:  # noqa: ARG001
@@ -182,6 +205,10 @@ def create_incident_analyze_router(config: Any, builder: WorkflowBuilder) -> API
             raise HTTPException(status_code=400, detail="an experimental request cannot carry a reviewer_prompt")
         if body.skip_crops and body.max_crop_calls is not None:
             raise HTTPException(status_code=400, detail="max_crop_calls cannot be combined with skip_crops")
+        if body.skip_crops and (body.max_zoom_calls is not None or body.experiment_object_tracking):
+            raise HTTPException(
+                status_code=400, detail="max_zoom_calls and experiment_object_tracking need cropping (no skip_crops)"
+            )
         if body.is_experimental() and not body.skip_crops and body.max_crop_calls is None:
             raise HTTPException(
                 status_code=400, detail="an experimental request with cropping on needs max_crop_calls (its cap)"
@@ -222,6 +249,10 @@ def create_incident_analyze_router(config: Any, builder: WorkflowBuilder) -> API
             tool_input["skip_crops"] = True
         if body.max_crop_calls is not None:
             tool_input["max_crop_calls"] = body.max_crop_calls
+        if body.max_zoom_calls is not None:
+            tool_input["max_zoom_calls"] = body.max_zoom_calls
+        if body.experiment_object_tracking:
+            tool_input["experiment_object_tracking"] = True
         if body.blur_faces:
             tool_input["blur_faces"] = True
 
@@ -237,6 +268,8 @@ def create_incident_analyze_router(config: Any, builder: WorkflowBuilder) -> API
                 "p1_attempts": getattr(exc, "attempts", []),
                 "contract_version": contract_version(),
             }
+            if getattr(exc, "provenance", None) is not None:
+                detail["provenance"] = exc.provenance  # type: ignore[attr-defined]
             if getattr(exc, "experiment", None) is not None:
                 telemetry = getattr(exc, "telemetry", None) or {}
                 detail.update(

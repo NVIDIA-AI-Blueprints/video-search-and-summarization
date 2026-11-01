@@ -1,0 +1,1 @@
+The image is a video frame with one object marked by a red box. What is the object inside the red box? Ignore things that are only partly inside it. Return JSON only, in the form {"name": "<one to four plain words>", "description": "<one sentence>", "confidence": <0 to 1: how sure you are>}.
