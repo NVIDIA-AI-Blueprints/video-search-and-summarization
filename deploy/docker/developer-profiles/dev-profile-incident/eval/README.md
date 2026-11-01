@@ -113,10 +113,18 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - **Specs:** `parse_spec` independently re-implements the console's `parseChartSpec`, and `all_specs` enumerates all 1,690 valid specs.
   - **References:** a generator words a request for a code-chosen spec, or an unsupported one (`gen-dashboard-request-v1`). A blind validator re-derives the spec (`gen-dashboard-respec-v1`), and the record is `ai_validated` only on exact agreement.
   - **Scoring:** each reply is one of exact, refusal-correct, valid-but-wrong, false refusal, false accept or parse failure, with per-field accuracy and stability across repeats, per tier. Making references is the approved run RB2.
+  - **Figures** (with `figures_of`): what the user would see. The reference spec's chart is compared with the reply's chart on the frozen snapshot: figures match or differ, refusals, false accepts, or no chart. A valid-but-wrong spec can still show the right figures, so figure accuracy is reported beside spec accuracy.
+- **`evalv2.references.dashboard_figures`, `dashboard_snapshot` and `dashboard_replay`:** a chart's figures, checked three independent ways on a frozen snapshot with a frozen clock (R4).
+  - **Recount:** `dashboard()` recounts `get_incident_dashboard` in Python from the snapshot's rows, following the migration's documented rules. `chart()` re-implements how the console turns one dashboard into chart rows: the period from the clock, trends coarsened past 31 bars, and split bar charts.
+  - **SQL:** the recount must equal the production SQL in the harness. The agreement test covers two seeded snapshots: bounded periods (including one across the US daylight-saving change), three time zones, every scope, type and severity filter, weekday and hour filters, and all-time calls.
+  - **Console replay:** `scripts/v2_chart_replay.mjs` runs the console's own `generateChart` and RPC mapper in Node on recorded dashboard answers. Its answers must equal `chart()` for every spec as both bar and pie.
+  - **Snapshots:** `seeded_snapshot` is synthetic, seeded and committable, and covers the dashboard's rules. `corpus_snapshot` is the evaluation corpus as a dashboard (run RB2; private paths only).
+  - **Limitation:** labels sort in code-point order, as in the harness's C.UTF-8 database. A database with another collation may order tied labels, and the top-N cut-off among ties, differently.
 - **`evalv2.sql`:** the SQL harness for model-free figures.
   - **Schema:** the finals migrations on a throwaway Postgres (`pgserver`), on top of the Supabase stub, as the schema's own SQL harness does.
   - **Snapshot:** a frozen `evalv2-sql-snapshot-v1` snapshot, loaded with its ids kept (identity columns included).
   - **Calls:** the dashboard and summary functions, with every parameter explicit. **A dashboard call without both period bounds, a timezone and a scope is refused**, because null bounds make `get_incident_dashboard` read `CURRENT_DATE`.
+  - **All-time calls:** `dashboard_open_period` passes both bounds as null, as an all-time chart does. It refuses a result where nothing was counted: only then does the trend read `CURRENT_DATE`.
   - **Environment:** `pgserver` and `psycopg` are not eval dependencies. `scripts/v2_sql_harness.py` runs in a throwaway environment (`uv run --no-project --script ...`), and the real-schema test runs there too, so it is skipped in the eval suite.
 - **`evalv2.verify_v1`:** re-scores stored V1 records with V2 by replaying the stored assignments and judge scores (V1 kept no matrices). It requires every score block, and V1's aggregates and the Stage 3 report's `items` and `severity`, to be identical. Running it on the real Stage 3 records is the approved check RA0.
 - **`evalv2.datasets`:**

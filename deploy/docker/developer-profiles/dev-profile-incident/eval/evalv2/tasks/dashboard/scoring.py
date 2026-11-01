@@ -25,19 +25,27 @@ Each reply is one outcome:
 Per-field accuracy compares the five spec fields when the reply is a valid spec; stability is the share of requests
 whose repeats all give the same outcome and spec. Results are kept per reference tier (``primary`` is
 ``human_verified``). The chart type is not scored here: the user picks it, so it is a rule with unit tests.
+
+**Figures** (with ``figures_of``, a chart computed from the frozen snapshot: :func:`dashboard_figures.chart`) score
+what the user would see. The reference spec's chart and the reply's chart are compared: ``figures_match`` (the same
+series, rows and totals; a valid-but-wrong spec can still show the right figures), ``figures_differ``,
+``refusal_correct``, ``false_refusal`` and ``false_accept`` (a parse failure is shown as a refusal, as the console
+shows it), and ``no_chart`` (for example a pie asked of a dimension that needs bars).
 """
 
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from evalv2.datasets.records import effective_payload
 from evalv2.references.dashboard import SPEC_KEYS, is_refusal, parse_spec
+from evalv2.references.dashboard_figures import comparable
 
 OUTCOMES = ("exact", "refusal_correct", "valid_but_wrong", "false_refusal", "false_accept", "parse_failure")
 TIER_GROUPS = {"human_verified": "primary", "ai_validated": "ai_validated", "ai_proposed": "ai_proposed"}
+FIGURE_OUTCOMES = ("figures_match", "figures_differ", "refusal_correct", "false_refusal", "false_accept", "no_chart")
 
 
 def outcome(reply: Any, expected: Mapping[str, Any], allowlist: Mapping[str, Any]) -> tuple[str, dict[str, Any] | None]:
@@ -53,8 +61,20 @@ def outcome(reply: Any, expected: Mapping[str, Any], allowlist: Mapping[str, Any
     return ("exact" if spec == dict(expected) else "valid_but_wrong"), spec
 
 
-def score_reply(record: Mapping[str, Any], reply: Any, allowlist: Mapping[str, Any], *, repeat: int = 1
-                ) -> dict[str, Any]:
+def figure_outcome(expected_chart: Mapping[str, Any], actual_chart: Mapping[str, Any]) -> str:
+    """Whether the reply's chart shows the reference chart's figures (both are chart answers)."""
+    expected_kind, actual_kind = expected_chart.get("kind"), actual_chart.get("kind")
+    if expected_kind == "unsupported":
+        return "refusal_correct" if actual_kind == "unsupported" else "false_accept"
+    if actual_kind == "unsupported":
+        return "false_refusal"
+    if expected_kind != "chart" or actual_kind != "chart":
+        return "no_chart"
+    return "figures_match" if comparable(expected_chart) == comparable(actual_chart) else "figures_differ"
+
+
+def score_reply(record: Mapping[str, Any], reply: Any, allowlist: Mapping[str, Any], *, repeat: int = 1,
+                figures_of: Callable[[Mapping[str, Any] | None], Mapping[str, Any]] | None = None) -> dict[str, Any]:
     payload = effective_payload(record)
     if payload is None:
         return {"record_id": record["record_id"], "status": "reference_rejected"}
@@ -62,9 +82,12 @@ def score_reply(record: Mapping[str, Any], reply: Any, allowlist: Mapping[str, A
     result, spec = outcome(reply, expected, allowlist)
     fields = ({key: spec[key] == expected[key] for key in SPEC_KEYS}
               if spec is not None and not is_refusal(expected) else None)
-    return {"record_id": record["record_id"], "status": "scored", "tier": record["tier"], "repeat": repeat,
-            "class": "unsupported" if is_refusal(expected) else "spec", "outcome": result, "spec": spec,
-            "fields": fields}
+    out = {"record_id": record["record_id"], "status": "scored", "tier": record["tier"], "repeat": repeat,
+           "class": "unsupported" if is_refusal(expected) else "spec", "outcome": result, "spec": spec,
+           "fields": fields}
+    if figures_of is not None:
+        out["figures"] = figure_outcome(figures_of(None if is_refusal(expected) else dict(expected)), figures_of(spec))
+    return out
 
 
 def _rate(rows: list[Mapping[str, Any]], *names: str) -> float | None:
@@ -76,6 +99,7 @@ def _summary(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
     unsupported = [r for r in rows if r["class"] == "unsupported"]
     refused = [r for r in rows if r["outcome"] in ("refusal_correct", "false_refusal")]
     with_fields = [r for r in supported if r["fields"] is not None]
+    figured = [r for r in rows if "figures" in r]
     by_record: dict[str, set[str]] = defaultdict(set)
     for r in rows:
         by_record[r["record_id"]].add(f"{r['outcome']}|{sorted((r['spec'] or {}).items())}")
@@ -92,6 +116,9 @@ def _summary(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
                            for key in SPEC_KEYS} if with_fields else None,
         "stability": round(sum(1 for v in repeated.values() if len(v) == 1) / len(repeated), 4) if repeated else None,
         "outcomes": dict(Counter(r["outcome"] for r in rows)),
+        "figure_accuracy": round(sum(1 for r in figured if r["figures"] in ("figures_match", "refusal_correct"))
+                                 / len(figured), 4) if figured else None,
+        "figure_outcomes": dict(Counter(r["figures"] for r in figured)) if figured else None,
     }
 
 

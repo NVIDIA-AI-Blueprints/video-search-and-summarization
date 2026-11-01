@@ -90,6 +90,25 @@ def dashboard_call(params: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     return f"SELECT public.get_incident_dashboard({named})", dict(params)
 
 
+def open_period_call(params: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
+    """The SQL of an all-time dashboard call (both bounds null, as an all-time chart sends them).
+
+    Null bounds read ``CURRENT_DATE`` only when nothing is counted; :meth:`SqlHarness.dashboard_open_period` refuses
+    that result, so a figure still never depends on the day it was computed.
+    """
+    if params.get("p_period_start") is not None or params.get("p_period_end") is not None:
+        raise SqlHarnessError("an open-period call has no period bounds; a bounded period uses dashboard_call")
+    missing = [name for name in ("p_timezone", "p_scope") if params.get(name) is None]
+    if missing:
+        raise SqlHarnessError(f"dashboard calls need explicit {missing}")
+    unknown = sorted(set(params) - DASHBOARD_PARAMS)
+    if unknown:
+        raise SqlHarnessError(f"unknown dashboard parameters {unknown}")
+    values = {**dict(params), "p_period_start": None, "p_period_end": None}
+    named = ", ".join(f"{key} => %({key})s" for key in sorted(values))
+    return f"SELECT public.get_incident_dashboard({named})", values
+
+
 def summaries_call(params: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     """The SQL of one ``list_incident_report_summaries`` call; page and page size must be explicit."""
     missing = [name for name in ("p_page", "p_page_size") if params.get(name) is None]
@@ -164,6 +183,13 @@ class SqlHarness:
     def dashboard(self, **params: Any) -> Any:
         sql, values = dashboard_call(params)
         return self._one(sql, values)
+
+    def dashboard_open_period(self, **params: Any) -> Any:
+        sql, values = open_period_call(params)
+        result = self._one(sql, values)
+        if not result or result.get("total") == 0:
+            raise SqlHarnessError("nothing counted: an open-period dashboard would read CURRENT_DATE for its trend")
+        return result
 
     def report_summaries(self, **params: Any) -> Any:
         sql, values = summaries_call(params)
