@@ -2,14 +2,14 @@
   "session_id": "s2",
   "message": {
     "role": "assistant",
-    "content": "Two assaults involve a bottle: V1 and V3.",
+    "content": "The fight outside involved a glass bottle.",
     "citations": [
       {
-        "incident_id": "V1",
+        "incident_id": "V3",
         "item_id": "I1",
         "item_type": "instrument",
         "timestamp_seconds": 6.0,
-        "crop_image_url": "https://r2.example/evidence/V1/run-1/I1.jpg"
+        "crop_image_url": "https://r2.example/evidence/V3/run-1/I1.jpg"
       }
     ],
     "insufficient_evidence": false
@@ -21,20 +21,39 @@
     "version_id": null,
     "official": null,
     "draft": false,
+    "answered_by": "model",
     "dropped_citations": [],
+    "ids_resolved": [],
     "prompt_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "plan_prompt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "plan": {
       "incident_type": "assault",
       "severity": null,
       "instrument": "bottle",
       "asset": null,
-      "query": "",
-      "wants_count": true
+      "query": "outside",
+      "wants_count": false,
+      "group_by": null,
+      "dropped": {}
     },
     "matching": 2,
+    "count_exact": false,
     "candidates": [
-      "V1",
-      "V3"
-    ]
+      "V3",
+      "V1"
+    ],
+    "versions": {
+      "V3": 31,
+      "V1": 11
+    },
+    "incident_titles": {
+      "V3": "the assault (\"Fight with a bottle outside\")",
+      "V1": "the assault (\"Bottle attack at the bar\")"
+    },
+    "usage": {
+      "calls": 2,
+      "total_tokens": 940,
+      "elapsed_ms": 2210
+    }
   }
 }

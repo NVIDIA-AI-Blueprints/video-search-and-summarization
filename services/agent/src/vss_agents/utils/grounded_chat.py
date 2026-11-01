@@ -34,6 +34,7 @@ the rest of the agent uses), whose HTTP client and clock are injectable. The sys
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from dataclasses import field
 import json
@@ -51,6 +52,7 @@ from vss_agents.utils import report_answers
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from collections.abc import Iterable
     from collections.abc import Mapping
     from collections.abc import Sequence
 
@@ -185,9 +187,13 @@ def _seconds(value: Any) -> float | None:
     return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
 
 
-def item_mentions(context: Mapping[str, Any]) -> dict[str, str]:
-    """How a person reading the answer knows each item: its label or name, else its description's first clause."""
-    mentions = {}
+def item_mentions(context: Mapping[str, Any], retired: Iterable[str] = ()) -> report_answers.Mentions:
+    """How a person reading the answer knows each item: its label or name, else its description's first clause.
+
+    ``retired`` are ids a draft removed from the base version; like any other id the report does not hold, they read
+    neutrally.
+    """
+    mentions = report_answers.Mentions()
     for item in context.get("items") or []:
         mentions[item["item_id"]] = report_answers.Item(
             kind=str(item.get("item_type") or ""),
@@ -197,6 +203,7 @@ def item_mentions(context: Mapping[str, Any]) -> dict[str, str]:
             label=str(item.get("label") or ""),
             entity_type=str(item.get("type") or "").lower(),
         ).mention()
+    mentions.retired = frozenset(retired)
     return mentions
 
 
@@ -219,14 +226,19 @@ class GroundedAnswer:
     ids_resolved: tuple[str, ...] = ()
 
 
-def check_answer(reply: Mapping[str, Any], context: Mapping[str, Any], *, question: str = "") -> GroundedAnswer:
+def check_answer(
+    reply: Mapping[str, Any], context: Mapping[str, Any], *, question: str = "", retired: Iterable[str] = ()
+) -> GroundedAnswer:
     """The model's answer with its citations checked against the context; unknown ids are dropped and counted.
 
-    Unless the question asks for ids, a known item id written in the prose is resolved to the item's description and
-    listed in ``ids_resolved``.
+    Unless the question asks for ids, an id written in the prose is resolved: a known item id to the item's
+    description, any other id-like token ("E7", a draft's "new-E3") to a neutral "a person" or "an object". Each is
+    listed in ``ids_resolved``. An empty answer is a model failure (a chat history cannot carry an empty turn).
     """
     if not isinstance(reply.get("answer"), str) or not isinstance(reply.get("insufficient_evidence"), bool):
         raise ChatModelError("chat model reply lacks the answer or the insufficient_evidence flag")
+    if not reply["answer"].strip():
+        raise ChatModelError("chat model returned an empty answer")
     known = {item["item_id"] for item in context["items"]}
     cited: list[str] = []
     dropped: list[str] = []
@@ -238,9 +250,10 @@ def check_answer(reply: Mapping[str, Any], context: Mapping[str, Any], *, questi
             dropped.append(item_id)
     insufficient = bool(reply["insufficient_evidence"])
     content = reply["answer"].strip()
-    leaked: list[str] = [] if report_answers.asks_for_ids(question) else report_answers.referenced_ids(content, known)
+    mentions = item_mentions(context, retired)
+    leaked: list[str] = [] if report_answers.asks_for_ids(question) else report_answers.replaced_ids(content, mentions)
     if leaked:
-        content = report_answers.resolve_references(content, item_mentions(context))
+        content = report_answers.resolve_references(content, mentions)
     return GroundedAnswer(
         content=content,
         item_ids=() if insufficient else tuple(cited),
@@ -253,15 +266,23 @@ def check_answer(reply: Mapping[str, Any], context: Mapping[str, Any], *, questi
 # ---------------------------------------------------------------------------
 # Library scope: a planned search over every incident's report, then an answer
 # ---------------------------------------------------------------------------
+#
+# The model only plans (turns the question into filters) and, for a question that is not a count, writes the answer
+# from the best matching reports. Code applies the filters, counts, and composes every count and breakdown answer, so
+# a number in a library answer is always a code count. A count whose question the filters do not capture whole (a
+# condition left in the search phrase, or a filter value the library does not use) is refused, never estimated.
 
 PLAN_PROMPT_ID = "chat/library-plan"
 LIBRARY_PROMPT_ID = "chat/library-answer"
 MAX_LIBRARY_REPORTS = 8
+MAX_LISTED = 5
 SEVERITY_BANDS = {"low": (1, 2), "medium": (3, 3), "high": (4, 5)}
+SEVERITY_RANGES = {"high": "levels 4-5", "medium": "level 3", "low": "levels 1-2"}
+GROUPINGS = ("incident_type", "severity")
 PLAN_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["incident_type", "severity", "instrument", "asset", "query", "wants_count"],
+    "required": ["incident_type", "severity", "instrument", "asset", "query", "wants_count", "group_by"],
     "properties": {
         "incident_type": {"type": ["string", "null"]},
         "severity": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
@@ -269,6 +290,7 @@ PLAN_SCHEMA: dict[str, Any] = {
         "asset": {"type": ["string", "null"]},
         "query": {"type": "string"},
         "wants_count": {"type": "boolean"},
+        "group_by": {"type": ["string", "null"], "enum": [*GROUPINGS, None]},
     },
 }
 LIBRARY_ANSWER_SCHEMA: dict[str, Any] = {
@@ -286,6 +308,20 @@ LIBRARY_ANSWER_SCHEMA: dict[str, Any] = {
         },
     },
 }
+# Words a search phrase may hold without narrowing the reports it is about ("incidents", "how many", "recorded").
+_GENERIC_TEXT = (
+    "a an the of in on at for to and or with by from as is are was were be been there that which what how many much "
+    "number count counts total all any every each incident incidents report reports library case cases video videos "
+    "clip clips event events happen happened happens occur occurred occurs record records recorded"
+)
+_GENERIC_WORDS = frozenset(_GENERIC_TEXT.split())
+# Words a breakdown question uses to ask for the breakdown itself ("which type happened most often").
+_GROUPING_TEXT = (
+    "type types kind kinds category categories severity severities level levels most least common often frequent "
+    "frequently breakdown per"
+)
+_GROUPING_WORDS = frozenset(_GROUPING_TEXT.split())
+_DROPPED_AS = {"incident_type": "an incident type", "severity": "a severity", "group_by": "a breakdown"}
 
 
 @dataclass(frozen=True)
@@ -302,49 +338,122 @@ class LibraryIndex(Protocol):
     async def reports(self) -> list[LibraryReport]: ...
 
 
+def _incident_types() -> list[str]:
+    return list(incident_contract.load_schema()["properties"]["incident"]["properties"]["type"]["enum"])
+
+
 def _words(text: Any) -> set[str]:
     return {w for w in "".join(c if c.isalnum() else " " for c in str(text or "").lower()).split() if len(w) > 2}
 
 
+def _join(parts: Sequence[str]) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1] if parts else ""
+
+
+def _number(n: int) -> str:
+    return report_answers.NUMBER_WORDS[n] if 0 < n < len(report_answers.NUMBER_WORDS) else str(n)
+
+
 def plan_messages(question: str, history: Sequence[Mapping[str, str]]) -> list[dict[str, str]]:
-    types = ", ".join(incident_contract.load_schema()["properties"]["incident"]["properties"]["type"]["enum"])
     turns = [{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")]
     return [
-        {"role": "system", "content": incident_contract.prompt(PLAN_PROMPT_ID) + f"\nIncident types: {types}."},
+        {
+            "role": "system",
+            "content": incident_contract.prompt(PLAN_PROMPT_ID) + f"\nIncident types: {', '.join(_incident_types())}.",
+        },
         *turns[-MAX_HISTORY_MESSAGES:-1],
         {"role": "user", "content": question},
     ]
 
 
+def _phrase(value: Any) -> str | None:
+    """A planner's object phrase in plain lower case, or None when it holds no word to match."""
+    text = " ".join(str(value).lower().split()) if isinstance(value, str) else ""
+    return text if report_answers.term_sets(text) else None
+
+
 def check_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
-    """The planner's filters, with an unknown incident type or severity dropped rather than trusted."""
-    types = set(incident_contract.load_schema()["properties"]["incident"]["properties"]["type"]["enum"])
+    """The planner's filters, normalised. An incident type, severity or breakdown the library does not use is not
+    applied, and is listed in ``dropped`` (a count that depends on it cannot be exact)."""
     if not isinstance(plan.get("query"), str) or not isinstance(plan.get("wants_count"), bool):
         raise ChatModelError("chat model plan lacks the query or the wants_count flag")
-    out = {
-        "incident_type": plan.get("incident_type") if plan.get("incident_type") in types else None,
-        "severity": plan.get("severity") if plan.get("severity") in SEVERITY_BANDS else None,
-        "instrument": (plan.get("instrument") or "").strip().lower() or None,
-        "asset": (plan.get("asset") or "").strip().lower() or None,
+    dropped: dict[str, str] = {}
+
+    def keep(key: str, allowed: Iterable[str]) -> str | None:
+        value = plan.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        text = " ".join(str(value).replace("_", " ").lower().split())
+        known = {" ".join(option.replace("_", " ").lower().split()): option for option in allowed}
+        if text in known:
+            return known[text]
+        dropped[key] = str(value).strip()
+        return None
+
+    return {
+        "incident_type": keep("incident_type", _incident_types()),
+        "severity": keep("severity", SEVERITY_BANDS),
+        "instrument": _phrase(plan.get("instrument")),
+        "asset": _phrase(plan.get("asset")),
         "query": plan["query"].strip(),
         "wants_count": plan["wants_count"],
+        "group_by": keep("group_by", GROUPINGS),
+        "dropped": dropped,
     }
-    return out
+
+
+def count_exact(plan: Mapping[str, Any]) -> bool:
+    """Whether the filters capture the whole question, so the number of matching reports is its exact answer: no
+    filter value was dropped, and the search phrase holds nothing but generic words and the filters' own words."""
+    if plan["dropped"]:
+        return False
+    allowed = set(_GENERIC_WORDS) | (_GROUPING_WORDS if plan["group_by"] else set())
+    for key in ("incident_type", "instrument", "asset"):
+        allowed |= {word for term in report_answers.term_sets(plan[key]) for word in term}
+    if plan["severity"]:
+        allowed |= {plan["severity"], "severity", "severe", "level", "levels"}
+    return all(term & allowed for term in report_answers.term_sets(plan["query"]))
+
+
+def _object_words(item: Mapping[str, Any]) -> set[str]:
+    text = " ".join(str(item.get(key) or "") for key in ("name", "label", "description"))
+    return {word for term in report_answers.term_sets(text) for word in term}
+
+
+def _has_term(term: frozenset[str], words: set[str]) -> bool:
+    """A whole word, or the head of a compound ("gun" in "handgun", "knife" in "pocketknife"); never a word's start or
+    middle ("bat" is not in "bathroom")."""
+    return bool(term & words) or any(
+        len(part) >= 3 and len(word) - len(part) >= 3 and word.endswith(part) for part in term for word in words
+    )
+
+
+def involves(report: LibraryReport, phrase: str) -> bool:
+    """Whether one instrument or asset of the report is named by every word of ``phrase``.
+
+    Instruments and assets are searched alike: a planner cannot know how a report filed an object (a thrown chair is
+    an instrument, a broken one an asset), and a wrong guess must not turn into a wrong count of zero.
+    """
+    terms = report_answers.term_sets(phrase)
+    objects = [*(report.payload.get("instruments") or []), *(report.payload.get("assets") or [])]
+    return bool(terms) and any(
+        all(_has_term(term, _object_words(item)) for term in terms) for item in objects if isinstance(item, dict)
+    )
+
+
+def _band(level: Any) -> str | None:
+    if not isinstance(level, int) or isinstance(level, bool):
+        return None
+    return next((band for band, (low, high) in SEVERITY_BANDS.items() if low <= level <= high), None)
 
 
 def matches(report: LibraryReport, plan: Mapping[str, Any]) -> bool:
     incident = report.payload.get("incident") or {}
     if plan["incident_type"] and incident.get("type") != plan["incident_type"]:
         return False
-    if plan["severity"]:
-        low, high = SEVERITY_BANDS[plan["severity"]]
-        if not isinstance(incident.get("severity_level"), int) or not low <= incident["severity_level"] <= high:
-            return False
-    for kind, key in (("instruments", "instrument"), ("assets", "asset")):
-        wanted = plan[key]
-        if wanted and not any(wanted in str(i.get("name") or "").lower() for i in report.payload.get(kind) or []):
-            return False
-    return True
+    if plan["severity"] and _band(incident.get("severity_level")) != plan["severity"]:
+        return False
+    return all(involves(report, plan[key]) for key in ("instrument", "asset") if plan[key])
 
 
 def rank(reports: Sequence[LibraryReport], query: str) -> list[LibraryReport]:
@@ -354,7 +463,7 @@ def rank(reports: Sequence[LibraryReport], query: str) -> list[LibraryReport]:
     def score(report: LibraryReport) -> int:
         incident = report.payload.get("incident") or {}
         names = " ".join(
-            str(i.get("name") or i.get("description") or "")
+            str(i.get("name") or i.get("label") or i.get("description") or "")
             for kind in ("entities", "instruments", "assets")
             for i in report.payload.get(kind) or []
         )
@@ -363,7 +472,115 @@ def rank(reports: Sequence[LibraryReport], query: str) -> list[LibraryReport]:
     return sorted(reports, key=lambda r: (-score(r), r.incident_id))
 
 
-def library_context(candidates: Sequence[LibraryReport], total_matching: int) -> dict[str, Any]:
+def _incident_fields(report: LibraryReport) -> dict[str, Any]:
+    incident = report.payload.get("incident") or {}
+    return {"type": incident.get("type"), "title": incident.get("title")}
+
+
+def library_mention(report: LibraryReport) -> str:
+    """How an answer names a library report: :func:`incident_mention` of its incident."""
+    return incident_mention(_incident_fields(report))
+
+
+def _scope(plan: Mapping[str, Any]) -> tuple[str, str]:
+    """The plan's filters as words: those before "report" ("high-severity assault") and the condition after it
+    ("involving a knife")."""
+    before = " ".join(
+        word
+        for word in (f"{plan['severity']}-severity" if plan["severity"] else "", plan["incident_type"] or "")
+        if word
+    )
+    things = []
+    for key in ("instrument", "asset"):
+        phrase = plan[key]
+        if phrase:
+            first, last = phrase.split()[0], phrase.split()[-1]
+            plural = last.endswith("s") and not last.endswith("ss")
+            things.append(
+                phrase
+                if plural or first.isdigit() or first in ("a", "an", "the", "some", "any")
+                else f"{'an' if phrase[0] in 'aeiou' else 'a'} {phrase}"
+            )
+    return before, (f" involving {_join(things)}" if things else "")
+
+
+def count_answer(plan: Mapping[str, Any], ranked: Sequence[LibraryReport]) -> str:
+    """How many reports match the plan's filters (a code count), naming them (up to :data:`MAX_LISTED`)."""
+    before, condition = _scope(plan)
+    noun = f"{before} report" if before else "report"
+    n = len(ranked)
+    if n == 0:
+        return f"The library holds no {noun}s{condition}."
+    head = f"The library holds {_number(n)} {noun}{'' if n == 1 else 's'}{condition}"
+    names = [library_mention(r) for r in ranked]
+    if n <= MAX_LISTED:
+        return f"{head}: {_join(names)}."
+    return f"{head}, including {_join(names[:3])}."
+
+
+def breakdown_answer(plan: Mapping[str, Any], ranked: Sequence[LibraryReport]) -> str:
+    """How the matching reports divide by incident type or severity band (code counts)."""
+    before, condition = _scope(plan)
+    n = len(ranked)
+    if n <= 1:
+        answer = count_answer(plan, ranked)
+        level = (ranked[0].payload.get("incident") or {}).get("severity_level") if ranked else None
+        band = _band(level)
+        if band and plan["group_by"] == "severity":
+            answer = f"{answer[:-1]}, which is {band} severity (level {level})."
+        return answer
+    lead = f"Of the {_number(n)} {before + ' ' if before else ''}reports in the library{condition}, "
+    if plan["group_by"] == "severity":
+        bands = Counter(_band((r.payload.get("incident") or {}).get("severity_level")) for r in ranked)
+        parts: list[str] = []
+        for band, span in SEVERITY_RANGES.items():
+            if bands[band]:
+                verb = ("is " if bands[band] == 1 else "are ") if not parts else ""
+                parts.append(f"{_number(bands[band])} {verb}{band} severity ({span})")
+        if bands[None]:
+            parts.append(f"{_number(bands[None])} {'has' if bands[None] == 1 else 'have'} no severity level")
+        return f"{lead}{_join(parts)}."
+    types = Counter(str((r.payload.get("incident") or {}).get("type") or "") for r in ranked)
+    untyped = types.pop("", 0)
+    ordered = sorted(types.items(), key=lambda kv: (-kv[1], kv[0]))
+    if not ordered:
+        return f"{lead}none has an incident type."
+    if len(ordered) == 1 and not untyped:
+        return f"{lead}all are {ordered[0][0]} reports."
+    top_count = ordered[0][1]
+    top = [kind for kind, count in ordered if count == top_count]
+    reports = "report" if top_count == 1 else "reports"
+    if len(top) == 1:
+        text = f"{top[0]} is the most common type, with {_number(top_count)} {reports}"
+    else:
+        text = f"{_join(top)} are the most common types, with {_number(top_count)} {reports} each"
+    rest = ordered[len(top) :]
+    if rest:
+        text += f", followed by {_join([f'{kind} ({count})' for kind, count in rest])}"
+    if untyped:
+        text += f"; {_number(untyped)} {'has' if untyped == 1 else 'have'} no type"
+    return f"{lead}{text}."
+
+
+def uncountable_answer(plan: Mapping[str, Any]) -> str:
+    """Why a count or breakdown question has no exact answer: what the filters could not capture."""
+    parts = [f'"{value}" as {_DROPPED_AS[key]}' for key, value in plan["dropped"].items()]
+    if plan["query"] and not count_exact({**plan, "dropped": {}}):
+        parts.append(f'"{plan["query"]}"')
+    reason = f", not by {_join(parts)}" if parts else ""
+    answer = (
+        f"I can count incidents only by type, severity (low, medium or high), instrument or asset{reason}, so I can't "
+        "give an exact number."
+    )
+    if "incident_type" in plan["dropped"]:
+        answer += f" The incident types are {_join(_incident_types())}."
+    return answer
+
+
+def library_context(
+    candidates: Sequence[LibraryReport], matching: Sequence[LibraryReport], plan: Mapping[str, Any]
+) -> dict[str, Any]:
+    """What the model may know: the code counts over every matching report, and the best matching reports."""
     reports = []
     for report in candidates:
         incident = report.payload.get("incident") or {}
@@ -371,7 +588,7 @@ def library_context(candidates: Sequence[LibraryReport], total_matching: int) ->
             {
                 "item_id": str(i.get(id_field)),
                 "item_type": item_type,
-                "name": i.get("name") or i.get("description") or i.get("type"),
+                "name": i.get("name") or i.get("label") or i.get("description") or i.get("type"),
             }
             for kind, (id_field, item_type) in ITEM_KINDS.items()
             for i in report.payload.get(kind) or []
@@ -387,7 +604,16 @@ def library_context(candidates: Sequence[LibraryReport], total_matching: int) ->
                 "items": items,
             }
         )
-    return {"total_matching": total_matching, "reports": reports}
+    by_type = Counter(str((r.payload.get("incident") or {}).get("type") or "none") for r in matching)
+    by_severity = Counter(_band((r.payload.get("incident") or {}).get("severity_level")) or "none" for r in matching)
+    return {
+        "total_matching": len(matching),
+        "count_exact": count_exact(plan),
+        "counts_by_type": dict(sorted(by_type.items())),
+        "counts_by_severity": dict(sorted(by_severity.items())),
+        "dropped_filters": dict(plan["dropped"]),
+        "reports": reports,
+    }
 
 
 def library_messages(context: Mapping[str, Any], history: Sequence[Mapping[str, str]]) -> list[dict[str, str]]:
@@ -416,24 +642,33 @@ def incident_mention(report: Mapping[str, Any]) -> str:
     return f'{phrase} ("{title}")' if title else phrase
 
 
-def _library_item_mentions(context: Mapping[str, Any], cited: Sequence[tuple[str, str]]) -> dict[str, str]:
-    """Item mentions for a library answer: an item id names the item of the incident it is cited with, else of the
-    first report shown that holds it (the same id, E1, recurs across incidents)."""
-    by_pair = {}
+def _library_item_mentions(context: Mapping[str, Any], cited: Sequence[tuple[str, str]]) -> report_answers.Mentions:
+    """How a library answer names each item id. The same id (E1) recurs across incidents, so an id names the item of
+    the one incident it was cited with, else of the one incident shown that holds it; an id that could be either of
+    two different items reads neutrally ("a person", "an object") rather than as the wrong one."""
+    by_pair: dict[tuple[str, str], str] = {}
+    holders: dict[str, list[str]] = {}
     for report in context["reports"]:
         for item in report["items"]:
+            entity = item.get("item_type") == "entity"
             by_pair[(report["incident_id"], item["item_id"])] = report_answers.Item(
                 kind=str(item.get("item_type") or ""),
                 item_id=item["item_id"],
-                name=str(item.get("name") or "") if item.get("item_type") != "entity" else "",
-                description=str(item.get("name") or "") if item.get("item_type") == "entity" else "",
+                name="" if entity else str(item.get("name") or ""),
+                description=str(item.get("name") or "") if entity else "",
             ).mention()
-    mentions: dict[str, str] = {}
-    for pair in cited:
-        if pair in by_pair:
-            mentions.setdefault(pair[1], by_pair[pair])
-    for (_, item_id), mention in by_pair.items():
-        mentions.setdefault(item_id, mention)
+            holders.setdefault(item["item_id"], []).append(report["incident_id"])
+    cited_with: dict[str, list[str]] = {}
+    for incident_id, item_id in cited:
+        cited_with.setdefault(item_id, []).append(incident_id)
+    mentions = report_answers.Mentions()
+    for item_id, incidents in holders.items():
+        candidates = {by_pair[(incident_id, item_id)] for incident_id in cited_with.get(item_id) or incidents}
+        mentions[item_id] = (
+            candidates.pop()
+            if len(candidates) == 1
+            else report_answers.NEUTRAL.get(item_id.removeprefix("new-")[:1], "an item")
+        )
     return mentions
 
 
@@ -441,10 +676,13 @@ def check_library_answer(reply: Mapping[str, Any], context: Mapping[str, Any], *
     """The answer with each (incident, item) citation checked against the reports shown; unknown pairs dropped.
 
     Unless the question asks for ids, an incident id written in the prose is replaced by the incident's type and title,
-    and an item id by the item's name; both are listed in ``ids_resolved``.
+    and an item id by the item's name (or a neutral phrase when it is ambiguous); all are listed in ``ids_resolved``.
+    An empty answer is a model failure.
     """
     if not isinstance(reply.get("answer"), str) or not isinstance(reply.get("insufficient_evidence"), bool):
         raise ChatModelError("chat model reply lacks the answer or the insufficient_evidence flag")
+    if not reply["answer"].strip():
+        raise ChatModelError("chat model returned an empty answer")
     known = {(r["incident_id"], i["item_id"]) for r in context["reports"] for i in r["items"]}
     cited: list[tuple[str, str]] = []
     dropped: list[str] = []
@@ -456,24 +694,23 @@ def check_library_answer(reply: Mapping[str, Any], context: Mapping[str, Any], *
         )
         if pair in known and pair not in cited:
             cited.append(pair)
-        elif any(pair):
+        elif any(pair) and pair not in known:
             dropped.append(f"{pair[0]}/{pair[1]}")
     insufficient = bool(reply["insufficient_evidence"])
     content = reply["answer"].strip()
     resolved: list[str] = []
     if not report_answers.asks_for_ids(question):
-        for report in context["reports"]:
-            pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(report['incident_id'])}(?![A-Za-z0-9_])")
+        for report in sorted(context["reports"], key=lambda r: len(r["incident_id"]), reverse=True):
+            pattern = re.compile(rf"(?<![\w-]){re.escape(report['incident_id'])}(?![\w-])")
             if pattern.search(content):
-                content = pattern.sub(incident_mention(report), content)
+                # A title may hold a backslash: escaped, it is literal text, never a group reference.
+                content = pattern.sub(incident_mention(report).replace("\\", "\\\\"), content)
                 resolved.append(report["incident_id"])
         mentions = _library_item_mentions(context, cited)
-        leaked = report_answers.referenced_ids(content, mentions)
-        if leaked:
+        leaked = report_answers.replaced_ids(content, mentions)
+        if leaked or resolved:
             content = report_answers.resolve_references(content, mentions)
             resolved += leaked
-        elif resolved:
-            content = report_answers.resolve_references(content, {})
     return LibraryAnswer(
         content=content,
         citations=() if insufficient else tuple(cited),

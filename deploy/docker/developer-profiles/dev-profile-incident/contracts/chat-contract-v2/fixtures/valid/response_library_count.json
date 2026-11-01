@@ -1,0 +1,50 @@
+{
+  "session_id": "s3",
+  "message": {
+    "role": "assistant",
+    "content": "The library holds two assault reports involving a bottle: the assault (\"Bottle attack at the bar\") and the assault (\"Fight with a bottle outside\").",
+    "citations": [],
+    "insufficient_evidence": false
+  },
+  "grounding": {
+    "mode": "grounded",
+    "scope": "library",
+    "model": "nvidia/nemotron-3-ultra",
+    "version_id": null,
+    "official": null,
+    "draft": false,
+    "answered_by": "code",
+    "dropped_citations": [],
+    "ids_resolved": [],
+    "plan_prompt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "plan": {
+      "incident_type": "assault",
+      "severity": null,
+      "instrument": "bottle",
+      "asset": null,
+      "query": "",
+      "wants_count": true,
+      "group_by": null,
+      "dropped": {}
+    },
+    "matching": 2,
+    "count_exact": true,
+    "candidates": [
+      "V1",
+      "V3"
+    ],
+    "versions": {
+      "V1": 11,
+      "V3": 31
+    },
+    "incident_titles": {
+      "V1": "the assault (\"Bottle attack at the bar\")",
+      "V3": "the assault (\"Fight with a bottle outside\")"
+    },
+    "usage": {
+      "calls": 1,
+      "total_tokens": 410,
+      "elapsed_ms": 890
+    }
+  }
+}
