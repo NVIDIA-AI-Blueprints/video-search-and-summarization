@@ -50,7 +50,12 @@ def _seconds(value: Any) -> float | None:
 
 
 def type_metrics(videos: list[Mapping[str, Any]]) -> dict[str, Any]:
-    """Accuracy, macro-F1 over the taxonomy and the confusion matrix (rows: ground truth, columns: predicted)."""
+    """Accuracy, macro-F1 and the confusion matrix (rows: ground truth, columns: predicted).
+
+    Macro-F1 averages the labels with ground-truth support only. A label no clip has (an explosion-free pilot
+    subset, say) has no defined recall: its F1 is ``None`` and it is left out of the average, so perfect predictions
+    score 1.0 on any subset. A wrong prediction of such a label still costs the true label's recall.
+    """
     labels = list(v1.INCIDENT_TYPES)
     confusion = {gt: Counter() for gt in labels}
     for video in videos:
@@ -64,16 +69,20 @@ def type_metrics(videos: list[Mapping[str, Any]]) -> dict[str, Any]:
         column = predicted if predicted in labels or predicted == "missing" else "other"
         confusion[expected][column] += 1
     n = sum(sum(row.values()) for row in confusion.values())
-    f1s = []
+    support = {label: sum(confusion[label].values()) for label in labels}
+    f1s: dict[str, float | None] = {}
     for label in labels:
         tp = confusion[label][label]
         fp = sum(confusion[other][label] for other in labels if other != label)
-        fn = sum(confusion[label].values()) - tp
-        f1s.append(2 * tp / (2 * tp + fp + fn) if (2 * tp + fp + fn) else 0.0)
+        fn = support[label] - tp
+        f1s[label] = 2 * tp / (2 * tp + fp + fn) if support[label] else None
+    supported = [f for f in f1s.values() if f is not None]
     correct = sum(confusion[label][label] for label in labels)
-    return {"n": n, "accuracy": _ratio(correct, n), "macro_f1": round(sum(f1s) / len(f1s), 4) if n else None,
-            "per_class_f1": dict(zip(labels, (round(f, 4) for f in f1s), strict=True)),
-            "confusion": {gt: dict(row) for gt, row in confusion.items()}}
+    return {"n": n, "accuracy": _ratio(correct, n),
+            "macro_f1": round(sum(supported) / len(supported), 4) if supported else None,
+            "macro_f1_labels": [label for label in labels if f1s[label] is not None],
+            "per_class_f1": {label: None if f is None else round(f, 4) for label, f in f1s.items()},
+            "support": support, "confusion": {gt: dict(row) for gt, row in confusion.items()}}
 
 
 def severity_metrics(videos: list[Mapping[str, Any]]) -> dict[str, Any]:

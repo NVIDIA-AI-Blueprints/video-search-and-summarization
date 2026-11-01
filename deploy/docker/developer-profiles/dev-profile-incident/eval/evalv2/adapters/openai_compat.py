@@ -18,7 +18,8 @@
 Each endpoint names the environment variables that hold its base URL (with ``/v1``) and its key; the key is
 read at call time, sent only as a bearer header, and never stored: the request artifact is the JSON body alone.
 Failures are classified exactly as V1 classifies them (``core.retry.classify_http_status``), and a 2xx that is
-not a completion is ``invalid_response``, as in V1 and the console.
+not a completion is ``invalid_response``, as in V1 and the console. Any failed attempt that spanned a host suspend
+is ``host_suspended``, whatever it failed with, as in V1's ``rate_limited()``.
 """
 
 from __future__ import annotations
@@ -115,7 +116,8 @@ class OpenAICompatAdapter:
                     failure = Failure("transport_error", str(exc))
             if failure is None and not (isinstance(body, dict) and body.get("choices")):
                 failure = Failure("invalid_response", f"no completion in the response: {str(body)[:200]}", status)
-            if watch.timing and watch.timing.host_suspended and failure is not None and failure.infrastructure:
+            if watch.timing and watch.timing.host_suspended and failure is not None:
+                # V1 relabels every failed attempt that spanned a suspend, an HTTP error or a non-completion too.
                 failure = Failure("host_suspended", failure.detail, failure.http_status)
             usage = Usage.from_openai(body.get("usage") if isinstance(body, dict) else None)
             ctx.ledger.settle(reservation, tokens_used=usage.total_tokens)
