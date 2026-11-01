@@ -22,7 +22,10 @@ dependency, as for ``gt_frames.py``).
 - ``extract PLAN OUT``: native-resolution JPEGs at each planned time (``{"clips": [{"clip", "video", "times"}]}``),
   plus ``frames.json`` with each frame's SHA-256 and size;
 - ``draw PACKET FRAMES OUT``: each packet frame with its numbered proposal boxes drawn (number tags at the box
-  corner), written to the packet's image paths under ``OUT``.
+  corner), written to the packet's image paths under ``OUT``;
+- ``sheet RECORDS FRAMES OUT``: one contact sheet per box record for its human review (X6): every second the passes
+  disagreed on (red border), then agreed seconds spread over the record (the reference box in green), up to 12
+  frames, plus ``links.json`` mapping each record id to its sheet for ``python -m evalv2 review export --links``.
 
 Output goes under the gitignored data root. Running it on the clips is part of an approved reference run (RA1)::
 
@@ -70,6 +73,7 @@ def draw(packet_path: Path, frames_dir: Path, out_dir: Path) -> int:
     from PIL import Image, ImageDraw
 
     packet = json.loads(packet_path.read_text())
+    packet = packet.get("packet", packet)  # a reference run writes {"packet_id", "packet_sha256", "packet"}
     clip = packet["item"]["clip"]
     for frame in packet["frames"]:
         source = frames_dir / clip / f"t{float(frame['t']):08.3f}.jpg"
@@ -90,14 +94,75 @@ def draw(packet_path: Path, frames_dir: Path, out_dir: Path) -> int:
     return len(packet["frames"])
 
 
+def review_seconds(payload: dict, limit: int = 12) -> list[int]:
+    """The seconds a box record's review sheet shows: every disagreed second, then agreed seconds evenly spread."""
+    disagreed = sorted(int(s) for s in payload.get("disagreed_seconds", []))[:limit]
+    agreed = sorted(int(s) for s in payload.get("boxes", {}))
+    room = limit - len(disagreed)
+    if room <= 0 or not agreed:
+        return disagreed
+    picked = agreed if len(agreed) <= room else [agreed[round(i * (len(agreed) - 1) / (room - 1))] if room > 1
+                                                 else agreed[len(agreed) // 2] for i in range(room)]
+    return sorted(set(disagreed) | set(picked))
+
+
+def sheet(records_path: Path, frames_dir: Path, out_dir: Path, *, limit: int = 12, tile_width: int = 320) -> dict:
+    from PIL import Image, ImageDraw
+
+    links: dict[str, str] = {}
+    missing = 0
+    for line in records_path.read_text().splitlines():
+        record = json.loads(line) if line.strip() else None
+        if not record or record.get("kind") != "box":
+            continue
+        payload = record["payload"]
+        tiles = []
+        for second in review_seconds(payload, limit):
+            source = frames_dir / payload["clip"] / f"t{float(second):08.3f}.jpg"
+            if not source.exists():
+                missing += 1
+                continue
+            image = Image.open(source).convert("RGB")
+            width, height = image.size
+            canvas = ImageDraw.Draw(image)
+            box = payload["boxes"].get(str(second))
+            line_width = max(2, width // 240)
+            if box:
+                ymin, xmin, ymax, xmax = (v / 1000.0 for v in box)
+                canvas.rectangle((xmin * width, ymin * height, xmax * width, ymax * height), outline=(0, 200, 0),
+                                 width=line_width)
+            else:  # the passes disagreed here: no reference box
+                canvas.rectangle((0, 0, width - 1, height - 1), outline=(220, 0, 0), width=line_width * 2)
+            canvas.rectangle((0, 0, 44, 16), fill=(0, 0, 0))
+            canvas.text((4, 3), f"{second} s", fill=(255, 255, 255))
+            tiles.append(image.resize((tile_width, max(1, round(height * tile_width / width)))))
+        if not tiles:
+            continue
+        columns = min(4, len(tiles))
+        rows = -(-len(tiles) // columns)
+        tile_height = max(tile.size[1] for tile in tiles)
+        board = Image.new("RGB", (columns * tile_width, rows * tile_height), (32, 32, 32))
+        for index, tile in enumerate(tiles):
+            board.paste(tile, ((index % columns) * tile_width, (index // columns) * tile_height))
+        name = "".join(c if c.isalnum() or c in "._-" else "_" for c in record["record_id"]) + ".jpg"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        board.save(out_dir / name, quality=90)
+        links[record["record_id"]] = name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "links.json").write_text(json.dumps(links, indent=1, sort_keys=True))
+    return {"sheets": len(links), "missing_frames": missing}
+
+
 def main() -> int:
-    if len(sys.argv) < 2 or sys.argv[1] not in ("extract", "draw"):
+    if len(sys.argv) < 2 or sys.argv[1] not in ("extract", "draw", "sheet"):
         print(__doc__)
         return 2
     if sys.argv[1] == "extract":
         print(json.dumps({"frames": len(extract(Path(sys.argv[2]), Path(sys.argv[3])))}))
-    else:
+    elif sys.argv[1] == "draw":
         print(json.dumps({"drawn": draw(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]))}))
+    else:
+        print(json.dumps(sheet(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]))))
     return 0
 
 
