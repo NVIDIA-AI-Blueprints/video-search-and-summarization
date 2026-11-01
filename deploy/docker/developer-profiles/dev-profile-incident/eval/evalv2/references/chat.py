@@ -65,6 +65,7 @@ CLASSES: dict[str, str] = {
 REFUSAL_CLASSES = frozenset({"incident.unanswerable", "incident.false_premise"})
 WRITTEN_CLASSES = frozenset({"incident.facts"})
 FACT_AGREEMENT = 0.6
+SEVERITY_LEVELS = (1, 2, 3, 4, 5)
 _STOP = frozenset({
     "a", "an", "the", "and", "or", "of", "to", "in", "on", "at", "by", "for", "with", "from", "is", "are", "was",
     "were", "be", "been", "it", "its", "this", "that", "these", "those", "as", "into", "near", "over", "under",
@@ -158,13 +159,67 @@ def answer(question_class: str, gt_index: Mapping[str, Any], params: Mapping[str
     raise ChatReferenceError(f"no computation for {question_class}")  # pragma: no cover
 
 
+def support(question_class: str, gt_index: Mapping[str, Any], params: Mapping[str, Any]) -> list[str]:
+    """The incidents the expected answer rests on: what a grounded answer cites (citation precision and recall).
+
+    An incident question rests on its incident. A library count rests on the incidents it counts, a filter on the
+    incidents it lists, the most common type on that type's incidents, and a retrieval question on its targets.
+    """
+    if question_class not in CLASSES:
+        raise ChatReferenceError(f"unknown question class {question_class!r}")
+    if CLASSES[question_class] == "incident":
+        return [str(params["incident_id"])]
+    corpus = oracle_corpus(gt_index)
+    if question_class == "library.type_count":
+        return sorted(i for i, r in corpus.items() if r["incident"].get("type") == params["type"])
+    if question_class == "library.severity_at_least_count":
+        level = int(params["level"])
+        return sorted(i for i, r in corpus.items() if (r["incident"].get("severity_level") or 0) >= level)
+    if question_class == "library.most_common_type":
+        top = set(answer(question_class, gt_index, params)["value"])
+        return sorted(i for i, r in corpus.items() if r["incident"].get("type") in top)
+    return sorted(answer(question_class, gt_index, params)["value"])  # instrument_incidents, retrieval: the list
+
+
+def answer_space(question_class: str, gt_index: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    """What an answer could name instead, so the scorer can tell which value or items an answer asserts.
+
+    ``candidates`` for a value (every incident type in the corpus, or the severity levels); ``vocabulary`` for a
+    list (every instrument or asset name in the corpus, normalised like the expected items, or every incident id or
+    type). A list answer naming a vocabulary item it should not is wrong, not merely incomplete.
+    """
+    corpus = oracle_corpus(gt_index)
+    if question_class == "incident.type":
+        return {"candidates": sorted({str(r["incident"]["type"]) for r in corpus.values()
+                                      if r["incident"].get("type")})}
+    if question_class == "incident.severity":
+        return {"candidates": list(SEVERITY_LEVELS)}
+    if question_class in ("incident.instrument_list", "incident.asset_list"):
+        kind = "instruments" if question_class == "incident.instrument_list" else "assets"
+        return {"vocabulary": sorted({normalise(item.get("name")) for r in corpus.values() for item in r[kind]}
+                                     - {""})}
+    if question_class in ("library.instrument_incidents", "library.retrieval"):
+        return {"vocabulary": sorted(corpus)}
+    if question_class == "library.most_common_type":
+        return {"vocabulary": sorted({str(r["incident"]["type"]) for r in corpus.values()
+                                      if r["incident"].get("type")})}
+    return {}
+
+
 def recount(record: Mapping[str, Any], gt_index: Mapping[str, Any]) -> list[str]:
-    """Problems when a countable reference's stored answer differs from the code recount (empty when they agree)."""
+    """Problems when a reference's stored answer, support or answer space differs from a code recount."""
     payload = record["payload"]
+    problems = []
+    for key, compute in (("support", support), ("answer_space", answer_space)):
+        fresh_value = compute(payload["class"], gt_index, payload["params"])
+        if payload.get(key) != fresh_value:
+            problems.append(f"{record['record_id']}: stored {key} {payload.get(key)} != {fresh_value}")
     if payload["class"] in WRITTEN_CLASSES:
-        return []
+        return problems
     fresh = answer(payload["class"], gt_index, payload["params"])
-    return [] if fresh == payload["answer"] else [f"{record['record_id']}: stored {payload['answer']} != {fresh}"]
+    if fresh != payload["answer"]:
+        problems.append(f"{record['record_id']}: stored {payload['answer']} != {fresh}")
+    return problems
 
 
 def generator_packet(question_class: str, params: Mapping[str, Any], gt_index: Mapping[str, Any], *,
@@ -211,7 +266,7 @@ def assert_blind(validator: Mapping[str, Any], record: Mapping[str, Any]) -> Non
     """
     if validator.get("role") != "validator":
         raise ChatReferenceError("not a validator packet")
-    forbidden = {"answer", "facts", "paraphrases", "computed_answer", "leakage"}
+    forbidden = {"answer", "facts", "paraphrases", "computed_answer", "leakage", "support", "answer_space"}
     if forbidden & set(validator):
         raise ChatReferenceError(f"the validator packet holds {sorted(forbidden & set(validator))}")
     if validator.get("question") != record["payload"]["question"] or validator.get("record_id") != record["record_id"]:
@@ -277,7 +332,9 @@ def build_record(question_class: str, params: Mapping[str, Any], gt_index: Mappi
     subject = params.get("incident_id") or "library"
     record_id = f"chat:{question_class}:{subject}:{sha256_json({'question': question, 'params': dict(params)})[:12]}"
     payload = {"class": question_class, "scope": scope, "params": dict(params), "question": question,
-               "paraphrases": list(paraphrases), "answer": expected}
+               "paraphrases": list(paraphrases), "answer": expected,
+               "support": support(question_class, gt_index, params),
+               "answer_space": answer_space(question_class, gt_index, params)}
     leak = leakage({"record_id": record_id, "payload": payload}, gt_index)
     record = new_record(record_id=record_id, dataset=dataset, kind="chat_question", clip=params.get("incident_id"),
                         strata={"class": question_class, "scope": scope}, payload={**payload, "leakage": leak},

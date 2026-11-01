@@ -60,9 +60,10 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - The agent stores a 5%-padded box. A recorded `detected_box` is preferred; otherwise the padding is inverted and counted as an estimate.
   - **`tasks/chat/scoring.py`:** chat answers against chat references.
     - **Retrieval:** V1's MVP2 `list_metrics` (P@K, R@K, MRR) through the `tasks/chat/v1.py` bridge, plus nDCG@K.
-    - **Exact answers:** counts, values, lists and windows.
+    - **Exact answers:** counts, values, lists and windows, read with the references' own normaliser. A value is the one the answer asserts (the severity level it states, a 1-5 scale aside, or the one corpus type it names). A list is the set it asserts: every expected item and no other item of the reference's `answer_space` vocabulary (negated mentions assert nothing), and an empty list needs an explicit none. An extra item the vocabulary does not know is left to the unsupported-claim judge.
     - **Refusals:** expected only for unanswerable and false-premise questions.
-    - **Citations:** precision and recall.
+    - **Citations:** precision and recall against the incidents the expected answer rests on (the reference's `support`: the question's incident, a count's counted incidents, a filter's list, a retrieval question's targets).
+    - **Holders:** judged, not matched: the fact judge checks that the answer identifies the holder the ground truth describes (`holder_identified`).
     - **Judged checks:** fact recall, unsupported claims and contradictions, each through the judge cache with a hash-pinned prompt (`judge-*-v1.txt`), so a re-score replays offline.
     - The judge must not share a model family with a subject or the reference generator (`check_judge_family`).
     - Oracle and system corpora, and reference tiers, are aggregated apart; `primary` is `human_verified`.
