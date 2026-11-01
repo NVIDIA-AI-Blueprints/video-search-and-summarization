@@ -72,9 +72,9 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - The box prompts are `gen-box-select-v1` and `gen-box-validate-v1` in `evalv2/datasets/generation_prompts/`.
   - **`chat.py`:** chat references (R3). Making them is the approved run RA2.
     - Classes: 10 incident-scope and 5 library-scope.
-    - Every countable answer is computed by code from the ground truth's contract-shaped reports, and `recount` must agree.
+    - Every countable answer is computed by code from the ground truth's contract-shaped reports, and `recount` must agree. An instrument's holder is the holder's ground-truth description (a system corpus numbers people on its own, so a local id like `E1` names nobody), judged at scoring. A library instrument filter matches whole words (`bat` is not `baton`).
     - The generator only words the question and two paraphrases, or writes atomic facts for `incident.facts`.
-    - The blind validator gets the question and the incident, never the reference. A record is `ai_validated` only when it agrees and the code checks pass, including that the question does not state its answer.
+    - The blind validator gets the question and the incident (for a library question, every report of the oracle corpus, so it can recount or find the targets), never the reference. A retrieval question's generator also sees its target's report. A record is `ai_validated` only when it agrees and the code checks pass, including that the question does not state its answer.
     - `leakage` reports each question's overlap with the target's description.
     - The oracle corpus (the ground truth's reports) and a system corpus are kept apart.
     - Prompts: `gen-chat-wording-v1` and `gen-chat-rederive-v1`.
