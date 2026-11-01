@@ -24,6 +24,7 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
   1. The model turns the question into a checked plan: type, severity band, instrument, asset, search phrase and count flag.
   2. Code filters every incident's searchable version (official, else newest) exactly and ranks the matches.
   3. The model answers from the best eight with incident and item citations, using `total_matching`, which code counted.
+  - **Prose (2026-11-01):** the answer names incidents by type and title and items by name, never by id unless asked. An id still written is replaced and listed in `grounding.ids_resolved`, as in the incident answer.
 - **Why:** counts must be exact (a model counting reports it was shown gets them wrong past a few), and retrieval must cover the whole library.
 - **Rejected:**
   - Semantic revision search alone: there is no summary embedding for human revisions, and it has no type or severity filter (X25). A migration for that waits for approval.

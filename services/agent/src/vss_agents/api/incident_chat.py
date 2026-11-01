@@ -674,7 +674,7 @@ def create_incident_chat_router(
             reply = await model.complete(
                 grounded_chat.library_messages(context, history), grounded_chat.LIBRARY_ANSWER_SCHEMA
             )
-            answer = grounded_chat.check_library_answer(reply, context)
+            answer = grounded_chat.check_library_answer(reply, context, question=question)
         except grounded_chat.ChatModelError as exc:
             raise HTTPException(status_code=502, detail=f"Chat model error: {exc}") from exc
         by_report = {report.incident_id: report for report in candidates}
@@ -695,6 +695,7 @@ def create_incident_chat_router(
                 )
             )
         grounding["dropped_citations"] = list(answer.dropped_citations)
+        grounding["ids_resolved"] = list(answer.ids_resolved)
         grounding["usage"] = dict(getattr(model, "last_usage", {}) or {})
         return ChatResponse(
             session_id=session_id,

@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from dataclasses import field
 import json
 import os
+import re
 import time
 from typing import TYPE_CHECKING
 from typing import Any
@@ -404,10 +405,44 @@ class LibraryAnswer:
     citations: tuple[tuple[str, str], ...]
     insufficient_evidence: bool
     dropped_citations: tuple[str, ...] = ()
+    ids_resolved: tuple[str, ...] = ()
 
 
-def check_library_answer(reply: Mapping[str, Any], context: Mapping[str, Any]) -> LibraryAnswer:
-    """The answer with each (incident, item) citation checked against the reports shown; unknown pairs dropped."""
+def incident_mention(report: Mapping[str, Any]) -> str:
+    """How an answer names an incident of the library: its type and title (``the burglary ("Shop door forced")``)."""
+    kind = str(report.get("type") or "").strip()
+    title = str(report.get("title") or "").strip().rstrip(".")
+    phrase = f"the {kind}" if kind else "the incident"
+    return f'{phrase} ("{title}")' if title else phrase
+
+
+def _library_item_mentions(context: Mapping[str, Any], cited: Sequence[tuple[str, str]]) -> dict[str, str]:
+    """Item mentions for a library answer: an item id names the item of the incident it is cited with, else of the
+    first report shown that holds it (the same id, E1, recurs across incidents)."""
+    by_pair = {}
+    for report in context["reports"]:
+        for item in report["items"]:
+            by_pair[(report["incident_id"], item["item_id"])] = report_answers.Item(
+                kind=str(item.get("item_type") or ""),
+                item_id=item["item_id"],
+                name=str(item.get("name") or "") if item.get("item_type") != "entity" else "",
+                description=str(item.get("name") or "") if item.get("item_type") == "entity" else "",
+            ).mention()
+    mentions: dict[str, str] = {}
+    for pair in cited:
+        if pair in by_pair:
+            mentions.setdefault(pair[1], by_pair[pair])
+    for (_, item_id), mention in by_pair.items():
+        mentions.setdefault(item_id, mention)
+    return mentions
+
+
+def check_library_answer(reply: Mapping[str, Any], context: Mapping[str, Any], *, question: str = "") -> LibraryAnswer:
+    """The answer with each (incident, item) citation checked against the reports shown; unknown pairs dropped.
+
+    Unless the question asks for ids, an incident id written in the prose is replaced by the incident's type and title,
+    and an item id by the item's name; both are listed in ``ids_resolved``.
+    """
     if not isinstance(reply.get("answer"), str) or not isinstance(reply.get("insufficient_evidence"), bool):
         raise ChatModelError("chat model reply lacks the answer or the insufficient_evidence flag")
     known = {(r["incident_id"], i["item_id"]) for r in context["reports"] for i in r["items"]}
@@ -424,9 +459,25 @@ def check_library_answer(reply: Mapping[str, Any], context: Mapping[str, Any]) -
         elif any(pair):
             dropped.append(f"{pair[0]}/{pair[1]}")
     insufficient = bool(reply["insufficient_evidence"])
+    content = reply["answer"].strip()
+    resolved: list[str] = []
+    if not report_answers.asks_for_ids(question):
+        for report in context["reports"]:
+            pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(report['incident_id'])}(?![A-Za-z0-9_])")
+            if pattern.search(content):
+                content = pattern.sub(incident_mention(report), content)
+                resolved.append(report["incident_id"])
+        mentions = _library_item_mentions(context, cited)
+        leaked = report_answers.referenced_ids(content, mentions)
+        if leaked:
+            content = report_answers.resolve_references(content, mentions)
+            resolved += leaked
+        elif resolved:
+            content = report_answers.resolve_references(content, {})
     return LibraryAnswer(
-        content=reply["answer"].strip(),
+        content=content,
         citations=() if insufficient else tuple(cited),
         insufficient_evidence=insufficient,
         dropped_citations=tuple(dropped),
+        ids_resolved=tuple(resolved),
     )

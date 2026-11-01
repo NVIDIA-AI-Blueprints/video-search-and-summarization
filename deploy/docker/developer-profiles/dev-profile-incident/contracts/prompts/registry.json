@@ -222,7 +222,7 @@
     {
       "id": "chat/library-answer",
       "file": "chat/library-answer.txt",
-      "sha256": "ca64110be1899b376fab64a80e27d681c9a19030a6fcfc10e412984ecab34cdb",
+      "sha256": "2ee9d5bb4fbc4da538021d10c20fe676615e7ba578309219be951f726406856a",
       "stage": "chat",
       "placeholders": [],
       "used_by": [

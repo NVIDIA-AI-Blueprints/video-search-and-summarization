@@ -155,6 +155,7 @@ Response `200`: `{"session_id", "message": {"role": "assistant", "content", "cit
   - **Filtering:** code reads every incident's searchable version (official, else newest; `IncidentDBLibraryIndex`, cached 60 s) and filters it exactly.
   - **Answer:** code ranks the matches by the phrase, and the model answers from the best eight with `chat/library-answer`. The context carries `total_matching`, counted by code, which the model must use for "how many".
   - **Citations:** each is an (incident, item) pair checked against the reports shown.
+  - **Prose:** the prompt has the model name incidents by type and title and items by name, and keep incident and item ids out of the answer text unless the question asks for ids. An id still written in the prose is replaced: an incident id by its type and title, an item id by the item's name (from the incident it is cited with). Each replaced id is listed in `grounding.ids_resolved`.
   - **Empty result:** with no matching report the answer is insufficient evidence, without a second model call.
   - **`grounding`:** gains `scope: "library"`, `plan`, `matching` and `candidates`; `version_id` and `official` are `null`.
 - **Unchanged:** every question in template mode (composed from the report, above) keeps exactly the v1 keys.
