@@ -30,6 +30,7 @@ import cv2
 import numpy as np
 import pytest
 
+from vss_agents.utils import privacy_blur
 from vss_agents.utils.crop_evidence import BudgetedDetector
 from vss_agents.utils.crop_evidence import CropCallBudget
 from vss_agents.utils.crop_evidence import CropCallCapReachedError
@@ -57,6 +58,10 @@ from vss_agents.utils.crop_evidence import parse_zoom_reply
 from vss_agents.utils.crop_evidence import set_crop_evidence_service
 from vss_agents.utils.crop_evidence import zoom_crop
 from vss_agents.utils.crop_evidence import zoom_names_enabled
+from vss_agents.utils.track_evidence import OBJECT_TRACK_SOURCE
+from vss_agents.utils.track_evidence import ObjectSeed
+from vss_agents.utils.track_evidence import ObjectTrackingOutcome
+from vss_agents.utils.track_evidence import ObjectTrackingRequest
 from vss_agents.utils.track_evidence import Sample
 from vss_agents.utils.track_evidence import Track
 from vss_agents.utils.track_evidence import TrackingOutcome
@@ -782,6 +787,164 @@ class TestTrackingEvidence:
             video_ref=tiny_video_path, video_id="v", report=REPORT, batch_id="b", tracking=fallback
         )
         assert results[0]["track"] and fallback.summary.marks["fallback"] == 1 and fallback.summary.marks["parsed"] == 0
+
+
+class TestObjectTrackingEvidence:
+    """Instrument and asset tracks are stored like person tracks, marked with their source."""
+
+    DETECTOR = FakeDetector(detections=[Detection(box=[200, 200, 600, 600], score=0.95, label="x")])
+
+    @staticmethod
+    def _request(outcome: ObjectTrackingOutcome | None = None, limit: int = 10) -> tuple[ObjectTrackingRequest, list]:
+        calls: list = []
+
+        async def runner(video_ref: object, seeds: list[ObjectSeed], *, detector: object, **_: object) -> object:
+            calls.append((video_ref, seeds, detector))
+            return outcome if outcome is not None else ObjectTrackingOutcome()
+
+        return ObjectTrackingRequest(budget=CropCallBudget(limit), runner=runner), calls
+
+    @staticmethod
+    def _track(item_id: str, moment: float = 1.5) -> Track:
+        return Track(
+            f"object-{item_id}",
+            [
+                Sample(0.0, (210, 210, 590, 590), 0.9),
+                Sample(moment, (100, 100, 900, 900), 1.0),
+                Sample(1.9, (300, 300, 400, 400), -0.1),
+            ],
+            source=OBJECT_TRACK_SOURCE,
+        )
+
+    @pytest.mark.asyncio
+    async def test_instruments_and_assets_are_seeded_from_their_own_unpadded_box_and_second(
+        self, tiny_video_path: Path
+    ) -> None:
+        request, calls = self._request()
+        await CropEvidenceService(detector=self.DETECTOR, store=InMemoryEvidenceStore()).process_incident_report(
+            video_ref=tiny_video_path, video_id="v", report=REPORT, batch_id="b", object_tracking=request
+        )
+        ((video_ref, seeds, detector),) = calls
+        assert video_ref == tiny_video_path
+        assert [(s.item_id, s.label, s.box, s.seconds) for s in seeds] == [
+            ("I1", "crowbar", (200, 200, 600, 600), 1.0),
+            ("A1", "cash register", (200, 200, 600, 600), 1.0),
+        ]  # the person keeps the DeepStream path
+        assert isinstance(detector, BudgetedDetector) and detector.budget is request.budget
+        assert request.summary.seeds == 2 and request.summary.budget["cap"] == 10
+
+    @pytest.mark.asyncio
+    async def test_a_tracked_item_gets_a_track_file_a_source_and_a_frame_at_its_best_moment(
+        self, tiny_video_path: Path
+    ) -> None:
+        store = InMemoryEvidenceStore()
+        outcome = ObjectTrackingOutcome(tracks={"I1": self._track("I1")}, items={"I1": {"samples": 3}}, tracker="MIL")
+        request, _ = self._request(outcome)
+        results = await CropEvidenceService(detector=self.DETECTOR, store=store).process_incident_report(
+            video_ref=tiny_video_path,
+            video_id="v",
+            video_key="uploads/a.mp4",
+            report=REPORT,
+            batch_id="run-1",
+            object_tracking=request,
+        )
+        person, instrument, asset = results
+        assert instrument["track"] == "evidence/uploads/a.mp4/run-1/I1-track.json"
+        assert instrument["track_source"] == OBJECT_TRACK_SOURCE
+        assert (instrument["track_first_seen_seconds"], instrument["track_last_seen_seconds"]) == (0.0, 1.9)
+        assert instrument["box_seconds"] == 1.5 and instrument["located"] is True  # re-cut at the best moment
+        assert instrument["bounding_box"] == pytest.approx([100, 100, 900, 900], abs=60)
+        assert [row["t"] for row in json.loads(await store.get_image(instrument["track"]))] == [0.0, 1.5, 1.9]
+        for other in (person, asset):
+            assert "track" not in other and "track_source" not in other
+        assert asset["box_seconds"] == asset["timestamp_seconds"]
+        assert request.summary.tracked == 1 and request.summary.tracker == "MIL" and request.summary.items["I1"]
+
+    @pytest.mark.asyncio
+    async def test_person_counters_ignore_object_tracks_and_person_entries_have_no_source(
+        self, tiny_video_path: Path
+    ) -> None:
+        async def people(video_ref: object, *, sensor_id: str, **_: object) -> TrackingOutcome:
+            # solid: two real detections (a ghost track backs no entity)
+            return TrackingOutcome(
+                tracks=[Track("7", [Sample(0.0, (210, 210, 590, 590), 0.9), Sample(0.2, (210, 210, 590, 590), 0.9)])]
+            )
+
+        person_request = TrackingRequest(sensor_id="s", runner=people)
+        request, _ = self._request(ObjectTrackingOutcome(tracks={"I1": self._track("I1")}))
+        results = await CropEvidenceService(
+            detector=self.DETECTOR, store=InMemoryEvidenceStore()
+        ).process_incident_report(
+            video_ref=tiny_video_path,
+            video_id="v",
+            report=REPORT,
+            batch_id="b",
+            tracking=person_request,
+            object_tracking=request,
+        )
+        person, instrument, _ = results
+        assert person["track"] and "track_source" not in person  # as before the object tracker existed
+        assert instrument["track_source"] == OBJECT_TRACK_SOURCE
+        assert person_request.summary.matched == 1 and person_request.summary.tracks == 1
+
+    @pytest.mark.asyncio
+    async def test_without_a_request_nothing_changes(self, tiny_video_path: Path) -> None:
+        results = await CropEvidenceService(
+            detector=self.DETECTOR, store=InMemoryEvidenceStore()
+        ).process_incident_report(video_ref=tiny_video_path, video_id="v", report=REPORT, batch_id="b")
+        assert all("track" not in r and "track_source" not in r for r in results)
+
+    @pytest.mark.asyncio
+    async def test_nothing_located_means_nothing_to_follow_and_the_runner_is_not_started(
+        self, tiny_video_path: Path
+    ) -> None:
+        request, calls = self._request()
+        await CropEvidenceService(detector=FakeDetector(), store=InMemoryEvidenceStore()).process_incident_report(
+            video_ref=tiny_video_path, video_id="v", report=REPORT, batch_id="b", object_tracking=request
+        )
+        assert calls == [] and request.summary.seeds == 0 and request.summary.skipped
+
+    @pytest.mark.asyncio
+    async def test_without_a_store_the_runner_is_not_started(self, tiny_video_path: Path) -> None:
+        request, calls = self._request()
+        await CropEvidenceService(detector=self.DETECTOR, store=None).process_incident_report(
+            video_ref=tiny_video_path, video_id="v", report=REPORT, object_tracking=request
+        )
+        assert calls == [] and request.summary.skipped
+
+    @pytest.mark.asyncio
+    async def test_a_runner_that_raises_never_fails_the_evidence(self, tiny_video_path: Path) -> None:
+        async def runner(*_: object, **__: object) -> ObjectTrackingOutcome:
+            raise RuntimeError("boom")
+
+        request = ObjectTrackingRequest(budget=CropCallBudget(5), runner=runner)
+        results = await CropEvidenceService(
+            detector=self.DETECTOR, store=InMemoryEvidenceStore()
+        ).process_incident_report(
+            video_ref=tiny_video_path, video_id="v", report=REPORT, batch_id="b", object_tracking=request
+        )
+        assert len(results) == 3 and all(r["image"] for r in results)
+        assert request.summary.skipped is not None and "boom" not in request.summary.skipped
+
+    @pytest.mark.asyncio
+    async def test_with_the_blur_on_and_no_person_track_the_frame_is_not_re_cut_but_the_track_is_kept(
+        self, tiny_video_path: Path
+    ) -> None:
+        request, _ = self._request(ObjectTrackingOutcome(tracks={"I1": self._track("I1")}))
+        summary = privacy_blur.PrivacySummary()
+        results = await CropEvidenceService(
+            detector=self.DETECTOR, store=InMemoryEvidenceStore()
+        ).process_incident_report(
+            video_ref=tiny_video_path,
+            video_id="v",
+            report=REPORT,
+            batch_id="b",
+            object_tracking=request,
+            privacy=summary,
+        )
+        instrument = results[1]
+        assert instrument["track_source"] == OBJECT_TRACK_SOURCE and instrument["track"]
+        assert instrument["box_seconds"] == 1.0  # the located frame, whose heads the blur knows about
 
 
 class TestZoomSecondLook:

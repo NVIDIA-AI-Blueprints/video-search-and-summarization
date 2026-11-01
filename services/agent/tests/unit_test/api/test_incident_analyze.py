@@ -81,7 +81,7 @@ def test_passes_incident_id_video_url_and_model_run_id_to_the_tool():
     assert response.json() == {
         k: v
         for k, v in OUTPUT.model_dump().items()
-        if k not in EXPERIMENT_OUTPUT_FIELDS and k not in ("tracking", "privacy")
+        if k not in EXPERIMENT_OUTPUT_FIELDS and k not in ("tracking", "privacy", "object_tracking")
     }
 
 
@@ -259,6 +259,16 @@ def test_a_tracking_summary_is_kept_in_the_response_only_when_the_tool_returned_
     response = client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL})
     assert response.json()["tracking"] == summary
     assert set(response.json()) == PRODUCTION_KEYS | {"tracking"}
+
+
+def test_an_object_tracking_summary_is_kept_in_the_response_only_when_the_tool_returned_one():
+    summary = {"enabled": True, "seeds": 2, "tracked": 1, "tracker": "MIL", "items": {}}
+    client, _ = _client(result=OUTPUT.model_copy(update={"object_tracking": summary}))
+    body = client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL}).json()
+    assert body["object_tracking"] == summary
+    assert set(body) == PRODUCTION_KEYS | {"object_tracking"}
+    client, _ = _client(result=OUTPUT)
+    assert "object_tracking" not in client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL}).json()
 
 
 def test_a_production_response_keeps_exactly_its_documented_keys(monkeypatch):

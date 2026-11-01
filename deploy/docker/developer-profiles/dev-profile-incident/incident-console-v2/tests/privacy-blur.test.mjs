@@ -338,6 +338,30 @@ test("the toggle on: the clip is cut blurred from the item's track and recorded 
   ]);
 });
 
+test("an object's track is never read as heads, even beside a person's track in the same clip", async () => {
+  const objectKey = `${RUN}/I1-track.json`;
+  const personKey = `${RUN}/E1-track.json`;
+  const store = fakeStore({
+    [objectKey]: [{ t: 6.5, box: [600, 600, 900, 900], score: 0.9 }],
+    [personKey]: [{ t: 6.5, box: [100, 100, 500, 400], score: 0.9 }],
+  });
+  const instrument = entry('I1', {
+    item_type: 'instrument',
+    track: objectKey,
+    track_source: 'object-tracker',
+    blur_regions: [[300, 600, 400, 700]],
+  });
+  const person = entry('E1', { track: personKey, blur_regions: [[300, 600, 400, 700]] });
+  const record = clipRecord([person, instrument], { blurFaces: true });
+  assert.equal(await clipFor(record, 'I1', store, 'instrument'), `signed:${RUN}/I1-clip-blur.mp4`);
+  assert.deepEqual(store.calls.read, [personKey], "only the person's track is read for the blur");
+  const boxes = store.calls.cut[0].regions.map((region) => region.box);
+  assert.ok(
+    boxes.every((box) => box[0] < 500),
+    "no region falls on the object's own box",
+  );
+});
+
 test('a run analysed with blur gets a blurred clip even after the toggle was switched off', async () => {
   const store = fakeStore();
   const record = clipRecord([entry('E1', { blur_regions: [] })], { runBlurred: true });

@@ -38,6 +38,7 @@ from vss_agents.tools.incident_report_gen import IncidentReportGenInput
 from vss_agents.tools.incident_report_gen import collect_evidence
 from vss_agents.tools.incident_report_gen import incident_report_gen
 from vss_agents.tools.incident_report_gen import normalize_reviewer_prompt
+from vss_agents.tools.incident_report_gen import object_tracking_request
 from vss_agents.tools.incident_report_gen import p1_request_body
 from vss_agents.tools.incident_report_gen import persist_revision
 from vss_agents.tools.incident_report_gen import resolve_video_length
@@ -46,6 +47,7 @@ from vss_agents.tools.incident_report_gen import rp1_request_body
 from vss_agents.tools.incident_report_gen import run_p1
 from vss_agents.tools.incident_report_gen import run_rp1
 from vss_agents.utils import chunk_captions
+from vss_agents.utils import object_tracking
 from vss_agents.utils import set_of_marks
 from vss_agents.utils import track_evidence
 from vss_agents.utils.crop_evidence import set_crop_evidence_service
@@ -756,6 +758,66 @@ class TestTracking:
         try:
             entries = await collect_evidence(
                 video_url=VIDEO_URL, incident_id="v1", report=TestCollectEvidence.REPORT, tracking=request
+            )
+        finally:
+            set_crop_evidence_service(None)
+        assert request.summary.skipped == "evidence cropping failed"
+        assert entries and all(e["image"] is None for e in entries)
+
+
+class TestObjectTracking:
+    """INCIDENT_OBJECT_TRACKING_ENABLED gates object tracking for production requests only."""
+
+    INPUT = TestTracking.INPUT
+
+    @pytest.mark.asyncio
+    async def test_the_flag_is_off_by_default_and_the_response_has_no_object_tracking(self, monkeypatch):
+        monkeypatch.delenv("INCIDENT_OBJECT_TRACKING_ENABLED", raising=False)
+        result, _ = await TestEndToEnd()._run(TestTracking._handler, tool_input=self.INPUT)
+        assert result.object_tracking is None
+
+    @pytest.mark.asyncio
+    async def test_the_flag_on_returns_the_object_tracking_summary_without_person_tracking(self, monkeypatch):
+        monkeypatch.setenv("INCIDENT_OBJECT_TRACKING_ENABLED", "1")
+        monkeypatch.delenv("INCIDENT_TRACKING_ENABLED", raising=False)
+        result, _ = await TestEndToEnd()._run(TestTracking._handler, tool_input=self.INPUT)
+        assert result.tracking is None
+        assert result.object_tracking["enabled"] is True
+        assert set(result.object_tracking) == {
+            "enabled",
+            "seeds",
+            "tracked",
+            "tracker",
+            "elapsed_ms",
+            "time_cap_reached",
+            "skipped",
+            "detector",
+            "items",
+        }
+
+    @pytest.mark.asyncio
+    async def test_skip_crops_and_experiments_never_track_objects(self, monkeypatch):
+        monkeypatch.setenv("INCIDENT_OBJECT_TRACKING_ENABLED", "1")
+        monkeypatch.setenv("INCIDENT_EXPERIMENTS_ENABLED", "1")
+        tool_input = self.INPUT.model_copy(update={"skip_crops": True})
+        result, _ = await TestEndToEnd()._run(TestTracking._handler, tool_input=tool_input)
+        assert result.object_tracking is None
+
+    def test_a_request_has_its_own_detector_call_budget_from_the_settings(self, monkeypatch):
+        monkeypatch.setenv("INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS", "7")
+        request = object_tracking_request()
+        assert request.budget.limit == 7 and request.runner is object_tracking.run_object_tracking
+        assert request.options["settings"].max_detector_calls == 7
+
+    @pytest.mark.asyncio
+    async def test_a_failure_in_evidence_cropping_leaves_the_analysis_and_names_the_skip(self):
+        service = MagicMock()
+        service.process_incident_report = AsyncMock(side_effect=RuntimeError("boom"))
+        request = object_tracking_request()
+        set_crop_evidence_service(service)
+        try:
+            entries = await collect_evidence(
+                video_url=VIDEO_URL, incident_id="v1", report=TestCollectEvidence.REPORT, object_tracking=request
             )
         finally:
             set_crop_evidence_service(None)

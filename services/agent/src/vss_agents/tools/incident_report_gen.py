@@ -56,6 +56,10 @@ Runs the same calls as ``incident-console-v2`` (gateway mode, P1 only) and the `
    context message asking for the number in each person entity's label, and the entities are matched to tracks by
    that number first (box overlap for the rest). The number is stripped from the stored labels, the evidence is
    cut from the original clip, and a failure to render or upload the copy runs P1 on the original clip.
+   With ``INCIDENT_OBJECT_TRACKING_ENABLED`` set, a production request also follows each located instrument and
+   asset through the clip (``object_tracking``: a seeded OpenCV tracker corrected by the open-vocabulary detector),
+   stores its track like a person's with ``track_source`` ``object-tracker``, and re-cuts its frame at the track's
+   best moment; the response carries an ``object_tracking`` summary and a failure never fails the analysis.
 4. **Revision** - the validated report is appended best-effort as a new ``kind='ai'``
    ``report_revisions`` row (``payload`` = report, ``evidence`` = step 3, facet columns,
    ``parent_id`` NULL). A re-generation is a new branch and copies nothing from earlier revisions.
@@ -95,6 +99,7 @@ from vss_agents.tools import incident_experiments
 from vss_agents.utils import chunk_captions
 from vss_agents.utils import crop_evidence
 from vss_agents.utils import incident_db
+from vss_agents.utils import object_tracking
 from vss_agents.utils import privacy_blur
 from vss_agents.utils import set_of_marks
 from vss_agents.utils import track_evidence
@@ -283,6 +288,16 @@ class IncidentReportGenOutput(BaseModel):
             "Person tracking (INCIDENT_TRACKING_ENABLED, production requests only): {enabled, matched, tracks, "
             "elapsed_ms, skipped}, plus marks {rendered, parsed, fallback, invalid, skipped, elapsed_ms} when "
             "INCIDENT_SOM_ENABLED is on. Null when tracking is off or the request is experimental."
+        ),
+    )
+    object_tracking: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Object tracking (INCIDENT_OBJECT_TRACKING_ENABLED, production requests only): {enabled, seeds, tracked, "
+            "tracker, elapsed_ms, time_cap_reached, skipped, detector: {cap, calls, ...}, items: {<item id>: {samples, "
+            "forward_samples, backward_samples, detector_calls, detector_errors, reanchors, lost, capped, elapsed_ms, "
+            "first_seen_seconds, last_seen_seconds}}}. Null when object tracking is off, the request is "
+            "experimental or skip_crops was asked for."
         ),
     )
     privacy: dict[str, Any] | None = Field(
@@ -518,11 +533,13 @@ async def collect_evidence(
     detector: Any | None = None,
     tracking: track_evidence.TrackingRequest | None = None,
     privacy: privacy_blur.PrivacySummary | None = None,
+    object_tracking: track_evidence.ObjectTrackingRequest | None = None,
 ) -> list[dict[str, Any]]:
     """Crop and upload every evidence item. Never raises: a failure becomes an ``image_gap`` reason.
 
     ``store`` and ``detector`` override the service's own (R2 and the shared detector in production) for this
-    call only. ``privacy`` turns the privacy blur on and receives its summary.
+    call only. ``privacy`` turns the privacy blur on and receives its summary; ``object_tracking`` does the same
+    for the instrument and asset tracks.
     """
     try:
         return await crop_evidence.get_crop_evidence_service().process_incident_report(
@@ -534,11 +551,14 @@ async def collect_evidence(
             detector=detector,
             tracking=tracking,
             privacy=privacy,
+            object_tracking=object_tracking,
         )
     except Exception as exc:
         logger.warning("incident_report_gen: evidence cropping failed for %s: %s", incident_id, exc)
         if tracking is not None:
             tracking.summary.skipped = "evidence cropping failed"
+        if object_tracking is not None:
+            object_tracking.summary.skipped = "evidence cropping failed"
         reason = f"evidence cropping failed: {type(exc).__name__}: {exc}"
         return crop_evidence.blank_evidence_entries(report, image_gap=reason, zoom_gap=reason)
 
@@ -548,6 +568,16 @@ def tracking_request(tool_input: IncidentReportGenInput) -> track_evidence.Track
     run_id = tool_input.model_run_id or f"{tool_input.incident_id}-{int(time.time())}"
     return track_evidence.TrackingRequest(
         sensor_id=track_evidence.sensor_id_for(tool_input.video_key or tool_input.incident_id, run_id)
+    )
+
+
+def object_tracking_request() -> track_evidence.ObjectTrackingRequest:
+    """The object tracking run of one production request: its settings and its own detector-call budget."""
+    settings = object_tracking.ObjectTrackingSettings.from_env()
+    return track_evidence.ObjectTrackingRequest(
+        budget=crop_evidence.CropCallBudget(settings.max_detector_calls),
+        runner=object_tracking.run_object_tracking,
+        options={"settings": settings},
     )
 
 
@@ -763,6 +793,12 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         # Only production requests track; experiments (skip_crops included) never do.
         tracking = tracking_request(tool_input) if experiment is None and track_evidence.tracking_enabled() else None
+        # Object tracks (instruments and assets) are a production request's too, and need the crops.
+        objects = (
+            object_tracking_request()
+            if experiment is None and object_tracking.object_tracking_enabled() and not tool_input.skip_crops
+            else None
+        )
         async with httpx.AsyncClient(timeout=config.request_timeout_seconds, headers=headers) as client:
             captions: chunk_captions.ChunkCaptions | None = None
             marked: set_of_marks.MarkedClip | None = None
@@ -835,6 +871,11 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
                 video_key=tool_input.video_key,
                 tracking=tracking,
                 privacy=privacy,
+                object_tracking=objects,
+            )
+        if objects is not None:
+            logger.info(
+                "incident_report_gen: object tracking for %s: %s", tool_input.incident_id, objects.summary.to_dict()
             )
         if tracking is not None:
             logger.info("incident_report_gen: tracking for %s: %s", tool_input.incident_id, tracking.summary.to_dict())
@@ -886,6 +927,7 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
             usage=(telemetry or {}).get("usage") if telemetry is not None else None,
             tracking=tracking.summary.to_dict() if tracking is not None else None,
             privacy=privacy.to_dict() if privacy is not None else None,
+            object_tracking=objects.summary.to_dict() if objects is not None else None,
         )
 
     yield FunctionInfo.create(

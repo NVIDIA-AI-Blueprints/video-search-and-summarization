@@ -34,6 +34,9 @@ and to the matching item of the report payload when the model says ``changed`` w
 item id, label, timestamps and an entity's ``type`` are never changed. Zoom calls are outside ``CropCallBudget``
 (the grounding cap of an experimental request) and a failed or slow call never fails the analysis.
 
+Object tracking (``INCIDENT_OBJECT_TRACKING_ENABLED``, :mod:`vss_agents.utils.object_tracking`): each located instrument
+and asset is followed through the clip from its box and gets a track file like a person's, marked ``track_source``.
+
 Privacy blur (``blur_faces`` on ``/analyze``, :mod:`vss_agents.utils.privacy_blur`): every stored frame and crop has
 the heads of the people at its second pixelated before it is encoded, from all person tracks and, for a person no
 track covers, one detector call for the head. The second look still sees the unblurred close-up.
@@ -111,6 +114,8 @@ class CropResult:
     # [y0, x0, y1, x1], so the stored images can be encoded again from a blurred frame. Never stored.
     frame: np.ndarray | None = field(default=None, compare=False, repr=False)
     crop_px: tuple[int, int, int, int] | None = None
+    # The detector's own box (before the 5 % crop padding), for the object tracker's seed. Never stored.
+    detected_box: tuple[int, int, int, int] | None = field(default=None, compare=False, repr=False)
 
 
 # Seconds tried, in order, around the requested one when the detector finds nothing there.
@@ -472,6 +477,8 @@ GROUNDING_MAX_EDGE_PIXELS = 1280
 GROUNDING_MAX_ATTEMPTS = 4
 # Items of one report cropped at once; each crop is a blocking frame read plus a grounding call.
 EVIDENCE_CROP_CONCURRENCY = 4
+# The item types the object tracker follows (people keep the DeepStream person tracks).
+OBJECT_TRACKING_TYPES = frozenset({"instrument", "asset"})
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _JSON_FENCE_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$")
 
@@ -821,7 +828,7 @@ def _not_located_result(frame: np.ndarray, seconds: int | float, keep_frame: boo
     )
 
 
-def _parse_detections(raw_detections: Any, label: str) -> list[Detection]:
+def parse_detections(raw_detections: Any, label: str) -> list[Detection]:
     """A detector's answer as ``Detection`` objects (it may return dicts or look-alike objects)."""
     parsed_detections: list[Detection] = []
     for d in raw_detections or []:
@@ -846,7 +853,7 @@ def _locate_in_frame(
     keep_frame: bool = False,
 ) -> CropResult | None:
     """The crop of the best usable detection of one frame, or None when the detector found no usable box."""
-    parsed_detections = _parse_detections(raw_detections, label)
+    parsed_detections = parse_detections(raw_detections, label)
     if not parsed_detections:
         return None
 
@@ -876,6 +883,7 @@ def _locate_in_frame(
         zoom_frame_bytes=zoom_context_frame(frame, best.box),
         frame=frame if keep_frame else None,
         crop_px=(c_ymin, c_xmin, c_ymax, c_xmax),
+        detected_box=(ymin, xmin, ymax, xmax),
     )
 
 
@@ -1229,6 +1237,7 @@ class CropEvidenceService:
         tracking: track_evidence.TrackingRequest | None = None,
         zoom_names: bool | None = None,
         privacy: privacy_blur.PrivacySummary | None = None,
+        object_tracking: track_evidence.ObjectTrackingRequest | None = None,
     ) -> list[dict[str, Any]]:
         """Locate every entity, instrument and asset of a report and upload its frame and crop.
 
@@ -1252,6 +1261,13 @@ class CropEvidenceService:
         anything is uploaded, every frame is blurred on the heads of :func:`_blur_evidence` and the crop is cut from
         the blurred frame. Each entry records the regions as ``blur_regions`` (normalised boxes, ``[]`` when none)
         and ``privacy`` is filled in. An item whose blur fails stores no image at all (``image_gap`` says why).
+
+        Object tracking (``object_tracking`` given, :mod:`vss_agents.utils.object_tracking`): each located instrument
+        and asset is followed through the clip from its box by a seeded OpenCV tracker that the detector keeps
+        correcting, beside the person tracking run. The resulting track is stored like a person track
+        (``track``, ``track_first_seen_seconds``, ``track_last_seen_seconds``) with ``track_source`` set to
+        ``object-tracker``, and the item's frame is re-cut at the track's best moment. With the privacy blur on and no
+        person track to take heads from, the frame is not re-cut (a frame at a new second could show an unblurred face).
         """
         active_detector = detector if detector is not None else self.detector
         zoom_on = zoom_names_enabled() if zoom_names is None else zoom_names
@@ -1339,7 +1355,9 @@ class CropEvidenceService:
                     entry["track"] = track_key
                     entry["track_first_seen_seconds"] = track.first_seen
                     entry["track_last_seen_seconds"] = track.last_seen
-                    if tracking is not None:
+                    if track.source != track_evidence.PERSON_TRACK_SOURCE:
+                        entry["track_source"] = track.source
+                    if tracking is not None and track.source == track_evidence.PERSON_TRACK_SOURCE:
                         tracking.summary.matched += 1
                         if tracking.summary.marks is not None:
                             path = "parsed" if entry["item_id"] in tracking.marked else "fallback"
@@ -1431,7 +1449,7 @@ class CropEvidenceService:
             except Exception as exc:  # the cap included: the item then falls back to its own box
                 logger.warning("Head detection failed for %s %s: %s", video_id, entry["item_id"], type(exc).__name__)
                 return None
-            boxes = [d.box for d in _parse_detections(raw, query) if privacy_blur.valid_box(d.box)]
+            boxes = [d.box for d in parse_detections(raw, query) if privacy_blur.valid_box(d.box)]
             if not boxes:
                 return None
             return privacy_blur.pad_box(boxes[0], privacy_blur.DETECTED_HEAD_PADDING)
@@ -1511,8 +1529,56 @@ class CropEvidenceService:
                     privacy.frames += 1
                     privacy.regions += len(regions)
 
+        async def _track_objects() -> dict[str, track_evidence.Track]:
+            """Follow each located instrument and asset through the clip; ``{item_id: track}`` of those that gained one."""
+            assert object_tracking is not None
+            summary = object_tracking.summary
+            seeds = [
+                track_evidence.ObjectSeed(
+                    item_id=entry["item_id"],
+                    label=entry["label"],
+                    box=crop.detected_box,
+                    seconds=float(crop.box_seconds if crop.box_seconds is not None else entry["timestamp_seconds"]),
+                    score=crop.score,
+                )
+                for entry in entries
+                if entry["item_type"] in OBJECT_TRACKING_TYPES
+                and (crop := crops.get(entry["item_id"])) is not None
+                and crop.located
+                and crop.detected_box is not None
+            ]
+            summary.seeds = len(seeds)
+            if active_store is None:
+                summary.skipped = "no evidence image store is configured (R2 settings missing)"
+                return {}
+            if not seeds:
+                summary.skipped = "no instrument or asset was located"
+                return {}
+            try:
+                outcome = await object_tracking.runner(
+                    video_ref,
+                    seeds,
+                    detector=with_call_budget(active_detector, object_tracking.budget),
+                    **object_tracking.options,
+                )
+            except Exception as exc:  # run_object_tracking never raises; a custom runner might
+                logger.warning("Object tracking failed for %s: %s", video_id, type(exc).__name__)
+                outcome = track_evidence.ObjectTrackingOutcome(skipped=f"object tracking failed: {type(exc).__name__}")
+            summary.tracked = len(outcome.tracks)
+            summary.skipped = outcome.skipped
+            summary.elapsed_ms = outcome.elapsed_ms
+            summary.time_cap_reached = outcome.time_cap_reached
+            summary.tracker = outcome.tracker
+            summary.items = outcome.items
+            summary.budget = object_tracking.budget.summary()
+            return outcome.tracks
+
         entries = blank_evidence_entries(report, image_gap=None)
+        by_id = {entry["item_id"]: entry for entry in entries}
         await asyncio.gather(*(_crop(entry) for entry in entries))
+
+        # Beside the person tracking run: the seeds need only the locate step, not the people.
+        object_task = asyncio.create_task(_track_objects()) if object_tracking is not None else None
 
         all_tracks: list[track_evidence.Track] = []
         matched_tracks: dict[str, track_evidence.Track] = {}
@@ -1526,7 +1592,6 @@ class CropEvidenceService:
             tracking.summary.tracks = len(outcome.tracks)
             tracking.summary.elapsed_ms = outcome.elapsed_ms
             tracking.summary.skipped = outcome.skipped
-            by_id = {entry["item_id"]: entry for entry in entries}
             # Entities set-of-marks matched keep their track; the rest are associated by box overlap with the
             # tracks no mark took.
             marked = {
@@ -1552,6 +1617,20 @@ class CropEvidenceService:
             candidates = {**marked, **track_evidence.associate_tracks(located, free, tracking.min_iou)}
             recut = await asyncio.gather(*(_recut(by_id[item_id], track) for item_id, track in candidates.items()))
             matched_tracks = {item_id: track for item_id, track in zip(candidates, recut, strict=True) if track}
+
+        if object_task is not None:
+            try:
+                object_tracks = await object_task
+            except Exception as exc:  # an object track is a bonus; it never costs the report its evidence
+                logger.warning("Object tracking failed for %s: %s", video_id, type(exc).__name__)
+                object_tracks = {}
+            for item_id, track in object_tracks.items():
+                crop = crops.get(item_id)
+                moment = track_evidence.best_moment(track)
+                # A frame at another second is re-cut only when its heads can be blurred (see the method docstring).
+                if crop is not None and moment.t != crop.box_seconds and (privacy is None or all_tracks):
+                    await _recut(by_id[item_id], track)  # a failed re-cut keeps the located frame and the track
+                matched_tracks[item_id] = track
 
         if privacy is not None:
             await _blur_evidence(all_tracks)

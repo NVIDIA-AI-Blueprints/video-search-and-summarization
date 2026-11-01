@@ -125,6 +125,8 @@ export async function getEvidenceClip(incidents: IncidentRepository, store: Clip
       // or walks past stays covered. A track whose recorded span lies outside the clip is not read.
       const trackKeys = new Set<string>();
       for (const candidate of record.evidence) {
+        // Only a person's track is a track of heads; an instrument's or asset's (object tracker) is a box on the object.
+        if (candidate.item_type !== 'entity') continue;
         const key = candidate.track;
         if (typeof key !== 'string' || !TRACK_KEY.test(key)) continue;
         const first = candidate.track_first_seen_seconds;

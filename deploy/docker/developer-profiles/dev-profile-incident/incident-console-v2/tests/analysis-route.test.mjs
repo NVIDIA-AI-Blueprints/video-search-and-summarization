@@ -227,6 +227,7 @@ test('agent mode: calls agent analyze endpoint with video_url and model_run_id, 
         ],
         chunking: { window_seconds: 20, calls: 1 },
         tracking: { enabled: true, matched: 2, tracks: 3, elapsed_ms: 91000, skipped: null },
+        object_tracking: { enabled: true, seeds: 2, tracked: 1, tracker: 'MIL', items: { I1: { samples: 9 } } },
       };
       return new Response(JSON.stringify(mockAgentResponse), {
         status: 200,
@@ -284,8 +285,9 @@ test('agent mode: calls agent analyze endpoint with video_url and model_run_id, 
       content: JSON.stringify(rawContract),
       finishReason: 'stop',
       tracking: { enabled: true, matched: 2, tracks: 3, elapsed_ms: 91000, skipped: null },
+      object_tracking: { enabled: true, seeds: 2, tracked: 1, tracker: 'MIL', items: { I1: { samples: 9 } } },
     },
-    'the raw output and tracking summary only; captions are never stored',
+    'the raw output and the tracking summaries only; captions are never stored',
   );
 });
 

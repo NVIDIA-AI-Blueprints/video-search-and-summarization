@@ -45,6 +45,7 @@ from pathlib import Path
 import re
 import tempfile
 import time
+from typing import TYPE_CHECKING
 from typing import Any
 
 import httpx
@@ -52,6 +53,9 @@ import httpx
 from vss_agents.utils.perception_client import Frame
 from vss_agents.utils.perception_client import HttpPerceptionClient
 from vss_agents.utils.perception_client import PerceptionClient
+
+if TYPE_CHECKING:
+    from vss_agents.utils.crop_evidence import CropCallBudget
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +66,11 @@ DEFAULT_MIN_IOU = 0.3
 DEFAULT_END_MARGIN_SECONDS = 20.0
 
 PERSON_TYPE = "Person"
+# Where a track came from (``Track.source``): the stock DeepStream detector for people, or the seeded OpenCV tracker of
+# :mod:`vss_agents.utils.object_tracking` for instruments and assets. Only a track of another source is marked on its
+# evidence entry (``track_source``), so an entry without the field is a person track, as it always was.
+PERSON_TRACK_SOURCE = "deepstream"
+OBJECT_TRACK_SOURCE = "object-tracker"
 NO_FRAMES_TIMEOUT_SECONDS = 40.0
 POLL_INTERVAL_SECONDS = 2.0
 # After the last frames appear, wait for the indexer (Logstash flushes every few seconds) before reading.
@@ -142,6 +151,7 @@ class Sample:
 class Track:
     track_id: str
     samples: list[Sample] = field(default_factory=list)
+    source: str = PERSON_TRACK_SOURCE
 
     @property
     def first_seen(self) -> float:
@@ -585,3 +595,70 @@ class TrackingRequest:
     def min_iou(self) -> float:
         settings = self.options.get("settings")
         return settings.min_iou if isinstance(settings, TrackingSettings) else TrackingSettings.from_env().min_iou
+
+
+# --- object tracks (instruments and assets) ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ObjectSeed:
+    """One instrument or asset to follow: the box the locate step found for it and the second it was found at."""
+
+    item_id: str
+    label: str
+    box: tuple[int, int, int, int]  # [ymin, xmin, ymax, xmax] normalised to 0..1000, the detector's own (unpadded)
+    seconds: float
+    score: float = 1.0
+
+
+@dataclass
+class ObjectTrackingOutcome:
+    tracks: dict[str, Track] = field(default_factory=dict)  # {item_id: track}, only items that gained a track
+    items: dict[str, dict[str, Any]] = field(default_factory=dict)  # per-item telemetry, every seed
+    skipped: str | None = None
+    elapsed_ms: float = 0.0
+    time_cap_reached: bool = False
+    tracker: str | None = None  # the OpenCV tracker used (CSRT, KCF or MIL)
+
+
+@dataclass
+class ObjectTrackingSummary:
+    """What ``/analyze`` reports about object tracking (``object_tracking``); filled in by the evidence step."""
+
+    enabled: bool = True
+    seeds: int = 0
+    tracked: int = 0
+    skipped: str | None = None
+    elapsed_ms: float = 0.0
+    time_cap_reached: bool = False
+    tracker: str | None = None
+    items: dict[str, dict[str, Any]] = field(default_factory=dict)
+    budget: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "seeds": self.seeds,
+            "tracked": self.tracked,
+            "tracker": self.tracker,
+            "elapsed_ms": round(self.elapsed_ms, 1),
+            "time_cap_reached": self.time_cap_reached,
+            "skipped": self.skipped,
+            "detector": self.budget,
+            "items": self.items,
+        }
+
+
+@dataclass
+class ObjectTrackingRequest:
+    """One analysis run's object tracking: its summary, the detector-call budget and, for tests, what the run uses.
+
+    ``runner`` is :func:`vss_agents.utils.object_tracking.run_object_tracking` (set by the caller, which keeps this
+    module free of the OpenCV and detector code); ``options`` are its keyword arguments (``settings``,
+    ``tracker_factory``, ...). Every detector call the run makes counts against ``budget``.
+    """
+
+    budget: "CropCallBudget"
+    runner: Callable[..., Coroutine[Any, Any, ObjectTrackingOutcome]]
+    summary: ObjectTrackingSummary = field(default_factory=ObjectTrackingSummary)
+    options: dict[str, Any] = field(default_factory=dict)

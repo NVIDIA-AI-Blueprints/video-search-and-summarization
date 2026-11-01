@@ -45,6 +45,9 @@ tokens, images and gaps), ``p1_elapsed_ms`` and ``usage``.
 A request without them gets exactly the production response.
 With ``INCIDENT_TRACKING_ENABLED`` on, a production response adds ``tracking`` (``{enabled, matched, tracks,
 elapsed_ms, skipped}``); with it off the key is absent.
+With ``INCIDENT_OBJECT_TRACKING_ENABLED`` on, a production response adds ``object_tracking`` (``{enabled, seeds,
+tracked, tracker, elapsed_ms, time_cap_reached, skipped, detector, items}``) for the instrument and asset tracks, and
+those evidence entries gain ``track_source``; with it off both are absent.
 ``blur_faces: true`` pixelates the heads of the people in every stored evidence frame and crop and adds
 ``privacy`` (``{blur_faces, regions, frames, heads, head_queries, failed}``) to the response, and each evidence
 entry gains ``blur_regions``; without it the key is absent and the evidence is unchanged.
@@ -259,7 +262,7 @@ def create_incident_analyze_router(config: Any, builder: WorkflowBuilder) -> API
             for key in EXPERIMENT_OUTPUT_FIELDS:  # production responses keep exactly their documented shape
                 response.pop(key, None)
         # Tracking off or no blur asked (the defaults): the response is exactly as it was.
-        for key in ("tracking", "privacy"):
+        for key in ("tracking", "privacy", "object_tracking"):
             if response.get(key) is None:
                 response.pop(key, None)
         return response

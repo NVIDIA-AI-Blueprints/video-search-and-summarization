@@ -54,6 +54,8 @@ export interface AnalysisAttemptRecord {
     tracking?: Record<string, unknown>;
     /** Agent mode, blur_faces asked: the agent's privacy summary ({blur_faces, regions, frames, heads, head_queries, failed}) as returned. */
     privacy?: Record<string, unknown>;
+    /** Agent mode, object tracking on: the agent's object-tracking summary ({enabled, seeds, tracked, tracker, items, ...}) as returned. */
+    object_tracking?: Record<string, unknown>;
   } | null;
   /**
    * firstPass: every violation of the original response, each with its
