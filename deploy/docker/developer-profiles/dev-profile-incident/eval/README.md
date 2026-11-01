@@ -42,14 +42,14 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - The OpenAI-compatible adapter (`openai_compat.py`) covers Switchyard, the NVIDIA API catalog and a local vLLM or NIM endpoint.
     - It charges every attempt before sending it, at V1's P1 ceiling (35,000 tokens, `P1_TOKENS_CEILING`) until usage is measured, and applies V1's retry policy. Any failed attempt that spanned a host suspend is `host_suspended`, whatever it failed with, as in V1.
     - It classifies failures as V1 does.
-    - It stores the request and response bodies but never the key.
+    - It stores the request and response bodies but never the key, and never a signed URL's signature or user info: the stored request drops every content URL's query string, fragment and `user:password@` (`stored_request`, `redact_url`); the request sent is unchanged. A failure's detail has every URL in it redacted the same way (`redact_text`), since a provider's error can echo the signed video URL.
   - A scripted `fake.py` adapter supports plumbing runs.
   - The Track B adapter (`vss.py`) runs a whole pipeline as one subject: one experimental `/analyze` call per run on a loopback experiment agent (`EVALV2_VSS_AGENT_URL`, default `http://127.0.0.1:8765`), never the shared VM agent.
     - **Before sending:** every ledger's worst case is held in the budget log (charged), and nothing is sent when a cap could be passed. The hold covers the call while it is in flight, so a run killed mid-call resumes with it counted and two requests in flight cannot both pass a cap that covers one.
     - **After the reply:** the hold is released to what the agent reported sending, stage by stage, from the run provenance. An attempt without usage is charged at the token bound. A failure without provenance keeps the worst case; a refused connection or request costs nothing.
     - **Pinning:** the agent's commit, dirty flag, flags and contract must stay the same across a run and a resume. The profile's expected flags must hold (they describe what the request ran: `experiment: true`, object tracking only in the tracking profile), and no undeclared stage may send a call. The object tracker's detector cap the reply reports (`object_tracking.detector.cap`) must be at most the profile's worst case (80) and is pinned too; a higher, missing or changed cap stops the run after charging.
     - **Refusals:** a refusal (400, 403, 409, 501) stops the run.
-    - The signed URL is stored without its signature.
+    - The signed URL is stored without its signature. An agent reply is stored, and its error reported, with every URL in it redacted (an agent error can quote the signed URL).
   - `capabilities.json` records what each model is believed to support. Every entry is `verified: false` until a read-only live check confirms it.
   - `registry.py` builds adapters from subject configs.
 - **`evalv2.requests`:** request builders that load `contracts/` and hold no prompt text. `p1.py` builds the P1 body, and a test pins it to V1's `eval_vlm_client.p1_request_payload`.

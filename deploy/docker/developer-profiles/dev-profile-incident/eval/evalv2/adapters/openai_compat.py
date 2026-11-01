@@ -31,7 +31,7 @@ from typing import Any
 
 import httpx
 
-from evalv2.adapters.base import AdapterConfigError, CallContext, CallResult, Capabilities
+from evalv2.adapters.base import AdapterConfigError, CallContext, CallResult, Capabilities, redact_text, stored_request
 from evalv2.core.budget import BudgetExceeded
 from evalv2.core.instrument import Stopwatch, Usage
 from evalv2.core.retry import Failure, classify_http_status, run_with_retry
@@ -82,7 +82,7 @@ class OpenAICompatAdapter:
         if request.get("model") != self.model:
             raise ValueError(f"request names model {request.get('model')!r}, adapter serves {self.model!r}")
         base_url, api_key = self._credentials()  # before anything is charged or sent
-        request_ref = ctx.store.put("request", dict(request))
+        request_ref = ctx.store.put("request", stored_request(request))
         attempts: list[dict[str, Any]] = []
         last: dict[str, Any] = {}
 
@@ -102,8 +102,8 @@ class OpenAICompatAdapter:
                     response = client.post(f"{base_url}/chat/completions", json=dict(request),
                                            headers={"Authorization": f"Bearer {api_key}"})
                     status = response.status_code
-                    if status >= 400:
-                        failure = Failure(classify_http_status(status), response.text[:500], status,
+                    if status >= 400:  # the body can echo the signed video URL: redacted before it is cut and kept
+                        failure = Failure(classify_http_status(status), redact_text(response.text)[:500], status,
                                           _retry_after(response))
                     else:
                         try:
@@ -111,11 +111,12 @@ class OpenAICompatAdapter:
                         except ValueError:
                             failure = Failure("invalid_response", "response body is not JSON", status)
                 except httpx.TimeoutException as exc:
-                    failure = Failure("timeout", str(exc))
+                    failure = Failure("timeout", redact_text(str(exc)))
                 except httpx.TransportError as exc:
-                    failure = Failure("transport_error", str(exc))
+                    failure = Failure("transport_error", redact_text(str(exc)))
             if failure is None and not (isinstance(body, dict) and body.get("choices")):
-                failure = Failure("invalid_response", f"no completion in the response: {str(body)[:200]}", status)
+                failure = Failure("invalid_response", f"no completion in the response: {redact_text(str(body))[:200]}",
+                                  status)
             if watch.timing and watch.timing.host_suspended and failure is not None:
                 # V1 relabels every failed attempt that spanned a suspend, an HTTP error or a non-completion too.
                 failure = Failure("host_suspended", failure.detail, failure.http_status)
