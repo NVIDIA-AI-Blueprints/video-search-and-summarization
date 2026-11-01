@@ -472,35 +472,38 @@ async def run_p1(
         raise
     if telemetry is not None:
         telemetry["p1_elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 1)
-    if response.status_code >= 400:
+    if not 200 <= response.status_code < 300:
         count(False, run_provenance.usage_of(response))
         raise RuntimeError(f"P1 call returned HTTP {response.status_code}: {response.text[:500]}")
+    # The attempt counts as successful only once its report passes the strict parse: a 200 with no answer, a
+    # runaway (finish_reason=length) or a reply the contract rejects is a failed attempt in the run provenance.
+    ok, usage = False, None
     try:
         body = response.json()
-    except Exception:
-        count(False)
-        raise
-    count(isinstance(body, dict) and bool(body.get("choices")), body.get("usage") if isinstance(body, dict) else None)
-    if not isinstance(body, dict) or not body.get("choices"):
-        # HTTP 200 with a null body is how the video host answers a video it cannot decode.
-        raise VlmNoAnswerError(
-            f"no completion in response body: {str(body)[:300]}. The video model returned no answer; the video is "
-            "probably in an unsupported format (for example 10-bit H.264) or unreadable."
-        )
-    if telemetry is not None:
-        telemetry["usage"] = body.get("usage") or {}
-    content, finish_reason = _message_content(body)
-    try:
-        if not content and finish_reason == "length":
-            raise IncidentExtractionError(
-                "the VLM ran out of tokens before returning the report (finish_reason=length)"
+        usage = body.get("usage") if isinstance(body, dict) else None
+        if not isinstance(body, dict) or not body.get("choices"):
+            # HTTP 200 with a null body is how the video host answers a video it cannot decode.
+            raise VlmNoAnswerError(
+                f"no completion in response body: {str(body)[:300]}. The video model returned no answer; the video "
+                "is probably in an unsupported format (for example 10-bit H.264) or unreadable."
             )
-        report = incident_contract.parse_report(content, video_duration_seconds=video_duration_seconds)
+        if telemetry is not None:
+            telemetry["usage"] = usage if isinstance(usage, dict) else {}
+        content, finish_reason = _message_content(body)
+        try:
+            if not content and finish_reason == "length":
+                raise IncidentExtractionError(
+                    "the VLM ran out of tokens before returning the report (finish_reason=length)"
+                )
+            report = incident_contract.parse_report(content, video_duration_seconds=video_duration_seconds)
+        except IncidentExtractionError as exc:
+            raise IncidentExtractionError(
+                str(exc), raw_output=content, finish_reason=finish_reason, model=model_name
+            ) from exc
+        ok = True
         return report, content, finish_reason
-    except IncidentExtractionError as exc:
-        raise IncidentExtractionError(
-            str(exc), raw_output=content, finish_reason=finish_reason, model=model_name
-        ) from exc
+    finally:
+        count(ok, usage)
 
 
 # A valid report is a few KB; the P1 token cap (16384) is about 60k characters, which is what a runaway reaches.
@@ -556,9 +559,9 @@ async def run_rp1(
     client: httpx.AsyncClient, config: IncidentReportGenConfig, report: dict[str, Any]
 ) -> tuple[str | None, str | None]:
     """One RP1 call. Never raises: returns ``(report_text, error)``."""
-    body = rp1_request_body(report)
     started = time.perf_counter()
     try:
+        body = rp1_request_body(report)
         try:
             response = await client.post(_chat_completions_url(config.rp1_base_url), json=body)
         except Exception:
@@ -566,14 +569,15 @@ async def run_rp1(
                 "rp1", ok=False, usage=None, elapsed_ms=(time.perf_counter() - started) * 1000.0, model=body["model"]
             )
             raise
+        succeeded = 200 <= response.status_code < 300
         run_provenance.record_call(
             "rp1",
-            ok=response.status_code < 400,
+            ok=succeeded,
             usage=run_provenance.usage_of(response),
             elapsed_ms=(time.perf_counter() - started) * 1000.0,
             model=body["model"],
         )
-        if response.status_code >= 400:
+        if not succeeded:
             return None, f"RP1 call returned HTTP {response.status_code}: {response.text[:300]}"
         content, _ = _message_content(response.json())
         text = content.strip()
@@ -902,6 +906,17 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
                     run_marks_pass(tool_input, tracking),
                 )
             marked_url = marked.url if marked is not None else None
+            # What this request runs, whatever the agent's settings say (an experiment runs no caption pass,
+            # tracking or marks): the provenance flags must describe the run, not the environment.
+            provenance.ran(
+                experiment=experiment is not None,
+                chunking=captions is not None and not captions.telemetry.get("skipped"),
+                tracking=tracking is not None,
+                set_of_marks=marked is not None and bool(marked_url),
+                object_tracking=objects is not None,
+                zoom_names=crop_evidence.zoom_names_enabled() and not tool_input.skip_crops,
+                privacy_blur=tool_input.blur_faces and not tool_input.skip_crops,
+            )
             if captions is not None and not captions.telemetry.get("skipped"):
                 provenance.use("caption", model=model_name, prompts=_registered(*CAPTION_PROMPT_IDS))
                 if captions.context:
