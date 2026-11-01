@@ -12,6 +12,7 @@ The exact request bodies this profile sends to models, one JSON file per request
 | [`grounding.json`](grounding.json) | `best-match` (grounding, object tracking), `every-match` (the privacy blur's head search) | agent |
 | [`zoom.json`](zoom.json) | `look-<type>-frame`, `look-<type>-close-up`, `merge-<type>` for `entity` and `asset` (an instrument takes the asset branch with its own word) | agent |
 | [`chart.json`](chart.json) | `request` (dashboard "Ask for a chart") | console |
+| [`chat.json`](chat.json) | `incident-answer` (grounded chat, `INCIDENT_CHAT_MODE=grounded`) | agent |
 
 The tests:
 - console: [`tests/parity-golden.test.mjs`](../../incident-console-v2/tests/parity-golden.test.mjs), with the rules in [`tests/support/golden.mjs`](../../incident-console-v2/tests/support/golden.mjs);
@@ -47,5 +48,5 @@ A case has:
 4. A change that is not a contract bump also gets a line in [`.docs/decisions.md`](../../.docs/decisions.md) saying why.
 
 **Not covered here:**
-- the chat, which makes no model call (`chat-contract-v1` answers from templates);
+- the template chat, which makes no model call (the grounded chat is `chat.json`);
 - the experiment prompts in [`../experiments/`](../experiments/README.md), which have their own registry hashes.

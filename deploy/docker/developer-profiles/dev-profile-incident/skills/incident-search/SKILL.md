@@ -3,7 +3,7 @@ name: incident-search
 description: Use to search incident evidence, ask grounded follow-up questions, inspect critic verdicts, or populate and check evidence crops through the incident profile's local mock or VM agent. Not for generating a report (use incident-analyze-video), batch evaluation (use incident-run-eval), or database migrations (use incident-manage-database).
 license: Apache-2.0
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
   profile: "dev-profile-incident"
   tags: "incident search chat evidence crops retrieval"
 ---
@@ -16,7 +16,7 @@ Canonical facts:
 - Architecture, storage and contracts: [`.docs/mvp2/README.md`](../../.docs/mvp2/README.md)
 - Current corpus and live status: [`.docs/status.md`](../../.docs/status.md)
 - Search request/response: [`search-contract-v1`](../../contracts/search-contract-v1/README.md)
-- Chat request/response: [`chat-contract-v1`](../../contracts/chat-contract-v1/README.md)
+- Chat request/response: [`chat-contract-v1`](../../contracts/chat-contract-v1/README.md); grounded mode (`INCIDENT_CHAT_MODE=grounded`, off by default) answers with [`chat-contract-v2`](../../contracts/chat-contract-v2/README.md)
 - Crop implementation and R2 layout: [`.docs/data.md`](../../.docs/data.md) and [`.docs/incident-profile-operations.md`](../../.docs/incident-profile-operations.md)
 
 ## Prerequisites

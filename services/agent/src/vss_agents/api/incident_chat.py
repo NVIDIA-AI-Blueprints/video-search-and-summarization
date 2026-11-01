@@ -35,6 +35,7 @@ pgvector RPC once merged.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 from typing import Literal
 from typing import Protocol
@@ -49,6 +50,7 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import model_validator
 
+from vss_agents.utils import grounded_chat
 from vss_agents.utils import incident_db
 from vss_agents.utils.crop_evidence import evidence_items
 from vss_agents.utils.r2 import resolve_r2_url
@@ -429,6 +431,8 @@ class AssistantMessage(BaseModel):
     role: Literal["assistant"] = "assistant"
     content: str
     citations: list[EvidenceCitation]
+    # chat-contract-v2 only (grounded mode); absent from a template answer, which stays chat-contract-v1.
+    insufficient_evidence: bool | None = None
 
 
 class ChatResponse(BaseModel):
@@ -436,6 +440,19 @@ class ChatResponse(BaseModel):
 
     session_id: str = Field(..., min_length=1)
     message: AssistantMessage
+    grounding: dict[str, Any] | None = None  # chat-contract-v2 only (grounded mode)
+
+
+CHAT_MODE_ENV = "INCIDENT_CHAT_MODE"
+CHAT_MODES = ("template", "grounded")
+
+
+def chat_mode() -> str:
+    """``template`` (the default: keyword-ranked evidence, no model call) or ``grounded`` (a chat model answers)."""
+    mode = (os.environ.get(CHAT_MODE_ENV) or "template").strip().lower()
+    if mode not in CHAT_MODES:
+        raise ValueError(f"{CHAT_MODE_ENV} must be one of {CHAT_MODES}, got {mode!r}")
+    return mode
 
 
 # ---------------------------------------------------------------------------
@@ -446,11 +463,105 @@ class ChatResponse(BaseModel):
 def create_incident_chat_router(
     search_client: SearchClient | None = None,
     revision_store: RevisionStore | None = None,
+    chat_model: grounded_chat.ChatModel | None = None,
+    mode: str | None = None,
 ) -> APIRouter:
-    """Build the ``POST /api/v1/incidents/chat`` router with an injected or default SearchClient."""
+    """Build the ``POST /api/v1/incidents/chat`` router with an injected or default SearchClient.
+
+    ``mode`` (default ``INCIDENT_CHAT_MODE``, else ``template``) chooses how an incident question is answered: the
+    template answer from keyword-ranked evidence (chat-contract-v1), or a grounded answer from ``chat_model``
+    (default :class:`grounded_chat.OpenAIChatModel`) over one report version (chat-contract-v2). A question with
+    no incident (library scope) keeps the template answer until library chat arrives.
+    """
     router = APIRouter()
     client: SearchClient = search_client if search_client is not None else InMemorySearchClient()
     revisions: RevisionStore = revision_store if revision_store is not None else IncidentDBRevisionStore()
+    selected_mode = mode if mode is not None else chat_mode()
+    if selected_mode not in CHAT_MODES:
+        raise ValueError(f"unknown chat mode {selected_mode!r}")
+    models: dict[str, grounded_chat.ChatModel] = {"default": chat_model} if chat_model is not None else {}
+
+    def _model() -> grounded_chat.ChatModel:
+        if "default" not in models:
+            models["default"] = grounded_chat.OpenAIChatModel()
+        return models["default"]
+
+    async def _grounded(body: ChatRequest, session_id: str, incident_id: str | None) -> ChatResponse:
+        """A chat model's answer over one report version (the asked one, else the incident's official one)."""
+        try:
+            version_id = body.version_id
+            if version_id is None:
+                assert incident_id is not None
+                version_id = await revisions.get_official_revision_id(incident_id)
+                if version_id is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Incident {incident_id} has no official report version; send version_id",
+                    )
+            revision = await revisions.get_revision(version_id)
+            if revision is None:
+                raise HTTPException(status_code=404, detail=f"Report version {version_id} not found")
+            video_id = str(revision["video_id"])
+            if incident_id is not None and incident_id != video_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Report version {version_id} belongs to incident {video_id}, not {incident_id}",
+                )
+            official = await revisions.get_official_revision_id(video_id) == version_id
+        except RevisionStoreUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=f"Report revisions unavailable: {exc}") from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("RevisionStore failed during grounded chat: %s", exc, exc_info=True)
+            raise HTTPException(status_code=502, detail=f"Report revision error: {exc}") from exc
+
+        saved = revision.get("evidence") or []
+        report = body.draft_report if body.draft_report is not None else (revision.get("payload") or {})
+        evidence = _draft_evidence(body.draft_report, saved) if body.draft_report is not None else saved
+        context = grounded_chat.report_context(report, evidence)
+        model = _model()
+        history = [message.model_dump() for message in body.messages]
+        try:
+            reply = await model.complete(grounded_chat.chat_messages(context, history), grounded_chat.ANSWER_SCHEMA)
+            answer = grounded_chat.check_answer(reply, context)
+        except grounded_chat.ChatModelError as exc:
+            logger.error("Chat model failed for version %s: %s", version_id, exc)
+            raise HTTPException(status_code=502, detail=f"Chat model error: {exc}") from exc
+        by_id = {str(entry.get("item_id")): entry for entry in evidence}
+        items = {item["item_id"]: item for item in context["items"]}
+        citations = []
+        for item_id in answer.item_ids:
+            entry = by_id.get(item_id, {})
+            seconds = entry.get("box_seconds", entry.get("timestamp_seconds"))
+            if seconds is None:
+                seconds = items[item_id].get("timestamp_seconds") or 0
+            citations.append(
+                EvidenceCitation(
+                    incident_id=video_id,
+                    item_id=item_id,
+                    item_type=items[item_id]["item_type"],
+                    timestamp_seconds=max(0.0, float(seconds)),
+                    crop_image_url=resolve_r2_url(str(entry.get("image") or "")),
+                )
+            )
+        grounding = {
+            "mode": "grounded",
+            "model": model.model,
+            "version_id": version_id,
+            "official": official,
+            "draft": body.draft_report is not None,
+            "dropped_citations": list(answer.dropped_citations),
+            "prompt_sha256": grounded_chat.incident_contract.prompt_sha256(grounded_chat.PROMPT_ID),
+            "usage": dict(getattr(model, "last_usage", {}) or {}),
+        }
+        return ChatResponse(
+            session_id=session_id,
+            message=AssistantMessage(
+                content=answer.content, citations=citations, insufficient_evidence=answer.insufficient_evidence
+            ),
+            grounding=grounding,
+        )
 
     async def _version_hits(
         body: ChatRequest,
@@ -496,6 +607,7 @@ def create_incident_chat_router(
     @router.post(
         "/api/v1/incidents/chat",
         response_model=ChatResponse,
+        response_model_exclude_none=True,  # a template answer keeps exactly the chat-contract-v1 keys
         summary="Conversational Q&A over incidents and evidence crops with grounded citations",
         tags=["Incident Chat"],
     )
@@ -520,6 +632,9 @@ def create_incident_chat_router(
         filters: dict[str, Any] = {}
         if body.context and body.context.scope == "incident" and body.context.incident_id:
             filters["incident_id"] = body.context.incident_id
+
+        if selected_mode == "grounded" and (body.version_id is not None or "incident_id" in filters):
+            return await _grounded(body, session_id, filters.get("incident_id"))
 
         hits: list[dict[str, Any]]
         if body.version_id is None:
@@ -603,10 +718,11 @@ def register_incident_chat_routes(
     app: FastAPI,
     search_client: SearchClient | None = None,
     revision_store: RevisionStore | None = None,
+    chat_model: grounded_chat.ChatModel | None = None,
 ) -> None:
-    """Register ``POST /api/v1/incidents/chat`` onto the FastAPI app."""
+    """Register ``POST /api/v1/incidents/chat`` onto the FastAPI app (mode from ``INCIDENT_CHAT_MODE``)."""
     try:
-        app.include_router(create_incident_chat_router(search_client, revision_store))
+        app.include_router(create_incident_chat_router(search_client, revision_store, chat_model))
         logger.info("Registered POST /api/v1/incidents/chat")
     except Exception as exc:
         logger.error("Failed to register incident chat routes: %s", exc, exc_info=True)

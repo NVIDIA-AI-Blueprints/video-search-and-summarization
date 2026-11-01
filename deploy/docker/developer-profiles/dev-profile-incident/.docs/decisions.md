@@ -2,6 +2,23 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-01 (proposed, awaiting the team: Gate M2): Grounded chat answers from one report version with a chat model, behind a mode switch
+- **Status:** built for Evaluation V2 and approved in principle by the evaluation owner. **Not in force** until the team supersedes [2026-10-24: Chat about the official version uses the in-memory chat search client](#2026-10-24-chat-about-the-official-version-uses-the-in-memory-chat-search-client-for-mvp2). Template mode stays the default (`INCIDENT_CHAT_MODE` unset), so merging changes no behaviour.
+- **Decision:** with `INCIDENT_CHAT_MODE=grounded`, an incident question is answered by a chat model from one report version: the asked one, else the official one, or the reviewer's draft.
+  - The model is `INCIDENT_CHAT_MODEL`, default Nemotron 3 Ultra, which the endpoint check (RB1) must confirm.
+  - It sees the registered prompt `chat/incident-answer`, the version as JSON (incident, items with ids, timeline) and the last eight turns.
+  - It answers in a strict schema: `answer`, cited item ids, `insufficient_evidence`.
+  - Every cited id is checked against the version, and unknown ones are dropped and counted.
+  - The answer follows `chat-contract-v2`: v1 plus `insufficient_evidence` and `grounding`.
+  - The model client and its clock are injectable, and the request has a golden (`contracts/golden/chat.json`).
+- **Why:** today's chat makes no model call. It keyword-ranks saved evidence into a template sentence, and for the official version with no draft it asks a canned in-memory search client that knows no finals video. The brief asks for a working chatbot first, and Evaluation V2 measures answers: fact recall, citations, refusals.
+- **Rejected:**
+  - Retrieval over `evidence_crops` alone: it holds one version per video and no incident-level facts.
+  - Free-text answers with citations parsed from prose: they cannot be checked reliably.
+  - Changing the default mode now: that is the team's decision (M2).
+  - Library-wide questions in this step: they need a planner over SQL facets and revision search, which is P6.
+- **Links:** [contract](vm-api-contracts.md#post-apiv1incidentschat), [`grounded_chat.py`](../../../../../services/agent/src/vss_agents/utils/grounded_chat.py), [`chat-contract-v2`](../contracts/chat-contract-v2/README.md)
+
 ### 2026-11-01: Experimental requests can cap the zoom look, track objects and return the pre-zoom P1 report; captions wait for a scratch store
 - **Decision:** an experimental crops-on request may set:
   - `max_zoom_calls`: a per-request cap on the zoomed second look's HTTP attempts, applied to a capped copy of the shared namer. Items beyond it keep a `zoom_gap`. The refusal is also counted in the run provenance;

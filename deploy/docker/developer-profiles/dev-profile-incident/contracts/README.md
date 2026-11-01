@@ -12,7 +12,7 @@ The single source of truth for incident extraction: one prompt, one output schem
 | [`fixtures/`](fixtures/) | Valid, invalid and policy cases both validators must agree on |
 | [`prompts/`](prompts/README.md) | Every other model prompt: the caption pass, the P1 preambles, grounding, the zoomed second look, and the exported chart prompt and allowlist. The agent vendors its prompts; the console reads the reviewer preamble |
 | [`golden/`](golden/README.md) | The exact request bodies sent to models (P1, RP1, captions, grounding, zoom, chart); the console, eval and the agent each test theirs against them |
-| [`search-contract-v1/`](search-contract-v1/README.md), [`chat-contract-v1/`](chat-contract-v1/README.md) | The MVP2 search and chat HTTP contracts |
+| [`search-contract-v1/`](search-contract-v1/README.md), [`chat-contract-v1/`](chat-contract-v1/README.md), [`chat-contract-v2/`](chat-contract-v2/README.md) | The MVP2 search and chat HTTP contracts (v2: the grounded chat answer) |
 
 ## Changing it
 

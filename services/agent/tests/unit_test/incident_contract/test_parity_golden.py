@@ -32,6 +32,7 @@ import pytest
 from vss_agents.tools import incident_report_gen
 from vss_agents.utils import chunk_captions
 from vss_agents.utils import crop_evidence
+from vss_agents.utils import grounded_chat
 from vss_agents.utils import privacy_blur
 from vss_agents.utils import set_of_marks
 from vss_agents.utils import track_evidence
@@ -57,6 +58,7 @@ def _zoom_steps(item_type: str) -> list[str]:
 TESTED = sorted(
     [f"p1/{name}" for name in P1_CASES]
     + ["rp1/report", "caption/window", "caption/remainder", "grounding/best-match", "grounding/every-match"]
+    + ["chat/incident-answer"]
     + [f"zoom/{step}" for item_type in ZOOM_ITEM_TYPES for step in _zoom_steps(item_type)]
 )
 
@@ -187,3 +189,11 @@ def test_zoom_requests_equal_the_golden(monkeypatch: pytest.MonkeyPatch, item_ty
     assert len(sent) == len(steps), "the two looks agree, so the merge call is made"
     for step, body in zip(steps, sent, strict=True):
         _assert_golden("zoom", step, body)
+
+
+def test_chat_request_equals_the_golden() -> None:
+    inputs = golden.case("chat", "incident-answer")["inputs"]
+    model = grounded_chat.OpenAIChatModel(model=inputs["model"], base_url="http://golden.invalid", api_key="k")
+    context = grounded_chat.report_context(inputs["report"], inputs["evidence"])
+    body = model.request_body(grounded_chat.chat_messages(context, inputs["history"]), grounded_chat.ANSWER_SCHEMA)
+    _assert_golden("chat", "incident-answer", body)
