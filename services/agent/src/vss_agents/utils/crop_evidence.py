@@ -38,8 +38,10 @@ Object tracking (``INCIDENT_OBJECT_TRACKING_ENABLED``, :mod:`vss_agents.utils.ob
 and asset is followed through the clip from its box and gets a track file like a person's, marked ``track_source``.
 
 Privacy blur (``blur_faces`` on ``/analyze``, :mod:`vss_agents.utils.privacy_blur`): every stored frame and crop has
-the heads of the people at its second pixelated before it is encoded, from all person tracks and, for a person no
-track covers, one detector call for the head. The second look still sees the unblurred close-up.
+every head in it pixelated before it is encoded, found by a whole-frame head detection of its own second (so it does
+not depend on person tracking) and joined by the known person tracks and boxes. Heads are also detected at sampled
+seconds over each item's evidence-clip window and stored beside the item. The second look still sees the unblurred
+close-up.
 """
 
 from abc import ABC
@@ -53,6 +55,7 @@ import copy
 from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import replace
+from functools import partial
 import io
 import json
 import logging
@@ -338,6 +341,11 @@ def evidence_track_key(video_key: str, batch_id: str, item_id: str) -> str:
     return f"evidence/{video_key}/{batch_id}/{item_id}-track.json"
 
 
+def evidence_heads_key(video_key: str, batch_id: str, item_id: str) -> str:
+    """Return the R2 key for one item's clip heads: ``evidence/<video key>/<batchId>/<itemId>-heads.json``."""
+    return f"evidence/{video_key}/{batch_id}/{item_id}-heads.json"
+
+
 _BATCH_PATTERN = re.compile(r"^run-(\d+)$")
 
 
@@ -475,6 +483,8 @@ DEFAULT_GROUNDING_BASE_URL = "https://switchyard-13doh4lsz.brevlab.com"
 DEFAULT_GROUNDING_MODEL = "nvidia/cosmos-3-super-reasoner"
 GROUNDING_MAX_EDGE_PIXELS = 1280
 GROUNDING_MAX_ATTEMPTS = 4
+# The most boxes one whole-frame search (``DefaultDetector.detect_all``) returns.
+MAX_DETECTIONS_PER_QUERY = 32
 # Items of one report cropped at once; each crop is a blocking frame read plus a grounding call.
 EVIDENCE_CROP_CONCURRENCY = 4
 # The item types the object tracker follows (people keep the DeepStream person tracks).
@@ -569,6 +579,17 @@ def parse_json_object(text: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError(f"Expected a JSON object, got {type(parsed).__name__}")
     return parsed
+
+
+def unbudgeted(detector: Any) -> Any:
+    """``detector`` without a ``CropCallBudget``: the privacy blur's head search has a budget of its own."""
+    if isinstance(detector, BudgetedDetector):
+        return detector.detector
+    if isinstance(detector, DefaultDetector) and detector.call_budget is not None:
+        free = copy.copy(detector)
+        free.call_budget = None
+        return free
+    return detector
 
 
 class DefaultDetector:
@@ -763,6 +784,63 @@ class DefaultDetector:
         xmin, ymin, xmax, ymax = (max(0, min(1000, round(float(v)))) for v in raw_box)
         return [Detection(box=[ymin, xmin, ymax, xmax], score=1.0, label=str(data.get("label") or query))]
 
+    def detect_all(self, frame: np.ndarray, query: str, limit: int = MAX_DETECTIONS_PER_QUERY) -> list[Detection]:
+        """Every match of ``query`` in the frame (up to ``limit``), not only the best one: the whole-frame head search.
+
+        One chat call on the same endpoint and model as :meth:`detect`, asking for a list of boxes. An empty list means
+        the model saw none; a transport or status error raises, like :meth:`detect`.
+        """
+        if not self.is_available():
+            return []
+        frame_h, frame_w = frame.shape[:2]
+        scale = min(1.0, GROUNDING_MAX_EDGE_PIXELS / max(frame_h, frame_w))
+        if scale < 1.0:
+            frame = np.asarray(
+                Image.fromarray(frame[..., ::-1]).resize((round(frame_w * scale), round(frame_h * scale)))
+            )[..., ::-1]
+        jpeg = encode_jpeg(np.ascontiguousarray(frame), quality=85)
+        if not jpeg:
+            return []
+        prompt = (
+            f'Locate every instance of "{query}" in this image, including small, distant, partly hidden, turned-away, '
+            "lying or covered ones, and any shown on a screen or in a picture. Return JSON only, in the form "
+            '{"detections": [{"bbox_2d": [xmin, ymin, xmax, ymax], "label": "<what the box contains>"}]} with integer '
+            'coordinates normalised to 0-1000 (0,0 is the top-left corner). If there is none, return {"detections": []}.'
+        )
+        body = {
+            "model": self.model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii")},
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+            "temperature": 0.0,
+            "max_tokens": 1024,
+            "response_format": {"type": "json_object"},
+        }
+        data = self._request_box(body)
+        rows = data.get("detections")
+        if rows is None and data.get("bbox_2d") is not None:
+            rows = [data]  # a model that answered the single-box form
+        detections: list[Detection] = []
+        for row in rows if isinstance(rows, list) else []:
+            raw_box = row.get("bbox_2d") if isinstance(row, dict) else None
+            if not isinstance(raw_box, list) or len(raw_box) != 4:
+                continue
+            try:
+                xmin, ymin, xmax, ymax = (max(0, min(1000, round(float(v)))) for v in raw_box)
+            except (TypeError, ValueError):
+                continue
+            detections.append(Detection(box=[ymin, xmin, ymax, xmax], score=1.0, label=str(row.get("label") or query)))
+        return detections[:limit]
+
 
 class FakeDetector:
     """In-memory detector fixture for unit testing."""
@@ -775,6 +853,24 @@ class FakeDetector:
 
     def detect(self, frame: np.ndarray, query: str) -> list[Detection]:  # noqa: ARG002
         return self.detections
+
+
+def detect_heads(detector: Any, frame: np.ndarray) -> list[Detection]:
+    """Every head in ``frame``: ``detect_all`` when the detector has it, else its ``detect`` (a port or a plain callable)."""
+    if hasattr(detector, "detect_all"):
+        raw = detector.detect_all(frame, privacy_blur.HEADS_QUERY)
+    else:
+        detect: Callable[[np.ndarray, str], Any] = detector.detect if hasattr(detector, "detect") else detector
+        raw = detect(frame, privacy_blur.HEADS_QUERY)
+    return parse_detections(raw, privacy_blur.HEADS_QUERY)
+
+
+@dataclass(frozen=True)
+class HeadScan:
+    """The whole-frame head search of one second: padded head boxes, or ``failed`` (error, spent cap, unreadable frame)."""
+
+    boxes: tuple[privacy_blur.Box, ...] = ()
+    failed: bool = False
 
 
 class FakeZoomNamer:
@@ -1238,6 +1334,7 @@ class CropEvidenceService:
         zoom_names: bool | None = None,
         privacy: privacy_blur.PrivacySummary | None = None,
         object_tracking: track_evidence.ObjectTrackingRequest | None = None,
+        video_seconds: float | None = None,
     ) -> list[dict[str, Any]]:
         """Locate every entity, instrument and asset of a report and upload its frame and crop.
 
@@ -1258,16 +1355,20 @@ class CropEvidenceService:
         ``CropCallBudget``: ``max_crop_calls`` counts grounding attempts only. A zoom failure never fails the item.
 
         Privacy blur (``privacy`` given): after the locate step, tracking and the best-moment re-cut, and before
-        anything is uploaded, every frame is blurred on the heads of :func:`_blur_evidence` and the crop is cut from
-        the blurred frame. Each entry records the regions as ``blur_regions`` (normalised boxes, ``[]`` when none)
-        and ``privacy`` is filled in. An item whose blur fails stores no image at all (``image_gap`` says why).
+        anything is uploaded, every frame is blurred on the heads found in it by a whole-frame head detection of its
+        own second, joined by the known person tracks and located person boxes (:func:`_blur_evidence`), and the crop
+        is cut from the blurred frame. Each entry records the regions as ``blur_regions`` (normalised boxes, ``[]``
+        when none) and ``privacy`` is filled in. When a second's detection fails or the request's detector-call cap is
+        spent, the frame is blurred on the known people only, and with none known the item stores no image at all
+        (``image_gap`` says why), as for any other blur failure. The heads are also searched at sampled seconds over
+        the item's evidence-clip window (``video_seconds``, the video's length when known) and stored as
+        ``<itemId>-heads.json``, whose key the entry carries as ``heads``.
 
         Object tracking (``object_tracking`` given, :mod:`vss_agents.utils.object_tracking`): each located instrument
         and asset is followed through the clip from its box by a seeded OpenCV tracker that the detector keeps
         correcting, beside the person tracking run. The resulting track is stored like a person track
         (``track``, ``track_first_seen_seconds``, ``track_last_seen_seconds``) with ``track_source`` set to
-        ``object-tracker``, and the item's frame is re-cut at the track's best moment. With the privacy blur on and no
-        person track to take heads from, the frame is not re-cut (a frame at a new second could show an unblurred face).
+        ``object-tracker``, and the item's frame is re-cut at the track's best moment.
         """
         active_detector = detector if detector is not None else self.detector
         zoom_on = zoom_names_enabled() if zoom_names is None else zoom_names
@@ -1276,12 +1377,15 @@ class CropEvidenceService:
         folder = video_key or video_id
         batch = batch_id or (await active_store.next_batch_id(folder) if active_store is not None else "run-1")
 
+        head_detector = unbudgeted(active_detector)  # the blur's head search has its own call cap
         if detector is not None:
             detector_ready = bool(detector.is_available()) if hasattr(detector, "is_available") else True
         else:
             detector_ready = self.is_detector_available()
         semaphore = asyncio.Semaphore(EVIDENCE_CROP_CONCURRENCY)
         crops: dict[str, CropResult] = {}
+        head_scans: dict[float, asyncio.Task[HeadScan]] = {}
+        head_samples: dict[str, list[tuple[float, list[privacy_blur.Box], bool]]] = {}
 
         tracking_task: asyncio.Task[track_evidence.TrackingOutcome] | None = None
         if tracking is not None:
@@ -1345,6 +1449,14 @@ class CropEvidenceService:
                 logger.warning("Evidence image upload failed for %s: %s", key, exc)
                 entry["image_gap"] = f"image upload failed: {type(exc).__name__}: {exc}"
                 return
+            samples = head_samples.get(entry["item_id"])
+            if samples is not None:
+                heads_key = evidence_heads_key(folder, batch, entry["item_id"])
+                try:
+                    await active_store.put_image(heads_key, privacy_blur.heads_json(samples), "application/json")
+                    entry["heads"] = heads_key
+                except Exception as exc:  # the clip then falls back to the tracks and the recorded heads
+                    logger.warning("Clip heads upload failed for %s: %s", heads_key, type(exc).__name__)
             entry["frame"] = frame_key
             entry["box_seconds"] = crop.box_seconds
             entry["located"] = crop.located
@@ -1435,25 +1547,6 @@ class CropEvidenceService:
                     verdict.confidence,
                 )
 
-        async def _detect_head(entry: dict[str, Any], crop: CropResult) -> privacy_blur.Box | None:
-            """One detector call for the item's head on the unblurred frame; None when it finds none or fails."""
-            if crop.frame is None or not detector_ready or privacy is None:
-                return None
-            privacy.head_queries += 1
-            query = privacy_blur.HEAD_QUERY.format(label=entry["label"])
-            try:
-                port: Any = active_detector  # a detector port or a plain callable, like crop_evidence_item takes
-                detect: Callable[[np.ndarray, str], Any] = port.detect if hasattr(port, "detect") else port
-                async with semaphore:
-                    raw = await asyncio.to_thread(detect, crop.frame, query)
-            except Exception as exc:  # the cap included: the item then falls back to its own box
-                logger.warning("Head detection failed for %s %s: %s", video_id, entry["item_id"], type(exc).__name__)
-                return None
-            boxes = [d.box for d in parse_detections(raw, query) if privacy_blur.valid_box(d.box)]
-            if not boxes:
-                return None
-            return privacy_blur.pad_box(boxes[0], privacy_blur.DETECTED_HEAD_PADDING)
-
         def _blurred(crop: CropResult, regions: list[privacy_blur.Box]) -> CropResult:
             """The crop result encoded again from the frame blurred on ``regions`` (the decoded frame is dropped)."""
             if crop.frame is None:
@@ -1472,8 +1565,47 @@ class CropEvidenceService:
                 raise RuntimeError("the blurred frame could not be encoded")
             return replace(crop, frame_bytes=frame_bytes, image_bytes=image_bytes, frame=None)
 
+        def _decoded_frame(crop: CropResult) -> np.ndarray | None:
+            return crop.frame
+
+        def _scan_heads(seconds: float, frame_of: Callable[[], np.ndarray | None]) -> asyncio.Task[HeadScan]:
+            """The whole-frame head search of one second, started once however many items ask for it."""
+            key = round(seconds, 3)
+            task = head_scans.get(key)
+            if task is None:
+                task = head_scans[key] = asyncio.ensure_future(_find_heads(key, frame_of))
+            return task
+
+        async def _find_heads(seconds: float, frame_of: Callable[[], np.ndarray | None]) -> HeadScan:
+            """One detector call for every head in the frame at ``seconds``; a failure is a ``failed`` scan, never raised."""
+            assert privacy is not None
+            # The cap is taken before any await, so calls are granted in the order the scans were asked for: the
+            # stored frames first, then the clip samples.
+            if not privacy.take_call():
+                privacy.fallbacks += 1
+                return HeadScan(failed=True)
+            try:
+                async with semaphore:
+                    frame = await asyncio.to_thread(frame_of)
+                    if frame is None:
+                        privacy.refund_call()  # nothing was sent
+                        privacy.fallbacks += 1
+                        return HeadScan(failed=True)
+                    detections = await asyncio.to_thread(detect_heads, head_detector, frame)
+            except Exception as exc:
+                logger.warning("Head detection failed for %s at %ss: %s", video_id, seconds, type(exc).__name__)
+                privacy.fallbacks += 1
+                return HeadScan(failed=True)
+            boxes = tuple(
+                privacy_blur.pad_box(d.box, privacy_blur.DETECTED_HEAD_PADDING)
+                for d in detections
+                if privacy_blur.valid_box(d.box)
+            )
+            privacy.head_detections += len(boxes)
+            return HeadScan(boxes)
+
         async def _blur_evidence(tracks: Sequence[track_evidence.Track]) -> None:
-            """Blur the heads at each frame's second: every track's, then each person item's own when no track covers it."""
+            """Blur every head in each frame: the ones found in it, then the known people's (every track, every located person)."""
             assert privacy is not None
 
             def seconds_of(entry: dict[str, Any], crop: CropResult) -> float:
@@ -1482,45 +1614,51 @@ class CropEvidenceService:
             people: list[tuple[float, privacy_blur.Box]] = []
             for entry in entries:
                 crop = crops.get(entry["item_id"])
-                if entry["item_type"] != "entity" or crop is None:
-                    continue
-                seconds = seconds_of(entry, crop)
-                box = crop.normalized_box if crop.located else None
-                track_heads = privacy_blur.track_heads_at(tracks, seconds, solid_only=True)
-                if box and any(privacy_blur.centre_inside(head, box) for head in track_heads):
-                    privacy.track_heads += 1
-                    continue
-                head = await _detect_head(entry, crop)
-                if head is not None:
-                    privacy.detector_heads += 1
-                    people.append((seconds, head))
-                    # The model's box may be on the wrong thing (a panel, not the man): the detected head is blurred
-                    # wherever it is, and the box's own head too unless the detected head sits inside the box.
-                    if box and not privacy_blur.centre_inside(head, box):
-                        people.append((seconds, privacy_blur.head_region(box)))
-                elif box:
-                    privacy.box_heads += 1
-                    people.append((seconds, privacy_blur.head_region(box)))
-                else:
-                    privacy.unblurred_people += 1
+                if entry["item_type"] == "entity" and crop is not None and crop.located and crop.normalized_box:
+                    people.append((seconds_of(entry, crop), privacy_blur.head_region(crop.normalized_box)))
 
-            for entry in entries:
-                crop = crops.get(entry["item_id"])
-                if crop is None:
-                    continue
-                seconds = seconds_of(entry, crop)
-                regions = privacy_blur.unique_regions(
+            def known_heads(seconds: float) -> list[privacy_blur.Box]:
+                return privacy_blur.unique_regions(
                     [
                         *privacy_blur.track_heads_at(tracks, seconds),
                         *(head for at, head in people if abs(at - seconds) <= privacy_blur.TRACK_WINDOW_SECONDS),
                     ]
                 )
+
+            stored = {
+                entry["item_id"]: (entry, crop, seconds_of(entry, crop))
+                for entry in entries
+                if (crop := crops.get(entry["item_id"])) is not None
+            }
+            frame_scans = {
+                item_id: _scan_heads(seconds, partial(_decoded_frame, crop))
+                for item_id, (_, crop, seconds) in stored.items()
+            }
+            # The same search over each item's clip window, so the console can blur the clip second by second.
+            plans: dict[str, list[float]] = {}
+            if not isinstance(video_ref, np.ndarray) and active_store is not None:
+                for item_id, (_, _, seconds) in stored.items():
+                    plans[item_id] = [round(t, 3) for t in privacy_blur.clip_sample_times(seconds, video_seconds)]
+                seen = set(head_scans)
+                for times in plans.values():
+                    for t in times:
+                        if t not in head_scans:
+                            _scan_heads(t, partial(extract_frame, video_ref, t))
+                privacy.clip_samples = len(set(head_scans) - seen)
+            scanned = dict(zip(head_scans, await asyncio.gather(*head_scans.values()), strict=True))
+
+            for item_id, (entry, crop, seconds) in stored.items():
+                scan = await frame_scans[item_id]
+                known = known_heads(seconds)
                 try:
-                    crops[entry["item_id"]] = await asyncio.to_thread(_blurred, crop, regions)
+                    if scan.failed and not known:
+                        raise RuntimeError("the heads could not be searched for and no person is known")
+                    regions = privacy_blur.unique_regions([*known, *scan.boxes])
+                    crops[item_id] = await asyncio.to_thread(_blurred, crop, regions)
                 except Exception as exc:
                     # Fail closed: an image that could not be blurred is never stored.
-                    logger.warning("Privacy blur failed for %s %s: %s", video_id, entry["item_id"], exc)
-                    crops.pop(entry["item_id"], None)
+                    logger.warning("Privacy blur failed for %s %s: %s", video_id, item_id, exc)
+                    crops.pop(item_id, None)
                     entry["image_gap"] = f"privacy blur failed, so no image was stored: {type(exc).__name__}"
                     privacy.failed += 1
                     continue
@@ -1528,6 +1666,11 @@ class CropEvidenceService:
                 if regions:
                     privacy.frames += 1
                     privacy.regions += len(regions)
+                if item_id in plans:
+                    head_samples[item_id] = [
+                        (t, known_heads(t), True) if scanned[t].failed else (t, list(scanned[t].boxes), False)
+                        for t in plans[item_id]
+                    ]
 
         async def _track_objects() -> dict[str, track_evidence.Track]:
             """Follow each located instrument and asset through the clip; ``{item_id: track}`` of those that gained one."""
@@ -1627,8 +1770,7 @@ class CropEvidenceService:
             for item_id, track in object_tracks.items():
                 crop = crops.get(item_id)
                 moment = track_evidence.best_moment(track)
-                # A frame at another second is re-cut only when its heads can be blurred (see the method docstring).
-                if crop is not None and moment.t != crop.box_seconds and (privacy is None or all_tracks):
+                if crop is not None and moment.t != crop.box_seconds:
                     await _recut(by_id[item_id], track)  # a failed re-cut keeps the located frame and the track
                 matched_tracks[item_id] = track
 

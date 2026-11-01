@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for the privacy blur: head-region maths, the pixelation and the evidence write sites."""
+"""Unit tests for the privacy blur: head-region maths, the pixelation, the whole-frame head search and the evidence write sites."""
 
 from collections.abc import Generator
+import json
 from pathlib import Path
 import tempfile
 from typing import Any
@@ -28,13 +29,17 @@ from vss_agents.utils import privacy_blur
 from vss_agents.utils.crop_evidence import BudgetedDetector
 from vss_agents.utils.crop_evidence import CropCallBudget
 from vss_agents.utils.crop_evidence import CropEvidenceService
+from vss_agents.utils.crop_evidence import DefaultDetector
 from vss_agents.utils.crop_evidence import Detection
 from vss_agents.utils.crop_evidence import FakeZoomNamer
 from vss_agents.utils.crop_evidence import InMemoryEvidenceStore
 from vss_agents.utils.privacy_blur import PrivacySummary
 from vss_agents.utils.privacy_blur import blur_frame
 from vss_agents.utils.privacy_blur import centre_inside
+from vss_agents.utils.privacy_blur import clip_sample_times
+from vss_agents.utils.privacy_blur import clip_window
 from vss_agents.utils.privacy_blur import head_region
+from vss_agents.utils.privacy_blur import heads_json
 from vss_agents.utils.privacy_blur import overlaps
 from vss_agents.utils.privacy_blur import pad_box
 from vss_agents.utils.privacy_blur import pixel_box
@@ -135,9 +140,10 @@ def textured_video() -> Generator[Path]:
 
 
 PERSON_BOX = [200, 200, 800, 500]  # [ymin, xmin, ymax, xmax] of the person and of the object (0..1000)
-HEAD_BOX = [200, 300, 400, 400]  # a head inside the person box
+HEAD_A = [200, 300, 400, 400]  # a head inside the person box
+HEAD_B = [600, 800, 750, 900]  # a bystander's head, far from the person box and from any track
 
-# Everything at second 0, so a person's head applies to every item's frame.
+# Everything at second 0, so one frame stands for every item and the head search runs once for it.
 REPORT: dict[str, Any] = {
     "incident": {"type": "theft"},
     "entities": [{"entity_id": "E1", "type": "human", "description": "man", "timestamp_seconds": 0, "label": "man"}],
@@ -146,13 +152,21 @@ REPORT: dict[str, Any] = {
     ],
     "assets": [],
 }
+# A report with no person item at all: a control panel with a face in the frame (IMG_4569 A2).
+PANEL_REPORT: dict[str, Any] = {
+    "incident": {"type": "theft"},
+    "entities": [],
+    "instruments": [],
+    "assets": [{"asset_id": "A1", "name": "panel", "description": "control panel", "timestamp_seconds": 0}],
+}
 
 
 class RecordingDetector:
-    """Answers the locate query with PERSON_BOX and a head query with ``head`` (None: nothing found)."""
+    """Answers the locate query with PERSON_BOX and the whole-frame head query with ``heads`` (or fails it)."""
 
-    def __init__(self, head: list[int] | None = HEAD_BOX) -> None:
-        self.head = head
+    def __init__(self, heads: list[list[int]] | None = None, fail_heads: bool = False) -> None:
+        self.heads = [HEAD_A, HEAD_B] if heads is None else heads
+        self.fail_heads = fail_heads
         self.queries: list[str] = []
 
     def is_available(self) -> bool:
@@ -160,9 +174,15 @@ class RecordingDetector:
 
     def detect(self, frame: np.ndarray, query: str) -> list[Detection]:
         self.queries.append(query)
-        if query.startswith("the head of"):
-            return [Detection(box=list(self.head), score=1.0)] if self.head else []
+        if query == privacy_blur.HEADS_QUERY:
+            if self.fail_heads:
+                raise RuntimeError("gateway down")
+            return [Detection(box=list(head), score=1.0) for head in self.heads]
         return [Detection(box=list(PERSON_BOX), score=0.9)]
+
+    @property
+    def head_calls(self) -> int:
+        return self.queries.count(privacy_blur.HEADS_QUERY)
 
 
 def _tracking(*tracks: Track) -> TrackingRequest:
@@ -179,6 +199,8 @@ async def _run(
     privacy: PrivacySummary | None = None,
     tracking: TrackingRequest | None = None,
     namer: FakeZoomNamer | None = None,
+    report: dict[str, Any] | None = None,
+    video_seconds: float | None = 2.0,
 ) -> tuple[dict[str, dict], InMemoryEvidenceStore]:
     store = InMemoryEvidenceStore()
     service = CropEvidenceService(detector=detector or RecordingDetector(), store=store, namer=namer)
@@ -186,11 +208,12 @@ async def _run(
         video_ref=video,
         video_id="v",
         video_key="uploads/a.mp4",
-        report=REPORT,
+        report=report or REPORT,
         batch_id="run-1",
         tracking=tracking,
         zoom_names=namer is not None,
         privacy=privacy,
+        video_seconds=video_seconds,
     )
     return {entry["item_id"]: entry for entry in entries}, store
 
@@ -205,104 +228,142 @@ def _difference(a: np.ndarray, b: np.ndarray, region: tuple[int, int, int, int])
     return float(np.abs(a[y0:y1, x0:x1] - b[y0:y1, x0:x1]).mean())
 
 
-class TestEvidenceWriteSites:
+def _padded(head: list[int]) -> list[int]:
+    return list(privacy_blur.pad_box(head, privacy_blur.DETECTED_HEAD_PADDING))
+
+
+def _heads_file(store: InMemoryEvidenceStore, entry: dict[str, Any]) -> dict[str, Any]:
+    return json.loads(store.images[entry["heads"]])
+
+
+class TestWholeFrameHeads:
     @pytest.mark.asyncio
-    async def test_without_the_flag_nothing_is_blurred_and_entries_are_unchanged(self, textured_video: Path) -> None:
+    async def test_without_the_flag_nothing_is_blurred_searched_or_stored(self, textured_video: Path) -> None:
         detector = RecordingDetector()
-        entries, _ = await _run(textured_video, detector=detector)
-        assert all("blur_regions" not in entry for entry in entries.values())
-        assert not any(query.startswith("the head of") for query in detector.queries)
+        entries, store = await _run(textured_video, detector=detector)
+        assert all("blur_regions" not in entry and "heads" not in entry for entry in entries.values())
+        assert detector.head_calls == 0
+        assert not any(key.endswith("-heads.json") for key in store.images)
 
     @pytest.mark.asyncio
-    async def test_the_detector_head_is_blurred_in_every_frame_and_crop_at_that_second(
+    async def test_every_detected_head_is_blurred_in_person_and_non_person_frames_and_crops(
         self, textured_video: Path
     ) -> None:
         plain, plain_store = await _run(textured_video)
         privacy = PrivacySummary()
-        detector = RecordingDetector()
-        entries, store = await _run(textured_video, detector=detector, privacy=privacy)
+        entries, store = await _run(textured_video, privacy=privacy)
 
-        head = privacy_blur.pad_box(HEAD_BOX, privacy_blur.DETECTED_HEAD_PADDING)
-        assert detector.queries.count("the head of man") == 1
-        assert privacy.head_queries == 1 and privacy.detector_heads == 1
-        for item_id in ("E1", "I1"):
+        for item_id in ("E1", "I1"):  # a person item and an instrument
             entry = entries[item_id]
-            assert entry["blur_regions"] == [list(head)]
+            assert _padded(HEAD_A) in entry["blur_regions"]
+            assert _padded(HEAD_B) in entry["blur_regions"]
             frame = _decode(store.images[entry["frame"]])
             before = _decode(plain_store.images[plain[item_id]["frame"]])
-            y0, x0, y1, x1 = pixel_box(head, WIDTH, HEIGHT)
-            assert _difference(frame, before, (y0, x0, y1, x1)) > 20  # the head is pixelated
-            assert _difference(frame, before, (y1 + 5, 0, HEIGHT, WIDTH)) < 6  # below it, only JPEG noise
-            # the crop is cut from the blurred frame: it differs from the plain crop where the head overlaps it
+            for head in (HEAD_A, HEAD_B):
+                assert _difference(frame, before, pixel_box(_padded(head), WIDTH, HEIGHT)) > 20  # pixelated
+            assert _difference(frame, before, (80, 0, HEIGHT, 90)) < 6  # clear of every head: only JPEG noise
             assert store.images[entry["image"]] != plain_store.images[plain[item_id]["image"]]
-        assert privacy.frames == 2 and privacy.regions == 2 and privacy.failed == 0
+        assert privacy.frames == 2 and privacy.failed == 0 and privacy.fallbacks == 0
 
     @pytest.mark.asyncio
-    async def test_a_track_that_covers_the_person_needs_no_head_query_and_every_track_is_blurred(
-        self, textured_video: Path
-    ) -> None:
-        person = Track("1", [Sample(t, tuple(PERSON_BOX), 0.95) for t in (0.0, 0.1, 0.2)])
-        bystander = Track("2", [Sample(t, (0, 700, 400, 900), 0.9) for t in (0.1, 0.2, 0.3)])  # never matched
+    async def test_a_face_in_a_frame_with_no_person_item_is_blurred(self, textured_video: Path) -> None:
+        """IMG_4569 A2: the item is a control panel, yet a man's face is in the frame."""
+        plain, plain_store = await _run(textured_video, report=PANEL_REPORT)
+        privacy = PrivacySummary()
+        entries, store = await _run(textured_video, report=PANEL_REPORT, privacy=privacy)
+        assert entries["A1"]["blur_regions"] == [_padded(HEAD_A), _padded(HEAD_B)]
+        frame = _decode(store.images[entries["A1"]["frame"]])
+        before = _decode(plain_store.images[plain["A1"]["frame"]])
+        assert _difference(frame, before, pixel_box(_padded(HEAD_A), WIDTH, HEIGHT)) > 20
+
+    @pytest.mark.asyncio
+    async def test_one_search_per_distinct_second_counted_against_its_own_cap(self, textured_video: Path) -> None:
         privacy = PrivacySummary()
         detector = RecordingDetector()
-        request = _tracking(person, bystander)
-        entries, _ = await _run(textured_video, detector=detector, privacy=privacy, tracking=request)
-
-        assert not any(query.startswith("the head of") for query in detector.queries)
-        assert privacy.track_heads == 1 and privacy.head_queries == 0
-        expected = [list(head_region(PERSON_BOX)), list(head_region((0, 700, 400, 900)))]
-        assert entries["E1"]["track"]  # matched and re-cut at the best moment, which is blurred as well
-        assert sorted(entries["E1"]["blur_regions"]) == sorted(expected)
-        assert sorted(entries["I1"]["blur_regions"]) == sorted(expected)
+        await _run(textured_video, detector=detector, privacy=privacy)
+        # a 2 s video: the stored frames share second 0 with the first clip sample; samples at 0, 0.5, 1 and 1.5 s
+        assert detector.head_calls == privacy.detector_calls == 4
+        assert privacy.clip_samples == 3 and privacy.head_detections == 8 and privacy.cap_refused == 0
 
     @pytest.mark.asyncio
-    async def test_no_detector_head_falls_back_to_the_top_of_the_persons_box(self, textured_video: Path) -> None:
-        privacy = PrivacySummary()
-        entries, _ = await _run(textured_video, detector=RecordingDetector(head=None), privacy=privacy)
-        located = entries["E1"]["bounding_box"]
-        assert entries["E1"]["blur_regions"] == [list(head_region(located))]
-        assert privacy.box_heads == 1 and privacy.detector_heads == 0
-
-    @pytest.mark.asyncio
-    async def test_a_detected_head_outside_the_items_box_is_blurred_with_the_boxs_own_head(
-        self, textured_video: Path
-    ) -> None:
-        privacy = PrivacySummary()
-        outside = [0, 900, 100, 1000]
-        entries, _ = await _run(textured_video, detector=RecordingDetector(head=outside), privacy=privacy)
-        detected = list(privacy_blur.pad_box(outside, privacy_blur.DETECTED_HEAD_PADDING))
-        boxed = list(head_region(entries["E1"]["bounding_box"]))
-        assert sorted(entries["E1"]["blur_regions"]) == sorted([detected, boxed])
-        assert privacy.detector_heads == 1 and privacy.box_heads == 0
-
-    @pytest.mark.asyncio
-    async def test_a_ghost_track_on_the_items_box_does_not_stand_for_the_head(self, textured_video: Path) -> None:
-        """IMG_4569 E1: the model's box is on the panel, a ghost track (one detection, then predicted boxes) sits on it,
-        and the man's real head is elsewhere. The ghost must not match, and the detected head is blurred."""
-        ghost = Track("ghost", [Sample(0.0, tuple(PERSON_BOX), 0.6)])
-        ghost.samples += [Sample(0.2 * i, (200, 200 - 40 * i, 800, 500 - 40 * i), -0.1) for i in range(1, 10)]
-        man = [0, 800, 400, 950]
+    async def test_known_people_are_blurred_too_as_a_union_with_the_detected_heads(self, textured_video: Path) -> None:
+        bystander = Track("2", [Sample(t, (0, 700, 400, 900), 0.9) for t in (0.1, 0.2, 0.3)])  # the detector missed it
         privacy = PrivacySummary()
         entries, _ = await _run(
-            textured_video, detector=RecordingDetector(head=man), privacy=privacy, tracking=_tracking(ghost)
+            textured_video, detector=RecordingDetector(heads=[HEAD_A]), privacy=privacy, tracking=_tracking(bystander)
         )
-        detected = list(privacy_blur.pad_box(man, privacy_blur.DETECTED_HEAD_PADDING))
-        assert "track" not in entries["E1"]  # the ghost matched nothing
-        assert privacy.track_heads == 0 and privacy.detector_heads == 1 and privacy.head_queries == 1
-        assert detected in entries["E1"]["blur_regions"]
-        assert detected in entries["I1"]["blur_regions"]
-        assert list(head_region(PERSON_BOX)) in entries["E1"]["blur_regions"]
+        for item_id in ("E1", "I1"):
+            regions = entries[item_id]["blur_regions"]
+            assert _padded(HEAD_A) in regions  # the detector's head
+            assert list(head_region((0, 700, 400, 900))) in regions  # the track's head
+            assert list(head_region(entries["E1"]["bounding_box"])) in regions  # the located person's own box head
 
     @pytest.mark.asyncio
-    async def test_the_head_query_draws_on_the_crop_call_budget_and_a_full_cap_falls_back(
+    async def test_no_detected_head_still_blurs_the_located_persons_box(self, textured_video: Path) -> None:
+        privacy = PrivacySummary()
+        entries, _ = await _run(textured_video, detector=RecordingDetector(heads=[]), privacy=privacy)
+        expected = [list(head_region(entries["E1"]["bounding_box"]))]
+        assert entries["E1"]["blur_regions"] == expected and entries["I1"]["blur_regions"] == expected
+        assert privacy.fallbacks == 0  # the search worked; it found nothing more
+
+    @pytest.mark.asyncio
+    async def test_a_ghost_track_on_the_wrong_thing_does_not_stop_the_real_head_being_blurred(
         self, textured_video: Path
     ) -> None:
-        budget = CropCallBudget(2)  # the two locate calls; the head query is refused
+        """IMG_4569 E1: the model's box and a ghost track sit on the wall; the two men are elsewhere."""
+        ghost = Track("ghost", [Sample(0.0, tuple(PERSON_BOX), 0.6)])
+        ghost.samples += [Sample(0.2 * i, (200, 200 - 40 * i, 800, 500 - 40 * i), -0.1) for i in range(1, 10)]
+        entries, _ = await _run(textured_video, privacy=PrivacySummary(), tracking=_tracking(ghost))
+        assert "track" not in entries["E1"]
+        for item_id in ("E1", "I1"):
+            assert _padded(HEAD_A) in entries[item_id]["blur_regions"]
+            assert _padded(HEAD_B) in entries[item_id]["blur_regions"]
+
+    @pytest.mark.asyncio
+    async def test_the_search_does_not_use_the_crop_call_budget(self, textured_video: Path) -> None:
+        budget = CropCallBudget(2)  # the two locate calls and nothing else
         privacy = PrivacySummary()
         entries, _ = await _run(textured_video, detector=BudgetedDetector(RecordingDetector(), budget), privacy=privacy)
-        assert budget.summary()["refused_by_cap"] == 1
-        assert privacy.head_queries == 1 and privacy.box_heads == 1
-        assert entries["E1"]["blur_regions"]
+        assert budget.summary()["calls"] == 2 and budget.summary()["refused_by_cap"] == 0
+        assert privacy.detector_calls == 4 and privacy.fallbacks == 0
+        assert _padded(HEAD_B) in entries["E1"]["blur_regions"]
+
+    @pytest.mark.asyncio
+    async def test_a_spent_cap_blurs_the_known_people_only_and_records_the_fallbacks(
+        self, textured_video: Path
+    ) -> None:
+        privacy = PrivacySummary(call_cap=1)  # the stored frame's second gets the one call; the clip samples do not
+        entries, store = await _run(textured_video, privacy=privacy)
+        assert _padded(HEAD_B) in entries["E1"]["blur_regions"]
+        assert privacy.detector_calls == 1 and privacy.cap_refused == 3 and privacy.fallbacks == 3
+        samples = _heads_file(store, entries["E1"])["samples"]
+        assert [(sample["t"], sample.get("fallback", False)) for sample in samples] == [
+            (0.0, False),
+            (0.5, True),
+            (1.0, True),
+            (1.5, True),
+        ]
+        assert samples[1]["boxes"] == [list(head_region(entries["E1"]["bounding_box"]))]
+
+    @pytest.mark.asyncio
+    async def test_a_failed_search_falls_back_to_every_known_person_head(self, textured_video: Path) -> None:
+        privacy = PrivacySummary()
+        entries, store = await _run(textured_video, detector=RecordingDetector(fail_heads=True), privacy=privacy)
+        expected = [list(head_region(entries["E1"]["bounding_box"]))]
+        assert entries["E1"]["blur_regions"] == expected and entries["I1"]["blur_regions"] == expected
+        assert store.images[entries["E1"]["frame"]]  # stored, blurred on the known head
+        assert privacy.fallbacks == 4 and privacy.failed == 0
+        assert all(sample["fallback"] for sample in _heads_file(store, entries["E1"])["samples"])
+
+    @pytest.mark.asyncio
+    async def test_a_failed_search_with_no_known_person_stores_no_image(self, textured_video: Path) -> None:
+        privacy = PrivacySummary()
+        entries, store = await _run(
+            textured_video, detector=RecordingDetector(fail_heads=True), privacy=privacy, report=PANEL_REPORT
+        )
+        assert not any(key.endswith((".jpg", "-heads.json")) for key in store.images)
+        assert entries["A1"]["frame"] is None and "privacy blur failed" in entries["A1"]["image_gap"]
+        assert "heads" not in entries["A1"] and privacy.failed == 1
 
     @pytest.mark.asyncio
     async def test_a_failed_blur_stores_no_image_at_all(
@@ -329,13 +390,101 @@ class TestEvidenceWriteSites:
 
         assert by_name(blurred_namer.calls) == by_name(plain_namer.calls)  # the same unblurred close-up, item by item
 
-    def test_the_summary_names_where_each_head_came_from(self) -> None:
-        summary = PrivacySummary(regions=3, frames=2, track_heads=1, detector_heads=1, head_queries=1)
+
+class TestClipHeads:
+    @pytest.mark.asyncio
+    async def test_each_item_stores_its_clip_heads_sampled_every_half_second(self, textured_video: Path) -> None:
+        entries, store = await _run(textured_video, privacy=PrivacySummary())
+        for item_id in ("E1", "I1"):
+            entry = entries[item_id]
+            assert entry["heads"] == f"evidence/uploads/a.mp4/run-1/{item_id}-heads.json"
+            file = _heads_file(store, entry)
+            assert file["step_seconds"] == 0.5
+            assert [sample["t"] for sample in file["samples"]] == [0.0, 0.5, 1.0, 1.5]
+            assert all(sample["boxes"] == [_padded(HEAD_A), _padded(HEAD_B)] for sample in file["samples"])
+
+    @pytest.mark.asyncio
+    async def test_no_clip_heads_without_a_stored_video_to_sample(self, textured_video: Path) -> None:
+        privacy = PrivacySummary()
+        service = CropEvidenceService(detector=RecordingDetector(), store=None)
+        frame = _decode(cv2.imencode(".png", _texture())[1].tobytes()).astype(np.uint8)
+        entries = await service.process_incident_report(video_ref=frame, video_id="v", report=REPORT, privacy=privacy)
+        assert all("heads" not in entry for entry in entries) and privacy.clip_samples == 0
+
+    def test_the_clip_window_is_the_consoles(self) -> None:
+        assert clip_window(7, 30) == (5.0, 4.0)
+        assert clip_window(1, 30) == (0.0, 4.0)  # clamped at the start
+        assert clip_window(29, 30) == (26.0, 4.0)  # shifted to stay inside the video
+        assert clip_window(1, 2.5) == (0.0, 2.5)  # a short video is clipped whole
+        assert clip_window(6.3, None) == (4.3, 4.0)
+
+    def test_sample_times_cover_the_window_and_one_step_each_side_nearest_first(self) -> None:
+        times = clip_sample_times(7, 30)
+        assert sorted(times) == [4.5 + 0.5 * k for k in range(0, 11)]  # 4.5 .. 9.5
+        assert times[0] == 7.0 and len(set(times)) == len(times)
+        assert max(clip_sample_times(29, 30)) < 30  # none past the end of the video
+        assert min(clip_sample_times(0, None)) == 0.0
+
+    def test_the_heads_file_is_sorted_and_marks_fallbacks(self) -> None:
+        data = json.loads(heads_json([(1.0, [(1, 2, 30, 40)], True), (0.5, [], False)]))
+        assert data == {
+            "step_seconds": 0.5,
+            "samples": [{"t": 0.5, "boxes": []}, {"t": 1.0, "boxes": [[1, 2, 30, 40]], "fallback": True}],
+        }
+
+
+class TestDetectAll:
+    def _detector(self, monkeypatch: pytest.MonkeyPatch, reply: dict[str, Any]) -> DefaultDetector:
+        detector = DefaultDetector(api_key="k", base_url="http://gateway")
+        monkeypatch.setattr(detector, "_request_box", lambda _body: reply)
+        return detector
+
+    def test_every_box_is_returned_as_a_detection(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        reply = {"detections": [{"bbox_2d": [10, 20, 30, 40], "label": "head"}, {"bbox_2d": [100, 200, 300, 400]}]}
+        found = self._detector(monkeypatch, reply).detect_all(_texture(), privacy_blur.HEADS_QUERY)
+        assert [d.box for d in found] == [[20, 10, 40, 30], [200, 100, 400, 300]]  # [ymin, xmin, ymax, xmax]
+
+    def test_none_malformed_rows_the_single_box_form_and_the_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        frame = _texture()
+        assert self._detector(monkeypatch, {"detections": []}).detect_all(frame, "head") == []
+        assert self._detector(monkeypatch, {"bbox_2d": None}).detect_all(frame, "head") == []
+        rows = {"detections": [{"bbox_2d": [1, 2, 3]}, {"bbox_2d": ["a", 2, 3, 4]}, "x", {"bbox_2d": [1, 2, 30, 40]}]}
+        assert len(self._detector(monkeypatch, rows).detect_all(frame, "head")) == 1
+        assert len(self._detector(monkeypatch, {"bbox_2d": [1, 2, 30, 40]}).detect_all(frame, "head")) == 1
+        many = {"detections": [{"bbox_2d": [i, i, i + 5, i + 5]} for i in range(10)]}
+        assert len(self._detector(monkeypatch, many).detect_all(frame, "head", limit=3)) == 3
+
+    def test_without_a_key_it_finds_nothing_and_sends_nothing(self) -> None:
+        assert DefaultDetector(api_key="", base_url="http://gateway").detect_all(_texture(), "head") == []
+
+
+class TestSummary:
+    def test_the_summary_reports_what_was_blurred_searched_and_fallen_back_on(self) -> None:
+        summary = PrivacySummary(regions=3, frames=2, head_detections=5, call_cap=10)
+        assert summary.take_call() and summary.take_call()
         assert summary.to_dict() == {
             "blur_faces": True,
             "regions": 3,
             "frames": 2,
-            "heads": {"track": 1, "detector": 1, "box": 0, "none": 0},
-            "head_queries": 1,
+            "head_detections": 5,
+            "detector_calls": 2,
+            "call_cap": 10,
+            "cap_refused": 0,
+            "clip_samples": 0,
+            "fallbacks": 0,
             "failed": 0,
         }
+
+    def test_the_cap_refuses_calls_beyond_it_and_a_refund_gives_one_back(self) -> None:
+        summary = PrivacySummary(call_cap=1)
+        assert summary.take_call() and not summary.take_call() and summary.cap_refused == 1
+        summary.refund_call()
+        assert summary.take_call()
+
+    def test_the_cap_comes_from_the_environment_when_it_is_a_positive_integer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert PrivacySummary().call_cap == privacy_blur.DEFAULT_CALL_CAP
+        for value, expected in (("12", 12), ("0", privacy_blur.DEFAULT_CALL_CAP), ("x", privacy_blur.DEFAULT_CALL_CAP)):
+            monkeypatch.setenv(privacy_blur.CALL_CAP_ENV, value)
+            assert PrivacySummary().call_cap == expected

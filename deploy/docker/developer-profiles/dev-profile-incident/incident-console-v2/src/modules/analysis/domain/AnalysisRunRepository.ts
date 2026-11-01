@@ -52,7 +52,7 @@ export interface AnalysisAttemptRecord {
     usage?: Record<string, unknown> | null;
     /** Agent mode, person tracking on: the agent's tracking summary ({enabled, matched, tracks, elapsed_ms, skipped}) as returned. */
     tracking?: Record<string, unknown>;
-    /** Agent mode, blur_faces asked: the agent's privacy summary ({blur_faces, regions, frames, heads, head_queries, failed}) as returned. */
+    /** Agent mode, blur_faces asked: the agent's privacy summary ({blur_faces, regions, frames, head_detections, detector_calls, call_cap, cap_refused, clip_samples, fallbacks, failed}) as returned. */
     privacy?: Record<string, unknown>;
     /** Agent mode, object tracking on: the agent's object-tracking summary ({enabled, seeds, tracked, tracker, items, ...}) as returned. */
     object_tracking?: Record<string, unknown>;
