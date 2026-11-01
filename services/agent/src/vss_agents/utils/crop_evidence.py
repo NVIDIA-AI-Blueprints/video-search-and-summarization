@@ -80,6 +80,7 @@ from PIL import ImageDraw
 
 from vss_agents import incident_contract
 from vss_agents.utils import privacy_blur
+from vss_agents.utils import run_provenance
 from vss_agents.utils import track_evidence
 from vss_agents.utils.optional_cv2 import ensure_codecs
 from vss_agents.utils.r2 import get_r2_client
@@ -608,30 +609,59 @@ class DefaultDetector:
         root = self.base_url[: -len("/v1")] if self.base_url.endswith("/v1") else self.base_url
         return f"{root}/v1/chat/completions"
 
+    def _count(self, stage: str | None, started: float, resp: Any, *, ok: bool) -> None:
+        """Count one sent HTTP attempt in the analysis's run provenance (a no-op outside an analysis)."""
+        usage = run_provenance.usage_of(resp) if resp is not None else None
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        run_provenance.record_call(stage, ok=ok, usage=usage, elapsed_ms=elapsed_ms, model=self.model_name)
+
     def _request_box(self, body: dict[str, Any]) -> dict[str, Any]:
-        """POST the grounding request, retrying rate limits, server errors and unparseable replies."""
+        """POST the grounding request, retrying rate limits, server errors and unparseable replies.
+
+        Every attempt is counted in the run provenance under the current detector stage (grounding, object
+        tracking or the privacy head search), refused, failed and retried ones included.
+        """
         for attempt in range(1, GROUNDING_MAX_ATTEMPTS + 1):
             if self.call_budget is not None:
-                self.call_budget.acquire()  # before sending: a refused attempt is never made
-            resp = httpx.post(
-                self._chat_url(),
-                json=body,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=self.timeout_seconds,
-            )
+                try:
+                    self.call_budget.acquire()  # before sending: a refused attempt is never made
+                except CropCallCapReachedError:
+                    run_provenance.record_refused()
+                    raise
+            started = time.perf_counter()
+            try:
+                resp = httpx.post(
+                    self._chat_url(),
+                    json=body,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=self.timeout_seconds,
+                )
+            except Exception:
+                self._count(None, started, None, ok=False)
+                raise
             if self.call_budget is not None:
                 self.call_budget.record_response(resp)
             last_attempt = attempt == GROUNDING_MAX_ATTEMPTS
             if resp.status_code in _RETRYABLE_STATUS_CODES and not last_attempt:
+                self._count(None, started, resp, ok=False)
                 time.sleep(float(resp.headers.get("retry-after") or 2.0 * attempt))
                 continue
+            if isinstance(resp.status_code, int) and resp.status_code >= 400:
+                self._count(None, started, resp, ok=False)
             resp.raise_for_status()
             try:
-                return parse_json_object(resp.json()["choices"][0]["message"]["content"])
+                parsed = parse_json_object(resp.json()["choices"][0]["message"]["content"])
             except ValueError:
+                self._count(None, started, resp, ok=False)
                 if last_attempt:
                     raise
                 logger.warning("Unparseable grounding reply (attempt %d); retrying", attempt)
+                continue
+            except Exception:
+                self._count(None, started, resp, ok=False)
+                raise
+            self._count(None, started, resp, ok=True)
+            return parsed
         raise RuntimeError("unreachable")  # pragma: no cover
 
     def _chat_json(self, images: Sequence[bytes], text: str, max_tokens: int = 256) -> dict[str, Any]:
@@ -664,17 +694,31 @@ class DefaultDetector:
             "response_format": {"type": "json_object"},
         }
         for attempt in (1, 2):
-            resp = httpx.post(
-                self._chat_url(),
-                json=body,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=ZOOM_TIMEOUT_SECONDS,
-            )
+            started = time.perf_counter()
+            try:
+                resp = httpx.post(
+                    self._chat_url(),
+                    json=body,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=ZOOM_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                self._count("zoom", started, None, ok=False)
+                raise
             if resp.status_code in _RETRYABLE_STATUS_CODES and attempt == 1:
+                self._count("zoom", started, resp, ok=False)
                 time.sleep(float(resp.headers.get("retry-after") or 2.0))
                 continue
+            if isinstance(resp.status_code, int) and resp.status_code >= 400:
+                self._count("zoom", started, resp, ok=False)
             resp.raise_for_status()
-            return parse_json_object(resp.json()["choices"][0]["message"]["content"])
+            try:
+                parsed = parse_json_object(resp.json()["choices"][0]["message"]["content"])
+            except Exception:
+                self._count("zoom", started, resp, ok=False)
+                raise
+            self._count("zoom", started, resp, ok=True)
+            return parsed
         raise RuntimeError("unreachable")  # pragma: no cover
 
     def zoom_name(
@@ -1555,7 +1599,8 @@ class CropEvidenceService:
                         privacy.refund_call()  # nothing was sent
                         privacy.fallbacks += 1
                         return HeadScan(failed=True)
-                    detections = await asyncio.to_thread(detect_heads, head_detector, frame)
+                    with run_provenance.stage_scope("privacy_heads"):
+                        detections = await asyncio.to_thread(detect_heads, head_detector, frame)
             except Exception as exc:
                 logger.warning("Head detection failed for %s at %ss: %s", video_id, seconds, type(exc).__name__)
                 privacy.fallbacks += 1
@@ -1662,12 +1707,13 @@ class CropEvidenceService:
                 summary.skipped = "no instrument or asset was located"
                 return {}
             try:
-                outcome = await object_tracking.runner(
-                    video_ref,
-                    seeds,
-                    detector=with_call_budget(active_detector, object_tracking.budget),
-                    **object_tracking.options,
-                )
+                with run_provenance.stage_scope("object_tracking"):
+                    outcome = await object_tracking.runner(
+                        video_ref,
+                        seeds,
+                        detector=with_call_budget(active_detector, object_tracking.budget),
+                        **object_tracking.options,
+                    )
             except Exception as exc:  # run_object_tracking never raises; a custom runner might
                 logger.warning("Object tracking failed for %s: %s", video_id, type(exc).__name__)
                 outcome = track_evidence.ObjectTrackingOutcome(skipped=f"object tracking failed: {type(exc).__name__}")

@@ -49,6 +49,7 @@ from typing import Any
 import httpx
 
 from vss_agents import incident_contract
+from vss_agents.utils import run_provenance
 from vss_agents.utils.r2 import get_r2_client
 from vss_agents.utils.r2 import get_r2_presigned_url
 from vss_agents.utils.r2 import is_r2_configured
@@ -472,7 +473,26 @@ async def caption_window(
         ):
             with attempt:
                 attempts += 1
-                response = await client.post(chat_url, json=body)
+                started = time.perf_counter()
+                try:
+                    response = await client.post(chat_url, json=body)
+                except Exception:
+                    run_provenance.record_call(
+                        "caption",
+                        ok=False,
+                        usage=None,
+                        model=model,
+                        elapsed_ms=(time.perf_counter() - started) * 1000.0,
+                    )
+                    raise
+                answered = response.status_code < 400
+                run_provenance.record_call(
+                    "caption",
+                    ok=answered,
+                    usage=run_provenance.usage_of(response),
+                    model=model,
+                    elapsed_ms=(time.perf_counter() - started) * 1000.0,
+                )
                 if response.status_code == 429 or response.status_code >= 500:
                     raise CaptionCallRetryableError(
                         f"window {window.index} caption call returned HTTP {response.status_code}: {response.text[:200]}"

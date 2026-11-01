@@ -74,6 +74,7 @@ belongs to the console, which owns the durable R2 key, so this tool never writes
 
 import asyncio
 from collections.abc import AsyncGenerator
+import hashlib
 import logging
 import os
 import re
@@ -102,6 +103,7 @@ from vss_agents.utils import crop_evidence
 from vss_agents.utils import incident_db
 from vss_agents.utils import object_tracking
 from vss_agents.utils import privacy_blur
+from vss_agents.utils import run_provenance
 from vss_agents.utils import set_of_marks
 from vss_agents.utils import track_evidence
 from vss_agents.utils import video_duration
@@ -120,6 +122,15 @@ VIDEO_HEADER_TIMEOUT_SECONDS = 30.0
 # (p1/reviewer-preamble), so a reviewer prompt reads the same in both analysis modes.
 MAX_REVIEWER_PROMPT_LENGTH = 1000
 REVIEWER_PROMPT_PREAMBLE = incident_contract.prompt("p1/reviewer-preamble")
+CAPTION_PROMPT_IDS = ("caption/system", "caption/window", "caption/time-range")
+ZOOM_PROMPT_IDS = (
+    "zoom/look-entity-frame",
+    "zoom/look-entity-close-up",
+    "zoom/look-object-frame",
+    "zoom/look-object-close-up",
+    "zoom/merge-entity",
+    "zoom/merge-object",
+)
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -302,6 +313,15 @@ class IncidentReportGenOutput(BaseModel):
             "cap_refused, clip_samples, fallbacks, failed}. Null when blur_faces was not asked for or no cropping ran."
         ),
     )
+    provenance: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Run provenance (utils/run_provenance.py, incident-run-provenance-v1): {schema, agent: {git_sha, source, "
+            "dirty, package_version}, contract_version, flags, stages: {<stage>: {model, prompts: {<id>: sha256}, "
+            "calls, failed, refused, prompt_tokens, completion_tokens, total_tokens, calls_without_usage, "
+            "elapsed_ms}}}; every HTTP attempt of every stage is counted, failed and refused ones included."
+        ),
+    )
 
 
 class VideoLength(BaseModel):
@@ -423,15 +443,30 @@ async def run_p1(
     """
     model_name = model or config.vlm_model_name
     started = time.perf_counter()
-    response = await client.post(
-        _chat_completions_url(config.vlm_base_url),
-        json=p1_request_body(model_name, video_url, reviewer_prompt, prompt_text, context_block, marks_block),
-    )
+
+    def count(ok: bool, usage: Any = None) -> None:
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        run_provenance.record_call("p1", ok=ok, usage=usage, elapsed_ms=elapsed_ms, model=model_name)
+
+    try:
+        response = await client.post(
+            _chat_completions_url(config.vlm_base_url),
+            json=p1_request_body(model_name, video_url, reviewer_prompt, prompt_text, context_block, marks_block),
+        )
+    except Exception:
+        count(False)
+        raise
     if telemetry is not None:
         telemetry["p1_elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 1)
     if response.status_code >= 400:
+        count(False, run_provenance.usage_of(response))
         raise RuntimeError(f"P1 call returned HTTP {response.status_code}: {response.text[:500]}")
-    body = response.json()
+    try:
+        body = response.json()
+    except Exception:
+        count(False)
+        raise
+    count(isinstance(body, dict) and bool(body.get("choices")), body.get("usage") if isinstance(body, dict) else None)
     if not isinstance(body, dict) or not body.get("choices"):
         # HTTP 200 with a null body is how the video host answers a video it cannot decode.
         raise VlmNoAnswerError(
@@ -507,8 +542,23 @@ async def run_rp1(
     client: httpx.AsyncClient, config: IncidentReportGenConfig, report: dict[str, Any]
 ) -> tuple[str | None, str | None]:
     """One RP1 call. Never raises: returns ``(report_text, error)``."""
+    body = rp1_request_body(report)
+    started = time.perf_counter()
     try:
-        response = await client.post(_chat_completions_url(config.rp1_base_url), json=rp1_request_body(report))
+        try:
+            response = await client.post(_chat_completions_url(config.rp1_base_url), json=body)
+        except Exception:
+            run_provenance.record_call(
+                "rp1", ok=False, usage=None, elapsed_ms=(time.perf_counter() - started) * 1000.0, model=body["model"]
+            )
+            raise
+        run_provenance.record_call(
+            "rp1",
+            ok=response.status_code < 400,
+            usage=run_provenance.usage_of(response),
+            elapsed_ms=(time.perf_counter() - started) * 1000.0,
+            model=body["model"],
+        )
         if response.status_code >= 400:
             return None, f"RP1 call returned HTTP {response.status_code}: {response.text[:300]}"
         content, _ = _message_content(response.json())
@@ -772,7 +822,12 @@ def experiment_settings(tool_input: IncidentReportGenInput, reviewer_prompt: str
 async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder) -> AsyncGenerator[FunctionInfo]:  # noqa: ARG001
     """Contract P1 -> RP1 over one uploaded video, then evidence crops and a new AI revision."""
 
-    async def _incident_report_gen(tool_input: IncidentReportGenInput) -> IncidentReportGenOutput:
+    def _registered(*prompt_ids: str) -> dict[str, str]:
+        return {prompt_id: incident_contract.prompt_sha256(prompt_id) for prompt_id in prompt_ids}
+
+    async def _analyze(
+        tool_input: IncidentReportGenInput, provenance: run_provenance.RunProvenance
+    ) -> IncidentReportGenOutput:
         model_name = tool_input.model or config.vlm_model_name
         if tool_input.model is not None and tool_input.model not in incident_contract.allowed_models():
             raise ValueError(f"Model {tool_input.model!r} is not in the incident contract allowlist")
@@ -780,6 +835,17 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
         experiment = experiment_settings(tool_input, reviewer_prompt)
         prompt_text = experiment.pop("_prompt_text", None) if experiment else None
         telemetry: dict[str, Any] | None = {} if experiment else None
+        p1_prompt_sha256 = (experiment or {}).get("prompt_sha256") or incident_experiments.production_prompt_sha256()
+        provenance.use("p1", model=model_name, prompts={"contract/incident_extraction_prompt": p1_prompt_sha256})
+        if reviewer_prompt:
+            provenance.use("p1", prompts=_registered("p1/reviewer-preamble"))
+        if not tool_input.skip_rp1:
+            rp1_prompt_sha256 = hashlib.sha256(incident_contract.report_prompt_template().encode("utf-8")).hexdigest()
+            provenance.use(
+                "rp1",
+                model=str(incident_contract.rp1_request()["model"]),
+                prompts={"contract/report_generation_prompt": rp1_prompt_sha256},
+            )
         video_length = await resolve_video_length(tool_input.video_url, tool_input.video_duration_seconds)
         if video_length.seconds is None:
             logger.warning(
@@ -806,6 +872,12 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
                     run_marks_pass(tool_input, tracking),
                 )
             marked_url = marked.url if marked is not None else None
+            if captions is not None and not captions.telemetry.get("skipped"):
+                provenance.use("caption", model=model_name, prompts=_registered(*CAPTION_PROMPT_IDS))
+                if captions.context:
+                    provenance.use("p1", prompts=_registered("caption/context-preamble"))
+            if marked is not None and marked_url:
+                provenance.use("p1", prompts=_registered("p1/marks-preamble"))
             try:
                 report, raw_output, finish_reason, p1_attempts = await run_p1_with_retry(
                     client,
@@ -823,6 +895,9 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
                 if experiment is not None:  # the caller must still see which prompt produced the rejected output
                     exc.experiment = experiment  # type: ignore[attr-defined]
                     exc.telemetry = telemetry  # type: ignore[attr-defined]
+                exc.provenance = provenance.to_dict(  # type: ignore[attr-defined]
+                    contract_version=incident_contract.contract_version()
+                )
                 raise
             except httpx.TimeoutException as exc:
                 raise TimeoutError(f"P1 call timed out after {config.request_timeout_seconds}s") from exc
@@ -836,6 +911,14 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
             )
 
         privacy = privacy_blur.PrivacySummary() if tool_input.blur_faces and not tool_input.skip_crops else None
+        if not tool_input.skip_crops:
+            provenance.use("grounding", prompts=_registered("grounding/best-match"))
+            if crop_evidence.zoom_names_enabled():
+                provenance.use("zoom", prompts=_registered(*ZOOM_PROMPT_IDS))
+            if privacy is not None:
+                provenance.use("privacy_heads", prompts=_registered("grounding/every-match"))
+            if objects is not None:
+                provenance.use("object_tracking", prompts=_registered("grounding/best-match"))
         if tool_input.skip_crops:
             # No crop means no located item, so the zoomed second look is off as well.
             evidence = crop_evidence.blank_evidence_entries(
@@ -928,7 +1011,12 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
             tracking=tracking.summary.to_dict() if tracking is not None else None,
             privacy=privacy.to_dict() if privacy is not None else None,
             object_tracking=objects.summary.to_dict() if objects is not None else None,
+            provenance=provenance.to_dict(contract_version=incident_contract.contract_version()),
         )
+
+    async def _incident_report_gen(tool_input: IncidentReportGenInput) -> IncidentReportGenOutput:
+        with run_provenance.collecting() as provenance:
+            return await _analyze(tool_input, provenance)
 
     yield FunctionInfo.create(
         single_fn=_incident_report_gen,
