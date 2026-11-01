@@ -86,6 +86,11 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - `leakage` reports each question's overlap with the target's description.
     - The oracle corpus (the ground truth's reports) and a system corpus are kept apart.
     - Prompts: `gen-chat-wording-v1` and `gen-chat-rederive-v1`.
+- **`evalv2.references.dashboard`** and **`tasks/dashboard/scoring.py`:** the "Ask for a chart" spec benchmark (R4).
+  - **Allowlist:** read from the console's export, `contracts/prompts/chart/allowlist.json`. A test fixture copy is drift-checked against the export when present.
+  - **Specs:** `parse_spec` independently re-implements the console's `parseChartSpec`, and `all_specs` enumerates all 1,690 valid specs.
+  - **References:** a generator words a request for a code-chosen spec, or an unsupported one (`gen-dashboard-request-v1`). A blind validator re-derives the spec (`gen-dashboard-respec-v1`), and the record is `ai_validated` only on exact agreement.
+  - **Scoring:** each reply is one of exact, refusal-correct, valid-but-wrong, false refusal, false accept or parse failure, with per-field accuracy and stability across repeats, per tier. Making references is the approved run RB2.
 - **`evalv2.sql`:** the SQL harness for model-free figures.
   - **Schema:** the finals migrations on a throwaway Postgres (`pgserver`), on top of the Supabase stub, as the schema's own SQL harness does.
   - **Snapshot:** a frozen `evalv2-sql-snapshot-v1` snapshot, loaded with its ids kept (identity columns included).
