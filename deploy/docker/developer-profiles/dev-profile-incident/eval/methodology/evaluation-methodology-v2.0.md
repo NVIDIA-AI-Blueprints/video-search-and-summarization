@@ -92,11 +92,11 @@ F and G are instruments applied to every call in A–E, not separate runs.
 - Instruments appear in only 18 clips, so they are descriptive only.
 
 **C: Evidence boxes.**
-- *Without box references:* located rate, image-gap rate, grounding calls per item, cap truncation, zoom applied rate and confidence. Items left out by the crop cap are unscorable, not misses. All labelled as operational or proxy measures.
+- *Without box references:* located rate, image-gap rate, grounding calls per item, cap truncation, zoom applied rate and confidence. Items left out by the crop cap, or never judged by the locate step because of an infrastructure or setup gap (no frame produced, a failed upload, a missing detector or store), are unscorable, not misses. All labelled as operational or proxy measures.
 - *With references:*
   - temporal hit: the item's second lies inside the reference's visible span;
   - IoU against the reference box **at the same second**;
-  - correct evidence: a temporal hit and IoU ≥ 0.5, with the full IoU distribution reported.
+  - correct evidence: a temporal hit and IoU ≥ 0.5, with the full IoU distribution reported. A second inside a span where the reference has no box (its two passes disagreed there) leaves IoU and correctness unscored, not a miss.
 - Reported end to end per ground-truth item and conditional on matched items.
 
 **D: Chatbot.**

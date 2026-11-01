@@ -34,6 +34,10 @@ from evalv2.core.instrument import Timing, Usage
 from evalv2.core.retry import Failure, RetryPolicy
 
 CAPABILITY_NAMES = ("video_input", "image_input", "text_input", "json_schema", "bbox")
+# The most one P1 attempt can use, as V1 charges it (``experiment_runner.P1_TOKENS_CEILING``, D11): the largest
+# Cosmos 3 Super prompt, rounded up, plus the request's max_tokens (16,384). Adapters may not import V1, so the value
+# is repeated here and a test keeps the two equal. Preflight assumes the same bound per attempt.
+P1_TOKENS_CEILING = 35000
 
 
 class AdapterConfigError(RuntimeError):
@@ -67,7 +71,7 @@ class CallContext:
     subject: str
     task: str
     budget_ledger: str = "inference"
-    tokens_bound: int = 20000  # pessimistic tokens per attempt, charged until usage is measured
+    tokens_bound: int = P1_TOKENS_CEILING  # pessimistic tokens per attempt, charged until usage is measured
     sleep: Callable[[float], None] = time.sleep
 
 

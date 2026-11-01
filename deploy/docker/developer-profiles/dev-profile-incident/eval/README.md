@@ -32,7 +32,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - content-addressed, append-only artifacts and sealed runs (`artifacts.py`);
   - separate, retry-proof budget ledgers (`budget.py`; every HTTP attempt is charged before it is sent);
   - V1's retry policies, mirrored and tested for parity (`retry.py`);
-  - checkpoints keyed by idempotency key (`checkpoint.py`);
+  - checkpoints keyed by idempotency key (`checkpoint.py`): every outcome name is classified explicitly, and only an infrastructure failure, a budget refusal or an unsent attempt stays open for recovery (an HTTP error status or a reply that is not a completion is final, as in V1's `recovery-v1`);
   - strict JSON run configs (`config.py`);
   - run manifests (`manifest.py`);
   - the offline network block (`netguard.py`);
@@ -40,7 +40,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - the frozen-V1 guard (`frozen_v1.py` with `frozen_v1.json`, the SHA-256 of 90 frozen V1 files).
 - **`evalv2.adapters`:** provider specifics only, never scoring.
   - The OpenAI-compatible adapter (`openai_compat.py`) covers Switchyard, the NVIDIA API catalog and a local vLLM or NIM endpoint.
-    - It charges every attempt before sending it and applies V1's retry policy.
+    - It charges every attempt before sending it, at V1's P1 ceiling (35,000 tokens, `P1_TOKENS_CEILING`) until usage is measured, and applies V1's retry policy. Any failed attempt that spanned a host suspend is `host_suspended`, whatever it failed with, as in V1.
     - It classifies failures as V1 does.
     - It stores the request and response bodies but never the key.
   - A scripted `fake.py` adapter supports plumbing runs.
@@ -58,9 +58,9 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - Profiles are versioned (`production-v4`, `production-v4-object-tracking`); any other change is a new profile id. Their caps are provisional until the Track B pilot.
 - **`evalv2.tasks`:** the runner and scorer protocols and the task registry.
   - **`tasks/incident_objects/`** (Track A, P1 only), registered lazily as `incident_objects`:
-    - **`runner.py`:** sends V1's P1 body through a subject's adapter, validates the reply with V1's contract policy, stores the prediction, and labels the outcome as V1 does.
+    - **`runner.py`:** sends V1's P1 body through a subject's adapter, validates the reply with V1's contract policy, stores the prediction, and labels the outcome as V1 does. Every attempt reserves V1's P1 ceiling on the `inference` ledger, the bound preflight assumes. A failed record keeps the adapter's failure kind (`failure_kind`) for the checkpoint, since V1's label folds transport errors and budget refusals into `http_error`.
     - **`scoring.py`:** follows V1's `run_evaluation` and calls V1's own rules through `v1.py`, the task's only bridge to V1. Similarity and judge scores are injected providers whose results are recorded, so a run's full similarity matrices and judgements make re-scoring offline and exact.
-    - **`aggregate.py`:** reports V1's own aggregates as `continuity_v1`, plus the V2 metrics: type macro-F1 and confusion, severity quadratic-weighted κ, timestamp errors with a tolerance curve, the incident window's temporal IoU, and attribute accuracies.
+    - **`aggregate.py`:** reports V1's own aggregates as `continuity_v1`, plus the V2 metrics: type macro-F1 (over the labels with ground-truth support; a label no clip has is `None`, not 0) and confusion, severity quadratic-weighted κ, timestamp errors with a tolerance curve, the incident window's temporal IoU, and attribute accuracies.
   - **`tasks/pipeline/`** (Track B, the production pipeline), registered lazily as `pipeline`. It runs only `adapter: vss` subjects.
     - **`runner.py`:** sends one request per clip, subject and repeat, and stores three predictions of the same run:
       - `p1`: the raw P1 reply through V1's policy, as in Track A;
@@ -72,16 +72,17 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
       - the zoom effect: `p1_agent` against `final`;
       - the caption effect: Track A against Track B `p1`, once the caption pass runs (X16).
   - **`tasks/crops/scoring.py`:** evidence boxes against box references, per reference tier.
-    - **Operational:** was a box located? A crop-call cap, a missing detector or store, or a crop error makes the entry unscorable, never a miss.
-    - **Temporal:** the evidence second (`box_seconds`, else the requested one) against the item's visible seconds.
-    - **Same-second IoU:** correct evidence means IoU ≥ 0.5 at a visible second.
+    - **Operational:** was a box located? An entry the locate step never judged is unscorable, never a miss: a crop-call cap, a missing detector or store, a crop error, no frame produced, a failed upload or privacy blur, or cropping skipped or failed (`UNSCORABLE_GAPS`, the agent's own `image_gap` strings, which a test checks against the agent source; any entry with `located` still null and no box counts too).
+    - **Temporal:** the evidence second (`box_seconds`, else the requested one) inside one of the reference's `visible_spans`.
+    - **Same-second IoU:** correct evidence means a temporal hit with IoU ≥ 0.5 against the reference box at that second. A second in a span without a reference box (the passes disagreed there) leaves IoU and correctness unscored (`correct_unscored`), not a miss.
     - Primary metrics use `human_verified` references; the AI tiers are reported beside them.
     - The agent stores a 5%-padded box. A recorded `detected_box` is preferred; otherwise the padding is inverted and counted as an estimate.
   - **`tasks/chat/scoring.py`:** chat answers against chat references.
     - **Retrieval:** V1's MVP2 `list_metrics` (P@K, R@K, MRR) through the `tasks/chat/v1.py` bridge, plus nDCG@K.
-    - **Exact answers:** counts, values, lists and windows.
+    - **Exact answers:** counts, values, lists and windows, read with the references' own normaliser. A value is the one the answer asserts (the severity level it states, a 1-5 scale aside, or the one corpus type it names). A list is the set it asserts: every expected item and no other item of the reference's `answer_space` vocabulary (negated mentions assert nothing), and an empty list needs an explicit none. An extra item the vocabulary does not know is left to the unsupported-claim judge.
     - **Refusals:** expected only for unanswerable and false-premise questions.
-    - **Citations:** precision and recall.
+    - **Citations:** precision and recall against the incidents the expected answer rests on (the reference's `support`: the question's incident, a count's counted incidents, a filter's list, a retrieval question's targets).
+    - **Holders:** judged, not matched: the fact judge checks that the answer identifies the holder the ground truth describes (`holder_identified`).
     - **Judged checks:** fact recall, unsupported claims and contradictions, each through the judge cache with a hash-pinned prompt (`judge-*-v1.txt`), so a re-score replays offline.
     - The judge must not share a model family with a subject or the reference generator (`check_judge_family`).
     - Oracle and system corpora, and reference tiers, are aggregated apart; `primary` is `human_verified`.
@@ -99,9 +100,9 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - The box prompts are `gen-box-select-v1` and `gen-box-validate-v1` in `evalv2/datasets/generation_prompts/`.
   - **`chat.py`:** chat references (R3). Making them is the approved run RA2.
     - Classes: 10 incident-scope and 5 library-scope.
-    - Every countable answer is computed by code from the ground truth's contract-shaped reports, and `recount` must agree.
+    - Every countable answer is computed by code from the ground truth's contract-shaped reports, and `recount` must agree. An instrument's holder is the holder's ground-truth description (a system corpus numbers people on its own, so a local id like `E1` names nobody), judged at scoring. A library instrument filter matches whole words (`bat` is not `baton`).
     - The generator only words the question and two paraphrases, or writes atomic facts for `incident.facts`.
-    - The blind validator gets the question and the incident, never the reference. A record is `ai_validated` only when it agrees and the code checks pass, including that the question does not state its answer.
+    - The blind validator gets the question and the incident (for a library question, every report of the oracle corpus, so it can recount or find the targets), never the reference. A retrieval question's generator also sees its target's report. A record is `ai_validated` only when it agrees and the code checks pass, including that the question does not state its answer.
     - `leakage` reports each question's overlap with the target's description.
     - The oracle corpus (the ground truth's reports) and a system corpus are kept apart.
     - Prompts: `gen-chat-wording-v1` and `gen-chat-rederive-v1`.
