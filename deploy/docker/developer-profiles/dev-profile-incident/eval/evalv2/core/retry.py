@@ -33,6 +33,7 @@ FAILURE_KINDS = (
     "transport_error",   # connection reset, DNS failure, refused
     "host_suspended",    # the attempt spanned a host suspend (wall clock ran ahead of the monotonic clock)
     "http_error",        # any other HTTP error status
+    "invalid_response",  # a 2xx whose body is not a completion (for example JSON null for an undecodable video)
     "invalid_output",    # the model answered, but the output failed validation (a model miss, never retried)
     "unsupported",       # the subject cannot do the task (reported as unsupported, never scored)
     "budget_exceeded",   # a cap would have been passed; the attempt was not sent

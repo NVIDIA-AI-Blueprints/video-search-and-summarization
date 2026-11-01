@@ -43,10 +43,17 @@ def test_core_imports_nothing_above_it_and_no_v1_module():
             assert name.split(".")[0] not in {"httpx", "requests", "boto3"}, (path.name, name)
 
 
-def test_adapters_never_import_tasks_or_the_cli():
+def test_adapters_never_import_tasks_the_cli_request_builders_or_v1_modules():
     for path in _modules("adapters"):
         for name in _imports(path):
-            assert not name.startswith(("evalv2.tasks", "evalv2.cli")), (path.name, name)
+            assert not name.startswith(("evalv2.tasks", "evalv2.cli", "evalv2.requests")), (path.name, name)
+            assert name.split(".")[0] not in V1_MODULES, (path.name, name)
+
+
+def test_request_builders_never_import_adapters_or_tasks():
+    for path in _modules("requests"):
+        for name in _imports(path):
+            assert not name.startswith(("evalv2.adapters", "evalv2.tasks", "evalv2.cli")), (path.name, name)
 
 
 def test_tasks_reach_adapters_only_through_the_base_protocol():
