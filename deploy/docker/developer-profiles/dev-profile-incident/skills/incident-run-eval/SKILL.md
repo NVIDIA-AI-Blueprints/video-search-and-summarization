@@ -125,6 +125,7 @@ uv run python -m evalv2 verify-v1 --record <results.json> [--record ...] [--repo
   - It runs only against the local experiment agent (`experiments/agent/start-experiment-agent.sh`, `EVALV2_VSS_AGENT_URL` on loopback). Never the shared VM agent.
   - Set caps for the `inference`, `grounding` and `zoom` ledgers, and `object_tracking` for the tracking profile. For the tracking profile the experiment agent's `INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS` must be at most 80 (its default): a reply reporting a higher cap stops the run.
   - The experimental path runs no caption pass until the R2 scratch prefix (X16) is approved.
+  - Crop evidence is scored through `tasks/pipeline/crops.py`, which needs box references (run **RA1**). Its `cap_summary` shows whether the profile caps bound; recalibrate them before the freeze.
   - Running it is the approved pilot **C1b**.
 - **SQL figures:** `uv run --no-project --script scripts/v2_sql_harness.py dashboard|summaries --snapshot S.json --params P.json` runs the production SQL on a frozen snapshot in a throwaway Postgres. Every parameter must be explicit, and dashboard period bounds are required.
 - **`verify-v1`** re-scores stored V1 records with V2's incident-and-object scoring, with no model, embedder or judge call, and exits 1 on any difference. Running it on the real Stage 3 records is the separately approved check **RA0**; do not run it without that approval.
