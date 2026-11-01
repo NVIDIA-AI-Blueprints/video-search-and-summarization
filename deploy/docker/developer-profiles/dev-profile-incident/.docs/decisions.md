@@ -49,6 +49,123 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
   See [methodology v2.0 §10](../eval/methodology/evaluation-methodology-v2.0.md#10-open-decisions).
 - **Links:** [methodology v2.0](../eval/methodology/evaluation-methodology-v2.0.md).
 
+### 2026-11-01 (proposed): Caption windows go through a scratch-store port; captions in experiments wait for a store decision (X16)
+- **Decision:**
+  - **Port:** the caption pass keeps its window clips behind `ScratchStorage` (`put_video`, `signed_url`, `delete_prefix`).
+  - **R2 store (`ScratchStore`):** now confined to a root, default `scratch/analyze`, which production uses unchanged. It refuses a key outside the root, and a delete of the root or of one level under it, so a pass can only touch `<root>/<video key>/<run id>/`.
+  - **Inline store (`InlineScratchStore`):** sends each window inline as a base64 data URL, stores nothing, and refuses a window over 8 MiB.
+  - **Not wired:** no request uses the inline store yet.
+- **Why:** experimental requests skip the caption pass: the remote model must fetch each window, and the experiment agent has no R2 settings (blocker X16). So Track B cannot measure the caption effect.
+- **Open (owner decision, X16):**
+  - **(a) R2 under an approved `scratch/eval` root:** needs a lifecycle rule and R2 credentials on the experiment agent, ideally limited to that prefix.
+  - **(b) Inline data URLs:** need no storage, but whether the endpoints accept a base64 video, and up to what size, is unverified; it needs one approved model call.
+  - **(c) Keep captions out of Track B.**
+  - **Either (a) or (b) then needs:** an experimental field to choose the store, a `max_caption_calls` cap counted per HTTP attempt, and a Track B profile that declares the caption stage.
+- **Rejected:** a local HTTP server for the windows (Switchyard cannot reach the laptop); writing to `scratch/analyze` from experiments (that prefix belongs to production).
+- **Links:** [`chunk_captions.py`](../../../../../services/agent/src/vss_agents/utils/chunk_captions.py), [caption pass](vm-api-contracts.md#caption-pass-chunked-captioning-incident_chunking_enabled).
+
+### 2026-11-01: Experimental requests can cap the zoom look, track objects and return the pre-zoom P1 report; captions wait for a scratch store
+- **Decision:** an experimental crops-on request may set:
+  - `max_zoom_calls`: a per-request cap on the zoomed second look's HTTP attempts, applied to a capped copy of the shared namer. Items beyond it keep a `zoom_gap`. The refusal is also counted in the run provenance;
+  - `experiment_object_tracking`: the object tracker under its own detector budget.
+- **Response:** every experimental response carries `experiment.p1_report`, the validated P1 report before zoom corrections. Every located evidence entry, production included, records the detector's unpadded `detected_box`.
+- **Why:** Evaluation V2's production track (Track B) measures the production pipeline in experiment agents.
+  - Each step needs its own cap, because zoom calls were uncapped (X17).
+  - Object tracking must be switchable there.
+  - The zoom effect must be measurable without extra calls: compare `p1_report` with the final report.
+  - Crop scoring needs the unpadded box. The stored box is padded by 5%, so scorers had to estimate.
+- **Rejected:** counting zoom calls in `max_crop_calls`, which would change the meaning of an existing cap that V1's end-to-end profile used; requiring a zoom cap on every experiment, which would break V1's configs; running the caption pass in experiments now. That pass sends window clips to the model by signed URL, an experiment agent holds no R2 settings by design, and a dedicated scratch prefix is a shared-storage change that needs the owner's approval (X16).
+- **Links:** [contract](vm-api-contracts.md#experimental-settings-prompt-experiments-pr-6b), [data](data.md), [`crop_evidence.py`](../../../../../services/agent/src/vss_agents/utils/crop_evidence.py)
+
+### 2026-11-01: Every analysis returns its run provenance, and the console keeps it in the run's notes
+- **Decision:** `/analyze` returns `provenance` (`incident-run-provenance-v1`) on every response and in the `422` detail. It holds:
+  - the agent's commit (`git rev-parse` once at startup, or `VSS_AGENT_GIT_SHA`) and whether the tree was dirty;
+  - the analysis flags: what this request ran (experiment, caption pass, person tracking, set-of-marks, object tracking, zoom, blur), over the agent's settings. An experiment never runs the caption pass, tracking or marks, so flags read from the environment alone would describe a run that never happened;
+  - for each stage used (caption, P1, RP1, grounding, zoom, object tracking, privacy head search, revision embedding): its model, its prompt hashes from `contracts/prompts/`, and every HTTP attempt, with failed and cap-refused attempts, tokens and time. An attempt that returns no usable answer (a P1 reply the contract rejects, a runaway, a zoom reply its strict check rejects, any status other than 2xx) is failed.
+  - The console writes it into `model_runs.notes.response.provenance` with the attempt, once.
+- **How calls are counted:** a per-request context variable (`run_provenance.collecting`). It reaches the evidence step's tasks and `asyncio.to_thread` workers, so the detector, zoom, caption, P1 and RP1 calls record themselves without threading a meter through the pipeline. The object tracker and the head search set their stage with `stage_scope`.
+- **Why:** Evaluation V2's production track needs to know, per run, exactly which models, prompts and flags produced a report, and what it cost. Before this:
+  - P1 and RP1 usage left production responses;
+  - caption telemetry was only logged;
+  - production grounding was not counted;
+  - zoom calls were never counted (X17);
+  - nothing named the agent's code.
+- **Rejected:**
+  - Explicit meters passed through `collect_evidence` and every detector copy: far more plumbing, and a copy missed is a silent gap.
+  - Reading the version from package metadata: the VM's editable install keeps the install-time version across `git pull`.
+  - Storing provenance only in the agent's logs: not tied to the run row, and not kept.
+- **Open:** requests that fail outright (`502`/`504`/`500`) still return no provenance. Gateway mode records its P1 usage in `response.usage` as before.
+- **Links:** [`run_provenance.py`](../../../../../services/agent/src/vss_agents/utils/run_provenance.py), [contract](vm-api-contracts.md), [notes](analysis-schema.md#immutable-notes-model_runsnotes)
+
+### 2026-11-01: Every model prompt besides P1 and RP1 lives in one registry, contracts/prompts/
+- **Decision:** the prompts below move byte for byte from code literals into `contracts/prompts/` (one file each, with a `registry.json` that pins each SHA-256 and names who uses it):
+  - the caption pass's system, window and time-range prompts;
+  - the caption context and set-of-marks preambles;
+  - the reviewer-instruction preamble;
+  - the grounding and head-search prompts;
+  - the zoomed second look's blind-look and merge prompts.
+- **Agent:** reads its prompts from the copy `sync.py` vendors, through `incident_contract.prompt()`, `render_prompt()` and `prompt_sha256()`. All three check the hash; placeholders are `{{name}}` and render in one pass.
+- **Console:** reads the reviewer preamble from the registry at runtime, so both analysis modes share one file. Its chart prompt stays built from the TypeScript allowlist, and `npm run export:prompts` exports it (and the allowlist) to `chart/`, with a drift test.
+- **Proof the move is exact:** the request goldens (`contracts/golden/`) pass unchanged.
+- **Why:** Evaluation V2 records each stage's prompt version. Prompts that were literals scattered across four agent modules and two console files had no version to record, and could change unseen.
+  - One registry gives each prompt a sha256 to record (run provenance, next).
+  - It gives a single place to read for a review.
+  - It makes one copy of the preamble shared by the console and the agent, which were two copies kept equal by hand.
+- **Rejected:**
+  - Extending the experiment registry (`contracts/experiments/`): that one is append-only P1 variants under test, not production prompts.
+  - Moving the chart prompt into a file the console reads: it is generated from the allowlist the parser enforces, so the TypeScript must stay its source.
+  - Keeping literals with only a hash check: two sources of truth.
+- **Links:** [`contracts/prompts/`](../contracts/prompts/README.md), [`contracts/golden/`](../contracts/golden/README.md), [`sync.py`](../contracts/sync.py)
+
+### 2026-11-01: Request goldens pin every model request, checked by each producer
+- **Decision:** `contracts/golden/` holds the exact request bodies the profile sends to models, one JSON file per kind with named cases:
+  - P1 (base, reviewer instruction, caption context, set-of-marks, both);
+  - RP1;
+  - the caption pass;
+  - grounding and the privacy head search;
+  - the zoomed second look;
+  - the dashboard chart request.
+- **How it is checked:**
+  - Every producer (console, eval, agent) has a test that builds its requests with its own code and compares them with the cases naming it, and asserts it covers all of them.
+  - P1 and RP1 are therefore equal across producers.
+  - The other prompts are pinned before Evaluation V2 records them as a run's provenance.
+- **Comparison and references:**
+  - Bodies compare as JSON values. The agent may add `"stream": false`; inline images compare as a placeholder.
+  - The P1 prompt and `response_format` are referenced by path and sha256 rather than copied.
+- **Why:** Evaluation V2 compares models through the production pipeline. Its results mean something only if the requests it measures are the ones production sends.
+  - Before this, only P1 had a parity check (eval against the console, and Stage 3's preflight against the agent).
+  - The caption, grounding, zoom and chart prompts were unversioned literals that could drift unnoticed.
+  - A golden makes every change to them a visible diff, and the planned move of those prompts into a registry must leave the goldens unchanged.
+- **Rejected:**
+  - Copying the full P1 prompt and schema into each case: 27 KB per case, and every contract bump would show the same diff several times.
+  - Snapshot tests per producer: they prove nothing about two producers agreeing.
+  - Comparing serialized bytes: Python and JavaScript serialize whitespace and `0.0` differently, while the server parses JSON.
+- **Links:** [`contracts/golden/`](../contracts/golden/README.md), [analysis request](analysis-schema.md#2-the-analysis-request-identical-to-eval-p1)
+
+### 2026-11-01: Template chat answers from the report version in prose, and the default chat search client searches nothing
+- **Decision:**
+  - **Composed answers:** in the chat route's template mode (no model), a question about a version that is not official, or about a draft, is answered by `utils/report_answers.py` from that version's report:
+    - the timeline in time order for a what-happened question;
+    - otherwise the people, the objects with their holders, what was taken (the timeline's takings, or that the report doesn't say), what could cause harm (the instruments with their threat levels), the incident window or an item's time, the severity or the type. A compound question gets each part answered;
+    - otherwise the matching timeline events;
+    - otherwise "This report doesn't mention ...", with no citations.
+  - **Names and ids:** items are named by their labels or descriptions. The ids the P1 timeline uses as references ("E1 strikes E2 with I1") are resolved to those descriptions and kept only in the structured citations. An id is written in the prose only when the question asks for ids. The console's citation chips under an answer show the item's name ("Person in light shirt"), never its id.
+  - **Default search client:** the route's default (`DisabledSearchClient`) searches nothing. A question about the official version (decision 2026-10-24, unchanged) and a library question get an answer saying that this chat mode does not search that scope.
+- **Why:** on 2026-11-01 the localhost console (vm mode, the VM agent on `main`) answered "What happened, in order?" with "5 relevant item(s) were identified: human (E1) in vc8328cb9cdcdfa99fa8 (incident at 134s); ...". The template ranked evidence items by keyword: a question with no item words got the first five items. It never read the timeline or the description, and its formatter wrote the ids into the prose. The default in-memory client also served its demo incidents (`Assault007`, `Burglary005`) as if they were real for every library question.
+- **Rejected:**
+  - removing the ids from the old sentence: it would still list items for every question;
+  - answering the official version from its saved report as well: that supersedes the 2026-10-24 decision (Gate M2);
+  - wiring the real search store or a model into this mode: that is grounded chat (P5 and P6), behind the same gate.
+- **Links:** [`report_answers.py`](../../../../../services/agent/src/vss_agents/utils/report_answers.py), [`incident_chat.py`](../../../../../services/agent/src/vss_agents/api/incident_chat.py), [`vm-api-contracts.md`](vm-api-contracts.md#post-apiv1incidentschat), [2026-10-24 decision](#2026-10-24-chat-about-the-official-version-uses-the-in-memory-chat-search-client-for-mvp2).
+
+### 2026-11-01: The dashboard breaks ties in byte order (COLLATE "C"), whatever the database collation
+- **Decision:** every text tie-break in `get_incident_dashboard` (types, entity, instrument and asset labels, model names) says `COLLATE "C"`. The function is otherwise unchanged (migration `20261101120000_dashboard_byte_order_ties.sql`).
+- **Why:** ties followed the database's default collation. en_US ignores spaces, hyphens and case at the first level and C does not, so two databases with the same rows could rank ties differently ("car-door" and "carbon"; "Unknown model" and "nvidia/..."). The order also decided which tied labels made a top-3 or top-8 cut. Evaluation V2 checks dashboard figures three ways (the SQL in a C.UTF-8 harness, a Python recount in byte order, and the console's chart code), and those checks only hold for finals if finals breaks ties the same way.
+- **Rejected:**
+  - making the recount follow en_US: glibc and ICU versions differ, and finals' collation was not checked;
+  - leaving ties to the database: it is not deterministic across databases.
+- **Links:** [migration](../supabase/migrations/20261101120000_dashboard_byte_order_ties.sql), [`data.md`](data.md#get_incident_dashboard).
+
 ### 2026-11-01: Privacy blur detects every head in each frame and clip second, whatever tracking says
 - **Decision:** with `blur_faces` on, the agent searches every stored evidence frame for heads with one whole-frame call to the existing open-vocabulary detector (`DefaultDetector.detect_all`, query `every human head or face`, a list-returning prompt, up to 32 boxes) and blurs those heads before encoding, for person and non-person items alike; the heads of every person track and of each located person box stay as additional regions (a union). The search also runs at sampled seconds (every 0.5 s) of each item's 4 s clip window, and the boxes are stored per item as `<itemId>-heads.json` (entry field `heads`); the console builds the clip's `boxblur` regions per second from them, merged with the existing track and recorded-head regions. The search has its own per-request call cap (`INCIDENT_BLUR_DETECTOR_CALL_CAP`, default 200), separate from `max_crop_calls` and `CropCallBudget`, because a privacy guarantee must not shrink with an experiment's crop budget. A search that fails or is refused falls back to the known people's heads and is counted (`privacy.fallbacks`); with no known person the item stores no image (fail closed, as in PR 401). An item without a heads file (an older version) keeps the PR 407 behaviour; nothing known still gives 422. The best-moment re-cut of an object track no longer waits for a person track, since blur no longer depends on one.
 - **Why:** the live test of PR 407 still showed faces: the blur covered only people linked to a track or located by the model, so a wrong box (IMG_4569 E1 on a wall), a face in a frame whose item is not a person (A2 control panel) and a bystander or kneeling man no entity matched (IMG_9170) stayed visible. Searching each frame for heads removes the dependence on track linking and on the model's boxes. The cost is more detector calls when blur is on (one per distinct second of a stored frame or clip sample); the cap and the fallback bound it.

@@ -67,6 +67,7 @@ import threading
 import time
 from typing import Any
 from typing import Protocol
+from typing import TypeVar
 from typing import runtime_checkable
 
 try:
@@ -78,7 +79,9 @@ import numpy as np
 from PIL import Image
 from PIL import ImageDraw
 
+from vss_agents import incident_contract
 from vss_agents.utils import privacy_blur
+from vss_agents.utils import run_provenance
 from vss_agents.utils import track_evidence
 from vss_agents.utils.optional_cv2 import ensure_codecs
 from vss_agents.utils.r2 import get_r2_client
@@ -218,22 +221,8 @@ class ZoomNamer(Protocol):
 
 def look_prompt(item_type: str, with_close_up: bool) -> str:
     """A blind look: name the marked item from the image(s) alone, with no report text to lean on."""
-    images = (
-        "The first image is a video frame with one {thing} marked by a red box; the second is a close-up of that box."
-        if with_close_up
-        else "The image is a video frame with one {thing} marked by a red box."
-    )
-    if item_type == "entity":
-        return (
-            f"{images.format(thing='person')} Describe the marked person from what is visible: clothing, build, "
-            'what they carry or hold. Return JSON only, in the form {"name": "person", "description": "<one sentence>", '
-            '"confidence": <0 to 1: how sure you are>}.'
-        )
-    return (
-        f"{images.format(thing='object')} What is the object inside the red box? Ignore things that are only partly "
-        'inside it. Return JSON only, in the form {"name": "<one to four plain words>", "description": "<one '
-        'sentence>", "confidence": <0 to 1: how sure you are>}.'
-    )
+    kind = "entity" if item_type == "entity" else "object"
+    return incident_contract.prompt(f"zoom/look-{kind}-{'close-up' if with_close_up else 'frame'}")
 
 
 _LOOK_STOP_WORDS = frozenset({"a", "an", "the", "some", "small", "large", "big", "little"})
@@ -260,24 +249,10 @@ def merge_prompt(item_type: str, name: str, description: str, look: ZoomLook) ->
     25-pixel smudge confirms "soccer ball"; here the model only reconciles what the looks found with what the
     report says, and it is only asked when the two looks agree (:func:`looks_agree`).
     """
-    found = f'A close look at the video frame found: "{look.name}" ({look.description}).'
+    fields = {"name": name, "description": description, "look_name": look.name, "look_description": look.description}
     if item_type == "entity":
-        rule = (
-            'The entity type is fixed: return it unchanged as "name". Keep the report\'s description unless the close '
-            "look shows it is wrong about the person's appearance (clothing, build, what they carry); then correct "
-            "only the wrong parts and keep what the report says about their behaviour and context."
-        )
-    else:
-        rule = (
-            "Keep the report's name and description unless the close look shows the report is wrong about what the "
-            "object is; then correct the name (one to four plain words) and only the wrong parts of the description, "
-            "keeping what the report says about context."
-        )
-    return (
-        f'An incident report lists an {item_type} named "{name}" with the description: "{description}". {found} '
-        f'{rule} Return JSON only, in the form {{"name": "<name>", "description": "<description>", "changed": <true '
-        'when either differs from the report>, "confidence": <0 to 1: how sure you are the result is right>}.'
-    )
+        return incident_contract.render_prompt("zoom/merge-entity", **fields)
+    return incident_contract.render_prompt("zoom/merge-object", item_type=item_type, **fields)
 
 
 def zoom_crop(frame: np.ndarray, box: Sequence[int | float]) -> bytes | None:
@@ -490,7 +465,14 @@ EVIDENCE_CROP_CONCURRENCY = 4
 # The item types the object tracker follows (people keep the DeepStream person tracks).
 OBJECT_TRACKING_TYPES = frozenset({"instrument", "asset"})
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_Checked = TypeVar("_Checked")
 _JSON_FENCE_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$")
+
+
+def _failed_status(resp: Any) -> bool:
+    """Whether a reply's status is not 2xx (``raise_for_status`` raises on 1xx and 3xx too)."""
+    status = getattr(resp, "status_code", None)
+    return isinstance(status, int) and not 200 <= status < 300
 
 
 class CropCallCapReachedError(RuntimeError):
@@ -523,13 +505,7 @@ class CropCallBudget:
 
     def record_response(self, resp: httpx.Response) -> None:
         """Count the tokens a sent attempt reported; a reply without usage (other than a 429) is counted as such."""
-        try:
-            usage = resp.json().get("usage") or {}
-        except (ValueError, AttributeError):
-            usage = {}
-        total = int(
-            usage.get("total_tokens") or (usage.get("prompt_tokens") or 0) + (usage.get("completion_tokens") or 0)
-        )
+        _, _, total = run_provenance.token_counts(run_provenance.usage_of(resp))  # never raises on a strange usage
         with self._lock:
             if total:
                 self.tokens += total
@@ -581,6 +557,13 @@ def parse_json_object(text: str) -> dict[str, Any]:
     return parsed
 
 
+def with_zoom_budget(namer: Any, budget: CropCallBudget) -> Any:
+    """``namer`` with its zoom calls capped by ``budget``; a namer other than ``DefaultDetector`` is returned as is."""
+    if isinstance(namer, DefaultDetector):
+        return namer.with_zoom_budget(budget)
+    return namer
+
+
 def unbudgeted(detector: Any) -> Any:
     """``detector`` without a ``CropCallBudget``: the privacy blur's head search has a budget of its own."""
     if isinstance(detector, BudgetedDetector):
@@ -609,6 +592,7 @@ class DefaultDetector:
         api_key: str | None = None,
         timeout_seconds: float = 120.0,
         call_budget: CropCallBudget | None = None,
+        zoom_budget: CropCallBudget | None = None,
     ) -> None:
         self.model_name = model_name or os.getenv("VLM_NAME") or DEFAULT_GROUNDING_MODEL
         self.min_score = min_score
@@ -620,6 +604,13 @@ class DefaultDetector:
         )
         self.timeout_seconds = timeout_seconds
         self.call_budget = call_budget
+        self.zoom_budget = zoom_budget
+
+    def with_zoom_budget(self, budget: CropCallBudget) -> "DefaultDetector":
+        """A copy for one request whose zoomed-second-look attempts draw on ``budget``."""
+        capped = copy.copy(self)
+        capped.zoom_budget = budget
+        return capped
 
     def with_call_budget(self, budget: CropCallBudget) -> "DefaultDetector":
         """A copy for one request whose HTTP attempts draw on ``budget`` (the shared detector is unchanged)."""
@@ -635,34 +626,68 @@ class DefaultDetector:
         root = self.base_url[: -len("/v1")] if self.base_url.endswith("/v1") else self.base_url
         return f"{root}/v1/chat/completions"
 
+    def _count(self, stage: str | None, started: float, resp: Any, *, ok: bool) -> None:
+        """Count one sent HTTP attempt in the analysis's run provenance (a no-op outside an analysis)."""
+        usage = run_provenance.usage_of(resp) if resp is not None else None
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        run_provenance.record_call(stage, ok=ok, usage=usage, elapsed_ms=elapsed_ms, model=self.model_name)
+
     def _request_box(self, body: dict[str, Any]) -> dict[str, Any]:
-        """POST the grounding request, retrying rate limits, server errors and unparseable replies."""
+        """POST the grounding request, retrying rate limits, server errors and unparseable replies.
+
+        Every attempt is counted in the run provenance under the current detector stage (grounding, object
+        tracking or the privacy head search), refused, failed and retried ones included.
+        """
         for attempt in range(1, GROUNDING_MAX_ATTEMPTS + 1):
             if self.call_budget is not None:
-                self.call_budget.acquire()  # before sending: a refused attempt is never made
-            resp = httpx.post(
-                self._chat_url(),
-                json=body,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=self.timeout_seconds,
-            )
+                try:
+                    self.call_budget.acquire()  # before sending: a refused attempt is never made
+                except CropCallCapReachedError:
+                    run_provenance.record_refused()
+                    raise
+            started = time.perf_counter()
+            try:
+                resp = httpx.post(
+                    self._chat_url(),
+                    json=body,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=self.timeout_seconds,
+                )
+            except Exception:
+                self._count(None, started, None, ok=False)
+                raise
             if self.call_budget is not None:
                 self.call_budget.record_response(resp)
             last_attempt = attempt == GROUNDING_MAX_ATTEMPTS
             if resp.status_code in _RETRYABLE_STATUS_CODES and not last_attempt:
+                self._count(None, started, resp, ok=False)
                 time.sleep(float(resp.headers.get("retry-after") or 2.0 * attempt))
                 continue
+            if _failed_status(resp):
+                self._count(None, started, resp, ok=False)
             resp.raise_for_status()
             try:
-                return parse_json_object(resp.json()["choices"][0]["message"]["content"])
+                parsed = parse_json_object(resp.json()["choices"][0]["message"]["content"])
             except ValueError:
+                self._count(None, started, resp, ok=False)
                 if last_attempt:
                     raise
                 logger.warning("Unparseable grounding reply (attempt %d); retrying", attempt)
+                continue
+            except Exception:
+                self._count(None, started, resp, ok=False)
+                raise
+            self._count(None, started, resp, ok=True)
+            return parsed
         raise RuntimeError("unreachable")  # pragma: no cover
 
-    def _chat_json(self, images: Sequence[bytes], text: str, max_tokens: int = 256) -> dict[str, Any]:
-        """One unbudgeted chat completion (images first, then ``text``) parsed as a JSON object.
+    def _chat_json(
+        self, images: Sequence[bytes], text: str, check: Callable[[dict[str, Any]], _Checked], max_tokens: int = 256
+    ) -> _Checked:
+        """One chat completion (images first, then ``text``) parsed as a JSON object and passed through ``check``
+        (the strict reply parser). The attempt counts as failed in the run provenance unless ``check`` accepts the
+        reply. Outside any grounding ``CropCallBudget``; an experiment's ``zoom_budget``, when set, is checked
+        before each attempt.
 
         A rate limit or server error is retried once after ``retry-after`` (default 2 s); the gateway answers 429
         when a report's items are checked concurrently.
@@ -691,17 +716,39 @@ class DefaultDetector:
             "response_format": {"type": "json_object"},
         }
         for attempt in (1, 2):
-            resp = httpx.post(
-                self._chat_url(),
-                json=body,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=ZOOM_TIMEOUT_SECONDS,
-            )
+            if self.zoom_budget is not None:
+                try:
+                    self.zoom_budget.acquire()  # before sending: a refused attempt is never made
+                except CropCallCapReachedError:
+                    run_provenance.record_refused("zoom")
+                    raise
+            started = time.perf_counter()
+            try:
+                resp = httpx.post(
+                    self._chat_url(),
+                    json=body,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=ZOOM_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                self._count("zoom", started, None, ok=False)
+                raise
+            if self.zoom_budget is not None:
+                self.zoom_budget.record_response(resp)
             if resp.status_code in _RETRYABLE_STATUS_CODES and attempt == 1:
+                self._count("zoom", started, resp, ok=False)
                 time.sleep(float(resp.headers.get("retry-after") or 2.0))
                 continue
+            if _failed_status(resp):
+                self._count("zoom", started, resp, ok=False)
             resp.raise_for_status()
-            return parse_json_object(resp.json()["choices"][0]["message"]["content"])
+            try:
+                checked = check(parse_json_object(resp.json()["choices"][0]["message"]["content"]))
+            except Exception:
+                self._count("zoom", started, resp, ok=False)
+                raise
+            self._count("zoom", started, resp, ok=True)
+            return checked
         raise RuntimeError("unreachable")  # pragma: no cover
 
     def zoom_name(
@@ -718,12 +765,12 @@ class DefaultDetector:
         or status errors and ``ValueError`` on a reply that is not the strict JSON asked for.
         """
         if context_jpeg is not None:
-            frame_look = parse_look_reply(self._chat_json([context_jpeg], look_prompt(item_type, with_close_up=False)))
-            close_up_look = parse_look_reply(
-                self._chat_json([context_jpeg, jpeg], look_prompt(item_type, with_close_up=True))
+            frame_look = self._chat_json([context_jpeg], look_prompt(item_type, with_close_up=False), parse_look_reply)
+            close_up_look = self._chat_json(
+                [context_jpeg, jpeg], look_prompt(item_type, with_close_up=True), parse_look_reply
             )
         else:
-            frame_look = close_up_look = parse_look_reply(self._chat_json([jpeg], look_prompt(item_type, False)))
+            frame_look = close_up_look = self._chat_json([jpeg], look_prompt(item_type, False), parse_look_reply)
         seen = {
             "frame": frame_look.description if item_type == "entity" else frame_look.name,
             "close_up": close_up_look.description if item_type == "entity" else close_up_look.name,
@@ -732,7 +779,7 @@ class DefaultDetector:
         if not looks_agree(frame_look, close_up_look):  # no merge call: the report stands, both looks are recorded
             return ZoomVerdict(name=name, description=description, confidence=look_confidence, changed=False, seen=seen)
         # The close-up look carries the detail; the frame look confirmed it names the same thing.
-        merged = parse_zoom_reply(self._chat_json([], merge_prompt(item_type, name, description, close_up_look)))
+        merged = self._chat_json([], merge_prompt(item_type, name, description, close_up_look), parse_zoom_reply)
         return ZoomVerdict(
             name=merged.name,
             description=merged.description,
@@ -754,11 +801,7 @@ class DefaultDetector:
         if not jpeg:
             return []
 
-        prompt = (
-            f'Locate the single best match for "{query}" in this image. Return JSON only, in the form '
-            '{"bbox_2d": [xmin, ymin, xmax, ymax], "label": "<what the box contains>"} with integer coordinates '
-            'normalised to 0-1000 (0,0 is the top-left corner). If it is not visible, return {"bbox_2d": null}.'
-        )
+        prompt = incident_contract.render_prompt("grounding/best-match", query=query)
         body = {
             "model": self.model_name,
             "messages": [
@@ -801,12 +844,7 @@ class DefaultDetector:
         jpeg = encode_jpeg(np.ascontiguousarray(frame), quality=85)
         if not jpeg:
             return []
-        prompt = (
-            f'Locate every instance of "{query}" in this image, including small, distant, partly hidden, turned-away, '
-            "lying or covered ones, and any shown on a screen or in a picture. Return JSON only, in the form "
-            '{"detections": [{"bbox_2d": [xmin, ymin, xmax, ymax], "label": "<what the box contains>"}]} with integer '
-            'coordinates normalised to 0-1000 (0,0 is the top-left corner). If there is none, return {"detections": []}.'
-        )
+        prompt = incident_contract.render_prompt("grounding/every-match", query=query)
         body = {
             "model": self.model_name,
             "messages": [
@@ -1335,6 +1373,7 @@ class CropEvidenceService:
         privacy: privacy_blur.PrivacySummary | None = None,
         object_tracking: track_evidence.ObjectTrackingRequest | None = None,
         video_seconds: float | None = None,
+        namer: Any | None = None,
     ) -> list[dict[str, Any]]:
         """Locate every entity, instrument and asset of a report and upload its frame and crop.
 
@@ -1372,7 +1411,8 @@ class CropEvidenceService:
         """
         active_detector = detector if detector is not None else self.detector
         zoom_on = zoom_names_enabled() if zoom_names is None else zoom_names
-        namer = self.namer if zoom_on else None
+        # ``namer`` overrides the shared one for this call (an experiment's zoom-capped copy).
+        namer = (namer if namer is not None else self.namer) if zoom_on else None
         active_store = store if store is not None else self.store
         folder = video_key or video_id
         batch = batch_id or (await active_store.next_batch_id(folder) if active_store is not None else "run-1")
@@ -1463,6 +1503,9 @@ class CropEvidenceService:
             if crop.located and crop.image_bytes is not None:
                 entry["image"] = key
                 entry["bounding_box"] = crop.normalized_box
+                detected = getattr(crop, "detected_box", None)  # a custom cropper may not report it
+                if detected is not None:  # the detector's own box, before the 5% crop padding
+                    entry["detected_box"] = list(detected)
                 if track is not None:
                     entry["track"] = track_key
                     entry["track_first_seen_seconds"] = track.first_seen
@@ -1531,6 +1574,9 @@ class CropEvidenceService:
                     description=entry["description"],
                     context_jpeg=crop.zoom_frame_bytes,
                 )
+            except CropCallCapReachedError as exc:
+                entry["zoom_gap"] = f"zoom-call cap reached: {exc}"
+                return
             except Exception as exc:
                 logger.warning("Zoomed second look failed for %s %s: %s", video_id, entry["item_id"], exc)
                 entry["zoom_gap"] = f"second look failed: {type(exc).__name__}: {exc}"
@@ -1582,6 +1628,7 @@ class CropEvidenceService:
             # The cap is taken before any await, so calls are granted in the order the scans were asked for: the
             # stored frames first, then the clip samples.
             if not privacy.take_call():
+                run_provenance.record_refused("privacy_heads")  # the blur's cap refused it before sending
                 privacy.fallbacks += 1
                 return HeadScan(failed=True)
             try:
@@ -1591,7 +1638,8 @@ class CropEvidenceService:
                         privacy.refund_call()  # nothing was sent
                         privacy.fallbacks += 1
                         return HeadScan(failed=True)
-                    detections = await asyncio.to_thread(detect_heads, head_detector, frame)
+                    with run_provenance.stage_scope("privacy_heads"):
+                        detections = await asyncio.to_thread(detect_heads, head_detector, frame)
             except Exception as exc:
                 logger.warning("Head detection failed for %s at %ss: %s", video_id, seconds, type(exc).__name__)
                 privacy.fallbacks += 1
@@ -1698,12 +1746,13 @@ class CropEvidenceService:
                 summary.skipped = "no instrument or asset was located"
                 return {}
             try:
-                outcome = await object_tracking.runner(
-                    video_ref,
-                    seeds,
-                    detector=with_call_budget(active_detector, object_tracking.budget),
-                    **object_tracking.options,
-                )
+                with run_provenance.stage_scope("object_tracking"):
+                    outcome = await object_tracking.runner(
+                        video_ref,
+                        seeds,
+                        detector=with_call_budget(active_detector, object_tracking.budget),
+                        **object_tracking.options,
+                    )
             except Exception as exc:  # run_object_tracking never raises; a custom runner might
                 logger.warning("Object tracking failed for %s: %s", video_id, type(exc).__name__)
                 outcome = track_evidence.ObjectTrackingOutcome(skipped=f"object tracking failed: {type(exc).__name__}")
