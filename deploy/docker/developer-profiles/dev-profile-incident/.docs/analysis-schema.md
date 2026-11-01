@@ -116,6 +116,7 @@ Field notes:
 - `report`: the final validated contract report plus derived duration. Valid outcomes only.
 - `reportId` and `generatedAt`: valid outcomes only.
 - `request.videoDurationSeconds` and `request.blurFaces` and `response.httpStatus`, `response.errorBody` (a failed agent call), `response.tracking`, `response.privacy` and `response.object_tracking` are agent mode only, copied as returned.
+- `response.provenance` (agent mode, valid and `contract_failed` attempts) is the agent's run provenance as returned: the agent's commit, the flags, and for each stage the model, prompt hashes, calls (failed and refused counted) and tokens ([vm-api-contracts.md](vm-api-contracts.md)). It is written once with the attempt, like everything else here.
 - `response`: holds only the fields the gateway actually returned. The caption pass's captions are never stored ([vm-api-contracts.md](vm-api-contracts.md#caption-pass-chunked-captioning-incident_chunking_enabled)); runs recorded before 1 Nov 2026 may still carry `chunkTimeline`, `chunking`, `chunkAlerts` or `alerting`, which nothing reads.
 
 Records written before attempt statuses existed lack `status`; they are shown as `valid_first_pass` (inferred). Pre-contract console records are "earlier analyses", never failures.

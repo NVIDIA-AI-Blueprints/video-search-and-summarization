@@ -237,6 +237,8 @@ def create_incident_analyze_router(config: Any, builder: WorkflowBuilder) -> API
                 "p1_attempts": getattr(exc, "attempts", []),
                 "contract_version": contract_version(),
             }
+            if getattr(exc, "provenance", None) is not None:
+                detail["provenance"] = exc.provenance  # type: ignore[attr-defined]
             if getattr(exc, "experiment", None) is not None:
                 telemetry = getattr(exc, "telemetry", None) or {}
                 detail.update(

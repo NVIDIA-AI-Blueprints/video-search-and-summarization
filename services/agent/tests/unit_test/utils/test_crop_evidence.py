@@ -1198,10 +1198,10 @@ class TestZoomSecondLook:
             patch("vss_agents.utils.crop_evidence.httpx.post", side_effect=[limited, ok, limited, limited]) as post,
             patch("vss_agents.utils.crop_evidence.time.sleep") as sleep,
         ):
-            assert detector._chat_json([b"jpeg"], "look")["name"] == "bag"
+            assert detector._chat_json([b"jpeg"], "look", dict)["name"] == "bag"
             limited.raise_for_status.side_effect = RuntimeError("429")
             with pytest.raises(RuntimeError):
-                detector._chat_json([b"jpeg"], "look")  # a second 429 is not retried again
+                detector._chat_json([b"jpeg"], "look", dict)  # a second 429 is not retried again
         assert post.call_count == 4 and sleep.call_count == 2
 
     def test_disagreeing_looks_skip_the_merge_call_and_keep_the_report(self) -> None:
