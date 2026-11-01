@@ -20,13 +20,18 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
 
 ### 2026-11-01 (proposed, awaiting the team: Gate M2): Library questions are answered by a planned search with exact counts
 - **Status:** part of the grounded chat (below); off until M2, and only in `INCIDENT_CHAT_MODE=grounded`.
-- **Decision:** a chat question with no incident is answered in three steps:
-  1. The model turns the question into a checked plan: type, severity band, instrument, asset, search phrase and count flag.
-  2. Code filters every incident's searchable version (official, else newest) exactly and ranks the matches.
-  3. The model answers from the best eight with incident and item citations, using `total_matching`, which code counted.
-  - **Prose (2026-11-01):** the answer names incidents by type and title and items by name, never by id unless asked. An id still written is replaced and listed in `grounding.ids_resolved`, as in the incident answer.
-- **Why:** counts must be exact (a model counting reports it was shown gets them wrong past a few), and retrieval must cover the whole library.
+- **Decision:** a chat question with no incident is answered in steps:
+  1. The model turns the question into a checked plan: type, severity band, instrument, asset, a breakdown (by type or severity), a count flag, and a search phrase holding only what the filters leave.
+  2. Code filters every incident's searchable version (official, else newest) exactly and ranks the matches. An instrument or asset filter matches whole words (or a compound's head: "gun" in "handgun") in the name, label or description of any instrument or asset of the report.
+  3. **Counts and breakdowns are composed by code**, never by the model. When the filters do not capture the whole question (a condition left in the search phrase, or a type, severity or breakdown the library does not use), the count is refused with the reason, never estimated.
+  4. Any other question is answered by the model from the best eight, with incident and item citations; its context carries the code counts and whether they are exact.
+  - **Prose:** the answer names incidents by type and title and items by name, never by id unless asked. An id still written is replaced and listed in `grounding.ids_resolved`; an item id that names different items in two incidents reads neutrally ("an object") rather than as the wrong one.
+- **Why:**
+  - Counts must be exact. A model counting the reports it was shown gets them wrong past a few, and a filter that silently drops a condition ("at night") widens the count while it still looks exact.
+  - Retrieval must cover the whole library.
 - **Rejected:**
+  - Model-written counts from a code total: the model still states the total for a question the filters only partly capture.
+  - Substring matching of objects: "bat" matched "bathroom".
   - Semantic revision search alone: there is no summary embedding for human revisions, and it has no type or severity filter (X25). A migration for that waits for approval.
   - One model call over every report: it does not scale past a few dozen reports and cannot count exactly.
 - **Links:** [contract](vm-api-contracts.md#post-apiv1incidentschat), [`grounded_chat.py`](../../../../../services/agent/src/vss_agents/utils/grounded_chat.py)

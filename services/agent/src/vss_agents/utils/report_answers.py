@@ -313,6 +313,16 @@ def _words(text: str) -> set[str]:
     return {variant for word in _tokens(text) for variant in _variants(word)}
 
 
+_ARTICLES = frozenset({"a", "an", "the", "some", "any"})
+
+
+def term_sets(text: Any) -> list[frozenset[str]]:
+    """Each word of ``text`` but its articles, with its likely singulars, for whole-word matching: ``"glass bottles"``
+    gives ``[{"glass"}, {"bottles", "bottle", "bottl"}]``. Unlike the composer's own word sets it keeps short and
+    common words, since a filter or search phrase may hinge on one ("TV", "two")."""
+    return [frozenset(_variants(word)) for word in _WORD.findall(str(text or "").lower()) if word not in _ARTICLES]
+
+
 def _lower_first(text: str) -> str:
     first = text.split(" ", 1)[0]
     return text if len(first) > 1 and first.isupper() else text[:1].lower() + text[1:]

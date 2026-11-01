@@ -477,6 +477,37 @@ async def test_list_revisions_orders_by_revision_no():
     mock_client.table().select().order.assert_called_with("revision_no")
 
 
+@pytest.mark.asyncio
+async def test_get_revisions_reads_many_ids_in_one_request_and_none_without_a_request():
+    mock_client = _make_mock_client()
+    select = mock_client.table().select()
+    select.in_ = MagicMock(return_value=select)
+    select.execute = AsyncMock(return_value=MagicMock(data=[{"id": 1}, {"id": 2}]))
+    db = IncidentDB(mock_client)
+    assert await db.get_revisions([1, 2]) == [{"id": 1}, {"id": 2}]
+    select.in_.assert_called_once_with("id", [1, 2])
+    assert await db.get_revisions([]) == [] and select.execute.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_newest_revision_ids_picks_the_highest_revision_no_per_video():
+    mock_client = _make_mock_client()
+    select = mock_client.table().select()
+    select.in_ = MagicMock(return_value=select)
+    rows = [
+        {"id": 7, "video_id": "v1", "revision_no": 1},
+        {"id": 9, "video_id": "v1", "revision_no": 3},
+        {"id": 8, "video_id": "v1", "revision_no": 2},
+        {"id": 4, "video_id": "v2", "revision_no": 1},
+    ]
+    select.execute = AsyncMock(return_value=MagicMock(data=rows))
+    db = IncidentDB(mock_client)
+    assert await db.newest_revision_ids(["v1", "v2", "v3"]) == {"v1": 9, "v2": 4}
+    mock_client.table().select.assert_called_with("id,video_id,revision_no")
+    select.in_.assert_called_once_with("video_id", ["v1", "v2", "v3"])
+    assert await db.newest_revision_ids([]) == {} and select.execute.await_count == 1
+
+
 @pytest.mark.parametrize(
     ("payload", "expected"),
     [

@@ -211,24 +211,24 @@
     {
       "id": "chat/library-plan",
       "file": "chat/library-plan.txt",
-      "sha256": "de6f48c06eab7c41c517397a80a9b0db441c4fbf93620f55e3c56e92135cb480",
+      "sha256": "7e01602192c74ad982bc56ba2c2d8991d7d6afe6171d8d026ca2f56b256dcb76",
       "stage": "chat",
       "placeholders": [],
       "used_by": [
         "agent"
       ],
-      "purpose": "The library chat's planner: turn a question into filters (type, severity, instrument, asset), a search phrase and a count flag."
+      "purpose": "The library chat's planner: turn a question into filters (type, severity, instrument, asset), the part of the question the filters leave (a search phrase), a count flag and a breakdown (by type or severity)."
     },
     {
       "id": "chat/library-answer",
       "file": "chat/library-answer.txt",
-      "sha256": "2ee9d5bb4fbc4da538021d10c20fe676615e7ba578309219be951f726406856a",
+      "sha256": "2a7f1f0eaf63fe4da4faa8e64127c38c1658fab79c7132f138996074b68675a7",
       "stage": "chat",
       "placeholders": [],
       "used_by": [
         "agent"
       ],
-      "purpose": "The library chat's answer: answer from the matching reports and the code-counted total, cite incident and item ids."
+      "purpose": "The library chat's answer to a question that is not a count: answer from the matching reports and the code counts, cite incident and item ids."
     }
   ]
 }

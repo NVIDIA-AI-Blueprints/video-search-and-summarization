@@ -322,6 +322,29 @@ class IncidentDB:
         )
         return result.data or []  # type: ignore[return-value]
 
+    async def get_revisions(self, revision_ids: list[int]) -> list[dict[str, Any]]:
+        """The revisions with these ids, in one request (none asked: no request)."""
+        if not revision_ids:
+            return []
+        result = await self.client.table("report_revisions").select("*").in_("id", revision_ids).execute()
+        return result.data or []  # type: ignore[return-value]
+
+    async def newest_revision_ids(self, video_ids: list[str]) -> dict[str, int]:
+        """Each video's newest revision id (highest ``revision_no``), in one request; a video with none is absent."""
+        if not video_ids:
+            return {}
+        result = await (
+            self.client.table("report_revisions").select("id,video_id,revision_no").in_("video_id", video_ids).execute()
+        )
+        newest: dict[str, tuple[int, int]] = {}
+        for row in result.data or []:
+            if not isinstance(row, dict):
+                continue
+            key, rank = str(row["video_id"]), int(row.get("revision_no") or 0)
+            if key not in newest or rank > newest[key][0]:
+                newest[key] = (rank, int(row["id"]))
+        return {key: revision_id for key, (_, revision_id) in newest.items()}
+
     async def search_revisions(
         self,
         query_embedding: list[float],
