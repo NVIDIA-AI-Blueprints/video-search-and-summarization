@@ -12,4 +12,7 @@ These prompts are never sent to a subject. Every reference record names the prom
 - **Adding:** use `evalv2.datasets.generation_prompts.add`. It refuses an existing id and any edit. A changed prompt is a new id, optionally naming its `parent`.
 - **Reading:** `prompt_text(id)` returns a prompt only when its file still matches the pinned hash.
 
-The registry is empty until the reference tooling (A7 boxes, A9 chat) adds its prompts. Running them to generate references is a separately approved run.
+Registered so far:
+- `gen-box-select-v1` and `gen-box-validate-v1`, the box-reference first pass and blind second pass (`evalv2.references.boxes`).
+
+Chat prompts arrive with the chat-reference tooling. Running any of them to generate references is a separately approved run.
