@@ -105,3 +105,73 @@ class ModelAdapter(Protocol):
     capabilities: Capabilities
 
     def complete(self, request: Mapping[str, Any], ctx: CallContext) -> CallResult: ...
+
+
+@dataclass(frozen=True)
+class PipelineResult:
+    """One whole-pipeline run (Track B): the deployed pipeline's reply and what it cost, ledger by ledger."""
+
+    status: int  # the HTTP status; 0 when no reply arrived
+    outcome: str  # "answered" | "contract_rejected" | "request_failed"
+    body: Mapping[str, Any]
+    request_ref: str
+    response_ref: str | None
+    provenance: Mapping[str, Any] | None
+    elapsed_ms: float
+    charged: Mapping[str, Mapping[str, int]] = field(default_factory=dict)
+    error: str | None = None
+
+    @property
+    def _reply(self) -> Mapping[str, Any]:
+        """The body of a 200, the detail of a 422 (where a contract rejection carries the raw output)."""
+        if self.status == 422:
+            detail = self.body.get("detail")
+            return detail if isinstance(detail, Mapping) else {}
+        return self.body
+
+    @property
+    def raw_output(self) -> str | None:
+        return self._reply.get("raw_output")
+
+    @property
+    def finish_reason(self) -> str | None:
+        return self._reply.get("finish_reason")
+
+    @property
+    def p1_attempts(self) -> list[Mapping[str, Any]]:
+        """Every P1 call the agent made, in order (``attempt``, ``outcome``: valid, retried or failed, ...)."""
+        return [dict(a) for a in self._reply.get("p1_attempts") or [] if isinstance(a, Mapping)]
+
+    @property
+    def experiment(self) -> Mapping[str, Any]:
+        return self._reply.get("experiment") or {}
+
+    @property
+    def p1_report(self) -> Mapping[str, Any] | None:
+        return self.experiment.get("p1_report") if self.outcome == "answered" else None
+
+    @property
+    def final_report(self) -> Mapping[str, Any] | None:
+        return self.body.get("report") if self.outcome == "answered" else None
+
+    @property
+    def evidence(self) -> list[Mapping[str, Any]]:
+        return list(self.body.get("evidence") or []) if self.outcome == "answered" else []
+
+    @property
+    def object_tracking(self) -> Mapping[str, Any] | None:
+        """The object tracker's summary: the reply's top-level ``object_tracking`` (``experiment.object_tracking`` is
+        only the request's setting), with ``detector`` the tracker's call budget (``cap``, ``calls``, ...)."""
+        summary = self.body.get("object_tracking") if self.outcome == "answered" else None
+        return summary if isinstance(summary, Mapping) else None
+
+
+@runtime_checkable
+class PipelineAdapter(Protocol):
+    """A deployed pipeline run as one subject (Track B): it sends one analysis and accounts for every call."""
+
+    id: str
+    model: str
+    capabilities: Capabilities
+
+    def analyze(self, incident_id: str, request: Mapping[str, Any], ctx: CallContext) -> PipelineResult: ...

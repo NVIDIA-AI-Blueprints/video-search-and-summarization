@@ -78,12 +78,14 @@ def plan(config: RunConfig, load_datasets: DatasetLoader = _no_datasets) -> dict
 
 def worst_cases(config: RunConfig, items: dict[str, list[WorkItem]]) -> dict[tuple[str, str, str], tuple[int, int]]:
     """The worst-case attempts and tokens of every (task, subject, ledger) the run charges, retries included."""
-    retries = POLICIES[config.retry_policy].max_retries
     needs: dict[tuple[str, str, str], tuple[int, int]] = {}
     for name, task_items in items.items():
-        estimate = getattr(TASKS[name](), "budget_estimate", None)
+        runner = TASKS[name]()
+        estimate = getattr(runner, "budget_estimate", None)
         if estimate is None:
             continue
+        # A pipeline task's worst case already counts the pipeline's own retries, and it never re-sends a run.
+        retries = 0 if getattr(runner, "retries_included", False) else POLICIES[config.retry_policy].max_retries
         by_subject: dict[str, list[WorkItem]] = {}
         for item in task_items:
             by_subject.setdefault(item.subject, []).append(item)

@@ -24,6 +24,14 @@ def _incident_objects() -> TaskRunner:
     return IncidentObjectsTask()
 
 
+def _pipeline() -> TaskRunner:
+    """Track B: the production pipeline as one subject, scored with Track A's (V1-backed) scorers."""
+    from evalv2.tasks.pipeline.runner import PipelineTask
+
+    return PipelineTask()
+
+
 register_task("incident_objects")(_incident_objects)
+register_task("pipeline")(_pipeline)
 
 __all__ = ["TASKS", "PredictionRecord", "ScoreRecord", "Scorer", "TaskRunner", "WorkItem", "register_task"]

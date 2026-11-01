@@ -27,6 +27,11 @@ F and G are instruments applied to every call in A–E, not separate runs.
   - Each production default candidate (Cosmos 3 Nano, Cosmos 3 Super) runs the production profile on a local experiment agent: caption pass, P1, grounding crops and the zoomed second look.
   - Set-of-marks, object tracking and person tracking are off. A tracking-on condition for crops only is added if the shared perception stack is approved.
   - Track B is compared with Track A **within one model only**.
+  - **As built (J1):**
+    - The experimental path runs no caption pass, because its windows need the R2 scratch prefix (open decision below). Until then, Track B's raw P1 output measures only that the agent's P1 request and Track A's give the same results.
+    - The zoom effect uses the agent's P1 report from before the zoomed second look (`experiment.p1_report`), checked against the final report with every correction undone.
+    - Profiles are versioned, and their caps include the agent's own retries.
+    - The agent retries a runaway P1 output once and returns only the retry. Track A scores the same runaway as a miss, so runs with a retried P1 are left out of the caption-effect pairs.
 - **Effects measured without extra calls:**
   - *caption effect:* Track B's raw P1 output minus the same model's Track A output;
   - *zoom effect:* the final report minus the same report with every zoom correction undone (`name_before`, `description_before`).
