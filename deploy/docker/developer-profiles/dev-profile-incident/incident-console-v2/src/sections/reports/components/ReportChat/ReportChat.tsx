@@ -40,7 +40,18 @@ type ChatMessage = {
  * screen in View, the unsaved draft in Edit. Each answer says which version it came
  * from, and its citations jump the video to the cited moment.
  */
-export function ReportChat({ videoId, target, onSeek }: { videoId: string; target: ChatTarget; onSeek: (seconds: number) => void }) {
+export function ReportChat({
+  videoId,
+  target,
+  onSeek,
+  titles = {},
+}: {
+  videoId: string;
+  target: ChatTarget;
+  onSeek: (seconds: number) => void;
+  /** Each cited item's evidence-card title (citationTitles); a citation without one shows its id and kind. */
+  titles?: Record<string, string>;
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [question, setQuestion] = useState('');
@@ -173,7 +184,7 @@ export function ReportChat({ videoId, target, onSeek }: { videoId: string; targe
                             {message.citations.map((citation) => (
                               <li key={`${citation.itemId}-${citation.timestampSeconds}`}>
                                 <button
-                                  aria-label={`Jump to ${citation.itemId} at ${formatClock(citation.timestampSeconds)}`}
+                                  aria-label={`Jump to ${titles[citation.itemId] ?? citation.itemId} at ${formatClock(citation.timestampSeconds)}`}
                                   className="grid w-full grid-cols-[52px_minmax(0,1fr)] items-center gap-2 rounded-xl border border-border bg-card p-1 text-left transition hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                   onClick={() => onSeek(citation.timestampSeconds)}
                                   type="button"
@@ -182,8 +193,8 @@ export function ReportChat({ videoId, target, onSeek }: { videoId: string; targe
                                   {/* biome-ignore lint/performance/noImgElement: the agent's signed crop URL, used as given */}
                                   <img alt="" className="h-9 w-[52px] rounded-md bg-muted object-cover" src={citation.cropImageUrl} />
                                   <span className="min-w-0">
-                                    <b className="block truncate text-xs">
-                                      {citation.itemId} · {citation.itemType}
+                                    <b className="block truncate text-xs" data-testid="chat-citation-title">
+                                      {titles[citation.itemId] ?? `${citation.itemId} · ${citation.itemType}`}
                                     </b>
                                     <span className="text-[11px] text-muted-foreground">
                                       jump to {formatClock(citation.timestampSeconds)}

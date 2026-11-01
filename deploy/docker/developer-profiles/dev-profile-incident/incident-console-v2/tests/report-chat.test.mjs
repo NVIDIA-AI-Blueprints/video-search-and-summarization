@@ -106,3 +106,24 @@ test('the request carries the incident, the version and (in Edit) the draft, as 
   assert.equal(agentBody.version_id, 42);
   assert.equal(agentBody.draft_report.entities.length, 2);
 });
+
+test('citations are titled like their evidence cards, and the answer text needs no ids', async () => {
+  const { citationTitles } = await import('../src/lib/chat/report-chat.ts');
+  const titles = citationTitles({
+    entities: [
+      { entityId: 'E1', type: 'human', label: 'person in light shirt' },
+      { entityId: 'E2', type: 'human', label: '' },
+    ],
+    instruments: [{ instrumentId: 'I1', name: 'cash register', label: 'black bag' }],
+    assets: [{ assetId: 'A1', name: '', label: 'stack of papers' }],
+  });
+  assert.deepEqual(titles, {
+    E1: 'E1 · person in light shirt',
+    E2: 'E2 · human',
+    I1: 'I1 · cash register',
+    A1: 'A1 · stack of papers',
+  });
+  assert.deepEqual(citationTitles(null), {});
+  const chat = readFileSync(join(process.cwd(), 'src', 'sections', 'reports', 'components', 'ReportChat', 'ReportChat.tsx'), 'utf8');
+  assert.match(chat, /titles\[citation\.itemId\] \?\? `\$\{citation\.itemId\} · \$\{citation\.itemType\}`/);
+});

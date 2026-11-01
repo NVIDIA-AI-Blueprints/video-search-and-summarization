@@ -6,6 +6,7 @@
 
 import type { EditDraft } from '@/modules/reports/domain/edit-draft';
 import type { RevisionSummary } from '@/modules/reports/domain/revision';
+import type { StructuredAsset, StructuredEntity, StructuredInstrument } from '@/modules/reports/domain/report-view';
 
 export interface ChatTarget {
   /** The saved version the question is about (the draft's base when there is a draft). */
@@ -98,4 +99,19 @@ export function chatRequestBody({
     versionId: target.versionId,
     ...(target.draftReport ? { draftReport: target.draftReport } : {}),
   };
+}
+
+/**
+ * The title each cited item is shown with under an answer: its evidence card's title ("E1 · person in light shirt"),
+ * so a citation can be matched to its card. The answer text itself never carries ids.
+ */
+export function citationTitles(
+  report: { entities: StructuredEntity[]; instruments: StructuredInstrument[]; assets: StructuredAsset[] } | null,
+): Record<string, string> {
+  if (!report) return {};
+  const titles: Record<string, string> = {};
+  for (const entity of report.entities) titles[entity.entityId] = `${entity.entityId} · ${entity.label || entity.type}`;
+  for (const item of report.instruments) titles[item.instrumentId] = `${item.instrumentId} · ${item.name || item.label}`;
+  for (const item of report.assets) titles[item.assetId] = `${item.assetId} · ${item.name || item.label}`;
+  return titles;
 }

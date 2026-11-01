@@ -26,7 +26,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { chatTarget } from '@/lib/chat/report-chat';
+import { chatTarget, citationTitles } from '@/lib/chat/report-chat';
 import { uploadEvidenceImage } from '@/lib/evidence/evidence-image-upload';
 import { draftChangeCount } from '@/lib/reports/compare';
 import {
@@ -759,6 +759,7 @@ export function ReportPage({
                 key={`${target.versionId}-${mode === 'edit' && draft ? 'draft' : 'saved'}`}
                 onSeek={seek}
                 target={target}
+                titles={citationTitles(mode === 'edit' && draft && editBase ? editBase.report.structured : report.structured)}
                 videoId={videoId}
               />
             );
