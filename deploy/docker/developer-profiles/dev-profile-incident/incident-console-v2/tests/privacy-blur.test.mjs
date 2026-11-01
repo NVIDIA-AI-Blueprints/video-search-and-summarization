@@ -223,6 +223,96 @@ test("without recorded heads a person's own head stands in for the whole clip; w
   );
 });
 
+const headsFile = (samples, step = 0.5) => ({ step_seconds: step, samples });
+
+test('the heads file is read leniently: malformed samples and boxes are dropped, a wild step is clamped', () => {
+  assert.equal(privacy.parseHeadSamples(null), null);
+  assert.equal(privacy.parseHeadSamples([]), null);
+  assert.equal(privacy.parseHeadSamples({ samples: 'x' }), null);
+  assert.deepEqual(
+    privacy.parseHeadSamples({
+      step_seconds: 99,
+      samples: [
+        { t: 6, boxes: [[1, 2, 30, 40], [9, 9, 3, 3], 'x'], fallback: true },
+        { t: -1, boxes: [] },
+        { t: 5.5, boxes: [[100, 100, 200, 200]] },
+        { boxes: [] },
+      ],
+    }),
+    {
+      stepSeconds: 2,
+      samples: [
+        { t: 5.5, boxes: [[100, 100, 200, 200]] },
+        { t: 6, boxes: [[1, 2, 30, 40]] },
+      ],
+    },
+  );
+  assert.equal(privacy.parseHeadSamples({ samples: [] }).stepSeconds, 0.5);
+});
+
+test('a blurred clip blurs every head found at the sampled seconds around each clip second, whatever the tracks say', () => {
+  const heads = privacy.parseHeadSamples(
+    headsFile([
+      { t: 4.5, boxes: [[100, 100, 200, 200]] }, // half a second before the clip: reaches second 0
+      { t: 5.0, boxes: [[100, 100, 200, 200]] },
+      { t: 5.5, boxes: [[110, 110, 210, 210]] }, // the same head moved: one region
+      {
+        t: 6.0,
+        boxes: [
+          [100, 100, 200, 200],
+          [600, 700, 700, 800],
+        ],
+      }, // a bystander far from it: its own region
+      { t: 8.5, boxes: [[300, 300, 400, 400]] },
+    ]),
+  );
+  const regions = privacy.clipBlurRegions({ window: WINDOW, tracks: [], recorded: null, personBoxes: [], heads });
+  assert.deepEqual(regions, [
+    // a second takes the samples from one step before it to the end of it, so a head seen at 6 s is also blurred in second 0
+    { box: [100, 100, 210, 210], fromSeconds: 0, toSeconds: 1 },
+    { box: [600, 700, 700, 800], fromSeconds: 0, toSeconds: 1 },
+    { box: [100, 100, 210, 210], fromSeconds: 1, toSeconds: 2 },
+    { box: [600, 700, 700, 800], fromSeconds: 1, toSeconds: 2 },
+    // second 2 (7-8 s) has no sample from 6.5 s to 8 s: no head was found there
+    { box: [300, 300, 400, 400], fromSeconds: 3, toSeconds: 4 },
+  ]);
+  assert.ok(!regions.some((r) => r.fromSeconds === 2), 'a second with no head found is not blurred');
+});
+
+test('the heads join the tracks and the recorded heads, and a heads file with no head in it is still known', () => {
+  const regions = privacy.clipBlurRegions({
+    window: WINDOW,
+    tracks: [[{ t: 5.2, box: [100, 100, 500, 300] }]],
+    recorded: [[600, 600, 700, 700]],
+    personBoxes: [],
+    heads: privacy.parseHeadSamples(headsFile([{ t: 5.0, boxes: [[800, 800, 900, 900]] }])),
+  });
+  assert.deepEqual(
+    regions.map((r) => r.box),
+    [
+      [800, 800, 900, 900],
+      [60, 80, 220, 320],
+      [575, 575, 725, 725],
+    ],
+  );
+  assert.deepEqual(
+    privacy.clipBlurRegions({ window: WINDOW, tracks: [], recorded: null, personBoxes: [], heads: { stepSeconds: 0.5, samples: [] } }),
+    [],
+  );
+  assert.equal(privacy.clipBlurRegions({ window: WINDOW, tracks: [], recorded: null, personBoxes: [], heads: null }), null);
+});
+
+test('a clip near the end of a video is covered to its last second', () => {
+  const window = { startSeconds: 26, lengthSeconds: 4 };
+  const heads = privacy.parseHeadSamples(headsFile([{ t: 29.5, boxes: [[100, 100, 200, 200]] }]));
+  const regions = privacy.clipBlurRegions({ window, tracks: [], recorded: null, personBoxes: [], heads });
+  assert.deepEqual(
+    regions.map((r) => [r.fromSeconds, r.toSeconds]),
+    [[3, 4]],
+    'a sample in the last second blurs it (and the second before reaches back one step only)',
+  );
+});
+
 test('the clip filter scales, then box-blurs each region over its span, and ends on [blurred]', () => {
   const filter = privacy.clipBlurFilter('scale=w=640:h=-2', [
     { box: [100, 200, 300, 500], fromSeconds: 0, toSeconds: 1 },
@@ -315,6 +405,65 @@ async function clipFor(record, itemId, store, itemType = 'entity') {
   const { revisionId } = (await incidents.getRevision(smoke.videoId, null)).revision;
   return getEvidenceClip(incidents, store, { videoId: smoke.videoId, revisionId, itemType, itemId });
 }
+
+test("a blurred clip is cut from the item's heads file even when no track links a person (IMG_4569 E1)", async () => {
+  const headsKey = `${RUN}/E1-heads.json`;
+  const store = fakeStore({
+    [headsKey]: headsFile([
+      { t: 6.5, boxes: [[200, 100, 300, 200]] },
+      {
+        t: 7.0,
+        boxes: [
+          [200, 100, 300, 200],
+          [250, 700, 350, 800],
+        ],
+      },
+    ]),
+  });
+  const record = clipRecord([entry('E1', { heads: headsKey, blur_regions: [[300, 600, 400, 700]] })], { blurFaces: true });
+  assert.equal(await clipFor(record, 'E1', store), `signed:${RUN}/E1-clip-blur.mp4`);
+  assert.deepEqual(store.calls.read, [headsKey]);
+  const boxes = store.calls.cut[0].regions.filter((r) => r.fromSeconds !== null).map((r) => [r.fromSeconds, r.box]);
+  assert.deepEqual(boxes, [
+    [1, [200, 100, 300, 200]],
+    [1, [250, 700, 350, 800]],
+    [2, [200, 100, 300, 200]],
+    [2, [250, 700, 350, 800]],
+  ]);
+});
+
+test('an item with no heads file keeps the track and recorded-heads blur, and with nothing known is refused', async () => {
+  const trackKey = `${RUN}/E1-track.json`;
+  const store = fakeStore({ [trackKey]: [{ t: 6.5, box: [100, 100, 500, 400], score: 0.9 }] });
+  const older = clipRecord([entry('E1', { track: trackKey, blur_regions: [[300, 600, 400, 700]] })], { blurFaces: true });
+  await clipFor(older, 'E1', store);
+  assert.deepEqual(store.calls.read, [trackKey], 'no heads file is read');
+  assert.equal(store.calls.cut[0].regions.length, 2);
+  await assert.rejects(
+    clipFor(clipRecord([entry('I1', { item_type: 'instrument' })], { blurFaces: true }), 'I1', fakeStore(), 'instrument'),
+    (error) => error.status === 422,
+  );
+});
+
+test('a heads file that cannot be read stops the blurred clip, and a key outside the evidence folder is never read', async () => {
+  const headsKey = `${RUN}/E1-heads.json`;
+  const store = fakeStore();
+  await assert.rejects(
+    clipFor(clipRecord([entry('E1', { heads: headsKey })], { blurFaces: true }), 'E1', store),
+    (error) => error.status === 502,
+  );
+  assert.deepEqual(store.calls.put, []);
+  const other = fakeStore();
+  await assert.rejects(
+    clipFor(
+      clipRecord([entry('E1', { heads: 'videos/other.json', located: false, bounding_box: null })], { blurFaces: true }),
+      'E1',
+      other,
+    ),
+    (error) => error.status === 422,
+  );
+  assert.deepEqual(other.calls.read, []);
+});
 
 test('a video without the toggle, analysed without blur, gets its plain clip', async () => {
   const store = fakeStore();

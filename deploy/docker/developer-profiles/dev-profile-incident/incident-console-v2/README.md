@@ -15,7 +15,7 @@ In vm mode the console reaches only the agent (`localhost:8000`, the one tunnell
 
 Either way the console opens on `http://127.0.0.1:3200`; `GET /api/health` should report `ready`. To run it by hand, start the [mock backend](../mock-backend/base_profile_mock/README.md) and the [VLM gateway](../vlm-gateway/README.md), then `npm install && npm run dev` here. Uploads need `ffmpeg` and `ffprobe` (every upload is probed and, unless it is already an H.264 MP4, converted to one at its original resolution before it goes to R2); evidence frames, crops and clips need `ffmpeg`. `npm install` fetches both binaries (`ffmpeg-static` and `@ffprobe-installer/ffprobe`), so no manual install is needed. The console uses `FFMPEG_PATH` or `FFPROBE_PATH` when set, then the bundled copy, then the one on your PATH; see [`src/lib/video/host-binaries.ts`](src/lib/video/host-binaries.ts).
 
-The report header's **Blur faces** switch stores a per-video setting (`videos.blur_faces`) and re-analyses the video as a background job with the agent pixelating people's heads in the stored evidence; evidence clips of such a video are cut blurred ([`../.docs/data.md`](../.docs/data.md#privacy-blur)).
+The report header's **Blur faces** switch stores a per-video setting (`videos.blur_faces`) and re-analyses the video as a background job with the agent pixelating every head it finds in the stored evidence frames (a whole-frame head detection, whatever tracking linked); evidence clips of such a video are cut blurred from the heads the agent found in each clip's window ([`../.docs/data.md`](../.docs/data.md#privacy-blur)).
 
 Settings come from `.env.local`, a symlink to the profile's shared `../.env.local`; edit that file, not the symlink.
 

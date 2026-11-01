@@ -48,9 +48,11 @@ elapsed_ms, skipped}``); with it off the key is absent.
 With ``INCIDENT_OBJECT_TRACKING_ENABLED`` on, a production response adds ``object_tracking`` (``{enabled, seeds,
 tracked, tracker, elapsed_ms, time_cap_reached, skipped, detector, items}``) for the instrument and asset tracks, and
 those evidence entries gain ``track_source``; with it off both are absent.
-``blur_faces: true`` pixelates the heads of the people in every stored evidence frame and crop and adds
-``privacy`` (``{blur_faces, regions, frames, heads, head_queries, failed}``) to the response, and each evidence
-entry gains ``blur_regions``; without it the key is absent and the evidence is unchanged.
+``blur_faces: true`` pixelates every head in every stored evidence frame and crop (a whole-frame head detection of
+each frame, plus the known people) and adds ``privacy`` (``{blur_faces, regions, frames, head_detections,
+detector_calls, call_cap, cap_refused, clip_samples, fallbacks, failed}``) to the response; each evidence entry gains
+``blur_regions`` and ``heads`` (the key of its per-second clip heads); without it the keys are absent and the
+evidence is unchanged.
 """
 
 from __future__ import annotations
@@ -147,8 +149,9 @@ class AnalyzeIncidentRequest(BaseModel):
     blur_faces: bool = Field(
         default=False,
         description=(
-            "Pixelate the heads of the people in every stored evidence frame and crop (person tracks, else one "
-            "detector call for a person item's head). Model calls still see the unblurred images."
+            "Pixelate every head in every stored evidence frame and crop, found by a whole-frame head detection of "
+            "each frame (not only the people tracking knows), and store per-second clip heads beside each item. "
+            "Model calls still see the unblurred images."
         ),
     )
 

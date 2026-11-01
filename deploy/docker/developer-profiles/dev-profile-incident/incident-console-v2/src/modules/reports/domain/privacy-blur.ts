@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Privacy blur (videos.blur_faces): the agent pixelates the heads of the people in every stored frame and crop of a run
-// analysed with blur_faces; the console blurs the same heads in an evidence clip as it cuts it. Pure functions, no I/O,
-// browser-safe: the head region of a person box (the same maths as the agent's utils/privacy_blur.py), whether a run was
-// blurred, and the timed regions a clip blurs (every stored track per second, the recorded heads for the whole clip).
+// Privacy blur (videos.blur_faces): the agent pixelates every head in every stored frame and crop of a run analysed with
+// blur_faces (a whole-frame head detection, whatever tracking linked); the console blurs the clip the same way as it cuts
+// it. Pure functions, no I/O, browser-safe: the head region of a person box (the same maths as the agent's
+// utils/privacy_blur.py), whether a run was blurred, and the timed regions a clip blurs (the heads the agent found at
+// sampled seconds of the clip window, every stored track per second, the recorded heads for the whole clip).
 
 /** [ymin, xmin, ymax, xmax] normalised to 0-1000, like every evidence box. */
 export type NormalisedBox = [number, number, number, number];
@@ -118,6 +119,35 @@ export function visibleSamples(samples: readonly BlurSample[]): BlurSample[] {
   return kept;
 }
 
+/** The heads the agent found at sampled seconds of an item's clip window (`<itemId>-heads.json`), t in video seconds. */
+export interface HeadSamples {
+  /** The gap between samples, which each clip second reaches across so a head between two samples stays covered. */
+  stepSeconds: number;
+  samples: { t: number; boxes: NormalisedBox[] }[];
+}
+
+/** The widest reach a heads file may ask for on each side of a clip second; a corrupt step cannot blur or skip a whole clip. */
+const MIN_STEP_SECONDS = 0.1;
+const MAX_STEP_SECONDS = 2;
+const DEFAULT_STEP_SECONDS = 0.5;
+
+/** An item's stored heads file read leniently ({step_seconds, samples: [{t, boxes, fallback?}]}); null when it is not that shape. */
+export function parseHeadSamples(value: unknown): HeadSamples | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { step_seconds: step, samples: raw } = value as { step_seconds?: unknown; samples?: unknown };
+  if (!Array.isArray(raw)) return null;
+  const samples: HeadSamples['samples'] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const { t, boxes } = item as { t?: unknown; boxes?: unknown };
+    if (typeof t !== 'number' || !Number.isFinite(t) || t < 0 || !Array.isArray(boxes)) continue;
+    samples.push({ t, boxes: boxes.filter(isBox).map((box) => [...box] as NormalisedBox) });
+  }
+  const stepSeconds =
+    typeof step === 'number' && Number.isFinite(step) ? Math.min(MAX_STEP_SECONDS, Math.max(MIN_STEP_SECONDS, step)) : DEFAULT_STEP_SECONDS;
+  return { stepSeconds, samples: samples.sort((a, b) => a.t - b.t) };
+}
+
 export interface ClipBlurInput {
   /** The clip's start and length in video seconds. */
   window: { startSeconds: number; lengthSeconds: number };
@@ -127,6 +157,8 @@ export interface ClipBlurInput {
   recorded: readonly NormalisedBox[] | null;
   /** The located boxes of the people near the clip, whose heads stand in when their frame's heads were not recorded. */
   personBoxes: readonly (readonly number[])[];
+  /** The heads found at sampled seconds of the clip window; null when the item stored none (an older version). */
+  heads?: HeadSamples | null;
 }
 
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
@@ -144,6 +176,45 @@ function trackRegions(track: readonly BlurSample[], { startSeconds, lengthSecond
       })
       .map((sample) => headRegion(sample.box));
     if (heads.length) regions.push({ box: union(heads), fromSeconds: second, toSeconds: round3(Math.min(lengthSeconds, second + 1)) });
+  }
+  return regions;
+}
+
+const overlap = (a: NormalisedBox, b: NormalisedBox) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+
+/** Boxes that overlap, directly or through others, become their union, so two people stay two regions and one head found twice stays one. */
+function cluster(boxes: readonly NormalisedBox[]): NormalisedBox[] {
+  const out = [...boxes];
+  for (let merged = true; merged; ) {
+    merged = false;
+    for (let i = 0; i < out.length && !merged; i++) {
+      for (let j = i + 1; j < out.length && !merged; j++) {
+        if (!overlap(out[i], out[j])) continue;
+        out[i] = union([out[i], out[j]]);
+        out.splice(j, 1);
+        merged = true;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The heads the agent found in the clip window, one set of regions per clip second: every sample from one step before
+ * the second to the end of it, so a head seen at any sample around the second is blurred for the whole second.
+ */
+function headRegions(heads: HeadSamples, { startSeconds, lengthSeconds }: ClipBlurInput['window']): ClipBlurRegion[] {
+  const regions: ClipBlurRegion[] = [];
+  for (let second = 0; second < Math.ceil(lengthSeconds); second++) {
+    const boxes = heads.samples
+      .filter((sample) => {
+        const at = sample.t - startSeconds;
+        return at >= second - heads.stepSeconds - 1e-6 && at < second + 1 + 1e-6;
+      })
+      .flatMap((sample) => sample.boxes);
+    for (const box of cluster(boxes)) {
+      regions.push({ box, fromSeconds: second, toSeconds: round3(Math.min(lengthSeconds, second + 1)) });
+    }
   }
   return regions;
 }
@@ -177,15 +248,21 @@ function limitRegions(regions: ClipBlurRegion[]): ClipBlurRegion[] {
 
 /**
  * The regions an evidence clip blurs, in clip seconds; null when nothing is known about the heads it shows (then no
- * blurred clip can be cut). Per second of the clip, the head regions of every stored track (each person's own, so a
+ * blurred clip can be cut). Per second of the clip, the heads the agent found at the sampled seconds around it (a
+ * whole-frame detection, whatever tracking linked; each cluster of overlapping heads is one region, so people stay
+ * apart), and the head regions of every stored track (each person's own, so a
  * person who moves or stands up stays covered, and so does a bystander the run matched); for the whole clip, each head
  * the agent blurred in the frames of the items near it (padded, since people move), and the head of a located person
  * whose frame's heads were not recorded (an older version). A track's drifting tracker-only boxes are not blurred. An
- * empty list means the agent recorded no head near the clip. A clip with more regions than MAX_CLIP_REGIONS has the
+ * item with no stored heads (`heads` null: an older version) keeps the tracks and recorded heads alone. An empty list
+ * means the agent recorded no head near the clip. A clip with more regions than MAX_CLIP_REGIONS has the
  * closest ones merged.
  */
 export function clipBlurRegions(input: ClipBlurInput): ClipBlurRegion[] | null {
-  const regions: ClipBlurRegion[] = input.tracks.flatMap((track) => trackRegions(track, input.window));
+  const regions: ClipBlurRegion[] = [
+    ...(input.heads ? headRegions(input.heads, input.window) : []),
+    ...input.tracks.flatMap((track) => trackRegions(track, input.window)),
+  ];
   const heads: NormalisedBox[] = [
     ...(input.recorded ?? []).map((box) => padBox(box, STATIC_HEAD_PADDING)),
     ...input.personBoxes.filter((box) => isBox([...box])).map((box) => padBox(headRegion(box), STATIC_HEAD_PADDING)),
@@ -196,7 +273,7 @@ export function clipBlurRegions(input: ClipBlurInput): ClipBlurRegion[] | null {
     seen.add(box.join());
     regions.push({ box, fromSeconds: null, toSeconds: null });
   }
-  if (!regions.length && !input.recorded) return null;
+  if (!regions.length && !input.recorded && !input.heads) return null;
   // A sliver of a box rounds to a zero-pixel crop, which ffmpeg reads as the whole frame: such regions are dropped.
   return limitRegions(regions.filter(({ box }) => box[2] - box[0] >= MIN_REGION && box[3] - box[1] >= MIN_REGION));
 }

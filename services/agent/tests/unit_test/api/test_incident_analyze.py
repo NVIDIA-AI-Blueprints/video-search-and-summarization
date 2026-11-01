@@ -397,7 +397,7 @@ def test_blur_faces_is_passed_to_the_tool_only_when_true():
 
 
 def test_a_privacy_summary_is_kept_in_the_response_only_when_the_tool_returned_one():
-    summary = {"blur_faces": True, "regions": 2, "frames": 2, "heads": {}, "head_queries": 0, "failed": 0}
+    summary = {"blur_faces": True, "regions": 2, "frames": 2, "head_detections": 2, "detector_calls": 4, "failed": 0}
     client, _ = _client(result=OUTPUT.model_copy(update={"privacy": summary}))
     body = client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL, "blur_faces": True}).json()
     assert body["privacy"] == summary
