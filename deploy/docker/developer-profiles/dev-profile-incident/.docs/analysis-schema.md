@@ -44,6 +44,10 @@ The exact bodies are request goldens in [`contracts/golden/`](../contracts/golde
 
 Every violation carries a machine-readable code: `EMPTY_CONTENT`, `INVALID_JSON`, `SCHEMA_VIOLATION`, `WINDOW_END_BEFORE_START`, `ID_NOT_SEQUENTIAL_{ENTITY,INSTRUMENT,ASSET}`, `INSTRUMENT_HOLDER_UNKNOWN`, `TIMELINE_{START,END}_OUTSIDE_WINDOW`, `TIMELINE_NOT_CHRONOLOGICAL`, and the contextual `WINDOW_BEYOND_VIDEO` / `TIMELINE_BEYOND_VIDEO`. Shared fixtures in `contracts/fixtures/` (including `fixtures/policy/`) are checked by both the Python and the TypeScript validator.
 
+**Forward compatibility with contract v5 (`origin/mvp3`).** `eval/contract.py` already applies v5's `ASSET_HANDLER_UNKNOWN` rule: `assets[].last_handled_by.entity_id` must name an entity. It uses the same code, path (`assets/<i>/last_handled_by/entity_id`), message and core scope as mvp3's agent and console. On v4 the schema forbids `last_handled_by`, so the rule never fires. Eval's version checks read `contracts/VERSION`, and `prompt_registry.current_base_id()` names the current baseline (`p1-v4-base` on v4); `BASE_ID` stays the V1 baseline.
+
+Against mvp3's `contracts/`, eval's suite passes except `test_schema_is_strict_mode_compatible`. v5 leaves the optional `last_handled_by` out of `required`, and strict structured-output servers can reject that. The merge has to resolve it, for example by making the key required and nullable, or by recording a decision that strict mode no longer needs every key.
+
 **Validation policy `core-scored-v1`** (`validateCore`; eval's `evaluate_policy`; the agent's `core_violations`). Its id is recorded beside the contract version; it changed nothing sent to or returned by the model, so it carries no `VERSION` bump:
 - **Decides the outcome:** the database-backed (Class A) fields.
 - **Scope of each violation:**
