@@ -75,10 +75,28 @@ _OBJECTS = re.compile(
     r"\b(?:objects?|items?|weapons?|tools?|instruments?|assets?|property|taken|stolen|steal\w*|damaged?|"
     r"carr(?:y|ied|ying)|hold(?:ing)?|held|used|using|harm\w*|things?)\b"
 )
+# A question that names a kind of object ("which objects were involved?") asks about objects even when it also uses
+# a word that can mean people ("involved", "anyone"); only a word that names people makes it a people question.
+_OBJECT_KINDS = re.compile(r"\b(?:objects?|items?|things?|tools?|instruments?|assets?|property|weapons?)\b")
+_PEOPLE_NAMED = re.compile(
+    r"\b(?:who|whom|people|persons?|men|women|suspects?|victims?|attackers?|assailants?|offenders?|humans?)\b"
+)
 _WHEN = re.compile(
     r"\b(?:when|what time|how long|duration|start(?:ed|s)?|end(?:ed|s)?|begin\w*|at what (?:second|point|time|moment))\b"
 )
 _SEVERITY = re.compile(r"\b(?:severity|severe|serious\w*|danger\w*|risk\w*)\b")
+# "What was taken?": a question about a taking, and the event wording that records one.
+_TAKEN = re.compile(
+    r"\b(?:taken|take|took|stole|stolen|steal\w*|theft|thie(?:f|ves|ving)|missing|robb\w*|rob|loot\w*|grab\w*|"
+    r"snatch\w*|removed?|made off|carried (?:off|away))\b"
+)
+_TAKING = re.compile(
+    r"\b(?:takes?|took|taken|taking|steal\w*|stole|stolen|grab\w*|snatch\w*|remov\w*|pick(?:s|ed|ing)? up|"
+    r"carr(?:y|ies|ied|ying) (?:\w+ )?(?:away|off|out)|(?:walks?|walked|runs?|ran|leaves?|left|flees?|fled) "
+    r"(?:off |away )?with|made off|pocket\w*|loot\w*|empt(?:y|ies|ied|ying))\b"
+)
+# "What could cause harm?": the report's instruments, each with its threat level.
+_HARM = re.compile(r"\b(?:harm\w*|hurt\w*|injur\w*|threat\w*|weapons?|hazard\w*|unsafe|lethal|deadly|armed)\b")
 _TYPE = re.compile(
     r"\b(?:(?:what|which) (?:kind|type|sort|category) of|type of incident|kind of incident|classif\w*|category)\b"
 )
@@ -793,6 +811,73 @@ def _objects(
     return ComposedAnswer(_sentence_case(" ".join(sentences)), tuple(cited), False, "objects")
 
 
+def _events_about(view: ReportView, targets: Sequence[Item], pattern: re.Pattern[str] | None = None) -> list:
+    """The timeline events that match ``pattern`` (any, when None) and, with targets, refer to one of them."""
+    known = [i.item_id for i in view.items]
+    target_ids = {t.item_id for t in targets}
+    target_words = set().union(*(t.name_words for t in targets)) if targets else set()
+    out = []
+    for event in view.timeline:
+        text = str(event.get("description") or "")
+        if pattern is not None and not pattern.search(text.lower()):
+            continue
+        if targets and not (target_ids & set(referenced_ids(text, known)) or target_words & _words(text)):
+            continue
+        out.append(event)
+    return out
+
+
+def _taken(view: ReportView, targets: Sequence[Item]) -> ComposedAnswer:
+    """What the report records being taken: its events that describe a taking, in order. With none, it says the
+    report does not state that anything (or the named thing) was taken, and what it does record about it.
+
+    A named object is what may have been taken ("was the bag stolen?"); a named person is who may have taken
+    something ("did the hooded man steal anything?").
+    """
+    mentions = view.mentions()
+    known = [i.item_id for i in view.items]
+    objects = [t for t in targets if t.kind != "entity"]
+    focus = objects or list(targets)
+    takings = _events_about(view, focus, _TAKING)
+    if takings:
+        shown = takings[:MAX_EVENTS]
+        sentences = [_event_sentence(e, mentions, last=False) for e in shown]
+        cited = list(dict.fromkeys(i for e in shown for i in referenced_ids(str(e.get("description") or ""), known)))
+        lead = "The report records this taking:" if len(shown) == 1 else "The report records these takings, in order:"
+        return ComposedAnswer(" ".join([lead, *sentences]), tuple(cited or [t.item_id for t in focus]), False, "taken")
+    if focus:
+        named = _join(list(dict.fromkeys(mentions[t.item_id] for t in focus)))
+        if objects:
+            text = f"The report doesn't say {named} {'were' if len(focus) > 1 else 'was'} taken."
+        else:
+            text = f"The report doesn't say {named} took anything."
+        about = _events_about(view, focus)[:MAX_EVENTS]
+        if about:
+            text += f" What it records about {named}, in order: " + " ".join(
+                _event_sentence(e, mentions, last=False) for e in about
+            )
+        return ComposedAnswer(text, tuple(t.item_id for t in focus), True, "taken")
+    text = "The report doesn't say anything was taken."
+    property_ = list(dict.fromkeys(mentions[i.item_id] for i in view.items if i.kind == "asset"))
+    if property_:
+        text += f" The property it records is {_join(property_)}."
+    return ComposedAnswer(text, (), True, "taken")
+
+
+def _harm(view: ReportView) -> ComposedAnswer:
+    """What could cause harm: the report's instruments (weapons and tools), most threatening first, each with its
+    threat level on the report's 1-5 scale."""
+    instruments = sorted((i for i in view.items if i.kind == "instrument"), key=lambda i: -(i.threat_level or 0))
+    if not instruments:
+        return ComposedAnswer("The report lists no weapon or other object that could cause harm.", (), False, "harm")
+    phrases = [_object_phrase(view, i) for i in instruments]
+    lead = _count(len(instruments), "object", "objects")
+    text = f"The report lists {lead} that could be used to cause harm: {_join(phrases)}."
+    if any(i.threat_level is not None for i in instruments):
+        text += " Threat levels run from 1 (lowest) to 5 (highest)."
+    return ComposedAnswer(text, tuple(i.item_id for i in instruments), False, "harm")
+
+
 def _when(view: ReportView, targets: Sequence[Item]) -> ComposedAnswer:
     timed = [t for t in targets if t.seen()]
     if timed:
@@ -852,23 +937,39 @@ def compose(question: str, view: ReportView) -> ComposedAnswer:
     )
     intent_words = {
         w
-        for pattern in (_CHRONOLOGY, _PEOPLE, _OBJECTS, _WHEN, _SEVERITY, _TYPE)
+        for pattern in (_CHRONOLOGY, _PEOPLE, _OBJECTS, _WHEN, _SEVERITY, _TYPE, _TAKEN, _HARM)
         for match in pattern.finditer(q)
         for w in _words(match.group(0))
     }
     # Category words ("tools", "weapons") ask for every item of a kind; only other words name a particular item, and
     # an item whose name or label matches beats one whose description merely mentions the word.
     naming = words - intent_words
-    targets = [i for i in view.items if naming & i.name_words] or [i for i in view.items if naming & i.words]
+    targets = (
+        [i for i in view.items if naming & _words(i.name)]
+        or [i for i in view.items if naming & i.name_words]
+        or [i for i in view.items if naming & i.words]
+    )
     # The words the report never uses, as the question wrote them (a singular form that matches counts as used).
     unmatched = [
         t for t in dict.fromkeys(_tokens(q)) if not _variants(t) & known_words and not _variants(t) & intent_words
     ]
     how_many = bool(_HOW_MANY.search(q))
+    people_q = bool(_PEOPLE.search(q)) and (bool(_PEOPLE_NAMED.search(q)) or not _OBJECT_KINDS.search(q))
     if _TIME_FIRST.search(q):
         answer = _when(view, targets)
     elif _CHRONOLOGY.search(q):
         answer = _chronology(view, targets)
+    elif _TAKEN.search(q) or _HARM.search(q):
+        # A question may ask both ("what was taken, or what could cause harm?"): each part is answered.
+        parts = ([_taken(view, targets)] if _TAKEN.search(q) else []) + ([_harm(view)] if _HARM.search(q) else [])
+        answer = parts[0]
+        if len(parts) > 1:
+            answer = ComposedAnswer(
+                " ".join(part.text for part in parts),
+                tuple(dict.fromkeys(i for part in parts for i in part.item_ids)),
+                all(part.insufficient_evidence for part in parts),
+                "taken-harm",
+            )
     elif _TYPE.search(q):
         answer = _incident_type(view)
     elif _SEVERITY.search(q) and not targets:
@@ -879,11 +980,9 @@ def compose(question: str, view: ReportView) -> ComposedAnswer:
         answer = _absent(view, unmatched)
     elif _PRESENCE.search(q) and not _EXISTENCE.search(q) and targets:
         answer = _about(view, targets)
-    elif (
-        _PEOPLE.search(q) and targets and any(not t.is_person for t in targets) and (holders := _holders(view, targets))
-    ):
+    elif people_q and targets and any(not t.is_person for t in targets) and (holders := _holders(view, targets)):
         answer = holders
-    elif _PEOPLE.search(q) and not any(not t.is_person for t in targets) and not (_OBJECTS.search(q) and unmatched):
+    elif people_q and not any(not t.is_person for t in targets) and not (_OBJECTS.search(q) and unmatched):
         answer = _people(view, targets, how_many=how_many)
     elif _OBJECTS.search(q) or targets or (_PRESENCE.search(q) and unmatched):
         answer = _objects(
