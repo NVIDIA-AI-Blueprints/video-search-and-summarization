@@ -112,7 +112,7 @@ ssh kwanz-ws "bash /srv/rise-up/vss/deploy/docker/developer-profiles/dev-profile
 
 The native agent runs out of `/srv/rise-up/vss/services/agent/.venv` using `nat serve`.
 For changes in `services/agent/src` to take effect across native process restarts (`native-services.sh restart vss-agent`), the package must be installed in editable mode (`editable: true` in `.venv/lib/python3.13/site-packages/vss_agents-*.dist-info/direct_url.json`).
-Shared contract files are vendored in `services/agent/src/vss_agents/incident_contract/` from `contracts/` and synchronised with `python deploy/docker/developer-profiles/dev-profile-incident/contracts/sync.py` (`--check` mode verifies parity without copying).
+Shared contract files, including the agent's prompts from `contracts/prompts/`, are vendored in `services/agent/src/vss_agents/incident_contract/` from `contracts/` and synchronised with `python deploy/docker/developer-profiles/dev-profile-incident/contracts/sync.py` (`--check` mode verifies parity without copying).
 
 Environment variables are captured at process start: editing `generated.env.remote` does not take effect until `native-services.sh restart vss-agent` sources the file. Live environment values can be inspected in `/proc/<pid>/environ`.
 

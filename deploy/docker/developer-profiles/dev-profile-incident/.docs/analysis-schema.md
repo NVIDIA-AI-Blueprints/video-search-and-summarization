@@ -26,6 +26,14 @@ This document describes how incident analysis output is defined, validated, stor
 - **Settings:** `temperature 0`, `max_tokens 16384`, `media_io_kwargs.video.num_frames 64` (Cosmos Super ignores `num_frames`).
 - **`response_format`:** the contract schema, strict (`$schema`/`$id` removed), equal to `eval/contract.py:response_format()`.
 
+The exact bodies are request goldens in [`contracts/golden/`](../contracts/golden/README.md), which the console, eval and the agent each test against. Every other prompt (the instruction preamble, the caption pass, grounding, the zoomed second look, and the chart prompt) is registered in [`contracts/prompts/`](../contracts/prompts/README.md). They cover:
+
+- this request, with and without the instruction;
+- the agent's extra caption and set-of-marks messages;
+- RP1;
+- the caption, grounding and zoom calls;
+- the dashboard chart call.
+
 ## 3. Validation, ID-only repair and outcomes
 
 `src/modules/contract/domain/validate.ts` is a strict port of `eval/contract.py`:
@@ -35,6 +43,10 @@ This document describes how incident analysis output is defined, validated, stor
 - derived `incident.duration = end_timestamp - start_timestamp`.
 
 Every violation carries a machine-readable code: `EMPTY_CONTENT`, `INVALID_JSON`, `SCHEMA_VIOLATION`, `WINDOW_END_BEFORE_START`, `ID_NOT_SEQUENTIAL_{ENTITY,INSTRUMENT,ASSET}`, `INSTRUMENT_HOLDER_UNKNOWN`, `TIMELINE_{START,END}_OUTSIDE_WINDOW`, `TIMELINE_NOT_CHRONOLOGICAL`, and the contextual `WINDOW_BEYOND_VIDEO` / `TIMELINE_BEYOND_VIDEO`. Shared fixtures in `contracts/fixtures/` (including `fixtures/policy/`) are checked by both the Python and the TypeScript validator.
+
+**Forward compatibility with contract v5 (`origin/mvp3`).** `eval/contract.py` already applies v5's `ASSET_HANDLER_UNKNOWN` rule: `assets[].last_handled_by.entity_id` must name an entity. It uses the same code, path (`assets/<i>/last_handled_by/entity_id`), message and core scope as mvp3's agent and console. On v4 the schema forbids `last_handled_by`, so the rule never fires. Eval's version checks read `contracts/VERSION`, and `prompt_registry.current_base_id()` names the current baseline (`p1-v4-base` on v4); `BASE_ID` stays the V1 baseline.
+
+Against mvp3's `contracts/`, eval's suite passes except `test_schema_is_strict_mode_compatible`. v5 leaves the optional `last_handled_by` out of `required`, and strict structured-output servers can reject that. The merge has to resolve it, for example by making the key required and nullable, or by recording a decision that strict mode no longer needs every key.
 
 **Validation policy `core-scored-v1`** (`validateCore`; eval's `evaluate_policy`; the agent's `core_violations`). Its id is recorded beside the contract version; it changed nothing sent to or returned by the model, so it carries no `VERSION` bump:
 - **Decides the outcome:** the database-backed (Class A) fields.
@@ -104,6 +116,7 @@ Field notes:
 - `report`: the final validated contract report plus derived duration. Valid outcomes only.
 - `reportId` and `generatedAt`: valid outcomes only.
 - `request.videoDurationSeconds` and `request.blurFaces` and `response.httpStatus`, `response.errorBody` (a failed agent call), `response.tracking`, `response.privacy` and `response.object_tracking` are agent mode only, copied as returned.
+- `response.provenance` (agent mode, valid and `contract_failed` attempts) is the agent's run provenance as returned: the agent's commit, the flags, and for each stage the model, prompt hashes, calls (failed and refused counted) and tokens ([vm-api-contracts.md](vm-api-contracts.md)). It is written once with the attempt, like everything else here.
 - `response`: holds only the fields the gateway actually returned. The caption pass's captions are never stored ([vm-api-contracts.md](vm-api-contracts.md#caption-pass-chunked-captioning-incident_chunking_enabled)); runs recorded before 1 Nov 2026 may still carry `chunkTimeline`, `chunking`, `chunkAlerts` or `alerting`, which nothing reads.
 
 Records written before attempt statuses existed lack `status`; they are shown as `valid_first_pass` (inferred). Pre-contract console records are "earlier analyses", never failures.
