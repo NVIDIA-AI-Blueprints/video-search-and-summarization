@@ -3,7 +3,7 @@ name: incident-operate-vm
 description: Use to deploy, restart, inspect, debug or tear down the incident backend on the kwanz-ws VM - native services (vss-agent, analytics) via native-services.sh, Docker appliances (Phoenix, plus the person-tracking stack started by default; VIOS, HAProxy and Redis are removed) via compose, generated.env.remote, and the agent editable reinstall. Not for the laptop launch (use incident-start) and never via NVIDIA's dev-profile.sh / vss-deploy-profile.
 license: Apache-2.0
 metadata:
-  version: "0.1.4"
+  version: "0.1.5"
   profile: "dev-profile-incident"
   tags: "incident vm operations native docker troubleshooting"
 ---
@@ -51,7 +51,7 @@ cd /srv/rise-up/vss/deploy/docker/developer-profiles/dev-profile-incident/.scrip
 
 | Goal | Command |
 |---|---|
-| Pick up agent code changes (`services/agent/src`) | `git pull` in `/srv/rise-up/vss`, then `./native-services.sh restart vss-agent`. The incident contract (`vss_agents/incident_contract/`) is vendored from `contracts/` and synchronised via `contracts/sync.py`. It is package data in the editable install, so a restart picks it up; it adds no dependencies. |
+| Pick up agent code changes (`services/agent/src`) | `git pull` in `/srv/rise-up/vss`, then `./native-services.sh restart vss-agent`. The incident contract (`vss_agents/incident_contract/`, with its `prompts/`) is vendored from `contracts/` and synchronised via `contracts/sync.py`. It is package data in the editable install, so a restart picks it up; it adds no dependencies. |
 | Pick up `generated.env.remote` changes | `./native-services.sh restart vss-agent`. Env is captured at process start; check it in `/proc/<pid>/environ`. |
 | Tail logs | `./logs.sh vss-agent` (native) or `./logs.sh <container>` (Docker) |
 | Refresh one service | `./rebuild-svc.sh <service>`: restarts native services, rebuilds and recreates Docker ones |

@@ -37,6 +37,7 @@ See ``.docs/analysis-schema.md`` in the incident profile.
 from __future__ import annotations
 
 from functools import cache
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -152,6 +153,52 @@ def _read(name: str) -> str:
 def _read_json(name: str) -> dict[str, Any]:
     data: dict[str, Any] = json.loads(_read(name))
     return data
+
+
+PROMPTS_DIR = CONTRACT_DIR / "prompts"
+_PLACEHOLDER = re.compile(r"\{\{([a-z_]+)\}\}")
+
+
+class PromptRegistryError(RuntimeError):
+    """A prompt that is not registered, whose file does not match its pinned SHA-256, or a wrong set of fields."""
+
+
+@cache
+def _prompt_entries() -> dict[str, dict[str, Any]]:
+    registry = json.loads((PROMPTS_DIR / "registry.json").read_text(encoding="utf-8"))
+    return {entry["id"]: entry for entry in registry["prompts"] if "agent" in entry["used_by"]}
+
+
+@cache
+def prompt(prompt_id: str) -> str:
+    """A prompt from the shared registry (``contracts/prompts/``, vendored by ``sync.py``), hash-checked.
+
+    Every model prompt the agent sends besides P1 and RP1 lives there: the caption pass, the P1 preambles,
+    grounding and the zoomed second look. The request goldens in ``contracts/golden/`` pin what they render to.
+    """
+    entry = _prompt_entries().get(prompt_id)
+    if entry is None:
+        raise PromptRegistryError(f"no agent prompt {prompt_id!r} in contracts/prompts/registry.json")
+    file_name: str = entry["file"]
+    raw = (PROMPTS_DIR / file_name).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != entry["sha256"]:
+        raise PromptRegistryError(f"{file_name} does not match its registered sha256 (run contracts/sync.py)")
+    return raw.decode("utf-8")
+
+
+def prompt_sha256(prompt_id: str) -> str:
+    """The registered SHA-256 of a prompt's template, recorded with each run as the prompt's version."""
+    prompt(prompt_id)
+    return str(_prompt_entries()[prompt_id]["sha256"])
+
+
+def render_prompt(prompt_id: str, **fields: object) -> str:
+    """The prompt with each ``{{name}}`` replaced by ``str(fields[name])`` in one pass; fields must match exactly."""
+    template = prompt(prompt_id)
+    expected = set(_PLACEHOLDER.findall(template))
+    if expected != set(fields):
+        raise PromptRegistryError(f"{prompt_id} takes {sorted(expected)}, got {sorted(fields)}")
+    return _PLACEHOLDER.sub(lambda match: str(fields[match.group(1)]), template)
 
 
 @cache
