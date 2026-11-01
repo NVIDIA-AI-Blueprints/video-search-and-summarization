@@ -58,7 +58,7 @@ VAL = {"id": "gen-chat-rederive-v1"}
     ("incident.people_count", {"incident_id": "Assault001"}, {"kind": "count", "value": 2}),
     ("incident.instrument_list", {"incident_id": "Assault001"}, {"kind": "list", "value": ["wooden stick"]}),
     ("incident.instrument_holder", {"incident_id": "Burglary003", "instrument_id": "I1"},
-     {"kind": "value", "value": "E1"}),
+     {"kind": "holder", "value": "person in hoodie", "entity_id": "E1", "instrument": "crowbar"}),
     ("incident.asset_list", {"incident_id": "Burglary003"}, {"kind": "list", "value": ["shop door"]}),
     ("incident.unanswerable", {"incident_id": "Assault002"}, {"kind": "refusal", "value": None}),
     ("library.type_count", {"type": "assault"}, {"kind": "count", "value": 2}),
