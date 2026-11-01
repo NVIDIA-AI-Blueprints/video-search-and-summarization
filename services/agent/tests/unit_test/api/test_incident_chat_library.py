@@ -278,6 +278,7 @@ def test_a_question_that_is_not_a_count_is_answered_by_the_model_with_checked_ci
     assert [(c["incident_id"], c["item_id"], c["item_type"]) for c in body["message"]["citations"]] == [
         ("V3", "I1", "instrument")
     ]
+    assert grounding["item_names"] == {"V3/I1": "the glass bottle"}, "labels for the citations, without ids"
     assert grounding["usage"] == {"calls": 2, "total_tokens": 100, "elapsed_ms": 14}
     assert len(grounding["prompt_sha256"]) == 64 and model.calls[1][1] == grounded_chat.LIBRARY_ANSWER_SCHEMA
     context = json.loads(model.calls[1][0][1]["content"].removeprefix("LIBRARY:\n"))

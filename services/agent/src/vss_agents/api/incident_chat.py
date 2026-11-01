@@ -742,6 +742,9 @@ def create_incident_chat_router(
             "answered_by": "model",
             "dropped_citations": list(answer.dropped_citations),
             "ids_resolved": list(answer.ids_resolved),
+            "item_names": {
+                f"{incident_id}/{item_id}": name for (incident_id, item_id), name in answer.item_names.items()
+            },
             "prompt_sha256": grounded_chat.incident_contract.prompt_sha256(grounded_chat.LIBRARY_PROMPT_ID),
             "usage": _total_usage(usages),
         }

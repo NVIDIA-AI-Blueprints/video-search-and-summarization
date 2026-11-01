@@ -158,7 +158,7 @@ Response `200`: `{"session_id", "message": {"role": "assistant", "content", "cit
   - **Citations:** each is an (incident, item) pair checked against the reports shown.
   - **Prose:** the prompt has the model name incidents by type and title and items by name, and keep incident and item ids out of the answer text unless the question asks for ids. An id still written in the prose is replaced: an incident id by its type and title, an item id by the item's name (from the incident it is cited with), or by a neutral "a person" or "an object" when the id names different items in the incidents shown. Each replaced id is listed in `grounding.ids_resolved`.
   - **No match:** a question that is not a count, with no matching report, is insufficient evidence, without a second model call.
-  - **`grounding`:** gains `scope: "library"`, `plan`, `matching`, `count_exact`, `answered_by`, `candidates`, `versions` (each incident's version, for links), `incident_titles` and `plan_prompt_sha256`; `usage` adds up the turn's calls. `version_id` and `official` are `null`.
+  - **`grounding`:** gains `scope: "library"`, `plan`, `matching`, `count_exact`, `answered_by`, `candidates`, `versions` (each incident's version, for links), `incident_titles`, `item_names` (each cited item's name, so citations are labelled without ids) and `plan_prompt_sha256`; `usage` adds up the turn's calls. `version_id` and `official` are `null`.
 - **Unchanged:** every question in template mode (composed from the report, above) keeps exactly the v1 keys.
 
 ## `POST /api/v1/incidents/charts`
