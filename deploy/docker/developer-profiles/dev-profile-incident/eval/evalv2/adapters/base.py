@@ -138,6 +138,11 @@ class PipelineResult:
         return self._reply.get("finish_reason")
 
     @property
+    def p1_attempts(self) -> list[Mapping[str, Any]]:
+        """Every P1 call the agent made, in order (``attempt``, ``outcome``: valid, retried or failed, ...)."""
+        return [dict(a) for a in self._reply.get("p1_attempts") or [] if isinstance(a, Mapping)]
+
+    @property
     def experiment(self) -> Mapping[str, Any]:
         return self._reply.get("experiment") or {}
 

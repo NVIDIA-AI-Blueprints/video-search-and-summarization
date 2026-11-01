@@ -45,9 +45,9 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - It stores the request and response bodies but never the key.
   - A scripted `fake.py` adapter supports plumbing runs.
   - The Track B adapter (`vss.py`) runs a whole pipeline as one subject: one experimental `/analyze` call per run on a loopback experiment agent (`EVALV2_VSS_AGENT_URL`, default `http://127.0.0.1:8765`), never the shared VM agent.
-    - **Before sending:** every ledger's worst case is checked, and nothing is sent when a cap could be passed.
-    - **After the reply:** it charges what the agent reported sending, stage by stage, from the run provenance. An attempt without usage is charged at the token bound. A failure without provenance is charged at the worst case; a refused connection costs nothing.
-    - **Pinning:** the agent's commit, dirty flag, flags and contract must stay the same across a run and a resume. The profile's expected flags must hold, and no undeclared stage may send a call.
+    - **Before sending:** every ledger's worst case is held in the budget log (charged), and nothing is sent when a cap could be passed. The hold covers the call while it is in flight, so a run killed mid-call resumes with it counted and two requests in flight cannot both pass a cap that covers one.
+    - **After the reply:** the hold is released to what the agent reported sending, stage by stage, from the run provenance. An attempt without usage is charged at the token bound. A failure without provenance keeps the worst case; a refused connection or request costs nothing.
+    - **Pinning:** the agent's commit, dirty flag, flags and contract must stay the same across a run and a resume. The profile's expected flags must hold (they describe what the request ran: `experiment: true`, object tracking only in the tracking profile), and no undeclared stage may send a call. The object tracker's detector cap the reply reports (`object_tracking.detector.cap`) must be at most the profile's worst case (80) and is pinned too; a higher, missing or changed cap stops the run after charging.
     - **Refusals:** a refusal (400, 403, 409, 501) stops the run.
     - The signed URL is stored without its signature.
   - `capabilities.json` records what each model is believed to support. Every entry is `verified: false` until a read-only live check confirms it.
@@ -66,11 +66,11 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
       - `p1`: the raw P1 reply through V1's policy, as in Track A;
       - `p1_agent`: the report before the zoomed second look. This is `experiment.p1_report`, or else the final report with every zoom correction undone; the two must agree where both exist;
       - `final`: the final report.
-    - Each stored run also holds the evidence entries, the agent's crop, zoom and tracking summaries, whether a caption pass ran, and whether V1's policy agreed with the agent.
+    - Each stored run also holds the evidence entries, the agent's crop, zoom and tracking summaries, whether a caption pass ran, whether V1's policy agreed with the agent, and the agent's `p1_attempts` with `p1_retried` (it re-sent P1 after a runaway output).
     - Its worst case already counts the agent's own retries, so preflight does not multiply it.
     - **`scoring.py`:** scores each stage with Track A's scorers and pairs two stages run by run:
       - the zoom effect: `p1_agent` against `final`;
-      - the caption effect: Track A against Track B `p1`, once the caption pass runs (X16).
+      - the caption effect: Track A against Track B `p1`, once the caption pass runs (X16). `caption_effect` leaves out runs with `p1_retried`, whose `p1` is a retry Track A never gets.
   - **`tasks/crops/scoring.py`:** evidence boxes against box references, per reference tier.
     - **Operational:** was a box located? An entry the locate step never judged is unscorable, never a miss: a crop-call cap, a missing detector or store, a crop error, no frame produced, a failed upload or privacy blur, or cropping skipped or failed (`UNSCORABLE_GAPS`, the agent's own `image_gap` strings, which a test checks against the agent source; any entry with `located` still null and no box counts too).
     - **Temporal:** the evidence second (`box_seconds`, else the requested one) inside one of the reference's `visible_spans`.
