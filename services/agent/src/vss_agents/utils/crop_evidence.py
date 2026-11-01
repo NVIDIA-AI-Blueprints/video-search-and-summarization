@@ -67,6 +67,7 @@ import threading
 import time
 from typing import Any
 from typing import Protocol
+from typing import TypeVar
 from typing import runtime_checkable
 
 try:
@@ -464,7 +465,14 @@ EVIDENCE_CROP_CONCURRENCY = 4
 # The item types the object tracker follows (people keep the DeepStream person tracks).
 OBJECT_TRACKING_TYPES = frozenset({"instrument", "asset"})
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_Checked = TypeVar("_Checked")
 _JSON_FENCE_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$")
+
+
+def _failed_status(resp: Any) -> bool:
+    """Whether a reply's status is not 2xx (``raise_for_status`` raises on 1xx and 3xx too)."""
+    status = getattr(resp, "status_code", None)
+    return isinstance(status, int) and not 200 <= status < 300
 
 
 class CropCallCapReachedError(RuntimeError):
@@ -497,13 +505,7 @@ class CropCallBudget:
 
     def record_response(self, resp: httpx.Response) -> None:
         """Count the tokens a sent attempt reported; a reply without usage (other than a 429) is counted as such."""
-        try:
-            usage = resp.json().get("usage") or {}
-        except (ValueError, AttributeError):
-            usage = {}
-        total = int(
-            usage.get("total_tokens") or (usage.get("prompt_tokens") or 0) + (usage.get("completion_tokens") or 0)
-        )
+        _, _, total = run_provenance.token_counts(run_provenance.usage_of(resp))  # never raises on a strange usage
         with self._lock:
             if total:
                 self.tokens += total
@@ -661,7 +663,7 @@ class DefaultDetector:
                 self._count(None, started, resp, ok=False)
                 time.sleep(float(resp.headers.get("retry-after") or 2.0 * attempt))
                 continue
-            if isinstance(resp.status_code, int) and resp.status_code >= 400:
+            if _failed_status(resp):
                 self._count(None, started, resp, ok=False)
             resp.raise_for_status()
             try:
@@ -679,8 +681,13 @@ class DefaultDetector:
             return parsed
         raise RuntimeError("unreachable")  # pragma: no cover
 
-    def _chat_json(self, images: Sequence[bytes], text: str, max_tokens: int = 256) -> dict[str, Any]:
-        """One unbudgeted chat completion (images first, then ``text``) parsed as a JSON object.
+    def _chat_json(
+        self, images: Sequence[bytes], text: str, check: Callable[[dict[str, Any]], _Checked], max_tokens: int = 256
+    ) -> _Checked:
+        """One chat completion (images first, then ``text``) parsed as a JSON object and passed through ``check``
+        (the strict reply parser). The attempt counts as failed in the run provenance unless ``check`` accepts the
+        reply. Outside any grounding ``CropCallBudget``; an experiment's ``zoom_budget``, when set, is checked
+        before each attempt.
 
         A rate limit or server error is retried once after ``retry-after`` (default 2 s); the gateway answers 429
         when a report's items are checked concurrently.
@@ -732,16 +739,16 @@ class DefaultDetector:
                 self._count("zoom", started, resp, ok=False)
                 time.sleep(float(resp.headers.get("retry-after") or 2.0))
                 continue
-            if isinstance(resp.status_code, int) and resp.status_code >= 400:
+            if _failed_status(resp):
                 self._count("zoom", started, resp, ok=False)
             resp.raise_for_status()
             try:
-                parsed = parse_json_object(resp.json()["choices"][0]["message"]["content"])
+                checked = check(parse_json_object(resp.json()["choices"][0]["message"]["content"]))
             except Exception:
                 self._count("zoom", started, resp, ok=False)
                 raise
             self._count("zoom", started, resp, ok=True)
-            return parsed
+            return checked
         raise RuntimeError("unreachable")  # pragma: no cover
 
     def zoom_name(
@@ -758,12 +765,12 @@ class DefaultDetector:
         or status errors and ``ValueError`` on a reply that is not the strict JSON asked for.
         """
         if context_jpeg is not None:
-            frame_look = parse_look_reply(self._chat_json([context_jpeg], look_prompt(item_type, with_close_up=False)))
-            close_up_look = parse_look_reply(
-                self._chat_json([context_jpeg, jpeg], look_prompt(item_type, with_close_up=True))
+            frame_look = self._chat_json([context_jpeg], look_prompt(item_type, with_close_up=False), parse_look_reply)
+            close_up_look = self._chat_json(
+                [context_jpeg, jpeg], look_prompt(item_type, with_close_up=True), parse_look_reply
             )
         else:
-            frame_look = close_up_look = parse_look_reply(self._chat_json([jpeg], look_prompt(item_type, False)))
+            frame_look = close_up_look = self._chat_json([jpeg], look_prompt(item_type, False), parse_look_reply)
         seen = {
             "frame": frame_look.description if item_type == "entity" else frame_look.name,
             "close_up": close_up_look.description if item_type == "entity" else close_up_look.name,
@@ -772,7 +779,7 @@ class DefaultDetector:
         if not looks_agree(frame_look, close_up_look):  # no merge call: the report stands, both looks are recorded
             return ZoomVerdict(name=name, description=description, confidence=look_confidence, changed=False, seen=seen)
         # The close-up look carries the detail; the frame look confirmed it names the same thing.
-        merged = parse_zoom_reply(self._chat_json([], merge_prompt(item_type, name, description, close_up_look)))
+        merged = self._chat_json([], merge_prompt(item_type, name, description, close_up_look), parse_zoom_reply)
         return ZoomVerdict(
             name=merged.name,
             description=merged.description,
@@ -1621,6 +1628,7 @@ class CropEvidenceService:
             # The cap is taken before any await, so calls are granted in the order the scans were asked for: the
             # stored frames first, then the clip samples.
             if not privacy.take_call():
+                run_provenance.record_refused("privacy_heads")  # the blur's cap refused it before sending
                 privacy.fallbacks += 1
                 return HeadScan(failed=True)
             try:

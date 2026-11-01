@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 from vss_agents.utils import privacy_blur
+from vss_agents.utils import run_provenance
 from vss_agents.utils.crop_evidence import BudgetedDetector
 from vss_agents.utils.crop_evidence import CropCallBudget
 from vss_agents.utils.crop_evidence import CropEvidenceService
@@ -333,9 +334,12 @@ class TestWholeFrameHeads:
         self, textured_video: Path
     ) -> None:
         privacy = PrivacySummary(call_cap=1)  # the stored frame's second gets the one call; the clip samples do not
-        entries, store = await _run(textured_video, privacy=privacy)
+        with run_provenance.collecting() as provenance:
+            entries, store = await _run(textured_video, privacy=privacy)
         assert _padded(HEAD_B) in entries["E1"]["blur_regions"]
         assert privacy.detector_calls == 1 and privacy.cap_refused == 3 and privacy.fallbacks == 3
+        # The run provenance counts each head search the cap refused before sending.
+        assert provenance.to_dict(contract_version="v", flags={})["stages"]["privacy_heads"]["refused"] == 3
         samples = _heads_file(store, entries["E1"])["samples"]
         assert [(sample["t"], sample.get("fallback", False)) for sample in samples] == [
             (0.0, False),
