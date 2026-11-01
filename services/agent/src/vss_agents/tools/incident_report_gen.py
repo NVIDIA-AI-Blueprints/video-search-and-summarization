@@ -48,9 +48,10 @@ Runs the same calls as ``incident-console-v2`` (gateway mode, P1 only) and the `
    With ``INCIDENT_TRACKING_ENABLED`` set, a production request also pushes the clip through the stock VSS
    perception stack (``track_evidence``) and re-cuts each entity it matches to a person track at the track's best
    moment; the response carries a ``tracking`` summary and a tracking failure never fails the analysis.
-   With ``blur_faces`` the heads of the people at each stored frame's second are pixelated before the frame and
-   crop are encoded (``privacy_blur``): from every person track, else one detector call for the head of a person
-   item. Model calls still see the unblurred images; the response carries a ``privacy`` summary.
+   With ``blur_faces`` every head in each stored frame is pixelated before the frame and crop are encoded
+   (``privacy_blur``): the heads a whole-frame detector call finds in it, joined by every person track and located
+   person box at its second; heads are also searched at sampled seconds of each item's clip and stored beside it.
+   Model calls still see the unblurred images; the response carries a ``privacy`` summary.
    With ``INCIDENT_SOM_ENABLED`` set as well (set-of-marks prompting, ``utils/set_of_marks.py``), tracking runs
    before P1 instead: P1 sees a scratch copy of the clip with a numbered box on each person track and one more
    context message asking for the number in each person entity's label, and the entities are matched to tracks by
@@ -230,8 +231,9 @@ class IncidentReportGenInput(BaseModel):
     blur_faces: bool = Field(
         default=False,
         description=(
-            "Pixelate the heads of the people in every stored evidence frame and crop (person tracks, else one "
-            "detector call for a person item's head). Model calls still see the unblurred images."
+            "Pixelate every head in every stored evidence frame and crop, found by a whole-frame head detection of "
+            "each frame (not only the people tracking knows), and store per-second clip heads beside each item. "
+            "Model calls still see the unblurred images."
         ),
     )
 
@@ -303,8 +305,8 @@ class IncidentReportGenOutput(BaseModel):
     privacy: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Privacy blur (blur_faces): {blur_faces, regions, frames, heads: {track, detector, box, none}, "
-            "head_queries, failed}. Null when blur_faces was not asked for or no cropping ran."
+            "Privacy blur (blur_faces): {blur_faces, regions, frames, head_detections, detector_calls, call_cap, "
+            "cap_refused, clip_samples, fallbacks, failed}. Null when blur_faces was not asked for or no cropping ran."
         ),
     )
 
@@ -534,12 +536,14 @@ async def collect_evidence(
     tracking: track_evidence.TrackingRequest | None = None,
     privacy: privacy_blur.PrivacySummary | None = None,
     object_tracking: track_evidence.ObjectTrackingRequest | None = None,
+    video_seconds: float | None = None,
 ) -> list[dict[str, Any]]:
     """Crop and upload every evidence item. Never raises: a failure becomes an ``image_gap`` reason.
 
     ``store`` and ``detector`` override the service's own (R2 and the shared detector in production) for this
-    call only. ``privacy`` turns the privacy blur on and receives its summary; ``object_tracking`` does the same
-    for the instrument and asset tracks.
+    call only. ``privacy`` turns the privacy blur on and receives its summary (``video_seconds``, the video's
+    length when known, bounds the clip seconds it searches for heads); ``object_tracking`` does the same for the
+    instrument and asset tracks.
     """
     try:
         return await crop_evidence.get_crop_evidence_service().process_incident_report(
@@ -552,6 +556,7 @@ async def collect_evidence(
             tracking=tracking,
             privacy=privacy,
             object_tracking=object_tracking,
+            video_seconds=video_seconds,
         )
     except Exception as exc:
         logger.warning("incident_report_gen: evidence cropping failed for %s: %s", incident_id, exc)
@@ -860,6 +865,7 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
                 video_key=tool_input.video_key,
                 detector=detector,
                 privacy=privacy,
+                video_seconds=video_length.seconds,
             )
             experiment["evidence_store"] = EXPERIMENT_EVIDENCE_STORE
             experiment["crop"] = crop_telemetry(evidence, budget, time.perf_counter() - crop_started)
@@ -872,6 +878,7 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
                 tracking=tracking,
                 privacy=privacy,
                 object_tracking=objects,
+                video_seconds=video_length.seconds,
             )
         if objects is not None:
             logger.info(

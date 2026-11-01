@@ -927,7 +927,7 @@ class TestObjectTrackingEvidence:
         assert request.summary.skipped is not None and "boom" not in request.summary.skipped
 
     @pytest.mark.asyncio
-    async def test_with_the_blur_on_and_no_person_track_the_frame_is_not_re_cut_but_the_track_is_kept(
+    async def test_with_the_blur_on_the_frame_is_still_re_cut_at_the_best_moment_and_blurred_there(
         self, tiny_video_path: Path
     ) -> None:
         request, _ = self._request(ObjectTrackingOutcome(tracks={"I1": self._track("I1")}))
@@ -944,7 +944,9 @@ class TestObjectTrackingEvidence:
         )
         instrument = results[1]
         assert instrument["track_source"] == OBJECT_TRACK_SOURCE and instrument["track"]
-        assert instrument["box_seconds"] == 1.0  # the located frame, whose heads the blur knows about
+        # The blur no longer depends on tracking: the frame at the new second gets its own head search.
+        assert instrument["box_seconds"] == 1.5 and instrument["located"] is True
+        assert "blur_regions" in instrument and summary.failed == 0
 
 
 class TestZoomSecondLook:

@@ -5,9 +5,11 @@
 // and its folder come from the stored revision's evidence entry, never from the browser.
 //
 // Face blur: when the video's toggle is on, or the revision's run was analysed with blur_faces, the clip is cut with the
-// heads blurred (privacy-blur.ts clipBlurRegions: per second from every track the revision stored for the video, not only
-// the item's own, and for the whole clip the heads the agent blurred in the frames of the items near it, else the heads
-// of the located people near it) and cached under the separate -clip-blur.mp4 key.
+// heads blurred (privacy-blur.ts clipBlurRegions: per second from the heads the agent found at sampled seconds of the
+// clip window (the item's own <itemId>-heads.json, whatever tracking linked), from every track the revision stored for
+// the video, not only the item's own, and for the whole clip the heads the agent blurred in the frames of the items near
+// it, else the heads of the located people near it) and cached under the separate -clip-blur.mp4 key. An item with no
+// heads file (an older version) keeps the tracks and the recorded heads.
 
 import type { IncidentRepository } from '@/modules/reports/domain/IncidentRepository';
 import { ClipError, type ClipWindow, clipCentreSeconds, clipWindow, evidenceClipKey } from '@/modules/reports/domain/evidence-clip';
@@ -16,8 +18,10 @@ import {
   type ClipBlurRegion,
   CONTEXT_SECONDS,
   clipBlurRegions,
+  type HeadSamples,
   type NormalisedBox,
   parseBlurSamples,
+  parseHeadSamples,
   recordedBlurRegions,
   runBlurredFaces,
 } from '@/modules/reports/domain/privacy-blur';
@@ -55,6 +59,7 @@ interface BlurSource {
   tracks: BlurSample[][];
   recorded: NormalisedBox[] | null;
   personBoxes: number[][];
+  heads: HeadSamples | null;
 }
 
 async function ensureClip(
@@ -88,6 +93,7 @@ async function ensureClip(
 }
 
 const TRACK_KEY = /^evidence\/.+-track\.json$/;
+const HEADS_KEY = /^evidence\/.+-heads\.json$/;
 
 /** The signed URL of the item's clip, cutting and storing it first when it is not stored yet. */
 export async function getEvidenceClip(incidents: IncidentRepository, store: ClipStore, request: EvidenceClipRequest): Promise<string> {
@@ -142,6 +148,14 @@ export async function getEvidenceClip(incidents: IncidentRepository, store: Clip
       } catch {
         throw new ClipError(502, 'A track of this video could not be read, so the clip cannot be cut with the faces blurred');
       }
+      let heads: HeadSamples | null = null;
+      if (typeof entry.heads === 'string' && HEADS_KEY.test(entry.heads)) {
+        try {
+          heads = parseHeadSamples(await store.readJson(entry.heads));
+        } catch {
+          throw new ClipError(502, "This item's head positions could not be read, so the clip cannot be cut with the faces blurred");
+        }
+      }
       const recordedLists = near.map((candidate) => recordedBlurRegions(candidate.blur_regions)).filter((list) => list !== null);
       const personBoxes = near
         .filter(
@@ -157,6 +171,7 @@ export async function getEvidenceClip(incidents: IncidentRepository, store: Clip
         // Null (nothing recorded: an older version) only when no item near the clip, and the item itself, recorded heads.
         recorded: recordedLists.length ? recordedLists.flat() : null,
         personBoxes,
+        heads,
       };
     };
     pending = ensureClip(store, key, videoKey, seconds, blur).finally(() => cutting.delete(key));

@@ -15,30 +15,39 @@
 
 """Privacy blur for stored incident evidence (``blur_faces`` on ``/analyze``).
 
-No face model: a face is blurred by blurring the head of every person the analysis knows about at the second a
-frame was read. The heads come from two places, in order:
+No face model, and no dependence on person tracking: every stored frame is searched for heads on its own.
 
-1. **Person tracks** (``INCIDENT_TRACKING_ENABLED``): the head region (:func:`head_region`, the top
-   :data:`HEAD_FRACTION` of the box, padded) of every track's visible sample within :data:`TRACK_WINDOW_SECONDS` of
-   the frame's second, from all tracks, not only those matched to a report entity. Tracker-only boxes that drift
-   away from the last real detection are not blurred.
-2. **The open-vocabulary detector**: for a person item no *solid* track head covers (a ghost track does not count),
-   one ``detect`` call for ``"the head of <label>"`` on the unblurred frame (one call against the request's
-   ``CropCallBudget`` when it has one). The detected head is blurred wherever it is, because the item's own box may
-   be wrong; the head region of the item's own box is blurred too unless the detected head sits inside it, and is
-   the only head when the detector finds nothing.
+1. **Whole-frame head detection**: one open-vocabulary detector call per distinct frame second asks for every human
+   head or face in the unblurred frame (:data:`HEADS_QUERY`; ``DefaultDetector.detect_all`` returns all of them). The
+   detected heads are blurred wherever they are, for person and non-person items alike, so a wrong or missing track
+   link or a model box on the wrong thing cannot leave a face showing.
+2. **Known people, as additional regions** (a union, so a detector miss is still covered where the analysis knows a
+   person): the head region (:func:`head_region`, the top :data:`HEAD_FRACTION` of the box, padded) of every person
+   track's visible sample within :data:`TRACK_WINDOW_SECONDS` of the frame's second (all tracks, not only those
+   matched to a report entity; tracker-only boxes that drift away from the last real detection are not blurred), and
+   the head region of every located person item's own box at that second.
 
-Every stored frame is blurred on all those heads at its second (a person item's heads also apply to the other
-items' frames at the same second), and the crop is cut from the blurred frame, so a crop of an object shows a
-blurred head only where one overlaps it. The blur is a strong pixelation (:data:`PIXEL_BLOCKS` blocks across the
-region). It runs on the decoded frame before the JPEG is encoded, so no unblurred head reaches storage; the
-zoomed second look and every model call still see the unblurred image.
+The same detection also runs on frames sampled every :data:`SAMPLE_STEP_SECONDS` over each item's evidence-clip window
+(:func:`clip_sample_times`); the heads are stored beside the item (``<itemId>-heads.json``, :func:`heads_json`) and
+the console blurs the clip on them second by second.
+
+Detector calls draw on a dedicated per-request budget (:meth:`PrivacySummary.take_call`, :func:`call_cap`), never the
+report's ``CropCallBudget``. When a frame's detection fails or the budget is spent, the frame is blurred on the known
+person regions only (a fallback, counted); with none known the item stores no image at all (fail closed). A false blur
+(a face on a screen, a poster) is accepted; a missed face is not.
+
+Every stored frame is blurred on all those heads, and the crop is cut from the blurred frame. The blur is a strong
+pixelation (:data:`PIXEL_BLOCKS` blocks across the region). It runs on the decoded frame before the JPEG is encoded, so
+no unblurred head reaches storage; the zoomed second look and every model call still see the unblurred image.
 """
 
 from collections.abc import Iterable
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field
+import json
 import math
+import os
 from typing import Any
 
 import cv2
@@ -58,7 +67,16 @@ DETECTED_HEAD_PADDING = 0.25
 TRACK_WINDOW_SECONDS = 0.5
 # The blurred region is reduced to at most this many blocks across its longer side, then scaled back.
 PIXEL_BLOCKS = 6
-HEAD_QUERY = "the head of {label}"
+HEADS_QUERY = "every human head or face"
+# Detector calls one request may spend on whole-frame head detection (stored frames and clip samples), and the
+# environment variable that overrides the default.
+CALL_CAP_ENV = "INCIDENT_BLUR_DETECTOR_CALL_CAP"
+DEFAULT_CALL_CAP = 200
+# Clip heads are sampled on a grid of this many seconds over each item's clip window. 2 fps: the console blurs a
+# second on the union of the samples around it, so a head that moves between samples stays covered.
+SAMPLE_STEP_SECONDS = 0.5
+# The console's evidence clip: this many seconds centred on the item's second (``CLIP_SECONDS`` in its evidence-clip.ts).
+CLIP_SECONDS = 4.0
 
 
 def _clamp(value: float) -> int:
@@ -167,6 +185,57 @@ def blur_frame(frame: np.ndarray, regions: Iterable[Sequence[float]]) -> np.ndar
     return blurred
 
 
+def call_cap() -> int:
+    """The per-request detector-call cap: :data:`CALL_CAP_ENV` when it is a positive integer, else :data:`DEFAULT_CALL_CAP`."""
+    try:
+        value = int(os.getenv(CALL_CAP_ENV, ""))
+    except ValueError:
+        return DEFAULT_CALL_CAP
+    return value if value > 0 else DEFAULT_CALL_CAP
+
+
+def clip_window(centre: float, duration: float | None) -> tuple[float, float]:
+    """The console's clip ``(start, length)`` for an item at ``centre`` (``clipWindow`` in its evidence-clip.ts).
+
+    :data:`CLIP_SECONDS` centred on ``centre``, shifted to stay inside a video of ``duration`` seconds (``None``: the
+    start is only clamped at 0); a video shorter than the clip is clipped whole.
+    """
+    length = CLIP_SECONDS if duration is None else min(CLIP_SECONDS, duration)
+    latest_start = math.inf if duration is None else duration - length
+    start = max(0.0, min(centre - CLIP_SECONDS / 2, latest_start))
+    return round(start, 3), round(length, 3)
+
+
+def clip_sample_times(centre: float, duration: float | None) -> list[float]:
+    """Video seconds to look for heads at for the clip of an item at ``centre``, nearest to ``centre`` first.
+
+    The grid points of :data:`SAMPLE_STEP_SECONDS` from one step before the clip window to one step after it (the
+    console blurs a second on the samples within one step of it), inside the video.
+    """
+    start, length = clip_window(centre, duration)
+    first = math.ceil((start - SAMPLE_STEP_SECONDS) / SAMPLE_STEP_SECONDS - 1e-9)
+    last = math.floor((start + length + SAMPLE_STEP_SECONDS) / SAMPLE_STEP_SECONDS + 1e-9)
+    times = [k * SAMPLE_STEP_SECONDS for k in range(max(0, first), last + 1)]
+    if duration is not None:
+        times = [t for t in times if t < duration]
+    return sorted(times, key=lambda t: (abs(t - centre), t))
+
+
+def heads_json(samples: Iterable[tuple[float, Sequence[Box], bool]]) -> bytes:
+    """The heads file of one item (``<itemId>-heads.json``): ``{step_seconds, samples: [{t, boxes, fallback?}]}``.
+
+    ``boxes`` are the regions to blur at video second ``t``, normalised ``[ymin, xmin, ymax, xmax]``; ``fallback`` is
+    set on a sample whose detection failed, whose boxes are then the known person heads only.
+    """
+    rows = []
+    for t, boxes, fallback in sorted(samples, key=lambda sample: sample[0]):
+        row: dict[str, Any] = {"t": round(t, 3), "boxes": [list(box) for box in boxes]}
+        if fallback:
+            row["fallback"] = True
+        rows.append(row)
+    return json.dumps({"step_seconds": SAMPLE_STEP_SECONDS, "samples": rows}, separators=(",", ":")).encode()
+
+
 @dataclass
 class PrivacySummary:
     """What ``/analyze`` reports about the privacy blur (``privacy``) of a request that asked for it."""
@@ -174,24 +243,36 @@ class PrivacySummary:
     blur_faces: bool = True
     regions: int = 0  # head regions blurred, counted per stored frame
     frames: int = 0  # stored frames that had at least one region blurred
-    track_heads: int = 0  # person items whose head came from a track
-    detector_heads: int = 0  # person items whose head the detector found
-    box_heads: int = 0  # person items whose head is the top of their own box (the detector found none)
-    unblurred_people: int = 0  # person items with no head anywhere (not located, and the detector found none)
-    head_queries: int = 0  # detector calls asking for a head
+    head_detections: int = 0  # heads the whole-frame detections found (per distinct second looked at)
+    detector_calls: int = 0  # whole-frame head detection calls made
+    call_cap: int = field(default_factory=call_cap)
+    cap_refused: int = 0  # detections not made because the call cap was spent
+    clip_samples: int = 0  # extra seconds looked at only for the evidence clips
+    fallbacks: int = 0  # seconds whose detection failed or was refused: blurred on the known person heads only
     failed: int = 0  # items whose images were dropped because the blur failed (never stored unblurred)
+
+    def take_call(self) -> bool:
+        """Count one detector call against the cap; False (and counted as refused) when the cap is spent."""
+        if self.detector_calls >= self.call_cap:
+            self.cap_refused += 1
+            return False
+        self.detector_calls += 1
+        return True
+
+    def refund_call(self) -> None:
+        """Give back a call taken for a frame that could not be read, so nothing was sent."""
+        self.detector_calls = max(0, self.detector_calls - 1)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "blur_faces": self.blur_faces,
             "regions": self.regions,
             "frames": self.frames,
-            "heads": {
-                "track": self.track_heads,
-                "detector": self.detector_heads,
-                "box": self.box_heads,
-                "none": self.unblurred_people,
-            },
-            "head_queries": self.head_queries,
+            "head_detections": self.head_detections,
+            "detector_calls": self.detector_calls,
+            "call_cap": self.call_cap,
+            "cap_refused": self.cap_refused,
+            "clip_samples": self.clip_samples,
+            "fallbacks": self.fallbacks,
             "failed": self.failed,
         }
