@@ -27,6 +27,7 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
   - Every cited id is checked against the version, and unknown ones are dropped and counted.
   - The answer follows `chat-contract-v2`: v1 plus `insufficient_evidence` and `grounding`.
   - The model client and its clock are injectable, and the request has a golden (`contracts/golden/chat.json`).
+  - **Prose and ids (revised 2026-11-01, after the item-list answer on localhost):** the prompt names people and objects by their descriptions, keeps item ids out of the answer unless the question asks for them, and tells a what-happened question as the timeline in order with `m:ss` times; the context sorts the timeline and adds the clock times. The first prompt said to refer to people "by their description as well as their id". A known id still written in the prose is resolved to the item's description by the same function the template mode uses, and listed in `grounding.ids_resolved`, so prompt compliance can be measured.
 - **Why:** today's chat makes no model call. It keyword-ranks saved evidence into a template sentence, and for the official version with no draft it asks a canned in-memory search client that knows no finals video. The brief asks for a working chatbot first, and Evaluation V2 measures answers: fact recall, citations, refusals.
 - **Rejected:**
   - Retrieval over `evidence_crops` alone: it holds one version per video and no incident-level facts.

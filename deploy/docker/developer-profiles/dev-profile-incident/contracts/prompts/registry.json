@@ -200,7 +200,7 @@
     {
       "id": "chat/incident-answer",
       "file": "chat/incident-answer.txt",
-      "sha256": "e9135eaccfcc4714b2e3c243a22590a4348555272ff79a2243e310a1dc882c3d",
+      "sha256": "c40e61855bad24928384bcfd2fbb50686df253009b2aa0a67318ea42cf0efb14",
       "stage": "chat",
       "placeholders": [],
       "used_by": [

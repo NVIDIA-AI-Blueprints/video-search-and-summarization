@@ -125,6 +125,13 @@
           },
           "description": "Item ids the model cited that the report does not hold (never shown)."
         },
+        "ids_resolved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Item ids the model wrote in the answer text although the question did not ask for ids; each was resolved to the item's description before the answer was returned."
+        },
         "prompt_sha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"

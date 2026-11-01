@@ -514,7 +514,8 @@ def create_incident_chat_router(
         history = [message.model_dump() for message in body.messages]
         try:
             reply = await model.complete(grounded_chat.chat_messages(context, history), grounded_chat.ANSWER_SCHEMA)
-            answer = grounded_chat.check_answer(reply, context)
+            question = next((m.content for m in reversed(body.messages) if m.role == "user"), "")
+            answer = grounded_chat.check_answer(reply, context, question=question)
         except grounded_chat.ChatModelError as exc:
             logger.error("Chat model failed for version %s: %s", version_id, exc)
             raise HTTPException(status_code=502, detail=f"Chat model error: {exc}") from exc
@@ -542,6 +543,7 @@ def create_incident_chat_router(
             "official": official,
             "draft": body.draft_report is not None,
             "dropped_citations": list(answer.dropped_citations),
+            "ids_resolved": list(answer.ids_resolved),
             "prompt_sha256": grounded_chat.incident_contract.prompt_sha256(grounded_chat.PROMPT_ID),
             "usage": dict(getattr(model, "last_usage", {}) or {}),
         }

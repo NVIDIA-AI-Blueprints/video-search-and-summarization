@@ -487,6 +487,11 @@ def resolve_references(text: str, mentions: Mapping[str, str]) -> str:
     return _sentence_case(_resolve_plain(text, mentions))
 
 
+def asks_for_ids(question: str) -> bool:
+    """Whether a question asks for item ids ("what are the item ids of ..."): only then may ids appear in the prose."""
+    return bool(_ASKS_IDS.search(question.lower()))
+
+
 def referenced_ids(text: str, known: Iterable[str]) -> list[str]:
     """The known item ids a piece of report text refers to, in order of first reference."""
     known = set(known)

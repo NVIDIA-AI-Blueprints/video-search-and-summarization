@@ -219,3 +219,90 @@ def test_the_default_model_sends_a_strict_schema_request(monkeypatch):
     body = model.request_body([{"role": "user", "content": "q"}], grounded_chat.ANSWER_SCHEMA)
     assert body["model"] == grounded_chat.DEFAULT_MODEL and body["temperature"] == 0
     assert body["response_format"]["json_schema"]["strict"] is True
+
+
+# ---------------------------------------------------------------------------
+# Prose, chronology and id leakage (regression: answers must read as prose, ids only in citations)
+# ---------------------------------------------------------------------------
+
+ID_TOKEN = __import__("re").compile(r"(?<![A-Za-z0-9])[EIA][0-9]+(?![A-Za-z0-9])")
+
+
+def test_the_prompt_asks_for_prose_without_ids_and_the_timeline_in_order():
+    prompt = incident_contract.prompt(grounded_chat.PROMPT_ID)
+    assert "never write them in the answer unless the question asks for ids" in prompt
+    assert "tell the timeline events in time order" in prompt
+    assert "Refer to people by their description as well as their id" not in prompt
+
+
+def test_the_context_sorts_the_timeline_and_gives_each_event_its_clock_time():
+    report = {
+        **REPORT,
+        "timeline": [
+            {"start_seconds": 65, "end_seconds": 70, "description": "E1 runs."},
+            {"start_seconds": 2, "end_seconds": None, "description": "E1 hits E2."},
+        ],
+    }
+    context = grounded_chat.report_context(report, EVIDENCE)
+    assert [e["start_clock"] for e in context["timeline"]] == ["0:02", "1:05"]
+    assert "end_clock" not in context["timeline"][0] and context["timeline"][1]["end_clock"] == "1:10"
+
+
+def test_a_chronological_answer_is_returned_as_the_model_wrote_it_with_its_citations():
+    narrative = "At 0:02, the man in the red hood hits the man in blue with a green bottle."
+    client, model = _client(
+        {"answer": narrative, "citations": [{"item_id": "E1"}, {"item_id": "I1"}], "insufficient_evidence": False}
+    )
+    body = _ask(client, question="What happened, in order?", version_id=7).json()
+    assert body["message"]["content"] == narrative
+    assert [c["item_id"] for c in body["message"]["citations"]] == ["E1", "I1"]
+    assert body["grounding"]["ids_resolved"] == []
+    report = json.loads(model.calls[0][1]["content"].removeprefix("REPORT:\n"))
+    assert report["timeline"][0]["start_clock"] == "0:02"
+    _validate(body)
+
+
+def test_ids_the_model_writes_in_the_prose_are_resolved_to_descriptions_and_recorded():
+    client, _ = _client(
+        {"answer": "E1 hits E2 with I1 (I1) at 0:02.", "citations": [{"item_id": "E1"}], "insufficient_evidence": False}
+    )
+    body = _ask(client, question="What happened?", version_id=7).json()
+    assert body["message"]["content"] == "The man in a red hood hits the man in blue with the bottle at 0:02."
+    assert not ID_TOKEN.search(body["message"]["content"])
+    assert body["grounding"]["ids_resolved"] == ["E1", "E2", "I1"]
+    assert [c["item_id"] for c in body["message"]["citations"]] == ["E1"], "the ids stay in the citations"
+    _validate(body)
+
+
+def test_ids_stay_when_the_question_asks_for_them():
+    client, _ = _client(
+        {
+            "answer": "The bottle is I1 and the man in the red hood is E1.",
+            "citations": [{"item_id": "I1"}, {"item_id": "E1"}],
+            "insufficient_evidence": False,
+        }
+    )
+    body = _ask(client, question="What are the item ids of the bottle and its holder?", version_id=7).json()
+    assert body["message"]["content"] == "The bottle is I1 and the man in the red hood is E1."
+    assert body["grounding"]["ids_resolved"] == []
+
+
+def test_an_object_question_answer_cites_the_object_and_an_unanswerable_one_cites_nothing():
+    client, _ = _client(
+        {
+            "answer": "A green bottle, held by the man in the red hood.",
+            "citations": [{"item_id": "I1"}, {"item_id": "E1"}],
+            "insufficient_evidence": False,
+        }
+    )
+    body = _ask(client, question="What weapon was used?", version_id=7).json()
+    assert [c["item_type"] for c in body["message"]["citations"]] == ["instrument", "entity"]
+    client, _ = _client(
+        {
+            "answer": "The report does not say what the weather was.",
+            "citations": [{"item_id": "E1"}],
+            "insufficient_evidence": True,
+        }
+    )
+    body = _ask(client, question="What was the weather?", version_id=7).json()
+    assert body["message"]["insufficient_evidence"] is True and body["message"]["citations"] == []
