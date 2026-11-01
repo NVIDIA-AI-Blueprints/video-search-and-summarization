@@ -105,7 +105,7 @@ F and G are instruments applied to every call in A–E, not separate runs.
   - contradiction rate against the ground truth;
   - citation precision and recall;
   - refusal precision and recall on unanswerable and false-premise questions;
-  - exact match on counts and lists.
+  - exact match on counts and lists (for the most common type, the type the answer calls the most common; a ranking of the others after it is not an extra item).
 - *Conditions:* oracle corpus (reports derived from the ground truth) versus system corpus (a frozen analysis run), always reported apart.
 
 **E: AI dashboard.**
