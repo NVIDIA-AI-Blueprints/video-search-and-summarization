@@ -151,12 +151,16 @@ def _datasets(args: argparse.Namespace) -> int:
 
 
 def _labels(path: Path) -> dict[str, str]:
-    """Item id to label from a decisions JSONL (``record_id``, ``decision``) or a plain one (``id``, ``label``)."""
+    """Item id to label from a decisions JSONL (``record_id``, ``decision``) or a plain one (``id``, ``label``).
+
+    Labels are compared as text, like ``--categories``: a severity written as ``3`` in one file and ``"3"`` in the
+    other is the same label.
+    """
     out = {}
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         if line.strip():
             row = json.loads(line)
-            out[str(row.get("record_id", row.get("id")))] = row["decision"] if "decision" in row else row["label"]
+            out[str(row.get("record_id", row.get("id")))] = str(row["decision"] if "decision" in row else row["label"])
     return out
 
 
