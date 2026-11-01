@@ -2,6 +2,22 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-01: Template chat answers from the report version in prose, and the default chat search client searches nothing
+- **Decision:**
+  - **Composed answers:** in the chat route's template mode (no model), a question about a version that is not official, or about a draft, is answered by `utils/report_answers.py` from that version's report:
+    - the timeline in time order for a what-happened question;
+    - otherwise the people, the objects with their holders, what was taken (the timeline's takings, or that the report doesn't say), what could cause harm (the instruments with their threat levels), the incident window or an item's time, the severity or the type. A compound question gets each part answered;
+    - otherwise the matching timeline events;
+    - otherwise "This report doesn't mention ...", with no citations.
+  - **Names and ids:** items are named by their labels or descriptions. The ids the P1 timeline uses as references ("E1 strikes E2 with I1") are resolved to those descriptions and kept only in the structured citations. An id is written in the prose only when the question asks for ids. The console's citation chips under an answer show the item's name ("Person in light shirt"), never its id.
+  - **Default search client:** the route's default (`DisabledSearchClient`) searches nothing. A question about the official version (decision 2026-10-24, unchanged) and a library question get an answer saying that this chat mode does not search that scope.
+- **Why:** on 2026-11-01 the localhost console (vm mode, the VM agent on `main`) answered "What happened, in order?" with "5 relevant item(s) were identified: human (E1) in vc8328cb9cdcdfa99fa8 (incident at 134s); ...". The template ranked evidence items by keyword: a question with no item words got the first five items. It never read the timeline or the description, and its formatter wrote the ids into the prose. The default in-memory client also served its demo incidents (`Assault007`, `Burglary005`) as if they were real for every library question.
+- **Rejected:**
+  - removing the ids from the old sentence: it would still list items for every question;
+  - answering the official version from its saved report as well: that supersedes the 2026-10-24 decision (Gate M2);
+  - wiring the real search store or a model into this mode: that is grounded chat (P5 and P6), behind the same gate.
+- **Links:** [`report_answers.py`](../../../../../services/agent/src/vss_agents/utils/report_answers.py), [`incident_chat.py`](../../../../../services/agent/src/vss_agents/api/incident_chat.py), [`vm-api-contracts.md`](vm-api-contracts.md#post-apiv1incidentschat), [2026-10-24 decision](#2026-10-24-chat-about-the-official-version-uses-the-in-memory-chat-search-client-for-mvp2).
+
 ### 2026-11-01: The dashboard breaks ties in byte order (COLLATE "C"), whatever the database collation
 - **Decision:** every text tie-break in `get_incident_dashboard` (types, entity, instrument and asset labels, model names) says `COLLATE "C"`. The function is otherwise unchanged (migration `20261101120000_dashboard_byte_order_ties.sql`).
 - **Why:** ties followed the database's default collation. en_US ignores spaces, hyphens and case at the first level and C does not, so two databases with the same rows could rank ties differently ("car-door" and "carbon"; "Unknown model" and "nvidia/..."). The order also decided which tied labels made a top-3 or top-8 cut. Evaluation V2 checks dashboard figures three ways (the SQL in a C.UTF-8 harness, a Python recount in byte order, and the console's chart code), and those checks only hold for finals if finals breaks ties the same way.
