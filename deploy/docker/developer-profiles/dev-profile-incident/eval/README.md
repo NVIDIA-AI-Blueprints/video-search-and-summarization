@@ -53,9 +53,9 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - **`scoring.py`:** follows V1's `run_evaluation` and calls V1's own rules through `v1.py`, the task's only bridge to V1. Similarity and judge scores are injected providers whose results are recorded, so a run's full similarity matrices and judgements make re-scoring offline and exact.
     - **`aggregate.py`:** reports V1's own aggregates as `continuity_v1`, plus the V2 metrics: type macro-F1 (over the labels with ground-truth support; a label no clip has is `None`, not 0) and confusion, severity quadratic-weighted κ, timestamp errors with a tolerance curve, the incident window's temporal IoU, and attribute accuracies.
   - **`tasks/crops/scoring.py`:** evidence boxes against box references, per reference tier.
-    - **Operational:** was a box located? A crop-call cap, a missing detector or store, or a crop error makes the entry unscorable, never a miss.
-    - **Temporal:** the evidence second (`box_seconds`, else the requested one) against the item's visible seconds.
-    - **Same-second IoU:** correct evidence means IoU ≥ 0.5 at a visible second.
+    - **Operational:** was a box located? An entry the locate step never judged is unscorable, never a miss: a crop-call cap, a missing detector or store, a crop error, no frame produced, a failed upload or privacy blur, or cropping skipped or failed (`UNSCORABLE_GAPS`, the agent's own `image_gap` strings, which a test checks against the agent source; any entry with `located` still null and no box counts too).
+    - **Temporal:** the evidence second (`box_seconds`, else the requested one) inside one of the reference's `visible_spans`.
+    - **Same-second IoU:** correct evidence means a temporal hit with IoU ≥ 0.5 against the reference box at that second. A second in a span without a reference box (the passes disagreed there) leaves IoU and correctness unscored (`correct_unscored`), not a miss.
     - Primary metrics use `human_verified` references; the AI tiers are reported beside them.
     - The agent stores a 5%-padded box. A recorded `detected_box` is preferred; otherwise the padding is inverted and counted as an estimate.
   - **`tasks/judging.py`:** judge results as data. A cache is keyed by judge model, prompt hash, settings and texts. An offline judge never calls a model, and a missing judgement is unscored, not failed.
