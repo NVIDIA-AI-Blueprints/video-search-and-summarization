@@ -306,3 +306,39 @@ def test_an_object_question_answer_cites_the_object_and_an_unanswerable_one_cite
     )
     body = _ask(client, question="What was the weather?", version_id=7).json()
     assert body["message"]["insufficient_evidence"] is True and body["message"]["citations"] == []
+
+
+def test_a_console_draft_is_overlaid_so_the_model_still_sees_the_timeline_and_title():
+    draft = {
+        "incident": {"type": "assault", "description": "A fight near the door."},
+        "entities": [
+            {"entity_id": "E1", "type": "human", "description": "man in a red hood"},
+            {"entity_id": "new-E3", "type": "human", "description": "bystander"},
+        ],
+        "instruments": [],
+        "assets": [],
+    }
+    client, model = _client(
+        {"answer": "At 0:02, E1 hits E2 while new-E3 watches.", "citations": [], "insufficient_evidence": False}
+    )
+    body = _ask(client, question="What happened?", version_id=7, draft_report=draft).json()
+    report = json.loads(model.calls[0][1]["content"].removeprefix("REPORT:\n"))
+    assert report["incident"]["title"] == "Fight at the door" and report["timeline"][0]["description"] == "E1 hits E2."
+    assert body["message"]["content"] == "At 0:02, the man in a red hood hits a person while the bystander watches."
+    assert body["grounding"]["ids_resolved"] == ["E1", "E2", "new-E3"], "E2 was removed in the draft"
+
+
+@pytest.mark.parametrize("answer", ["", "   "])
+def test_an_empty_answer_is_a_model_failure_not_a_turn(answer):
+    client, _ = _client({"answer": answer, "citations": [], "insufficient_evidence": False})
+    response = _ask(client, version_id=7)
+    assert response.status_code == 502 and "empty answer" in response.json()["detail"]
+
+
+def test_an_invented_id_in_the_prose_is_neutral_and_recorded():
+    client, _ = _client(
+        {"answer": "E7 hands I9 to E1.", "citations": [{"item_id": "E7"}], "insufficient_evidence": False}
+    )
+    body = _ask(client, question="What happened?", version_id=7).json()
+    assert body["message"]["content"] == "A person hands an object to the man in a red hood."
+    assert body["grounding"]["ids_resolved"] == ["E7", "I9", "E1"] and body["grounding"]["dropped_citations"] == ["E7"]

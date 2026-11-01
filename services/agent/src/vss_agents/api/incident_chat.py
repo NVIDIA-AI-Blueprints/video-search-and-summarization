@@ -507,15 +507,21 @@ def create_incident_chat_router(
             raise HTTPException(status_code=502, detail=f"Report revision error: {exc}") from exc
 
         saved = revision.get("evidence") or []
-        report = body.draft_report if body.draft_report is not None else (revision.get("payload") or {})
-        evidence = _draft_evidence(body.draft_report, saved) if body.draft_report is not None else saved
+        raw = revision.get("payload")
+        payload: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        report, evidence, retired = payload, saved, set[str]()
+        if body.draft_report is not None:
+            # The console's draft holds only the edited fields; the title, timeline and the rest come from the base.
+            report = report_answers.overlay_draft(payload, body.draft_report)
+            evidence = _draft_evidence(body.draft_report, saved)
+            retired = report_answers.item_ids(payload) - report_answers.item_ids(report)
         context = grounded_chat.report_context(report, evidence)
         model = _model()
         history = [message.model_dump() for message in body.messages]
         try:
             reply = await model.complete(grounded_chat.chat_messages(context, history), grounded_chat.ANSWER_SCHEMA)
             question = next((m.content for m in reversed(body.messages) if m.role == "user"), "")
-            answer = grounded_chat.check_answer(reply, context, question=question)
+            answer = grounded_chat.check_answer(reply, context, question=question, retired=retired)
         except grounded_chat.ChatModelError as exc:
             logger.error("Chat model failed for version %s: %s", version_id, exc)
             raise HTTPException(status_code=502, detail=f"Chat model error: {exc}") from exc
