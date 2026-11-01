@@ -165,7 +165,8 @@ def test_a_system_corpus_answer_naming_its_own_id_is_judged_on_the_person():
 
 def test_holder_answers_without_a_judge_are_unscored_and_refusals_are_wrong():
     assert _holder("The man in red.")["holder_identified"] is None
-    assert _holder("I cannot tell.", refused=True)["holder_identified"] is False
+    refused = _holder("I cannot tell.", refused=True)
+    assert refused["holder_identified"] is False and refused["exact"] is None, "a judged kind is never in exact_rate"
     summary = sc.aggregate([_holder("The man in red.", judges={"fact": _DescriptionJudge()})])
     assert summary["system"]["ai_proposed"]["holder_identified_rate"] == 1.0
     assert summary["system"]["ai_proposed"]["by_class"]["incident.instrument_holder"]["holder_identified_rate"] == 1.0
