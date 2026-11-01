@@ -58,6 +58,14 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - **Same-second IoU:** correct evidence means IoU ≥ 0.5 at a visible second.
     - Primary metrics use `human_verified` references; the AI tiers are reported beside them.
     - The agent stores a 5%-padded box. A recorded `detected_box` is preferred; otherwise the padding is inverted and counted as an estimate.
+  - **`tasks/chat/scoring.py`:** chat answers against chat references.
+    - **Retrieval:** V1's MVP2 `list_metrics` (P@K, R@K, MRR) through the `tasks/chat/v1.py` bridge, plus nDCG@K.
+    - **Exact answers:** counts, values, lists and windows.
+    - **Refusals:** expected only for unanswerable and false-premise questions.
+    - **Citations:** precision and recall.
+    - **Judged checks:** fact recall, unsupported claims and contradictions, each through the judge cache with a hash-pinned prompt (`judge-*-v1.txt`), so a re-score replays offline.
+    - The judge must not share a model family with a subject or the reference generator (`check_judge_family`).
+    - Oracle and system corpora, and reference tiers, are aggregated apart; `primary` is `human_verified`.
   - **`tasks/judging.py`:** judge results as data. A cache is keyed by judge model, prompt hash, settings and texts. An offline judge never calls a model, and a missing judgement is unscored, not failed.
 - **`evalv2.references`:** the box-reference tooling (R2). Making references is the approved run RA1.
   - **`boxes.py`:**

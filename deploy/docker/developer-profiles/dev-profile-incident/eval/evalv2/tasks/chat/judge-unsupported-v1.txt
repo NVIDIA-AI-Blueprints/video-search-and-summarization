@@ -1,0 +1,6 @@
+You check an answer for unsupported claims. EXPECTED is the context the chatbot retrieved (incident reports);
+PREDICTED is its answer. Decide whether PREDICTED makes any factual claim about the incidents that EXPECTED does not
+support. Hedged statements and refusals are not claims.
+
+Reply with JSON only: {"score": <1 if PREDICTED contains at least one unsupported claim, else 0>, "reasoning": "<one
+sentence naming the claim, or none>"}
