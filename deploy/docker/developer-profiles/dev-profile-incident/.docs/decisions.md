@@ -2,6 +2,31 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-01: Request goldens pin every model request, checked by each producer
+- **Decision:** `contracts/golden/` holds the exact request bodies the profile sends to models, one JSON file per kind with named cases:
+  - P1 (base, reviewer instruction, caption context, set-of-marks, both);
+  - RP1;
+  - the caption pass;
+  - grounding and the privacy head search;
+  - the zoomed second look;
+  - the dashboard chart request.
+- **How it is checked:**
+  - Every producer (console, eval, agent) has a test that builds its requests with its own code and compares them with the cases naming it, and asserts it covers all of them.
+  - P1 and RP1 are therefore equal across producers.
+  - The other prompts are pinned before Evaluation V2 records them as a run's provenance.
+- **Comparison and references:**
+  - Bodies compare as JSON values. The agent may add `"stream": false`; inline images compare as a placeholder.
+  - The P1 prompt and `response_format` are referenced by path and sha256 rather than copied.
+- **Why:** Evaluation V2 compares models through the production pipeline. Its results mean something only if the requests it measures are the ones production sends.
+  - Before this, only P1 had a parity check (eval against the console, and Stage 3's preflight against the agent).
+  - The caption, grounding, zoom and chart prompts were unversioned literals that could drift unnoticed.
+  - A golden makes every change to them a visible diff, and the planned move of those prompts into a registry must leave the goldens unchanged.
+- **Rejected:**
+  - Copying the full P1 prompt and schema into each case: 27 KB per case, and every contract bump would show the same diff several times.
+  - Snapshot tests per producer: they prove nothing about two producers agreeing.
+  - Comparing serialized bytes: Python and JavaScript serialize whitespace and `0.0` differently, while the server parses JSON.
+- **Links:** [`contracts/golden/`](../contracts/golden/README.md), [analysis request](analysis-schema.md#2-the-analysis-request-identical-to-eval-p1)
+
 ### 2026-11-01: Template chat answers from the report version in prose, and the default chat search client searches nothing
 - **Decision:**
   - **Composed answers:** in the chat route's template mode (no model), a question about a version that is not official, or about a draft, is answered by `utils/report_answers.py` from that version's report:
