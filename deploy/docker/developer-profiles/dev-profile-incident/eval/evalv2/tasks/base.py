@@ -59,6 +59,11 @@ class PredictionRecord:
     timing: Mapping[str, Any] | None = None
     provenance: Mapping[str, Any] = field(default_factory=dict)  # model and prompt hash of every stage
 
+    @property
+    def failure_kind(self) -> str | None:
+        """The adapter's failure kind. A checkpoint needs it beside ``outcome``, which may be V1's lossy label."""
+        return None if self.failure is None else self.failure.get("kind")
+
 
 @dataclass(frozen=True)
 class ScoreRecord:
