@@ -10,12 +10,15 @@ The single source of truth for incident extraction: one prompt, one output schem
 | [`VERSION`](VERSION) | The contract version, stored as `prompt_version` on model runs |
 | [`inference.json`](inference.json) | P1 and RP1 settings and the model allowlist |
 | [`fixtures/`](fixtures/) | Valid, invalid and policy cases both validators must agree on |
+| [`prompts/`](prompts/README.md) | Every other model prompt: the caption pass, the P1 preambles, grounding, the zoomed second look, and the exported chart prompt and allowlist. The agent vendors its prompts; the console reads the reviewer preamble |
+| [`golden/`](golden/README.md) | The exact request bodies sent to models (P1, RP1, captions, grounding, zoom, chart); the console, eval and the agent each test theirs against them |
 | [`search-contract-v1/`](search-contract-v1/README.md), [`chat-contract-v1/`](chat-contract-v1/README.md) | The MVP2 search and chat HTTP contracts |
 
 ## Changing it
 
-1. Edit the files here only, then run `python sync.py` to copy them into the agent (`python sync.py --check` reports drift).
+1. Edit the files here only, then run `python sync.py` to copy them into the agent, including the agent's prompts from `prompts/` (`python sync.py --check` reports drift).
 2. Bump `VERSION` and update every consumer in the same PR; a taxonomy change also needs a migration.
+3. Update the request goldens it changes ([`golden/`](golden/README.md#changing-a-request)): the P1 and RP1 cases reference the contract files by sha256.
 
 How the contract is validated, repaired and stored: [`../.docs/analysis-schema.md`](../.docs/analysis-schema.md).
 

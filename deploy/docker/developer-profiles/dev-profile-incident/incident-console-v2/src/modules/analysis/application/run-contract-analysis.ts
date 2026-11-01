@@ -339,6 +339,7 @@ export async function runContractAnalysis(
         tracking?: unknown;
         privacy?: unknown;
         object_tracking?: unknown;
+        provenance?: unknown;
       };
       let agentP1: AgentP1 | null = null;
       if (agentResponse.ok) {
@@ -392,6 +393,10 @@ export async function runContractAnalysis(
       // Object tracking (agent INCIDENT_OBJECT_TRACKING_ENABLED): its summary {enabled, seeds, tracked, tracker, items, ...}, as returned.
       if (agentP1.object_tracking && typeof agentP1.object_tracking === 'object' && !Array.isArray(agentP1.object_tracking))
         response.object_tracking = agentP1.object_tracking as Record<string, unknown>;
+      // Run provenance (agent incident-run-provenance-v1): every stage's model, prompt hashes and calls, and the agent's
+      // commit, on a success and on a contract rejection alike; written once with this attempt.
+      if (agentP1.provenance && typeof agentP1.provenance === 'object' && !Array.isArray(agentP1.provenance))
+        response.provenance = agentP1.provenance as Record<string, unknown>;
 
       if (agentP1.contract_version !== ports.catalog.contractVersion()) {
         const message = `Agent contract version (${String(agentP1.contract_version ?? 'missing')}) does not match console (${ports.catalog.contractVersion()})`;

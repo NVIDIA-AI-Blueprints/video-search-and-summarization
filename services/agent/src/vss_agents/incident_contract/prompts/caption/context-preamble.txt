@@ -1,0 +1,7 @@
+CONTEXT FROM A FIRST PASS OVER THE SAME VIDEO (not evidence by itself).
+Each line below is a caption of one time window of the video, written by the same vision model from
+a denser frame sample of that window alone. Times are seconds from the start of the whole video.
+Use these captions to notice short actions and their timing, then verify them against the video;
+where a caption and the video disagree, trust the video. Do not copy caption wording blindly.
+Timeline start_seconds and end_seconds must come from the video, not from the window bounds.
+Windows in which nothing happened (a static view, no activity) are left out of this context.
