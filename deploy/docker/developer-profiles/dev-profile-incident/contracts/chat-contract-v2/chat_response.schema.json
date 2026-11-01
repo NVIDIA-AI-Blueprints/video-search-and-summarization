@@ -170,6 +170,13 @@
             "type": "string"
           },
           "description": "Library scope: the incidents shown to the model."
+        },
+        "incident_titles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Library answers: how each incident shown is named in prose (its type and title), keyed by incident id, for labelling citations without ids."
         }
       }
     }

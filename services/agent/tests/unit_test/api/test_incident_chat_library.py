@@ -207,6 +207,7 @@ def test_incident_and_item_ids_in_a_library_answer_are_resolved_and_recorded():
         '("Fight with a bottle outside"), where the bottle was a glass bottle.'
     )
     assert body["grounding"]["ids_resolved"] == ["V1", "V3", "I1"]
+    assert body["grounding"]["incident_titles"]["V1"] == 'the assault ("Bottle attack at the bar")'
     assert [(c["incident_id"], c["item_id"]) for c in body["message"]["citations"]] == [("V1", "I1"), ("V3", "I1")]
 
 

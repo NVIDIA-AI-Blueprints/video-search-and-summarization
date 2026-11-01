@@ -696,6 +696,8 @@ def create_incident_chat_router(
             )
         grounding["dropped_citations"] = list(answer.dropped_citations)
         grounding["ids_resolved"] = list(answer.ids_resolved)
+        # How each incident shown is named in prose (type and title), so a client can label citations without ids.
+        grounding["incident_titles"] = {r["incident_id"]: grounded_chat.incident_mention(r) for r in context["reports"]}
         grounding["usage"] = dict(getattr(model, "last_usage", {}) or {})
         return ChatResponse(
             session_id=session_id,
