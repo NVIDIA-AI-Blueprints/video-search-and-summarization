@@ -56,6 +56,8 @@ export interface AnalysisAttemptRecord {
     privacy?: Record<string, unknown>;
     /** Agent mode, object tracking on: the agent's object-tracking summary ({enabled, seeds, tracked, tracker, items, ...}) as returned. */
     object_tracking?: Record<string, unknown>;
+    /** Agent mode: the run provenance ({schema, agent, contract_version, flags, stages}) as returned, failed and refused calls included. */
+    provenance?: Record<string, unknown>;
   } | null;
   /**
    * firstPass: every violation of the original response, each with its

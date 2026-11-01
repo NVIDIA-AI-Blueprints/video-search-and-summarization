@@ -10,6 +10,7 @@
     "lint": "biome check . && tsc --noEmit",
     "format": "biome format --write .",
     "test": "node --experimental-strip-types --experimental-test-module-mocks --test \"tests/*.test.mjs\" \"src/**/*.test.mjs\"",
+    "export:prompts": "node --experimental-strip-types scripts/export-prompts.mjs",
     "clean": "rm -rf .next"
   },
   "dependencies": {

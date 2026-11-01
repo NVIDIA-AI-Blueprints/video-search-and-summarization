@@ -1,0 +1,94 @@
+{
+  "golden": "caption",
+  "description": "Caption-pass requests (one per window of a clip over 30 s; agent only). The window is a signed URL of an ffmpeg cut, so its times start at 0.",
+  "cases": {
+    "window": {
+      "description": "A full window: the default 20 s at the default 32 frames.",
+      "producers": [
+        "agent"
+      ],
+      "inputs": {
+        "model": "<model>",
+        "video_url": "<window-url>",
+        "window_length": 20.0,
+        "num_frames": 32
+      },
+      "body": {
+        "model": "<model>",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a monitoring system analyzing video footage.\nYour task is to describe the events in the video in detail or answer the user's question about the video.\n  IMPORTANT:\n  - You must respond only in English and in plain text.\n  - You must respond only in the format specified in the OUTPUT REQUIREMENTS section.\n  - Timestamp must be in pts format, seconds since the start of the video.\n  - Always provide a direct answer to the question asked.\n  - Never return an empty response. If you cannot find what the user is asking about, acknowledge it to the user.\n"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "video_url",
+                "video_url": {
+                  "url": "<window-url>"
+                }
+              },
+              {
+                "type": "text",
+                "text": "Describe in detail what is happening in this video,\nincluding all visible people, vehicles, equipments, objects,\nactions, and environmental conditions.\nOUTPUT REQUIREMENTS:\n[timestamp-timestamp] Description of what is happening.\nEXAMPLE:\n[0.0s-4.0s] <description of the first event>\n[4.0s-12.0s] <description of the second event>\n\n    All events from the video should fall within the time range:\n    START_TIME: 0s\n    END_TIME: 20.0s\n"
+              }
+            ]
+          }
+        ],
+        "stream": false,
+        "temperature": 0.0,
+        "max_tokens": 4096,
+        "media_io_kwargs": {
+          "video": {
+            "num_frames": 32
+          }
+        }
+      }
+    },
+    "remainder": {
+      "description": "A shorter last window: END_TIME is the length rounded to 0.1 s.",
+      "producers": [
+        "agent"
+      ],
+      "inputs": {
+        "model": "<model>",
+        "video_url": "<window-url>",
+        "window_length": 12.34,
+        "num_frames": 32
+      },
+      "body": {
+        "model": "<model>",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a monitoring system analyzing video footage.\nYour task is to describe the events in the video in detail or answer the user's question about the video.\n  IMPORTANT:\n  - You must respond only in English and in plain text.\n  - You must respond only in the format specified in the OUTPUT REQUIREMENTS section.\n  - Timestamp must be in pts format, seconds since the start of the video.\n  - Always provide a direct answer to the question asked.\n  - Never return an empty response. If you cannot find what the user is asking about, acknowledge it to the user.\n"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "video_url",
+                "video_url": {
+                  "url": "<window-url>"
+                }
+              },
+              {
+                "type": "text",
+                "text": "Describe in detail what is happening in this video,\nincluding all visible people, vehicles, equipments, objects,\nactions, and environmental conditions.\nOUTPUT REQUIREMENTS:\n[timestamp-timestamp] Description of what is happening.\nEXAMPLE:\n[0.0s-4.0s] <description of the first event>\n[4.0s-12.0s] <description of the second event>\n\n    All events from the video should fall within the time range:\n    START_TIME: 0s\n    END_TIME: 12.3s\n"
+              }
+            ]
+          }
+        ],
+        "stream": false,
+        "temperature": 0.0,
+        "max_tokens": 4096,
+        "media_io_kwargs": {
+          "video": {
+            "num_frames": 32
+          }
+        }
+      }
+    }
+  }
+}
