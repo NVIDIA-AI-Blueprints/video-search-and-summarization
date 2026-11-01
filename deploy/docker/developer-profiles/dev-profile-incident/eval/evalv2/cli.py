@@ -18,7 +18,9 @@
 - ``plan --config C``: the work items each task would run (no calls).
 - ``preflight --config C``: config rules, registered tasks, and whether every budget cap covers the worst case
   (each planned attempt plus every retry the policy allows), summed over every task and subject the cap scopes,
-  and whether every charged task, subject and ledger has a cap. Exit 1 on any problem.
+  and whether every charged task, subject and ledger has a cap. A task that names judges (``options.judges``) must
+  name registered judges whose roles, kinds and families fit, and the run must cap the judge ledger. Exit 1 on any
+  problem.
 - ``run --config C --dry-run``: plan plus preflight, printed as one statement. A live run is never started from
   here without ``--live`` and ``EVALV2_ALLOW_LIVE=1``; live execution is gated by the owner's approval.
 - ``audit frozen-v1``: V1's frozen artifacts are unchanged. ``audit run --store S --run R``: a sealed run's
@@ -58,6 +60,7 @@ from evalv2.review import kappa as review_kappa
 from evalv2.review import sampler as review_sampler
 from evalv2.review import workbook as review_workbook
 from evalv2.tasks.base import TASKS, WorkItem
+from evalv2.tasks.judges import judge_problems
 
 LIVE_ENV = "EVALV2_ALLOW_LIVE"
 DatasetLoader = Callable[[RunConfig], dict[str, Any]]
@@ -96,7 +99,7 @@ def worst_cases(config: RunConfig, items: dict[str, list[WorkItem]]) -> dict[tup
 
 
 def preflight(config: RunConfig, items: dict[str, list[WorkItem]]) -> list[str]:
-    """Problems that must be fixed before a run: today, caps that cannot cover the worst case.
+    """Problems that must be fixed before a run: caps that cannot cover the worst case, and judge selections.
 
     Every (task, subject, ledger) the run charges must fall under at least one cap, honouring each cap's subject
     and task scope. A cap is checked against the summed worst case of every (task, subject) it matches, since all
@@ -119,7 +122,7 @@ def preflight(config: RunConfig, items: dict[str, list[WorkItem]]) -> list[str]:
             problems.append(f"{cap.ledger} attempts cap {cap.max_attempts} < worst case {attempts} {scope}")
         if cap.max_tokens is not None and cap.max_tokens < tokens:
             problems.append(f"{cap.ledger} tokens cap {cap.max_tokens} < worst case {tokens} {scope}")
-    return problems
+    return problems + judge_problems(config)
 
 
 def _summary(items: dict[str, list[WorkItem]]) -> dict[str, Any]:

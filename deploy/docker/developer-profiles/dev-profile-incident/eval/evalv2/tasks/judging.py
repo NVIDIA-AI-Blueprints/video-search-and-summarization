@@ -39,6 +39,7 @@ class JudgeVerdict:
 
     score: float | None
     error: str = ""
+    raw: str | None = None  # the judge's reply text, kept in the cache for audit (it can quote the judged texts)
 
     @property
     def ok(self) -> bool:
@@ -124,7 +125,7 @@ class RecordingJudge:
         self.calls += 1
         verdict = self.ask(expected, predicted)
         if verdict.ok and verdict.score is not None:
-            self.cache.put(expected, predicted, verdict.score)
+            self.cache.put(expected, predicted, verdict.score, raw=verdict.raw)
         return verdict
 
 
