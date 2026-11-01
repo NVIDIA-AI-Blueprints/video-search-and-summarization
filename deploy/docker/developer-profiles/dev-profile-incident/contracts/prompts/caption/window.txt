@@ -1,0 +1,8 @@
+Describe in detail what is happening in this video,
+including all visible people, vehicles, equipments, objects,
+actions, and environmental conditions.
+OUTPUT REQUIREMENTS:
+[timestamp-timestamp] Description of what is happening.
+EXAMPLE:
+[0.0s-4.0s] <description of the first event>
+[4.0s-12.0s] <description of the second event>

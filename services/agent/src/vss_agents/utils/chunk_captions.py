@@ -36,6 +36,7 @@ that into a logged skip reason and runs P1 without context.
 from __future__ import annotations
 
 import asyncio
+import base64
 from dataclasses import dataclass
 import logging
 import os
@@ -45,9 +46,12 @@ import shutil
 import tempfile
 import time
 from typing import Any
+from typing import Protocol
 
 import httpx
 
+from vss_agents import incident_contract
+from vss_agents.utils import run_provenance
 from vss_agents.utils.r2 import get_r2_client
 from vss_agents.utils.r2 import get_r2_presigned_url
 from vss_agents.utils.r2 import is_r2_configured
@@ -84,45 +88,15 @@ FFMPEG_TIMEOUT_SECONDS = 120.0
 SCRATCH_PREFIX = "scratch/analyze"
 
 # The base profile's video_understanding.system_prompt (dev-profile-base/vss-agent/configs/config.yml).
-CAPTION_SYSTEM_PROMPT = """You are a monitoring system analyzing video footage.
-Your task is to describe the events in the video in detail or answer the user's question about the video.
-  IMPORTANT:
-  - You must respond only in English and in plain text.
-  - You must respond only in the format specified in the OUTPUT REQUIREMENTS section.
-  - Timestamp must be in pts format, seconds since the start of the video.
-  - Always provide a direct answer to the question asked.
-  - Never return an empty response. If you cannot find what the user is asking about, acknowledge it to the user.
-"""
+CAPTION_SYSTEM_PROMPT = incident_contract.prompt("caption/system")
 
-# The base profile's video_report_gen.vlm_prompt (same file).
-CAPTION_PROMPT = """Describe in detail what is happening in this video,
-including all visible people, vehicles, equipments, objects,
-actions, and environmental conditions.
-OUTPUT REQUIREMENTS:
-[timestamp-timestamp] Description of what is happening.
-EXAMPLE:
-[0.0s-4.0s] <description of the first event>
-[4.0s-12.0s] <description of the second event>
-"""
+# The base profile's video_report_gen.vlm_prompt, registered in contracts/prompts/ (caption/window).
+CAPTION_PROMPT = incident_contract.prompt("caption/window")
 
-# tools/video_report_gen.py CHUNK_TIMESTAMP_PROMPT, verbatim.
-CHUNK_TIMESTAMP_PROMPT = """
-    All events from the video should fall within the time range:
-    START_TIME: {start_time}s
-    END_TIME: {end_time}s
-"""
+# tools/video_report_gen.py CHUNK_TIMESTAMP_PROMPT, verbatim, registered with {{start_time}} and {{end_time}}.
+CHUNK_TIMESTAMP_PROMPT_ID = "caption/time-range"
 
-CONTEXT_PREAMBLE = "\n".join(
-    [
-        "CONTEXT FROM A FIRST PASS OVER THE SAME VIDEO (not evidence by itself).",
-        "Each line below is a caption of one time window of the video, written by the same vision model from",
-        "a denser frame sample of that window alone. Times are seconds from the start of the whole video.",
-        "Use these captions to notice short actions and their timing, then verify them against the video;",
-        "where a caption and the video disagree, trust the video. Do not copy caption wording blindly.",
-        "Timeline start_seconds and end_seconds must come from the video, not from the window bounds.",
-        "Windows in which nothing happened (a static view, no activity) are left out of this context.",
-    ]
-)
+CONTEXT_PREAMBLE = incident_contract.prompt("caption/context-preamble")
 
 # [Xs-Ys] stamps, as tools/video_report_gen.py matches them (optional ** around the brackets).
 _STAMP_PATTERN = re.compile(
@@ -346,7 +320,10 @@ def context_block(timeline: list[dict[str, Any]]) -> str | None:
 
 def caption_request_body(model: str, video_url: str, window_length: float, num_frames: int) -> dict[str, Any]:
     """One caption call: the stock system prompt, the window as a signed URL, then the stock caption prompt."""
-    prompt = CAPTION_PROMPT + CHUNK_TIMESTAMP_PROMPT.format(start_time=0, end_time=round(window_length, 1))
+    time_range = incident_contract.render_prompt(
+        CHUNK_TIMESTAMP_PROMPT_ID, start_time=0, end_time=round(window_length, 1)
+    )
+    prompt = CAPTION_PROMPT + time_range
     return {
         "model": model,
         "messages": [
@@ -370,17 +347,55 @@ class CaptionCallRetryableError(RuntimeError):
     """A caption call answer worth retrying: HTTP 429 or a 5xx."""
 
 
-class ScratchStore:
-    """The R2 scratch prefix of one caption pass: upload, presign and delete through ``utils/r2.py``'s client."""
+class ScratchStorage(Protocol):
+    """Where a caption pass keeps its window clips while the model fetches them (blocker X16 for experiments).
 
-    def __init__(self, bucket: str | None = None, client: Any = None) -> None:
+    ``put_video`` stores one window and returns its key, ``signed_url`` gives the model a URL it can fetch, and
+    ``delete_prefix`` removes a pass's windows (it runs in a ``finally`` block, whether or not the pass succeeded).
+    """
+
+    name: str
+
+    async def put_video(self, key: str, path: Path) -> str: ...
+
+    async def signed_url(self, key: str) -> str: ...
+
+    async def delete_prefix(self, prefix: str) -> int: ...
+
+
+class ScratchStoreError(ChunkCaptionError):
+    """A scratch store refused a key, a prefix or a window (outside its root, or too large to inline)."""
+
+
+class ScratchStore:
+    """The R2 scratch prefix of one caption pass: upload, presign and delete through ``utils/r2.py``'s client.
+
+    The store is confined to ``root`` (default ``scratch/analyze``, the production prefix). It refuses a key or a
+    delete prefix outside ``root``, and a delete of ``root`` itself or of one level under it, so a pass can only
+    ever touch ``<root>/<video key>/<run id>/``. An evaluation run would use its own approved root (for example
+    ``scratch/eval``, blocker X16) with the same guard.
+    """
+
+    name = "r2"
+
+    def __init__(self, bucket: str | None = None, client: Any = None, root: str = SCRATCH_PREFIX) -> None:
         self.bucket = bucket or (os.getenv("R2_BUCKET") or "").strip()
         self._client = client
+        self.root = root.strip("/")
+        if not self.root:
+            raise ScratchStoreError("a scratch store needs a non-empty root prefix")
 
     def _get_client(self) -> Any:
         return self._client if self._client is not None else get_r2_client()
 
+    def _check(self, key_or_prefix: str, *, min_depth: int) -> None:
+        inside = key_or_prefix.startswith(self.root + "/")
+        depth = len([part for part in key_or_prefix[len(self.root) + 1 :].split("/") if part]) if inside else 0
+        if not inside or depth < min_depth:
+            raise ScratchStoreError(f"{key_or_prefix!r} is outside this scratch store's root {self.root + '/'!r}")
+
     async def put_video(self, key: str, path: Path) -> str:
+        self._check(key, min_depth=1)
         await asyncio.to_thread(
             self._get_client().put_object, Bucket=self.bucket, Key=key, Body=path.read_bytes(), ContentType="video/mp4"
         )
@@ -396,7 +411,8 @@ class ScratchStore:
         )
 
     async def delete_prefix(self, prefix: str) -> int:
-        """Delete every object under ``prefix`` and return how many were deleted."""
+        """Delete every object under ``prefix`` (at least two levels under the root) and return how many."""
+        self._check(prefix, min_depth=2)
 
         def _delete() -> int:
             client = self._get_client()
@@ -409,6 +425,37 @@ class ScratchStore:
             return deleted
 
         return await asyncio.to_thread(_delete)
+
+
+class InlineScratchStore:
+    """A scratch store that keeps nothing: each window goes to the model inline, as a ``data:video/mp4;base64`` URL.
+
+    It needs no storage at all, so an experiment agent without R2 could run the caption pass (blocker X16). Whether
+    an endpoint accepts a base64 video URL, and up to what size, is unverified (it needs a model call), so a window
+    larger than ``max_bytes`` is refused rather than sent.
+    """
+
+    name = "inline"
+
+    def __init__(self, max_bytes: int = 8 * 1024 * 1024) -> None:
+        self.max_bytes = max_bytes
+        self._windows: dict[str, bytes] = {}
+
+    async def put_video(self, key: str, path: Path) -> str:
+        data = path.read_bytes()
+        if len(data) > self.max_bytes:
+            raise ScratchStoreError(f"window {key!r} is {len(data)} bytes, over the inline limit of {self.max_bytes}")
+        self._windows[key] = data
+        return key
+
+    async def signed_url(self, key: str) -> str:
+        return "data:video/mp4;base64," + base64.b64encode(self._windows[key]).decode("ascii")
+
+    async def delete_prefix(self, prefix: str) -> int:
+        keys = [key for key in self._windows if key.startswith(prefix)]
+        for key in keys:
+            del self._windows[key]
+        return len(keys)
 
 
 @dataclass
@@ -498,7 +545,26 @@ async def caption_window(
         ):
             with attempt:
                 attempts += 1
-                response = await client.post(chat_url, json=body)
+                started = time.perf_counter()
+                try:
+                    response = await client.post(chat_url, json=body)
+                except Exception:
+                    run_provenance.record_call(
+                        "caption",
+                        ok=False,
+                        usage=None,
+                        model=model,
+                        elapsed_ms=(time.perf_counter() - started) * 1000.0,
+                    )
+                    raise
+                answered = response.status_code < 400
+                run_provenance.record_call(
+                    "caption",
+                    ok=answered,
+                    usage=run_provenance.usage_of(response),
+                    model=model,
+                    elapsed_ms=(time.perf_counter() - started) * 1000.0,
+                )
                 if response.status_code == 429 or response.status_code >= 500:
                     raise CaptionCallRetryableError(
                         f"window {window.index} caption call returned HTTP {response.status_code}: {response.text[:200]}"
@@ -530,7 +596,7 @@ async def caption_video(
     vlm_base_url: str,
     model: str,
     settings: ChunkSettings,
-    store: ScratchStore | None = None,
+    store: ScratchStorage | None = None,
 ) -> ChunkCaptions:
     """The whole caption pass: plan, cut, upload, caption, then delete the scratch prefix.
 
@@ -553,7 +619,8 @@ async def caption_video(
         raise ChunkCaptionError("ffmpeg is not installed on the agent host")
     if store is None and not is_r2_configured():
         raise ChunkCaptionError("R2 is not configured on the agent (scratch windows need R2_* settings)")
-    store = store or ScratchStore()
+    if store is None:
+        store = ScratchStore()
     started = time.perf_counter()
     telemetry: dict[str, Any] = {
         "window_seconds": settings.window_seconds,
