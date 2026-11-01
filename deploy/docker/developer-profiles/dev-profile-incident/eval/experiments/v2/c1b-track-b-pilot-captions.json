@@ -1,0 +1,128 @@
+{
+  "config_version": "evalv2-config-v1",
+  "experiment": "v2-c1b-track-b-pilot-captions",
+  "split": {
+    "version": "split-v2",
+    "half": "dev"
+  },
+  "datasets": {
+    "incident_gt": "ground-truth-v1.0"
+  },
+  "subjects": [
+    {
+      "id": "nano-pipeline",
+      "adapter": "vss",
+      "endpoint": "experiment-agent",
+      "model": "nvidia/cosmos-3-nano-reasoner",
+      "profile": "production-v4-captions"
+    },
+    {
+      "id": "super-pipeline",
+      "adapter": "vss",
+      "endpoint": "experiment-agent",
+      "model": "nvidia/cosmos-3-super-reasoner",
+      "profile": "production-v4-captions"
+    }
+  ],
+  "tasks": {
+    "pipeline": {
+      "subjects": "all",
+      "scorers": [
+        "pipeline.score_stage@1",
+        "pipeline.paired_effect@1",
+        "pipeline.crops@1",
+        "pipeline.caption_effect@1"
+      ]
+    }
+  },
+  "repeats": 1,
+  "seed": 20261101,
+  "retry_policy": "retry-v2",
+  "caps": [
+    {
+      "ledger": "inference",
+      "subject": "nano-pipeline",
+      "task": "pipeline",
+      "max_attempts": 65,
+      "max_tokens": 2275000
+    },
+    {
+      "ledger": "grounding",
+      "subject": "nano-pipeline",
+      "task": "pipeline",
+      "max_attempts": 1300,
+      "max_tokens": 7800000
+    },
+    {
+      "ledger": "zoom",
+      "subject": "nano-pipeline",
+      "task": "pipeline",
+      "max_attempts": 2600,
+      "max_tokens": 10400000
+    },
+    {
+      "ledger": "caption",
+      "subject": "nano-pipeline",
+      "task": "pipeline",
+      "max_attempts": 1950,
+      "max_tokens": 46987200
+    },
+    {
+      "ledger": "inference",
+      "subject": "super-pipeline",
+      "task": "pipeline",
+      "max_attempts": 65,
+      "max_tokens": 2275000
+    },
+    {
+      "ledger": "grounding",
+      "subject": "super-pipeline",
+      "task": "pipeline",
+      "max_attempts": 1300,
+      "max_tokens": 7800000
+    },
+    {
+      "ledger": "zoom",
+      "subject": "super-pipeline",
+      "task": "pipeline",
+      "max_attempts": 2600,
+      "max_tokens": 10400000
+    },
+    {
+      "ledger": "caption",
+      "subject": "super-pipeline",
+      "task": "pipeline",
+      "max_attempts": 1950,
+      "max_tokens": 46987200
+    },
+    {
+      "ledger": "inference",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 130,
+      "max_tokens": 4550000
+    },
+    {
+      "ledger": "grounding",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 2600,
+      "max_tokens": 15600000
+    },
+    {
+      "ledger": "zoom",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 5200,
+      "max_tokens": 20800000
+    },
+    {
+      "ledger": "caption",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 3900,
+      "max_tokens": 93974400
+    }
+  ],
+  "notes": "PENDING X16. C1b with the caption pass: the profile production-v4-captions declares the caption stage and budgets 60 caption attempts per run (19 windows x 3 attempts covers the longest clip). It plans and preflights now, and no request is built from it while the profile is pending. Before it can run: the agent's experimental caption pass with the max_caption_calls cap (X16), and a Track B adapter that does not pin the per-run chunking flag (see methodology/v2-run-readiness.md, blockers)."
+}

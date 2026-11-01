@@ -13,4 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Reference-making tooling for Evaluation V2 (box references; chat references later). Runs are approval-gated."""
+"""Reference-making tooling for Evaluation V2: box, chat and dashboard references and the runs that make them
+(RA1 ``ra1``, RA2 ``ra2``, RB2 ``rb2``, through the file handoff in ``passes``). Real runs are approval-gated."""

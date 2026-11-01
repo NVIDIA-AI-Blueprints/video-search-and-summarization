@@ -116,10 +116,12 @@ def _item_view(item: Mapping[str, Any]) -> dict[str, Any]:
 
 def _frames(item: Mapping[str, Any], times: Sequence[float], proposals: Mapping[float, Sequence[Proposal]],
             *, role: str) -> list[dict[str, Any]]:
+    """Each frame with this item's proposals numbered. The drawn image's path names the item: two items of one clip
+    number the same frame differently, so a shared path would let one item's drawing overwrite the other's."""
     frames = []
     for t in times:
         numbered = number_proposals(proposals.get(t, ()), seed=f"{role}:{item['clip']}:{item['item_id']}:{t}")
-        frames.append({"t": t, "image": f"{item['clip']}/{role}/t{t:08.3f}.jpg",
+        frames.append({"t": t, "image": f"{item['clip']}/{item['item_id']}/{role}/t{t:08.3f}.jpg",
                        "marks": {str(n): list(p.box) for n, p in numbered.items()}})
     return frames
 
