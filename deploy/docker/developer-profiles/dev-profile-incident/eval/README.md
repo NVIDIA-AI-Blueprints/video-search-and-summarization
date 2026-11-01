@@ -53,6 +53,17 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - **`scoring.py`:** follows V1's `run_evaluation` and calls V1's own rules through `v1.py`, the task's only bridge to V1. Similarity and judge scores are injected providers whose results are recorded, so a run's full similarity matrices and judgements make re-scoring offline and exact.
     - **`aggregate.py`:** reports V1's own aggregates as `continuity_v1`, plus the V2 metrics: type macro-F1 and confusion, severity quadratic-weighted κ, timestamp errors with a tolerance curve, the incident window's temporal IoU, and attribute accuracies.
   - **`tasks/judging.py`:** judge results as data. A cache is keyed by judge model, prompt hash, settings and texts. An offline judge never calls a model, and a missing judgement is unscored, not failed.
+- **`evalv2.references`:** the box-reference tooling (R2). Making references is the approved run RA1.
+  - **`boxes.py`:**
+    - frame plans at every second;
+    - proposals numbered by seed, never by rank;
+    - the generator packet: the item's ground-truth words plus numbered frames;
+    - the blind validator packet: offset frames and its own numbering. `assert_blind` proves it holds no answer field, no frame the generator saw, and no box it chose;
+    - per-second boxes;
+    - the record: agreeing seconds at IoU ≥ 0.5 become `ai_validated` after code checks; disagreement and absence are flagged.
+  - **`detector.py`:** the offline open-vocabulary detector as a JSON subprocess protocol. It runs in a throwaway environment that records its weights' SHA-256, and is never a subject.
+  - **`scripts/v2_box_frames.py`:** extracts native frames and draws numbered marks, in a throwaway environment.
+  - The box prompts are `gen-box-select-v1` and `gen-box-validate-v1` in `evalv2/datasets/generation_prompts/`.
 - **`evalv2.verify_v1`:** re-scores stored V1 records with V2 by replaying the stored assignments and judge scores (V1 kept no matrices). It requires every score block, and V1's aggregates and the Stage 3 report's `items` and `severity`, to be identical. Running it on the real Stage 3 records is the approved check RA0.
 - **`evalv2.datasets`:**
   - **`registry.json`:** every dataset by id, with its location and pinned hashes. It is append-only, and only hashes and counts are committed.

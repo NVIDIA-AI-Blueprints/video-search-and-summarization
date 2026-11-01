@@ -38,16 +38,16 @@ def test_the_committed_registry_is_valid():
 
 
 def test_add_pins_the_text_and_refuses_reuse(registry_copy):
-    item = gp.add("gen-box-select-v1", purpose="box_reference", role="generator", text="Pick the box.\n",
+    item = gp.add("gen-box-trial-v1", purpose="box_reference", role="generator", text="Pick the box.\n",
                   path=registry_copy, created="2026-11-01")
     registry = gp.load(registry_copy)
-    assert gp.prompt_text("gen-box-select-v1", registry=registry, directory=registry_copy.parent) == "Pick the box.\n"
-    assert item["file"] == "box_reference/gen-box-select-v1.txt"
+    assert gp.prompt_text("gen-box-trial-v1", registry=registry, directory=registry_copy.parent) == "Pick the box.\n"
+    assert item["file"] == "box_reference/gen-box-trial-v1.txt"
     with pytest.raises(gp.GenerationPromptError, match="already exists"):
-        gp.add("gen-box-select-v1", purpose="box_reference", role="generator", text="x", path=registry_copy)
-    child = gp.add("gen-box-select-v2", purpose="box_reference", role="generator", text="Pick one box.\n",
-                   parent="gen-box-select-v1", path=registry_copy)
-    assert child["parent"] == "gen-box-select-v1"
+        gp.add("gen-box-trial-v1", purpose="box_reference", role="generator", text="x", path=registry_copy)
+    child = gp.add("gen-box-trial-v2", purpose="box_reference", role="generator", text="Pick one box.\n",
+                   parent="gen-box-trial-v1", path=registry_copy)
+    assert child["parent"] == "gen-box-trial-v1"
 
 
 def test_bad_entries_are_refused_without_leaving_a_file(registry_copy):
@@ -60,17 +60,17 @@ def test_bad_entries_are_refused_without_leaving_a_file(registry_copy):
 
 
 def test_an_edited_prompt_file_is_detected(registry_copy):
-    gp.add("gen-box-validate-v1", purpose="box_reference", role="validator", text="Check it.\n", path=registry_copy)
-    (registry_copy.parent / "box_reference" / "gen-box-validate-v1.txt").write_text("Check it loosely.\n")
+    gp.add("gen-box-trialcheck-v1", purpose="box_reference", role="validator", text="Check it.\n", path=registry_copy)
+    (registry_copy.parent / "box_reference" / "gen-box-trialcheck-v1.txt").write_text("Check it loosely.\n")
     registry = gp.load(registry_copy)
     assert any("changed" in p for p in gp.validate(registry, registry_copy.parent))
     with pytest.raises(gp.GenerationPromptError, match="changed"):
-        gp.prompt_text("gen-box-validate-v1", registry=registry, directory=registry_copy.parent)
+        gp.prompt_text("gen-box-trialcheck-v1", registry=registry, directory=registry_copy.parent)
 
 
 def test_the_registry_is_append_only(registry_copy):
     before = gp.load(registry_copy)
-    gp.add("gen-box-select-v1", purpose="box_reference", role="generator", text="Pick.\n", path=registry_copy)
+    gp.add("gen-box-trial-v1", purpose="box_reference", role="generator", text="Pick.\n", path=registry_copy)
     after = gp.load(registry_copy)
     assert gp.check_append_only(before, after) == []
     edited = json.loads(json.dumps(after))

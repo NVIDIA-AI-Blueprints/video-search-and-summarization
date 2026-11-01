@@ -1,5 +1,26 @@
 {
   "registry_version": 1,
   "note": "Append-only. Prompts that generate or validate V2 references; never sent to a subject. A changed prompt is a new id with a parent; never edit or remove an entry or its file.",
-  "prompts": []
+  "prompts": [
+    {
+      "id": "gen-box-select-v1",
+      "purpose": "box_reference",
+      "role": "generator",
+      "file": "box_reference/gen-box-select-v1.txt",
+      "sha256": "489e194fa6d18b2a812f856d516b4aeea85c79986b22b769896f67f2182117a6",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "First pass of a box reference: pick the numbered detector proposal that contains the ground-truth item, per frame."
+    },
+    {
+      "id": "gen-box-validate-v1",
+      "purpose": "box_reference",
+      "role": "validator",
+      "file": "box_reference/gen-box-validate-v1.txt",
+      "sha256": "8cfa761953c6b3029a94f8a5614e30c7762a1aacca2c7d7cf6a882f544433ca5",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "Blind second pass on offset frames with its own numbering; never shown the first pass."
+    }
+  ]
 }

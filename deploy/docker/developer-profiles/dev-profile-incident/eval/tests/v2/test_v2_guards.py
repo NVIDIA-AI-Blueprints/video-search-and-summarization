@@ -90,6 +90,13 @@ def test_only_the_v1_bridge_reaches_v1_modules_from_tasks_and_verify():
     assert not (_imports(PACKAGE / "tasks" / "judging.py") & NETWORK_MODULES)
 
 
+def test_reference_tooling_imports_no_model_client_task_or_v1_module():
+    for path in _modules("references"):
+        for name in _imports(path):
+            assert not name.startswith(("evalv2.adapters", "evalv2.tasks", "evalv2.cli")), (path.name, name)
+            assert name.split(".")[0] not in NETWORK_MODULES | V1_MODULES, (path.name, name)
+
+
 def test_scorers_never_import_a_network_client():
     for path in _modules("tasks"):
         if path.stem.startswith("scorer"):
