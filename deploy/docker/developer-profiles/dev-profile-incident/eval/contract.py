@@ -128,6 +128,15 @@ def cross_field_violations(report: dict[str, Any]) -> list[dict[str, str]]:
             add("INSTRUMENT_HOLDER_UNKNOWN", f"instruments/{index}/entity_id",
                 f"{instrument['instrument_id']} references unknown entity_id {holder}")
 
+    # incident-contract-v5 adds an optional assets[].last_handled_by {entity_id, timestamp_seconds}.
+    # The v4 schema forbids the key, so on v4 this rule never fires; it keeps eval in step with the
+    # agent and the console (same code, path and message) if a v5 contract lands.
+    for index, asset in enumerate(report["assets"]):
+        handler = asset.get("last_handled_by")
+        if isinstance(handler, dict) and handler.get("entity_id") not in entity_ids:
+            add("ASSET_HANDLER_UNKNOWN", f"assets/{index}/last_handled_by/entity_id",
+                f"{asset['asset_id']} references unknown last_handled_by entity_id {handler.get('entity_id')}")
+
     previous_start = None
     for index, event in enumerate(report["timeline"]):
         event_start, event_end = event["start_seconds"], event["end_seconds"]

@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+import contract
 import experiment_runner as er
 import stage3
 import stage3_automation as auto
@@ -89,7 +90,11 @@ def test_progress_counts_runs_failures_and_a_replayed_cost_line(tmp_path, monkey
     name = next(n for n in stage3.CONFIGS if CONFIGS[n]["experiment_id"] == IDS[first[3]])
     assert state["configs"][name]["infrastructure_failures"] == {"timeout": 1}
     assert state["integrity"]["cost_log_lines_beyond_checkpoint"] == 1
-    assert state["integrity_ok"] and state["elapsed"]["runs_per_hour"] == 3600.0
+    # Stage 3 is frozen on its contract: under a later contract the manifest drifts and the automation must refuse
+    # to resume, so integrity holds only while the current contract is the one Stage 3 ran on.
+    frozen_on = json.loads(stage3.MANIFEST_PATH.read_text())["p1_request"]["contract_version"]
+    assert state["integrity_ok"] is (frozen_on == contract.contract_version())
+    assert state["elapsed"]["runs_per_hour"] == 3600.0
 
 
 def test_merge_none_records_zero_recoveries_and_refuses_an_eligible_failure(tmp_path):
