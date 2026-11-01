@@ -84,7 +84,7 @@ def test_references_resolve_to_descriptions_and_parenthesised_ids_are_dropped():
     )
     assert ra.resolve_references("a person (E1, I1) waits", mentions) == "A person waits"
     assert ra.resolve_references("Q9 stays", mentions) == "Q9 stays", "an id the report does not hold is kept"
-    assert ra.resolve_references("E10 left", {"E1": "x"}) == "E10 left", "ids match whole tokens only"
+    assert ra.resolve_references("E10 left", {"E1": "x"}) == "A person left", "whole tokens: E1 never matches in E10"
     assert ra.referenced_ids("E1 hands I1 to E1", ["E1", "I1"]) == ["E1", "I1"]
 
 
@@ -183,3 +183,84 @@ def test_search_hits_are_grouped_by_incident_without_ids():
         ]
     )
     assert one == "I found two matching items in a burglary: a crowbar (seen at 0:08) and a door."
+
+
+def test_ids_the_report_no_longer_holds_read_neutrally_and_other_tokens_stay():
+    mentions = ra.Mentions({"E1": "the guard", "new-E2": "the courier"})
+    mentions.retired = frozenset({"A2"})
+    assert ra.resolve_references("new-E2 hands E1 a parcel.", mentions) == "The courier hands the guard a parcel."
+    assert ra.resolve_references("new-E3 waits; E7 drops I9.", mentions) == "A person waits; a person drops an object."
+    assert ra.resolve_references("E1 takes A2 from the A1 shelf of A4 paper.", mentions) == (
+        "The guard takes an item from the A1 shelf of A4 paper."
+    )
+    assert ra.resolve_references("xE1, E1x and E1-2 are not ids", mentions) == "XE1, E1x and E1-2 are not ids"
+    assert ra.replaced_ids("new-E2 and E7 meet near A4 paper", mentions) == ["new-E2", "E7"]
+    assert ra.referenced_ids("new-E2 hands E1 a parcel", ["E1", "E2", "new-E2"]) == ["new-E2", "E1"]
+
+
+def test_a_draft_is_overlaid_on_its_base_version():
+    base = _report()
+    draft = {
+        "incident": {"type": "robbery", "description": "E1 forces the door."},
+        "entities": [{"entity_id": "E1", "type": "person", "description": "Person in a dark hood"}],
+        "instruments": [],
+        "assets": [],
+    }
+    report = ra.overlay_draft(base, draft)
+    assert report["incident"]["type"] == "robbery" and report["incident"]["title"] == "Shop door forced"
+    assert report["timeline"] == base["timeline"] and report["instruments"] == []
+    retired = ra.item_ids(base) - ra.item_ids(report)
+    assert retired == {"I1", "A1"}
+    view = ra.report_view(report, retired=retired)
+    answer = ra.compose("What happened, in order?", view)
+    assert "At 0:05, the person in a dark hood walks to an item." in answer.text
+    assert "the person in a dark hood forces an item open with an object" in answer.text
+    assert not ra._ID.search(answer.text)
+
+
+@pytest.mark.parametrize(
+    ("question", "start", "kind"),
+    [
+        (
+            "Did the hooded person steal anything?",
+            "Here is what the report records about the hooded person, in order:",
+            "chronology",
+        ),
+        ("Was the door broken?", "Here is what the report records about the shop door, in order:", "chronology"),
+        ("Is there a crowbar?", "Yes: the report records a crowbar (pry bar)", "objects"),
+        ("Any crowbars?", "Yes: the report records a crowbar (pry bar)", "objects"),
+    ],
+)
+def test_yes_is_said_only_to_a_bare_existence_question(question, start, kind):
+    answer = ra.compose(question, ra.report_view(_report()))
+    assert answer.text.startswith(start) and answer.kind == kind, answer.text
+    if kind == "chronology":
+        assert "Yes" not in answer.text
+
+
+def test_a_yes_no_question_about_an_item_with_no_event_says_the_report_does_not_answer():
+    report = _report(timeline=[{"start_seconds": 5, "description": "E1 walks in."}])
+    answer = ra.compose("Was the door broken?", ra.report_view(report))
+    assert answer.text == "The report records the shop door but says nothing more about it that answers this."
+    assert answer.insufficient_evidence and answer.item_ids == ()
+
+
+def test_plurals_match_singulars_and_missing_words_are_quoted_as_asked():
+    report = _report(instruments=[{"instrument_id": "I1", "entity_id": "E1", "name": "knife", "threat_level": 4}])
+    found = ra.compose("Were there any knives?", ra.report_view(report))
+    assert found.text.startswith("Yes: the report records a knife"), found.text
+    missing = ra.compose("Were there any witnesses?", ra.report_view(report))
+    assert missing.text.startswith('This report doesn\'t mention "witnesses".'), missing.text
+
+
+def test_labels_that_name_each_other_never_put_an_id_in_the_prose():
+    report = _report(
+        entities=[
+            {"entity_id": "E1", "type": "person", "label": "man beside E2", "description": "Man beside E2"},
+            {"entity_id": "E2", "type": "person", "label": "man beside E1", "description": "Man beside E1"},
+        ]
+    )
+    view = ra.report_view(report)
+    assert all(not ra._ID.search(m) for m in view.mentions().values()), view.mentions()
+    for question in ("Who is involved?", "What happened, in order?", "Is there a dog?"):
+        assert not ra._ID.search(ra.compose(question, view).text), question

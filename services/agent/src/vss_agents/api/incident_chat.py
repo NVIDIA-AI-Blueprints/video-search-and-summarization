@@ -716,13 +716,15 @@ def _composed_answer(
     (a draft item takes the saved crop of the same item in the base revision).
     """
     saved = revision.get("evidence") or []
-    report: dict[str, Any] | None
+    payload = revision.get("payload") if isinstance(revision.get("payload"), dict) else None
+    report: dict[str, Any] | None = payload
+    evidence, retired = saved, set()
     if draft_report is not None:
-        report, evidence = draft_report, _draft_evidence(draft_report, saved)
-    else:
-        payload = revision.get("payload")
-        report, evidence = (payload if isinstance(payload, dict) else None), saved
-    view = report_answers.report_view(report, evidence)
+        # The console's draft holds only the edited fields; the title, timeline and the rest come from the base.
+        report = report_answers.overlay_draft(payload, draft_report)
+        evidence = _draft_evidence(draft_report, saved)
+        retired = report_answers.item_ids(payload) - report_answers.item_ids(report)
+    view = report_answers.report_view(report, evidence, retired=retired)
     answer = report_answers.compose(query, view)
     entries = {(str(e.get("item_type")), str(e.get("item_id"))): e for e in evidence if isinstance(e, dict)}
     citations: list[EvidenceCitation] = []
