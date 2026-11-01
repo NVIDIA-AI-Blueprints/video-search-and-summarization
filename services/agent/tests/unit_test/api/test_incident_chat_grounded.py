@@ -339,3 +339,24 @@ def test_an_invented_id_in_the_prose_is_neutral_and_recorded():
     body = _ask(client, question="What happened?", version_id=7).json()
     assert body["message"]["content"] == "A person hands an object to the man in a red hood."
     assert body["grounding"]["ids_resolved"] == ["E7", "I9", "E1"] and body["grounding"]["dropped_citations"] == ["E7"]
+
+
+def test_a_compound_question_keeps_the_answered_part_and_never_leaks_ids():
+    from vss_agents import incident_contract
+
+    prompt = incident_contract.prompt(grounded_chat.PROMPT_ID)
+    assert "Answer every part of a question." in prompt and "threat_level (1 lowest to 5" in prompt
+    client, _ = _client(
+        {
+            "answer": "The report does not say anything was taken. I1 (threat level 3 of 5) could cause harm.",
+            "citations": [{"item_id": "I1"}],
+            "insufficient_evidence": False,
+        }
+    )
+    body = _ask(client, question="What was taken, or what could cause harm?", version_id=7).json()
+    message = body["message"]
+    assert message["content"] == (
+        "The report does not say anything was taken. The bottle (threat level 3 of 5) could cause harm."
+    )
+    assert message["insufficient_evidence"] is False and [c["item_id"] for c in message["citations"]] == ["I1"]
+    assert body["grounding"]["ids_resolved"] == ["I1"]
