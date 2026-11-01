@@ -23,6 +23,11 @@ sent, and refuses the attempt when any matching cap would be passed. ``settle`` 
 measured tokens once the response arrives; an attempt that never reports usage keeps its bound. Every event is
 appended to a JSONL log, so a resumed run starts from the counts the interrupted run reached, including attempts
 whose responses were never seen.
+
+**Calls another system sends** (the experiment agent's own grounding and zoom calls in Track B) cannot be reserved
+one by one. ``check`` refuses the request when a cap could not cover its worst case, charging nothing, and
+``charge_measured`` charges what that system reported sending, once it has replied (or the worst case, when what
+it sent is unknown).
 """
 
 from __future__ import annotations
@@ -132,7 +137,44 @@ class BudgetLedger:
                 continue
             totals.attempts += 1
             totals.tokens += settled_tokens.get(reservation.id, reservation.tokens_bound)
+        for event in self._events:
+            if event["event"] != "measured" or event["ledger"] != ledger:
+                continue
+            if (subject != ANY and event["subject"] != subject) or (task != ANY and event["task"] != task):
+                continue
+            totals.attempts += event["attempts"]
+            totals.tokens += event["tokens"]
         return totals
+
+    def check(self, ledger: str, *, subject: str, task: str, attempts: int, tokens: int) -> None:
+        """Raise ``BudgetExceeded`` unless every matching cap can still take ``attempts`` and ``tokens``.
+
+        For calls another system makes on our behalf (the agent's own grounding or zoom calls in Track B): the worst
+        case is checked before the request and nothing is charged; what was really sent is charged after it
+        (:meth:`charge_measured`).
+        """
+        if ledger not in LEDGERS:
+            raise ValueError(f"unknown ledger {ledger!r}")
+        for cap in self.caps:
+            if not cap.matches(ledger, subject, task):
+                continue
+            used = self.totals(ledger, cap.subject, cap.task)
+            if cap.max_attempts is not None and used.attempts + attempts > cap.max_attempts:
+                raise BudgetExceeded(f"{ledger} attempts cap {cap.max_attempts} cannot cover the worst case "
+                                     f"{attempts} (used {used.attempts}; subject={cap.subject}, task={cap.task})")
+            if cap.max_tokens is not None and used.tokens + tokens > cap.max_tokens:
+                raise BudgetExceeded(f"{ledger} tokens cap {cap.max_tokens} cannot cover the worst case {tokens} "
+                                     f"(used {used.tokens}; subject={cap.subject}, task={cap.task})")
+
+    def charge_measured(self, ledger: str, *, subject: str, task: str, attempts: int, tokens: int,
+                        source: str = "") -> None:
+        """Charge attempts and tokens that another system measured (an agent's provenance), after the fact."""
+        if ledger not in LEDGERS:
+            raise ValueError(f"unknown ledger {ledger!r}")
+        if attempts < 0 or tokens < 0:
+            raise ValueError("measured attempts and tokens must not be negative")
+        self._log({"event": "measured", "ledger": ledger, "subject": subject, "task": task, "attempts": attempts,
+                   "tokens": tokens, "source": source})
 
     def reserve(self, ledger: str, *, subject: str, task: str, tokens_bound: int) -> Reservation:
         """Charge one attempt before sending it; raise ``BudgetExceeded`` (nothing charged) if a cap would pass."""

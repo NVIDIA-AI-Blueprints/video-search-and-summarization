@@ -78,12 +78,13 @@ def plan(config: RunConfig, load_datasets: DatasetLoader = _no_datasets) -> dict
 def preflight(config: RunConfig, items: dict[str, list[WorkItem]]) -> list[str]:
     """Problems that must be fixed before a run: today, caps that cannot cover the worst case."""
     problems: list[str] = []
-    retries = POLICIES[config.retry_policy].max_retries
     for name, task_items in items.items():
         runner = TASKS[name]()
         estimate = getattr(runner, "budget_estimate", None)
         if estimate is None:
             continue
+        # A pipeline task's worst case already counts the pipeline's own retries, and it never re-sends a run.
+        retries = 0 if getattr(runner, "retries_included", False) else POLICIES[config.retry_policy].max_retries
         for ledger, need in estimate(config, task_items).items():
             worst_attempts = need["attempts"] * (1 + retries)
             worst_tokens = need["tokens"] * (1 + retries)

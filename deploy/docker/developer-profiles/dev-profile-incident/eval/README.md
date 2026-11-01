@@ -44,14 +44,33 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - It classifies failures as V1 does.
     - It stores the request and response bodies but never the key.
   - A scripted `fake.py` adapter supports plumbing runs.
+  - The Track B adapter (`vss.py`) runs a whole pipeline as one subject: one experimental `/analyze` call per run on a loopback experiment agent (`EVALV2_VSS_AGENT_URL`, default `http://127.0.0.1:8765`), never the shared VM agent.
+    - **Before sending:** every ledger's worst case is checked, and nothing is sent when a cap could be passed.
+    - **After the reply:** it charges what the agent reported sending, stage by stage, from the run provenance. An attempt without usage is charged at the token bound. A failure without provenance is charged at the worst case; a refused connection costs nothing.
+    - **Pinning:** the agent's commit, dirty flag, flags and contract must stay the same across a run and a resume. The profile's expected flags must hold, and no undeclared stage may send a call.
+    - **Refusals:** a refusal (400, 403, 409, 501) stops the run.
+    - The signed URL is stored without its signature.
   - `capabilities.json` records what each model is believed to support. Every entry is `verified: false` until a read-only live check confirms it.
   - `registry.py` builds adapters from subject configs.
 - **`evalv2.requests`:** request builders that load `contracts/` and hold no prompt text. `p1.py` builds the P1 body, and a test pins it to V1's `eval_vlm_client.p1_request_payload`.
+  - `vss.py` holds the Track B pipeline profiles and builds each experimental `/analyze` body with its accounting.
+  - Each profile sets: the P4 fields (`skip_rp1`, `max_crop_calls`, a required `max_zoom_calls`, optionally `experiment_object_tracking` or a registry prompt), the flags the agent must run with, the stages it may call, and its token bounds.
+  - Profiles are versioned (`production-v4`, `production-v4-object-tracking`); any other change is a new profile id. Their caps are provisional until the Track B pilot.
 - **`evalv2.tasks`:** the runner and scorer protocols and the task registry.
   - **`tasks/incident_objects/`** (Track A, P1 only), registered lazily as `incident_objects`:
     - **`runner.py`:** sends V1's P1 body through a subject's adapter, validates the reply with V1's contract policy, stores the prediction, and labels the outcome as V1 does.
     - **`scoring.py`:** follows V1's `run_evaluation` and calls V1's own rules through `v1.py`, the task's only bridge to V1. Similarity and judge scores are injected providers whose results are recorded, so a run's full similarity matrices and judgements make re-scoring offline and exact.
     - **`aggregate.py`:** reports V1's own aggregates as `continuity_v1`, plus the V2 metrics: type macro-F1 and confusion, severity quadratic-weighted κ, timestamp errors with a tolerance curve, the incident window's temporal IoU, and attribute accuracies.
+  - **`tasks/pipeline/`** (Track B, the production pipeline), registered lazily as `pipeline`. It runs only `adapter: vss` subjects.
+    - **`runner.py`:** sends one request per clip, subject and repeat, and stores three predictions of the same run:
+      - `p1`: the raw P1 reply through V1's policy, as in Track A;
+      - `p1_agent`: the report before the zoomed second look. This is `experiment.p1_report`, or else the final report with every zoom correction undone; the two must agree where both exist;
+      - `final`: the final report.
+    - Each stored run also holds the evidence entries, the agent's crop, zoom and tracking summaries, whether a caption pass ran, and whether V1's policy agreed with the agent.
+    - Its worst case already counts the agent's own retries, so preflight does not multiply it.
+    - **`scoring.py`:** scores each stage with Track A's scorers and pairs two stages run by run:
+      - the zoom effect: `p1_agent` against `final`;
+      - the caption effect: Track A against Track B `p1`, once the caption pass runs (X16).
   - **`tasks/crops/scoring.py`:** evidence boxes against box references, per reference tier.
     - **Operational:** was a box located? A crop-call cap, a missing detector or store, or a crop error makes the entry unscorable, never a miss.
     - **Temporal:** the evidence second (`box_seconds`, else the requested one) against the item's visible seconds.
