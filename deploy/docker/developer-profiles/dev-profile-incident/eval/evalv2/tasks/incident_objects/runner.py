@@ -24,6 +24,7 @@ and needs the run's video-URL resolver; nothing here runs on its own.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -34,6 +35,8 @@ from evalv2.tasks.incident_objects import v1
 
 TASK = "incident_objects"
 PREDICTION_KIND = "incident-objects-prediction"
+LEDGER = "inference"
+TOKENS_PER_ATTEMPT = v1.P1_TOKENS_CEILING  # what preflight assumes per attempt, and what every attempt reserves
 
 
 class IncidentObjectsTask:
@@ -56,7 +59,7 @@ class IncidentObjectsTask:
 
     def budget_estimate(self, config: Any, items: list[WorkItem]) -> dict[str, dict[str, int]]:
         """One P1 attempt per item at V1's per-call token ceiling (retries are added by preflight)."""
-        return {"inference": {"attempts": len(items), "tokens": len(items) * v1.P1_TOKENS_CEILING}}
+        return {LEDGER: {"attempts": len(items), "tokens": len(items) * TOKENS_PER_ATTEMPT}}
 
     def execute(self, item: WorkItem, adapter: ModelAdapter, ctx: CallContext) -> PredictionRecord:
         if self.video_url is None:
@@ -64,7 +67,9 @@ class IncidentObjectsTask:
         prompt_id = item.spec.get("prompt_id")
         request = build_p1_request(adapter.model, self.video_url(item.item_id), prompt_id=prompt_id)
         provenance = {"stages": {"p1": {**p1_provenance(prompt_id), "model": adapter.model, "adapter": adapter.id}}}
-        result = adapter.complete(request, ctx)
+        # Every attempt reserves the bound preflight assumed, on the ledger it checked, whatever the caller's context.
+        result = adapter.complete(request, dataclasses.replace(ctx, budget_ledger=LEDGER,
+                                                               tokens_bound=TOKENS_PER_ATTEMPT))
         if not result.ok:
             failure = result.failure
             p1_raw = {"ok": False, "failure_kind": failure.kind if failure else None,
