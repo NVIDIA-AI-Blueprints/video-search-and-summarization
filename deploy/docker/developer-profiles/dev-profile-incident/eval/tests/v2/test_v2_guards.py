@@ -81,6 +81,15 @@ def test_review_imports_no_model_client_task_or_v1_module():
             assert name.split(".")[0] not in NETWORK_MODULES | V1_MODULES, (path.name, name)
 
 
+def test_only_the_v1_bridge_reaches_v1_modules_from_tasks_and_verify():
+    paths = _modules("tasks") + [PACKAGE / "verify_v1.py"]
+    for path in paths:
+        for name in _imports(path):
+            if name.split(".")[0] in V1_MODULES | {"eval_run", "eval_run_lib", "eval_experiment", "eval_vlm_client"}:
+                assert path.relative_to(PACKAGE).as_posix() == "tasks/incident_objects/v1.py", (path.name, name)
+    assert not (_imports(PACKAGE / "tasks" / "judging.py") & NETWORK_MODULES)
+
+
 def test_scorers_never_import_a_network_client():
     for path in _modules("tasks"):
         if path.stem.startswith("scorer"):

@@ -62,6 +62,19 @@ def load_gt_v1(*, data_root: Path | str | None = None, registry: dict[str, Any] 
     return index
 
 
+def load_gt_v1_sheets(*, data_root: Path | str | None = None,
+                      registry: dict[str, Any] | None = None) -> dict[str, list[dict[str, Any]]]:
+    """The frozen ground truth's workbook-shaped sheets (for V1's scoring store), verified like :func:`load_gt_v1`."""
+    load_gt_v1(data_root=data_root, registry=registry)
+    dataset = resolve(GT_V1, data_root_path=data_root, registry=registry)
+    if str(EVAL_DIR) not in sys.path:
+        sys.path.insert(0, str(EVAL_DIR))
+    import ground_truth_freeze
+
+    sheets: dict[str, list[dict[str, Any]]] = ground_truth_freeze.read_frozen(dataset.path)["sheets"]
+    return sheets
+
+
 def load_split_v2(*, registry: dict[str, Any] | None = None) -> dict[str, Any]:
     """The committed ``split-v2``, verified: counts as registered, halves disjoint, categories cover both halves."""
     dataset = resolve(SPLIT_V2, registry=registry)
