@@ -132,6 +132,9 @@ How a question is answered (template mode: no model):
   - what happened, or the order of events: the timeline in time order, one sentence per event with its `m:ss` time; the incident description when there is no timeline;
   - who: the people, with their descriptions and when they are seen;
   - objects, or a named object: the instruments (with who held them) and the assets;
+  - what was taken: the timeline's events that describe a taking, in order; with none, that the report doesn't say anything (or the named object) was taken, and what it records about it;
+  - what could cause harm, or weapons: the instruments, most threatening first, each with its threat level of 5;
+  - a question asking both ("What was taken, or what could cause harm?"): both parts, in that order;
   - when, or how long: the incident window, or a named item's time;
   - severity and type.
   A question the report cannot answer gets "This report doesn't mention ..." and no citations.

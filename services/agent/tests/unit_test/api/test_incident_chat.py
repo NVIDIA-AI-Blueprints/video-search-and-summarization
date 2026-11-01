@@ -541,10 +541,127 @@ def test_a_chronological_question_gets_the_timeline_in_order_not_an_item_list():
 
 
 def test_an_object_question_describes_the_objects_and_cites_them():
-    message = _ask_version("What could cause harm here?")
+    message = _ask_version("Which objects were involved?")
     assert "cash register" in message["content"] and "held by the man in black hoodie" in message["content"]
     assert [c["item_id"] for c in message["citations"]] == ["I1", "A1"]
     assert {c["item_type"] for c in message["citations"]} == {"instrument", "asset"}
+
+
+def test_a_harm_question_names_the_instruments_with_their_threat_levels():
+    message = _ask_version("What could cause harm here?")
+    assert message["content"].startswith(
+        "The report lists one object that could be used to cause harm: a cash register (cash register drawer pulled "
+        "open by the man in black hoodie), held by the man in black hoodie (threat level 2 of 5)"
+    ), message["content"]
+    assert [c["item_id"] for c in message["citations"]] == ["I1"]
+
+
+def test_what_was_taken_or_could_cause_harm_answers_both_parts_from_the_report():
+    message = _ask_version("What was taken, or what could cause harm?")
+    content = message["content"]
+    assert "relevant item(s) were identified" not in content, "never the old item-list template"
+    assert content.startswith(
+        "The report records this taking: From 2:21 to 2:30, the man in black hoodie pulls open the cash register and "
+        "takes cash while the cashier in red apron steps back."
+    ), content
+    assert "could be used to cause harm: a cash register" in content and "(threat level 2 of 5)" in content
+    assert not ID_TOKEN.search(content) and VIDEO not in content
+    assert [c["item_id"] for c in message["citations"]] == ["E1", "I1", "E2"]
+
+
+def _burglary_revision(revision_id: int = 8) -> dict[str, Any]:
+    """Shaped like the reported Burglary061 version: a bag placed and handled, nothing recorded as taken."""
+    payload = {
+        "incident": {
+            "type": "burglary",
+            "title": "Person places bag on counter and exits",
+            "start_timestamp": 134,
+            "end_timestamp": 183,
+            "description": "A person places a black bag on the counter and exits; another person handles the bag.",
+            "severity_level": 1,
+        },
+        "entities": [
+            {
+                "entity_id": "E1",
+                "type": "human",
+                "description": "A person in a light shirt",
+                "label": "person in light shirt",
+                "timestamp_seconds": 134,
+            },
+            {
+                "entity_id": "E2",
+                "type": "human",
+                "description": "A second person seen from behind",
+                "label": "second person",
+                "timestamp_seconds": 141,
+            },
+        ],
+        "instruments": [
+            {
+                "instrument_id": "I1",
+                "entity_id": "E1",
+                "name": "cash register",
+                "label": "black bag",
+                "description": "A black cash register with a digital display",
+                "threat_level": 1,
+                "timestamp_seconds": 134,
+            },
+        ],
+        "assets": [
+            {
+                "asset_id": "A1",
+                "name": "cash register",
+                "label": "cash register",
+                "description": "Till on the counter",
+                "timestamp_seconds": 142,
+            },
+            {
+                "asset_id": "A2",
+                "name": "black bag",
+                "label": "black bag",
+                "description": "A black bag on the counter",
+                "timestamp_seconds": 142,
+            },
+        ],
+        "timeline": [
+            {"start_seconds": 134, "end_seconds": 140, "description": "E1 places a black bag on the counter."},
+            {"start_seconds": 141, "end_seconds": 165, "description": "E2 enters and interacts with the bag."},
+        ],
+    }
+    return {"id": revision_id, "video_id": VIDEO, "payload": payload, "evidence": []}
+
+
+def _ask_burglary(question: str) -> dict[str, Any]:
+    store = FakeRevisionStore(revisions={8: _burglary_revision()})
+    resp = _make_client(FakeSearchClient(), store).post(
+        "/api/v1/incidents/chat",
+        json={
+            "messages": [{"role": "user", "content": question}],
+            "version_id": 8,
+            "context": {"scope": "incident", "incident_id": VIDEO},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["message"]
+
+
+def test_nothing_recorded_as_taken_is_said_plainly_and_the_harm_part_still_answered():
+    content = _ask_burglary("What was taken, or what could cause harm?")["content"]
+    assert content.startswith(
+        "The report doesn't say anything was taken. The property it records is the cash register and the black bag."
+    ), content
+    assert "one object that could be used to cause harm: a cash register" in content
+    assert "(threat level 1 of 5)" in content and "Threat levels run from 1 (lowest) to 5 (highest)." in content
+    assert not ID_TOKEN.search(content) and "relevant item(s)" not in content
+
+
+def test_a_question_about_taking_a_named_thing_says_what_the_report_records_about_it():
+    message = _ask_burglary("Did anyone steal the bag?")
+    assert message["content"].startswith(
+        "The report doesn't say the black bag was taken. What it records about the black bag, in order: From 2:14 to "
+        "2:20, the person in light shirt places a black bag on the counter."
+    ), message["content"]
+    assert [c["item_id"] for c in message["citations"]] == ["A2"]
 
 
 def test_a_people_question_describes_the_people():
@@ -580,6 +697,9 @@ def test_a_question_the_report_cannot_answer_says_so_and_cites_nothing(question,
         "Was anyone carrying a gun?",
         "Describe the incident",
         "What is the weather like?",
+        "What was taken, or what could cause harm?",
+        "Was anything stolen?",
+        "Which weapons were used?",
     ],
 )
 def test_no_answer_writes_an_internal_id_unless_asked(question):

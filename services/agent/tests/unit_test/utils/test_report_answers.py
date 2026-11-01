@@ -223,8 +223,9 @@ def test_a_draft_is_overlaid_on_its_base_version():
     [
         (
             "Did the hooded person steal anything?",
-            "Here is what the report records about the hooded person, in order:",
-            "chronology",
+            "The report doesn't say the hooded person took anything. What it records about the hooded person, in "
+            "order: At 0:05, the hooded person walks to the shop door.",
+            "taken",
         ),
         ("Was the door broken?", "Here is what the report records about the shop door, in order:", "chronology"),
         ("Is there a crowbar?", "Yes: the report records a crowbar (pry bar)", "objects"),
@@ -234,7 +235,7 @@ def test_a_draft_is_overlaid_on_its_base_version():
 def test_yes_is_said_only_to_a_bare_existence_question(question, start, kind):
     answer = ra.compose(question, ra.report_view(_report()))
     assert answer.text.startswith(start) and answer.kind == kind, answer.text
-    if kind == "chronology":
+    if kind in ("chronology", "taken"):
         assert "Yes" not in answer.text
 
 
@@ -264,3 +265,58 @@ def test_labels_that_name_each_other_never_put_an_id_in_the_prose():
     assert all(not ra._ID.search(m) for m in view.mentions().values()), view.mentions()
     for question in ("Who is involved?", "What happened, in order?", "Is there a dog?"):
         assert not ra._ID.search(ra.compose(question, view).text), question
+
+
+# -- "what was taken?" and "what could cause harm?": answered from the report, each part of a compound question ----
+
+
+def test_a_taking_in_the_timeline_answers_what_was_taken():
+    report = _report(
+        timeline=[{"start_seconds": 30, "end_seconds": 40, "description": "E1 takes the till drawer and runs."}]
+    )
+    answer = ra.compose("What was stolen?", ra.report_view(report))
+    assert (
+        answer.text
+        == "The report records this taking: From 0:30 to 0:40, the hooded person takes the till drawer and runs."
+    )
+    assert answer.kind == "taken" and not answer.insufficient_evidence and answer.item_ids == ("E1",)
+
+
+def test_nothing_recorded_as_taken_is_said_and_never_guessed():
+    answer = ra.compose("Was anything taken?", ra.report_view(_report()))
+    assert answer.text == "The report doesn't say anything was taken. The property it records is the shop door."
+    assert answer.insufficient_evidence and answer.item_ids == ()
+
+
+def test_harm_lists_the_instruments_most_threatening_first_with_their_levels():
+    report = _report(
+        instruments=[
+            {"instrument_id": "I1", "name": "crowbar", "description": "Pry bar", "threat_level": 3},
+            {"instrument_id": "I2", "name": "knife", "description": "Kitchen knife", "threat_level": 5},
+        ]
+    )
+    answer = ra.compose("What could cause harm?", ra.report_view(report))
+    assert answer.text.startswith(
+        "The report lists two objects that could be used to cause harm: a knife (kitchen knife) (threat level 5 of 5) "
+        "and a crowbar (pry bar) (threat level 3 of 5)."
+    ), answer.text
+    assert answer.item_ids == ("I2", "I1") and answer.kind == "harm"
+
+
+def test_no_instrument_means_the_report_lists_nothing_that_could_cause_harm():
+    answer = ra.compose("Were there any weapons?", ra.report_view(_report(instruments=[])))
+    assert answer.text == "The report lists no weapon or other object that could cause harm."
+    assert answer.item_ids == () and not answer.insufficient_evidence
+
+
+def test_a_compound_question_answers_both_parts():
+    answer = ra.compose("What was taken, or what could cause harm?", ra.report_view(_report()))
+    assert answer.text.startswith("The report doesn't say anything was taken.")
+    assert "The report lists one object that could be used to cause harm: a crowbar (pry bar)" in answer.text
+    assert answer.kind == "taken-harm" and answer.item_ids == ("I1",) and not answer.insufficient_evidence
+    assert not ra._ID.search(answer.text)
+
+
+def test_a_question_naming_a_kind_of_object_is_about_objects_not_people():
+    answer = ra.compose("Which objects were involved?", ra.report_view(_report()))
+    assert answer.kind == "objects" and answer.text.startswith("Objects used: a crowbar"), answer.text
