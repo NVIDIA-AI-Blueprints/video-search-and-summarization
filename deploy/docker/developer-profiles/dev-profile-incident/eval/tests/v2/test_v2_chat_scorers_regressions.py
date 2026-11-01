@@ -170,3 +170,38 @@ def test_holder_answers_without_a_judge_are_unscored_and_refusals_are_wrong():
     summary = sc.aggregate([_holder("The man in red.", judges={"fact": _DescriptionJudge()})])
     assert summary["system"]["ai_proposed"]["holder_identified_rate"] == 1.0
     assert summary["system"]["ai_proposed"]["by_class"]["incident.instrument_holder"]["holder_identified_rate"] == 1.0
+
+
+# --- the most common type: an answer may rank the other types after naming the top one ----------------------------
+
+
+def _most_common():
+    record = _record("library.most_common_type", {})
+    payload = record["payload"]
+    top = payload["answer"]["value"]
+    others = [t for t in payload["answer_space"]["vocabulary"] if t not in top]
+    return top, others
+
+
+def test_naming_the_top_type_and_then_ranking_the_rest_is_exact():
+    top, others = _most_common()
+    assert len(top) == 1 and others, "the fixture has one top type and at least one other"
+    # The library chat's own code-composed breakdown (P6) and a typical model phrasing.
+    breakdown = (
+        f"Of the {len(GT['by_incident_id'])} reports in the library, {top[0]} is the most common type, with two "
+        f"reports, followed by {others[0]} (1)."
+    )
+    assert _exact("library.most_common_type", {}, breakdown) is True
+    assert _exact("library.most_common_type", {}, f"The most common type is {top[0]}, then {others[0]}.") is True
+    assert _exact("library.most_common_type", {}, f"{top[0].capitalize()} happened most often.") is True
+
+
+def test_calling_another_type_the_most_common_is_wrong():
+    top, others = _most_common()
+    assert _exact("library.most_common_type", {}, f"{others[0]} is the most common type, ahead of {top[0]}.") is False
+
+
+def test_without_a_superlative_clause_the_whole_answer_must_name_only_the_top_types():
+    top, others = _most_common()
+    assert _exact("library.most_common_type", {}, f"{top[0]} and {others[0]}.") is False
+    assert _exact("library.most_common_type", {}, f"Mostly {top[0]}.") is True
