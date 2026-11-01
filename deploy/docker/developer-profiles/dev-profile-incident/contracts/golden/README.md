@@ -10,7 +10,7 @@ The exact request bodies this profile sends to models, one JSON file per request
 | [`rp1.json`](rp1.json) | `report` | agent, eval |
 | [`caption.json`](caption.json) | `window` (default 20 s, 32 frames), `remainder` (a shorter last window) | agent |
 | [`grounding.json`](grounding.json) | `best-match` (grounding, object tracking), `every-match` (the privacy blur's head search) | agent |
-| [`zoom.json`](zoom.json) | `look-<type>-frame`, `look-<type>-close-up`, `merge-<type>` for `entity` and `object` | agent |
+| [`zoom.json`](zoom.json) | `look-<type>-frame`, `look-<type>-close-up`, `merge-<type>` for `entity` and `asset` (an instrument takes the asset branch with its own word) | agent |
 | [`chart.json`](chart.json) | `request` (dashboard "Ask for a chart") | console |
 
 The tests:

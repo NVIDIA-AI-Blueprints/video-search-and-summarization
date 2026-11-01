@@ -46,7 +46,7 @@ golden = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(golden)
 
 P1_CASES = ["base", "reviewer", "captions", "marks", "captions-and-marks"]
-ZOOM_ITEM_TYPES = ["entity", "object"]
+ZOOM_ITEM_TYPES = ["entity", "asset"]
 
 
 def _zoom_steps(item_type: str) -> list[str]:

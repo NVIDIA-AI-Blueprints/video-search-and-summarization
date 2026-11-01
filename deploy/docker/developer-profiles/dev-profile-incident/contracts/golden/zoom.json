@@ -129,14 +129,14 @@
         }
       }
     },
-    "look-object-frame": {
-      "description": "Blind look 1 (object): the frame with the item's box drawn, no report text.",
+    "look-asset-frame": {
+      "description": "Blind look 1 (asset): the frame with the item's box drawn, no report text.",
       "producers": [
         "agent"
       ],
       "inputs": {
         "model": "<model>",
-        "item_type": "object",
+        "item_type": "asset",
         "name": "bottle",
         "description": "Bottle taken from the shelf.",
         "reply": {
@@ -171,14 +171,14 @@
         }
       }
     },
-    "look-object-close-up": {
-      "description": "Blind look 2 (object): the same frame, then the close-up of the box.",
+    "look-asset-close-up": {
+      "description": "Blind look 2 (asset): the same frame, then the close-up of the box.",
       "producers": [
         "agent"
       ],
       "inputs": {
         "model": "<model>",
-        "item_type": "object",
+        "item_type": "asset",
         "name": "bottle",
         "description": "Bottle taken from the shelf.",
         "reply": {
@@ -219,14 +219,14 @@
         }
       }
     },
-    "merge-object": {
-      "description": "The text-only merge (object), sent only when the two looks agree.",
+    "merge-asset": {
+      "description": "The text-only merge (asset), sent only when the two looks agree.",
       "producers": [
         "agent"
       ],
       "inputs": {
         "model": "<model>",
-        "item_type": "object",
+        "item_type": "asset",
         "name": "bottle",
         "description": "Bottle taken from the shelf.",
         "reply": {
@@ -244,7 +244,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "An incident report lists an object named \"bottle\" with the description: \"Bottle taken from the shelf.\". A close look at the video frame found: \"green glass bottle\" (A green glass bottle with a white label.). Keep the report's name and description unless the close look shows the report is wrong about what the object is; then correct the name (one to four plain words) and only the wrong parts of the description, keeping what the report says about context. Return JSON only, in the form {\"name\": \"<name>\", \"description\": \"<description>\", \"changed\": <true when either differs from the report>, \"confidence\": <0 to 1: how sure you are the result is right>}."
+                "text": "An incident report lists an asset named \"bottle\" with the description: \"Bottle taken from the shelf.\". A close look at the video frame found: \"green glass bottle\" (A green glass bottle with a white label.). Keep the report's name and description unless the close look shows the report is wrong about what the object is; then correct the name (one to four plain words) and only the wrong parts of the description, keeping what the report says about context. Return JSON only, in the form {\"name\": \"<name>\", \"description\": \"<description>\", \"changed\": <true when either differs from the report>, \"confidence\": <0 to 1: how sure you are the result is right>}."
               }
             ]
           }
