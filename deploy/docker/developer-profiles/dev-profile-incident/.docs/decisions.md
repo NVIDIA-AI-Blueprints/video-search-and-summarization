@@ -2,6 +2,31 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-01: Request goldens pin every model request, checked by each producer
+- **Decision:** `contracts/golden/` holds the exact request bodies the profile sends to models, one JSON file per kind with named cases:
+  - P1 (base, reviewer instruction, caption context, set-of-marks, both);
+  - RP1;
+  - the caption pass;
+  - grounding and the privacy head search;
+  - the zoomed second look;
+  - the dashboard chart request.
+- **How it is checked:**
+  - Every producer (console, eval, agent) has a test that builds its requests with its own code and compares them with the cases naming it, and asserts it covers all of them.
+  - P1 and RP1 are therefore equal across producers.
+  - The other prompts are pinned before Evaluation V2 records them as a run's provenance.
+- **Comparison and references:**
+  - Bodies compare as JSON values. The agent may add `"stream": false`; inline images compare as a placeholder.
+  - The P1 prompt and `response_format` are referenced by path and sha256 rather than copied.
+- **Why:** Evaluation V2 compares models through the production pipeline. Its results mean something only if the requests it measures are the ones production sends.
+  - Before this, only P1 had a parity check (eval against the console, and Stage 3's preflight against the agent).
+  - The caption, grounding, zoom and chart prompts were unversioned literals that could drift unnoticed.
+  - A golden makes every change to them a visible diff, and the planned move of those prompts into a registry must leave the goldens unchanged.
+- **Rejected:**
+  - Copying the full P1 prompt and schema into each case: 27 KB per case, and every contract bump would show the same diff several times.
+  - Snapshot tests per producer: they prove nothing about two producers agreeing.
+  - Comparing serialized bytes: Python and JavaScript serialize whitespace and `0.0` differently, while the server parses JSON.
+- **Links:** [`contracts/golden/`](../contracts/golden/README.md), [analysis request](analysis-schema.md#2-the-analysis-request-identical-to-eval-p1)
+
 ### 2026-11-01: Privacy blur detects every head in each frame and clip second, whatever tracking says
 - **Decision:** with `blur_faces` on, the agent searches every stored evidence frame for heads with one whole-frame call to the existing open-vocabulary detector (`DefaultDetector.detect_all`, query `every human head or face`, a list-returning prompt, up to 32 boxes) and blurs those heads before encoding, for person and non-person items alike; the heads of every person track and of each located person box stay as additional regions (a union). The search also runs at sampled seconds (every 0.5 s) of each item's 4 s clip window, and the boxes are stored per item as `<itemId>-heads.json` (entry field `heads`); the console builds the clip's `boxblur` regions per second from them, merged with the existing track and recorded-head regions. The search has its own per-request call cap (`INCIDENT_BLUR_DETECTOR_CALL_CAP`, default 200), separate from `max_crop_calls` and `CropCallBudget`, because a privacy guarantee must not shrink with an experiment's crop budget. A search that fails or is refused falls back to the known people's heads and is counted (`privacy.fallbacks`); with no known person the item stores no image (fail closed, as in PR 401). An item without a heads file (an older version) keeps the PR 407 behaviour; nothing known still gives 422. The best-moment re-cut of an object track no longer waits for a person track, since blur no longer depends on one.
 - **Why:** the live test of PR 407 still showed faces: the blur covered only people linked to a track or located by the model, so a wrong box (IMG_4569 E1 on a wall), a face in a frame whose item is not a person (A2 control panel) and a bystander or kneeling man no entity matched (IMG_9170) stayed visible. Searching each frame for heads removes the dependence on track linking and on the model's boxes. The cost is more detector calls when blur is on (one per distinct second of a stored frame or clip sample); the cap and the fallback bound it.

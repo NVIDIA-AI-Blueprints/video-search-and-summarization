@@ -1,0 +1,260 @@
+{
+  "golden": "zoom",
+  "description": "The zoomed second look (agent only; same model as grounding, outside max_crop_calls): two blind looks and, when they agree, a text-only merge with the report's text. Images are inline JPEGs, shown as placeholders.",
+  "cases": {
+    "look-entity-frame": {
+      "description": "Blind look 1 (entity): the frame with the item's box drawn, no report text.",
+      "producers": [
+        "agent"
+      ],
+      "inputs": {
+        "model": "<model>",
+        "item_type": "entity",
+        "name": "person",
+        "description": "Man in a grey hoodie holding a bottle.",
+        "reply": {
+          "name": "person",
+          "description": "A man in a grey hoodie.",
+          "confidence": 0.9
+        }
+      },
+      "body": {
+        "model": "<model>",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/jpeg;base64,<jpeg>"
+                }
+              },
+              {
+                "type": "text",
+                "text": "The image is a video frame with one person marked by a red box. Describe the marked person from what is visible: clothing, build, what they carry or hold. Return JSON only, in the form {\"name\": \"person\", \"description\": \"<one sentence>\", \"confidence\": <0 to 1: how sure you are>}."
+              }
+            ]
+          }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 256,
+        "response_format": {
+          "type": "json_object"
+        }
+      }
+    },
+    "look-entity-close-up": {
+      "description": "Blind look 2 (entity): the same frame, then the close-up of the box.",
+      "producers": [
+        "agent"
+      ],
+      "inputs": {
+        "model": "<model>",
+        "item_type": "entity",
+        "name": "person",
+        "description": "Man in a grey hoodie holding a bottle.",
+        "reply": {
+          "name": "person",
+          "description": "A man in a grey hoodie holding a green bottle.",
+          "confidence": 0.85
+        }
+      },
+      "body": {
+        "model": "<model>",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/jpeg;base64,<jpeg>"
+                }
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/jpeg;base64,<jpeg>"
+                }
+              },
+              {
+                "type": "text",
+                "text": "The first image is a video frame with one person marked by a red box; the second is a close-up of that box. Describe the marked person from what is visible: clothing, build, what they carry or hold. Return JSON only, in the form {\"name\": \"person\", \"description\": \"<one sentence>\", \"confidence\": <0 to 1: how sure you are>}."
+              }
+            ]
+          }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 256,
+        "response_format": {
+          "type": "json_object"
+        }
+      }
+    },
+    "merge-entity": {
+      "description": "The text-only merge (entity), sent only when the two looks agree.",
+      "producers": [
+        "agent"
+      ],
+      "inputs": {
+        "model": "<model>",
+        "item_type": "entity",
+        "name": "person",
+        "description": "Man in a grey hoodie holding a bottle.",
+        "reply": {
+          "name": "person",
+          "description": "Man in a grey hoodie holding a green bottle.",
+          "changed": true,
+          "confidence": 0.8
+        }
+      },
+      "body": {
+        "model": "<model>",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "An incident report lists an entity named \"person\" with the description: \"Man in a grey hoodie holding a bottle.\". A close look at the video frame found: \"person\" (A man in a grey hoodie holding a green bottle.). The entity type is fixed: return it unchanged as \"name\". Keep the report's description unless the close look shows it is wrong about the person's appearance (clothing, build, what they carry); then correct only the wrong parts and keep what the report says about their behaviour and context. Return JSON only, in the form {\"name\": \"<name>\", \"description\": \"<description>\", \"changed\": <true when either differs from the report>, \"confidence\": <0 to 1: how sure you are the result is right>}."
+              }
+            ]
+          }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 256,
+        "response_format": {
+          "type": "json_object"
+        }
+      }
+    },
+    "look-object-frame": {
+      "description": "Blind look 1 (object): the frame with the item's box drawn, no report text.",
+      "producers": [
+        "agent"
+      ],
+      "inputs": {
+        "model": "<model>",
+        "item_type": "object",
+        "name": "bottle",
+        "description": "Bottle taken from the shelf.",
+        "reply": {
+          "name": "glass bottle",
+          "description": "A glass bottle.",
+          "confidence": 0.9
+        }
+      },
+      "body": {
+        "model": "<model>",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/jpeg;base64,<jpeg>"
+                }
+              },
+              {
+                "type": "text",
+                "text": "The image is a video frame with one object marked by a red box. What is the object inside the red box? Ignore things that are only partly inside it. Return JSON only, in the form {\"name\": \"<one to four plain words>\", \"description\": \"<one sentence>\", \"confidence\": <0 to 1: how sure you are>}."
+              }
+            ]
+          }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 256,
+        "response_format": {
+          "type": "json_object"
+        }
+      }
+    },
+    "look-object-close-up": {
+      "description": "Blind look 2 (object): the same frame, then the close-up of the box.",
+      "producers": [
+        "agent"
+      ],
+      "inputs": {
+        "model": "<model>",
+        "item_type": "object",
+        "name": "bottle",
+        "description": "Bottle taken from the shelf.",
+        "reply": {
+          "name": "green glass bottle",
+          "description": "A green glass bottle with a white label.",
+          "confidence": 0.85
+        }
+      },
+      "body": {
+        "model": "<model>",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/jpeg;base64,<jpeg>"
+                }
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/jpeg;base64,<jpeg>"
+                }
+              },
+              {
+                "type": "text",
+                "text": "The first image is a video frame with one object marked by a red box; the second is a close-up of that box. What is the object inside the red box? Ignore things that are only partly inside it. Return JSON only, in the form {\"name\": \"<one to four plain words>\", \"description\": \"<one sentence>\", \"confidence\": <0 to 1: how sure you are>}."
+              }
+            ]
+          }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 256,
+        "response_format": {
+          "type": "json_object"
+        }
+      }
+    },
+    "merge-object": {
+      "description": "The text-only merge (object), sent only when the two looks agree.",
+      "producers": [
+        "agent"
+      ],
+      "inputs": {
+        "model": "<model>",
+        "item_type": "object",
+        "name": "bottle",
+        "description": "Bottle taken from the shelf.",
+        "reply": {
+          "name": "bottle",
+          "description": "Green glass bottle taken from the shelf.",
+          "changed": true,
+          "confidence": 0.8
+        }
+      },
+      "body": {
+        "model": "<model>",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "An incident report lists an object named \"bottle\" with the description: \"Bottle taken from the shelf.\". A close look at the video frame found: \"green glass bottle\" (A green glass bottle with a white label.). Keep the report's name and description unless the close look shows the report is wrong about what the object is; then correct the name (one to four plain words) and only the wrong parts of the description, keeping what the report says about context. Return JSON only, in the form {\"name\": \"<name>\", \"description\": \"<description>\", \"changed\": <true when either differs from the report>, \"confidence\": <0 to 1: how sure you are the result is right>}."
+              }
+            ]
+          }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 256,
+        "response_format": {
+          "type": "json_object"
+        }
+      }
+    }
+  }
+}

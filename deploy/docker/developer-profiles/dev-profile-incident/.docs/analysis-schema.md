@@ -26,6 +26,14 @@ This document describes how incident analysis output is defined, validated, stor
 - **Settings:** `temperature 0`, `max_tokens 16384`, `media_io_kwargs.video.num_frames 64` (Cosmos Super ignores `num_frames`).
 - **`response_format`:** the contract schema, strict (`$schema`/`$id` removed), equal to `eval/contract.py:response_format()`.
 
+The exact bodies are request goldens in [`contracts/golden/`](../contracts/golden/README.md), which the console, eval and the agent each test against. They cover:
+
+- this request, with and without the instruction;
+- the agent's extra caption and set-of-marks messages;
+- RP1;
+- the caption, grounding and zoom calls;
+- the dashboard chart call.
+
 ## 3. Validation, ID-only repair and outcomes
 
 `src/modules/contract/domain/validate.ts` is a strict port of `eval/contract.py`:
