@@ -2,6 +2,21 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-01 (proposed): Caption windows go through a scratch-store port; captions in experiments wait for a store decision (X16)
+- **Decision:**
+  - **Port:** the caption pass keeps its window clips behind `ScratchStorage` (`put_video`, `signed_url`, `delete_prefix`).
+  - **R2 store (`ScratchStore`):** now confined to a root, default `scratch/analyze`, which production uses unchanged. It refuses a key outside the root, and a delete of the root or of one level under it, so a pass can only touch `<root>/<video key>/<run id>/`.
+  - **Inline store (`InlineScratchStore`):** sends each window inline as a base64 data URL, stores nothing, and refuses a window over 8 MiB.
+  - **Not wired:** no request uses the inline store yet.
+- **Why:** experimental requests skip the caption pass: the remote model must fetch each window, and the experiment agent has no R2 settings (blocker X16). So Track B cannot measure the caption effect.
+- **Open (owner decision, X16):**
+  - **(a) R2 under an approved `scratch/eval` root:** needs a lifecycle rule and R2 credentials on the experiment agent, ideally limited to that prefix.
+  - **(b) Inline data URLs:** need no storage, but whether the endpoints accept a base64 video, and up to what size, is unverified; it needs one approved model call.
+  - **(c) Keep captions out of Track B.**
+  - **Either (a) or (b) then needs:** an experimental field to choose the store, a `max_caption_calls` cap counted per HTTP attempt, and a Track B profile that declares the caption stage.
+- **Rejected:** a local HTTP server for the windows (Switchyard cannot reach the laptop); writing to `scratch/analyze` from experiments (that prefix belongs to production).
+- **Links:** [`chunk_captions.py`](../../../../../services/agent/src/vss_agents/utils/chunk_captions.py), [caption pass](vm-api-contracts.md#caption-pass-chunked-captioning-incident_chunking_enabled).
+
 ### 2026-11-01: Experimental requests can cap the zoom look, track objects and return the pre-zoom P1 report; captions wait for a scratch store
 - **Decision:** an experimental crops-on request may set:
   - `max_zoom_calls`: a per-request cap on the zoomed second look's HTTP attempts, applied to a capped copy of the shared namer. Items beyond it keep a `zoom_gap`. The refusal is also counted in the run provenance;
