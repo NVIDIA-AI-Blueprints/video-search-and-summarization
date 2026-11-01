@@ -48,6 +48,12 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - `registry.py` builds adapters from subject configs.
 - **`evalv2.requests`:** request builders that load `contracts/` and hold no prompt text. `p1.py` builds the P1 body, and a test pins it to V1's `eval_vlm_client.p1_request_payload`.
 - **`evalv2.tasks`:** the runner and scorer protocols and the task registry.
+  - **`tasks/incident_objects/`** (Track A, P1 only), registered lazily as `incident_objects`:
+    - **`runner.py`:** sends V1's P1 body through a subject's adapter, validates the reply with V1's contract policy, stores the prediction, and labels the outcome as V1 does. Every attempt reserves V1's P1 ceiling on the `inference` ledger, the bound preflight assumes. A failed record keeps the adapter's failure kind (`failure_kind`) for the checkpoint, since V1's label folds transport errors and budget refusals into `http_error`.
+    - **`scoring.py`:** follows V1's `run_evaluation` and calls V1's own rules through `v1.py`, the task's only bridge to V1. Similarity and judge scores are injected providers whose results are recorded, so a run's full similarity matrices and judgements make re-scoring offline and exact.
+    - **`aggregate.py`:** reports V1's own aggregates as `continuity_v1`, plus the V2 metrics: type macro-F1 (over the labels with ground-truth support; a label no clip has is `None`, not 0) and confusion, severity quadratic-weighted κ, timestamp errors with a tolerance curve, the incident window's temporal IoU, and attribute accuracies.
+  - **`tasks/judging.py`:** judge results as data. A cache is keyed by judge model, prompt hash, settings and texts. An offline judge never calls a model, and a missing judgement is unscored, not failed.
+- **`evalv2.verify_v1`:** re-scores stored V1 records with V2 by replaying the stored assignments and judge scores (V1 kept no matrices). It requires every score block, and V1's aggregates and the Stage 3 report's `items` and `severity`, to be identical. Running it on the real Stage 3 records is the approved check RA0.
 - **`evalv2.datasets`:**
   - **`registry.json`:** every dataset by id, with its location and pinned hashes. It is append-only, and only hashes and counts are committed.
   - **Resolving:** `resolve` checks the hashes before anything is read. Private datasets are read from `--data-root`, else `EVALV2_DATA_ROOT`, else `eval_data/`.

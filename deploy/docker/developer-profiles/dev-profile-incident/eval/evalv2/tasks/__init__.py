@@ -16,4 +16,14 @@
 
 from evalv2.tasks.base import TASKS, PredictionRecord, Scorer, ScoreRecord, TaskRunner, WorkItem, register_task
 
+
+def _incident_objects() -> TaskRunner:
+    """Registered lazily: the task reaches V1's scoring modules, which only a run that uses it should import."""
+    from evalv2.tasks.incident_objects.runner import IncidentObjectsTask
+
+    return IncidentObjectsTask()
+
+
+register_task("incident_objects")(_incident_objects)
+
 __all__ = ["TASKS", "PredictionRecord", "ScoreRecord", "Scorer", "TaskRunner", "WorkItem", "register_task"]

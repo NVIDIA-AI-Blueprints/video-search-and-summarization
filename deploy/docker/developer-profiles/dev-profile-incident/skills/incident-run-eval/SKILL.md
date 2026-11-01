@@ -3,7 +3,7 @@ name: incident-run-eval
 description: Use to run the standalone P1/RP1 evaluation pipeline in eval/ - start the local embedding server, ingest ground truth, generate the seeded split, batch-score VLM incident extraction against ground truth, aggregate across models and categories, or run its hermetic tests. Not for producing a single report (use incident-analyze-video) and not NVIDIA's `nat eval`.
 license: Apache-2.0
 metadata:
-  version: "0.16.0"
+  version: "0.17.0"
   profile: "dev-profile-incident"
   tags: "incident evaluation benchmark ground-truth vlm"
 ---
@@ -116,7 +116,10 @@ uv run python -m evalv2 review export --records <r.jsonl> --out <eval_data/...xl
 uv run python -m evalv2 review import --workbook <w.xlsx> --out <decisions.jsonl>                # people's decisions
 uv run python -m evalv2 review apply --records <r.jsonl> --decisions <d.jsonl> --out <r2.jsonl>  # -> human_verified
 uv run python -m evalv2 review kappa --a <a.jsonl> --b <b.jsonl> [--categories 1,2,3,4,5]        # Cohen or weighted κ
+uv run python -m evalv2 verify-v1 --record <results.json> [--record ...] [--report <stage3-report.json>] --data-root <eval_data>
 ```
+
+- **`verify-v1`** re-scores stored V1 records with V2's incident-and-object scoring, with no model, embedder or judge call, and exits 1 on any difference. Running it on the real Stage 3 records is the separately approved check **RA0**; do not run it without that approval.
 
 - **Private datasets** (ground truth, references) are read from `--data-root`, else `EVALV2_DATA_ROOT`, else `eval/eval_data`. In a worktree, point `--data-root` at the main checkout's `eval/eval_data`; it is read-only there.
   - Workbooks, decisions and records quote ground-truth text. They are written only to gitignored paths or outside the repository; any other path is refused.

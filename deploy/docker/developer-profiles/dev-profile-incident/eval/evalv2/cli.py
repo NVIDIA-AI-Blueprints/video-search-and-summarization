@@ -28,6 +28,8 @@
   unless named with ``--id``).
 - ``review sample|export|import|apply|kappa``: the human-review loop for reference records (a stratified sample,
   the xlsx workbook, its decisions, the records they verify, and agreement between two raters).
+- ``verify-v1 --record R [--record ...] [--report P] [--data-root D]``: V2's incident-and-object scoring reproduces
+  V1's stored Stage 3 records (no call). Running it on the real records is the approved check RA0.
 
 ``plan``, ``preflight`` and ``run`` resolve the config's datasets through the registry; private ones are read from
 ``--data-root`` (else ``EVALV2_DATA_ROOT``, else ``eval/eval_data``).
@@ -248,7 +250,20 @@ def _parser() -> argparse.ArgumentParser:
     agreement.add_argument("--b", type=Path, required=True)
     agreement.add_argument("--categories", help="ordered labels, comma-separated, for weighted kappa")
     agreement.add_argument("--weights", choices=("linear", "quadratic"), default="quadratic")
+    verify = sub.add_parser("verify-v1")
+    verify.add_argument("--record", type=Path, action="append", required=True)
+    verify.add_argument("--report", type=Path)
+    verify.add_argument("--data-root", type=Path, default=None)
     return parser
+
+
+def _verify_v1(args: argparse.Namespace) -> int:
+    from evalv2.datasets.ground_truth import load_gt_v1_sheets
+    from evalv2.verify_v1 import verify
+
+    result = verify(args.record, load_gt_v1_sheets(data_root=args.data_root), args.report)
+    print(json.dumps(result, indent=2))
+    return 0 if result["ok"] else 1
 
 
 def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | None = None) -> int:
@@ -259,6 +274,12 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
                     else ArtifactStore(args.store).run(args.run).verify())
         print(json.dumps({"ok": not problems, "problems": problems}, indent=2))
         return 1 if problems else 0
+    if args.command == "verify-v1":
+        try:
+            return _verify_v1(args)
+        except DatasetError as exc:
+            print(json.dumps({"ok": False, "problems": [str(exc)]}, indent=2))
+            return 1
     if args.command in ("datasets", "review"):
         try:
             return _datasets(args) if args.command == "datasets" else _review(args)
