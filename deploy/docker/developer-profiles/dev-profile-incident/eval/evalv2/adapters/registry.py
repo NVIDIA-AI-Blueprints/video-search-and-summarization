@@ -36,7 +36,8 @@ CAPABILITIES_PATH = Path(__file__).resolve().with_name("capabilities.json")
 
 def load_capabilities(path: Path = CAPABILITIES_PATH) -> dict[str, Capabilities]:
     models = json.loads(path.read_text())["models"]
-    return {model: Capabilities(**entry) for model, entry in models.items()}
+    return {model: Capabilities(**{**entry, "listed_on": tuple(entry.get("listed_on", ()))})
+            for model, entry in models.items()}
 
 
 def capabilities_for(model: str, table: Mapping[str, Capabilities] | None = None) -> Capabilities:

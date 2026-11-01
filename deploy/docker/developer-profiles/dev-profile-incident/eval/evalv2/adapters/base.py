@@ -75,6 +75,7 @@ class Capabilities:
     frame_policy: str = "unknown"
     verified: bool = False
     notes: str = ""
+    listed_on: tuple[str, ...] = ()  # endpoints whose model listing named this id (RB1, read-only)
 
     def missing(self, requires: Iterable[str]) -> list[str]:
         """Required capabilities this subject lacks; an empty list means the task is supported."""

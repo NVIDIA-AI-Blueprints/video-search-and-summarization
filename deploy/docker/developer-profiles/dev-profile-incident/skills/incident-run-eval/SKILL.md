@@ -145,7 +145,9 @@ uv run python -m evalv2 verify-v1 --record <results.json> [--record ...] [--repo
   - `switchyard`: `VLM_GATEWAY_BASE_URL` (with `/v1`) and `VLM_GATEWAY_API_KEY`, as in V1.
   - `nvidia-api-catalog`: `NVIDIA_API_BASE_URL` (default `https://integrate.api.nvidia.com/v1`) and `NVIDIA_API_KEY`.
   - `local-openai`: `EVALV2_LOCAL_BASE_URL` and `EVALV2_LOCAL_API_KEY`.
-- **Model capabilities** are in `evalv2/adapters/capabilities.json`, all `verified: false` until a read-only live check. A subject that lacks a capability a task requires is reported as unsupported, never scored 0.
+- **Model capabilities** are in `evalv2/adapters/capabilities.json`, all `verified: false` until a model call confirms them. A subject that lacks a capability a task requires is reported as unsupported, never scored 0.
+  - RB1's listings are in `evalv2/adapters/catalog_rb1.json`.
+  - Use the endpoint's own id: on `nvidia-api-catalog`, Nemotron 3 Ultra is `nvidia/nemotron-3-ultra-550b-a55b` and Nemotron 3 Nano is `nvidia/nemotron-nano-3-30b-a3b`. Cosmos 3 is Switchyard only.
 - Caps are per ledger: inference, caption, grounding, zoom, object_tracking, embedding, judge, generation.
 
 ## Verify

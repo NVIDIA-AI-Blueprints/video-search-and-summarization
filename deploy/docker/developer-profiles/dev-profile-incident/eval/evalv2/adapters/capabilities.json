@@ -1,35 +1,136 @@
 {
-  "note": "What each model is believed to support, from repository evidence only. Every entry is verified=false until a read-only live check (RB1) confirms it; preflight reports unverified capabilities. Sources: contracts/inference.json, .docs/analysis-schema.md, .docs/architecture.md, eval/docs/vlm_benchmark_results.md, .docs/decisions.md (2026-10-31 chunked captioning), services/agent/src/vss_agents/utils/crop_evidence.py.",
+  "note": "What each model is believed to support. verified=false until a model call confirms it (RB1 on 2026-11-01 was read-only: catalog listings and public docs, see catalog_rb1.json). listed_on says which endpoints listed the id on that date. Repository sources: contracts/inference.json, .docs/analysis-schema.md, .docs/architecture.md, eval/docs/vlm_benchmark_results.md, .docs/decisions.md (2026-10-31 chunked captioning), services/agent/src/vss_agents/utils/crop_evidence.py.",
   "models": {
     "nvidia/cosmos-3-super-reasoner": {
-      "video_input": true, "image_input": true, "text_input": true, "json_schema": true, "bbox": true,
+      "video_input": true,
+      "image_input": true,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": true,
       "frame_policy": "provider: about 24 frames, ignores num_frames",
       "verified": false,
-      "notes": "V1's only P1 model; production grounding and zoom model (VLM_NAME). Strict json_schema works per analysis-schema.md."
+      "notes": "V1's only P1 model; production grounding and zoom model (VLM_NAME). Strict json_schema works per analysis-schema.md. RB1: Switchyard only (not on the public catalog).",
+      "listed_on": [
+        "switchyard"
+      ]
     },
     "nvidia/cosmos-3-nano-reasoner": {
-      "video_input": true, "image_input": false, "text_input": true, "json_schema": true, "bbox": false,
+      "video_input": true,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": false,
       "frame_policy": "unverified: docs conflict (num_frames honoured vs fixed 2 fps capped near 60)",
       "verified": false,
-      "notes": "Console default (VLM_MODEL). Image input and boxes never exercised."
+      "notes": "Console default (VLM_MODEL). Image input and boxes never exercised. RB1: Switchyard only (not on the public catalog).",
+      "listed_on": [
+        "switchyard"
+      ]
     },
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {
-      "video_input": true, "image_input": false, "text_input": true, "json_schema": true, "bbox": false,
-      "frame_policy": "unverified",
+      "video_input": true,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": false,
+      "frame_policy": "catalog docs: mp4 up to 2 min, up to 1 fps/128 frames at 1080p or 2 fps/256 frames at 720p and below; Switchyard's own sampling unverified",
       "verified": false,
-      "notes": "Needs about 16k output tokens; 2 Oct benchmark: 10 of 55 invalid, 30k TPM quota."
+      "notes": "Needs about 16k output tokens; 2 Oct benchmark: 10 of 55 invalid, 30k TPM quota. RB1 docs: video, audio, image and text input; 'Supports JSON output format' (strict schema not stated); 256k context.",
+      "listed_on": [
+        "switchyard",
+        "nvidia-api-catalog"
+      ]
     },
     "nvidia/nemotron-3-ultra": {
-      "video_input": false, "image_input": false, "text_input": true, "json_schema": true, "bbox": false,
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": false,
       "frame_policy": "n/a",
       "verified": false,
-      "notes": "Chart-spec model (CHART_MODEL) and the VM's LLM_NAME; chatbot candidate."
+      "notes": "Chart-spec model (CHART_MODEL) and the VM's LLM_NAME; chatbot candidate. RB1: Switchyard id; the catalog names it nvidia/nemotron-3-ultra-550b-a55b.",
+      "listed_on": [
+        "switchyard"
+      ]
     },
     "nvidia/nemotron-3-nano-30b-a3b": {
-      "video_input": false, "image_input": false, "text_input": true, "json_schema": false, "bbox": false,
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": false,
+      "bbox": false,
       "frame_policy": "n/a",
       "verified": false,
-      "notes": "V1's pinned judge; same family as the Omni subject."
+      "notes": "V1's pinned judge; same family as the Omni subject. RB1: Switchyard id; the catalog names it nvidia/nemotron-nano-3-30b-a3b.",
+      "listed_on": [
+        "switchyard"
+      ]
+    },
+    "nvidia/nemotron-3-ultra-550b-a55b": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "json_schema": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Catalog id of nemotron-3-ultra. RB1 docs: text only, tool calling, up to 1M context; JSON output not documented as a serving parameter."
+    },
+    "nvidia/nemotron-nano-3-30b-a3b": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "json_schema": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Catalog id of nemotron-3-nano-30b-a3b (V1's judge family)."
+    },
+    "openai/gpt-oss-20b": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "json_schema": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Third-family judge candidate (X19): listed on the catalog only, so inference needs NVIDIA_API_KEY (X18). Capabilities unverified."
+    },
+    "mistralai/mistral-large-4-1t-a52b": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "json_schema": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Third-family judge candidate (X19), catalog only (X18). Capabilities unverified."
+    },
+    "nvidia/cosmos-reason2-8b": {
+      "video_input": true,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": false,
+      "bbox": false,
+      "frame_policy": "unverified",
+      "verified": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Open-weight video reasoning model on the catalog; its API reference was not found, so every capability is assumed from the name and unverified."
     }
   }
 }

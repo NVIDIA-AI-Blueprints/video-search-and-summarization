@@ -1,0 +1,166 @@
+{
+ "rb1": {
+  "date": "2026-11-01",
+  "method": "Read-only: GET /models on each endpoint and public model documentation. No inference, embedding or other billable request was sent.",
+  "approved": "Owner, 2026-11-01 (integration-readiness phase)"
+ },
+ "endpoints": {
+  "switchyard": {
+   "request": "GET {VLM_GATEWAY_BASE_URL}/models with the gateway key",
+   "status": 200,
+   "fetched_at": "2026-11-01T09:05:00.361405+00:00",
+   "response_sha256": "9c4d150d75dab7baba41717f66f16d10e98b01c2e108ce4cd011e59251c8c281",
+   "client_note": "Cloudflare refused Python urllib's client signature (403, error 1010); curl succeeded. The adapters use httpx, which the gateway already accepts for chat completions.",
+   "models": [
+    "nvidia/cosmos-3-auto",
+    "nvidia/cosmos-3-nano-reasoner",
+    "nvidia/cosmos-3-super-reasoner",
+    "nvidia/nemotron-3-auto",
+    "nvidia/nemotron-3-nano-30b-a3b",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/nemotron-3-super-120b-a12b",
+    "nvidia/nemotron-3-ultra",
+    "nvidia/nemotron-3-ultra-nvfp4",
+    "nvidia/nemotron-3.5-lightning-30b-a3b"
+   ]
+  },
+  "nvidia-api-catalog": {
+   "request": "GET https://integrate.api.nvidia.com/v1/models (no key needed for the listing)",
+   "status": 200,
+   "fetched_at": "2026-11-01T09:05:00.361405+00:00",
+   "response_sha256": "48611ddd461d614dd2a61f639b11a927a8adc154e2a9f357c6cad27d7bad0c63",
+   "models": [
+    "01-ai/yi-large",
+    "adept/fuyu-8b",
+    "ai21labs/jamba-1.5-large-instruct",
+    "aisingapore/sea-lion-7b-instruct",
+    "bigcode/starcoder2-15b",
+    "databricks/dbrx-instruct",
+    "deepseek-ai/deepseek-coder-6.7b-instruct",
+    "deepseek-ai/deepseek-v4.1-flash",
+    "google/codegemma-1.1-7b",
+    "google/codegemma-7b",
+    "google/deplot",
+    "google/diffusiongemma-26b-a4b-it",
+    "google/gemma-2b",
+    "google/gemma-3-12b-it",
+    "google/gemma-3-4b-it",
+    "google/gemma-4-31b-it",
+    "google/recurrentgemma-2b",
+    "ibm/granite-3.0-3b-a800m-instruct",
+    "ibm/granite-3.0-8b-instruct",
+    "ibm/granite-34b-code-instruct",
+    "ibm/granite-8b-code-instruct",
+    "meta/codellama-70b",
+    "meta/llama-3.2-11b-vision-instruct",
+    "meta/llama-3.2-90b-vision-instruct",
+    "meta/llama-guard-4-12b",
+    "meta/llama2-70b",
+    "meta/muse-glimmer-30b",
+    "microsoft/kosmos-2",
+    "microsoft/phi-3-vision-128k-instruct",
+    "microsoft/phi-3.5-moe-instruct",
+    "minimaxai/minimax-m3.1-flash",
+    "mistralai/codestral-22b-instruct-v0.1",
+    "mistralai/mistral-7b-instruct-v0.3",
+    "mistralai/mistral-large",
+    "mistralai/mistral-large-2-instruct",
+    "mistralai/mistral-large-4-1t-a52b",
+    "mistralai/mixtral-8x22b-v0.1",
+    "moonshotai/kimi-k2.6",
+    "nv-mistralai/mistral-nemo-12b-instruct",
+    "nvidia/ai-synthetic-video-detector",
+    "nvidia/cosmos-reason2-8b",
+    "nvidia/embed-qa-4",
+    "nvidia/ising-calibration-1.5-31b",
+    "nvidia/llama-3.1-nemoguard-8b-content-safety",
+    "nvidia/llama-3.1-nemoguard-8b-topic-control",
+    "nvidia/llama-3.1-nemotron-51b-instruct",
+    "nvidia/llama-3.1-nemotron-70b-instruct",
+    "nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+    "nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1",
+    "nvidia/llama-3.2-nv-embedqa-1b-v1",
+    "nvidia/llama-nemotron-embed-vl-1b-v2",
+    "nvidia/llama3-chatqa-1.5-70b",
+    "nvidia/mistral-nemo-minitron-8b-8k-instruct",
+    "nvidia/nemotron-3-embed-1b",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/nemotron-3-super-120b-a12b",
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-3.5-bolt-e4b",
+    "nvidia/nemotron-3.5-content-safety",
+    "nvidia/nemotron-3.5-embed-1b",
+    "nvidia/nemotron-3.5-embed-8b",
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "nvidia/nemotron-4-340b-instruct",
+    "nvidia/nemotron-4-340b-reward",
+    "nvidia/nemotron-nano-3-30b-a3b",
+    "nvidia/nemotron-parse",
+    "nvidia/nemotron-parse-2.0",
+    "nvidia/neva-22b",
+    "nvidia/nv-embedqa-mistral-7b-v2",
+    "nvidia/nvclip",
+    "nvidia/riva-translate-4b-instruct",
+    "nvidia/riva-translate-4b-instruct-v2",
+    "nvidia/vila",
+    "openai/gpt-oss-20b",
+    "poolside/laguna-xs-2.1",
+    "snowflake/arctic-embed-l",
+    "stepfun-ai/step-5-preview",
+    "writer/palmyra-creative-122b",
+    "writer/palmyra-fin-70b-32k",
+    "writer/palmyra-med-70b",
+    "writer/palmyra-med-70b-32k",
+    "z-ai/glm-5.3-flash",
+    "zyphra/zamba2-7b-instruct"
+   ]
+  }
+ },
+ "documentation": {
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {
+   "source": "https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-nano-omni-30b-a3b-reasoning",
+   "inputs": [
+    "video",
+    "audio",
+    "image",
+    "text"
+   ],
+   "video": "mp4, up to 2 minutes; up to 1 FPS / 128 frames at 1080p, 2 FPS / 256 frames at 720p or lower",
+   "json": "documented: 'Supports JSON output format' (strict json_schema not stated)",
+   "context": "up to 256k tokens"
+  },
+  "nvidia/nemotron-3-ultra-550b-a55b": {
+   "source": "https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-ultra-550b-a55b",
+   "inputs": [
+    "text"
+   ],
+   "json": "not documented as a serving parameter; tool calling documented",
+   "context": "up to 1M tokens (256k by default)"
+  },
+  "nvidia/cosmos-3-super-reasoner": {
+   "source": null,
+   "note": "Not on the public catalog (Switchyard only); no public documentation found."
+  },
+  "nvidia/cosmos-3-nano-reasoner": {
+   "source": null,
+   "note": "Not on the public catalog (Switchyard only); no public documentation found."
+  },
+  "nvidia/cosmos-reason2-8b": {
+   "source": null,
+   "note": "Listed on the catalog; its API reference page was not found (404)."
+  },
+  "nvidia/nemotron-3.5-super-vl-120b-a12b": {
+   "source": null,
+   "note": "Listed on the catalog; its API reference page was not found (404)."
+  }
+ },
+ "findings": [
+  "Switchyard serves the three allowlisted P1 models (cosmos-3-nano-reasoner, cosmos-3-super-reasoner, nemotron-3-nano-omni-30b-a3b-reasoning) and nemotron-3-ultra, the grounded chat default (P5): the configured ids are right for Switchyard.",
+  "The public catalog names two of them differently: nemotron-3-ultra is nvidia/nemotron-3-ultra-550b-a55b and nemotron-3-nano-30b-a3b is nvidia/nemotron-nano-3-30b-a3b. A subject on that endpoint must use the catalog id.",
+  "Cosmos 3 Super and Nano are not on the public catalog, so Track A on Cosmos runs through Switchyard only.",
+  "Switchyard lists only NVIDIA families (Cosmos, Nemotron), so a third-family judge (X19) is only reachable on the catalog (openai/gpt-oss-20b, mistralai/mistral-large-4-1t-a52b, google/gemma-4-31b-it, moonshotai/kimi-k2.6), which needs NVIDIA_API_KEY on the harness host (X18) for inference.",
+  "Still unverified without a model call: strict json_schema behaviour on each endpoint, base64 video input (X16 inline), and Switchyard's effective frame sampling (status known issue 15)."
+ ]
+}

@@ -50,7 +50,8 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - **Pinning:** the agent's commit, dirty flag, flags and contract must stay the same across a run and a resume. The profile's expected flags must hold, and no undeclared stage may send a call.
     - **Refusals:** a refusal (400, 403, 409, 501) stops the run.
     - The signed URL is stored without its signature.
-  - `capabilities.json` records what each model is believed to support. Every entry is `verified: false` until a read-only live check confirms it.
+  - `capabilities.json` records what each model is believed to support, and `listed_on` which endpoints listed the id. Every entry stays `verified: false` until a model call confirms it.
+  - `catalog_rb1.json` is the read-only endpoint check RB1 (2026-11-01): the Switchyard and NVIDIA catalog model listings with their hashes, the public documentation found, and the findings. Two catalog ids differ from Switchyard's: `nvidia/nemotron-3-ultra-550b-a55b` and `nvidia/nemotron-nano-3-30b-a3b`. Cosmos 3 is on Switchyard only. A third-family judge is on the catalog only, so it needs `NVIDIA_API_KEY` (X18).
   - `registry.py` builds adapters from subject configs.
 - **`evalv2.requests`:** request builders that load `contracts/` and hold no prompt text. `p1.py` builds the P1 body, and a test pins it to V1's `eval_vlm_client.p1_request_payload`.
   - `vss.py` holds the Track B pipeline profiles and builds each experimental `/analyze` body with its accounting.
