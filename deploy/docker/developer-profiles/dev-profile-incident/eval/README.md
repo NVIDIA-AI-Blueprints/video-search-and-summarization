@@ -32,7 +32,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - content-addressed, append-only artifacts and sealed runs (`artifacts.py`);
   - separate, retry-proof budget ledgers (`budget.py`; every HTTP attempt is charged before it is sent);
   - V1's retry policies, mirrored and tested for parity (`retry.py`);
-  - checkpoints keyed by idempotency key (`checkpoint.py`);
+  - checkpoints keyed by idempotency key (`checkpoint.py`): every outcome name is classified explicitly, and only an infrastructure failure, a budget refusal or an unsent attempt stays open for recovery (an HTTP error status or a reply that is not a completion is final, as in V1's `recovery-v1`);
   - strict JSON run configs (`config.py`);
   - run manifests (`manifest.py`);
   - the offline network block (`netguard.py`);

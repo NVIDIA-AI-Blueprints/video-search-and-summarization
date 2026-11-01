@@ -17,7 +17,8 @@
 
 - ``plan --config C``: the work items each task would run (no calls).
 - ``preflight --config C``: config rules, registered tasks, and whether every budget cap covers the worst case
-  (each planned attempt plus every retry the policy allows). Exit 1 on any problem.
+  (each planned attempt plus every retry the policy allows), summed over every task and subject the cap scopes,
+  and whether every charged task, subject and ledger has a cap. Exit 1 on any problem.
 - ``run --config C --dry-run``: plan plus preflight, printed as one statement. A live run is never started from
   here without ``--live`` and ``EVALV2_ALLOW_LIVE=1``; live execution is gated by the owner's approval.
 - ``audit frozen-v1``: V1's frozen artifacts are unchanged. ``audit run --store S --run R``: a sealed run's
@@ -58,28 +59,47 @@ def plan(config: RunConfig, load_datasets: DatasetLoader = _no_datasets) -> dict
     return {name: TASKS[name]().plan(config, datasets) for name in config.tasks}
 
 
-def preflight(config: RunConfig, items: dict[str, list[WorkItem]]) -> list[str]:
-    """Problems that must be fixed before a run: today, caps that cannot cover the worst case."""
-    problems: list[str] = []
+def worst_cases(config: RunConfig, items: dict[str, list[WorkItem]]) -> dict[tuple[str, str, str], tuple[int, int]]:
+    """The worst-case attempts and tokens of every (task, subject, ledger) the run charges, retries included."""
     retries = POLICIES[config.retry_policy].max_retries
+    needs: dict[tuple[str, str, str], tuple[int, int]] = {}
     for name, task_items in items.items():
-        runner = TASKS[name]()
-        estimate = getattr(runner, "budget_estimate", None)
+        estimate = getattr(TASKS[name](), "budget_estimate", None)
         if estimate is None:
             continue
-        for ledger, need in estimate(config, task_items).items():
-            worst_attempts = need["attempts"] * (1 + retries)
-            worst_tokens = need["tokens"] * (1 + retries)
-            caps = [c for c in config.budget_caps() if c.ledger == ledger and c.task in ("*", name)]
-            if not caps:
-                problems.append(f"task {name!r} needs ledger {ledger!r} but no cap is set")
-            for cap in caps:
-                if cap.max_attempts is not None and cap.max_attempts < worst_attempts:
-                    problems.append(f"{ledger} attempts cap {cap.max_attempts} < worst case {worst_attempts} "
-                                    f"for task {name!r}")
-                if cap.max_tokens is not None and cap.max_tokens < worst_tokens:
-                    problems.append(f"{ledger} tokens cap {cap.max_tokens} < worst case {worst_tokens} "
-                                    f"for task {name!r}")
+        by_subject: dict[str, list[WorkItem]] = {}
+        for item in task_items:
+            by_subject.setdefault(item.subject, []).append(item)
+        for subject, subject_items in by_subject.items():
+            for ledger, need in estimate(config, subject_items).items():
+                needs[(name, subject, ledger)] = (need["attempts"] * (1 + retries), need["tokens"] * (1 + retries))
+    return needs
+
+
+def preflight(config: RunConfig, items: dict[str, list[WorkItem]]) -> list[str]:
+    """Problems that must be fixed before a run: today, caps that cannot cover the worst case.
+
+    Every (task, subject, ledger) the run charges must fall under at least one cap, honouring each cap's subject
+    and task scope. A cap is checked against the summed worst case of every (task, subject) it matches, since all
+    of them draw on it: two tasks that each fit a shared cap can still pass it together.
+    """
+    problems: list[str] = []
+    needs = worst_cases(config, items)
+    caps = config.budget_caps()
+    for (name, subject, ledger) in sorted(needs):
+        if not any(cap.matches(ledger, subject, name) for cap in caps):
+            problems.append(f"task {name!r} needs ledger {ledger!r} for subject {subject!r} but no cap is set")
+    for cap in caps:
+        drawn = sorted((key, need) for key, need in needs.items() if cap.matches(key[2], key[1], key[0]))
+        if not drawn:
+            continue
+        attempts, tokens = sum(n[0] for _, n in drawn), sum(n[1] for _, n in drawn)
+        covers = ", ".join(f"{name}/{subject}" for (name, subject, _), _ in drawn)
+        scope = f"(cap subject={cap.subject}, task={cap.task}; draws: {covers})"
+        if cap.max_attempts is not None and cap.max_attempts < attempts:
+            problems.append(f"{cap.ledger} attempts cap {cap.max_attempts} < worst case {attempts} {scope}")
+        if cap.max_tokens is not None and cap.max_tokens < tokens:
+            problems.append(f"{cap.ledger} tokens cap {cap.max_tokens} < worst case {tokens} {scope}")
     return problems
 
 
