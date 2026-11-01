@@ -55,4 +55,6 @@ What a correct ground-truth label is: [`ground_truth/annotation-guidelines-v1.0.
 
 How predictions are scored is fixed by [`methodology/evaluation-methodology-v1.1.md`](methodology/evaluation-methodology-v1.1.md) (one pin changed from [v1.0](methodology/evaluation-methodology-v1.0.md): the judge output limit) (pins in `methodology.py`, recorded in every result).
 
+Evaluation V2 (several models; incident fields, objects, evidence boxes, chatbot, dashboard, tokens and latency) follows [`methodology/evaluation-methodology-v2.0.md`](methodology/evaluation-methodology-v2.0.md) (proposed). It adds a layered package beside these V1 modules and changes none of them.
+
 How P1 is sent, validated and scored: [`../.docs/mvp2/eval.md`](../.docs/mvp2/eval.md#11-eval-p1rp1-extraction-benchmark) and [`../.docs/analysis-schema.md`](../.docs/analysis-schema.md). Operating it: the [`incident-run-eval`](../skills/incident-run-eval/SKILL.md) skill.
