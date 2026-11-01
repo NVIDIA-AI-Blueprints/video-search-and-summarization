@@ -165,7 +165,43 @@ test('a grounded (chat-contract-v2) answer carries the insufficient-evidence fla
     droppedCitations: ['E9'],
     idsResolved: ['E2'],
     incidentTitles: { V1: 'the assault ("Fight at the door")' },
+    itemNames: {},
+    versions: {},
+    candidates: [],
+    answeredBy: null,
+    countExact: null,
   });
+});
+
+test('a library answer keeps the item names, versions and candidates it was read from, and who composed it', async () => {
+  upstream.body = {
+    session_id: 's10',
+    message: { role: 'assistant', content: 'The library holds two assault reports.', citations: [], insufficient_evidence: false },
+    grounding: {
+      mode: 'grounded',
+      scope: 'library',
+      model: 'nvidia/nemotron-3-ultra',
+      version_id: null,
+      official: null,
+      draft: false,
+      dropped_citations: [],
+      ids_resolved: [],
+      incident_titles: { V1: 'the assault ("Bottle attack at the bar")' },
+      item_names: { 'V1/I1': 'the bottle', 'V1/I2': 3 },
+      versions: { V1: 11, V3: 31, V4: 0, V5: 'x' },
+      candidates: ['V1', 'V3'],
+      answered_by: 'code',
+      count_exact: true,
+      plan: { incident_type: 'assault' },
+    },
+  };
+  const payload = await (await post({ messages: [{ role: 'user', content: 'How many assaults?' }] })).json();
+  assert.equal(payload.grounding.scope, 'library');
+  assert.deepEqual(payload.grounding.itemNames, { 'V1/I1': 'the bottle' });
+  assert.deepEqual(payload.grounding.versions, { V1: 11, V3: 31 }, 'only positive whole version ids');
+  assert.deepEqual(payload.grounding.candidates, ['V1', 'V3']);
+  assert.equal(payload.grounding.answeredBy, 'code');
+  assert.equal(payload.grounding.countExact, true);
 });
 
 test('a template (chat-contract-v1) answer has no flag and no grounding', async () => {

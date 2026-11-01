@@ -17,8 +17,8 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller';
-import { citationHref, citationsByIncident, libraryChatRequestBody } from '@/lib/chat/library-chat';
-import type { ChatCitation, ChatResponse } from '@/modules/chat/domain/chat';
+import { citationHref, citationLabel, citationsByIncident, libraryChatRequestBody, matchingReports } from '@/lib/chat/library-chat';
+import type { ChatCitation, ChatGrounding, ChatResponse } from '@/modules/chat/domain/chat';
 import { formatClock } from '@/modules/reports/domain/normalize';
 
 const SUGGESTIONS = ['How many incidents involve a knife?', 'Which burglaries are high severity?', 'What happened most often?'];
@@ -32,8 +32,8 @@ type ChatMessage = {
   citations?: ChatCitation[];
   /** chat-contract-v2: the reports could not answer this question. */
   insufficientEvidence?: boolean;
-  /** How the answer names each incident (type and title), so its citations are labelled without ids. */
-  incidentTitles?: Record<string, string>;
+  /** How the answer names each incident and item, the versions it read, and whether code composed it. */
+  grounding?: Pick<ChatGrounding, 'incidentTitles' | 'itemNames' | 'versions' | 'candidates' | 'answeredBy'>;
 };
 
 const groupTitle = (titles: Record<string, string> | undefined, id: string) => {
@@ -74,10 +74,7 @@ export function LibraryChat() {
       if (!response.ok || !payload.message) throw new Error(payload.error || 'No answer returned');
       setSessionId(payload.sessionId);
       messageSequence += 1;
-      setMessages([
-        ...next,
-        { ...payload.message, id: `library-msg-${messageSequence}`, incidentTitles: payload.grounding?.incidentTitles },
-      ]);
+      setMessages([...next, { ...payload.message, id: `library-msg-${messageSequence}`, grounding: payload.grounding }]);
     } catch (cause) {
       setFailed(cause instanceof Error ? cause.message : 'Chat failed');
     } finally {
@@ -160,23 +157,21 @@ export function LibraryChat() {
                             {citationsByIncident(message.citations).map((group) => (
                               <li key={group.incidentId}>
                                 <b className="block truncate text-xs" data-testid="library-chat-incident">
-                                  {groupTitle(message.incidentTitles, group.incidentId)}
+                                  {groupTitle(message.grounding?.incidentTitles, group.incidentId)}
                                 </b>
                                 <ul className="mt-1 flex flex-col gap-1">
                                   {group.citations.map((citation) => (
                                     <li key={`${citation.itemId}-${citation.timestampSeconds}`}>
                                       <Link
-                                        aria-label={`Open ${groupTitle(message.incidentTitles, group.incidentId)} at ${formatClock(citation.timestampSeconds)}`}
+                                        aria-label={`Open ${groupTitle(message.grounding?.incidentTitles, group.incidentId)} at ${formatClock(citation.timestampSeconds)}`}
                                         className="grid w-full grid-cols-[52px_minmax(0,1fr)] items-center gap-2 rounded-xl border border-border bg-card p-1 text-left transition hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                        href={citationHref(citation)}
+                                        href={citationHref(citation, message.grounding?.versions?.[citation.incidentId])}
                                       >
                                         {/* eslint-disable-next-line @next/next/no-img-element -- the agent's signed crop URL, used as given */}
                                         {/* biome-ignore lint/performance/noImgElement: the agent's signed crop URL, used as given */}
                                         <img alt="" className="h-9 w-[52px] rounded-md bg-muted object-cover" src={citation.cropImageUrl} />
                                         <span className="min-w-0">
-                                          <b className="block truncate text-xs">
-                                            {citation.itemId} · {citation.itemType}
-                                          </b>
+                                          <b className="block truncate text-xs">{citationLabel(citation, message.grounding?.itemNames)}</b>
                                           <span className="text-[11px] text-muted-foreground">
                                             open at {formatClock(citation.timestampSeconds)}
                                           </span>
@@ -185,6 +180,20 @@ export function LibraryChat() {
                                     </li>
                                   ))}
                                 </ul>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {matchingReports(message, message.grounding).length > 0 && (
+                          <ul aria-label="Matching reports" className="mt-2 flex flex-col gap-1" data-testid="library-chat-matching">
+                            {matchingReports(message, message.grounding).map((report) => (
+                              <li key={report.incidentId}>
+                                <Link
+                                  className="block truncate rounded-xl border border-border bg-card px-2 py-1 text-xs font-semibold transition hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  href={report.href}
+                                >
+                                  {groupTitle(message.grounding?.incidentTitles, report.incidentId)}
+                                </Link>
                               </li>
                             ))}
                           </ul>

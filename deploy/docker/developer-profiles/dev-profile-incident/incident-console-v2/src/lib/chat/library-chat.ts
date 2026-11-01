@@ -34,10 +34,38 @@ export function citationsByIncident(citations: ChatCitation[]): IncidentCitation
   return Array.from(groups, ([incidentId, items]) => ({ incidentId, citations: items }));
 }
 
-/** The incident's report page, opened at the cited second (the page's `t` start parameter). */
-export function citationHref(citation: Pick<ChatCitation, 'incidentId' | 'timestampSeconds'>): string {
+/**
+ * The incident's report page at the version the answer read (`revision`, when known: the official version, else the
+ * newest, may change later), opened at the cited second (the page's `t` start parameter).
+ */
+export function citationHref(citation: Pick<ChatCitation, 'incidentId' | 'timestampSeconds'>, versionId?: number | null): string {
+  const query = new URLSearchParams();
+  if (typeof versionId === 'number' && Number.isInteger(versionId) && versionId > 0) query.set('revision', String(versionId));
+  if (Number.isFinite(citation.timestampSeconds) && citation.timestampSeconds > 0) {
+    query.set('t', String(Math.floor(citation.timestampSeconds)));
+  }
   const base = `/reports/${encodeURIComponent(citation.incidentId)}`;
-  return Number.isFinite(citation.timestampSeconds) && citation.timestampSeconds > 0
-    ? `${base}?t=${Math.floor(citation.timestampSeconds)}`
-    : base;
+  const search = query.toString();
+  return search ? `${base}?${search}` : base;
+}
+
+/** A cited item's label: the name the answer gave it ("The glass bottle"), else its kind; never its id. */
+export function citationLabel(citation: Pick<ChatCitation, 'incidentId' | 'itemId' | 'itemType'>, itemNames?: Record<string, string>) {
+  const name = itemNames?.[`${citation.incidentId}/${citation.itemId}`] ?? citation.itemType;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/**
+ * The reports a count or breakdown answer is about, when it cites no item: each matching incident shown, in rank
+ * order, with its link at the version read. None for a refusal or an answer that cites items.
+ */
+export function matchingReports(
+  message: { citations?: ChatCitation[]; insufficientEvidence?: boolean },
+  grounding: { candidates?: string[]; versions?: Record<string, number>; answeredBy?: string | null } | undefined,
+): Array<{ incidentId: string; href: string }> {
+  if (message.insufficientEvidence || message.citations?.length || grounding?.answeredBy !== 'code') return [];
+  return (grounding.candidates ?? []).map((incidentId) => ({
+    incidentId,
+    href: citationHref({ incidentId, timestampSeconds: 0 }, grounding.versions?.[incidentId]),
+  }));
 }

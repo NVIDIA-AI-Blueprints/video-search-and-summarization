@@ -60,6 +60,16 @@ export interface ChatGrounding {
   idsResolved: string[];
   /** Library answers: how each incident shown is named (type and title), keyed by incident id, for id-free labels. */
   incidentTitles: Record<string, string>;
+  /** Library answers: how each cited item is named ("the glass bottle"), keyed by `incidentId/itemId`. */
+  itemNames: Record<string, string>;
+  /** Library answers: the report version each incident shown was read from, for links to that version. */
+  versions: Record<string, number>;
+  /** Library answers: the best matching incidents (shown to the model, or named in a count). */
+  candidates: string[];
+  /** Library answers: `code` composed a count or breakdown from exact counts; `model` answered from the reports. */
+  answeredBy: 'model' | 'code' | null;
+  /** Library answers: whether the filters captured the whole question, so the count is exact. */
+  countExact: boolean | null;
 }
 
 export interface ChatResponse {

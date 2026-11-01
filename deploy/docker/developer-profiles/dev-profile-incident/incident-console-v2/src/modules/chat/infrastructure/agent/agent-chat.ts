@@ -42,7 +42,15 @@ type AgentGrounding = {
   dropped_citations?: string[];
   ids_resolved?: string[];
   incident_titles?: Record<string, unknown>;
+  item_names?: Record<string, unknown>;
+  versions?: Record<string, unknown>;
+  candidates?: unknown[];
+  answered_by?: string;
+  count_exact?: boolean;
 };
+
+const stringEntries = (value: Record<string, unknown> | undefined): Record<string, string> =>
+  Object.fromEntries(Object.entries(value ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
 type AgentChatResponse = {
   session_id?: string;
   message?: { role?: string; content?: string; citations?: AgentCitation[]; insufficient_evidence?: boolean };
@@ -60,9 +68,16 @@ function groundingFrom(grounding: AgentGrounding | undefined): ChatResponse['gro
     draft: grounding.draft === true,
     droppedCitations: Array.isArray(grounding.dropped_citations) ? grounding.dropped_citations.map(String) : [],
     idsResolved: Array.isArray(grounding.ids_resolved) ? grounding.ids_resolved.map(String) : [],
-    incidentTitles: Object.fromEntries(
-      Object.entries(grounding.incident_titles ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    incidentTitles: stringEntries(grounding.incident_titles),
+    itemNames: stringEntries(grounding.item_names),
+    versions: Object.fromEntries(
+      Object.entries(grounding.versions ?? {}).filter(
+        (entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isInteger(entry[1]) && entry[1] > 0,
+      ),
     ),
+    candidates: Array.isArray(grounding.candidates) ? grounding.candidates.map(String) : [],
+    answeredBy: grounding.answered_by === 'model' || grounding.answered_by === 'code' ? grounding.answered_by : null,
+    countExact: typeof grounding.count_exact === 'boolean' ? grounding.count_exact : null,
   };
 }
 

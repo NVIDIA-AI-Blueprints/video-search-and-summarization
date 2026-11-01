@@ -12,7 +12,9 @@ import Ajv2020 from 'ajv/dist/2020.js';
 
 register('./support/alias-loader.mjs', import.meta.url);
 
-const { libraryChatRequestBody, citationsByIncident, citationHref } = await import('../src/lib/chat/library-chat.ts');
+const { libraryChatRequestBody, citationsByIncident, citationHref, citationLabel, matchingReports } = await import(
+  '../src/lib/chat/library-chat.ts'
+);
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 const validateRequest = ajv.compile(
@@ -54,10 +56,32 @@ test('citations are grouped by incident in the order the answer cites them', () 
   assert.deepEqual(citationsByIncident([]), []);
 });
 
-test("a citation opens its incident's report at the cited second", () => {
+test("a citation opens its incident's report at the version read and the cited second", () => {
   assert.equal(citationHref(citation('Assault001', 'I1', 12.7)), '/reports/Assault001?t=12');
+  assert.equal(citationHref(citation('Assault001', 'I1', 12.7), 31), '/reports/Assault001?revision=31&t=12');
+  assert.equal(citationHref(citation('Assault001', 'I1', 0), 31), '/reports/Assault001?revision=31');
   assert.equal(citationHref(citation('Assault001', 'I1', 0)), '/reports/Assault001');
+  assert.equal(citationHref(citation('Assault001', 'I1', 4), 0), '/reports/Assault001?t=4', 'no version id 0');
   assert.equal(citationHref(citation('a/b c', 'I1', 3)), '/reports/a%2Fb%20c?t=3');
+});
+
+test('a citation is labelled by the name the answer gave the item, else its kind, never its id', () => {
+  const names = { 'Assault001/I1': 'the glass bottle' };
+  assert.equal(citationLabel(citation('Assault001', 'I1', 4), names), 'The glass bottle');
+  assert.equal(citationLabel(citation('Burglary002', 'I1', 4), names), 'Instrument', 'the same id in another incident');
+  assert.equal(citationLabel(citation('Assault001', 'I1', 4)), 'Instrument');
+});
+
+test('a code-composed count links its matching reports at their versions; a refusal or a cited answer does not', () => {
+  const grounding = { candidates: ['V1', 'V3'], versions: { V1: 11, V3: 31 }, answeredBy: 'code' };
+  assert.deepEqual(matchingReports({ citations: [] }, grounding), [
+    { incidentId: 'V1', href: '/reports/V1?revision=11' },
+    { incidentId: 'V3', href: '/reports/V3?revision=31' },
+  ]);
+  assert.deepEqual(matchingReports({ citations: [], insufficientEvidence: true }, grounding), []);
+  assert.deepEqual(matchingReports({ citations: [citation('V1', 'I1', 4)] }, grounding), []);
+  assert.deepEqual(matchingReports({ citations: [] }, { ...grounding, answeredBy: 'model' }), []);
+  assert.deepEqual(matchingReports({ citations: [] }, undefined), []);
 });
 
 test('the library page mounts the chat in a titled sheet', () => {
@@ -70,4 +94,6 @@ test('the library page mounts the chat in a titled sheet', () => {
   const panel = readFileSync(join(process.cwd(), 'src', 'sections', 'library', 'components', 'LibraryChat', 'LibraryChat.tsx'), 'utf8');
   assert.match(panel, /libraryChatRequestBody/);
   assert.doesNotMatch(panel, /incidentId:/, 'the panel never names an incident in its request');
+  assert.doesNotMatch(panel, />\s*\{citation\.itemId\}/, 'a citation chip never shows an item id (it is only a React key)');
+  assert.match(panel, /citationLabel\(citation, message\.grounding\?\.itemNames\)/);
 });
