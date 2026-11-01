@@ -22,7 +22,8 @@
   person's rejection or edit applies, because A8 reads the effective payload.
 - **Caps.** A capped item is unscorable, not a miss (A8). :func:`cap_summary` reports how often each cap refused
   calls (crop, zoom, the object tracker's detector budget and its time cap), so the pilot can recalibrate the
-  provisional profile caps before the freeze.
+  provisional profile caps before the freeze. The tracker's summary is the run's top-level ``object_tracking``
+  (feat/experiment-profiles keeps ``experiment.object_tracking`` as the request's boolean setting).
 """
 
 from __future__ import annotations
@@ -74,6 +75,15 @@ def _budget(summary: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
     return summary if isinstance(summary, Mapping) and "cap" in summary else None
 
 
+def _tracker(artifact: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The tracker's summary: the run's top-level ``object_tracking``, else an older reply's summary under
+    ``experiment``. The request's boolean setting (``experiment.object_tracking: true``) is not a summary."""
+    for candidate in (artifact.get("object_tracking"), (artifact.get("experiment") or {}).get("object_tracking")):
+        if isinstance(candidate, Mapping):
+            return candidate
+    return {}
+
+
 def cap_summary(artifacts: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     """Per cap, over the runs that reported it: how many runs reached it, the calls it refused, and the most calls one
     run made (against the cap)."""
@@ -81,7 +91,7 @@ def cap_summary(artifacts: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     for artifact in artifacts:
         out["runs"] += 1
         experiment = artifact.get("experiment") or {}
-        tracking = experiment.get("object_tracking") or {}
+        tracking = _tracker(artifact)
         budgets = {"crop": _budget(experiment.get("crop")), "zoom": _budget(experiment.get("zoom")),
                    "object_tracking_detector": _budget(tracking.get("detector"))}
         for name, summary in budgets.items():
