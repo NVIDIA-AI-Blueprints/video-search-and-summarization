@@ -5,8 +5,8 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
 ### 2026-11-01: Every analysis returns its run provenance, and the console keeps it in the run's notes
 - **Decision:** `/analyze` returns `provenance` (`incident-run-provenance-v1`) on every response and in the `422` detail. It holds:
   - the agent's commit (`git rev-parse` once at startup, or `VSS_AGENT_GIT_SHA`) and whether the tree was dirty;
-  - the analysis flags in effect;
-  - for each stage used (caption, P1, RP1, grounding, zoom, object tracking, privacy head search): its model, its prompt hashes from `contracts/prompts/`, and every HTTP attempt, with failed and cap-refused attempts, tokens and time.
+  - the analysis flags: what this request ran (experiment, caption pass, person tracking, set-of-marks, object tracking, zoom, blur), over the agent's settings. An experiment never runs the caption pass, tracking or marks, so flags read from the environment alone would describe a run that never happened;
+  - for each stage used (caption, P1, RP1, grounding, zoom, object tracking, privacy head search, revision embedding): its model, its prompt hashes from `contracts/prompts/`, and every HTTP attempt, with failed and cap-refused attempts, tokens and time. An attempt that returns no usable answer (a P1 reply the contract rejects, a runaway, a zoom reply its strict check rejects, any status other than 2xx) is failed.
   - The console writes it into `model_runs.notes.response.provenance` with the attempt, once.
 - **How calls are counted:** a per-request context variable (`run_provenance.collecting`). It reaches the evidence step's tasks and `asyncio.to_thread` workers, so the detector, zoom, caption, P1 and RP1 calls record themselves without threading a meter through the pipeline. The object tracker and the head search set their stage with `stage_scope`.
 - **Why:** Evaluation V2's production track needs to know, per run, exactly which models, prompts and flags produced a report, and what it cost. Before this:
@@ -19,7 +19,7 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
   - Explicit meters passed through `collect_evidence` and every detector copy: far more plumbing, and a copy missed is a silent gap.
   - Reading the version from package metadata: the VM's editable install keeps the install-time version across `git pull`.
   - Storing provenance only in the agent's logs: not tied to the run row, and not kept.
-- **Open:** requests that fail outright (`502`/`504`/`500`) still return no provenance. The revision embedding call is not counted. Gateway mode records its P1 usage in `response.usage` as before.
+- **Open:** requests that fail outright (`502`/`504`/`500`) still return no provenance. Gateway mode records its P1 usage in `response.usage` as before.
 - **Links:** [`run_provenance.py`](../../../../../services/agent/src/vss_agents/utils/run_provenance.py), [contract](vm-api-contracts.md), [notes](analysis-schema.md#immutable-notes-model_runsnotes)
 
 ### 2026-11-01: Every model prompt besides P1 and RP1 lives in one registry, contracts/prompts/
