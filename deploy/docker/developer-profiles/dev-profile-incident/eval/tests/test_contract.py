@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -125,7 +126,31 @@ def test_response_format_strips_document_keys():
 
 
 def test_version_file():
-    assert contract.contract_version() == "incident-contract-v4"
+    # Read from contracts/VERSION, so a contract bump needs no edit here; the format is pinned instead.
+    version = contract.contract_version()
+    assert version == contract.VERSION_PATH.read_text().strip()
+    assert re.fullmatch(r"incident-contract-v\d+", version)
+
+
+def test_asset_handler_unknown_is_a_core_violation():
+    """incident-contract-v5's assets[].last_handled_by must name a known entity (same code and path as the agent)."""
+    report = _valid_report()
+    report["assets"] = [{"asset_id": "A1", "name": "bag", "description": "a bag", "timestamp_seconds": 1,
+                         "label": "bag", "last_handled_by": {"entity_id": "E9", "timestamp_seconds": 1}}]
+    violations = contract.cross_field_violations(report)
+    assert [(v["code"], v["scope"], v["path"]) for v in violations] == [
+        ("ASSET_HANDLER_UNKNOWN", "core", "assets/0/last_handled_by/entity_id")]
+    assert "A1 references unknown last_handled_by entity_id E9" in violations[0]["message"]
+
+
+@pytest.mark.parametrize("handler", [None, "absent", {"entity_id": "E1", "timestamp_seconds": 2}])
+def test_asset_handler_absent_null_or_known_is_fine(handler):
+    report = _valid_report()
+    asset = {"asset_id": "A1", "name": "bag", "description": "a bag", "timestamp_seconds": 1, "label": "bag"}
+    if handler != "absent":
+        asset["last_handled_by"] = handler
+    report["assets"] = [asset]
+    assert not [v for v in contract.cross_field_violations(report) if v["code"] == "ASSET_HANDLER_UNKNOWN"]
 
 
 def test_extraction_prompt_has_no_output_template_or_few_shot():
