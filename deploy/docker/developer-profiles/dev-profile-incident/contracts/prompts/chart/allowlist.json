@@ -1,0 +1,188 @@
+{
+  "metrics": [
+    "incidents",
+    "instruments",
+    "analyses"
+  ],
+  "severities": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "periods": {
+    "last_7_days": 7,
+    "last_30_days": 30,
+    "last_90_days": 90,
+    "last_365_days": 365,
+    "all_time": null
+  },
+  "incidentTypes": [
+    "road accident",
+    "burglary",
+    "explosion",
+    "assault",
+    "animal attack"
+  ],
+  "dimensions": {
+    "incident_type": {
+      "metric": "incidents",
+      "pie": true,
+      "splits": true,
+      "filterable": true,
+      "title": "Reports by incident type",
+      "description": "Each video counts once: its official report, else its newest.",
+      "categoryLabel": "Incident type",
+      "meaning": "count per incident type: \"incident distribution\", \"what types of incident\""
+    },
+    "severity": {
+      "metric": "incidents",
+      "pie": true,
+      "splits": true,
+      "filterable": true,
+      "title": "Reports by severity",
+      "description": "Each video counts once: its official report, else its newest. Low is level 1-2, medium is 3, high is 4-5.",
+      "categoryLabel": "Severity",
+      "meaning": "count per severity band: \"severity breakdown\""
+    },
+    "report_status": {
+      "metric": "incidents",
+      "pie": true,
+      "splits": false,
+      "filterable": true,
+      "title": "Official and not official reports",
+      "description": "Each video counts once: its official report, else its newest. Not official means no report has been marked official yet.",
+      "categoryLabel": "Status",
+      "meaning": "how many reports are official and how many are not"
+    },
+    "report_kind": {
+      "metric": "incidents",
+      "pie": true,
+      "splits": true,
+      "filterable": true,
+      "title": "Reports by version",
+      "description": "Each video counts once: its official report, else its newest. As the model generated them, or saved by a reviewer.",
+      "categoryLabel": "Report version",
+      "meaning": "AI-generated versus human-edited reports"
+    },
+    "report_day": {
+      "metric": "incidents",
+      "pie": false,
+      "splits": true,
+      "filterable": true,
+      "title": "Reports per day",
+      "description": "Each video counts once: its official report, else its newest. By report date.",
+      "categoryLabel": "Day",
+      "meaning": "count per day of the report date: \"trends over time\", \"daily incidents\""
+    },
+    "report_week": {
+      "metric": "incidents",
+      "pie": false,
+      "splits": true,
+      "filterable": true,
+      "title": "Reports per week",
+      "description": "Each video counts once: its official report, else its newest. By report date, in weeks from Monday.",
+      "categoryLabel": "Week starting",
+      "meaning": "count per week of the report date"
+    },
+    "report_month": {
+      "metric": "incidents",
+      "pie": false,
+      "splits": true,
+      "filterable": true,
+      "title": "Reports per month",
+      "description": "Each video counts once: its official report, else its newest. By report date.",
+      "categoryLabel": "Month",
+      "meaning": "count per month of the report date"
+    },
+    "report_weekday": {
+      "metric": "incidents",
+      "pie": false,
+      "splits": true,
+      "filterable": true,
+      "title": "Report activity by weekday",
+      "description": "Reports by the weekday they were generated, in your time zone. This is not when an incident happened.",
+      "categoryLabel": "Weekday",
+      "meaning": "reports per weekday they were generated, never the weekday an incident happened"
+    },
+    "report_hour": {
+      "metric": "incidents",
+      "pie": false,
+      "splits": true,
+      "filterable": true,
+      "title": "Report activity by hour",
+      "description": "Reports by the hour they were generated, in your time zone. This is not when an incident happened.",
+      "categoryLabel": "Hour",
+      "meaning": "reports per hour they were generated, never the hour an incident happened"
+    },
+    "entity_type": {
+      "metric": "incidents",
+      "pie": false,
+      "splits": true,
+      "filterable": true,
+      "title": "Reports by entity type",
+      "description": "Reports involving each entity type. A report can count under more than one.",
+      "categoryLabel": "Entity type",
+      "meaning": "incidents involving humans, animals or unknown entities"
+    },
+    "instrument": {
+      "metric": "incidents",
+      "pie": false,
+      "splits": false,
+      "filterable": true,
+      "title": "Top instruments",
+      "description": "The eight most common instruments, by reports naming each. A report can count under more than one.",
+      "categoryLabel": "Instrument",
+      "meaning": "most common instruments or weapons"
+    },
+    "asset": {
+      "metric": "incidents",
+      "pie": false,
+      "splits": true,
+      "filterable": true,
+      "title": "Top assets",
+      "description": "The eight most common assets, by reports naming each. A report can count under more than one.",
+      "categoryLabel": "Asset",
+      "meaning": "most commonly affected assets"
+    },
+    "confidence": {
+      "metric": "incidents",
+      "pie": false,
+      "splits": true,
+      "filterable": true,
+      "title": "Model confidence distribution",
+      "description": "Reports by the confidence the model gave. Reports with no confidence value are left out.",
+      "categoryLabel": "Confidence",
+      "meaning": "histogram of model confidence scores"
+    },
+    "threat_level": {
+      "metric": "instruments",
+      "pie": false,
+      "splits": true,
+      "filterable": true,
+      "title": "Instrument threat levels",
+      "description": "Instruments in the counted reports, by rated threat.",
+      "categoryLabel": "Threat level",
+      "meaning": "count of instruments per threat level"
+    },
+    "model": {
+      "metric": "analyses",
+      "pie": false,
+      "splits": false,
+      "filterable": false,
+      "title": "Analyses by model",
+      "description": "Every analysis attempt in the period, all runs and not only reports.",
+      "categoryLabel": "Model",
+      "meaning": "analysis attempts per model"
+    },
+    "analysis_outcome": {
+      "metric": "analyses",
+      "pie": true,
+      "splits": false,
+      "filterable": false,
+      "title": "Analyses by outcome",
+      "description": "Every analysis attempt in the period, all runs and not only reports.",
+      "categoryLabel": "Outcome",
+      "meaning": "analysis attempts per outcome: valid, repaired, failed"
+    }
+  }
+}

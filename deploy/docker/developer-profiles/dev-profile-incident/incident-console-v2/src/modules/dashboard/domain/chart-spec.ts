@@ -236,3 +236,14 @@ export function parseChartSpec(reply: unknown): ChartSpec | null {
   const parsed = chartSpecSchema.safeParse(reply);
   return parsed.success ? parsed.data : null;
 }
+
+/** Every allowlisted value, as exported to contracts/prompts/chart/allowlist.json for evaluation (drift-tested). */
+export function chartAllowlist(): Record<string, unknown> {
+  return {
+    metrics: [...CHART_METRICS],
+    severities: [...CHART_SEVERITIES],
+    periods: { ...CHART_PERIODS },
+    incidentTypes: [...INCIDENT_TYPES],
+    dimensions: CHART_DIMENSIONS,
+  };
+}
