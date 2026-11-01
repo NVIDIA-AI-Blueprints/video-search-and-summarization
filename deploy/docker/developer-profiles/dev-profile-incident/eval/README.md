@@ -86,6 +86,11 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - `leakage` reports each question's overlap with the target's description.
     - The oracle corpus (the ground truth's reports) and a system corpus are kept apart.
     - Prompts: `gen-chat-wording-v1` and `gen-chat-rederive-v1`.
+- **`evalv2.sql`:** the SQL harness for model-free figures.
+  - **Schema:** the finals migrations on a throwaway Postgres (`pgserver`), on top of the Supabase stub, as the schema's own SQL harness does.
+  - **Snapshot:** a frozen `evalv2-sql-snapshot-v1` snapshot, loaded with its ids kept (identity columns included).
+  - **Calls:** the dashboard and summary functions, with every parameter explicit. **A dashboard call without both period bounds, a timezone and a scope is refused**, because null bounds make `get_incident_dashboard` read `CURRENT_DATE`.
+  - **Environment:** `pgserver` and `psycopg` are not eval dependencies. `scripts/v2_sql_harness.py` runs in a throwaway environment (`uv run --no-project --script ...`), and the real-schema test runs there too, so it is skipped in the eval suite.
 - **`evalv2.verify_v1`:** re-scores stored V1 records with V2 by replaying the stored assignments and judge scores (V1 kept no matrices). It requires every score block, and V1's aggregates and the Stage 3 report's `items` and `severity`, to be identical. Running it on the real Stage 3 records is the approved check RA0.
 - **`evalv2.datasets`:**
   - **`registry.json`:** every dataset by id, with its location and pinned hashes. It is append-only, and only hashes and counts are committed.
