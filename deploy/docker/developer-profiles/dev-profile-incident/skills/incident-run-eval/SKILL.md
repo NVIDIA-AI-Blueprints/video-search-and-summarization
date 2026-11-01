@@ -127,6 +127,10 @@ uv run python -m evalv2 verify-v1 --record <results.json> [--record ...] [--repo
   - The experimental path runs no caption pass until the R2 scratch prefix (X16) is approved.
   - Crop evidence is scored through `tasks/pipeline/crops.py`, which needs box references (run **RA1**). Its `cap_summary` shows whether the profile caps bound; recalibrate them before the freeze.
   - Running it is the approved pilot **C1b**.
+- **Dashboard figure checks:**
+  - The recount against the production SQL: `uv run --frozen --with pgserver --with 'psycopg[binary]' pytest tests/v2/test_v2_dashboard_figures.py -k sql`. This runs a throwaway local Postgres; nothing is shared.
+  - The console's own chart code against the recount: `EVALV2_NODE=<node 22.18+ with type stripping> uv run --frozen pytest tests/v2/test_v2_dashboard_figures.py -k console`. It needs the console's `npm ci`.
+  - Both tests are skipped in the plain suite. The local `node` 22.22.1 has no TypeScript support; a cached `npx -y node@22` binary does.
 - **SQL figures:** `uv run --no-project --script scripts/v2_sql_harness.py dashboard|summaries --snapshot S.json --params P.json` runs the production SQL on a frozen snapshot in a throwaway Postgres. Every parameter must be explicit, and dashboard period bounds are required.
 - **`verify-v1`** re-scores stored V1 records with V2's incident-and-object scoring, with no model, embedder or judge call, and exits 1 on any difference. Running it on the real Stage 3 records is the separately approved check **RA0**; do not run it without that approval.
 

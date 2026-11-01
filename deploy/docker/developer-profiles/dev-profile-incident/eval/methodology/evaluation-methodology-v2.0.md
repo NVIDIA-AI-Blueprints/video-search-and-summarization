@@ -116,6 +116,8 @@ F and G are instruments applied to every call in A–E, not separate runs.
 **E: AI dashboard.**
 - *Spec:* exact-spec accuracy, per-field accuracy, refusal precision and recall, valid-but-wrong rate, parse-failure rate, and stability across repeats.
 - *Figures:* checked model-free for every allowlisted spec on a frozen snapshot with a frozen clock. The production SQL, a replay of the console's chart pipeline and an independent recount must agree.
+  - Figure accuracy (the reply's chart shows the reference chart's figures) is reported beside spec accuracy, because a valid-but-wrong spec can show the right figures.
+  - Labels are ordered in the C collation, as in the harness database. Another collation may break ties, and top-N cut-offs among ties, differently.
 - *Chart type:* a rule, not a model decision, so it is unit-tested.
 
 **F: Tokens and cost.**
