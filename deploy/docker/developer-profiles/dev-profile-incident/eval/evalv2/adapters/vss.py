@@ -51,7 +51,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from evalv2.adapters.base import AdapterConfigError, CallContext, Capabilities, PipelineResult, redact_url
+from evalv2.adapters.base import (AdapterConfigError, CallContext, Capabilities, PipelineResult, redact_strings,
+                                  redact_text, redact_url)
 from evalv2.core.budget import Hold
 
 AGENT_URL_ENV = "EVALV2_VSS_AGENT_URL"
@@ -171,12 +172,12 @@ class VssAgentAdapter:
         except httpx.ConnectError as exc:  # the agent never received the request: nothing was sent upstream
             self._release(ctx, hold, {}, "refused connection: nothing sent")
             return PipelineResult(0, "request_failed", {}, request_ref, None, None, (self.clock() - started) * 1000,
-                                  error=f"{type(exc).__name__}: {exc}")
+                                  error=redact_text(f"{type(exc).__name__}: {exc}"))
         except httpx.HTTPError as exc:  # the agent may have sent calls before the reply was lost
             charged = self._worst_case(accounting)
             self._release(ctx, hold, charged, f"no reply ({type(exc).__name__}): worst case")
             return PipelineResult(0, "request_failed", {}, request_ref, None, None, (self.clock() - started) * 1000,
-                                  charged, error=f"{type(exc).__name__}: {exc}")
+                                  charged, error=redact_text(f"{type(exc).__name__}: {exc}"))
         elapsed_ms = (self.clock() - started) * 1000
         try:
             payload = response.json()
@@ -184,7 +185,9 @@ class VssAgentAdapter:
             payload = {"error": response.text[:500]}
         if not isinstance(payload, dict):
             payload = {"error": str(payload)[:500]}
-        response_ref = str(ctx.store.put("vss-response", {"status": response.status_code, "body": payload}))
+        # An agent error can quote the signed video URL (R2 refusing it, say): the stored reply never keeps a signature.
+        response_ref = str(ctx.store.put("vss-response", {"status": response.status_code,
+                                                          "body": redact_strings(payload)}))
         status = response.status_code
         if status in REFUSAL_STATUSES:
             self._release(ctx, hold, {}, f"agent refused the request ({status}): nothing sent")
@@ -207,7 +210,8 @@ class VssAgentAdapter:
             charged = self._worst_case(accounting)
             self._release(ctx, hold, charged, f"agent {status}: worst case")
         outcome = "answered" if status == 200 else "contract_rejected" if status == 422 else "request_failed"
-        error = None if outcome != "request_failed" else str(payload.get("detail") or payload.get("error"))[:500]
+        error = (None if outcome != "request_failed"
+                 else redact_text(str(payload.get("detail") or payload.get("error")))[:500])
         return PipelineResult(status, outcome, payload, request_ref, response_ref, provenance, elapsed_ms, charged,
                               error)
 

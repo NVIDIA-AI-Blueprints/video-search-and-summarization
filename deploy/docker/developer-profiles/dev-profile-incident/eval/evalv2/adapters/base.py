@@ -24,6 +24,7 @@ validation and scoring belong to tasks.
 from __future__ import annotations
 
 import copy
+import re
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -46,12 +47,37 @@ class AdapterConfigError(RuntimeError):
     """The adapter is not configured (for example a missing endpoint or key); nothing was sent."""
 
 
+_URL_IN_TEXT = re.compile(r"https?://[^\s'\"<>]+", re.IGNORECASE)
+
+
 def redact_url(url: str) -> str:
-    """An http(s) URL without its query string: a signed URL's signature is a short-lived credential, never stored."""
+    """An http(s) URL without its query string, fragment or user info: a signed URL's signature and a
+    ``user:password@`` are credentials, never stored. The host and port are kept."""
     parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.query:
+    if parts.scheme.lower() not in ("http", "https") or not (parts.query or parts.fragment or "@" in parts.netloc):
         return url
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    host_and_port = parts.netloc.rpartition("@")[2]  # the user info, if any, ends at the last "@"
+    return urlunsplit((parts.scheme, host_and_port, parts.path, "", ""))
+
+
+def redact_text(text: str) -> str:
+    """Free text (an error body, an exception message) with every http(s) URL in it redacted by :func:`redact_url`.
+
+    A provider's 400 can echo the request's signed video URL (``url='https://...?X-Amz-Signature=...'``); a failure's
+    detail is stored and reported, so it never keeps the signature.
+    """
+    return _URL_IN_TEXT.sub(lambda match: redact_url(match.group(0)), text or "")
+
+
+def redact_strings(value: Any) -> Any:
+    """``value`` with :func:`redact_text` applied to every string inside it (dicts and lists are copied)."""
+    if isinstance(value, str):
+        return redact_text(value)
+    if isinstance(value, Mapping):
+        return {key: redact_strings(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [redact_strings(item) for item in value]
+    return value
 
 
 def stored_request(request: Mapping[str, Any]) -> dict[str, Any]:
