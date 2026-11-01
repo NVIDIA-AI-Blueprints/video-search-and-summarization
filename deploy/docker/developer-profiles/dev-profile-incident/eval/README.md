@@ -24,6 +24,23 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
 
 `retrieval_metrics.py` is the offline metrics module of the MVP2 retrieval benchmark (Track R, work-order step 1): pure functions that cut the baseline, post-filter and fill-to-K lists from a search response's candidate pool and compute the §3.5 metrics with paired seed-cluster bootstrap intervals. It has no script and calls no service; the harness that feeds it is step 3 ([`../.docs/mvp2/eval.md`](../.docs/mvp2/eval.md#10-work-order-and-definition-of-done)).
 
+## Evaluation V2 package (`evalv2/`)
+
+[Methodology v2.0](methodology/evaluation-methodology-v2.0.md) (proposed). The layered package beside the V1 modules imports downwards only:
+
+- **`evalv2.core`:**
+  - content-addressed, append-only artifacts and sealed runs (`artifacts.py`);
+  - separate, retry-proof budget ledgers (`budget.py`; every HTTP attempt is charged before it is sent);
+  - V1's retry policies, mirrored and tested for parity (`retry.py`);
+  - checkpoints keyed by idempotency key (`checkpoint.py`);
+  - strict JSON run configs (`config.py`);
+  - run manifests (`manifest.py`);
+  - the offline network block (`netguard.py`);
+  - the frozen-V1 guard (`frozen_v1.py` with `frozen_v1.json`, the SHA-256 of 90 frozen V1 files).
+- **`evalv2.tasks`:** the runner and scorer protocols and the task registry.
+
+Commands are in the [`incident-run-eval`](../skills/incident-run-eval/SKILL.md) skill. Tests live in `tests/v2/` and run with `uv run pytest tests/`. Nothing in the package calls a model yet.
+
 ## Dataset videos (local copies and manifest)
 
 ```bash

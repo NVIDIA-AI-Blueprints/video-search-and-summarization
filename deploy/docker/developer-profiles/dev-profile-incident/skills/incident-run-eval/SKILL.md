@@ -3,7 +3,7 @@ name: incident-run-eval
 description: Use to run the standalone P1/RP1 evaluation pipeline in eval/ - start the local embedding server, ingest ground truth, generate the seeded split, batch-score VLM incident extraction against ground truth, aggregate across models and categories, or run its hermetic tests. Not for producing a single report (use incident-analyze-video) and not NVIDIA's `nat eval`.
 license: Apache-2.0
 metadata:
-  version: "0.14.0"
+  version: "0.15.0"
   profile: "dev-profile-incident"
   tags: "incident evaluation benchmark ground-truth vlm"
 ---
@@ -99,6 +99,21 @@ uv run python scripts/eval_benchmark_export.py        # tables -> eval_data/resu
 - Every attempted `(video, model)` pair stays a row, failures included.
 - There is no blended score. `duration` is a derived diagnostic.
 - Details: [`eval/README.md`](../../eval/README.md#vlm-benchmark-incident-fields-processing-time).
+
+### Evaluation V2 (`evalv2/`, methodology v2.0)
+
+The V2 package sits beside the V1 modules and changes none of them. It does not run live yet. `run` refuses unless both `--live` and `EVALV2_ALLOW_LIVE=1` are given, and live execution needs the owner's approval.
+
+```bash
+uv run python -m evalv2 plan --config <config.json>             # work items per task and subject; no calls
+uv run python -m evalv2 preflight --config <config.json>        # config rules + every cap covers the worst case
+uv run python -m evalv2 run --config <config.json> --dry-run    # plan + preflight as one statement
+uv run python -m evalv2 audit frozen-v1                         # V1's frozen artifacts unchanged (90 files)
+uv run python -m evalv2 audit run --store <dir> --run <run id>  # a sealed run's index and artifacts intact
+```
+
+- Configs are JSON (`evalv2-config-v1`). A run on the test half must name the approved freeze manifest.
+- Caps are per ledger: inference, caption, grounding, zoom, object_tracking, embedding, judge, generation.
 
 ## Verify
 
