@@ -169,3 +169,19 @@ def test_frozen_guard_detects_changed_new_and_removed_files(tmp_path):
         "frozen V1 file removed: eval/experiments/configs/b.json",
         "new file under a frozen V1 path: eval/experiments/configs/c.json",
         "frozen V1 file changed: eval/experiments/configs/a.json"]
+
+
+def test_no_evalv2_source_file_is_ignored_by_git():
+    """An ignored source file passes every local test but is missing from a fresh checkout (it happened once: the
+    repository's "*checkpoint.*" rule dropped evalv2/core/checkpoint.py from the pull request)."""
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    files = [str(p) for p in sorted(PACKAGE.rglob("*")) if p.is_file() and "__pycache__" not in p.parts]
+    done = subprocess.run(["git", "check-ignore", "--no-index", *files], capture_output=True, text=True,
+                          cwd=PACKAGE, check=False)
+    if done.returncode == 128:
+        pytest.skip(f"not a git checkout: {done.stderr.strip()}")
+    assert done.stdout.strip() == "", f"ignored by git, so missing from a checkout: {done.stdout.split()}"
