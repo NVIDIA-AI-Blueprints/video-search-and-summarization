@@ -16,7 +16,8 @@
 """Which records people review: every flagged record plus a stratified sample of the rest (methodology v2.0 §3).
 
 The sample is deterministic: within each stratum, records are ordered by ``sha256(seed:record_id)`` and the
-first ``max(min_per_stratum, ceil(fraction * n))`` are taken, so the same seed always picks the same records and
+first ``max(min_per_stratum, ceil(fraction * n))`` are taken (in exact decimal arithmetic, so ``0.55 * 100`` is 55,
+not the float 55.00000000000001 that rounds up to 56), so the same seed always picks the same records and
 adding a record never reshuffles the others. Strata include the tier by default, so ``ai_validated`` records are
 sampled at random too: that is what measures the AI tiers' error rate (:func:`ai_error_rate`). Records already
 ``human_verified`` are never re-sampled.
@@ -29,6 +30,7 @@ import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from fractions import Fraction
 from typing import Any
 
 from evalv2.core.hashing import sha256_json
@@ -83,9 +85,10 @@ def sample_for_review(records: Sequence[Mapping[str, Any]], *, seed: int, fracti
             groups[key].append(record)
     chosen: list[str] = []
     report: dict[str, dict[str, Any]] = {}
+    exact = Fraction(str(fraction))  # the fraction as written: Fraction(0.55) would keep the float's error
     for key in sorted(groups):
         members = sorted(groups[key], key=lambda r: _order(seed, r["record_id"]))
-        take = min(len(members), max(min_per_stratum, math.ceil(fraction * len(members))))
+        take = min(len(members), max(min_per_stratum, math.ceil(exact * len(members))))
         picked = [r["record_id"] for r in members[:take]]
         chosen += picked
         report[key] = {"population": len(members), "sampled": take, "inclusion": take / len(members),

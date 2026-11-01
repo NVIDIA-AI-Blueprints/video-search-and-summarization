@@ -23,15 +23,20 @@ predictions of the same run, so the scorers can separate the effects (methodolog
 
 - ``p1``: the raw P1 reply through V1's contract policy, exactly as Track A treats a reply. Against the same
   model's Track A predictions this is the caption effect once the experimental path runs the caption pass
-  (blocker X16); until then it measures that the agent's P1 request and Track A's give the same results.
+  (blocker X16); until then it measures that the agent's P1 request and Track A's give the same results. The agent
+  retries a runaway P1 output once and returns only the last reply, which Track A (never retrying a model output)
+  would have scored as a miss: the artifact keeps the agent's ``p1_attempts`` and ``p1_retried``, and the
+  caption-effect pairs leave retried runs out (:func:`evalv2.tasks.pipeline.scoring.caption_effect`).
 - ``p1_agent``: the agent's validated P1 report before the zoomed second look: ``experiment.p1_report`` (P4), or
   without it the final report with every zoom correction undone (``name_before``, ``description_before``).
   Where both exist they must agree (``zoom_undo_consistent``).
 - ``final``: the final report. ``final`` minus ``p1_agent`` is the zoom effect, with no extra calls.
 
-The artifact also keeps the evidence entries (the crop scorers' input), the agent's experiment summaries (crop,
-zoom and object-tracking calls against their caps), whether a caption pass ran, and whether V1's policy agreed
-with the agent's own validation. Executing is a live, approval-gated run that needs the run's video-URL resolver.
+The artifact also keeps the evidence entries (the crop scorers' input), the agent's experiment summaries (crop and
+zoom calls against their caps), the object tracker's summary (the reply's top-level ``object_tracking``, whose
+``detector`` is the tracker's call budget; ``experiment.object_tracking`` is only the request's setting), whether a
+caption pass ran, and whether V1's policy agreed with the agent's own validation. Executing is a live,
+approval-gated run that needs the run's video-URL resolver.
 """
 
 from __future__ import annotations
@@ -52,6 +57,11 @@ STAGES = ("p1", "p1_agent", "final")
 PIPELINE_ADAPTER = "vss"
 _REPORT_ITEMS = {"entity": ("entities", "entity_id"), "instrument": ("instruments", "instrument_id"),
                  "asset": ("assets", "asset_id")}
+
+
+def p1_retried(attempts: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether the agent re-sent P1 after a rejected (runaway) output: its returned reply is then not the first."""
+    return any(attempt.get("outcome") == "retried" for attempt in attempts) or len(attempts) > 1
 
 
 def undo_zoom(report: Mapping[str, Any], evidence: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -154,8 +164,10 @@ class PipelineTask:
             "p1_agent_source": None if final is None else ("experiment.p1_report" if p1_report is not None
                                                            else "zoom_undone"),
             "zoom_undo_consistent": (undone == p1_report) if p1_report is not None and undone is not None else None,
+            "p1_attempts": result.p1_attempts, "p1_retried": p1_retried(result.p1_attempts),
             "evidence": [dict(entry) for entry in result.evidence],
             "experiment": {k: v for k, v in result.experiment.items() if k != "p1_report"},
+            "object_tracking": dict(result.object_tracking) if result.object_tracking is not None else None,
             "caption_pass": {"ran": bool(caption.get("calls")), "calls": int(caption.get("calls") or 0)},
             "request_ref": result.request_ref, "response_ref": result.response_ref,
         }

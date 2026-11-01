@@ -37,9 +37,11 @@ from typing import Any
 
 P1_MAX_ATTEMPTS = 2  # the agent's P1_MAX_ATTEMPTS: one retry after a runaway output
 AGENT_CAP_LIMIT = 200  # the agent's MAX_CROP_CALLS_LIMIT, the upper bound of max_crop_calls and max_zoom_calls
-# Agent run-provenance stages and the ledger each is charged to.
+# Agent run-provenance stages (run_provenance.STAGES) and the ledger each is charged to. ``embedding`` (the revision's
+# summary embedding) never runs in an experiment, which persists nothing; it is mapped so a stray call is charged.
 STAGE_LEDGERS = {"caption": "caption", "p1": "inference", "rp1": "inference", "grounding": "grounding",
-                 "zoom": "zoom", "object_tracking": "object_tracking", "privacy_heads": "grounding"}
+                 "zoom": "zoom", "object_tracking": "object_tracking", "privacy_heads": "grounding",
+                 "embedding": "embedding"}
 OVERRIDABLE = frozenset({"max_crop_calls", "max_zoom_calls", "prompt_id", "p1_tokens_bound",
                          "detector_tokens_bound", "zoom_tokens_bound"})
 
@@ -52,7 +54,9 @@ class VssProfile:
     max_crop_calls: int
     max_zoom_calls: int
     object_tracking: bool = False
-    max_object_tracking_calls: int = 80  # the agent's INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS default
+    # The agent's INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS default. The adapter checks the cap each reply reports
+    # (object_tracking.detector.cap) and stops the run when it is higher, so this worst case cannot be passed silently.
+    max_object_tracking_calls: int = 80
     prompt_id: str | None = None
     expected_flags: Mapping[str, Any] = field(default_factory=dict)
     p1_tokens_bound: int = 35000
@@ -104,17 +108,20 @@ class VssProfile:
         return out
 
 
-# The shared agent's analysis flags an experiment can reproduce (status.md, live VM config): the zoomed second look
-# on, person tracking, set-of-marks and object tracking off; INCIDENT_EXPERIMENTS_ENABLED on, as on every
-# experiment agent.
-PRODUCTION_FLAGS = {"zoom_names": True, "tracking": False, "set_of_marks": False, "object_tracking": False,
-                    "experiments": True}
+# The run provenance's flags describe what the request ran, not the agent's environment (P3): an experiment never
+# runs person tracking or set-of-marks prompting, runs object tracking exactly when it asks for it, and says
+# ``experiment: true``. The zoomed second look stays on, as on the shared agent (status.md, live VM config), and
+# INCIDENT_EXPERIMENTS_ENABLED is on, as on every experiment agent. Expected flags are a subset: each listed flag must
+# hold, others are pinned but not prescribed.
+PRODUCTION_FLAGS = {"experiment": True, "zoom_names": True, "tracking": False, "set_of_marks": False,
+                    "object_tracking": False, "experiments": True}
+OBJECT_TRACKING_FLAGS = {**PRODUCTION_FLAGS, "object_tracking": True}
 PROFILES: dict[str, VssProfile] = {
     "production-v4": VssProfile("production-v4", max_crop_calls=40, max_zoom_calls=80,
                                 expected_flags=PRODUCTION_FLAGS),
     "production-v4-object-tracking": VssProfile("production-v4-object-tracking", max_crop_calls=40,
                                                 max_zoom_calls=80, object_tracking=True,
-                                                expected_flags=PRODUCTION_FLAGS),
+                                                expected_flags=OBJECT_TRACKING_FLAGS),
 }
 
 
