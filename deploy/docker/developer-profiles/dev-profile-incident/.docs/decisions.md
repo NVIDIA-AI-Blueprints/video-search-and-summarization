@@ -2,20 +2,27 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
-### 2026-11-01 (proposed): Caption windows go through a scratch-store port; captions in experiments wait for a store decision (X16)
+### 2026-11-01 (proposed): Caption windows go through a scratch-store port; experiments run captions inline or under an approved R2 prefix (X16)
 - **Decision:**
-  - **Port:** the caption pass keeps its window clips behind `ScratchStorage` (`put_video`, `signed_url`, `delete_prefix`).
-  - **R2 store (`ScratchStore`):** now confined to a root, default `scratch/analyze`, which production uses unchanged. It refuses a key outside the root, and a delete of the root or of one level under it, so a pass can only touch `<root>/<video key>/<run id>/`.
-  - **Inline store (`InlineScratchStore`):** sends each window inline as a base64 data URL, stores nothing, and refuses a window over 8 MiB.
-  - **Not wired:** no request uses the inline store yet.
-- **Why:** experimental requests skip the caption pass: the remote model must fetch each window, and the experiment agent has no R2 settings (blocker X16). So Track B cannot measure the caption effect.
+  - **Port:** the caption pass keeps its window clips behind `ScratchStorage` (`put_video`, `signed_url`, `release` once a window's call is over, `delete_prefix`). The R2 store (`ScratchStore`) is confined to a root, default `scratch/analyze`, which production uses unchanged: it refuses a key outside the root, and a delete of the root or of one level under it.
+  - **Experiments:** `experiment_captions` runs production's caption pass in an experiment (same settings, prompts, model, retries and P1 context message), and `max_caption_calls` (required) caps its HTTP attempts, retries included. There is no default store.
+    - **`inline`** sends each window as a base64 data URL and stores nothing, so it needs no shared storage and works with cropping on. Its feasibility depends on the endpoints accepting a base64 video, and up to what size: unverified, it needs a gated live probe (one approved model call). A window over 8 MiB is not sent.
+    - **`r2`** needs the owner-approved prefix in `INCIDENT_EXPERIMENT_SCRATCH_PREFIX` (a folder under `scratch/` other than `scratch/analyze`), and is refused (409) without it. Each window is deleted as soon as its call is over. Experimental crops still refuse an agent holding R2 settings, so `r2` needs `skip_crops`.
+  - **A pass that cannot run or finish** (short clip, a window over the inline limit, the cap, ...) is skipped as in production: P1 runs without context, the flags say `chunking.enabled: false`, and `experiment.caption.skipped` says why.
+  - **Every window finishes before the scratch delete:** a failed window no longer leaves the others uploading or calling (before, a late upload could land after the delete, and late calls could miss the run provenance). Production's successful pass is unchanged.
+- **Why:** Track B could not measure the caption effect, because experiments skipped the caption pass: the remote model must fetch each window, and the experiment agent has no R2 settings (blocker X16).
 - **Open (owner decision, X16):**
-  - **(a) R2 under an approved `scratch/eval` root:** needs a lifecycle rule and R2 credentials on the experiment agent, ideally limited to that prefix.
-  - **(b) Inline data URLs:** need no storage, but whether the endpoints accept a base64 video, and up to what size, is unverified; it needs one approved model call.
+  - **(a) `r2`:** approve the prefix (for example `scratch/eval`), add a bucket lifecycle rule on it, and give the experiment agent R2 credentials, ideally limited to that prefix.
+  - **(b) `inline`:** approve the live probe of a base64 video on each endpoint Track B uses.
   - **(c) Keep captions out of Track B.**
-  - **Either (a) or (b) then needs:** an experimental field to choose the store, a `max_caption_calls` cap counted per HTTP attempt, and a Track B profile that declares the caption stage.
-- **Rejected:** a local HTTP server for the windows (Switchyard cannot reach the laptop); writing to `scratch/analyze` from experiments (that prefix belongs to production).
-- **Links:** [`chunk_captions.py`](../../../../../services/agent/src/vss_agents/utils/chunk_captions.py), [caption pass](vm-api-contracts.md#caption-pass-chunked-captioning-incident_chunking_enabled).
+  - **Track B** then needs a profile that declares the caption stage and its cap (the eval adapter, separate).
+- **Rejected:**
+  - a local HTTP server for the windows (Switchyard cannot reach the laptop);
+  - writing to `scratch/analyze` from experiments (that prefix belongs to production);
+  - refusing a window over the inline limit with a 400: its size is known only after the cut, and the eval adapter stops a whole run on a refusal;
+  - an uncapped experimental pass: the eval needs a worst case for every stage;
+  - letting experimental crops run on an agent with R2 settings: the scratch prefix stays the single exception.
+- **Links:** [`chunk_captions.py`](../../../../../services/agent/src/vss_agents/utils/chunk_captions.py), [caption pass](vm-api-contracts.md#caption-pass-chunked-captioning-incident_chunking_enabled), [experimental captions](vm-api-contracts.md#experimental-settings-prompt-experiments-pr-6b)
 
 ### 2026-11-01: Experimental requests can cap the zoom look, track objects and return the pre-zoom P1 report; captions wait for a scratch store
 - **Decision:** an experimental crops-on request may set:
@@ -27,13 +34,13 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
   - Object tracking must be switchable there.
   - The zoom effect must be measurable without extra calls: compare `p1_report` with the final report.
   - Crop scoring needs the unpadded box. The stored box is padded by 5%, so scorers had to estimate.
-- **Rejected:** counting zoom calls in `max_crop_calls`, which would change the meaning of an existing cap that V1's end-to-end profile used; requiring a zoom cap on every experiment, which would break V1's configs; running the caption pass in experiments now. That pass sends window clips to the model by signed URL, an experiment agent holds no R2 settings by design, and a dedicated scratch prefix is a shared-storage change that needs the owner's approval (X16).
+- **Rejected:** counting zoom calls in `max_crop_calls`, which would change the meaning of an existing cap that V1's end-to-end profile used; requiring a zoom cap on every experiment, which would break V1's configs; running the caption pass in experiments now. That pass sends window clips to the model by signed URL, an experiment agent holds no R2 settings by design, and a dedicated scratch prefix is a shared-storage change that needs the owner's approval (X16). Captions in experiments are now wired behind `experiment_captions` (the X16 entry above).
 - **Links:** [contract](vm-api-contracts.md#experimental-settings-prompt-experiments-pr-6b), [data](data.md), [`crop_evidence.py`](../../../../../services/agent/src/vss_agents/utils/crop_evidence.py)
 
 ### 2026-11-01: Every analysis returns its run provenance, and the console keeps it in the run's notes
 - **Decision:** `/analyze` returns `provenance` (`incident-run-provenance-v1`) on every response and in the `422` detail. It holds:
   - the agent's commit (`git rev-parse` once at startup, or `VSS_AGENT_GIT_SHA`) and whether the tree was dirty;
-  - the analysis flags: what this request ran (experiment, caption pass, person tracking, set-of-marks, object tracking, zoom, blur), over the agent's settings. An experiment never runs the caption pass, tracking or marks, so flags read from the environment alone would describe a run that never happened;
+  - the analysis flags: what this request ran (experiment, caption pass, person tracking, set-of-marks, object tracking, zoom, blur), over the agent's settings. An experiment never runs tracking or marks, and runs the caption pass only when it asks for it (`experiment_captions`), so flags read from the environment alone would describe a run that never happened;
   - for each stage used (caption, P1, RP1, grounding, zoom, object tracking, privacy head search, revision embedding): its model, its prompt hashes from `contracts/prompts/`, and every HTTP attempt, with failed and cap-refused attempts, tokens and time. An attempt that returns no usable answer (a P1 reply the contract rejects, a runaway, a zoom reply its strict check rejects, any status other than 2xx) is failed.
   - The console writes it into `model_runs.notes.response.provenance` with the attempt, once.
 - **How calls are counted:** a per-request context variable (`run_provenance.collecting`). It reaches the evidence step's tasks and `asyncio.to_thread` workers, so the detector, zoom, caption, P1 and RP1 calls record themselves without threading a meter through the pipeline. The object tracker and the head search set their stage with `stage_scope`.

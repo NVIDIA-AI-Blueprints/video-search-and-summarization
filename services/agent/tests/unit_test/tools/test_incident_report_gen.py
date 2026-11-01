@@ -1049,7 +1049,10 @@ def _logged(caplog, text: str) -> bool:
 
 
 class TestChunkedCaptions(TestEndToEnd):
-    """The caption pass around P1: flag off, experimental skip, soft failure, and the context message."""
+    """The caption pass around P1: flag off, experimental skip, soft failure, and the context message.
+
+    Experiments that ask for the pass (``experiment_captions``) are in ``test_experiment_captions.py``.
+    """
 
     def _p1_only(self, requests: list[dict]):
         def handler(request: httpx.Request) -> httpx.Response:
@@ -1171,7 +1174,7 @@ class TestChunkedCaptions(TestEndToEnd):
         assert _logged(caplog, "caption pass skipped: INCIDENT_CHUNK_WINDOW_SECONDS must be a number, got 'lots'")
 
     @pytest.mark.asyncio
-    async def test_an_experimental_request_never_runs_the_pass(self, monkeypatch):
+    async def test_an_experimental_request_without_experiment_captions_never_runs_the_pass(self, monkeypatch):
         monkeypatch.setenv("INCIDENT_CHUNKING_ENABLED", "1")
         monkeypatch.setenv("INCIDENT_EXPERIMENTS_ENABLED", "1")
         requests: list[dict] = []

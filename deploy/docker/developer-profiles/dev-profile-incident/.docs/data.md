@@ -464,6 +464,8 @@ anomaly-detection-dataset/            # bucket name comes from R2_BUCKET
 ├── scratch/analyze/<video-key>/     # agent scratch, deleted by the agent when the step ends (success or failure)
 │   ├── <run-id>/<index>.mp4         # caption pass windows (INCIDENT_CHUNKING_ENABLED)
 │   └── <run-id>-marks/marked.mp4    # set-of-marks copy P1 sees (INCIDENT_SOM_ENABLED), deleted right after P1
+├── scratch/<approved>/<video-key>/  # experiment caption windows (experiment_captions "r2"): only under the owner-approved INCIDENT_EXPERIMENT_SCRATCH_PREFIX (X16, pending), never scratch/analyze
+│   └── exp-<id>/<index>.mp4         # each deleted right after its caption call; the rest when the pass ends
 └── evidence/                        # evidence images: agent crops and reviewer replacements
     └── <video-key>/run-<N>/<itemId>.jpg    # AI crops (what evidence search embeds), one run-<N> per analysis
         <video-key>/run-<N>/<itemId>-frame.jpg  # the whole video frame the box was found in, native size (the console draws the box on it)
