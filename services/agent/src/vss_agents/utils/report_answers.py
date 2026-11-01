@@ -59,8 +59,9 @@ MAX_EVENTS = 8
 HUMAN_TYPES = frozenset({"human", "person", "people", "man", "woman", "child", "pedestrian"})
 NUMBER_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
 
-_ID = re.compile(r"(?<![A-Za-z0-9_])([EIA][0-9]{1,3})(?![A-Za-z0-9_])")
-_ID_GROUP = re.compile(r"\s*\(\s*([EIA][0-9]{1,3}(?:\s*(?:,|and|&)\s*[EIA][0-9]{1,3})*)\s*\)")
+_ID_TOKEN = r"(?:new-)?[EIA][0-9]{1,3}"  # the contract's ids, and the console's ids for items added in a draft
+_ID = re.compile(rf"(?<![\w-])({_ID_TOKEN})(?![\w-])")
+NEUTRAL = {"E": "a person", "I": "an object", "A": "an item"}
 _ASKS_IDS = re.compile(r"\b(?:ids?|identifiers?|item[_ ]ids?)\b")
 _CHRONOLOGY = re.compile(
     r"\b(?:what (?:happen\w*|went on|occurred)|happen(?:ed|s|ing)?|in order|order of|sequence|timeline|"
@@ -83,6 +84,8 @@ _TYPE = re.compile(
 )
 _HOW_MANY = re.compile(r"\bhow many\b")
 _PRESENCE = re.compile(r"^\s*(?:is|are|was|were|did|does|do|has|have|had)\b|\bany\b")
+# A bare existence question ("is there a crowbar?", "any knives?"): the only yes/no question a list of items can answer.
+_EXISTENCE = re.compile(r"^\s*(?:(?:is|are|was|were)\s+there\b|any\b)")
 _WORD = re.compile(r"[a-z0-9]+")
 _STOP = frozenset(
     [
@@ -287,14 +290,27 @@ def clock(seconds: Any) -> str | None:
     return f"{hours}:{minutes:02d}:{rest:02d}" if hours else f"{minutes}:{rest:02d}"
 
 
+def _tokens(text: str) -> list[str]:
+    """The content words of a text, in order, as written (lower case)."""
+    return [w for w in _WORD.findall(text.lower()) if len(w) > 2 and w not in _STOP]
+
+
+def _variants(word: str) -> set[str]:
+    """A word and its likely singulars, for matching only ("knives" meets "knife", "witnesses" meets "witness")."""
+    out = {word}
+    if len(word) > 4 and word.endswith("ies"):
+        out.add(word[:-3] + "y")
+    elif len(word) > 4 and word.endswith("ves"):
+        out |= {word[:-3] + "f", word[:-3] + "fe"}
+    elif len(word) > 3 and word.endswith("es"):
+        out |= {word[:-2], word[:-1]}
+    elif len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        out.add(word[:-1])
+    return out
+
+
 def _words(text: str) -> set[str]:
-    words = set()
-    for word in _WORD.findall(text.lower()):
-        if len(word) > 2 and word not in _STOP:
-            words.add(word)
-            if len(word) > 3 and word.endswith("s"):
-                words.add(word[:-1])
-    return words
+    return {variant for word in _tokens(text) for variant in _variants(word)}
 
 
 def _lower_first(text: str) -> str:
@@ -377,7 +393,9 @@ class Item:
         if self.kind == "entity":
             text = self.description or self.label or self.entity_type or "person"
             return _article(_resolve_plain(text, mentions), definite=False)
-        text = _article(self.name or self.label or self.description or self.kind, definite=False)
+        text = _article(
+            _resolve_plain(self.name or self.label or self.description or self.kind, mentions), definite=False
+        )
         detail = _first_clause(self.description)
         if detail and self.name and _words(detail) - _words(self.name):
             text += f" ({_lower_first(_resolve_plain(detail, mentions))})"
@@ -391,24 +409,74 @@ class Item:
         return f"seen at {moment}" if moment else ""
 
 
+class Mentions(dict[str, str]):
+    """Item id to how the answer names it; ``retired`` holds the ids of the base version that a draft removed."""
+
+    retired: frozenset[str] = frozenset()
+
+
 @dataclass(frozen=True)
 class ReportView:
-    """One report version (or an unsaved draft): incident fields, items and the timeline in time order."""
+    """One report version (or an unsaved draft): incident fields, items and the timeline in time order.
+
+    ``retired`` are the ids of base-version items the draft removed: report text written before the edit may still
+    refer to them, and they read as a neutral "a person" or "an object".
+    """
 
     incident: Mapping[str, Any]
     items: tuple[Item, ...]
     timeline: tuple[Mapping[str, Any], ...]
+    retired: frozenset[str] = frozenset()
 
     def item(self, item_id: str | None) -> Item | None:
         return next((i for i in self.items if i.item_id == item_id), None) if item_id else None
 
-    def mentions(self) -> dict[str, str]:
+    def mentions(self) -> Mentions:
         """Each item's mention, any id inside one (a label quoting another item) resolved in a single pass."""
-        base = {i.item_id: i.mention() for i in self.items}
-        return {item_id: _resolve_plain(text, base) for item_id, text in base.items()}
+        base = Mentions({i.item_id: i.mention() for i in self.items})
+        base.retired = self.retired
+        resolved = {item_id: _resolve_plain(text, base) for item_id, text in base.items()}
+        # Labels that name each other ("man beside E2", "man beside E1") still hold an id after one pass: it reads
+        # neutrally rather than recursing.
+        neutral = Mentions()
+        neutral.retired = frozenset(base) | self.retired
+        final = Mentions({item_id: _resolve_plain(text, neutral) for item_id, text in resolved.items()})
+        final.retired = self.retired
+        return final
 
 
-def report_view(report: Mapping[str, Any] | None, evidence: Sequence[Mapping[str, Any]] = ()) -> ReportView:
+def item_ids(report: Mapping[str, Any] | None) -> set[str]:
+    """Every entity, instrument and asset id a report holds."""
+    report = report if isinstance(report, dict) else {}
+    return {
+        str(raw[id_field]).strip()
+        for key, id_field, _ in ITEM_KINDS
+        for raw in report.get(key) or []
+        if isinstance(raw, dict) and str(raw.get(id_field) or "").strip()
+    }
+
+
+def overlay_draft(base: Mapping[str, Any] | None, draft: Mapping[str, Any]) -> dict[str, Any]:
+    """The report an unsaved draft stands for: the base version with the reviewer's incident fields and items.
+
+    The console sends a draft with only the fields a reviewer edits (incident type, times, description, severity and the
+    items). As a human save does (the console's ``humanRevisionContent``), the model-only fields (title, severity reason,
+    confidence, location, timeline) come from the base version.
+    """
+    out: dict[str, Any] = dict(base or {})
+    raw_base, raw_draft = out.get("incident"), draft.get("incident")
+    base_incident: dict[str, Any] = raw_base if isinstance(raw_base, dict) else {}
+    draft_incident: dict[str, Any] = raw_draft if isinstance(raw_draft, dict) else {}
+    out["incident"] = {**base_incident, **draft_incident}
+    for key, _, _ in ITEM_KINDS:
+        if key in draft:
+            out[key] = draft[key]
+    return out
+
+
+def report_view(
+    report: Mapping[str, Any] | None, evidence: Sequence[Mapping[str, Any]] = (), *, retired: Iterable[str] = ()
+) -> ReportView:
     """The answerable view of a report; a revision saved without its report falls back to its evidence entries."""
     report = report if isinstance(report, dict) else {}
     seen = {
@@ -465,23 +533,54 @@ def report_view(report: Mapping[str, Any] | None, evidence: Sequence[Mapping[str
     events.sort(key=lambda e: (_num(e.get("start_seconds")) is None, _num(e.get("start_seconds")) or 0.0))
     raw_incident = report.get("incident")
     incident: dict[str, Any] = raw_incident if isinstance(raw_incident, dict) else {}
-    return ReportView(incident=incident, items=tuple(items), timeline=tuple(events))
+    held = {i.item_id for i in items}
+    return ReportView(
+        incident=incident,
+        items=tuple(items),
+        timeline=tuple(events),
+        retired=frozenset(str(i) for i in retired if str(i) not in held),
+    )
+
+
+def _id_pattern(known: Iterable[str]) -> tuple[re.Pattern[str], re.Pattern[str]]:
+    """Each known id (longest first) and any other id-like token, as a whole token (never inside ``new-E2`` or
+    ``E12``), and a parenthesised list of them."""
+    alternatives = sorted({re.escape(i) for i in known if i}, key=len, reverse=True)
+    core = "|".join([*alternatives, _ID_TOKEN])
+    token = re.compile(rf"(?<![\w-])({core})(?![\w-])")
+    group = re.compile(rf"\s*\(\s*((?:{core})(?:\s*(?:,|and|&)\s*(?:{core}))*)\s*\)")
+    return token, group
+
+
+def _replacement(token: str, mentions: Mapping[str, str], retired: frozenset[str]) -> str:
+    """What an id-like token reads as: its item's mention; a neutral phrase for an id the report no longer holds
+    (a draft's own ``new-`` id, an ``E``/``I`` id, or a removed item); an ``A``-number the report never used
+    ("A4 paper", "the A1") is not a reference and stays as written."""
+    if token in mentions:
+        return mentions[token]
+    bare = token.removeprefix("new-")
+    if token.startswith("new-") or bare[:1] in "EI" or token in retired:
+        return NEUTRAL.get(bare[:1], "an item")
+    return token
 
 
 def _resolve_plain(text: str, mentions: Mapping[str, str]) -> str:
+    retired: frozenset[str] = getattr(mentions, "retired", frozenset())
+    token, group = _id_pattern([*mentions, *retired])
+
     def drop(match: re.Match[str]) -> str:
-        ids = _ID.findall(match.group(1))
+        ids = token.findall(match.group(1))
         return "" if ids and all(i in mentions for i in ids) else match.group(0)
 
-    return _ID.sub(lambda m: mentions.get(m.group(1), m.group(1)), _ID_GROUP.sub(drop, text))
+    return token.sub(lambda m: _replacement(m.group(1), mentions, retired), group.sub(drop, text))
 
 
 def resolve_references(text: str, mentions: Mapping[str, str]) -> str:
     """Report text with each item-id reference resolved to that item's mention.
 
     ``"E1 strikes E2 with I1."`` becomes ``"The man in black strikes the cashier with the crowbar."``; a parenthesised id
-    after a description (``"a man (E1)"``) is dropped, since the description already names it. Ids the report does not
-    hold are left as written.
+    after a description (``"a man (E1)"``) is dropped, since the description already names it. An id the report no
+    longer holds reads as a neutral "a person", "an object" or "an item" (:func:`_replacement`).
     """
 
     return _sentence_case(_resolve_plain(text, mentions))
@@ -495,10 +594,22 @@ def asks_for_ids(question: str) -> bool:
 def referenced_ids(text: str, known: Iterable[str]) -> list[str]:
     """The known item ids a piece of report text refers to, in order of first reference."""
     known = set(known)
+    token, _ = _id_pattern(known)
     out: list[str] = []
-    for item_id in _ID.findall(text):
+    for item_id in token.findall(text):
         if item_id in known and item_id not in out:
             out.append(item_id)
+    return out
+
+
+def replaced_ids(text: str, mentions: Mapping[str, str]) -> list[str]:
+    """The id-like tokens :func:`resolve_references` would rewrite in ``text`` (known ids and ids no longer held)."""
+    retired: frozenset[str] = getattr(mentions, "retired", frozenset())
+    token, _ = _id_pattern([*mentions, *retired])
+    out: list[str] = []
+    for found in token.findall(text):
+        if _replacement(found, mentions, retired) != found and found not in out:
+            out.append(found)
     return out
 
 
@@ -612,11 +723,30 @@ def _object_phrase(view: ReportView, item: Item) -> str:
     return f"{text}, {moment}" if moment else text
 
 
-def _absent(view: ReportView, unmatched: set[str]) -> ComposedAnswer:
+def _about(view: ReportView, targets: Sequence[Item]) -> ComposedAnswer:
+    """A yes/no question about what a named item did or underwent ("did the hooded person steal anything?", "was the
+    door broken?"): the report's events about it, in order, without a yes or no it does not state. With no such event
+    the report does not answer it."""
+    answer = _chronology(view, targets)
+    if answer.kind == "chronology" and answer.text.startswith("Here is what the report records about"):
+        return answer
+    mentions = view.mentions()
+    named = _join(list(dict.fromkeys(mentions[t.item_id] for t in targets)))
+    return ComposedAnswer(
+        f"The report records {named} but says nothing more about {'them' if len(targets) > 1 else 'it'} that answers "
+        "this.",
+        (),
+        True,
+        "about",
+    )
+
+
+def _absent(view: ReportView, unmatched: Sequence[str]) -> ComposedAnswer:
     """A question about something the report never names ("is there a dog?"): it says so, and what it does record."""
     people = [i for i in view.items if i.is_person]
-    objects = list(dict.fromkeys(i.mention() for i in view.items if i.kind != "entity"))
-    text = f"This report doesn't mention {_join([chr(34) + w + chr(34) for w in sorted(unmatched)])}."
+    mentions = view.mentions()
+    objects = list(dict.fromkeys(mentions[i.item_id] for i in view.items if i.kind != "entity"))
+    text = f"This report doesn't mention {_join([chr(34) + w + chr(34) for w in unmatched])}."
     if view.items:
         text += (
             f" It records {_count(len(people), 'person', 'people')} and "
@@ -641,7 +771,7 @@ def _holders(view: ReportView, targets: Sequence[Item]) -> ComposedAnswer | None
 
 
 def _objects(
-    view: ReportView, targets: Sequence[Item], unmatched: set[str], *, presence: bool, how_many: bool
+    view: ReportView, targets: Sequence[Item], unmatched: Sequence[str], *, presence: bool, how_many: bool
 ) -> ComposedAnswer:
     instruments = [i for i in view.items if i.kind == "instrument"]
     assets = [i for i in view.items if i.kind == "asset"]
@@ -652,7 +782,7 @@ def _objects(
         return ComposedAnswer(f"{opener} {_join(phrases)}.", tuple(t.item_id for t in chosen), False, "objects")
     sentences = []
     if unmatched and presence:
-        sentences.append(f"This report doesn't mention {_join([chr(34) + w + chr(34) for w in sorted(unmatched)])}.")
+        sentences.append(f"This report doesn't mention {_join([chr(34) + w + chr(34) for w in unmatched])}.")
     if how_many:
         sentences.append(
             f"It records {_count(len(instruments), 'instrument', 'instruments')} and "
@@ -735,7 +865,10 @@ def compose(question: str, view: ReportView) -> ComposedAnswer:
     # an item whose name or label matches beats one whose description merely mentions the word.
     naming = words - intent_words
     targets = [i for i in view.items if naming & i.name_words] or [i for i in view.items if naming & i.words]
-    unmatched = words - known_words - intent_words
+    # The words the report never uses, as the question wrote them (a singular form that matches counts as used).
+    unmatched = [
+        t for t in dict.fromkeys(_tokens(q)) if not _variants(t) & known_words and not _variants(t) & intent_words
+    ]
     how_many = bool(_HOW_MANY.search(q))
     if _TIME_FIRST.search(q):
         answer = _when(view, targets)
@@ -749,6 +882,8 @@ def compose(question: str, view: ReportView) -> ComposedAnswer:
         answer = _when(view, targets)
     elif _PRESENCE.search(q) and unmatched and not targets:
         answer = _absent(view, unmatched)
+    elif _PRESENCE.search(q) and not _EXISTENCE.search(q) and targets:
+        answer = _about(view, targets)
     elif (
         _PEOPLE.search(q) and targets and any(not t.is_person for t in targets) and (holders := _holders(view, targets))
     ):
@@ -757,7 +892,7 @@ def compose(question: str, view: ReportView) -> ComposedAnswer:
         answer = _people(view, targets, how_many=how_many)
     elif _OBJECTS.search(q) or targets or (_PRESENCE.search(q) and unmatched):
         answer = _objects(
-            view, targets, unmatched if not targets else set(), presence=bool(_PRESENCE.search(q)), how_many=how_many
+            view, targets, unmatched if not targets else [], presence=bool(_EXISTENCE.search(q)), how_many=how_many
         )
     else:
         about = [e for e in view.timeline if words & _words(str(e.get("description") or ""))]
@@ -765,9 +900,7 @@ def compose(question: str, view: ReportView) -> ComposedAnswer:
             answer = _chronology(ReportView(view.incident, view.items, tuple(about)), [])
         else:
             missing = (
-                f" doesn't mention {_join([chr(34) + w + chr(34) for w in sorted(unmatched)])}"
-                if unmatched
-                else " doesn't say"
+                f" doesn't mention {_join([chr(34) + w + chr(34) for w in unmatched])}" if unmatched else " doesn't say"
             )
             answer = ComposedAnswer(
                 f"This report{missing}. You can ask what happened, who was involved, which objects were involved, or "

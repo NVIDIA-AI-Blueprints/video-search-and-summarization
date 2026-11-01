@@ -555,15 +555,21 @@ def create_incident_chat_router(
             raise HTTPException(status_code=502, detail=f"Report revision error: {exc}") from exc
 
         saved = revision.get("evidence") or []
-        report = body.draft_report if body.draft_report is not None else (revision.get("payload") or {})
-        evidence = _draft_evidence(body.draft_report, saved) if body.draft_report is not None else saved
+        raw = revision.get("payload")
+        payload: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        report, evidence, retired = payload, saved, set[str]()
+        if body.draft_report is not None:
+            # The console's draft holds only the edited fields; the title, timeline and the rest come from the base.
+            report = report_answers.overlay_draft(payload, body.draft_report)
+            evidence = _draft_evidence(body.draft_report, saved)
+            retired = report_answers.item_ids(payload) - report_answers.item_ids(report)
         context = grounded_chat.report_context(report, evidence)
         model = _model()
         history = [message.model_dump() for message in body.messages]
         try:
             reply = await model.complete(grounded_chat.chat_messages(context, history), grounded_chat.ANSWER_SCHEMA)
             question = next((m.content for m in reversed(body.messages) if m.role == "user"), "")
-            answer = grounded_chat.check_answer(reply, context, question=question)
+            answer = grounded_chat.check_answer(reply, context, question=question, retired=retired)
         except grounded_chat.ChatModelError as exc:
             logger.error("Chat model failed for version %s: %s", version_id, exc)
             raise HTTPException(status_code=502, detail=f"Chat model error: {exc}") from exc
@@ -844,13 +850,15 @@ def _composed_answer(
     (a draft item takes the saved crop of the same item in the base revision).
     """
     saved = revision.get("evidence") or []
-    report: dict[str, Any] | None
+    payload = revision.get("payload") if isinstance(revision.get("payload"), dict) else None
+    report: dict[str, Any] | None = payload
+    evidence, retired = saved, set()
     if draft_report is not None:
-        report, evidence = draft_report, _draft_evidence(draft_report, saved)
-    else:
-        payload = revision.get("payload")
-        report, evidence = (payload if isinstance(payload, dict) else None), saved
-    view = report_answers.report_view(report, evidence)
+        # The console's draft holds only the edited fields; the title, timeline and the rest come from the base.
+        report = report_answers.overlay_draft(payload, draft_report)
+        evidence = _draft_evidence(draft_report, saved)
+        retired = report_answers.item_ids(payload) - report_answers.item_ids(report)
+    view = report_answers.report_view(report, evidence, retired=retired)
     answer = report_answers.compose(query, view)
     entries = {(str(e.get("item_type")), str(e.get("item_id"))): e for e in evidence if isinstance(e, dict)}
     citations: list[EvidenceCitation] = []

@@ -661,3 +661,55 @@ def test_search_hits_read_as_prose_by_incident_with_ids_only_in_citations():
         ("va11111111111111111a", "I1"),
         ("vb22222222222222222b", "E2"),
     ]
+
+
+def test_a_console_draft_keeps_the_base_timeline_and_title():
+    """The console's draftReport carries only the edited fields; the agent overlays it on the base version."""
+    draft = {
+        "incident": {
+            "type": "robbery",
+            "start_timestamp": 130,
+            "end_timestamp": 180,
+            "description": "The man in black takes cash from the till.",
+        },
+        "entities": [
+            {
+                "entity_id": "E1",
+                "type": "human",
+                "description": "Man in a black hoodie and grey jeans",
+                "label": "man in black hoodie",
+                "timestamp_seconds": 134,
+            },
+            {
+                "entity_id": "new-E4",
+                "type": "human",
+                "description": "Security guard",
+                "label": "security guard",
+                "timestamp_seconds": 175,
+            },
+        ],
+        "instruments": [
+            {
+                "instrument_id": "I1",
+                "entity_id": "E1",
+                "name": "cash register",
+                "description": "Till drawer",
+                "label": "cash register",
+                "timestamp_seconds": 134,
+            }
+        ],
+        "assets": [],
+    }
+    store = FakeRevisionStore(revisions={7: _robbery_revision()})
+    resp = _make_client(FakeSearchClient(), store).post(
+        "/api/v1/incidents/chat",
+        json={
+            "messages": [{"role": "user", "content": "What happened, in order?"}],
+            "version_id": 7,
+            "draft_report": draft,
+        },
+    )
+    content = resp.json()["message"]["content"]
+    assert content.startswith("The report describes a robbery from 2:10 to 3:00. In order:"), content
+    assert "confronts a person" in content, "E2 was removed in the draft, so the base timeline names a person"
+    assert not ID_TOKEN.search(content) and "new-E" not in content

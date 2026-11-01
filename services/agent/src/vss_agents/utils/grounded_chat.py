@@ -51,6 +51,7 @@ from vss_agents.utils import report_answers
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from collections.abc import Iterable
     from collections.abc import Mapping
     from collections.abc import Sequence
 
@@ -185,9 +186,13 @@ def _seconds(value: Any) -> float | None:
     return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
 
 
-def item_mentions(context: Mapping[str, Any]) -> dict[str, str]:
-    """How a person reading the answer knows each item: its label or name, else its description's first clause."""
-    mentions = {}
+def item_mentions(context: Mapping[str, Any], retired: Iterable[str] = ()) -> report_answers.Mentions:
+    """How a person reading the answer knows each item: its label or name, else its description's first clause.
+
+    ``retired`` are ids a draft removed from the base version; like any other id the report does not hold, they read
+    neutrally.
+    """
+    mentions = report_answers.Mentions()
     for item in context.get("items") or []:
         mentions[item["item_id"]] = report_answers.Item(
             kind=str(item.get("item_type") or ""),
@@ -197,6 +202,7 @@ def item_mentions(context: Mapping[str, Any]) -> dict[str, str]:
             label=str(item.get("label") or ""),
             entity_type=str(item.get("type") or "").lower(),
         ).mention()
+    mentions.retired = frozenset(retired)
     return mentions
 
 
@@ -219,14 +225,19 @@ class GroundedAnswer:
     ids_resolved: tuple[str, ...] = ()
 
 
-def check_answer(reply: Mapping[str, Any], context: Mapping[str, Any], *, question: str = "") -> GroundedAnswer:
+def check_answer(
+    reply: Mapping[str, Any], context: Mapping[str, Any], *, question: str = "", retired: Iterable[str] = ()
+) -> GroundedAnswer:
     """The model's answer with its citations checked against the context; unknown ids are dropped and counted.
 
-    Unless the question asks for ids, a known item id written in the prose is resolved to the item's description and
-    listed in ``ids_resolved``.
+    Unless the question asks for ids, an id written in the prose is resolved: a known item id to the item's
+    description, any other id-like token ("E7", a draft's "new-E3") to a neutral "a person" or "an object". Each is
+    listed in ``ids_resolved``. An empty answer is a model failure (a chat history cannot carry an empty turn).
     """
     if not isinstance(reply.get("answer"), str) or not isinstance(reply.get("insufficient_evidence"), bool):
         raise ChatModelError("chat model reply lacks the answer or the insufficient_evidence flag")
+    if not reply["answer"].strip():
+        raise ChatModelError("chat model returned an empty answer")
     known = {item["item_id"] for item in context["items"]}
     cited: list[str] = []
     dropped: list[str] = []
@@ -238,9 +249,10 @@ def check_answer(reply: Mapping[str, Any], context: Mapping[str, Any], *, questi
             dropped.append(item_id)
     insufficient = bool(reply["insufficient_evidence"])
     content = reply["answer"].strip()
-    leaked: list[str] = [] if report_answers.asks_for_ids(question) else report_answers.referenced_ids(content, known)
+    mentions = item_mentions(context, retired)
+    leaked: list[str] = [] if report_answers.asks_for_ids(question) else report_answers.replaced_ids(content, mentions)
     if leaked:
-        content = report_answers.resolve_references(content, item_mentions(context))
+        content = report_answers.resolve_references(content, mentions)
     return GroundedAnswer(
         content=content,
         item_ids=() if insufficient else tuple(cited),
