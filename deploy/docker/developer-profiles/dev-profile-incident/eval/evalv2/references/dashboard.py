@@ -52,8 +52,17 @@ def load_allowlist(path: Path = ALLOWLIST_PATH) -> dict[str, Any]:
 
 
 def parse_spec(reply: Any, allowlist: Mapping[str, Any]) -> dict[str, Any] | None:
-    """The spec a reply describes, or ``None`` (a refusal, an unknown key or value, or an inconsistent spec)."""
+    """The spec a reply describes, or ``None`` (a refusal, an unknown key or value, or an inconsistent spec).
+
+    Like the console's Zod schema (every field a ``z.enum`` of strings, the two filters nullable), a value that is not
+    a string is refused before any lookup: a list or object would otherwise raise ``TypeError`` in a dict lookup, and
+    ``True`` would compare equal to an allowlisted ``1``.
+    """
     if not isinstance(reply, dict) or set(reply) != set(SPEC_KEYS):
+        return None
+    if not all(isinstance(reply[key], str) for key in ("metric", "dimension", "period")):
+        return None
+    if not all(reply[key] is None or isinstance(reply[key], str) for key in ("incidentType", "severity")):
         return None
     dimension = allowlist["dimensions"].get(reply["dimension"])
     if (dimension is None or reply["metric"] not in allowlist["metrics"] or reply["period"] not in allowlist["periods"]
@@ -68,7 +77,8 @@ def parse_spec(reply: Any, allowlist: Mapping[str, Any]) -> dict[str, Any] | Non
 
 
 def is_refusal(reply: Any) -> bool:
-    return isinstance(reply, dict) and reply == UNSUPPORTED
+    """Exactly ``{"unsupported": true}``; ``{"unsupported": 1}`` is not a refusal (``1 == True`` in Python only)."""
+    return isinstance(reply, dict) and set(reply) == {"unsupported"} and reply["unsupported"] is True
 
 
 def all_specs(allowlist: Mapping[str, Any]) -> list[dict[str, Any]]:

@@ -25,12 +25,15 @@
   and repeat). Per metric it gives the pairs, the means before and after, the mean difference and how many runs
   improved, worsened or stayed the same. A run where either side is unscored for a metric is left out of that
   metric. Intervals come with the report.
+- :func:`caption_effect` is the caption-effect pairing: it leaves out every Track B run whose P1 the agent retried
+  after a runaway output (``p1_retried``), because its ``p1`` is the retry's reply while Track A scores the same
+  runaway as a miss; pairing them would show a Track B gain the caption pass did not make.
 """
 
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from evalv2.tasks.incident_objects import v1
@@ -74,9 +77,14 @@ def run_metrics(scored: Mapping[str, Any]) -> dict[str, float | None]:
     return out
 
 
-def paired_effect(before: Mapping[str, Mapping[str, Any]], after: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-    """Per metric, the change from ``before`` to ``after`` over the runs (keys) both sides scored."""
-    keys = sorted(set(before) & set(after))
+def paired_effect(before: Mapping[str, Mapping[str, Any]], after: Mapping[str, Mapping[str, Any]], *,
+                  exclude: Iterable[str] = ()) -> dict[str, Any]:
+    """Per metric, the change from ``before`` to ``after`` over the runs (keys) both sides scored.
+
+    Runs in ``exclude`` are left out of every metric and counted (``excluded``).
+    """
+    excluded = set(exclude) & set(before) & set(after)
+    keys = sorted(set(before) & set(after) - excluded)
     rows = [(run_metrics(before[key]), run_metrics(after[key])) for key in keys]
     names = sorted({name for b, a in rows for name in (*b, *a)})
     effects = {}
@@ -92,4 +100,11 @@ def paired_effect(before: Mapping[str, Mapping[str, Any]], after: Mapping[str, M
                          "improved": sum(1 for b, a in pairs if a > b), "worsened": sum(1 for b, a in pairs if a < b),
                          "unchanged": sum(1 for b, a in pairs if a == b)}
     return {"runs_paired": len(keys), "only_before": len(set(before) - set(after)),
-            "only_after": len(set(after) - set(before)), "metrics": effects}
+            "only_after": len(set(after) - set(before)), "excluded": len(excluded), "metrics": effects}
+
+
+def caption_effect(track_a: Mapping[str, Mapping[str, Any]], track_b_p1: Mapping[str, Mapping[str, Any]],
+                   track_b_artifacts: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """Track A against Track B's ``p1``, by run key, without the Track B runs whose P1 the agent retried."""
+    retried = {key for key, artifact in track_b_artifacts.items() if artifact.get("p1_retried")}
+    return {**paired_effect(track_a, track_b_p1, exclude=retried), "excluded_reason": "p1_retried"}

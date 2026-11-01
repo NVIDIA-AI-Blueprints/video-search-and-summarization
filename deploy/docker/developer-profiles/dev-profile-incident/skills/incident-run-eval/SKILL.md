@@ -106,7 +106,7 @@ The V2 package sits beside the V1 modules and changes none of them. It does not 
 
 ```bash
 uv run python -m evalv2 plan --config <config.json>             # work items per task and subject; no calls
-uv run python -m evalv2 preflight --config <config.json>        # config rules + every cap covers the worst case
+uv run python -m evalv2 preflight --config <config.json>        # config rules + each cap covers the summed worst case of every task and subject it scopes; every charged task, subject and ledger has a cap
 uv run python -m evalv2 run --config <config.json> --dry-run    # plan + preflight as one statement
 uv run python -m evalv2 audit frozen-v1                         # V1's frozen artifacts unchanged (90 files)
 uv run python -m evalv2 audit run --store <dir> --run <run id>  # a sealed run's index and artifacts intact
@@ -123,7 +123,7 @@ uv run python -m evalv2 verify-v1 --record <results.json> [--record ...] [--repo
 - **Chat references** (R3) are made by `evalv2.references.chat`. Every countable answer is computed from the ground truth, and the prompts are `gen-chat-wording-v1` and `gen-chat-rederive-v1`. Generating them is the approved run **RA2**.
 - **Track B** (task `pipeline`) runs subjects with `adapter: vss`, endpoint `experiment-agent` and a `profile` (`production-v4`, `production-v4-object-tracking`), with `request` overriding only caps and token bounds.
   - It runs only against the local experiment agent (`experiments/agent/start-experiment-agent.sh`, `EVALV2_VSS_AGENT_URL` on loopback). Never the shared VM agent.
-  - Set caps for the `inference`, `grounding` and `zoom` ledgers, and `object_tracking` for the tracking profile.
+  - Set caps for the `inference`, `grounding` and `zoom` ledgers, and `object_tracking` for the tracking profile. For the tracking profile the experiment agent's `INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS` must be at most 80 (its default): a reply reporting a higher cap stops the run.
   - The experimental path runs no caption pass until the R2 scratch prefix (X16) is approved.
   - Crop evidence is scored through `tasks/pipeline/crops.py`, which needs box references (run **RA1**). Its `cap_summary` shows whether the profile caps bound; recalibrate them before the freeze.
   - Running it is the approved pilot **C1b**.
