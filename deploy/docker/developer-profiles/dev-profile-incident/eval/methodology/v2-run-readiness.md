@@ -12,9 +12,9 @@
 |---|---|---|---|
 | **RA1** box references | 298 box records (80 clips) | X5 detector env and weights (B5); a session plan for 45,709 frame reads (B6); X6 reviewers (B7) | `$EVALV2_DATA_ROOT/v2/references/box-references-v1/`: frames, cached proposals, packets and answers (keyed by packet SHA-256), `records.jsonl`, `summary.json`, review sheets |
 | **RA2** chat references | 189 questions (dev 70, test 119) | X7 and X20 (owner); X6 reviewers | `.../chat-references-v1/`: packets, answers, `records.jsonl`, `summary.json` |
-| **RB2** dashboard references | 75 requests (60 specs, 15 unsupported) and the corpus snapshot | The console's allowlist export on the tree (B4); the C2 frozen clock for the real snapshot | `.../dashboard-references-v1/`: packets, answers, `records.jsonl`, `corpus-snapshot.json`, `summary.json` |
+| **RB2** dashboard references | 75 requests (60 specs, 15 unsupported) and the corpus snapshot | The allowlist export, on `main` but not on this branch until it is refreshed (B4); the C2 frozen clock for the real snapshot | `.../dashboard-references-v1/`: packets, answers, `records.jsonl`, `corpus-snapshot.json`, `summary.json` |
 | **C1a** Track A pilot | 150 P1 calls (3 models × 25 dev clips × 2) | **A live executor (B1)**; the judge for scoring (B8) | Artifact store (content-addressed, append-only, sealed run), budget log, run manifest |
-| **C1b** Track B pilot | 50 `/analyze` runs (Nano, Super × 25 dev clips) | **B1**; an experiment agent with P3 and P4 (B2) | As C1a, plus crop and zoom summaries for recalibrating caps |
+| **C1b** Track B pilot | 50 `/analyze` runs (Nano, Super × 25 dev clips) | **B1**; an experiment agent running `main`'s P3 and P4 code (B2) | As C1a, plus crop and zoom summaries for recalibrating caps |
 | **C1b + captions** | As C1b, with the caption pass | **Pending X16**; B1, B2; the adapter's flag pin (B3) | As C1b |
 
 - **Immutability.** A reference run only appends: packets and answers are addressed by the packet's SHA-256, and an answer to a changed packet is refused.
@@ -256,11 +256,11 @@ Each re-imports with 0 decisions. Box review sheets (`v2_box_frames.py sheet`) a
   - a scoring stage (judge, local MiniLM embeddings, offline score).
 
   The pieces exist and are tested; the glue does not. This is the critical path for the pilots.
-- **B2. The experiment agent's code.** `start-experiment-agent.sh` runs the `nat` at `NAT_BIN`. The local one (`~/.cache/vss-agent-venv`) is an editable install of the main checkout's `services/agent`, which lacks P3 (#422, run provenance) and P4 (#427, `max_zoom_calls`). The Track B adapter refuses replies without provenance. C1b needs an agent at a SHA with both.
+- **B2. The experiment agent's code.** P3 (#422, run provenance) and P4 (#427, `max_zoom_calls`) are merged into `main` (`0d7d75930`). But `start-experiment-agent.sh` runs the `nat` at `NAT_BIN`, and the local one (`~/.cache/vss-agent-venv`) is an editable install of the main checkout's `services/agent`, which is still at `ae7dd8554`, before both. The Track B adapter refuses replies without provenance. Update that checkout to `origin/main` (the owner's checkout), or point `NAT_BIN` at a venv built from a checkout of `origin/main`.
 - **B3. The caption variant.** Besides X16 itself (the agent's experimental caption pass with `max_caption_calls`), the Track B adapter pins every provenance flag across runs (`adapters/vss.py`, `_pin`).
   - The per-run `chunking` flag is false for a clip of 30 s or less (11 of the 25 dev clips) and true otherwise, so the first clip that differs stops the run with `AgentDriftError`.
   - The fix belongs to the adapter's owner (pin the agent's chunking settings, not this run's outcome) or to X16's flag semantics.
-- **B4. RB2 needs the allowlist export.** `contracts/prompts/chart/allowlist.json` comes from P2 (#418) and is not on this branch. Until it is, pass `--allowlist tests/v2/fixtures/chart-allowlist.json`; that copy is drift-checked against the export once the export exists.
+- **B4. RB2's allowlist.** `contracts/prompts/chart/allowlist.json` (P2, #418) is on `main` and equal to the fixture the dry run used (checked). This branch gets it when it is refreshed from `main`; until then, pass `--allowlist tests/v2/fixtures/chart-allowlist.json`.
 - **B5. The detector (X5)** must:
   - label each proposal with the query that produced it (the driver keeps an item's proposals by label);
   - keep coordinates unrounded. An identical static box on a generator and a validator frame trips `assert_blind`, and that item then gets no record (tested).
