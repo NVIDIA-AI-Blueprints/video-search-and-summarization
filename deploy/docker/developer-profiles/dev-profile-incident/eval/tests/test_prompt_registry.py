@@ -35,10 +35,19 @@ def test_the_committed_registry_is_valid():
 
 
 def test_the_baseline_is_byte_identical_to_the_production_prompt():
-    base = pr.entry(pr.BASE_ID)
+    """The current contract's baseline (p1-v4-base on incident-contract-v4) is the production prompt, byte for byte."""
+    base_id = pr.current_base_id()
+    base = pr.entry(base_id)
     assert base["contract_version"] == contract.contract_version() and base["parent"] is None
-    assert pr.prompt_text(pr.BASE_ID) == contract.extraction_prompt()
+    assert pr.prompt_text(base_id) == contract.extraction_prompt()
     assert base["sha256"] == pr.sha256_bytes(contract.EXTRACTION_PROMPT_PATH.read_bytes())
+
+
+def test_the_v1_baseline_stays_registered():
+    """BASE_ID is the V1 baseline that frozen V1 configs name; it stays, whatever the current contract."""
+    base = pr.entry(pr.BASE_ID)
+    assert base["contract_version"] == "incident-contract-v4"
+    assert base["status"] == "baseline" and base["parent"] is None
 
 
 def test_experiment_prompts_are_never_vendored_into_production():
@@ -99,6 +108,14 @@ def test_edits_reorders_and_removals_break_append_only():
     assert pr.check_append_only(earlier, {"prompts": list(reversed(earlier["prompts"]))})
     assert pr.check_append_only(earlier, {"prompts": earlier["prompts"][:1]})
     assert pr.check_append_only(earlier, {"prompts": [*earlier["prompts"], {"id": "c"}]}) == []
+
+
+def test_current_base_id_follows_the_contract_version():
+    assert pr.current_base_id("incident-contract-v4") == "p1-v4-base"
+    assert pr.current_base_id("incident-contract-v5") == "p1-v5-base"
+    assert pr.current_base_id() == f"p1-v{contract.contract_version().rsplit('-v', 1)[1]}-base"
+    with pytest.raises(pr.RegistryError):
+        pr.current_base_id("chat-contract-v1")
 
 
 def test_the_registry_only_appends_relative_to_main():
