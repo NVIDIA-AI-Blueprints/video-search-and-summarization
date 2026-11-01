@@ -64,6 +64,23 @@ def test_tasks_reach_adapters_only_through_the_base_protocol():
                 assert name == "evalv2.adapters.base", (path.name, name)
 
 
+def test_datasets_stay_below_review_tasks_and_adapters_and_reach_v1_only_for_ground_truth():
+    for path in _modules("datasets"):
+        for name in _imports(path):
+            assert not name.startswith(("evalv2.adapters", "evalv2.tasks", "evalv2.cli", "evalv2.review")), (
+                path.name, name)
+            assert name.split(".")[0] not in NETWORK_MODULES, (path.name, name)
+            if name.split(".")[0] in V1_MODULES | {"eval_gt_schema"}:
+                assert path.name == "ground_truth.py", (path.name, name)
+
+
+def test_review_imports_no_model_client_task_or_v1_module():
+    for path in _modules("review"):
+        for name in _imports(path):
+            assert not name.startswith(("evalv2.adapters", "evalv2.tasks", "evalv2.cli")), (path.name, name)
+            assert name.split(".")[0] not in NETWORK_MODULES | V1_MODULES, (path.name, name)
+
+
 def test_scorers_never_import_a_network_client():
     for path in _modules("tasks"):
         if path.stem.startswith("scorer"):

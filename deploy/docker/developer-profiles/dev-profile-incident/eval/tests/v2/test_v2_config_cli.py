@@ -50,6 +50,10 @@ def fake_task(monkeypatch):
     return FakeTask
 
 
+def _no_datasets(config):
+    return {}
+
+
 def _write(tmp_path, config):
     path = tmp_path / "config.json"
     path.write_text(json.dumps(config))
@@ -97,9 +101,9 @@ def test_duplicate_subjects_are_refused():
 
 def test_plan_and_dry_run_never_execute(tmp_path, fake_task, capsys):
     path = _write(tmp_path, CONFIG)
-    assert cli.main(["plan", "--config", str(path)]) == 0
+    assert cli.main(["plan", "--config", str(path)], load_datasets=_no_datasets) == 0
     assert json.loads(capsys.readouterr().out)["tasks"]["fake"]["items"] == 10
-    assert cli.main(["run", "--config", str(path), "--dry-run"]) == 0
+    assert cli.main(["run", "--config", str(path), "--dry-run"], load_datasets=_no_datasets) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["ok"] and report["tasks"]["fake"]["by_subject"] == {"super-direct": 10}
 
@@ -107,11 +111,11 @@ def test_plan_and_dry_run_never_execute(tmp_path, fake_task, capsys):
 def test_preflight_fails_when_a_cap_cannot_cover_the_worst_case(tmp_path, fake_task, capsys):
     tight = copy.deepcopy(CONFIG)
     tight["caps"] = [{"ledger": "inference", "max_attempts": 20}]  # 10 items x (1 + 2 retries) = 30 needed
-    assert cli.main(["preflight", "--config", str(_write(tmp_path, tight))]) == 1
+    assert cli.main(["preflight", "--config", str(_write(tmp_path, tight))], load_datasets=_no_datasets) == 1
     assert "attempts cap 20 < worst case 30" in capsys.readouterr().out
     missing = copy.deepcopy(CONFIG)
     missing["caps"] = []
-    assert cli.main(["preflight", "--config", str(_write(tmp_path, missing))]) == 1
+    assert cli.main(["preflight", "--config", str(_write(tmp_path, missing))], load_datasets=_no_datasets) == 1
     assert "no cap is set" in capsys.readouterr().out
 
 
@@ -123,8 +127,8 @@ def test_an_unregistered_task_is_reported(tmp_path, capsys):
 def test_a_live_run_is_refused_without_explicit_approval_switches(tmp_path, fake_task, monkeypatch, capsys):
     path = _write(tmp_path, CONFIG)
     monkeypatch.delenv(cli.LIVE_ENV, raising=False)
-    assert cli.main(["run", "--config", str(path)]) == 2
-    assert cli.main(["run", "--config", str(path), "--live"]) == 2
+    assert cli.main(["run", "--config", str(path)], load_datasets=_no_datasets) == 2
+    assert cli.main(["run", "--config", str(path), "--live"], load_datasets=_no_datasets) == 2
     assert "refusing a live run" in capsys.readouterr().err
 
 
@@ -141,3 +145,21 @@ def test_manifests_pin_config_inputs_and_code(tmp_path):
     assert input_drift({"gt": "g1", "split": "s1"}, {"gt": "g2", "prompt": "p"}) == [
         "input 'gt' changed: g1... -> g2...", "input 'prompt' is new since the manifest was written",
         "input 'split' recorded but no longer present"]
+
+
+def test_plan_resolves_the_datasets_through_the_registry(tmp_path, fake_task, capsys):
+    absent = tmp_path / "no-data"
+    assert cli.main(["plan", "--config", str(_write(tmp_path, CONFIG)), "--data-root", str(absent)]) == 1
+    problem = json.loads(capsys.readouterr().out)["problems"][0]
+    assert "ground-truth-v1.0" in problem and "data root" in problem
+    split_only = {**copy.deepcopy(CONFIG), "datasets": {}}
+    seen = {}
+
+    class Recording(FakeTask):
+        def plan(self, config, datasets):
+            seen.update(datasets)
+            return super().plan(config, datasets)
+
+    base.TASKS["fake"] = Recording
+    assert cli.main(["plan", "--config", str(_write(tmp_path, split_only))]) == 0
+    assert len(seen["clips"]) == 25 and seen["half"] == "dev" and "split-v2/split-v2.json" in seen["inputs"]
