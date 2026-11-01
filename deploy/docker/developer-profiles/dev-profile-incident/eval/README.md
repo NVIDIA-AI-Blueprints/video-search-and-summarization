@@ -71,6 +71,9 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - **`scoring.py`:** scores each stage with Track A's scorers and pairs two stages run by run:
       - the zoom effect: `p1_agent` against `final`;
       - the caption effect: Track A against Track B `p1`, once the caption pass runs (X16).
+    - **`crops.py`:** feeds a run's evidence entries to A8's crop scorers, matched to ground-truth items through the `final` stage (zoom never changes item ids). Box references are indexed per clip by kind and ground-truth id, and duplicates are refused.
+      - A capped item is unscorable, not a miss.
+      - `cap_summary` counts how often each cap refused calls: crop, zoom, the tracker's detector budget and its time cap. The pilot uses it to recalibrate the provisional caps.
   - **`tasks/crops/scoring.py`:** evidence boxes against box references, per reference tier.
     - **Operational:** was a box located? A crop-call cap, a missing detector or store, or a crop error makes the entry unscorable, never a miss.
     - **Temporal:** the evidence second (`box_seconds`, else the requested one) against the item's visible seconds.
