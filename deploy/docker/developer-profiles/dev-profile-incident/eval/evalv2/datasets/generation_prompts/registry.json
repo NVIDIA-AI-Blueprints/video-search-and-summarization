@@ -41,6 +41,26 @@
       "parent": null,
       "created": "2026-11-01",
       "notes": "Blind re-derivation: answers the question from the report alone, never shown the reference."
+    },
+    {
+      "id": "gen-dashboard-request-v1",
+      "purpose": "dashboard_reference",
+      "role": "generator",
+      "file": "dashboard_reference/gen-dashboard-request-v1.txt",
+      "sha256": "2aa7c15574e2b92b9ae559c3f0d6883e3a153062c86cb85f59340bf96197e0e1",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "Words a chart request (and two paraphrases) for a code-chosen allowlisted spec, or an unsupported one."
+    },
+    {
+      "id": "gen-dashboard-respec-v1",
+      "purpose": "dashboard_reference",
+      "role": "validator",
+      "file": "dashboard_reference/gen-dashboard-respec-v1.txt",
+      "sha256": "f9108701b77e23ecfcb3395153e1299a6a5ffcb23dfa62e0bfc4b7f369796d51",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "Blind re-derivation of the spec from the request and the allowlist; never shown the expected spec."
     }
   ]
 }
