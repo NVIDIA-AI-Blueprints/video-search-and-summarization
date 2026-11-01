@@ -125,25 +125,40 @@ Request: `{"query": <1-1000 chars>, "top_k": <1-50, default 10>, "min_similarity
 
 Answers a question from stored evidence (`chat-contract-v1`, [`contracts/chat-contract-v1/`](../contracts/chat-contract-v1/); code `services/agent/src/vss_agents/api/incident_chat.py`). The console calls it from `POST /api/chat`.
 
-Request: `{"session_id"?: <1-128 chars>, "messages": [{"role": "user"|"assistant"|"system", "content": <non-empty>}, ...] (at least one `user` message), "context"?: {"scope": "global"|"incident", "incident_id"?, "evidence_crop_ids"?: [...]}, "version_id"?: <int >= 1>, "draft_report"?: {...}}`. With `version_id` (a `report_revisions.id`) the answer is grounded in that version's own evidence; `draft_report` (an unsaved edit of that version) requires `version_id`, else `422`.
+Request: `{"session_id"?: <1-128 chars>, "messages": [{"role": "user"|"assistant"|"system", "content": <non-empty>}, ...] (at least one `user` message), "context"?: {"scope": "global"|"incident", "incident_id"?, "evidence_crop_ids"?: [...]}, "version_id"?: <int >= 1>, "draft_report"?: {...}}`. `draft_report` (an unsaved edit of the version) requires `version_id`, else `422`.
+
+How a question is answered (template mode: no model):
+- **A version that is not official, or a draft:** the answer is composed from that version's report (`utils/report_answers.py`), by the kind of question:
+  - what happened, or the order of events: the timeline in time order, one sentence per event with its `m:ss` time; the incident description when there is no timeline;
+  - who: the people, with their descriptions and when they are seen;
+  - objects, or a named object: the instruments (with who held them) and the assets;
+  - when, or how long: the incident window, or a named item's time;
+  - severity and type.
+  A question the report cannot answer gets "This report doesn't mention ..." and no citations.
+- **Prose and citations:** items are named by their labels or descriptions. The ids the P1 timeline uses as references are resolved first, so the prose holds no item or incident id unless the question asks for ids. The citations are the items the answer relies on, each with its evidence entry's crop and second.
+- **The official version with no draft:** goes to the route's search client (decision 2026-10-24). The default client (`DisabledSearchClient`) searches nothing, so the answer says this chat mode doesn't answer questions about the official version yet.
+- **A library question** (no version): also goes to the search client, so it gets "This chat mode doesn't answer questions across the whole library yet". The canned client's demo incidents are no longer served.
+- **An injected search client** (tests, or a later real one): its hits read as prose grouped by incident (type and title, item names and times), with the ids only in the citations.
 
 Response `200`: `{"session_id", "message": {"role": "assistant", "content", "citations": [{"incident_id", "item_id", "item_type", "timestamp_seconds", "crop_image_url"}, ...]}}`. Errors: `400` no non-empty `user` message, or a `version_id` that belongs to another incident than `context.incident_id`; `404` unknown `version_id`; `502` evidence search or revision error; `503` report revisions unavailable.
 
 **Grounded mode (`INCIDENT_CHAT_MODE=grounded`; default `template`; proposed, not enabled on the VM).** An incident question is answered by a chat model from one report version: `version_id`, else the incident's official version (`409` when it has none), or the reviewer's `draft_report`.
 - **Model:** `INCIDENT_CHAT_MODEL`, default `nvidia/nemotron-3-ultra`, at `INCIDENT_CHAT_BASE_URL` (else `LLM_BASE_URL`) with `INCIDENT_CHAT_API_KEY` (else `OPENAI_API_KEY`). Strict JSON schema, temperature 0.
-- **What the model sees:** the registered system prompt `chat/incident-answer` ([`contracts/prompts/`](../contracts/prompts/README.md)), the version's incident, items (with ids and evidence seconds) and timeline as JSON, and the last eight user and assistant turns. System turns are dropped.
+- **What the model sees:** the registered system prompt `chat/incident-answer` ([`contracts/prompts/`](../contracts/prompts/README.md)), the version's incident, items (with ids and evidence seconds) and timeline as JSON, and the last eight user and assistant turns. The timeline is sorted by time, and each event carries `start_clock` and `end_clock` (`m:ss`). System turns are dropped.
+- **Prose:** the prompt has the model name people and objects by their descriptions, keep item ids out of the answer text unless the question asks for ids, and tell a what-happened question as the timeline in order (up to eight events, each with its time). A known id the model still writes in the prose is resolved to the item's description and listed in `grounding.ids_resolved`.
 - **Citations:** checked against the version's item ids. An unknown id is dropped and listed in `grounding.dropped_citations`.
 - **Insufficient evidence:** the model sets `insufficient_evidence` when the version cannot answer or contradicts the question's premise. Citations are then empty.
-- **Response:** follows [`chat-contract-v2`](../contracts/chat-contract-v2/README.md): the v1 answer plus `message.insufficient_evidence` and `grounding` `{mode, model, version_id, official, draft, dropped_citations, prompt_sha256, usage}`.
+- **Response:** follows [`chat-contract-v2`](../contracts/chat-contract-v2/README.md): the v1 answer plus `message.insufficient_evidence` and `grounding` `{mode, model, version_id, official, draft, dropped_citations, ids_resolved, prompt_sha256, usage}`.
 - **Errors:** a model failure or a malformed answer is a `502`.
 - **Library scope** (grounded mode, no incident and no version):
   - **Plan:** the model turns the question into a plan with `chat/library-plan`: incident type, severity band, instrument, asset, a search phrase, and whether a count is wanted. An unknown type or severity is dropped.
   - **Filtering:** code reads every incident's searchable version (official, else newest; `IncidentDBLibraryIndex`, cached 60 s) and filters it exactly.
   - **Answer:** code ranks the matches by the phrase, and the model answers from the best eight with `chat/library-answer`. The context carries `total_matching`, counted by code, which the model must use for "how many".
   - **Citations:** each is an (incident, item) pair checked against the reports shown.
+  - **Prose:** the prompt has the model name incidents by type and title and items by name, and keep incident and item ids out of the answer text unless the question asks for ids. An id still written in the prose is replaced: an incident id by its type and title, an item id by the item's name (from the incident it is cited with). Each replaced id is listed in `grounding.ids_resolved`.
   - **Empty result:** with no matching report the answer is insufficient evidence, without a second model call.
   - **`grounding`:** gains `scope: "library"`, `plan`, `matching` and `candidates`; `version_id` and `official` are `null`.
-- **Unchanged:** every question in template mode keeps exactly the v1 keys.
+- **Unchanged:** every question in template mode (composed from the report, above) keeps exactly the v1 keys.
 
 ## `POST /api/v1/incidents/charts`
 

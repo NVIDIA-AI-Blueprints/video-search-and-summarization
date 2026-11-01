@@ -2,12 +2,29 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-01: Template chat answers from the report version in prose, and the default chat search client searches nothing
+- **Decision:**
+  - **Composed answers:** in the chat route's template mode (no model), a question about a version that is not official, or about a draft, is answered by `utils/report_answers.py` from that version's report:
+    - the timeline in time order for a what-happened question;
+    - otherwise the people, the objects with their holders, the incident window or an item's time, the severity or the type;
+    - otherwise the matching timeline events;
+    - otherwise "This report doesn't mention ...", with no citations.
+  - **Names and ids:** items are named by their labels or descriptions. The ids the P1 timeline uses as references ("E1 strikes E2 with I1") are resolved to those descriptions and kept only in the structured citations. An id is written in the prose only when the question asks for ids.
+  - **Default search client:** the route's default (`DisabledSearchClient`) searches nothing. A question about the official version (decision 2026-10-24, unchanged) and a library question get an answer saying that this chat mode does not search that scope.
+- **Why:** on 2026-11-01 the localhost console (vm mode, the VM agent on `main`) answered "What happened, in order?" with "5 relevant item(s) were identified: human (E1) in vc8328cb9cdcdfa99fa8 (incident at 134s); ...". The template ranked evidence items by keyword: a question with no item words got the first five items. It never read the timeline or the description, and its formatter wrote the ids into the prose. The default in-memory client also served its demo incidents (`Assault007`, `Burglary005`) as if they were real for every library question.
+- **Rejected:**
+  - removing the ids from the old sentence: it would still list items for every question;
+  - answering the official version from its saved report as well: that supersedes the 2026-10-24 decision (Gate M2);
+  - wiring the real search store or a model into this mode: that is grounded chat (P5 and P6), behind the same gate.
+- **Links:** [`report_answers.py`](../../../../../services/agent/src/vss_agents/utils/report_answers.py), [`incident_chat.py`](../../../../../services/agent/src/vss_agents/api/incident_chat.py), [`vm-api-contracts.md`](vm-api-contracts.md#post-apiv1incidentschat), [2026-10-24 decision](#2026-10-24-chat-about-the-official-version-uses-the-in-memory-chat-search-client-for-mvp2).
+
 ### 2026-11-01 (proposed, awaiting the team: Gate M2): Library questions are answered by a planned search with exact counts
 - **Status:** part of the grounded chat (below); off until M2, and only in `INCIDENT_CHAT_MODE=grounded`.
 - **Decision:** a chat question with no incident is answered in three steps:
   1. The model turns the question into a checked plan: type, severity band, instrument, asset, search phrase and count flag.
   2. Code filters every incident's searchable version (official, else newest) exactly and ranks the matches.
   3. The model answers from the best eight with incident and item citations, using `total_matching`, which code counted.
+  - **Prose (2026-11-01):** the answer names incidents by type and title and items by name, never by id unless asked. An id still written is replaced and listed in `grounding.ids_resolved`, as in the incident answer.
 - **Why:** counts must be exact (a model counting reports it was shown gets them wrong past a few), and retrieval must cover the whole library.
 - **Rejected:**
   - Semantic revision search alone: there is no summary embedding for human revisions, and it has no type or severity filter (X25). A migration for that waits for approval.
@@ -23,6 +40,7 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
   - Every cited id is checked against the version, and unknown ones are dropped and counted.
   - The answer follows `chat-contract-v2`: v1 plus `insufficient_evidence` and `grounding`.
   - The model client and its clock are injectable, and the request has a golden (`contracts/golden/chat.json`).
+  - **Prose and ids (revised 2026-11-01, after the item-list answer on localhost):** the prompt names people and objects by their descriptions, keeps item ids out of the answer unless the question asks for them, and tells a what-happened question as the timeline in order with `m:ss` times; the context sorts the timeline and adds the clock times. The first prompt said to refer to people "by their description as well as their id". A known id still written in the prose is resolved to the item's description by the same function the template mode uses, and listed in `grounding.ids_resolved`, so prompt compliance can be measured.
 - **Why:** today's chat makes no model call. It keyword-ranks saved evidence into a template sentence, and for the official version with no draft it asks a canned in-memory search client that knows no finals video. The brief asks for a working chatbot first, and Evaluation V2 measures answers: fact recall, citations, refusals.
 - **Rejected:**
   - Retrieval over `evidence_crops` alone: it holds one version per video and no incident-level facts.

@@ -184,3 +184,38 @@ async def test_the_default_index_reads_official_else_newest_and_caches(monkeypat
     now[0] = 61.0
     await index.reports()
     assert FakeDB.calls == 2
+
+
+def test_the_library_prompt_keeps_incident_and_item_ids_out_of_the_prose():
+    from vss_agents import incident_contract
+
+    prompt = incident_contract.prompt(grounded_chat.LIBRARY_PROMPT_ID)
+    assert "Refer to an incident by its type and title" in prompt
+    assert "never write them in the answer unless the question asks" in prompt
+
+
+def test_incident_and_item_ids_in_a_library_answer_are_resolved_and_recorded():
+    answer = {
+        "answer": "Two assaults involved a bottle: V1 (I1) and V3, where I1 was a glass bottle.",
+        "citations": [{"incident_id": "V1", "item_id": "I1"}, {"incident_id": "V3", "item_id": "I1"}],
+        "insufficient_evidence": False,
+    }
+    body = _ask(FakeModel(dict(PLAN), answer)).json()
+    content = body["message"]["content"]
+    assert content == (
+        'Two assaults involved a bottle: the assault ("Bottle attack at the bar") and the assault '
+        '("Fight with a bottle outside"), where the bottle was a glass bottle.'
+    )
+    assert body["grounding"]["ids_resolved"] == ["V1", "V3", "I1"]
+    assert [(c["incident_id"], c["item_id"]) for c in body["message"]["citations"]] == [("V1", "I1"), ("V3", "I1")]
+
+
+def test_ids_stay_in_a_library_answer_when_the_question_asks_for_them():
+    answer = {
+        "answer": "The incident ids are V1 and V3.",
+        "citations": [{"incident_id": "V1", "item_id": "I1"}],
+        "insufficient_evidence": False,
+    }
+    body = _ask(FakeModel(dict(PLAN), answer), question="What are the incident ids of the bottle assaults?").json()
+    assert body["message"]["content"] == "The incident ids are V1 and V3."
+    assert body["grounding"]["ids_resolved"] == []
