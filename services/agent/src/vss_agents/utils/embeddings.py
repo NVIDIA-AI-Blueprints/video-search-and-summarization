@@ -24,9 +24,12 @@ local model.
 import asyncio
 import logging
 import os
+import time
 from typing import Literal
 
 import httpx
+
+from vss_agents.utils import run_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -118,14 +121,30 @@ class RemoteTextEmbedder:
         url = f"{self.base_url}/embeddings"
 
         for attempt in range(1, EMBEDDING_MAX_ATTEMPTS + 1):
+            started = time.perf_counter()
             try:
                 resp = await self._post(url, body, headers)
-            except httpx.ReadTimeout:
-                if attempt == EMBEDDING_MAX_ATTEMPTS:
+            except Exception as exc:
+                # Every attempt inside an analysis is counted (the revision's summary embedding); a no-op outside.
+                run_provenance.record_call(
+                    "embedding",
+                    ok=False,
+                    usage=None,
+                    elapsed_ms=(time.perf_counter() - started) * 1000.0,
+                    model=self.model,
+                )
+                if not isinstance(exc, httpx.ReadTimeout) or attempt == EMBEDDING_MAX_ATTEMPTS:
                     raise
                 logger.warning("Embedding endpoint timed out; retrying (%d)", attempt)
                 await asyncio.sleep(2.0 * attempt)
                 continue
+            run_provenance.record_call(
+                "embedding",
+                ok=resp.is_success,
+                usage=run_provenance.usage_of(resp),
+                elapsed_ms=(time.perf_counter() - started) * 1000.0,
+                model=self.model,
+            )
             if _is_retryable(resp) and attempt < EMBEDDING_MAX_ATTEMPTS:
                 logger.warning("Embedding endpoint returned HTTP %d; retrying (%d)", resp.status_code, attempt)
                 await asyncio.sleep(2.0 * attempt)

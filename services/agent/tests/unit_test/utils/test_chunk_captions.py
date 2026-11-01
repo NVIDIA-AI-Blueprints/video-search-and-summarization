@@ -21,6 +21,7 @@ The caption texts come from the vss-chunk-scout run on IMG_8206 (20 s windows, 2
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 from typing import Any
@@ -33,7 +34,9 @@ from vss_agents.utils import chunk_captions
 from vss_agents.utils.chunk_captions import CONTEXT_PREAMBLE
 from vss_agents.utils.chunk_captions import ChunkCaptionError
 from vss_agents.utils.chunk_captions import ChunkSettings
+from vss_agents.utils.chunk_captions import InlineScratchStore
 from vss_agents.utils.chunk_captions import ScratchStore
+from vss_agents.utils.chunk_captions import ScratchStoreError
 from vss_agents.utils.chunk_captions import Window
 from vss_agents.utils.chunk_captions import caption_request_body
 from vss_agents.utils.chunk_captions import caption_video
@@ -515,3 +518,79 @@ class TestScratchStore:
     def test_scratch_prefix_layout(self):
         assert scratch_prefix("uploads/IMG_8206_480.mp4", "m1") == "scratch/analyze/uploads/IMG_8206_480.mp4/m1/"
         assert scratch_prefix("/v1/", "m1") == "scratch/analyze/v1/m1/"
+
+
+class TestScratchStores:
+    """Blocker X16: the scratch store is a port; the R2 one is confined to its root, the inline one stores nothing."""
+
+    @pytest.mark.asyncio
+    async def test_the_r2_store_never_touches_a_key_outside_its_root(self, tmp_path):
+        r2 = FakeR2()
+        r2.objects["uploads/keep.mp4"] = b"x"
+        r2.objects["scratch/analyze/other/run9/0.mp4"] = b"y"
+        store = ScratchStore(bucket="bucket", client=r2)
+        window = tmp_path / "0.mp4"
+        window.write_bytes(b"clip")
+        assert await store.put_video("scratch/analyze/v1/run1/0.mp4", window) == "scratch/analyze/v1/run1/0.mp4"
+        for key in ("uploads/0.mp4", "scratch/analyzed/v1/0.mp4", "scratch/0.mp4"):
+            with pytest.raises(ScratchStoreError, match="outside"):
+                await store.put_video(key, window)
+        for prefix in ("scratch/analyze/", "scratch/analyze/v1/", "scratch/", "", "uploads/"):
+            with pytest.raises(ScratchStoreError):
+                await store.delete_prefix(prefix)
+        assert await store.delete_prefix("scratch/analyze/v1/run1/") == 1
+        assert set(r2.objects) == {"uploads/keep.mp4", "scratch/analyze/other/run9/0.mp4"}
+
+    @pytest.mark.asyncio
+    async def test_an_evaluation_root_is_its_own_sandbox(self, tmp_path):
+        store = ScratchStore(bucket="bucket", client=FakeR2(), root="scratch/eval")
+        window = tmp_path / "0.mp4"
+        window.write_bytes(b"clip")
+        await store.put_video("scratch/eval/v1/run1/0.mp4", window)
+        with pytest.raises(ScratchStoreError):
+            await store.put_video("scratch/analyze/v1/run1/0.mp4", window)
+        with pytest.raises(ScratchStoreError):
+            ScratchStore(bucket="bucket", client=FakeR2(), root="/")
+
+    @pytest.mark.asyncio
+    async def test_the_inline_store_sends_windows_as_data_urls_and_keeps_nothing(self, tmp_path):
+        store = InlineScratchStore(max_bytes=10)
+        window = tmp_path / "0.mp4"
+        window.write_bytes(b"clip")
+        key = await store.put_video("scratch/analyze/v1/run1/0.mp4", window)
+        assert await store.signed_url(key) == "data:video/mp4;base64,Y2xpcA=="
+        assert await store.delete_prefix("scratch/analyze/v1/run1/") == 1
+        big = tmp_path / "1.mp4"
+        big.write_bytes(b"x" * 11)
+        with pytest.raises(ScratchStoreError, match="inline limit"):
+            await store.put_video("scratch/analyze/v1/run1/1.mp4", big)
+
+    @pytest.mark.asyncio
+    async def test_the_whole_pass_runs_with_the_inline_store(self, no_ffmpeg_work, monkeypatch):
+        monkeypatch.setattr(chunk_captions, "create_retry_strategy", _no_wait_retry)
+        by_index = {c["index"]: c for c in FIXTURE["chunks"]}
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            url = json.loads(request.content)["messages"][1]["content"][0]["video_url"]["url"]
+            assert url.startswith("data:video/mp4;base64,")
+            index = int(base64.b64decode(url.split(",", 1)[1]).decode().split()[1])  # fake_cut writes "window <i> ..."
+            seen.append(url)
+            chunk = by_index[index]
+            return _completion(chunk["content"], chunk["usage"]["prompt_tokens"])
+
+        store = InlineScratchStore()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await caption_video(
+                video_url=VIDEO_URL,
+                video_key="uploads/IMG_8206_480.mp4",
+                run_id="run1",
+                duration_seconds=FIXTURE["duration_s"],
+                client=client,
+                vlm_base_url="https://switchyard.example/",
+                model="nvidia/cosmos-3-nano-reasoner",
+                settings=SETTINGS,
+                store=store,
+            )
+        assert len(result.timeline) == 6 and len(seen) == 6
+        assert store._windows == {}, "nothing is kept after the pass"

@@ -24,6 +24,7 @@ because it is deployed from `services/agent`.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -31,13 +32,23 @@ CONTRACTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = Path(__file__).resolve().parents[5]
 AGENT_CONTRACT_DIR = REPO_ROOT / "services/agent/src/vss_agents/incident_contract"
 
-VENDORED_FILES: list[str] = [
+CONTRACT_FILES: list[str] = [
     "incident_report.schema.json",
     "incident_extraction_prompt.txt",
     "report_generation_prompt.txt",
     "VERSION",
     "inference.json",
 ]
+
+
+def agent_prompt_files(source_dir: Path = CONTRACTS_DIR) -> list[str]:
+    """The prompt registry and every registered prompt the agent uses (``used_by`` names it), as relative paths."""
+    registry = json.loads((source_dir / "prompts" / "registry.json").read_text(encoding="utf-8"))
+    files = [f"prompts/{entry['file']}" for entry in registry["prompts"] if "agent" in entry["used_by"]]
+    return ["prompts/registry.json", *sorted(files)]
+
+
+VENDORED_FILES: list[str] = CONTRACT_FILES + agent_prompt_files()
 
 
 def check_file(name: str, source_dir: Path = CONTRACTS_DIR, target_dir: Path = AGENT_CONTRACT_DIR) -> bool:
@@ -50,17 +61,19 @@ def check_file(name: str, source_dir: Path = CONTRACTS_DIR, target_dir: Path = A
 
 
 def check_drift(source_dir: Path = CONTRACTS_DIR, target_dir: Path = AGENT_CONTRACT_DIR) -> list[str]:
-    """Return list of filenames in VENDORED_FILES that differ between source_dir and target_dir."""
-    return [name for name in VENDORED_FILES if not check_file(name, source_dir, target_dir)]
+    """Return the vendored files that differ between source_dir and target_dir (missing ones included)."""
+    names = CONTRACT_FILES + agent_prompt_files(source_dir)
+    return [name for name in names if not check_file(name, source_dir, target_dir)]
 
 
 def sync(source_dir: Path = CONTRACTS_DIR, target_dir: Path = AGENT_CONTRACT_DIR) -> list[str]:
     """Copy all VENDORED_FILES from source_dir to target_dir. Return copied filenames."""
     target_dir.mkdir(parents=True, exist_ok=True)
     synced: list[str] = []
-    for name in VENDORED_FILES:
+    for name in CONTRACT_FILES + agent_prompt_files(source_dir):
         src = source_dir / name
         dst = target_dir / name
+        dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(src.read_bytes())
         synced.append(name)
     return synced
