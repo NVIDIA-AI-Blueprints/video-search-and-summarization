@@ -26,7 +26,7 @@ This document describes how incident analysis output is defined, validated, stor
 - **Settings:** `temperature 0`, `max_tokens 16384`, `media_io_kwargs.video.num_frames 64` (Cosmos Super ignores `num_frames`).
 - **`response_format`:** the contract schema, strict (`$schema`/`$id` removed), equal to `eval/contract.py:response_format()`.
 
-The exact bodies are request goldens in [`contracts/golden/`](../contracts/golden/README.md), which the console, eval and the agent each test against. They cover:
+The exact bodies are request goldens in [`contracts/golden/`](../contracts/golden/README.md), which the console, eval and the agent each test against. Every other prompt (the instruction preamble, the caption pass, grounding, the zoomed second look, and the chart prompt) is registered in [`contracts/prompts/`](../contracts/prompts/README.md). They cover:
 
 - this request, with and without the instruction;
 - the agent's extra caption and set-of-marks messages;

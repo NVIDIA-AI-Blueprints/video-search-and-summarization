@@ -50,6 +50,7 @@ except ImportError:  # pragma: no cover
     cv2 = None  # type: ignore[assignment]
 import numpy as np
 
+from vss_agents import incident_contract
 from vss_agents.utils import chunk_captions
 from vss_agents.utils import track_evidence
 from vss_agents.utils.optional_cv2 import ensure_codecs
@@ -77,17 +78,7 @@ PALETTE: tuple[tuple[int, int, int], ...] = (
     (128, 0, 128),
 )
 
-MARKS_PREAMBLE = "\n".join(
-    [
-        "NUMBERED MARKS DRAWN ON THIS VIDEO (overlays added for this analysis, not part of the scene).",
-        "A person tracker drew a coloured box with a number on each person it followed: one number and one colour",
-        "per person, the number in a filled tag at the corner of the box. Do not describe the boxes, tags or",
-        "numbers anywhere in the report.",
-        "For every human entity, end its label with the number of the box around that person at the entity's",
-        'timestamp_seconds, in square brackets, for example "person in dark hoodie [2]". If the person carries no',
-        "box at that moment, leave the label without a number. Use each number for at most one entity.",
-    ]
-)
+MARKS_PREAMBLE = incident_contract.prompt("p1/marks-preamble")
 _MARK_PATTERN = re.compile(r"\s*\[\s*#?\s*(\d{1,4})\s*\]")
 
 

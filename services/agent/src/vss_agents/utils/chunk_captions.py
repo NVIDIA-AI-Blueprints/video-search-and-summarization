@@ -48,6 +48,7 @@ from typing import Any
 
 import httpx
 
+from vss_agents import incident_contract
 from vss_agents.utils.r2 import get_r2_client
 from vss_agents.utils.r2 import get_r2_presigned_url
 from vss_agents.utils.r2 import is_r2_configured
@@ -84,45 +85,15 @@ FFMPEG_TIMEOUT_SECONDS = 120.0
 SCRATCH_PREFIX = "scratch/analyze"
 
 # The base profile's video_understanding.system_prompt (dev-profile-base/vss-agent/configs/config.yml).
-CAPTION_SYSTEM_PROMPT = """You are a monitoring system analyzing video footage.
-Your task is to describe the events in the video in detail or answer the user's question about the video.
-  IMPORTANT:
-  - You must respond only in English and in plain text.
-  - You must respond only in the format specified in the OUTPUT REQUIREMENTS section.
-  - Timestamp must be in pts format, seconds since the start of the video.
-  - Always provide a direct answer to the question asked.
-  - Never return an empty response. If you cannot find what the user is asking about, acknowledge it to the user.
-"""
+CAPTION_SYSTEM_PROMPT = incident_contract.prompt("caption/system")
 
-# The base profile's video_report_gen.vlm_prompt (same file).
-CAPTION_PROMPT = """Describe in detail what is happening in this video,
-including all visible people, vehicles, equipments, objects,
-actions, and environmental conditions.
-OUTPUT REQUIREMENTS:
-[timestamp-timestamp] Description of what is happening.
-EXAMPLE:
-[0.0s-4.0s] <description of the first event>
-[4.0s-12.0s] <description of the second event>
-"""
+# The base profile's video_report_gen.vlm_prompt, registered in contracts/prompts/ (caption/window).
+CAPTION_PROMPT = incident_contract.prompt("caption/window")
 
-# tools/video_report_gen.py CHUNK_TIMESTAMP_PROMPT, verbatim.
-CHUNK_TIMESTAMP_PROMPT = """
-    All events from the video should fall within the time range:
-    START_TIME: {start_time}s
-    END_TIME: {end_time}s
-"""
+# tools/video_report_gen.py CHUNK_TIMESTAMP_PROMPT, verbatim, registered with {{start_time}} and {{end_time}}.
+CHUNK_TIMESTAMP_PROMPT_ID = "caption/time-range"
 
-CONTEXT_PREAMBLE = "\n".join(
-    [
-        "CONTEXT FROM A FIRST PASS OVER THE SAME VIDEO (not evidence by itself).",
-        "Each line below is a caption of one time window of the video, written by the same vision model from",
-        "a denser frame sample of that window alone. Times are seconds from the start of the whole video.",
-        "Use these captions to notice short actions and their timing, then verify them against the video;",
-        "where a caption and the video disagree, trust the video. Do not copy caption wording blindly.",
-        "Timeline start_seconds and end_seconds must come from the video, not from the window bounds.",
-        "Windows in which nothing happened (a static view, no activity) are left out of this context.",
-    ]
-)
+CONTEXT_PREAMBLE = incident_contract.prompt("caption/context-preamble")
 
 # [Xs-Ys] stamps, as tools/video_report_gen.py matches them (optional ** around the brackets).
 _STAMP_PATTERN = re.compile(
@@ -346,7 +317,10 @@ def context_block(timeline: list[dict[str, Any]]) -> str | None:
 
 def caption_request_body(model: str, video_url: str, window_length: float, num_frames: int) -> dict[str, Any]:
     """One caption call: the stock system prompt, the window as a signed URL, then the stock caption prompt."""
-    prompt = CAPTION_PROMPT + CHUNK_TIMESTAMP_PROMPT.format(start_time=0, end_time=round(window_length, 1))
+    time_range = incident_contract.render_prompt(
+        CHUNK_TIMESTAMP_PROMPT_ID, start_time=0, end_time=round(window_length, 1)
+    )
+    prompt = CAPTION_PROMPT + time_range
     return {
         "model": model,
         "messages": [

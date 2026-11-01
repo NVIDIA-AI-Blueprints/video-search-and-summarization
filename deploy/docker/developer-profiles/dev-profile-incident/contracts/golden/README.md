@@ -37,7 +37,7 @@ A case has:
 - The P1 prompt is stored as `{"$contract_text": "incident_extraction_prompt.txt", "sha256": "..."}`.
 - The strict `response_format` is stored as `{"$contract_json": "fixtures/response_format.json", "sha256": "..."}`.
 - The loader ([`load_golden.py`](load_golden.py), standard library only) substitutes the file after checking its hash. A contract change then updates one hash per case here, instead of copying 27 KB into every case.
-- Every other prompt is stored literally, so moving it elsewhere must leave the golden unchanged.
+- Every other prompt is stored literally, so moving it elsewhere must leave the golden unchanged. Those prompts now live in [`../prompts/`](../prompts/README.md), and the goldens did not change when they moved.
 
 ## Changing a request
 

@@ -10,7 +10,7 @@ register('./support/alias-loader.mjs', import.meta.url);
 
 await import('../src/modules/contract/infrastructure/loader.ts');
 
-const { ADDITIONAL_INSTRUCTION_PREAMBLE, MAX_ADDITIONAL_INSTRUCTION_LENGTH, buildP1Request, normalizeAdditionalInstruction } = await import(
+const { additionalInstructionPreamble, MAX_ADDITIONAL_INSTRUCTION_LENGTH, buildP1Request, normalizeAdditionalInstruction } = await import(
   '../src/modules/analysis/application/build-request.ts'
 );
 
@@ -44,7 +44,8 @@ test('an instruction is a separate fenced part after the unchanged canonical pro
   assert.equal(content.length, 3);
   assert.equal(content[1].text, canonicalPrompt, 'the canonical prompt is never edited');
   assert.equal(content[2].type, 'text');
-  assert.ok(content[2].text.startsWith(ADDITIONAL_INSTRUCTION_PREAMBLE));
+  assert.ok(content[2].text.startsWith(additionalInstructionPreamble()));
+  assert.ok(additionalInstructionPreamble().startsWith('ADDITIONAL REVIEWER CONTEXT FOR THIS VIDEO\n'));
   assert.ok(content[2].text.endsWith(`<<<\n${instruction}\n>>>`));
   assert.deepEqual(request.response_format, expectedResponseFormat);
 });

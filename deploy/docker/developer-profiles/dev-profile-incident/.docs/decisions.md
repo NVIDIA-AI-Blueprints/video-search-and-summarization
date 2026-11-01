@@ -2,6 +2,26 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-01: Every model prompt besides P1 and RP1 lives in one registry, contracts/prompts/
+- **Decision:** the prompts below move byte for byte from code literals into `contracts/prompts/` (one file each, with a `registry.json` that pins each SHA-256 and names who uses it):
+  - the caption pass's system, window and time-range prompts;
+  - the caption context and set-of-marks preambles;
+  - the reviewer-instruction preamble;
+  - the grounding and head-search prompts;
+  - the zoomed second look's blind-look and merge prompts.
+- **Agent:** reads its prompts from the copy `sync.py` vendors, through `incident_contract.prompt()`, `render_prompt()` and `prompt_sha256()`. All three check the hash; placeholders are `{{name}}` and render in one pass.
+- **Console:** reads the reviewer preamble from the registry at runtime, so both analysis modes share one file. Its chart prompt stays built from the TypeScript allowlist, and `npm run export:prompts` exports it (and the allowlist) to `chart/`, with a drift test.
+- **Proof the move is exact:** the request goldens (`contracts/golden/`) pass unchanged.
+- **Why:** Evaluation V2 records each stage's prompt version. Prompts that were literals scattered across four agent modules and two console files had no version to record, and could change unseen.
+  - One registry gives each prompt a sha256 to record (run provenance, next).
+  - It gives a single place to read for a review.
+  - It makes one copy of the preamble shared by the console and the agent, which were two copies kept equal by hand.
+- **Rejected:**
+  - Extending the experiment registry (`contracts/experiments/`): that one is append-only P1 variants under test, not production prompts.
+  - Moving the chart prompt into a file the console reads: it is generated from the allowlist the parser enforces, so the TypeScript must stay its source.
+  - Keeping literals with only a hash check: two sources of truth.
+- **Links:** [`contracts/prompts/`](../contracts/prompts/README.md), [`contracts/golden/`](../contracts/golden/README.md), [`sync.py`](../contracts/sync.py)
+
 ### 2026-11-01: Request goldens pin every model request, checked by each producer
 - **Decision:** `contracts/golden/` holds the exact request bodies the profile sends to models, one JSON file per kind with named cases:
   - P1 (base, reviewer instruction, caption context, set-of-marks, both);
