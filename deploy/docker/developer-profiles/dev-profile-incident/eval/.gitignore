@@ -25,3 +25,6 @@ ground_truth/review/ai-proposals-*.jsonl
 ground_truth/review/review-overrides-*.json
 # AI-assisted adjudication records (gt-adjudication-v1.0) quote and rewrite annotation text: local only.
 ground_truth/review/ai-adjudication-*.jsonl
+
+# The repository root ignores "*checkpoint.*" (model checkpoints). Evaluation V2's checkpoint module is source code.
+!evalv2/core/checkpoint.py
