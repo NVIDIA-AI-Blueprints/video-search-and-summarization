@@ -107,8 +107,8 @@ test('the request carries the incident, the version and (in Edit) the draft, as 
   assert.equal(agentBody.draft_report.entities.length, 2);
 });
 
-test('citations are titled like their evidence cards, and the answer text needs no ids', async () => {
-  const { citationTitles } = await import('../src/lib/chat/report-chat.ts');
+test('a citation under an answer is named like its evidence card, never by its id', async () => {
+  const { citationTitles, citationTitle } = await import('../src/lib/chat/report-chat.ts');
   const titles = citationTitles({
     entities: [
       { entityId: 'E1', type: 'human', label: 'person in light shirt' },
@@ -117,13 +117,11 @@ test('citations are titled like their evidence cards, and the answer text needs 
     instruments: [{ instrumentId: 'I1', name: 'cash register', label: 'black bag' }],
     assets: [{ assetId: 'A1', name: '', label: 'stack of papers' }],
   });
-  assert.deepEqual(titles, {
-    E1: 'E1 · person in light shirt',
-    E2: 'E2 · human',
-    I1: 'I1 · cash register',
-    A1: 'A1 · stack of papers',
-  });
+  assert.deepEqual(titles, { E1: 'Person in light shirt', E2: 'Human', I1: 'Cash register', A1: 'Stack of papers' });
   assert.deepEqual(citationTitles(null), {});
+  assert.equal(citationTitle(titles, { itemId: 'I1', itemType: 'instrument' }), 'Cash register');
+  assert.equal(citationTitle(titles, { itemId: 'new-E3', itemType: 'entity' }), 'Entity', 'an item added in a draft');
   const chat = readFileSync(join(process.cwd(), 'src', 'sections', 'reports', 'components', 'ReportChat', 'ReportChat.tsx'), 'utf8');
-  assert.match(chat, /titles\[citation\.itemId\] \?\? `\$\{citation\.itemId\} · \$\{citation\.itemType\}`/);
+  assert.doesNotMatch(chat, />\s*\{citation\.itemId\}/, 'the chip never renders the id');
+  assert.match(chat, /citationTitle\(titles, citation\)/);
 });

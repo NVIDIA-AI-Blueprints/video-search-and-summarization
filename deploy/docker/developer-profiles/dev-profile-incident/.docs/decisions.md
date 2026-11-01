@@ -6,10 +6,10 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
 - **Decision:**
   - **Composed answers:** in the chat route's template mode (no model), a question about a version that is not official, or about a draft, is answered by `utils/report_answers.py` from that version's report:
     - the timeline in time order for a what-happened question;
-    - otherwise the people, the objects with their holders, the incident window or an item's time, the severity or the type;
+    - otherwise the people, the objects with their holders, what was taken (the timeline's takings, or that the report doesn't say), what could cause harm (the instruments with their threat levels), the incident window or an item's time, the severity or the type. A compound question gets each part answered;
     - otherwise the matching timeline events;
     - otherwise "This report doesn't mention ...", with no citations.
-  - **Names and ids:** items are named by their labels or descriptions. The ids the P1 timeline uses as references ("E1 strikes E2 with I1") are resolved to those descriptions and kept only in the structured citations. An id is written in the prose only when the question asks for ids.
+  - **Names and ids:** items are named by their labels or descriptions. The ids the P1 timeline uses as references ("E1 strikes E2 with I1") are resolved to those descriptions and kept only in the structured citations. An id is written in the prose only when the question asks for ids. The console's citation chips under an answer show the item's name ("Person in light shirt"), never its id.
   - **Default search client:** the route's default (`DisabledSearchClient`) searches nothing. A question about the official version (decision 2026-10-24, unchanged) and a library question get an answer saying that this chat mode does not search that scope.
 - **Why:** on 2026-11-01 the localhost console (vm mode, the VM agent on `main`) answered "What happened, in order?" with "5 relevant item(s) were identified: human (E1) in vc8328cb9cdcdfa99fa8 (incident at 134s); ...". The template ranked evidence items by keyword: a question with no item words got the first five items. It never read the timeline or the description, and its formatter wrote the ids into the prose. The default in-memory client also served its demo incidents (`Assault007`, `Burglary005`) as if they were real for every library question.
 - **Rejected:**

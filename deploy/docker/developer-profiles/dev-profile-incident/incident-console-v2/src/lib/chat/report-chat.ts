@@ -102,16 +102,22 @@ export function chatRequestBody({
 }
 
 /**
- * The title each cited item is shown with under an answer: its evidence card's title ("E1 · person in light shirt"),
- * so a citation can be matched to its card. The answer text itself never carries ids.
+ * How each cited item is named under an answer: the label or name its evidence card shows ("Person in light shirt",
+ * "Cash register"), never its id. Ids are internal references that stay in the citation data.
  */
 export function citationTitles(
   report: { entities: StructuredEntity[]; instruments: StructuredInstrument[]; assets: StructuredAsset[] } | null,
 ): Record<string, string> {
   if (!report) return {};
   const titles: Record<string, string> = {};
-  for (const entity of report.entities) titles[entity.entityId] = `${entity.entityId} · ${entity.label || entity.type}`;
-  for (const item of report.instruments) titles[item.instrumentId] = `${item.instrumentId} · ${item.name || item.label}`;
-  for (const item of report.assets) titles[item.assetId] = `${item.assetId} · ${item.name || item.label}`;
+  const name = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+  for (const entity of report.entities) titles[entity.entityId] = name(entity.label || entity.type || 'person');
+  for (const item of report.instruments) titles[item.instrumentId] = name(item.name || item.label || 'instrument');
+  for (const item of report.assets) titles[item.assetId] = name(item.name || item.label || 'asset');
   return titles;
+}
+
+/** A citation's title: its item's name from `titles`, else its kind ("Instrument"); never its id. */
+export function citationTitle(titles: Record<string, string>, citation: { itemId: string; itemType: string }): string {
+  return titles[citation.itemId] ?? citation.itemType.charAt(0).toUpperCase() + citation.itemType.slice(1);
 }
