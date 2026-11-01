@@ -555,6 +555,13 @@ def parse_json_object(text: str) -> dict[str, Any]:
     return parsed
 
 
+def with_zoom_budget(namer: Any, budget: CropCallBudget) -> Any:
+    """``namer`` with its zoom calls capped by ``budget``; a namer other than ``DefaultDetector`` is returned as is."""
+    if isinstance(namer, DefaultDetector):
+        return namer.with_zoom_budget(budget)
+    return namer
+
+
 def unbudgeted(detector: Any) -> Any:
     """``detector`` without a ``CropCallBudget``: the privacy blur's head search has a budget of its own."""
     if isinstance(detector, BudgetedDetector):
@@ -583,6 +590,7 @@ class DefaultDetector:
         api_key: str | None = None,
         timeout_seconds: float = 120.0,
         call_budget: CropCallBudget | None = None,
+        zoom_budget: CropCallBudget | None = None,
     ) -> None:
         self.model_name = model_name or os.getenv("VLM_NAME") or DEFAULT_GROUNDING_MODEL
         self.min_score = min_score
@@ -594,6 +602,13 @@ class DefaultDetector:
         )
         self.timeout_seconds = timeout_seconds
         self.call_budget = call_budget
+        self.zoom_budget = zoom_budget
+
+    def with_zoom_budget(self, budget: CropCallBudget) -> "DefaultDetector":
+        """A copy for one request whose zoomed-second-look attempts draw on ``budget``."""
+        capped = copy.copy(self)
+        capped.zoom_budget = budget
+        return capped
 
     def with_call_budget(self, budget: CropCallBudget) -> "DefaultDetector":
         """A copy for one request whose HTTP attempts draw on ``budget`` (the shared detector is unchanged)."""
@@ -694,6 +709,12 @@ class DefaultDetector:
             "response_format": {"type": "json_object"},
         }
         for attempt in (1, 2):
+            if self.zoom_budget is not None:
+                try:
+                    self.zoom_budget.acquire()  # before sending: a refused attempt is never made
+                except CropCallCapReachedError:
+                    run_provenance.record_refused("zoom")
+                    raise
             started = time.perf_counter()
             try:
                 resp = httpx.post(
@@ -705,6 +726,8 @@ class DefaultDetector:
             except Exception:
                 self._count("zoom", started, None, ok=False)
                 raise
+            if self.zoom_budget is not None:
+                self.zoom_budget.record_response(resp)
             if resp.status_code in _RETRYABLE_STATUS_CODES and attempt == 1:
                 self._count("zoom", started, resp, ok=False)
                 time.sleep(float(resp.headers.get("retry-after") or 2.0))
@@ -1343,6 +1366,7 @@ class CropEvidenceService:
         privacy: privacy_blur.PrivacySummary | None = None,
         object_tracking: track_evidence.ObjectTrackingRequest | None = None,
         video_seconds: float | None = None,
+        namer: Any | None = None,
     ) -> list[dict[str, Any]]:
         """Locate every entity, instrument and asset of a report and upload its frame and crop.
 
@@ -1380,7 +1404,8 @@ class CropEvidenceService:
         """
         active_detector = detector if detector is not None else self.detector
         zoom_on = zoom_names_enabled() if zoom_names is None else zoom_names
-        namer = self.namer if zoom_on else None
+        # ``namer`` overrides the shared one for this call (an experiment's zoom-capped copy).
+        namer = (namer if namer is not None else self.namer) if zoom_on else None
         active_store = store if store is not None else self.store
         folder = video_key or video_id
         batch = batch_id or (await active_store.next_batch_id(folder) if active_store is not None else "run-1")
@@ -1471,6 +1496,9 @@ class CropEvidenceService:
             if crop.located and crop.image_bytes is not None:
                 entry["image"] = key
                 entry["bounding_box"] = crop.normalized_box
+                detected = getattr(crop, "detected_box", None)  # a custom cropper may not report it
+                if detected is not None:  # the detector's own box, before the 5% crop padding
+                    entry["detected_box"] = list(detected)
                 if track is not None:
                     entry["track"] = track_key
                     entry["track_first_seen_seconds"] = track.first_seen
@@ -1539,6 +1567,9 @@ class CropEvidenceService:
                     description=entry["description"],
                     context_jpeg=crop.zoom_frame_bytes,
                 )
+            except CropCallCapReachedError as exc:
+                entry["zoom_gap"] = f"zoom-call cap reached: {exc}"
+                return
             except Exception as exc:
                 logger.warning("Zoomed second look failed for %s %s: %s", video_id, entry["item_id"], exc)
                 entry["zoom_gap"] = f"second look failed: {type(exc).__name__}: {exc}"

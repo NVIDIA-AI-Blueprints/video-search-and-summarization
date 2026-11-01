@@ -696,6 +696,7 @@ class TestTrackingEvidence:
         )
         assert all("track" not in r for r in results)
         assert results[0]["bounding_box"] == pytest.approx([200, 200, 600, 600], abs=60)
+        assert results[0]["detected_box"] == pytest.approx([200, 200, 600, 600], abs=1), "the unpadded detector box"
         assert results[0]["box_seconds"] == 0
         assert request.summary.matched == 0 and request.summary.tracks == 1
 

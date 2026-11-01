@@ -74,6 +74,7 @@ belongs to the console, which owns the durable R2 key, so this tool never writes
 
 import asyncio
 from collections.abc import AsyncGenerator
+import copy
 import hashlib
 import logging
 import os
@@ -231,6 +232,19 @@ class IncidentReportGenInput(BaseModel):
             "Experimental: the most grounding HTTP attempts (retries included) this request's cropping may make. "
             "Required for an experimental crops-on request; items beyond it keep an image_gap."
         ),
+    )
+    max_zoom_calls: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_CROP_CALLS_LIMIT,
+        description=(
+            "Experimental: the most zoomed-second-look HTTP attempts (retries included) this request may make; items "
+            "beyond it keep a zoom_gap. Without it the second look runs uncapped."
+        ),
+    )
+    experiment_object_tracking: bool = Field(
+        default=False,
+        description="Experimental: run the object tracker in a crops-on request, under its own detector-call budget.",
     )
     blur_faces: bool = Field(
         default=False,
@@ -576,6 +590,7 @@ async def collect_evidence(
     store: crop_evidence.EvidenceStore | None = None,
     video_key: str | None = None,
     detector: Any | None = None,
+    namer: Any | None = None,
     tracking: track_evidence.TrackingRequest | None = None,
     privacy: privacy_blur.PrivacySummary | None = None,
     object_tracking: track_evidence.ObjectTrackingRequest | None = None,
@@ -596,6 +611,7 @@ async def collect_evidence(
             store=store,
             video_key=video_key,
             detector=detector,
+            namer=namer,
             tracking=tracking,
             privacy=privacy,
             object_tracking=object_tracking,
@@ -788,7 +804,13 @@ def experiment_settings(tool_input: IncidentReportGenInput, reviewer_prompt: str
     ``ExperimentPromptError`` for an unknown or edited prompt, ``ValueError`` when combined with a
     reviewer prompt, and ``ExperimentRefusedError`` when cropping would upload images to R2.
     """
-    if tool_input.experiment_prompt_id is None and not tool_input.skip_crops and tool_input.max_crop_calls is None:
+    if (
+        tool_input.experiment_prompt_id is None
+        and not tool_input.skip_crops
+        and tool_input.max_crop_calls is None
+        and tool_input.max_zoom_calls is None
+        and not tool_input.experiment_object_tracking
+    ):
         return None
     incident_experiments.require_enabled()
     if reviewer_prompt:
@@ -797,6 +819,8 @@ def experiment_settings(tool_input: IncidentReportGenInput, reviewer_prompt: str
         )
     if tool_input.skip_crops and tool_input.max_crop_calls is not None:
         raise ValueError("max_crop_calls applies only when cropping runs; it cannot be combined with skip_crops")
+    if tool_input.skip_crops and (tool_input.max_zoom_calls is not None or tool_input.experiment_object_tracking):
+        raise ValueError("max_zoom_calls and experiment_object_tracking need cropping; drop skip_crops")
     if not tool_input.skip_crops and tool_input.max_crop_calls is None:
         raise ValueError("an experimental request with cropping on needs max_crop_calls (its crop-call cap)")
     if not tool_input.skip_crops and is_r2_configured():
@@ -814,6 +838,8 @@ def experiment_settings(tool_input: IncidentReportGenInput, reviewer_prompt: str
         **settings,
         "skip_crops": tool_input.skip_crops,
         "max_crop_calls": tool_input.max_crop_calls,
+        "max_zoom_calls": tool_input.max_zoom_calls,
+        "object_tracking": tool_input.experiment_object_tracking,
         "persisted": False,
     }
 
@@ -860,7 +886,11 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
         # Object tracks (instruments and assets) are a production request's too, and need the crops.
         objects = (
             object_tracking_request()
-            if experiment is None and object_tracking.object_tracking_enabled() and not tool_input.skip_crops
+            if not tool_input.skip_crops
+            and (
+                (experiment is None and object_tracking.object_tracking_enabled())
+                or (experiment is not None and experiment["object_tracking"])
+            )
             else None
         )
         async with httpx.AsyncClient(timeout=config.request_timeout_seconds, headers=headers) as client:
@@ -909,6 +939,9 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
             report_text, report_text_error = (
                 (None, None) if tool_input.skip_rp1 else await run_rp1(client, config, report)
             )
+        if experiment is not None:
+            # The validated P1 report before the zoomed second look rewrites names and descriptions in place.
+            experiment["p1_report"] = copy.deepcopy(report)
 
         privacy = privacy_blur.PrivacySummary() if tool_input.blur_faces and not tool_input.skip_crops else None
         if not tool_input.skip_crops:
@@ -931,7 +964,12 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
             # request, holding no production data, never written to disk or R2, and discarded on return.
             # Its grounding calls draw on the request's own cap, checked before every HTTP attempt.
             budget = crop_evidence.CropCallBudget(experiment["max_crop_calls"])
-            detector = crop_evidence.with_call_budget(crop_evidence.get_crop_evidence_service().detector, budget)
+            service = crop_evidence.get_crop_evidence_service()
+            detector = crop_evidence.with_call_budget(service.detector, budget)
+            zoom_budget = (
+                crop_evidence.CropCallBudget(experiment["max_zoom_calls"]) if experiment["max_zoom_calls"] else None
+            )
+            namer = crop_evidence.with_zoom_budget(service.namer, zoom_budget) if zoom_budget is not None else None
             crop_started = time.perf_counter()
             evidence = await collect_evidence(
                 video_url=tool_input.video_url,
@@ -940,11 +978,17 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
                 store=crop_evidence.InMemoryEvidenceStore(),
                 video_key=tool_input.video_key,
                 detector=detector,
+                namer=namer,
                 privacy=privacy,
+                object_tracking=objects,
                 video_seconds=video_length.seconds,
             )
             experiment["evidence_store"] = EXPERIMENT_EVIDENCE_STORE
             experiment["crop"] = crop_telemetry(evidence, budget, time.perf_counter() - crop_started)
+            if zoom_budget is not None:
+                experiment["zoom"] = zoom_budget.summary()
+            if objects is not None:
+                experiment["object_tracking"] = objects.summary.to_dict()
         else:
             evidence = await collect_evidence(
                 video_url=tool_input.video_url,
