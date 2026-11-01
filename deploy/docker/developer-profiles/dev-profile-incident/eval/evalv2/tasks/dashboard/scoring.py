@@ -28,9 +28,12 @@ whose repeats all give the same outcome and spec. Results are kept per reference
 
 **Figures** (with ``figures_of``, a chart computed from the frozen snapshot: :func:`dashboard_figures.chart`) score
 what the user would see. The reference spec's chart and the reply's chart are compared: ``figures_match`` (the same
-series, rows and totals; a valid-but-wrong spec can still show the right figures), ``figures_differ``,
-``refusal_correct``, ``false_refusal`` and ``false_accept`` (a parse failure is shown as a refusal, as the console
-shows it), and ``no_chart`` (for example a pie asked of a dimension that needs bars).
+series, rows and totals; a valid-but-wrong spec can still show the right figures), ``figures_differ`` (other
+figures, or a chart where the reference shows none), ``refusal_correct``, ``false_refusal`` and ``false_accept`` (a
+parse failure is shown as a refusal, as the console shows it), ``no_chart`` (no chart where the reference shows one,
+for example a pie asked of a dimension that needs bars), and ``no_chart_match`` (the reference's own answer is not a
+chart, say a pie of a dimension that needs bars, and the reply's is the same: the user sees what the reference shows).
+Figure accuracy counts ``figures_match``, ``no_chart_match`` and ``refusal_correct`` as right.
 """
 
 from __future__ import annotations
@@ -45,7 +48,9 @@ from evalv2.references.dashboard_figures import comparable
 
 OUTCOMES = ("exact", "refusal_correct", "valid_but_wrong", "false_refusal", "false_accept", "parse_failure")
 TIER_GROUPS = {"human_verified": "primary", "ai_validated": "ai_validated", "ai_proposed": "ai_proposed"}
-FIGURE_OUTCOMES = ("figures_match", "figures_differ", "refusal_correct", "false_refusal", "false_accept", "no_chart")
+FIGURE_OUTCOMES = ("figures_match", "figures_differ", "refusal_correct", "false_refusal", "false_accept", "no_chart",
+                   "no_chart_match")
+RIGHT_FIGURES = ("figures_match", "no_chart_match", "refusal_correct")
 
 
 def outcome(reply: Any, expected: Mapping[str, Any], allowlist: Mapping[str, Any]) -> tuple[str, dict[str, Any] | None]:
@@ -69,7 +74,9 @@ def figure_outcome(expected_chart: Mapping[str, Any], actual_chart: Mapping[str,
     if actual_kind == "unsupported":
         return "false_refusal"
     if expected_kind != "chart" or actual_kind != "chart":
-        return "no_chart"
+        if expected_kind == actual_kind:  # the same non-chart answer ("needs bars"): the user sees what is expected
+            return "no_chart_match"
+        return "figures_differ" if actual_kind == "chart" else "no_chart"
     return "figures_match" if comparable(expected_chart) == comparable(actual_chart) else "figures_differ"
 
 
@@ -116,8 +123,8 @@ def _summary(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
                            for key in SPEC_KEYS} if with_fields else None,
         "stability": round(sum(1 for v in repeated.values() if len(v) == 1) / len(repeated), 4) if repeated else None,
         "outcomes": dict(Counter(r["outcome"] for r in rows)),
-        "figure_accuracy": round(sum(1 for r in figured if r["figures"] in ("figures_match", "refusal_correct"))
-                                 / len(figured), 4) if figured else None,
+        "figure_accuracy": round(sum(1 for r in figured if r["figures"] in RIGHT_FIGURES) / len(figured), 4)
+        if figured else None,
         "figure_outcomes": dict(Counter(r["figures"] for r in figured)) if figured else None,
     }
 

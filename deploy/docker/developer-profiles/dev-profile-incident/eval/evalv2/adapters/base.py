@@ -24,6 +24,7 @@ validation and scoring belong to tasks.
 from __future__ import annotations
 
 import copy
+import re
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -36,18 +37,47 @@ from evalv2.core.instrument import Timing, Usage
 from evalv2.core.retry import Failure, RetryPolicy
 
 CAPABILITY_NAMES = ("video_input", "image_input", "text_input", "json_schema", "bbox")
+# The most one P1 attempt can use, as V1 charges it (``experiment_runner.P1_TOKENS_CEILING``, D11): the largest
+# Cosmos 3 Super prompt, rounded up, plus the request's max_tokens (16,384). Adapters may not import V1, so the value
+# is repeated here and a test keeps the two equal. Preflight assumes the same bound per attempt.
+P1_TOKENS_CEILING = 35000
 
 
 class AdapterConfigError(RuntimeError):
     """The adapter is not configured (for example a missing endpoint or key); nothing was sent."""
 
 
+_URL_IN_TEXT = re.compile(r"https?://[^\s'\"<>]+", re.IGNORECASE)
+
+
 def redact_url(url: str) -> str:
-    """An http(s) URL without its query string: a signed URL's signature is a short-lived credential, never stored."""
+    """An http(s) URL without its query string, fragment or user info: a signed URL's signature and a
+    ``user:password@`` are credentials, never stored. The host and port are kept."""
     parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.query:
+    if parts.scheme.lower() not in ("http", "https") or not (parts.query or parts.fragment or "@" in parts.netloc):
         return url
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    host_and_port = parts.netloc.rpartition("@")[2]  # the user info, if any, ends at the last "@"
+    return urlunsplit((parts.scheme, host_and_port, parts.path, "", ""))
+
+
+def redact_text(text: str) -> str:
+    """Free text (an error body, an exception message) with every http(s) URL in it redacted by :func:`redact_url`.
+
+    A provider's 400 can echo the request's signed video URL (``url='https://...?X-Amz-Signature=...'``); a failure's
+    detail is stored and reported, so it never keeps the signature.
+    """
+    return _URL_IN_TEXT.sub(lambda match: redact_url(match.group(0)), text or "")
+
+
+def redact_strings(value: Any) -> Any:
+    """``value`` with :func:`redact_text` applied to every string inside it (dicts and lists are copied)."""
+    if isinstance(value, str):
+        return redact_text(value)
+    if isinstance(value, Mapping):
+        return {key: redact_strings(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [redact_strings(item) for item in value]
+    return value
 
 
 def stored_request(request: Mapping[str, Any]) -> dict[str, Any]:
@@ -93,7 +123,7 @@ class CallContext:
     subject: str
     task: str
     budget_ledger: str = "inference"
-    tokens_bound: int = 20000  # pessimistic tokens per attempt, charged until usage is measured
+    tokens_bound: int = P1_TOKENS_CEILING  # pessimistic tokens per attempt, charged until usage is measured
     sleep: Callable[[float], None] = time.sleep
 
 
@@ -160,6 +190,11 @@ class PipelineResult:
         return self._reply.get("finish_reason")
 
     @property
+    def p1_attempts(self) -> list[Mapping[str, Any]]:
+        """Every P1 call the agent made, in order (``attempt``, ``outcome``: valid, retried or failed, ...)."""
+        return [dict(a) for a in self._reply.get("p1_attempts") or [] if isinstance(a, Mapping)]
+
+    @property
     def experiment(self) -> Mapping[str, Any]:
         return self._reply.get("experiment") or {}
 
@@ -174,6 +209,13 @@ class PipelineResult:
     @property
     def evidence(self) -> list[Mapping[str, Any]]:
         return list(self.body.get("evidence") or []) if self.outcome == "answered" else []
+
+    @property
+    def object_tracking(self) -> Mapping[str, Any] | None:
+        """The object tracker's summary: the reply's top-level ``object_tracking`` (``experiment.object_tracking`` is
+        only the request's setting), with ``detector`` the tracker's call budget (``cap``, ``calls``, ...)."""
+        summary = self.body.get("object_tracking") if self.outcome == "answered" else None
+        return summary if isinstance(summary, Mapping) else None
 
 
 @runtime_checkable

@@ -190,23 +190,39 @@ class Run:
         return ArtifactRef.parse(marker.read_text().strip()) if marker.exists() else None
 
     def verify(self) -> list[str]:
-        """Problems with a sealed run: a changed index or a missing or corrupt artifact."""
-        ref = self.manifest_ref()
+        """Problems with a sealed run: a changed index, or a missing or corrupt manifest or artifact.
+
+        Every problem is listed, never raised, so ``audit run`` reports a damaged run instead of crashing on it.
+        """
+        try:
+            ref = self.manifest_ref()
+        except ArtifactError as exc:
+            return [f"run {self.run_id}: unreadable SEALED marker: {exc}"]
         if ref is None:
             return [f"run {self.run_id} is not sealed"]
         problems: list[str] = []
-        manifest = self.store.get(ref)
-        if manifest.get("index_sha256") != self._index_sha256():
-            problems.append(f"run {self.run_id}: index.jsonl changed after sealing")
-        for record in self.records():
+        try:
+            manifest = self.store.get(ref)
+        except ArtifactError as exc:
+            problems.append(f"run {self.run_id}: manifest: {exc}")
+        else:
+            if not isinstance(manifest, dict) or manifest.get("index_sha256") != self._index_sha256():
+                problems.append(f"run {self.run_id}: index.jsonl changed after sealing")
+        try:
+            records = self.records()
+        except ValueError as exc:
+            return [*problems, f"run {self.run_id}: index.jsonl is not valid JSONL: {exc}"]
+        for number, record in enumerate(records, start=1):
             try:
-                artifact = ArtifactRef.parse(record["ref"])
+                artifact = ArtifactRef.parse(str(record["ref"]))
                 if self.store._path(artifact, ".bin").exists():
                     self.store.get_blob(artifact)
                 else:
                     self.store.get(artifact)
             except ArtifactError as exc:
                 problems.append(str(exc))
+            except (KeyError, TypeError):
+                problems.append(f"run {self.run_id}: index.jsonl line {number} names no artifact")
         return problems
 
     def _index_sha256(self) -> str:
