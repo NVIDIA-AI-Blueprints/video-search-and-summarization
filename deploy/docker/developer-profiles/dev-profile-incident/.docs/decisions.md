@@ -2,6 +2,19 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-01: Experimental requests can cap the zoom look, track objects and return the pre-zoom P1 report; captions wait for a scratch store
+- **Decision:** an experimental crops-on request may set:
+  - `max_zoom_calls`: a per-request cap on the zoomed second look's HTTP attempts, applied to a capped copy of the shared namer. Items beyond it keep a `zoom_gap`. The refusal is also counted in the run provenance;
+  - `experiment_object_tracking`: the object tracker under its own detector budget.
+- **Response:** every experimental response carries `experiment.p1_report`, the validated P1 report before zoom corrections. Every located evidence entry, production included, records the detector's unpadded `detected_box`.
+- **Why:** Evaluation V2's production track (Track B) measures the production pipeline in experiment agents.
+  - Each step needs its own cap, because zoom calls were uncapped (X17).
+  - Object tracking must be switchable there.
+  - The zoom effect must be measurable without extra calls: compare `p1_report` with the final report.
+  - Crop scoring needs the unpadded box. The stored box is padded by 5%, so scorers had to estimate.
+- **Rejected:** counting zoom calls in `max_crop_calls`, which would change the meaning of an existing cap that V1's end-to-end profile used; requiring a zoom cap on every experiment, which would break V1's configs; running the caption pass in experiments now. That pass sends window clips to the model by signed URL, an experiment agent holds no R2 settings by design, and a dedicated scratch prefix is a shared-storage change that needs the owner's approval (X16).
+- **Links:** [contract](vm-api-contracts.md#experimental-settings-prompt-experiments-pr-6b), [data](data.md), [`crop_evidence.py`](../../../../../services/agent/src/vss_agents/utils/crop_evidence.py)
+
 ### 2026-11-01: Every analysis returns its run provenance, and the console keeps it in the run's notes
 - **Decision:** `/analyze` returns `provenance` (`incident-run-provenance-v1`) on every response and in the `422` detail. It holds:
   - the agent's commit (`git rev-parse` once at startup, or `VSS_AGENT_GIT_SHA`) and whether the tree was dirty;

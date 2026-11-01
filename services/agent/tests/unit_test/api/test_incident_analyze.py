@@ -282,7 +282,14 @@ def test_a_production_response_keeps_exactly_its_documented_keys(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "extra", [{"experiment_prompt_id": "p1-v4-e01-x"}, {"skip_crops": True}, {"max_crop_calls": 10}]
+    "extra",
+    [
+        {"experiment_prompt_id": "p1-v4-e01-x"},
+        {"skip_crops": True},
+        {"max_crop_calls": 10},
+        {"max_zoom_calls": 4},
+        {"experiment_object_tracking": True},
+    ],
 )
 def test_experimental_fields_are_refused_without_the_flag(monkeypatch, extra):
     monkeypatch.delenv(incident_experiments.EXPERIMENTS_FLAG, raising=False)
@@ -329,6 +336,8 @@ def test_experiment_errors_map_to_their_status(monkeypatch, error, status):
     [
         {"experiment_prompt_id": "p1-v4-e01-x"},  # crops on, no cap
         {"skip_crops": True, "max_crop_calls": 10},  # a cap with nothing to cap
+        {"skip_crops": True, "max_zoom_calls": 4},  # a zoom cap with no zoom
+        {"skip_crops": True, "experiment_object_tracking": True},  # object tracking needs the crops
     ],
 )
 def test_experimental_cropping_needs_exactly_a_cap(monkeypatch, extra):
