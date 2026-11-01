@@ -54,6 +54,9 @@
       "calls": 2,
       "total_tokens": 940,
       "elapsed_ms": 2210
+    },
+    "item_names": {
+      "V3/I1": "the glass bottle"
     }
   }
 }

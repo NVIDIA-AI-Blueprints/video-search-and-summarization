@@ -202,6 +202,13 @@
           "type": "string",
           "pattern": "^[0-9a-f]{64}$",
           "description": "Library scope: the planner prompt's hash (prompt_sha256 is the answer prompt's, present only when the model answered)."
+        },
+        "item_names": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Library answers: how the answer names each cited item (\"the glass bottle\"), keyed by incident_id/item_id, for labelling citations without ids."
         }
       }
     }

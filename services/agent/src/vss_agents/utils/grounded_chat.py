@@ -632,6 +632,8 @@ class LibraryAnswer:
     insufficient_evidence: bool
     dropped_citations: tuple[str, ...] = ()
     ids_resolved: tuple[str, ...] = ()
+    # How each cited item is named ("the bottle"), keyed by (incident id, item id), so a client labels it without ids.
+    item_names: dict[tuple[str, str], str] = field(default_factory=dict)
 
 
 def incident_mention(report: Mapping[str, Any]) -> str:
@@ -642,22 +644,29 @@ def incident_mention(report: Mapping[str, Any]) -> str:
     return f'{phrase} ("{title}")' if title else phrase
 
 
-def _library_item_mentions(context: Mapping[str, Any], cited: Sequence[tuple[str, str]]) -> report_answers.Mentions:
-    """How a library answer names each item id. The same id (E1) recurs across incidents, so an id names the item of
-    the one incident it was cited with, else of the one incident shown that holds it; an id that could be either of
-    two different items reads neutrally ("a person", "an object") rather than as the wrong one."""
-    by_pair: dict[tuple[str, str], str] = {}
-    holders: dict[str, list[str]] = {}
+def _pair_mentions(context: Mapping[str, Any]) -> dict[tuple[str, str], str]:
+    """How each (incident, item) of the reports shown is named: its name, else its description's first clause."""
+    out: dict[tuple[str, str], str] = {}
     for report in context["reports"]:
         for item in report["items"]:
             entity = item.get("item_type") == "entity"
-            by_pair[(report["incident_id"], item["item_id"])] = report_answers.Item(
+            out[(report["incident_id"], item["item_id"])] = report_answers.Item(
                 kind=str(item.get("item_type") or ""),
                 item_id=item["item_id"],
                 name="" if entity else str(item.get("name") or ""),
                 description=str(item.get("name") or "") if entity else "",
             ).mention()
-            holders.setdefault(item["item_id"], []).append(report["incident_id"])
+    return out
+
+
+def _library_item_mentions(context: Mapping[str, Any], cited: Sequence[tuple[str, str]]) -> report_answers.Mentions:
+    """How a library answer names each item id. The same id (E1) recurs across incidents, so an id names the item of
+    the one incident it was cited with, else of the one incident shown that holds it; an id that could be either of
+    two different items reads neutrally ("a person", "an object") rather than as the wrong one."""
+    by_pair = _pair_mentions(context)
+    holders: dict[str, list[str]] = {}
+    for incident_id, item_id in by_pair:
+        holders.setdefault(item_id, []).append(incident_id)
     cited_with: dict[str, list[str]] = {}
     for incident_id, item_id in cited:
         cited_with.setdefault(item_id, []).append(incident_id)
@@ -711,10 +720,12 @@ def check_library_answer(reply: Mapping[str, Any], context: Mapping[str, Any], *
         if leaked or resolved:
             content = report_answers.resolve_references(content, mentions)
             resolved += leaked
+    names = _pair_mentions(context)
     return LibraryAnswer(
         content=content,
         citations=() if insufficient else tuple(cited),
         insufficient_evidence=insufficient,
         dropped_citations=tuple(dropped),
         ids_resolved=tuple(resolved),
+        item_names={} if insufficient else {pair: names[pair] for pair in cited},
     )
