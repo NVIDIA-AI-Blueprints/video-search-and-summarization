@@ -2,6 +2,8 @@
 
 Specification for the PR 119 eval workstream ([MVP2 overview](README.md#4-delivered-dropped-and-open)): what exists today, what each track measures, how it is scored and what it depends on. Items marked **proposal (P-n)** are not yet agreed; see [§8](#8-proposals-awaiting-approval).
 
+> **Evaluation V2:** [methodology v2.0](../../eval/methodology/evaluation-methodology-v2.0.md) (proposed, 2026-11-01) carries this spec's retrieval rules (one candidate pool, standard P@K versus returned precision, post-filter versus fill-to-K) into its chatbot dimension. It takes up Track X as its pipeline comparison and Track D as its evidence-box references. The proposals below stay as recorded for the MVP2 retrieval benchmark.
+
 > **Note:** the search critic is no longer used: search runs without it (`INCIDENT_SEARCH_CRITIC`, off by default), so every hit is `unverified` and the critic material below describes dormant code.
 
 > **Handoff**

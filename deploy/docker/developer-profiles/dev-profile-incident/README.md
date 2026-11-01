@@ -26,6 +26,7 @@ Human-facing overview for the incident search and reporting profile. Coding agen
 - [MVP2 evaluation plan (retrieval, critic, detector, embeddings)](.docs/mvp2/eval.md)
 - Ground-truth refinement and prompt-experiment plan (direct VLM vs VSS): local planning document `.docs/mvp2/ground-truth-and-prompt-experiments-plan.md`, not tracked in Git; audited against the work in the [plan audit](eval/docs/experiments/plan-audit.md)
 - [Annotation guidelines v1.0 (approved)](eval/ground_truth/annotation-guidelines-v1.0.md)
+- [Evaluation V2 methodology v2.0 (proposed)](eval/methodology/evaluation-methodology-v2.0.md) and its [pre-registration skeleton](eval/methodology/evaluation-v2-preregistration.md)
 - [incident-console-v2 hexagonal layout](.docs/mvp2/console-hexagonal-architecture.md)
 
 **Components**
