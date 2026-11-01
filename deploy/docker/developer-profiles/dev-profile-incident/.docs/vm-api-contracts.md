@@ -125,7 +125,23 @@ Request: `{"query": <1-1000 chars>, "top_k": <1-50, default 10>, "min_similarity
 
 Answers a question from stored evidence (`chat-contract-v1`, [`contracts/chat-contract-v1/`](../contracts/chat-contract-v1/); code `services/agent/src/vss_agents/api/incident_chat.py`). The console calls it from `POST /api/chat`.
 
-Request: `{"session_id"?: <1-128 chars>, "messages": [{"role": "user"|"assistant"|"system", "content": <non-empty>}, ...] (at least one `user` message), "context"?: {"scope": "global"|"incident", "incident_id"?, "evidence_crop_ids"?: [...]}, "version_id"?: <int >= 1>, "draft_report"?: {...}}`. With `version_id` (a `report_revisions.id`) the answer is grounded in that version's own evidence; `draft_report` (an unsaved edit of that version) requires `version_id`, else `422`.
+Request: `{"session_id"?: <1-128 chars>, "messages": [{"role": "user"|"assistant"|"system", "content": <non-empty>}, ...] (at least one `user` message), "context"?: {"scope": "global"|"incident", "incident_id"?, "evidence_crop_ids"?: [...]}, "version_id"?: <int >= 1>, "draft_report"?: {...}}`. `draft_report` (an unsaved edit of the version) requires `version_id`, else `422`.
+
+How a question is answered (template mode: no model):
+- **A version that is not official, or a draft:** the answer is composed from that version's report (`utils/report_answers.py`), by the kind of question:
+  - what happened, or the order of events: the timeline in time order, one sentence per event with its `m:ss` time; the incident description when there is no timeline;
+  - who: the people, with their descriptions and when they are seen;
+  - objects, or a named object: the instruments (with who held them) and the assets;
+  - what was taken: the timeline's events that describe a taking, in order; with none, that the report doesn't say anything (or the named object) was taken, and what it records about it;
+  - what could cause harm, or weapons: the instruments, most threatening first, each with its threat level of 5;
+  - a question asking both ("What was taken, or what could cause harm?"): both parts, in that order;
+  - when, or how long: the incident window, or a named item's time;
+  - severity and type.
+  A question the report cannot answer gets "This report doesn't mention ..." and no citations.
+- **Prose and citations:** items are named by their labels or descriptions. The ids the P1 timeline uses as references are resolved first, so the prose holds no item or incident id unless the question asks for ids. The citations are the items the answer relies on, each with its evidence entry's crop and second.
+- **The official version with no draft:** goes to the route's search client (decision 2026-10-24). The default client (`DisabledSearchClient`) searches nothing, so the answer says this chat mode doesn't answer questions about the official version yet.
+- **A library question** (no version): also goes to the search client, so it gets "This chat mode doesn't answer questions across the whole library yet". The canned client's demo incidents are no longer served.
+- **An injected search client** (tests, or a later real one): its hits read as prose grouped by incident (type and title, item names and times), with the ids only in the citations.
 
 Response `200`: `{"session_id", "message": {"role": "assistant", "content", "citations": [{"incident_id", "item_id", "item_type", "timestamp_seconds", "crop_image_url"}, ...]}}`. Errors: `400` no non-empty `user` message, or a `version_id` that belongs to another incident than `context.incident_id`; `404` unknown `version_id`; `502` evidence search or revision error; `503` report revisions unavailable.
 
