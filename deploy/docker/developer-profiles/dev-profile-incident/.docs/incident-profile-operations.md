@@ -11,11 +11,9 @@ quirks, and verification checklists.
 The team shares a remote GPU development workstation (`kwanz-ws`), accessible via Tailscale VPN.
 
 - **Host Hardware:** 2× NVIDIA RTX A6000 (48 GB VRAM each), AMD Threadripper PRO 5975WX (32 cores / 64 threads), 251 GiB RAM, 1.8 TB NVMe storage. VSS uses GPU 0 only ([GPU rule](#5-vm-deployment-configuration-principles-generatedenvremote), item 10).
-- **Tailscale Hostname:** `kwanz-ws.tailf3aa43.ts.net` (internal IP: `10.131.1.5`).
+- **Tailscale Hostname:** `kwanz-ws.tailf3aa43.ts.net` (the LAN address changes with DHCP; see [status](status.md#6-live-vm-configuration-kwanz-ws)).
 - **VM Working Directory:** `/srv/rise-up/vss` (root checkout).
 - **NGC Credentials on VM:** `/srv/rise-up/.ngc_env` (load via `set -a; source /srv/rise-up/.ngc_env; set +a` or `source .scripts/ngc-env.sh`; `VSS_NGC_ENV` overrides the file).
-- **Deploy Flags Used on VM:** `--host-ip 10.131.1.5 --external-ip localhost --hardware-profile OTHER`.
-- **Direct Base UI Tunnel (reference):** `ssh -N -L 7777:10.131.1.5:7777 <user>@kwanz-ws` -> browse `http://localhost:7777`.
 
 ---
 
@@ -23,7 +21,7 @@ The team shares a remote GPU development workstation (`kwanz-ws`), accessible vi
 
 Fast-iterating application modules run directly as native processes on `kwanz-ws` rather than inside
 Docker containers. This reduces code-change cycles from ~3-minute container rebuilds to ~2-second process restarts.
-Only Phoenix (the trace viewer used for eval, plus Elasticsearch with `ENABLE_ANALYTICS=true`) runs in Docker. VIOS/VST, HAProxy, Redis and Kafka are removed from the deployment: `start.sh` neither starts nor checks them, and they are being deleted from the VM ([decision](decisions.md)).
+Phoenix (the trace viewer used for eval) and the person-tracking stack (Kafka, Elasticsearch, Logstash, NvStreamer, perception, video-analytics API; default on, [below](#person-tracking-stack-scriptstracking-stacksh-enable_trackingtrue)) run in Docker. VIOS/VST, HAProxy and Redis are removed from the deployment: `start.sh` neither starts nor checks them ([decision](decisions.md#2026-10-31-vst-is-dropped-from-the-consoles-upload-path-uploads-go-to-r2-only)).
 
 The split, the policy behind it, the ports and the networking of every service are in [`architecture.md`](architecture.md#native-vs-docker-service-split-policy).
 
@@ -209,13 +207,15 @@ Tunnel listeners bind to the laptop loopback only (ssh `-L` default; do not add 
    during the first 60–90 seconds is normal readiness latency. Verify with `.scripts/health.sh` before modifying
    configuration.
 5. **Permanent `unless-stopped` Restart Policy:**
-   Upstream compose files configure several core appliances (`redis`, `vss-haproxy-ingress`, `centralizedb`, `vst-ingress`, `vss-ui`, `elasticsearch`, `logstash`, `kibana`; most of them now removed from the deployment) with `restart: always`. `streamprocessing-ms` has upstream `restart: unless-stopped`, but its `deploy.restart_policy.condition: always` takes precedence over `restart`. Both cause Docker to resurrect them on every host reboot even after a deliberate stop. In `dev-profile-incident/compose.override.yml`, the persistent appliances and stack services are set to `restart: unless-stopped`, and `streamprocessing-ms` also gets `deploy.restart_policy.condition: unless-stopped`. `nvstreamer-2d-fusion` keeps its upstream `on-failure` deploy policy, which already leaves it stopped after a reboot. When the stack is deliberately stopped (via `./.scripts/down.sh` or `docker compose -p mdx stop`), containers stay stopped across VM reboots.
+   Upstream compose files configure several appliances (`elasticsearch`, `logstash`, `kibana` among them) with `restart: always`, which makes Docker resurrect them on every host reboot even after a deliberate stop. In `dev-profile-incident/compose.override.yml`, the persistent appliances and stack services are set to `restart: unless-stopped`. `nvstreamer-2d-fusion` keeps its upstream `on-failure` deploy policy, which already leaves it stopped after a reboot. When the stack is deliberately stopped (via `./.scripts/down.sh` or `docker compose -p mdx stop`), containers stay stopped across VM reboots.
 6. **Local processes stop with `start.sh` (both modes):**
    The console runs as a background job that `start.sh` waits on, so Ctrl-C, a `kill <pid>` of `start.sh` alone (SIGTERM) and closing the terminal (SIGHUP) all run its cleanup at once. Cleanup stops each local job with every process it started (`uv run` -> `uvicorn`, `npm run dev` -> `next dev` -> `next-server`), found through parent pids (`pgrep -P`), because killing only the wrapper leaves its server listening. `eval/tests/test_start_script.py` checks this with fake `uv`, `npm` and `curl`.
 7. **Stop on Last Exit (`start.sh` VM Mode):**
-   In VM mode, `start.sh` registers active sessions by holding a shared flock on `$VSS_REPO_ROOT/.run/active-runs.lock` over SSH (`ssh -tt`); if registration cannot be confirmed within 10s (e.g. while another session is stopping the backend), `start.sh` aborts with a retry prompt. Exiting `start.sh` on the laptop (Ctrl-C, SIGTERM, SIGHUP, normal exit) checks whether the session is the last active run on `kwanz-ws` using a kernel flock held over a background SSH connection. If no other active runs remain, `start.sh` runs `.scripts/vm-stop-backend.sh` over SSH, stopping native services (`native-services.sh stop`) and Docker appliance containers in-place via `docker stop`. Containers and data are kept; restart is `./start.sh --mode vm`.
+   In VM mode, `start.sh` registers active sessions by holding a shared flock on `$VSS_REPO_ROOT/.run/active-runs.lock` over SSH (`ssh -tt`); if registration cannot be confirmed within 10s (e.g. while another session is stopping the backend), `start.sh` aborts with a retry prompt. Exiting `start.sh` on the laptop (Ctrl-C, SIGTERM, SIGHUP, normal exit) checks whether the session is the last active run on `kwanz-ws` using a kernel flock held over a background SSH connection. If no other active runs remain, `start.sh` runs `.scripts/vm-stop-backend.sh` over SSH, stopping native services (`native-services.sh stop`) and the Docker containers (Phoenix and the tracking stack) in-place via `docker stop`. Containers and data are kept; restart is `./start.sh --mode vm`.
 
 ---
+
+**Lifecycle in short:** `start.sh --mode vm` skips the backend deploy when every service is already up; the tracking stack is started on every run and a failure there exits 1 before the tunnel opens; the last session to exit stops the native services and all the containers, including the tracking stack, even when the agent was shared.
 
 ## 5. VM Deployment Configuration Principles (`generated.env.remote`)
 
@@ -228,8 +228,8 @@ The untracked deployment environment file on `kwanz-ws` (`generated.env.remote`)
 5. **Stream Processor Port Alignment:** `STREAM_PROCESSOR_HTTP_PORT` was 10000, the streamprocessing port behind `vss-vios-ingress`. VIOS is removed from the deployment, so it no longer matters.
 6. **Remote Endpoint Format** and 7. **Client Type Enforcement:** bare base URLs and `_type: openai` (`LLM_MODEL_TYPE` / `VLM_MODEL_TYPE`); the rules and reasons are in [`architecture.md`](architecture.md#inference-rules--requirements).
 8. **Search Embedding Credentials:** Search query embeddings and evidence crop loader embeddings use the NVIDIA-hosted endpoint (`https://integrate.api.nvidia.com/v1/embeddings`) with `NVIDIA_API_KEY` (or `NGC_CLI_API_KEY`) from `generated.env.remote`; the Brev key cannot call `/v1/embeddings`. Can be overridden with `EVIDENCE_EMBEDDING_BASE_URL`, `EVIDENCE_EMBEDDING_MODEL`, and `EVIDENCE_EMBEDDING_API_KEY`. The loader and search route must use the same model (`nvidia/llama-nemotron-embed-vl-1b-v2` at 1024 dimensions).
-9. **Loopback Agent Bind:** `VSS_AGENT_HOST` defaults to `127.0.0.1` because the agent has no authentication and holds the database admin key. An old `VSS_AGENT_HOST=0.0.0.0` in `generated.env.remote` must be removed or updated to `127.0.0.1`. `VSS_AGENT_BACKEND_HOST=127.0.0.1` in `compose.override.yml` was for `vss-haproxy-ingress`, which is removed from the deployment. The tunnel forwards `-L 8000:127.0.0.1:8000`, which resolves on the VM. Rolling this out needs a haproxy recreate (`compose up -d`) and an agent restart (`native-services.sh restart vss-agent`). The browser-side `vss-ui` (which calls `${HOST_IP}:8000`) is not deployed in this profile.
-10. **GPU rule: only GPU 0 is used on `kwanz-ws`; GPU 1 is never used, because it belongs to another user.** Every VSS Docker service and native process is pinned to GPU 0 (`CUDA_VISIBLE_DEVICES=0`, `NVIDIA_VISIBLE_DEVICES=0`, `RT_CV_DEVICE_ID=0`, `RT_EMBED_DEVICE_ID=0`, `RTVI_EMBED_NVIDIA_VISIBLE_DEVICES=0`, `FIXED_SHARED_DEVICE_IDS=0`, `RESERVED_DEVICE_IDS=0` in `.env`; `device_ids: ["0"]` on `streamprocessing-ms`, `sensor-ms` and `rtvi-embed` and both `*_VISIBLE_DEVICES` variables on all five GPU services in `compose.override.yml`; `CUDA_VISIBLE_DEVICES` and `NVIDIA_VISIBLE_DEVICES` defaulted to 0 in `start.sh`, `native-services.sh`, `vm-ensure-docker.sh` and `vm-stop-backend.sh`). That covers the services `start.sh` runs (`streamprocessing-ms`, `nvstreamer-2d-fusion`, native `vss-agent`) and the stock services it never starts (`perception-2d-fusion`, `rtvi-embed`, `sensor-ms`). Never move a VSS workload to GPU 1, even when GPU 0 is busy ([decision](decisions.md#2026-10-19-pin-all-vss-docker-appliances-and-native-services-to-gpu-0-only)).
+9. **Loopback Agent Bind:** `VSS_AGENT_HOST` defaults to `127.0.0.1` because the agent has no authentication and holds the database admin key. An old `VSS_AGENT_HOST=0.0.0.0` in `generated.env.remote` must be removed or updated to `127.0.0.1`. The tunnel forwards `-L 8000:127.0.0.1:8000`, which resolves on the VM. Rolling this out needs an agent restart (`native-services.sh restart vss-agent`). The browser-side `vss-ui` (which calls `${HOST_IP}:8000`) is not deployed in this profile.
+10. **GPU rule: only GPU 0 is used on `kwanz-ws`; GPU 1 is never used, because it belongs to another user.** Every VSS Docker service and native process is pinned to GPU 0 (`CUDA_VISIBLE_DEVICES=0`, `NVIDIA_VISIBLE_DEVICES=0`, `RT_CV_DEVICE_ID=0`, `RT_EMBED_DEVICE_ID=0`, `RTVI_EMBED_NVIDIA_VISIBLE_DEVICES=0`, `FIXED_SHARED_DEVICE_IDS=0`, `RESERVED_DEVICE_IDS=0` in `.env`; `device_ids: ["0"]` on `streamprocessing-ms`, `sensor-ms` and `rtvi-embed` and both `*_VISIBLE_DEVICES` variables on all five GPU services in `compose.override.yml`; `CUDA_VISIBLE_DEVICES` and `NVIDIA_VISIBLE_DEVICES` defaulted to 0 in `start.sh`, `native-services.sh`, `vm-ensure-docker.sh` and `vm-stop-backend.sh`). That covers the services `start.sh` runs (`nvstreamer-2d-fusion`, `perception-2d-fusion` and the other tracking-stack containers, native `vss-agent`) and the stock services it never starts (`rtvi-embed`, `sensor-ms`). Never move a VSS workload to GPU 1, even when GPU 0 is busy ([decision](decisions.md#2026-10-19-pin-all-vss-docker-appliances-and-native-services-to-gpu-0-only)).
 
 > [!NOTE]
 > For the current live environment values and deployed model configurations on `kwanz-ws`, see [Current Status & Known Issues (Live VM Configuration Snapshot)](status.md#6-live-vm-configuration-kwanz-ws).
@@ -251,10 +251,10 @@ Run through these checks before any live demo or presentation:
 
 Verify deployment health against this checklist before declaring a build ready:
 
-- [ ] **Video Ingestion:** Upload an `.mp4` clip and a phone `.MOV` via `incident-console-v2` (`ffmpeg` and `ffprobe` on the laptop's PATH). Verify that the upload succeeds,
+- [ ] **Video Ingestion:** Upload an `.mp4` clip and a phone `.MOV` via `incident-console-v2` (`npm install` bundles `ffmpeg` and `ffprobe`). Verify that the upload succeeds,
       the clip is stored in Cloudflare R2 as a classification-neutral `uploads/<original name>.mp4` key in both modes (no hash or UUID in the name; the `.MOV` shows the **Converting to H.264** step and is stored as H.264 MP4 at its original resolution, the H.264 `.mp4` is stored without conversion), `HeadObject` reports a nonzero size, and a playback URL generates.
 - [ ] **Automated Report Generation:** Trigger incident analysis. Verify all structured fields populate
-      (type, severity, confidence, summary, timeline, entities, instruments, assets). Confirm ambiguous footage
+      (type, severity, confidence, summary, entities, instruments, assets). Confirm ambiguous footage
       gracefully degrades (e.g. empty persons array, unconfirmed start time).
 - [ ] **Persistence Read-Back:** Confirm a job (`GET /api/jobs`) reaches `done`, and `POST /api/analysis` returns 200, only after `videos`, `model_runs`,
       `report_revisions` (the AI revision) can be read back and `videos.filepath` exactly matches the submitted R2 key.
@@ -290,7 +290,7 @@ When troubleshooting unexpected failures:
    # Native agent logs
    ./.scripts/logs.sh vss-agent
 
-   # Docker appliance logs (Phoenix is the only one start.sh runs)
+   # Docker appliance logs (Phoenix, plus the tracking stack by default)
    docker logs --tail 100 phoenix
    ```
 4. **Handle Partial Deploys:**

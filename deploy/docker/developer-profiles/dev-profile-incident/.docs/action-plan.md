@@ -9,7 +9,7 @@ Goals, scope and standing decisions for the Incident Search and Reporting profil
 An intelligent, video-driven incident search and reporting system for physical security, warehouse operations and anomaly footage. It replaces manual video inspection with VLM analysis:
 
 1. **Ingest** surveillance and anomaly clips and keep canonical copies in Cloudflare R2.
-2. **Extract** structured, timestamped incident reports: type, severity, confidence, summary, entities, instruments, assets, timeline and uncertainties.
+2. **Extract** structured, timestamped incident reports: type, severity, confidence, summary, entities, instruments, assets.
 3. **Review** AI findings in a web console (edit into new versions, choose an official report per video).
 4. **Benchmark** extraction quality against human ground truth.
 5. **Search** the archive in natural language over evidence crops and embeddings (MVP2).
@@ -18,9 +18,10 @@ An intelligent, video-driven incident search and reporting system for physical s
 
 ### Incident reporting (delivered)
 
-- **Ingestion:** VST/NvStreamer chunked upload with a direct-to-R2 fallback; durable playback links generated on demand.
+- **Ingestion:** the console converts every upload to an H.264 MP4 and stores it straight in Cloudflare R2 (no VST); playback links are signed on demand.
 - **Analysis:** the credential-holding `vlm-gateway` or the native `vss-agent`, on `incident-contract-v4`, with any of three allowlisted VLMs, strict validation and ID-only recovery; every attempt is recorded ([`analysis-schema.md`](analysis-schema.md)).
 - **Review UI (`incident-console-v2`):** upload, versioned reports with reviewer edits saved as new revisions, run history and re-analysis, an explicit official revision per video, and a dashboard that counts each video once through its official revision, else its newest, split into official and not yet official ([`architecture.md`](architecture.md#report-versions-view-edit-and-history)).
+- **Beyond the core flow:** person and object tracking with a presence bar and clips, a privacy blur for faces, chunked captioning before the first pass, background analysis jobs, dashboard charts and report chat. State and flags: [`status.md`](status.md).
 - **Evaluation:** the standalone P1/RP1 benchmark in `eval/` ([`mvp2/eval.md`](mvp2/eval.md) §1.1). The console has no ground-truth screen.
 
 ### MVP2: natural-language incident search

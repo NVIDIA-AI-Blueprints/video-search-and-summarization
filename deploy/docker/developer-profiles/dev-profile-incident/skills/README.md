@@ -14,10 +14,10 @@ Like NVIDIA's skills, these are for **deploying and operating** the profile from
   LAPTOP                                    kwanz-ws (shared, GPU 0)
   ┌───────────────────────────┐ SSH tunnel  ┌──────────────────────────────┐
   │ incident-console-v2 :3200 │────8000────▶│ vss-agent :8000 (native)     │
-  │                           │             │ phoenix :6006 (Docker)       │
-  │ mock mode only:           │             │ (Docker appliances)          │
+  │ vlm-gateway :8600 (charts)│             │ phoenix :6006 (Docker)       │
+  │ mock mode only:           │             │ tracking stack (default)     │
   │   mock-backend  :7777     │             └──────────────┬───────────────┘
-  │   vlm-gateway   :8600     │                            │
+  │                           │                            │
   └─────────────┬─────────────┘                            │
                 ▼                                          ▼
   CLOUD:  Brev Switchyard (LLM/VLM) · Supabase (PostgREST + RPC) · Cloudflare R2 (videos)
@@ -79,5 +79,5 @@ For other hosts (Codex, Cursor, any agentskills.io host), use NVIDIA's install p
 - **Source of truth.** This directory is canonical. Add a skill here, then add a matching symlink under the repo-root `.claude/skills/`: `ln -s ../../deploy/docker/developer-profiles/dev-profile-incident/skills/<name> .claude/skills/<name>`. Cross-harness skills like `shadcn` are additionally symlinked under `.agents/skills/`.
 - **Frontmatter.** `name` must match the folder. `description` says when to use the skill and when not to. Keep `license` and `metadata`.
 - **No duplicated facts.** Put facts in `.docs/` and link to them. A skill owns only the procedure: steps, commands, gates and verification.
-- **Same PR.** When a command, port, script or contract changes, update the affected skill in the same PR as the `.docs/` update (see [`../AGENTS.md`](../AGENTS.md)).
+- **Same PR.** When a command, port, script or contract changes, update the affected skill in the same PR as the `.docs/` update, and remove or amend any `decisions.md` entry the change supersedes (see [`../AGENTS.md`](../AGENTS.md)).
 - **No evals.** NVIDIA's Skills Eval CI only covers root `skills/**`, so these skills have none.

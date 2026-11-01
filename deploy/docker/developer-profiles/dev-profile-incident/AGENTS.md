@@ -12,7 +12,7 @@ Incident search and reporting capstone on the VSS blueprint (sponsor: NVIDIA NVA
 
 | Path | Stack | Role | Status |
 |---|---|---|---|
-| `incident-console-v2/` | Next.js 15, TypeScript, Zod, Biome | Primary UI :3200: upload, analysis orchestration, report page (video, timeline, versions graph, official star) | Active |
+| `incident-console-v2/` | Next.js 15, TypeScript, Zod, Biome | Primary UI :3200: upload, analysis orchestration, report page (video, versions graph, official star) | Active |
 | `vlm-gateway/` | FastAPI, `uv` | Holds the Brev key server-side; `/v1/chat/completions` :8600 | Active |
 | `mock-backend/base_profile_mock/` | FastAPI, `uv` | Zero-GPU mock of vss-agent + VST :7777 | Active |
 | `mock-backend/search_profile_mock/` | FastAPI, `uv` | Standalone search mock :7778 (stock search-profile routes plus incident search from the :7777 finals snapshot) | Active |
@@ -87,7 +87,7 @@ Stale docs are a defect. Update in the same PR:
 | Schema, R2 layout or report fields | A new `supabase/migrations/` file after the baseline, `supabase/tests/test_baseline.py`, [`.docs/data.md`](.docs/data.md), [`.docs/analysis-schema.md`](.docs/analysis-schema.md) |
 | Topology, components, sequences | [`.docs/architecture.md`](.docs/architecture.md) |
 | Implementation state, known issues, live VM config | [`.docs/status.md`](.docs/status.md) (rewrite, don't append) |
-| An architectural or tooling decision | New entry at the top of [`.docs/decisions.md`](.docs/decisions.md): Decision / Why / Alternatives rejected / Links |
+| An architectural or tooling decision | New entry at the top of [`.docs/decisions.md`](.docs/decisions.md): Decision / Why / Alternatives rejected / Links, and remove or amend any entry it supersedes |
 | A doc or skill added, moved or renamed | [`README.md`](README.md) doc index and [`skills/README.md`](skills/README.md) |
 
 ## Docs map

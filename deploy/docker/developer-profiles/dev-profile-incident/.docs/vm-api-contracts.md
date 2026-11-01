@@ -1,6 +1,6 @@
 # VM API contracts (frontend reference)
 
-HTTP contracts of the native `vss-agent` on `kwanz-ws` and the SSH tunnel the frontend uses to reach them. VM side only. Source of truth: `services/agent/src/vss_agents/api/` (Pydantic models) and `custom_fastapi_worker.py` (route registration). Last checked against main on 2026-10-24; the live VM was last checked on 2026-10-24 (below).
+HTTP contracts of the native `vss-agent` on `kwanz-ws` and the SSH tunnel the frontend uses to reach them. VM side only. Source of truth: `services/agent/src/vss_agents/api/` (Pydantic models) and `custom_fastapi_worker.py` (route registration). Last checked against main on 2026-11-01; the live VM was last checked on 2026-10-24 (below).
 
 ## Tunnel
 
@@ -10,7 +10,7 @@ HTTP contracts of the native `vss-agent` on `kwanz-ws` and the SSH tunnel the fr
 |---|---|---|---|
 | `8000` | `127.0.0.1:8000` (loopback) | native `vss-agent` (FastAPI) | all endpoints below; set `INCIDENT_AGENT_BASE_URL=http://localhost:8000` (start.sh exports it) |
 
-- Nothing else is forwarded, by start.sh or `.scripts/tunnel.sh`. The console uploads each video straight to R2 through its own `/api/uploads/r2` route, so it never calls the VST upload or sensor API and creates no VST camera. The `:7777` proxy (`vss-haproxy-ingress`) and VIOS/VST, with the Redis and Kafka they needed, are removed from the deployment: not started by start.sh and being deleted from the VM ([decision](decisions.md)). Phoenix (`:6006`, the trace viewer used for eval) stays.
+- Nothing else is forwarded, by start.sh or `.scripts/tunnel.sh`. The console uploads each video straight to R2 through its own `/api/uploads/r2` route, so it never calls the VST upload or sensor API and creates no VST camera. The `:7777` proxy (`vss-haproxy-ingress`) and VIOS/VST, with the Redis they needed, are removed from the deployment: not started by start.sh and being deleted from the VM ([decision](decisions.md)). Phoenix (`:6006`, the trace viewer used for eval) stays.
 - In mock mode `127.0.0.1:7777` is the mock backend instead (it serves the incident search, revision search, chat, analyze and evidence-embeddings routes). There is no tunnel.
 - A laptop port 8000 already in use stops start.sh before the tunnel opens: `laptop port 8000 is already in use by <holder>`.
 - After opening, start.sh polls `localhost:8000/health` for up to 60 s. Run `./.scripts/tunnel-check.sh` to check tunneled routes.
@@ -121,6 +121,14 @@ Searches saved report revisions by their summary embedding. The route embeds `qu
 
 Request: `{"query": <1-1000 chars>, "top_k": <1-50, default 10>, "min_similarity": <-1.0 to 1.0, default 0.0>}`. Response `200`: a list, best first, of `{revision_id, video_id, revision_no, kind, model_run_id, title, description, incident_type, severity_level, start_seconds, end_seconds, similarity_score}`; empty when nothing matches. Errors: `422` invalid body, `502` embedding service failed, `503` database or query embedding key not configured.
 
+## `POST /api/v1/incidents/chat`
+
+Answers a question from stored evidence (`chat-contract-v1`, [`contracts/chat-contract-v1/`](../contracts/chat-contract-v1/); code `services/agent/src/vss_agents/api/incident_chat.py`). The console calls it from `POST /api/chat`.
+
+Request: `{"session_id"?: <1-128 chars>, "messages": [{"role": "user"|"assistant"|"system", "content": <non-empty>}, ...] (at least one `user` message), "context"?: {"scope": "global"|"incident", "incident_id"?, "evidence_crop_ids"?: [...]}, "version_id"?: <int >= 1>, "draft_report"?: {...}}`. With `version_id` (a `report_revisions.id`) the answer is grounded in that version's own evidence; `draft_report` (an unsaved edit of that version) requires `version_id`, else `422`.
+
+Response `200`: `{"session_id", "message": {"role": "assistant", "content", "citations": [{"incident_id", "item_id", "item_type", "timestamp_seconds", "crop_image_url"}, ...]}}`. Errors: `400` no non-empty `user` message, or a `version_id` that belongs to another incident than `context.incident_id`; `404` unknown `version_id`; `502` evidence search or revision error; `503` report revisions unavailable.
+
 ## `POST /api/v1/incidents/charts`
 
 Draws the figures it is given with the `chart_generator` tool. The dashboard's chart requests call it from the console server; the route chooses and computes nothing. It needs `chart_generator` in the agent's config (`dev-profile-base/vss-agent/configs/config.yml`). The mock has no such route, so chart requests show an error there.
@@ -138,6 +146,7 @@ Request:
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `video_url` | string | required | signed R2 URL, min 1 char |
+| `video_key` | string | none | 1-900 chars; the video's R2 key (the console sends it). Evidence is stored under `evidence/<video_key>/run-<n>/`; without it the incident id names the folder |
 | `model_run_id` | string | none | 1-20 chars; when given the caller owns the `model_runs` row (the agent inserts only a placeholder if it is absent) |
 | `model` | string | agent `VLM_NAME` | a model id from the `contracts/inference.json` allowlist; anything else is `400` |
 | `reviewer_prompt` | string | none | max 1000 chars (`422` above). Added to the report prompt for this run only, framed as `ADDITIONAL REVIEWER CONTEXT FOR THIS VIDEO`; copies nothing from earlier revisions |
@@ -184,7 +193,7 @@ Live check of the error shape: `{}` body returns `422` `{"detail":[{"type":"miss
 
 ### Caption pass (chunked captioning, `INCIDENT_CHUNKING_ENABLED`)
 
-Off by default in code; `native-services.sh` starts the VM agent with it on (`1`) unless its env file sets `0`. With `INCIDENT_CHUNKING_ENABLED=1` in the agent's environment, a production request (no experimental field) runs a first pass before P1 ([`services/agent/src/vss_agents/utils/chunk_captions.py`](../../../../../services/agent/src/vss_agents/utils/chunk_captions.py)): the clip is downloaded once from `video_url`, cut with `ffmpeg` into windows of `INCIDENT_CHUNK_WINDOW_SECONDS` (20) overlapping by `INCIDENT_CHUNK_OVERLAP_SECONDS` (2) (a trailing window under 3 s is merged into the previous one), each window is uploaded to `scratch/analyze/<video_key>/<model_run_id>/<index>.mp4`, captioned by the P1 model with NVIDIA's stock caption prompt (`INCIDENT_CHUNK_NUM_FRAMES`, 32, requested; at most `INCIDENT_CHUNK_CONCURRENCY`, 4, calls in flight; 429, 5xx and transport errors retried three times), and the timed captions are sent to P1 as one more user message (`CONTEXT FROM A FIRST PASS OVER THE SAME VIDEO`, with the instruction to trust the video and to take timeline seconds from the video, not the window bounds; windows the model described as a static view with no activity are left out). The prompt file, `inference.json`, the schema and every other request field are unchanged. The scratch prefix is deleted when the pass ends, whether or not it succeeded. Clips of `INCIDENT_CHUNK_MIN_CLIP_SECONDS` (30) or less are not chunked. Why: [decision](decisions.md#2026-10-31-chunked-captioning-before-p1-the-gateways-fixed-2-fps-and-ignored-num_frames).
+Off by default in code; `native-services.sh` starts the VM agent with it on (`1`) unless its env file sets `0`. Only the exact value `1` turns it on (`true` does not). With `INCIDENT_CHUNKING_ENABLED=1` in the agent's environment, a production request (no experimental field) runs a first pass before P1 ([`services/agent/src/vss_agents/utils/chunk_captions.py`](../../../../../services/agent/src/vss_agents/utils/chunk_captions.py)): the clip is downloaded once from `video_url`, cut with `ffmpeg` into windows of `INCIDENT_CHUNK_WINDOW_SECONDS` (20) overlapping by `INCIDENT_CHUNK_OVERLAP_SECONDS` (2) (a trailing window under 3 s is merged into the previous one), each window is uploaded to `scratch/analyze/<video_key>/<model_run_id>/<index>.mp4`, captioned by the P1 model with NVIDIA's stock caption prompt (`INCIDENT_CHUNK_NUM_FRAMES`, 32, requested; at most `INCIDENT_CHUNK_CONCURRENCY`, 4, calls in flight; 429, 5xx and transport errors retried three times), and the timed captions are sent to P1 as one more user message (`CONTEXT FROM A FIRST PASS OVER THE SAME VIDEO`, with the instruction to trust the video and to take timeline seconds from the video, not the window bounds; windows the model described as a static view with no activity are left out). The prompt file, `inference.json`, the schema and every other request field are unchanged. The scratch prefix is deleted when the pass ends, whether or not it succeeded. Clips of `INCIDENT_CHUNK_MIN_CLIP_SECONDS` (30) or less are not chunked. Why: [decision](decisions.md#2026-10-31-chunked-captioning-before-p1-the-gateways-fixed-2-fps-and-ignored-num_frames).
 
 The captions are context for P1 only: the response does not return them and nothing stores them ([decision](decisions.md#2026-11-01-alert-rules-and-the-caption-display-are-removed-the-caption-pass-stays-as-report-context)). The agent log records the pass (`caption pass for <id>: N windows, N calls, N retries, N ms`) or why it was skipped (`caption pass skipped for <id>: <reason>`): the clip is at or under the minimum, the video length is unknown, `ffmpeg` is not on the agent host's `PATH`, R2 is not configured, a window call failed after its retries, or a setting is invalid. A skipped pass never fails the analysis: P1 runs without context. Experimental requests (`experiment_prompt_id`, `skip_crops` or `max_crop_calls`) never run it, so eval runs are exactly as before.
 

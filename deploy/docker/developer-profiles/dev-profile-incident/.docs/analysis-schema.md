@@ -72,7 +72,7 @@ Every attempt that reaches the model has one outcome:
 
 Failed attempts never create a revision or evidence rows, and never appear as reports.
 
-**Timeline removal (in progress):** the report timeline is being removed ([decision](decisions.md#2026-10-28-the-report-timeline-is-being-removed)); until it lands, the contract and the page below are unchanged.
+**Timeline removal (in progress):** the report timeline is being removed ([decision](decisions.md#2026-10-28-the-report-timeline-is-being-removed)); until it lands, the contract is unchanged; the console no longer shows the timeline (below).
 
 **Unscored output is not displayed:** the console shows no timeline, no model-reported uncertainties and no list of unscored-field issues (run history and run details). The issues stay recorded in `model_runs.notes` under `validation.firstPass`.
 
@@ -88,8 +88,8 @@ Failed attempts never create a revision or evidence rows, and never appear as re
   "failure": null,
   "contractVersion": "incident-contract-v4",
   "videoId": "…", "r2Key": "…", "modelRunId": "…", "attemptedAt": "…Z",
-  "request": { "model": "…", "inferenceConfig": {}, "additionalInstruction": null, "promptSha256": "…", "schemaSha256": "…" },
-  "response": { "content": "<original raw response, unaltered>", "reasoningContent": "…", "finishReason": "stop", "usage": {} },
+  "request": { "model": "…", "inferenceConfig": {}, "additionalInstruction": null, "promptSha256": "…", "schemaSha256": "…", "videoDurationSeconds": 0, "blurFaces": false },
+  "response": { "content": "<original raw response, unaltered>", "reasoningContent": "…", "finishReason": "stop", "usage": {}, "httpStatus": 200, "errorBody": null, "tracking": {}, "privacy": {}, "object_tracking": {} },
   "validation": { "firstPass": [ { "code": "…", "path": "…", "message": "…" } ] },
   "repair": null,
   "report": {},
@@ -103,6 +103,7 @@ Field notes:
 - `repair`: `null`, or `{ eligible: false, reason, blockingCodes }`, or `{ eligible: true, ruleSet, operations, revalidation }`.
 - `report`: the final validated contract report plus derived duration. Valid outcomes only.
 - `reportId` and `generatedAt`: valid outcomes only.
+- `request.videoDurationSeconds` and `request.blurFaces` and `response.httpStatus`, `response.errorBody` (a failed agent call), `response.tracking`, `response.privacy` and `response.object_tracking` are agent mode only, copied as returned.
 - `response`: holds only the fields the gateway actually returned. The caption pass's captions are never stored ([vm-api-contracts.md](vm-api-contracts.md#caption-pass-chunked-captioning-incident_chunking_enabled)); runs recorded before 1 Nov 2026 may still carry `chunkTimeline`, `chunking`, `chunkAlerts` or `alerting`, which nothing reads.
 
 Records written before attempt statuses existed lack `status`; they are shown as `valid_first_pass` (inferred). Pre-contract console records are "earlier analyses", never failures.
@@ -150,7 +151,7 @@ Their notes are parsed best-effort for the read-only Class B fields. Saving an e
 
 ## 6. Agent mode
 
-`ANALYSIS_MODE=agent` posts to `vss-agent`'s `/api/v1/incidents/{id}/analyze` with `{ video_url, model_run_id?, model?, reviewer_prompt?, skip_rp1?, video_duration_seconds?, blur_faces? }`.
+`ANALYSIS_MODE=agent` posts to `vss-agent`'s `/api/v1/incidents/{id}/analyze` with `{ video_url, video_key?, model_run_id?, model?, reviewer_prompt?, skip_rp1?, video_duration_seconds?, blur_faces? }` (`video_key`: evidence crops are stored under `evidence/<video_key>/run-<n>/`; the console always sends it).
 - `blur_faces: true` (sent for a video with `videos.blur_faces` on) pixelates people's heads in the stored evidence frames and crops; P1 and the report are unchanged (contract v4), each evidence entry gains `blur_regions`, and the console keeps the agent's `privacy` summary in the run's notes as `response.privacy`, with `request.blurFaces: true` ([data](data.md#privacy-blur)).
 - `vss-agent` uses its vendored `incident-contract-v4` (`vss_agents/incident_contract/`) to run P1 (direct VLM call with JSON Schema response format) and RP1 (prose report generation). P1 and RP1 request settings come from the shared `contracts/inference.json` `p1` and `rp1` blocks (the agent reads its vendored copy; eval asserts its constants match). The request's `skip_rp1` flag runs P1 only; the console always sets it, because gateway mode runs P1 only too.
 - The agent validates P1 with strict Pydantic models under the same `core-scored-v1` policy and `id-normalization-v1` repair as the console (timeline-only violations are not fatal), derives `incident.duration` and, unless `skip_rp1`, runs RP1 on the result. Only a schema or unrepairable core violation is a 422, whose `detail` carries `raw_output`, `finish_reason`, `model` and `contract_version`.

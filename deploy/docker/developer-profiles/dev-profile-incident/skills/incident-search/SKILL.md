@@ -88,7 +88,7 @@ Use `context.scope: "incident"` with `incident_id` for one incident, or include 
 
 ## How evidence crops reach search
 
-There is no loader script. The analyze route crops each evidence item and uploads it to R2 (`evidence/<videoId>/<uuid>/<itemId>.jpg`), listing the keys in the new `report_revisions.evidence`. Search reads `evidence_crops`, which holds each video's searchable revision (the official one, else the newest): the console calls `POST /api/v1/incidents/evidence-embeddings`, gets `{item_type, item_id, embedding}` back (1024 dimensions, the model search uses) and writes the rows itself. Which call writes them for each event (mark official, analysis or re-run, Save) is in [`.docs/data.md`](../../.docs/data.md#evidence_crops).
+There is no loader script. The analyze route crops each evidence item and uploads it to R2 (`evidence/<video key>/run-<N>/<itemId>.jpg`, plus `<itemId>-frame.jpg` beside it; key tree in [`.docs/data.md`](../../.docs/data.md)), listing the keys in the new `report_revisions.evidence`. Search reads `evidence_crops`, which holds each video's searchable revision (the official one, else the newest): the console calls `POST /api/v1/incidents/evidence-embeddings`, gets `{item_type, item_id, embedding}` back (1024 dimensions, the model search uses) and writes the rows itself. Which call writes them for each event (mark official, analysis or re-run, Save) is in [`.docs/data.md`](../../.docs/data.md#evidence_crops).
 
 ```bash
 curl -sS -X POST http://localhost:8000/api/v1/incidents/evidence-embeddings \

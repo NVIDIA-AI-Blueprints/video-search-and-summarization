@@ -8,7 +8,7 @@ This document defines the relational database schema (Supabase PostgreSQL), the 
 ## 1. Supabase PostgreSQL Schema
 
 There is one Supabase project per project phase ([decision](decisions.md)): **finals** is the live database and **midterm** (`rfevukimyftzbxlehwel`) is a frozen, read-only record. The finals schema is defined authoritatively by the baseline
-[`supabase/migrations/20261020000000_finals_baseline.sql`](../supabase/migrations/20261020000000_finals_baseline.sql) and the later finals migrations in the same folder (applied via `supabase db push`; see [`../supabase/README.md`](../supabase/README.md)):
+[`supabase/migrations/20261020000000_finals_baseline.sql`](../supabase/migrations/20261020000000_finals_baseline.sql) and the later finals migrations in the same folder (see [`../supabase/README.md`](../supabase/README.md) and the `incident-manage-database` skill for how they are applied to finals):
 
 - `20261023000000_report_revisions_schema.sql` — drops the relational report tables and retires `videos.selected_*`; creates `report_revisions`, the revision-keyed `evidence_crops` and `query_results`, and `videos.official_revision_id`.
 - `20261023000100_report_revisions_functions.sql` — `save_human_revision`, `set_official_revision`, and the rewritten `search_evidence_items`, `list_incident_report_summaries` and `get_incident_dashboard`.
@@ -56,7 +56,7 @@ Primary registry of ingested video assets.
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | `VARCHAR(20)` | PRIMARY KEY | Video identifier: `'v' + first 19 hex of sha256(random UUID)` for uploads (20 chars; rows uploaded before 2026-10-31 hashed the VST sensor id instead); clip-name ids (`Burglary012`, `RoadAccidents...`, `SYN-...`, `MOCK-...`) for fixture/eval rows. Raw sensor ids are never used directly as `id`. |
-| `filepath` | `VARCHAR(1024)` | NULLABLE | R2 object key (`uploads/<original name>.mp4` for uploads since 2026-10-31, `uploads/<original file name>` before, `anomaly/<category>/<clip>.mp4`, or `normal_videos/<clip>.mp4`; rows written before 2026-10-28 hold `uploads/<sensorId>/<uuid>.<ext>` until `migrate_r2_names.py` is applied). Older rows may hold an absolute VST path — validate with `isValidR2Key` before presigning. The console owns this column; the agent does not write `videos`. |
+| `filepath` | `VARCHAR(1024)` | NULLABLE | R2 object key (`uploads/<original name>.mp4` for uploads since 2026-10-31, `uploads/<original file name>` before, `anomaly/<category>/<clip>.mp4`, or `normal_videos/<clip>.mp4`). Older rows may hold an absolute VST path — validate with `isValidR2Key` before presigning. The console owns this column; the agent does not write `videos`. |
 | `uploaded_datetime` | `TIMESTAMP` | DEFAULT (now() AT TIME ZONE 'utc') | Naive UTC timestamp (`timestamp without time zone`) when uploaded. Some historical rows are NULL. |
 | `duration` | `INTEGER` | NULLABLE | Video duration in integer seconds |
 | `source` | `VARCHAR(512)` | NULLABLE | Ingestion source or camera stream name. NULL for console uploads since 2026-10-31 (uploads no longer go through VST); older upload rows keep the VST sensor id they were given. |
@@ -444,7 +444,7 @@ Database access is split across two client implementations according to operatio
 ## 2. Cloudflare R2 Storage Architecture
 
 Cloudflare R2 provides S3-compatible, permanent object storage for all video media and evidence images.
-Local disks on `kwanz-ws` are treated as temporary caches only (though VST stores ingested video files locally).
+Local disks on `kwanz-ws` are treated as temporary caches only.
 
 ### Bucket Key Tree Layout
 
@@ -467,7 +467,7 @@ anomaly-detection-dataset/            # bucket name comes from R2_BUCKET
 └── evidence/                        # evidence images: agent crops and reviewer replacements
     └── <video-key>/run-<N>/<itemId>.jpg    # AI crops (what evidence search embeds), one run-<N> per analysis
         <video-key>/run-<N>/<itemId>-frame.jpg  # the whole video frame the box was found in, native size (the console draws the box on it)
-        <video-key>/run-<N>/<itemId>-track.json # person tracking only: [{t, box, score}], t in seconds, box [top,left,bottom,right] on 0..1000, at most 5 per second
+        <video-key>/run-<N>/<itemId>-track.json # person tracks, and object tracks with INCIDENT_OBJECT_TRACKING_ENABLED (track_source: "object-tracker" on the entry): [{t, box, score}], t in seconds, box [top,left,bottom,right] on 0..1000, at most 5 per second
         <video-key>/{run,edit}-<N>/<itemId>-clip.mp4 # evidence clip: about 4 s around the item's second, H.264, no audio, cut by the console on first play
         <video-key>/{run,edit}-<N>/<itemId>-clip-blur.mp4 # the same clip with the faces blurred (video with blur_faces on, or a run analysed with it)
         <video-key>/edit-<N>/<itemId>.jpg   # reviewer replacements, one edit-<N> per upload

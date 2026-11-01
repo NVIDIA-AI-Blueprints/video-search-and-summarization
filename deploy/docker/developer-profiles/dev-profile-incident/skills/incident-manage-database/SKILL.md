@@ -30,6 +30,7 @@ The report model is versioned and append-only. Every AI analysis appends one `re
 `videos.official_revision_id` names the one official revision per video (composite FK to that video's revision). Select it only through `/rpc/set_official_revision(video_id, revision_id, crops)`, which in one transaction sets the pointer (and `official_since`) and moves the video's `evidence_crops` to the new official revision; pass a NULL revision to clear the pointer, which leaves the newest revision searchable. A video with no official revision keeps its searchable rows on its newest revision, written through `/rpc/set_revision_crops(video_id, revision_id, crops)` (refused for any other revision). Never write `report_revisions`, `videos.official_revision_id` or `evidence_crops` by hand.
 The report library reads filtered, paginated metadata through the service-role-only `/rpc/list_incident_report_summaries`; its `p_entities`, `p_instruments`, and `p_assets` arrays filter the shown revision's evidence by `(video_id, revision_id)`. It also takes `p_kind` (`ai`/`human`), `p_scope` (`all`/`official`/`not_official`), `p_entity_types`, `p_evidence_match` (`contains`/`exact`), and `p_timezone` (default `'UTC'`) for localised weekday and time-of-day filtering, and returns each card's `revisionId`, `revisionNo`, `kind`, analysis `outcome`, `isOfficial`, `officialSince`, `versionCount`, `evidenceCount` and `thumbnail`. The library path does not read or sign video.
 The operations dashboard reads bounded aggregates through the service-role-only `/rpc/get_incident_dashboard`, counting each video once through its official revision, else its newest, reporting the official and not-yet-official split, and accepting `p_scope` (`all`/`official`/`not_official`) and `p_timezone` (default `'UTC'`) for local-time trend and heatmap bucketing; it never downloads full report notes or evidence rows.
+Background analysis runs through the `analysis_jobs` table and its service-role functions, and `videos.blur_faces` holds the privacy-blur switch; both are described in [`.docs/data.md`](../../.docs/data.md).
 Natural-language search queries evidence items through the service-role-only `/rpc/search_evidence_items`, which performs a pgvector cosine distance search over `evidence_crops.embedding` scoped to each video's searchable revision (`searchable_revision_id(video_id) = evidence_crops.revision_id`: official, else newest) and shows the revision's text; hits return `video_id`/`incident_id` and `revision_id`, and the query and hits (with critic verdicts, `unverified` while the critic is off) are logged into `query_results` against that revision. The optional last argument `p_video_id` scopes the scan to one video; a NULL embedding with it lists that video's crops in time order (migration `20261028090000_search_evidence_items_video_id.sql`).
 `report_revisions.embedding` (1024) holds each AI revision's summary vector, written in the insert; `search_report_revisions` searches it, and human revisions have NULL. `evidence_crops` holds the searchable revision of each video (official, else newest) and is written by `set_official_revision` or `set_revision_crops` from the crop list the console sends (the agent returns the embeddings via `POST /api/v1/incidents/evidence-embeddings`; it does not write the rows). The search route embeds queries with the same model, so a model change means re-embedding every row.
 `model_runs` rows without a revision are normal: failed analysis attempts (`contract_failed` / `request_failed`) and runs whose revision was removed by a video delete. Never count `model_runs` rows as analyses without filtering by `run_outcome(notes)`.
@@ -57,15 +58,17 @@ uv run --no-project --python 3.12 --with pgserver --with 'psycopg[binary]' pytho
 
 ### Apply a migration to finals
 
-From the repo root, with `FINALS_DSN` the finals session-pooler URL (after the cutover this is `INCIDENT_DB_DSN` in `.env.local`):
+From the repo root, with `FINALS_DSN` the finals session-pooler URL (after the cutover this is `INCIDENT_DB_DSN` in `.env.local`). Finals' history is not in step with `supabase/migrations/` (the two `20261028090000` files were applied by hand without history rows), so a plain `db push` would re-run them. Until the history is repaired, apply one file at a time:
 
 ```bash
 W=deploy/docker/developer-profiles/dev-profile-incident
-supabase migration list --workdir $W --db-url "$FINALS_DSN"            # 1. local vs remote
-supabase db push --workdir $W --db-url "$FINALS_DSN" --dry-run         # 2. preview, then ask captain/lead
-supabase db push --workdir $W --db-url "$FINALS_DSN"                   # 3. apply
-psql "$FINALS_DSN" -f $W/supabase/tests/security_check.sql             # 4. expect 0 rows
+supabase migration list --workdir $W --db-url "$FINALS_DSN"                          # 1. local vs remote; ask captain/lead before applying
+psql "$FINALS_DSN" -v ON_ERROR_STOP=1 -f $W/supabase/migrations/<version>_<name>.sql  # 2. apply (the file holds its own BEGIN/COMMIT)
+supabase migration repair --status applied <version> --workdir $W --db-url "$FINALS_DSN"  # 3. record it
+psql "$FINALS_DSN" -f $W/supabase/tests/security_check.sql                           # 4. expect 0 rows
 ```
+
+Target state, once the history is repaired: `supabase db push --workdir $W --db-url "$FINALS_DSN" --dry-run`, then without `--dry-run`.
 
 `db push` at midterm fails ("remote migration versions not found"), because midterm's history names versions that are no longer in `supabase/migrations/`. Do not "fix" that with `migration repair` against midterm.
 
@@ -74,8 +77,6 @@ To record an out-of-band change on finals without re-executing SQL:
 ```bash
 supabase migration repair --workdir $W --db-url "$FINALS_DSN" --status applied <YYYYMMDDHHMMSS>
 ```
-
-**Finals history is not in step with `supabase/migrations/` (2026-10-31):** the two `20261028090000` files were applied by hand without history rows, so a plain `db push` would re-run them. Check `migration list` first. To apply one new file on its own, run it with a Postgres client (it holds its own `BEGIN`/`COMMIT`), then record it with `migration repair` as above.
 
 **The laptop could not reach the pooler on 2026-10-31** (5432 and 6543 timed out), but `kwanz-ws` could. Tunnel through the VM and point the DSN's host and port at the tunnel (the pooler routes on the `postgres.<ref>` user name, so the host change is fine), then close the tunnel by PID:
 
@@ -113,26 +114,16 @@ Follow-ups (not in this change): pin a minimum `supabase` version in `services/a
 ### R2 objects
 
 - **One bucket for both phases:** finals and the midterm record name the same keys; nothing was copied. A delete in finals also removes the object the midterm record names.
-- **Keys:** all new user uploads go to `uploads/<original file name>` in both modes (a taken name gets `-2`, `-3`; unsafe characters become `_`; max 150 characters; never overwritten). Classified seed/evaluation clips remain under `anomaly/<category>/<file>`.
+- **Keys:** all new user uploads go to `uploads/<original name>.mp4` in both modes (the extension is always replaced by the H.264 conversion) (a taken name gets `-2`, `-3`; unsafe characters become `_`; max 150 characters; never overwritten). Classified seed/evaluation clips remain under `anomaly/<category>/<file>`.
 - **Valid keys** (per `isValidR2Key`): not absolute, no `.`/`..` prefix. VST `./streamer/media/...` paths are not keys.
 - **Durability check:** `verifyR2Video` uses `HeadObject`; direct uploads require an exact nonzero byte-length match, and analysis requires a nonempty object before inference.
 - **Playback** is by 1-hour presigned GET only. The bucket is private.
 - **Report-card thumbnails:** new uploads use `thumbnails/<video-key>.webp`, derived by `thumbnailKeyForVideo`; legacy videos may have no thumbnail and use the UI skeleton. Deleting a video deletes this derived object too.
-- **Evidence images** live under `evidence/<video key>/run-<N>/` (AI crops, and `<itemId>-frame.jpg` beside each: the whole frame) and `evidence/<video key>/edit-<N>/` (reviewer images), plus `<itemId>-clip.mp4` evidence clips the console caches on first play (no revision names them, so the sweep may remove them and the next play cuts again); `<video key>` is `videos.filepath`. A revision's `evidence` (and `evidence_crops.image`) names the keys it shows, and older revisions keep naming images a reviewer later replaced, so an image is only an orphan when no revision of that video names it. `POST /api/reports/<videoId>/evidence-sweep` (dry run by default) lists such orphans older than `minAgeHours` (default 24); `{"dryRun": false}` removes them. Deleting a video (`DELETE /api/reports/<videoId>/delete`) removes its video, thumbnail and every `evidence/<video key>/` object before the rows, and keeps the rows if any removal fails. Images of videos deleted before 2026-10-25 are still in R2, and the sweep cannot reach them (it needs the video row).
+- **Evidence images** live under `evidence/<video key>/run-<N>/` (AI crops, and `<itemId>-frame.jpg` beside each: the whole frame) and `evidence/<video key>/edit-<N>/` (reviewer images), plus `<itemId>-track.json` (tracks) and `<itemId>-clip.mp4` / `<itemId>-clip-blur.mp4` evidence clips the console caches on first play (no revision names them, so the sweep may remove them and the next play cuts again); `<video key>` is `videos.filepath`. A revision's `evidence` (and `evidence_crops.image`) names the keys it shows, and older revisions keep naming images a reviewer later replaced, so an image is only an orphan when no revision of that video names it. `POST /api/reports/<videoId>/evidence-sweep` (dry run by default) lists such orphans older than `minAgeHours` (default 24); `{"dryRun": false}` removes them. Deleting a video (`DELETE /api/reports/<videoId>/delete`) removes its video, thumbnail and every `evidence/<video key>/` object before the rows, and keeps the rows if any removal fails. Images of videos deleted before 2026-10-25 are still in R2, and the sweep cannot reach them (it needs the video row).
 
-### Renaming old R2 objects (readable-names migration)
+### Old R2 names
 
-Objects written before 2026-10-28 have hashed names (`uploads/<sensorId>/<uuid>.mp4`, `evidence/<videoId>/<uuid>/...`). `supabase/r2/migrate_r2_names.py` copies each to a readable key, verifies it (size, plain ETag), then calls `apply_r2_rename` per video to point `videos.filepath`, `report_revisions.evidence[].image` and `evidence_crops.image` at the new keys. It never deletes; it prints, and writes to `--manifest`, the old keys that are safe to delete. It is dry run by default, idempotent (a copy records `renamed-from` in its metadata), and needs migration `20261028090000_r2_rename.sql` applied first (ask first; use the `db push` commands above).
-
-```bash
-ssh kwanz-ws 'curl -s localhost:30888/vst/api/v1/sensor/list' > /path/to/sensors.json   # names for old uploads
-cd deploy/docker/developer-profiles/dev-profile-incident/supabase/r2
-uv run --no-project --with boto3 python migrate_r2_names.py --env-file ../../.env.local --sensors-file /path/to/sensors.json --manifest /path/to/dry.json          # dry run
-uv run --no-project --with boto3 python migrate_r2_names.py --env-file ../../.env.local --sensors-file /path/to/sensors.json --manifest /path/to/manifest.json --apply  # live
-uv run --no-project --with boto3 --with pytest pytest -q                                                                                                                  # hermetic tests
-```
-
-An upload's name is the VST sensor name (matched on `sensorId`), else `upload-YYYYMMDD-HHMMSS.<ext>` from `videos.uploaded_datetime`. Objects of videos that no longer exist are listed as "not renamed" and are for a person to delete.
+Objects written before 2026-10-28 were renamed once by `supabase/r2/migrate_r2_names.py`; see its README.
 
 ## After changing anything
 

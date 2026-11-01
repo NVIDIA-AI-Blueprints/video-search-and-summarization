@@ -57,7 +57,9 @@ Details of each path: [`.docs/architecture.md` §2](../../.docs/architecture.md#
 ./start.sh --mode vm --no-console   # VM side only: backend + tunnel, no Next.js console
 ```
 
-`start.sh` waits on the console. Ctrl-C, closing the terminal or `kill <start.sh pid>` stops it, along with the backgrounded mock, gateway and tunnel, including the servers those wrappers started (no `next-server` or `uvicorn` is left listening). In vm mode, exiting also stops the VM backend services (`vss-agent` and Docker containers in-place via `docker stop`, never removed) if this run was the last active session on `kwanz-ws`.
+`start.sh` waits on the console. Ctrl-C, closing the terminal or `kill <start.sh pid>` stops it, along with the backgrounded mock, gateway and tunnel, including the servers those wrappers started (no `next-server` or `uvicorn` is left listening). In vm mode, exiting also stops the VM backend services (`vss-agent`, the Docker containers in-place via `docker stop`, never removed, and the tracking stack) if this run was the last active session on `kwanz-ws`; that includes a shared agent a teammate restarted by hand outside `start.sh`.
+
+**Lifecycle (vm mode):** when every expected Docker and native service is already up, `start.sh` skips the backend deploy and goes straight to the tunnel. The person-tracking stack (`ENABLE_TRACKING`, default on) is started on every run, even when the deploy was skipped, and if it fails `start.sh` exits with status 1 before the tunnel opens; `ENABLE_TRACKING=false ./start.sh` skips it.
 
 Environment overrides such as `ENABLE_ANALYTICS`, `VSS_REPO_ROOT`, `INCIDENT_DOCKER_SERVICES` and `INCIDENT_NATIVE_SERVICES` are documented in the header of [`start.sh`](../../start.sh). The vm-mode tunnel forwards only `localhost:8000` to the agent: uploads go from the console straight to R2, so it needs no `:7777` forward (`VSS_VM_IP` matters only to the standalone `.scripts/tunnel.sh`).
 
@@ -83,7 +85,7 @@ Then run one upload to report with [`incident-analyze-video`](../incident-analyz
 | `start.sh` aborts at the SSH preflight | Read the `Cause:` / `Fix:` lines it prints (Tailscale logged out or stopped, VM offline in the tailnet, DNS, SSH timeout or refused, login rejected, host key changed). Table: [`.docs/incident-profile-operations.md` §3](../../.docs/incident-profile-operations.md#3-laptop-to-vm-connectivity--ssh-troubleshooting). |
 | `start.sh` aborts with "could not register active run lock" | The backend may currently be stopping from another session's exit. Retry once the stop completes. |
 | `start.sh` stops with `[vm] ERROR` or "timed out" | The Docker step on the VM failed: exit 10 repo, 11 `generated.env.remote` missing, 12 docker unusable, 13 image pull (NGC login), 14/124 `compose up` failed or stuck (its output shows container states and logs). Tunables: `VSS_PULL_TIMEOUT`, `VSS_COMPOSE_UP_TIMEOUT`, `VSS_NATIVE_START_TIMEOUT`. |
-| Tunnel step fails | `start.sh` says whether a laptop port is taken, the SSH forward is blocked (or `VSS_AGENT_HOST` on the VM is bound to a LAN address instead of `127.0.0.1`), the VM address is wrong (set `VSS_VM_IP`), or the agent or proxy is down on the VM. |
+| Tunnel step fails | `start.sh` says whether a laptop port is taken, the SSH forward is blocked (or `VSS_AGENT_HOST` on the VM is bound to a LAN address instead of `127.0.0.1`), the VM address is wrong (set `VSS_VM_IP`), or the agent is down on the VM. |
 | Logged in as the wrong VM user | Set `User` under `Host kwanz-ws`, or `export VSS_SSH_USER=<name>`. |
 | Port 3200, 7777, 8000 or 8600 already in use | A previous run is still alive. Stop it, or find it with `lsof -i :<port>`. |
 | Console health shows Supabase or R2 not configured | A missing variable or broken symlink. Re-run the prerequisite checks. |

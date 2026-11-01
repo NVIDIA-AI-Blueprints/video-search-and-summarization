@@ -11,7 +11,7 @@ incident-console-v2/src/
   modules/<feature>/
     domain/               # types and port interfaces
     application/          # use cases, one folder each (for example reports/application/save-human-edit/)
-    infrastructure/       # adapters: supabase/ (with mappers/), memory/ (test fakes), agent/, r2/, gateway/, vst/
+    infrastructure/       # adapters: supabase/ (with mappers/), memory/ (test fakes), agent/, r2/, gateway/
   lib/                    # shared technical code: container.ts, env.ts, http.ts, postgrest/, r2/, video/, evidence/, ...
 ```
 
