@@ -39,7 +39,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - the frozen-V1 guard (`frozen_v1.py` with `frozen_v1.json`, the SHA-256 of 90 frozen V1 files).
 - **`evalv2.adapters`:** provider specifics only, never scoring.
   - The OpenAI-compatible adapter (`openai_compat.py`) covers Switchyard, the NVIDIA API catalog and a local vLLM or NIM endpoint.
-    - It charges every attempt before sending it and applies V1's retry policy.
+    - It charges every attempt before sending it, at V1's P1 ceiling (35,000 tokens, `P1_TOKENS_CEILING`) until usage is measured, and applies V1's retry policy. Any failed attempt that spanned a host suspend is `host_suspended`, whatever it failed with, as in V1.
     - It classifies failures as V1 does.
     - It stores the request and response bodies but never the key.
   - A scripted `fake.py` adapter supports plumbing runs.
