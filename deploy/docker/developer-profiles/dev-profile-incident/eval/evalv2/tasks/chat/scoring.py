@@ -59,6 +59,7 @@ from evalv2.tasks.judging import Judge, JudgeIdentity
 PASS_SCORE = 0.5
 K_VALUES = (1, 3, 5, 10)
 CORPORA = ("oracle", "system")
+JUDGED_KINDS = frozenset({"facts", "holder"})  # answers the judge scores; exact() is None for them
 JUDGE_PROMPTS = {name: Path(__file__).with_name(f"judge-{name}-v1.txt") for name in ("fact", "unsupported",
                                                                                       "contradiction")}
 NUMBER_WORDS = {"zero": 0, "none": 0, "no": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
@@ -220,6 +221,8 @@ def exact(answer: ChatAnswer, expected: Mapping[str, Any], space: Mapping[str, A
     space = space or {}
     if kind == "refusal":
         return answer.refused
+    if kind in JUDGED_KINDS:  # never in the exact rate, refused or not; a refusal shows in the refusal metrics
+        return None
     if answer.refused:
         return False
     if kind == "count":
