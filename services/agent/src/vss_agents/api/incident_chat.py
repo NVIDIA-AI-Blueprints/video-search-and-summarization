@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any
 from typing import Literal
 from typing import Protocol
@@ -319,6 +320,43 @@ class IncidentDBRevisionStore:
         return int(official) if official is not None else None
 
 
+class IncidentDBLibraryIndex:
+    """Every incident's searchable report version (official, else newest), read through ``incident_db``.
+
+    Cached for ``ttl_seconds`` so a conversation does not reread the library on every turn.
+    """
+
+    def __init__(self, ttl_seconds: float = 60.0, clock: Any = time.monotonic) -> None:
+        self.ttl_seconds = ttl_seconds
+        self.clock = clock
+        self._cached: tuple[float, list[grounded_chat.LibraryReport]] | None = None
+
+    async def reports(self) -> list[grounded_chat.LibraryReport]:
+        if self._cached is not None and self.clock() - self._cached[0] < self.ttl_seconds:
+            return self._cached[1]
+        db = await incident_db.get_db()
+        if db is None:
+            raise RevisionStoreUnavailableError("the incident database is not configured")
+        out: list[grounded_chat.LibraryReport] = []
+        for video in await db.list_videos():
+            version_id = video.get("official_revision_id")
+            revision = await db.get_revision(int(version_id)) if version_id else None
+            if revision is None:
+                revisions = await db.list_revisions(str(video["id"]))
+                revision = max(revisions, key=lambda r: (r.get("revision_no") or 0, r.get("id") or 0), default=None)
+            if revision is not None:
+                out.append(
+                    grounded_chat.LibraryReport(
+                        incident_id=str(video["id"]),
+                        version_id=int(revision["id"]),
+                        payload=revision.get("payload") or {},
+                        evidence=revision.get("evidence") or [],
+                    )
+                )
+        self._cached = (self.clock(), out)
+        return out
+
+
 def _query_tokens(query: str) -> list[str]:
     return [tok for tok in query.lower().strip().replace("?", " ").replace(",", " ").split() if len(tok) > 2]
 
@@ -465,13 +503,16 @@ def create_incident_chat_router(
     revision_store: RevisionStore | None = None,
     chat_model: grounded_chat.ChatModel | None = None,
     mode: str | None = None,
+    library_index: grounded_chat.LibraryIndex | None = None,
 ) -> APIRouter:
     """Build the ``POST /api/v1/incidents/chat`` router with an injected or default SearchClient.
 
     ``mode`` (default ``INCIDENT_CHAT_MODE``, else ``template``) chooses how an incident question is answered: the
     template answer from keyword-ranked evidence (chat-contract-v1), or a grounded answer from ``chat_model``
     (default :class:`grounded_chat.OpenAIChatModel`) over one report version (chat-contract-v2). A question with
-    no incident (library scope) keeps the template answer until library chat arrives.
+    no incident (library scope) is answered in grounded mode by a planned search over every incident's report
+    (``library_index``, default :class:`IncidentDBLibraryIndex`): the model turns the question into filters, code
+    filters and counts the reports exactly, and the model answers from the best matches with incident citations.
     """
     router = APIRouter()
     client: SearchClient = search_client if search_client is not None else InMemorySearchClient()
@@ -480,6 +521,13 @@ def create_incident_chat_router(
     if selected_mode not in CHAT_MODES:
         raise ValueError(f"unknown chat mode {selected_mode!r}")
     models: dict[str, grounded_chat.ChatModel] = {"default": chat_model} if chat_model is not None else {}
+
+    indexes: dict[str, grounded_chat.LibraryIndex] = {"default": library_index} if library_index is not None else {}
+
+    def _index() -> grounded_chat.LibraryIndex:
+        if "default" not in indexes:
+            indexes["default"] = IncidentDBLibraryIndex()
+        return indexes["default"]
 
     def _model() -> grounded_chat.ChatModel:
         if "default" not in models:
@@ -547,6 +595,7 @@ def create_incident_chat_router(
             )
         grounding = {
             "mode": "grounded",
+            "scope": "incident",
             "model": model.model,
             "version_id": version_id,
             "official": official,
@@ -604,6 +653,80 @@ def create_incident_chat_router(
         evidence = _draft_evidence(body.draft_report, saved) if body.draft_report is not None else saved
         return _revision_hits(query_text, video_id, evidence, top_k=5)
 
+    async def _library(body: ChatRequest, session_id: str) -> ChatResponse:
+        """A planned search over every incident's report, an exact count, and an answer with incident citations."""
+        model = _model()
+        history = [message.model_dump() for message in body.messages]
+        question = next(m.content for m in reversed(body.messages) if m.role == "user").strip()
+        try:
+            plan = grounded_chat.check_plan(
+                await model.complete(grounded_chat.plan_messages(question, history), grounded_chat.PLAN_SCHEMA)
+            )
+        except grounded_chat.ChatModelError as exc:
+            raise HTTPException(status_code=502, detail=f"Chat model error: {exc}") from exc
+        try:
+            reports = await _index().reports()
+        except Exception as exc:
+            logger.error("Library index failed during library chat: %s", exc, exc_info=True)
+            raise HTTPException(status_code=502, detail=f"Library read error: {exc}") from exc
+        matching = [report for report in reports if grounded_chat.matches(report, plan)]
+        candidates = grounded_chat.rank(matching, plan["query"])[: grounded_chat.MAX_LIBRARY_REPORTS]
+        grounding: dict[str, Any] = {
+            "mode": "grounded",
+            "scope": "library",
+            "model": model.model,
+            "version_id": None,
+            "official": None,
+            "draft": False,
+            "plan": plan,
+            "matching": len(matching),
+            "candidates": [report.incident_id for report in candidates],
+            "dropped_citations": [],
+            "prompt_sha256": grounded_chat.incident_contract.prompt_sha256(grounded_chat.LIBRARY_PROMPT_ID),
+        }
+        if not candidates:
+            return ChatResponse(
+                session_id=session_id,
+                message=AssistantMessage(
+                    content="No report in the library matches that question.", citations=[], insufficient_evidence=True
+                ),
+                grounding=grounding,
+            )
+        context = grounded_chat.library_context(candidates, len(matching))
+        try:
+            reply = await model.complete(
+                grounded_chat.library_messages(context, history), grounded_chat.LIBRARY_ANSWER_SCHEMA
+            )
+            answer = grounded_chat.check_library_answer(reply, context)
+        except grounded_chat.ChatModelError as exc:
+            raise HTTPException(status_code=502, detail=f"Chat model error: {exc}") from exc
+        by_report = {report.incident_id: report for report in candidates}
+        citations = []
+        for incident_id, item_id in answer.citations:
+            report = by_report[incident_id]
+            entry = next((e for e in report.evidence if str(e.get("item_id")) == item_id), {})
+            item = next(i for i in context["reports"] if i["incident_id"] == incident_id)["items"]
+            item_type = next(i["item_type"] for i in item if i["item_id"] == item_id)
+            seconds = entry.get("box_seconds", entry.get("timestamp_seconds")) or 0
+            citations.append(
+                EvidenceCitation(
+                    incident_id=incident_id,
+                    item_id=item_id,
+                    item_type=item_type,
+                    timestamp_seconds=max(0.0, float(seconds)),
+                    crop_image_url=resolve_r2_url(str(entry.get("image") or "")),
+                )
+            )
+        grounding["dropped_citations"] = list(answer.dropped_citations)
+        grounding["usage"] = dict(getattr(model, "last_usage", {}) or {})
+        return ChatResponse(
+            session_id=session_id,
+            message=AssistantMessage(
+                content=answer.content, citations=citations, insufficient_evidence=answer.insufficient_evidence
+            ),
+            grounding=grounding,
+        )
+
     @router.post(
         "/api/v1/incidents/chat",
         response_model=ChatResponse,
@@ -635,6 +758,8 @@ def create_incident_chat_router(
 
         if selected_mode == "grounded" and (body.version_id is not None or "incident_id" in filters):
             return await _grounded(body, session_id, filters.get("incident_id"))
+        if selected_mode == "grounded":
+            return await _library(body, session_id)
 
         hits: list[dict[str, Any]]
         if body.version_id is None:

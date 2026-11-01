@@ -1,0 +1,40 @@
+{
+  "session_id": "s2",
+  "message": {
+    "role": "assistant",
+    "content": "Two assaults involve a bottle: V1 and V3.",
+    "citations": [
+      {
+        "incident_id": "V1",
+        "item_id": "I1",
+        "item_type": "instrument",
+        "timestamp_seconds": 6.0,
+        "crop_image_url": "https://r2.example/evidence/V1/run-1/I1.jpg"
+      }
+    ],
+    "insufficient_evidence": false
+  },
+  "grounding": {
+    "mode": "grounded",
+    "scope": "library",
+    "model": "nvidia/nemotron-3-ultra",
+    "version_id": null,
+    "official": null,
+    "draft": false,
+    "dropped_citations": [],
+    "prompt_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "plan": {
+      "incident_type": "assault",
+      "severity": null,
+      "instrument": "bottle",
+      "asset": null,
+      "query": "",
+      "wants_count": true
+    },
+    "matching": 2,
+    "candidates": [
+      "V1",
+      "V3"
+    ]
+  }
+}

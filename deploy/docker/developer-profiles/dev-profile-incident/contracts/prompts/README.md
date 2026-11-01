@@ -24,6 +24,8 @@ This registry holds every model prompt the profile sends besides the contract's 
 | [`chart/system`](chart/system.txt) | chart | console | - | The dashboard chart interpreter's system prompt, built from the allowlist (source: chart-interpreter.ts). |
 | [`chart/allowlist`](chart/allowlist.json) | chart | console | - | The chart allowlist (metrics, dimensions, periods, severities, incident types; source: chart-spec.ts). |
 | [`chat/incident-answer`](chat/incident-answer.txt) | chat | agent | - | The grounded chat's system prompt: answer one report version from its JSON, cite item ids, flag insufficient evidence. |
+| [`chat/library-plan`](chat/library-plan.txt) | chat | agent | - | The library chat's planner: filters, a search phrase and a count flag. |
+| [`chat/library-answer`](chat/library-answer.txt) | chat | agent | - | The library chat's answer from the matching reports and the code-counted total. |
 
 ## Rules
 

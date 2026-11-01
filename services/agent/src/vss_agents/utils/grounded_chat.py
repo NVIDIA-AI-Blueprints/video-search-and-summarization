@@ -194,3 +194,186 @@ def check_answer(reply: Mapping[str, Any], context: Mapping[str, Any]) -> Ground
         insufficient_evidence=insufficient,
         dropped_citations=tuple(dropped),
     )
+
+
+# ---------------------------------------------------------------------------
+# Library scope: a planned search over every incident's report, then an answer
+# ---------------------------------------------------------------------------
+
+PLAN_PROMPT_ID = "chat/library-plan"
+LIBRARY_PROMPT_ID = "chat/library-answer"
+MAX_LIBRARY_REPORTS = 8
+SEVERITY_BANDS = {"low": (1, 2), "medium": (3, 3), "high": (4, 5)}
+PLAN_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["incident_type", "severity", "instrument", "asset", "query", "wants_count"],
+    "properties": {
+        "incident_type": {"type": ["string", "null"]},
+        "severity": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
+        "instrument": {"type": ["string", "null"]},
+        "asset": {"type": ["string", "null"]},
+        "query": {"type": "string"},
+        "wants_count": {"type": "boolean"},
+    },
+}
+LIBRARY_ANSWER_SCHEMA: dict[str, Any] = {
+    **ANSWER_SCHEMA,
+    "properties": {
+        **ANSWER_SCHEMA["properties"],
+        "citations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["incident_id", "item_id"],
+                "properties": {"incident_id": {"type": "string"}, "item_id": {"type": "string"}},
+            },
+        },
+    },
+}
+
+
+@dataclass(frozen=True)
+class LibraryReport:
+    """One incident's searchable report version: the official one, else the newest."""
+
+    incident_id: str
+    version_id: int
+    payload: Mapping[str, Any]
+    evidence: Sequence[Mapping[str, Any]] = ()
+
+
+class LibraryIndex(Protocol):
+    async def reports(self) -> list[LibraryReport]: ...
+
+
+def _words(text: Any) -> set[str]:
+    return {w for w in "".join(c if c.isalnum() else " " for c in str(text or "").lower()).split() if len(w) > 2}
+
+
+def plan_messages(question: str, history: Sequence[Mapping[str, str]]) -> list[dict[str, str]]:
+    types = ", ".join(incident_contract.load_schema()["properties"]["incident"]["properties"]["type"]["enum"])
+    turns = [{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")]
+    return [
+        {"role": "system", "content": incident_contract.prompt(PLAN_PROMPT_ID) + f"\nIncident types: {types}."},
+        *turns[-MAX_HISTORY_MESSAGES:-1],
+        {"role": "user", "content": question},
+    ]
+
+
+def check_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """The planner's filters, with an unknown incident type or severity dropped rather than trusted."""
+    types = set(incident_contract.load_schema()["properties"]["incident"]["properties"]["type"]["enum"])
+    if not isinstance(plan.get("query"), str) or not isinstance(plan.get("wants_count"), bool):
+        raise ChatModelError("chat model plan lacks the query or the wants_count flag")
+    out = {
+        "incident_type": plan.get("incident_type") if plan.get("incident_type") in types else None,
+        "severity": plan.get("severity") if plan.get("severity") in SEVERITY_BANDS else None,
+        "instrument": (plan.get("instrument") or "").strip().lower() or None,
+        "asset": (plan.get("asset") or "").strip().lower() or None,
+        "query": plan["query"].strip(),
+        "wants_count": plan["wants_count"],
+    }
+    return out
+
+
+def matches(report: LibraryReport, plan: Mapping[str, Any]) -> bool:
+    incident = report.payload.get("incident") or {}
+    if plan["incident_type"] and incident.get("type") != plan["incident_type"]:
+        return False
+    if plan["severity"]:
+        low, high = SEVERITY_BANDS[plan["severity"]]
+        if not isinstance(incident.get("severity_level"), int) or not low <= incident["severity_level"] <= high:
+            return False
+    for kind, key in (("instruments", "instrument"), ("assets", "asset")):
+        wanted = plan[key]
+        if wanted and not any(wanted in str(i.get("name") or "").lower() for i in report.payload.get(kind) or []):
+            return False
+    return True
+
+
+def rank(reports: Sequence[LibraryReport], query: str) -> list[LibraryReport]:
+    """Reports by word overlap of ``query`` with their title, description and item names (ties by incident id)."""
+    terms = _words(query)
+
+    def score(report: LibraryReport) -> int:
+        incident = report.payload.get("incident") or {}
+        names = " ".join(
+            str(i.get("name") or i.get("description") or "")
+            for kind in ("entities", "instruments", "assets")
+            for i in report.payload.get(kind) or []
+        )
+        return len(terms & _words(f"{incident.get('title')} {incident.get('description')} {names}"))
+
+    return sorted(reports, key=lambda r: (-score(r), r.incident_id))
+
+
+def library_context(candidates: Sequence[LibraryReport], total_matching: int) -> dict[str, Any]:
+    reports = []
+    for report in candidates:
+        incident = report.payload.get("incident") or {}
+        items = [
+            {
+                "item_id": str(i.get(id_field)),
+                "item_type": item_type,
+                "name": i.get("name") or i.get("description") or i.get("type"),
+            }
+            for kind, (id_field, item_type) in ITEM_KINDS.items()
+            for i in report.payload.get(kind) or []
+            if i.get(id_field)
+        ]
+        reports.append(
+            {
+                "incident_id": report.incident_id,
+                "type": incident.get("type"),
+                "severity_level": incident.get("severity_level"),
+                "title": incident.get("title"),
+                "description": incident.get("description"),
+                "items": items,
+            }
+        )
+    return {"total_matching": total_matching, "reports": reports}
+
+
+def library_messages(context: Mapping[str, Any], history: Sequence[Mapping[str, str]]) -> list[dict[str, str]]:
+    turns = [{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")]
+    return [
+        {"role": "system", "content": incident_contract.prompt(LIBRARY_PROMPT_ID)},
+        {"role": "user", "content": "LIBRARY:\n" + json.dumps(context, ensure_ascii=False, sort_keys=True)},
+        *turns[-MAX_HISTORY_MESSAGES:],
+    ]
+
+
+@dataclass(frozen=True)
+class LibraryAnswer:
+    content: str
+    citations: tuple[tuple[str, str], ...]
+    insufficient_evidence: bool
+    dropped_citations: tuple[str, ...] = ()
+
+
+def check_library_answer(reply: Mapping[str, Any], context: Mapping[str, Any]) -> LibraryAnswer:
+    """The answer with each (incident, item) citation checked against the reports shown; unknown pairs dropped."""
+    if not isinstance(reply.get("answer"), str) or not isinstance(reply.get("insufficient_evidence"), bool):
+        raise ChatModelError("chat model reply lacks the answer or the insufficient_evidence flag")
+    known = {(r["incident_id"], i["item_id"]) for r in context["reports"] for i in r["items"]}
+    cited: list[tuple[str, str]] = []
+    dropped: list[str] = []
+    for citation in reply.get("citations") or []:
+        pair = (
+            (str(citation.get("incident_id") or ""), str(citation.get("item_id") or ""))
+            if isinstance(citation, dict)
+            else ("", "")
+        )
+        if pair in known and pair not in cited:
+            cited.append(pair)
+        elif any(pair):
+            dropped.append(f"{pair[0]}/{pair[1]}")
+    insufficient = bool(reply["insufficient_evidence"])
+    return LibraryAnswer(
+        content=reply["answer"].strip(),
+        citations=() if insufficient else tuple(cited),
+        insufficient_evidence=insufficient,
+        dropped_citations=tuple(dropped),
+    )

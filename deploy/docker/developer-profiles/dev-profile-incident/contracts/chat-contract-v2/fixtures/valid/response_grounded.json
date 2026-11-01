@@ -24,6 +24,7 @@
     "prompt_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "usage": {
       "total_tokens": 120
-    }
+    },
+    "scope": "incident"
   }
 }

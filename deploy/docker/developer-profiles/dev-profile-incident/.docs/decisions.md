@@ -2,6 +2,18 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-01 (proposed, awaiting the team: Gate M2): Library questions are answered by a planned search with exact counts
+- **Status:** part of the grounded chat (below); off until M2, and only in `INCIDENT_CHAT_MODE=grounded`.
+- **Decision:** a chat question with no incident is answered in three steps:
+  1. The model turns the question into a checked plan: type, severity band, instrument, asset, search phrase and count flag.
+  2. Code filters every incident's searchable version (official, else newest) exactly and ranks the matches.
+  3. The model answers from the best eight with incident and item citations, using `total_matching`, which code counted.
+- **Why:** counts must be exact (a model counting reports it was shown gets them wrong past a few), and retrieval must cover the whole library.
+- **Rejected:**
+  - Semantic revision search alone: there is no summary embedding for human revisions, and it has no type or severity filter (X25). A migration for that waits for approval.
+  - One model call over every report: it does not scale past a few dozen reports and cannot count exactly.
+- **Links:** [contract](vm-api-contracts.md#post-apiv1incidentschat), [`grounded_chat.py`](../../../../../services/agent/src/vss_agents/utils/grounded_chat.py)
+
 ### 2026-11-01 (proposed, awaiting the team: Gate M2): Grounded chat answers from one report version with a chat model, behind a mode switch
 - **Status:** built for Evaluation V2 and approved in principle by the evaluation owner. **Not in force** until the team supersedes [2026-10-24: Chat about the official version uses the in-memory chat search client](#2026-10-24-chat-about-the-official-version-uses-the-in-memory-chat-search-client-for-mvp2). Template mode stays the default (`INCIDENT_CHAT_MODE` unset), so merging changes no behaviour.
 - **Decision:** with `INCIDENT_CHAT_MODE=grounded`, an incident question is answered by a chat model from one report version: the asked one, else the official one, or the reviewer's draft.

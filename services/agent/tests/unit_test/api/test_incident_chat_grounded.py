@@ -203,14 +203,11 @@ def test_a_version_of_another_incident_is_refused():
     assert response.status_code == 400
 
 
-def test_library_questions_and_template_mode_keep_the_contract_v1_answer():
-    client, model = _client({"answer": "x", "citations": [], "insufficient_evidence": False})
-    library = client.post("/api/v1/incidents/chat", json={"messages": [{"role": "user", "content": "machete"}]})
-    assert library.status_code == 200 and set(library.json()) == {"session_id", "message"}
-    assert "insufficient_evidence" not in library.json()["message"] and model.calls == []
-    template, _ = _client({"answer": "x", "citations": [], "insufficient_evidence": False}, mode="template")
+def test_template_mode_keeps_the_contract_v1_answer():
+    template, model = _client({"answer": "x", "citations": [], "insufficient_evidence": False}, mode="template")
     body = _ask(template, version_id=7).json()
     assert set(body) == {"session_id", "message"} and "insufficient_evidence" not in body["message"]
+    assert model.calls == []
 
 
 def test_the_default_model_sends_a_strict_schema_request(monkeypatch):

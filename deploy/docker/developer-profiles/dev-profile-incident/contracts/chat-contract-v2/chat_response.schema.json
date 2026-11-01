@@ -86,12 +86,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "draft",
+        "dropped_citations",
         "mode",
         "model",
-        "version_id",
         "official",
-        "draft",
-        "dropped_citations"
+        "scope",
+        "version_id"
       ],
       "properties": {
         "mode": {
@@ -106,13 +107,19 @@
           "description": "The chat model that answered."
         },
         "version_id": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1,
-          "description": "The report version the answer is grounded in."
+          "description": "The report version the answer is grounded in (null in library scope)."
         },
         "official": {
-          "type": "boolean",
-          "description": "Whether that version is the incident's official one."
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether that version is official (null in library scope)."
         },
         "draft": {
           "type": "boolean",
@@ -132,6 +139,30 @@
         "usage": {
           "type": "object",
           "description": "The chat model's reported usage and elapsed_ms, as returned."
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "incident",
+            "library"
+          ],
+          "description": "incident: one report version; library: a planned search over every incident's report."
+        },
+        "plan": {
+          "type": "object",
+          "description": "Library scope: the planner's checked filters and search phrase."
+        },
+        "matching": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Library scope: reports matching the plan's filters, counted by code."
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Library scope: the incidents shown to the model."
         }
       }
     }

@@ -136,7 +136,14 @@ Response `200`: `{"session_id", "message": {"role": "assistant", "content", "cit
 - **Insufficient evidence:** the model sets `insufficient_evidence` when the version cannot answer or contradicts the question's premise. Citations are then empty.
 - **Response:** follows [`chat-contract-v2`](../contracts/chat-contract-v2/README.md): the v1 answer plus `message.insufficient_evidence` and `grounding` `{mode, model, version_id, official, draft, dropped_citations, prompt_sha256, usage}`.
 - **Errors:** a model failure or a malformed answer is a `502`.
-- **Unchanged:** a question with no incident (library scope) keeps the template answer until library chat arrives, and so does every question in template mode, both with exactly the v1 keys.
+- **Library scope** (grounded mode, no incident and no version):
+  - **Plan:** the model turns the question into a plan with `chat/library-plan`: incident type, severity band, instrument, asset, a search phrase, and whether a count is wanted. An unknown type or severity is dropped.
+  - **Filtering:** code reads every incident's searchable version (official, else newest; `IncidentDBLibraryIndex`, cached 60 s) and filters it exactly.
+  - **Answer:** code ranks the matches by the phrase, and the model answers from the best eight with `chat/library-answer`. The context carries `total_matching`, counted by code, which the model must use for "how many".
+  - **Citations:** each is an (incident, item) pair checked against the reports shown.
+  - **Empty result:** with no matching report the answer is insufficient evidence, without a second model call.
+  - **`grounding`:** gains `scope: "library"`, `plan`, `matching` and `candidates`; `version_id` and `official` are `null`.
+- **Unchanged:** every question in template mode keeps exactly the v1 keys.
 
 ## `POST /api/v1/incidents/charts`
 

@@ -207,6 +207,28 @@
         "agent"
       ],
       "purpose": "The grounded chat's system prompt: answer one report version from its JSON, cite item ids, flag insufficient evidence."
+    },
+    {
+      "id": "chat/library-plan",
+      "file": "chat/library-plan.txt",
+      "sha256": "de6f48c06eab7c41c517397a80a9b0db441c4fbf93620f55e3c56e92135cb480",
+      "stage": "chat",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "The library chat's planner: turn a question into filters (type, severity, instrument, asset), a search phrase and a count flag."
+    },
+    {
+      "id": "chat/library-answer",
+      "file": "chat/library-answer.txt",
+      "sha256": "ca64110be1899b376fab64a80e27d681c9a19030a6fcfc10e412984ecab34cdb",
+      "stage": "chat",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "The library chat's answer: answer from the matching reports and the code-counted total, cite incident and item ids."
     }
   ]
 }
