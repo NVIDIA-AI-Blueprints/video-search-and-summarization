@@ -32,7 +32,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - content-addressed, append-only artifacts and sealed runs (`artifacts.py`);
   - separate, retry-proof budget ledgers (`budget.py`; every HTTP attempt is charged before it is sent);
   - V1's retry policies, mirrored and tested for parity (`retry.py`);
-  - checkpoints keyed by idempotency key (`checkpoint.py`);
+  - checkpoints keyed by idempotency key (`checkpoint.py`): every outcome name is classified explicitly, and only an infrastructure failure, a budget refusal or an unsent attempt stays open for recovery (an HTTP error status or a reply that is not a completion is final, as in V1's `recovery-v1`);
   - strict JSON run configs (`config.py`);
   - run manifests (`manifest.py`);
   - the offline network block (`netguard.py`);
@@ -40,7 +40,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - the frozen-V1 guard (`frozen_v1.py` with `frozen_v1.json`, the SHA-256 of 90 frozen V1 files).
 - **`evalv2.adapters`:** provider specifics only, never scoring.
   - The OpenAI-compatible adapter (`openai_compat.py`) covers Switchyard, the NVIDIA API catalog and a local vLLM or NIM endpoint.
-    - It charges every attempt before sending it and applies V1's retry policy.
+    - It charges every attempt before sending it, at V1's P1 ceiling (35,000 tokens, `P1_TOKENS_CEILING`) until usage is measured, and applies V1's retry policy. Any failed attempt that spanned a host suspend is `host_suspended`, whatever it failed with, as in V1.
     - It classifies failures as V1 does.
     - It stores the request and response bodies but never the key.
   - A scripted `fake.py` adapter supports plumbing runs.
@@ -49,9 +49,9 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
 - **`evalv2.requests`:** request builders that load `contracts/` and hold no prompt text. `p1.py` builds the P1 body, and a test pins it to V1's `eval_vlm_client.p1_request_payload`.
 - **`evalv2.tasks`:** the runner and scorer protocols and the task registry.
   - **`tasks/incident_objects/`** (Track A, P1 only), registered lazily as `incident_objects`:
-    - **`runner.py`:** sends V1's P1 body through a subject's adapter, validates the reply with V1's contract policy, stores the prediction, and labels the outcome as V1 does.
+    - **`runner.py`:** sends V1's P1 body through a subject's adapter, validates the reply with V1's contract policy, stores the prediction, and labels the outcome as V1 does. Every attempt reserves V1's P1 ceiling on the `inference` ledger, the bound preflight assumes. A failed record keeps the adapter's failure kind (`failure_kind`) for the checkpoint, since V1's label folds transport errors and budget refusals into `http_error`.
     - **`scoring.py`:** follows V1's `run_evaluation` and calls V1's own rules through `v1.py`, the task's only bridge to V1. Similarity and judge scores are injected providers whose results are recorded, so a run's full similarity matrices and judgements make re-scoring offline and exact.
-    - **`aggregate.py`:** reports V1's own aggregates as `continuity_v1`, plus the V2 metrics: type macro-F1 and confusion, severity quadratic-weighted κ, timestamp errors with a tolerance curve, the incident window's temporal IoU, and attribute accuracies.
+    - **`aggregate.py`:** reports V1's own aggregates as `continuity_v1`, plus the V2 metrics: type macro-F1 (over the labels with ground-truth support; a label no clip has is `None`, not 0) and confusion, severity quadratic-weighted κ, timestamp errors with a tolerance curve, the incident window's temporal IoU, and attribute accuracies.
   - **`tasks/judging.py`:** judge results as data. A cache is keyed by judge model, prompt hash, settings and texts. An offline judge never calls a model, and a missing judgement is unscored, not failed.
 - **`evalv2.references`:** the box-reference tooling (R2). Making references is the approved run RA1.
   - **`boxes.py`:**
