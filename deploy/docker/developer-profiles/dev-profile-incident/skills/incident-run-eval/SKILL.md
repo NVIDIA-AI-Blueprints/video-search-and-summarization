@@ -113,6 +113,11 @@ uv run python -m evalv2 audit run --store <dir> --run <run id>  # a sealed run's
 ```
 
 - Configs are JSON (`evalv2-config-v1`). A run on the test half must name the approved freeze manifest.
+- **Endpoints and their environment variables.** Names only; the values live in `.env.local` and are never printed.
+  - `switchyard`: `VLM_GATEWAY_BASE_URL` (with `/v1`) and `VLM_GATEWAY_API_KEY`, as in V1.
+  - `nvidia-api-catalog`: `NVIDIA_API_BASE_URL` (default `https://integrate.api.nvidia.com/v1`) and `NVIDIA_API_KEY`.
+  - `local-openai`: `EVALV2_LOCAL_BASE_URL` and `EVALV2_LOCAL_API_KEY`.
+- **Model capabilities** are in `evalv2/adapters/capabilities.json`, all `verified: false` until a read-only live check. A subject that lacks a capability a task requires is reported as unsupported, never scored 0.
 - Caps are per ledger: inference, caption, grounding, zoom, object_tracking, embedding, judge, generation.
 
 ## Verify

@@ -1,0 +1,35 @@
+{
+  "note": "What each model is believed to support, from repository evidence only. Every entry is verified=false until a read-only live check (RB1) confirms it; preflight reports unverified capabilities. Sources: contracts/inference.json, .docs/analysis-schema.md, .docs/architecture.md, eval/docs/vlm_benchmark_results.md, .docs/decisions.md (2026-10-31 chunked captioning), services/agent/src/vss_agents/utils/crop_evidence.py.",
+  "models": {
+    "nvidia/cosmos-3-super-reasoner": {
+      "video_input": true, "image_input": true, "text_input": true, "json_schema": true, "bbox": true,
+      "frame_policy": "provider: about 24 frames, ignores num_frames",
+      "verified": false,
+      "notes": "V1's only P1 model; production grounding and zoom model (VLM_NAME). Strict json_schema works per analysis-schema.md."
+    },
+    "nvidia/cosmos-3-nano-reasoner": {
+      "video_input": true, "image_input": false, "text_input": true, "json_schema": true, "bbox": false,
+      "frame_policy": "unverified: docs conflict (num_frames honoured vs fixed 2 fps capped near 60)",
+      "verified": false,
+      "notes": "Console default (VLM_MODEL). Image input and boxes never exercised."
+    },
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {
+      "video_input": true, "image_input": false, "text_input": true, "json_schema": true, "bbox": false,
+      "frame_policy": "unverified",
+      "verified": false,
+      "notes": "Needs about 16k output tokens; 2 Oct benchmark: 10 of 55 invalid, 30k TPM quota."
+    },
+    "nvidia/nemotron-3-ultra": {
+      "video_input": false, "image_input": false, "text_input": true, "json_schema": true, "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "notes": "Chart-spec model (CHART_MODEL) and the VM's LLM_NAME; chatbot candidate."
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+      "video_input": false, "image_input": false, "text_input": true, "json_schema": false, "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "notes": "V1's pinned judge; same family as the Omni subject."
+    }
+  }
+}

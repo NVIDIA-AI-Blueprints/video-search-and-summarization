@@ -37,7 +37,22 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - run manifests (`manifest.py`);
   - the offline network block (`netguard.py`);
   - the frozen-V1 guard (`frozen_v1.py` with `frozen_v1.json`, the SHA-256 of 90 frozen V1 files).
+- **`evalv2.adapters`:** provider specifics only, never scoring.
+  - The OpenAI-compatible adapter (`openai_compat.py`) covers Switchyard, the NVIDIA API catalog and a local vLLM or NIM endpoint.
+    - It charges every attempt before sending it, at V1's P1 ceiling (35,000 tokens, `P1_TOKENS_CEILING`) until usage is measured, and applies V1's retry policy. Any failed attempt that spanned a host suspend is `host_suspended`, whatever it failed with, as in V1.
+    - It classifies failures as V1 does.
+    - It stores the request and response bodies but never the key.
+  - A scripted `fake.py` adapter supports plumbing runs.
+  - `capabilities.json` records what each model is believed to support. Every entry is `verified: false` until a read-only live check confirms it.
+  - `registry.py` builds adapters from subject configs.
+- **`evalv2.requests`:** request builders that load `contracts/` and hold no prompt text. `p1.py` builds the P1 body, and a test pins it to V1's `eval_vlm_client.p1_request_payload`.
 - **`evalv2.tasks`:** the runner and scorer protocols and the task registry.
+
+**Adding a model:**
+- **OpenAI-compatible endpoint:** add a subject entry to the run config and an entry to `adapters/capabilities.json`. No code changes.
+- **Different API:** add one module implementing `adapters/base.ModelAdapter` and one `ADAPTERS` entry. Tasks and scorers stay unchanged.
+
+The `test_every_adapter_meets_the_conformance_contract` test applies to every adapter.
 
 Commands are in the [`incident-run-eval`](../skills/incident-run-eval/SKILL.md) skill. Tests live in `tests/v2/` and run with `uv run pytest tests/`. Nothing in the package calls a model yet.
 
