@@ -85,7 +85,7 @@ def test_meters_count_calls_failures_tokens_and_time():
     }
     assert stages["grounding"]["refused"] == 1 and stages["rp1"]["calls"] == 0
     with pytest.raises(ValueError, match="unknown stage"):
-        provenance.stage("embedding")
+        provenance.stage("judge")
 
 
 def test_recording_outside_an_analysis_is_a_no_op():
@@ -228,3 +228,154 @@ def test_the_agent_identity_prefers_an_explicit_sha(monkeypatch):
 def test_usage_of_tolerates_unreadable_bodies():
     assert run_provenance.usage_of(SimpleNamespace(json=lambda: {"usage": {"total_tokens": 3}})) == {"total_tokens": 3}
     assert run_provenance.usage_of(SimpleNamespace(json=lambda: 1 / 0)) is None
+
+
+# -- review fixes: what a stage counts as failed, malformed usage, refused blur calls, the embedding, the flags ------
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [{"prompt_tokens": "n/a", "completion_tokens": None}, "n/a", ["x"], {"total_tokens": float("nan")}, None],
+)
+def test_a_malformed_usage_counts_as_none_and_never_raises(usage):
+    with run_provenance.collecting() as provenance:
+        run_provenance.record_call("p1", ok=True, usage=usage, elapsed_ms=1)
+    p1 = provenance.to_dict(contract_version="v", flags={})["stages"]["p1"]
+    assert p1["calls"] == 1 and p1["total_tokens"] == 0 and p1["calls_without_usage"] == 1
+    budget = crop_evidence.CropCallBudget(2)
+    budget.record_response(SimpleNamespace(status_code=200, json=lambda: {"usage": usage}))
+    assert budget.summary()["tokens"] == 0
+
+
+def test_numeric_strings_still_count():
+    assert run_provenance.token_counts({"prompt_tokens": "6", "completion_tokens": 4.0}) == (6, 4, 10)
+    assert run_provenance.token_counts({"total_tokens": True}) == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("replies", "failed"),
+    [
+        # a reply the contract rejects (a 422 run) is a failed attempt
+        ([{"choices": [{"message": {"content": '{"incident": {}}'}, "finish_reason": "stop"}]}], 1),
+        # a runaway (no content, finish_reason=length) is a failed attempt
+        ([{"choices": [{"message": {"content": ""}, "finish_reason": "length"}]}], 1),
+        # a 200 with no answer (an undecodable video) is a failed attempt
+        ([None], 1),
+    ],
+)
+async def test_a_p1_attempt_without_a_valid_report_is_a_failed_call(replies, failed):
+    from vss_agents.tools.incident_report_gen import IncidentExtractionError
+    from vss_agents.tools.incident_report_gen import VlmNoAnswerError
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content=json.dumps(replies[0]).encode(), headers={"content-type": "application/json"}
+        )
+
+    with run_provenance.collecting() as provenance:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            with pytest.raises((IncidentExtractionError, VlmNoAnswerError)):
+                await run_p1(client, _config(), VIDEO_URL, video_duration_seconds=30)
+    p1 = provenance.to_dict(contract_version="v", flags={})["stages"]["p1"]
+    assert p1["calls"] == 1 and p1["failed"] == failed
+
+
+def test_a_zoom_reply_the_strict_check_rejects_is_a_failed_call(monkeypatch):
+    no_name = _content({"description": "a stick", "confidence": 0.9})  # a look reply must name the object
+    monkeypatch.setattr(crop_evidence.httpx, "post", lambda *_a, **_k: _Reply(200, no_name, {"total_tokens": 10}))
+    with run_provenance.collecting() as provenance:
+        with pytest.raises(ValueError):
+            _detector().zoom_name(
+                b"close", item_type="instrument", name="stick", description="a stick", context_jpeg=b"frame"
+            )
+    zoom = provenance.to_dict(contract_version="v", flags={})["stages"]["zoom"]
+    assert zoom["calls"] == 1 and zoom["failed"] == 1
+
+
+@pytest.mark.parametrize("status", [101, 302])
+def test_a_reply_that_is_not_2xx_is_a_failed_call(monkeypatch, status):
+    reply = _Reply(status, _content({"bbox_2d": [1, 2, 3, 4]}))
+    reply.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError("x", request=MagicMock(), response=MagicMock())
+    )
+    monkeypatch.setattr(crop_evidence.httpx, "post", lambda *_a, **_k: reply)
+    with run_provenance.collecting() as provenance:
+        with pytest.raises(httpx.HTTPStatusError):
+            _detector()._request_box({"model": "grounder"})
+    grounding = provenance.to_dict(contract_version="v", flags={})["stages"]["grounding"]
+    assert grounding["calls"] == 1 and grounding["failed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_the_revision_embedding_is_metered_as_its_own_stage():
+    from vss_agents.utils.embeddings import RemoteTextEmbedder
+
+    calls = iter([httpx.Response(503, text="busy"), None])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        reply = next(calls)
+        if reply is not None:
+            return reply
+        size = len(json.loads(request.content)["input"])
+        return httpx.Response(
+            200,
+            json={"data": [{"index": i, "embedding": [0.0] * 1024} for i in range(size)], "usage": {"total_tokens": 9}},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        embedder = RemoteTextEmbedder(api_key="k", base_url="http://embed.invalid/v1", http_client=client)
+        with patch("vss_agents.utils.embeddings.asyncio.sleep", new_callable=AsyncMock):
+            with run_provenance.collecting() as provenance:
+                await embedder.embed_passage("a report")
+    embedding = provenance.to_dict(contract_version="v", flags={})["stages"]["embedding"]
+    assert embedding["calls"] == 2 and embedding["failed"] == 1 and embedding["total_tokens"] == 9
+
+
+def test_the_flags_say_what_the_analysis_ran_over_the_agents_settings():
+    settings = {"chunking": {"enabled": True, "window_seconds": 20}, "tracking": True, "experiments": True}
+    with run_provenance.collecting() as provenance:
+        provenance.ran(experiment=True, chunking=False, tracking=False, object_tracking=True)
+    flags = provenance.to_dict(contract_version="v", flags=settings)["flags"]
+    assert flags == {
+        "chunking": {"enabled": False, "window_seconds": 20},
+        "tracking": False,
+        "experiments": True,
+        "experiment": True,
+        "object_tracking": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_an_experiment_reports_the_stages_it_ran_not_the_agents_settings(monkeypatch):
+    monkeypatch.setenv("INCIDENT_EXPERIMENTS_ENABLED", "1")
+    monkeypatch.setenv("INCIDENT_TRACKING_ENABLED", "1")
+    monkeypatch.setenv("INCIDENT_CHUNKING_ENABLED", "1")
+    transport = httpx.MockTransport(
+        lambda _r: httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": json.dumps(MODEL_OUTPUT)}, "finish_reason": "stop"}],
+                "usage": {"total_tokens": 7000},
+            },
+        )
+    )
+    real_client = httpx.AsyncClient
+
+    def client_factory(*args, **kwargs):
+        kwargs["transport"] = transport
+        return real_client(*args, **kwargs)
+
+    with patch("vss_agents.tools.incident_report_gen.httpx.AsyncClient", side_effect=client_factory):
+        async with incident_report_gen(_config(), MagicMock()) as function_info:
+            result = await function_info.single_fn(
+                IncidentReportGenInput(
+                    incident_id="v1", video_url=VIDEO_URL, video_duration_seconds=30, skip_rp1=True, skip_crops=True
+                )
+            )
+    flags = result.provenance["flags"]
+    assert flags["experiment"] is True and flags["experiments"] is True
+    assert flags["tracking"] is False and flags["set_of_marks"] is False and flags["object_tracking"] is False
+    assert flags["chunking"]["enabled"] is False, "the experiment ran no caption pass, whatever the agent's setting"
+    assert flags["zoom_names"] is False and flags["privacy_blur"] is False, "skip_crops: no crop, no zoom, no blur"
+    assert "caption" not in result.provenance["stages"]

@@ -120,5 +120,8 @@ async def test_an_experimental_crop_run_caps_zoom_tracks_objects_and_returns_the
     assert kwargs["object_tracking"] is not None and kwargs["detector"].call_budget.limit == 10
     experiment = result.experiment
     assert experiment["p1_report"] == result.report, "no zoom ran (collect is faked), so the reports are equal"
-    assert experiment["zoom"]["cap"] == 3 and "object_tracking" in experiment
+    assert experiment["zoom"]["cap"] == 3
+    # The setting stays a bool; the tracker's summary is the response's own field, as in production.
+    assert experiment["object_tracking"] is True and result.object_tracking is not None
+    assert result.provenance["flags"]["object_tracking"] is True and result.provenance["flags"]["experiment"] is True
     assert experiment["persisted"] is False and result.revision_id is None
