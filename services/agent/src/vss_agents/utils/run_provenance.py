@@ -18,15 +18,19 @@
 One analysis collects a :class:`RunProvenance` in a context variable (:func:`collecting`), so every model call
 inside it is counted without threading a meter through the evidence pipeline: the context reaches the request's
 tasks and ``asyncio.to_thread`` workers. Each stage (``caption``, ``p1``, ``rp1``, ``grounding``, ``zoom``,
-``object_tracking``, ``privacy_heads``) counts the HTTP attempts it sent, the ones that failed (an error status or
-a transport error; for P1, grounding and zoom also a reply without a usable answer), the ones a cap refused before
-sending, tokens as reported, attempts that reported none, and time. A detector call is counted under the stage set
+``object_tracking``, ``privacy_heads``, ``embedding``) counts the HTTP attempts it sent, the ones that failed (a
+transport error or any status other than 2xx; for P1, grounding and zoom also a reply without a usable answer: P1's
+must pass the contract's strict parse, a zoom look or merge its strict reply check), the ones a cap refused before
+sending, tokens as reported (a malformed count reads as none), attempts that reported none, and time. A detector call is counted under the stage set
 by :func:`stage_scope` (``grounding`` unless the object tracker or the privacy head search set theirs); a zoom call
 always counts as ``zoom``.
 
 The record (:meth:`RunProvenance.to_dict`) also names the agent's code (:func:`agent_identity`), the analysis
-flags in effect (:func:`analysis_flags`) and each stage's prompt SHA-256 from the shared registry. The console
-writes it once into ``model_runs.notes`` (``response.provenance``).
+flags and each stage's prompt SHA-256 from the shared registry. The flags are the agent's settings
+(:func:`analysis_flags`) overlaid with what this analysis actually ran (:meth:`RunProvenance.ran`): an experiment
+never runs the caption pass, person tracking or set-of-marks whatever the agent's settings say, and it runs object
+tracking only when it asks for it. The console writes the record once into ``model_runs.notes``
+(``response.provenance``).
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field
 from functools import cache
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -48,7 +53,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 SCHEMA = "incident-run-provenance-v1"
-STAGES = ("caption", "p1", "rp1", "grounding", "zoom", "object_tracking", "privacy_heads")
+STAGES = ("caption", "p1", "rp1", "grounding", "zoom", "object_tracking", "privacy_heads", "embedding")
 GIT_SHA_ENV = "VSS_AGENT_GIT_SHA"
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 
@@ -69,10 +74,8 @@ class StageMeter:
     elapsed_ms: float = 0.0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
-    def record(self, *, ok: bool, usage: Mapping[str, Any] | None, elapsed_ms: float) -> None:
-        prompt = int((usage or {}).get("prompt_tokens") or 0)
-        completion = int((usage or {}).get("completion_tokens") or 0)
-        total = int((usage or {}).get("total_tokens") or 0) or prompt + completion
+    def record(self, *, ok: bool, usage: Any, elapsed_ms: float) -> None:
+        prompt, completion, total = token_counts(usage)
         with self._lock:
             self.calls += 1
             self.failed += 0 if ok else 1
@@ -102,12 +105,45 @@ class StageMeter:
             }
 
 
+def _count_of(value: Any) -> int:
+    """A provider's token count as a non-negative int; anything else (a bool, "n/a", NaN, a list) reads as 0."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except ValueError:
+            return 0
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float) and math.isfinite(value):
+        return max(0, int(value))
+    return 0
+
+
+def token_counts(usage: Any) -> tuple[int, int, int]:
+    """``(prompt, completion, total)`` tokens of a reply's ``usage``: 0 for a missing or malformed count, and the
+    total is the sum when the provider gives none. Never raises, so a strange ``usage`` cannot fail a call."""
+    if not isinstance(usage, dict):
+        return 0, 0, 0
+    prompt = _count_of(usage.get("prompt_tokens"))
+    completion = _count_of(usage.get("completion_tokens"))
+    return prompt, completion, _count_of(usage.get("total_tokens")) or prompt + completion
+
+
 class RunProvenance:
     """The stages of one analysis; created by :func:`collecting`."""
 
     def __init__(self) -> None:
         self._stages: dict[str, StageMeter] = {}
+        self._ran: dict[str, Any] = {}
         self._lock = threading.Lock()
+
+    def ran(self, **flags: Any) -> None:
+        """Record what this analysis actually ran (``tracking=False`` for an experiment, say); these replace the
+        agent's settings of the same name in the record's flags (``chunking`` replaces ``chunking.enabled``)."""
+        with self._lock:
+            self._ran.update(flags)
 
     def stage(self, name: str) -> StageMeter:
         if name not in STAGES:
@@ -124,13 +160,20 @@ class RunProvenance:
             meter.prompts.update(prompts or {})
 
     def to_dict(self, *, contract_version: str, flags: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """The record. ``flags`` (default :func:`analysis_flags`) are the agent's settings; what :meth:`ran` recorded
+        replaces them."""
         with self._lock:
             stages = {name: meter.to_dict() for name, meter in sorted(self._stages.items())}
+            ran = dict(self._ran)
+        settings = dict(flags if flags is not None else analysis_flags())
+        if "chunking" in ran:
+            chunking = settings.get("chunking")
+            settings["chunking"] = {**(chunking if isinstance(chunking, dict) else {}), "enabled": ran.pop("chunking")}
         return {
             "schema": SCHEMA,
             "agent": agent_identity(),
             "contract_version": contract_version,
-            "flags": dict(flags if flags is not None else analysis_flags()),
+            "flags": {**settings, **ran},
             "stages": stages,
         }
 
@@ -166,9 +209,7 @@ def stage_scope(name: str) -> Iterator[None]:
         _STAGE.reset(token)
 
 
-def record_call(
-    stage: str | None, *, ok: bool, usage: Mapping[str, Any] | None, elapsed_ms: float, model: str | None = None
-) -> None:
+def record_call(stage: str | None, *, ok: bool, usage: Any, elapsed_ms: float, model: str | None = None) -> None:
     """Count one HTTP attempt for ``stage`` (``None``: the current detector stage); a no-op outside an analysis."""
     provenance = _CURRENT.get()
     if provenance is None:

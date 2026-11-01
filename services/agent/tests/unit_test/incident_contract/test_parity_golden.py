@@ -21,6 +21,7 @@ zoom requests have no other producer, and their goldens pin today's prompts befo
 
 from __future__ import annotations
 
+import base64
 import importlib.util
 import json
 from pathlib import Path
@@ -187,3 +188,17 @@ def test_zoom_requests_equal_the_golden(monkeypatch: pytest.MonkeyPatch, item_ty
     assert len(sent) == len(steps), "the two looks agree, so the merge call is made"
     for step, body in zip(steps, sent, strict=True):
         _assert_golden("zoom", step, body)
+    # The golden writes every inline JPEG as one placeholder, so it cannot see the images swapped; the prompt says
+    # the frame comes first and the close-up second, and the decoded bytes must say the same.
+    assert [_images(body) for body in sent] == [[b"frame"], [b"frame", b"close-up"], []]
+
+
+def _images(body: dict[str, Any]) -> list[bytes]:
+    """The inline images of a request, decoded, in the order sent."""
+    return [
+        base64.b64decode(part["image_url"]["url"].split(",", 1)[1])
+        for message in body["messages"]
+        if isinstance(message["content"], list)
+        for part in message["content"]
+        if part.get("type") == "image_url"
+    ]
