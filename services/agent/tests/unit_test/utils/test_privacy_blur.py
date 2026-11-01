@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 from vss_agents.utils import privacy_blur
+from vss_agents.utils import run_provenance
 from vss_agents.utils.crop_evidence import BudgetedDetector
 from vss_agents.utils.crop_evidence import CropCallBudget
 from vss_agents.utils.crop_evidence import CropEvidenceService
@@ -333,9 +334,12 @@ class TestWholeFrameHeads:
         self, textured_video: Path
     ) -> None:
         privacy = PrivacySummary(call_cap=1)  # the stored frame's second gets the one call; the clip samples do not
-        entries, store = await _run(textured_video, privacy=privacy)
+        with run_provenance.collecting() as provenance:
+            entries, store = await _run(textured_video, privacy=privacy)
         assert _padded(HEAD_B) in entries["E1"]["blur_regions"]
         assert privacy.detector_calls == 1 and privacy.cap_refused == 3 and privacy.fallbacks == 3
+        # The run provenance counts each head search the cap refused before sending.
+        assert provenance.to_dict(contract_version="v", flags={})["stages"]["privacy_heads"]["refused"] == 3
         samples = _heads_file(store, entries["E1"])["samples"]
         assert [(sample["t"], sample.get("fallback", False)) for sample in samples] == [
             (0.0, False),
@@ -488,3 +492,59 @@ class TestSummary:
         for value, expected in (("12", 12), ("0", privacy_blur.DEFAULT_CALL_CAP), ("x", privacy_blur.DEFAULT_CALL_CAP)):
             monkeypatch.setenv(privacy_blur.CALL_CAP_ENV, value)
             assert PrivacySummary().call_cap == expected
+
+
+class TestZoomCapThroughThePipeline:
+    """P4's zoom-call cap, run through process_incident_report with a real namer and a fake upstream (review gap)."""
+
+    @pytest.mark.asyncio
+    async def test_the_zoom_cap_holds_and_later_items_keep_a_zoom_gap(
+        self, textured_video: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from vss_agents.utils import crop_evidence
+
+        look = {"name": "bag", "description": "a bag", "confidence": 0.9, "changed": False}
+        sent: list[dict[str, Any]] = []
+
+        class _Reply:
+            status_code = 200
+
+            def __init__(self) -> None:
+                self.headers: dict[str, str] = {}
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, Any]:
+                return {"choices": [{"message": {"content": json.dumps(look)}}], "usage": {"total_tokens": 5}}
+
+        def fake_post(*_args: Any, json: dict[str, Any], **_kwargs: Any) -> _Reply:
+            sent.append(json)
+            return _Reply()
+
+        monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
+        budget = CropCallBudget(4)  # one item's three calls, and one of the next item's
+        namer = crop_evidence.with_zoom_budget(DefaultDetector(model_name="grounder", api_key="k"), budget)
+        report = {
+            **REPORT,
+            "assets": [{"asset_id": "A1", "name": "panel", "description": "panel", "timestamp_seconds": 0}],
+        }
+        store = InMemoryEvidenceStore()
+        service = CropEvidenceService(detector=RecordingDetector(), store=store, namer=namer)
+        with run_provenance.collecting() as provenance:
+            entries = await service.process_incident_report(
+                video_ref=textured_video,
+                video_id="v",
+                video_key="uploads/a.mp4",
+                report=report,
+                batch_id="run-1",
+                zoom_names=True,
+                video_seconds=2.0,
+            )
+        summary = budget.summary()
+        assert len(sent) == summary["calls"] <= 4, "never more HTTP attempts than the cap"
+        assert summary["refused_by_cap"] >= 1 and summary["cap_reached"] is True
+        gaps = [e.get("zoom_gap") or "" for e in entries]
+        assert any(gap.startswith("zoom-call cap reached") for gap in gaps)
+        zoom = provenance.to_dict(contract_version="v", flags={})["stages"]["zoom"]
+        assert zoom["calls"] == len(sent) and zoom["refused"] == summary["refused_by_cap"]
