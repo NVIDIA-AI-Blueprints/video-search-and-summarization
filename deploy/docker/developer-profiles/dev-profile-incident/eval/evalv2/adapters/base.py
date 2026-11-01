@@ -158,6 +158,13 @@ class PipelineResult:
     def evidence(self) -> list[Mapping[str, Any]]:
         return list(self.body.get("evidence") or []) if self.outcome == "answered" else []
 
+    @property
+    def object_tracking(self) -> Mapping[str, Any] | None:
+        """The object tracker's summary: the reply's top-level ``object_tracking`` (``experiment.object_tracking`` is
+        only the request's setting), with ``detector`` the tracker's call budget (``cap``, ``calls``, ...)."""
+        summary = self.body.get("object_tracking") if self.outcome == "answered" else None
+        return summary if isinstance(summary, Mapping) else None
+
 
 @runtime_checkable
 class PipelineAdapter(Protocol):

@@ -32,9 +32,11 @@ predictions of the same run, so the scorers can separate the effects (methodolog
   Where both exist they must agree (``zoom_undo_consistent``).
 - ``final``: the final report. ``final`` minus ``p1_agent`` is the zoom effect, with no extra calls.
 
-The artifact also keeps the evidence entries (the crop scorers' input), the agent's experiment summaries (crop,
-zoom and object-tracking calls against their caps), whether a caption pass ran, and whether V1's policy agreed
-with the agent's own validation. Executing is a live, approval-gated run that needs the run's video-URL resolver.
+The artifact also keeps the evidence entries (the crop scorers' input), the agent's experiment summaries (crop and
+zoom calls against their caps), the object tracker's summary (the reply's top-level ``object_tracking``, whose
+``detector`` is the tracker's call budget; ``experiment.object_tracking`` is only the request's setting), whether a
+caption pass ran, and whether V1's policy agreed with the agent's own validation. Executing is a live,
+approval-gated run that needs the run's video-URL resolver.
 """
 
 from __future__ import annotations
@@ -165,6 +167,7 @@ class PipelineTask:
             "p1_attempts": result.p1_attempts, "p1_retried": p1_retried(result.p1_attempts),
             "evidence": [dict(entry) for entry in result.evidence],
             "experiment": {k: v for k, v in result.experiment.items() if k != "p1_report"},
+            "object_tracking": dict(result.object_tracking) if result.object_tracking is not None else None,
             "caption_pass": {"ran": bool(caption.get("calls")), "calls": int(caption.get("calls") or 0)},
             "request_ref": result.request_ref, "response_ref": result.response_ref,
         }

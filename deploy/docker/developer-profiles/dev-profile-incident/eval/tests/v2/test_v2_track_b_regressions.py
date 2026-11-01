@@ -188,3 +188,18 @@ def test_the_tracking_profile_expects_object_tracking_and_every_profile_an_exper
         VssAgentAdapter("super-b", MODEL, post=FakeAgent(_answer(_provenance(flags={"experiment": None})))).analyze(
             "Assault001", _request(), _ctx(tmp_path))
     assert requests_vss.STAGE_LEDGERS["embedding"] == "embedding"
+
+
+def test_the_trackers_summary_is_stored_from_the_replys_top_level_field(tmp_path):
+    task = PipelineTask(video_url=lambda clip: SIGNED, video_duration=lambda clip: 30.0)
+    config = _config([{"id": "super-b", "adapter": "vss", "model": MODEL, "endpoint": "experiment-agent",
+                       "profile": "production-v4-object-tracking"}])
+    item = task.plan(config, {"clips": ["Assault001"]})[0]
+    status, body = _tracked_answer(cap=80)
+    body["experiment"]["object_tracking"] = True  # the request's setting stays a bool (P4)
+    ctx = _tracked_ctx(tmp_path)
+    record = task.execute(item, VssAgentAdapter("super-b", MODEL, post=FakeAgent((status, body))), ctx)
+    stored = ctx.store.get(ArtifactRef.parse(record.prediction_ref))
+    assert stored["object_tracking"]["detector"]["cap"] == 80 and stored["experiment"]["object_tracking"] is True
+    _, untracked = _execute(tmp_path / "b", _answer())
+    assert untracked["object_tracking"] is None
