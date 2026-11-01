@@ -1,0 +1,5 @@
+{
+  "registry_version": 1,
+  "note": "Append-only. Prompts that generate or validate V2 references; never sent to a subject. A changed prompt is a new id with a parent; never edit or remove an entry or its file.",
+  "prompts": []
+}

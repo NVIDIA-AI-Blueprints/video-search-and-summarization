@@ -36,6 +36,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - strict JSON run configs (`config.py`);
   - run manifests (`manifest.py`);
   - the offline network block (`netguard.py`);
+  - the private-output guard (`private.py`): ground-truth or reference text is written only where Git ignores it, or outside the repository;
   - the frozen-V1 guard (`frozen_v1.py` with `frozen_v1.json`, the SHA-256 of 90 frozen V1 files).
 - **`evalv2.adapters`:** provider specifics only, never scoring.
   - The OpenAI-compatible adapter (`openai_compat.py`) covers Switchyard, the NVIDIA API catalog and a local vLLM or NIM endpoint.
@@ -47,6 +48,19 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - `registry.py` builds adapters from subject configs.
 - **`evalv2.requests`:** request builders that load `contracts/` and hold no prompt text. `p1.py` builds the P1 body, and a test pins it to V1's `eval_vlm_client.p1_request_payload`.
 - **`evalv2.tasks`:** the runner and scorer protocols and the task registry.
+- **`evalv2.datasets`:**
+  - **`registry.json`:** every dataset by id, with its location and pinned hashes. It is append-only, and only hashes and counts are committed.
+  - **Resolving:** `resolve` checks the hashes before anything is read. Private datasets are read from `--data-root`, else `EVALV2_DATA_ROOT`, else `eval_data/`.
+  - **`ground_truth.py`:** reads `ground-truth-v1.0` through V1's `load_frozen_gt_index`, and also checks the manifest's `records_sha256`.
+  - **`split-v2`:** verified, and checked against the split frozen with the ground truth.
+  - **`records.py`:** reference records and their tiers. Only an imported human decision makes a record `human_verified`, and a reviewer id naming a model is refused.
+  - **`loader.py`:** gives each task the datasets its config names, plus their hashes for the run manifest.
+  - **`generation_prompts/`:** the append-only registry of prompts that make references. It is empty until the reference tooling adds its prompts.
+- **`evalv2.review`:** the human-review loop.
+  - **Sampling:** every flagged record, plus a stratified sample (20% by default). The sample is deterministic per seed, and its strata include the tier.
+  - **Workbook:** the sample is exported to xlsx with a decision list and a hidden payload hash. People's decisions are imported back and applied; a decision on a changed record is refused.
+  - **Agreement:** Cohen's κ and weighted κ.
+  - **Error estimate:** the AI tiers' error rate is estimated from the reviewed sample, weighted by stratum.
 
 **Adding a model:**
 - **OpenAI-compatible endpoint:** add a subject entry to the run config and an entry to `adapters/capabilities.json`. No code changes.
