@@ -21,6 +21,26 @@
       "parent": null,
       "created": "2026-11-01",
       "notes": "Blind second pass on offset frames with its own numbering; never shown the first pass."
+    },
+    {
+      "id": "gen-chat-wording-v1",
+      "purpose": "chat_reference",
+      "role": "generator",
+      "file": "chat_reference/gen-chat-wording-v1.txt",
+      "sha256": "52e833f9ee3af450d15cc0c440c2832d7a30ec748d66a9c698478011b0d47936",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "Words a chat question (and two paraphrases) for a code-computed answer, or writes atomic facts."
+    },
+    {
+      "id": "gen-chat-rederive-v1",
+      "purpose": "chat_reference",
+      "role": "validator",
+      "file": "chat_reference/gen-chat-rederive-v1.txt",
+      "sha256": "6895523d3fb44519b18c30db0a0d39707521673327147d3e2c901d7a3d60a6e7",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "Blind re-derivation: answers the question from the report alone, never shown the reference."
     }
   ]
 }

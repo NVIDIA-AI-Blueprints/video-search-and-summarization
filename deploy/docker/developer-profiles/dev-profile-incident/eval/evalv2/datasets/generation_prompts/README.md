@@ -14,5 +14,6 @@ These prompts are never sent to a subject. Every reference record names the prom
 
 Registered so far:
 - `gen-box-select-v1` and `gen-box-validate-v1`, the box-reference first pass and blind second pass (`evalv2.references.boxes`).
+- `gen-chat-wording-v1` and `gen-chat-rederive-v1`, the chat question wording and the blind re-derivation (`evalv2.references.chat`).
 
-Chat prompts arrive with the chat-reference tooling. Running any of them to generate references is a separately approved run.
+Running any of them to generate references is a separately approved run.

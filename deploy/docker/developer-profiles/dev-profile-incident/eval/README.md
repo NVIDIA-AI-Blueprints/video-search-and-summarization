@@ -70,6 +70,14 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
   - **`detector.py`:** the offline open-vocabulary detector as a JSON subprocess protocol. It runs in a throwaway environment that records its weights' SHA-256, and is never a subject.
   - **`scripts/v2_box_frames.py`:** extracts native frames and draws numbered marks, in a throwaway environment.
   - The box prompts are `gen-box-select-v1` and `gen-box-validate-v1` in `evalv2/datasets/generation_prompts/`.
+  - **`chat.py`:** chat references (R3). Making them is the approved run RA2.
+    - Classes: 10 incident-scope and 5 library-scope.
+    - Every countable answer is computed by code from the ground truth's contract-shaped reports, and `recount` must agree.
+    - The generator only words the question and two paraphrases, or writes atomic facts for `incident.facts`.
+    - The blind validator gets the question and the incident, never the reference. A record is `ai_validated` only when it agrees and the code checks pass, including that the question does not state its answer.
+    - `leakage` reports each question's overlap with the target's description.
+    - The oracle corpus (the ground truth's reports) and a system corpus are kept apart.
+    - Prompts: `gen-chat-wording-v1` and `gen-chat-rederive-v1`.
 - **`evalv2.verify_v1`:** re-scores stored V1 records with V2 by replaying the stored assignments and judge scores (V1 kept no matrices). It requires every score block, and V1's aggregates and the Stage 3 report's `items` and `severity`, to be identical. Running it on the real Stage 3 records is the approved check RA0.
 - **`evalv2.datasets`:**
   - **`registry.json`:** every dataset by id, with its location and pinned hashes. It is append-only, and only hashes and counts are committed.
