@@ -16,6 +16,8 @@ export interface ContractCatalog {
   responseFormat(): Record<string, unknown>;
   promptSha256(): string;
   schemaSha256(): string;
+  /** A registered prompt from contracts/prompts/ (for example `p1/reviewer-preamble`), hash-checked. */
+  prompt(id: string): string;
 }
 
 let activeCatalog: ContractCatalog | null = null;

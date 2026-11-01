@@ -41,7 +41,7 @@ import contract
 
 REGISTRY_DIR = contract.CONTRACTS_DIR / "experiments"
 REGISTRY_PATH = REGISTRY_DIR / "registry.json"
-BASE_ID = "p1-v4-base"
+BASE_ID = "p1-v4-base"  # the V1 baseline; frozen V1 code (Stages 0-3, e2e profile) compares against it
 STATUSES = ("baseline", "candidate")  # selection is a decisions.md record, never an edit here
 ID_PATTERN = re.compile(r"^p1-v\d+-(base|e\d{2}[a-z0-9-]*)$")
 ENTRY_KEYS = ("id", "parent", "file", "sha256", "contract_version", "guidelines", "hypothesis", "created", "status")
@@ -57,6 +57,19 @@ def sha256_bytes(data: bytes) -> str:
 
 def load(path: Path | None = None) -> dict:
     return json.loads((path or REGISTRY_PATH).read_text())
+
+
+def current_base_id(contract_version: str | None = None) -> str:
+    """The registry id of the production baseline for a contract version (``incident-contract-v4`` -> ``p1-v4-base``).
+
+    ``BASE_ID`` stays the V1 baseline that frozen V1 code compares against; new code that means "the production
+    prompt of the current contract" uses this instead, so a contract bump does not need an edit.
+    """
+    version = contract_version or contract.contract_version()
+    match = re.fullmatch(r"incident-contract-v(\d+)", version)
+    if not match:
+        raise RegistryError(f"unrecognised contract version {version!r}")
+    return f"p1-v{match.group(1)}-base"
 
 
 def validate(registry: dict, directory: Path = REGISTRY_DIR, *, production_prompt: Path = contract.EXTRACTION_PROMPT_PATH,
