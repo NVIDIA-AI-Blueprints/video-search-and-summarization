@@ -9,7 +9,11 @@
 #   experiments/agent/start-experiment-agent.sh                       # real model endpoint (paid calls on use)
 #   experiments/agent/start-experiment-agent.sh --upstream http://127.0.0.1:8899   # local fake: no cost
 #
-# Env: NAT_BIN (default services/agent/.venv/bin/nat), EXPERIMENT_AGENT_PORT (default 8765).
+# Env: NAT_BIN (default services/agent/.venv/bin/nat), EXPERIMENT_AGENT_PORT (default 8765),
+#      EXPERIMENT_AGENT_DRY_RUN=1 (print the command and environment names instead of starting).
+# The agent always runs THIS checkout's code (PYTHONPATH=<checkout>/services/agent/src), whatever an editable install
+# in the venv points at, so the commit recorded in its run provenance is the code that ran. ffmpeg and ffprobe come
+# from the checkout's gitignored tools dir (.scripts/media-tools.sh install) when they are there, else /usr/bin.
 set -euo pipefail
 
 repo="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
@@ -53,9 +57,16 @@ else
   fi
 fi
 
+tools="${repo}/.tools/ffmpeg/bin"
+src="${repo}/services/agent/src"
 echo "experiment agent: http://127.0.0.1:${port}  model endpoint: ${base}  (no Supabase, no R2, experiments on)"
+echo "  code: ${src} at $(git -C "${repo}" rev-parse --short HEAD)  ffmpeg: $(PATH="${tools}:/usr/bin:/bin" command -v ffmpeg || echo none)"
+if [ "${EXPERIMENT_AGENT_DRY_RUN:-}" = 1 ]; then
+  echo "dry run: env -i HOME PATH=${tools}:/usr/bin:/bin PYTHONPATH=${src} VLM_BASE_URL VLM_NAME LLM_BASE_URL OPENAI_API_KEY INCIDENT_EXPERIMENTS_ENABLED=1 ${nat_bin} serve --config_file ${config} --host 127.0.0.1 --port ${port}"
+  exit 0
+fi
 cd "${repo}"
-exec env -i HOME="${HOME}" PATH="/usr/bin:/bin" \
+exec env -i HOME="${HOME}" PATH="${tools}:/usr/bin:/bin" PYTHONPATH="${src}" \
   VLM_BASE_URL="${base}" VLM_NAME="nvidia/cosmos-3-super-reasoner" LLM_BASE_URL="${base}" \
   OPENAI_API_KEY="${key}" INCIDENT_EXPERIMENTS_ENABLED=1 \
   "${nat_bin}" serve --config_file "${config}" --host 127.0.0.1 --port "${port}"

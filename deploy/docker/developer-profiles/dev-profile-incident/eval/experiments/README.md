@@ -43,6 +43,8 @@ Every guard runs before any call:
 | Order (D10) | Configurations given together run interleaved per video, the first rotating, in a seeded order per repeat (`schedule.json`) |
 | Pilot | `purpose: pilot` is dev-only, may use candidate ground truth, is never reportable, never feeds selection, and its report has no accuracy tables |
 
+The local experiment agent (`experiments/agent/start-experiment-agent.sh`) always runs the code of the checkout it is launched from (it sets `PYTHONPATH` to that checkout's `services/agent/src`, whatever an editable install in the venv points at), so the commit in its run provenance is the code that ran. It finds ffmpeg and ffprobe for the caption pass in the checkout's gitignored `.tools/ffmpeg/bin` (`.scripts/media-tools.sh install`), else in `/usr/bin`; `EXPERIMENT_AGENT_DRY_RUN=1` prints the command instead of starting it.
+
 Every call is logged to `eval_data/results/experiments/stages/<time>-<id>/cost-log.jsonl` with tokens, judge calls and the provisional cost (`pricing.json`, provisional until Switchyard pricing is confirmed). The VSS arm uses the [local experiment agent](agent/README.md).
 
 Results are written to `eval_data/results/experiments/<id>/<UTC time>/` as `results.json` (every §F.4 field) and `prompt.txt`. They are immutable and gitignored.
