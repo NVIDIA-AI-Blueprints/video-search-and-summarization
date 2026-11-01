@@ -24,9 +24,16 @@ Follows a hexagonal architecture: calls evidence search capabilities through the
 operation.
 
 A request may name a report revision (``version_id``) and carry an inline ``draft_report``. The
-official revision is answered from the search index (``evidence_crops``); any other revision, and
-any draft, is answered from that revision's own saved ``evidence``, because ``evidence_crops`` only
-holds official revisions. Revisions are read through the :class:`RevisionStore` port.
+official revision is answered through the search client (decision 2026-10-24). Any other revision,
+and any draft, is answered from that revision's own report and saved ``evidence`` by
+:mod:`vss_agents.utils.report_answers`, which composes prose for the kind of question asked (what
+happened in order, who, which objects, when, severity, type). The prose names people and objects by
+their descriptions, and keeps item and incident ids for the structured citations only. Revisions
+are read through the :class:`RevisionStore` port.
+
+The default search client (:class:`DisabledSearchClient`) searches nothing, and the answer says so.
+Before it, the canned in-memory client's demo hits were returned as if they were real for library
+questions.
 
 TODO(MVP2 Phase 4 / search route owner): Wire SearchClient to live search endpoint /
 pgvector RPC once merged.
@@ -52,6 +59,7 @@ from pydantic import model_validator
 
 from vss_agents.utils import grounded_chat
 from vss_agents.utils import incident_db
+from vss_agents.utils import report_answers
 from vss_agents.utils.crop_evidence import evidence_items
 from vss_agents.utils.r2 import resolve_r2_url
 
@@ -210,8 +218,31 @@ _DEFAULT_SEED_HITS: list[dict[str, Any]] = [
 ]
 
 
+class DisabledSearchClient:
+    """The default chat search client: it searches nothing, and the chat answer says so.
+
+    Decision 2026-10-24 kept official-version chat on the in-memory canned client for MVP2, so a finals
+    video gets no evidence. That client's demo hits (``Assault007``, ``Burglary005``) were also returned,
+    as if they were real, for every library question. The default now searches nothing instead, and the
+    answer says that this chat mode does not search that scope. Tests and local tools inject
+    :class:`InMemorySearchClient` explicitly.
+    """
+
+    enabled = False
+
+    async def search(
+        self,
+        query: str,
+        top_k: int = 5,
+        item_types: list[str] | None = None,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        del query, top_k, item_types, filters  # the SearchClient signature; nothing is searched
+        return []
+
+
 class InMemorySearchClient:
-    """In-memory SearchClient adapter for testing, mocks, and local development."""
+    """In-memory SearchClient adapter with demo hits, for tests and local development only."""
 
     def __init__(self, seed_hits: list[dict[str, Any]] | None = None) -> None:
         self.hits = list(seed_hits if seed_hits is not None else _DEFAULT_SEED_HITS)
@@ -317,47 +348,6 @@ class IncidentDBRevisionStore:
         video = await (await self._db()).get_video(video_id)
         official = video.get("official_revision_id") if video else None
         return int(official) if official is not None else None
-
-
-def _query_tokens(query: str) -> list[str]:
-    return [tok for tok in query.lower().strip().replace("?", " ").replace(",", " ").split() if len(tok) > 2]
-
-
-def _revision_hits(
-    query: str,
-    video_id: str,
-    evidence: list[dict[str, Any]],
-    top_k: int,
-) -> list[dict[str, Any]]:
-    """Rank a revision's own evidence entries for ``query`` and shape them like search hits.
-
-    Crops come from each entry's ``image`` key in this revision's saved evidence (never from
-    ``evidence_crops``). Matching is the same keyword match as the in-memory search client; when
-    nothing matches, the revision's items are returned in order, as for an incident-scoped search.
-    """
-    tokens = _query_tokens(query)
-    scored: list[tuple[float, dict[str, Any]]] = []
-    for entry in evidence:
-        if entry.get("item_type") not in ("entity", "instrument", "asset") or not entry.get("item_id"):
-            continue
-        text = " ".join(str(entry.get(k) or "") for k in ("item_type", "item_name", "label", "description")).lower()
-        score = sum(1 for tok in tokens if tok in text or (len(tok) > 3 and tok.rstrip("s") in text))
-        scored.append((score if score > 0 else 0.1, entry))
-    scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [
-        {
-            "item": {
-                "item_type": entry["item_type"],
-                "item_id": entry["item_id"],
-                "name": entry.get("item_name"),
-                "label": entry.get("label"),
-                "timestamp_seconds": entry.get("timestamp_seconds") or 0,
-                "crop_image_url": resolve_r2_url(str(entry.get("image") or "")),
-            },
-            "incident": {"incident_id": video_id},
-        }
-        for _, entry in scored[:top_k]
-    ]
 
 
 def _draft_evidence(draft_report: dict[str, Any], saved: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -474,7 +464,7 @@ def create_incident_chat_router(
     no incident (library scope) keeps the template answer until library chat arrives.
     """
     router = APIRouter()
-    client: SearchClient = search_client if search_client is not None else InMemorySearchClient()
+    client: SearchClient = search_client if search_client is not None else DisabledSearchClient()
     revisions: RevisionStore = revision_store if revision_store is not None else IncidentDBRevisionStore()
     selected_mode = mode if mode is not None else chat_mode()
     if selected_mode not in CHAT_MODES:
@@ -563,14 +553,10 @@ def create_incident_chat_router(
             grounding=grounding,
         )
 
-    async def _version_hits(
-        body: ChatRequest,
-        query_text: str,
-        filters: dict[str, Any],
-        search: SearchClient,
-        store: RevisionStore,
-    ) -> list[dict[str, Any]]:
-        """Hits for a question about one revision (``body.version_id``), optionally with a draft."""
+    async def _load_version(
+        body: ChatRequest, filters: dict[str, Any], store: RevisionStore
+    ) -> tuple[dict[str, Any], str, bool]:
+        """The revision a question is about (``body.version_id``), its incident, and whether it is official."""
         assert body.version_id is not None
         try:
             revision = await store.get_revision(body.version_id)
@@ -591,18 +577,7 @@ def create_incident_chat_router(
         except Exception as exc:
             logger.error("RevisionStore failed during incident chat: %s", exc, exc_info=True)
             raise HTTPException(status_code=502, detail=f"Report revision error: {exc}") from exc
-
-        if official and body.draft_report is None:
-            # evidence_crops holds the official revision only, and it is what search indexes.
-            try:
-                return await search.search(query=query_text, top_k=5, filters={"incident_id": video_id})
-            except Exception as exc:
-                logger.error("SearchClient failed during incident chat: %s", exc, exc_info=True)
-                raise HTTPException(status_code=502, detail=f"Evidence search error: {exc}") from exc
-
-        saved = revision.get("evidence") or []
-        evidence = _draft_evidence(body.draft_report, saved) if body.draft_report is not None else saved
-        return _revision_hits(query_text, video_id, evidence, top_k=5)
+        return revision, video_id, official
 
     @router.post(
         "/api/v1/incidents/chat",
@@ -636,28 +611,28 @@ def create_incident_chat_router(
         if selected_mode == "grounded" and (body.version_id is not None or "incident_id" in filters):
             return await _grounded(body, session_id, filters.get("incident_id"))
 
-        hits: list[dict[str, Any]]
-        if body.version_id is None:
-            # Query evidence search through the SearchClient port
-            try:
-                hits = await client.search(
-                    query=query_text,
-                    top_k=5,
-                    filters=filters,
-                )
-            except Exception as exc:
-                logger.error("SearchClient failed during incident chat: %s", exc, exc_info=True)
-                raise HTTPException(status_code=502, detail=f"Evidence search error: {exc}") from exc
-        else:
-            hits = await _version_hits(body, query_text, filters, client, revisions)
+        scope = "incident" if filters else "library"
+        if body.version_id is not None:
+            revision, video_id, official = await _load_version(body, filters, revisions)
+            if not official or body.draft_report is not None:
+                return _composed_answer(session_id, query_text, video_id, revision, body.draft_report)
+            # The official revision goes through the search client (decision 2026-10-24).
+            filters, scope = {"incident_id": video_id}, "official"
+
+        if not getattr(client, "enabled", True):
+            return ChatResponse(
+                session_id=session_id,
+                message=AssistantMessage(role="assistant", content=NOT_SEARCHED[scope], citations=[]),
+            )
+        try:
+            hits = await client.search(query=query_text, top_k=5, filters=filters)
+        except Exception as exc:
+            logger.error("SearchClient failed during incident chat: %s", exc, exc_info=True)
+            raise HTTPException(status_code=502, detail=f"Evidence search error: {exc}") from exc
 
         # Handle empty results cleanly
         if not hits:
-            scope_desc = (
-                f" in incident {body.context.incident_id}"
-                if body.context and body.context.scope == "incident" and body.context.incident_id
-                else ""
-            )
+            scope_desc = "" if scope == "library" else " in this incident"
             return ChatResponse(
                 session_id=session_id,
                 message=AssistantMessage(
@@ -670,7 +645,7 @@ def create_incident_chat_router(
         # Ground answer with citations
         citations: list[EvidenceCitation] = []
         seen_items: set[tuple[str, str]] = set()
-        item_summaries: list[str] = []
+        cited_hits: list[dict[str, Any]] = []
 
         for hit in hits:
             item = hit.get("item", {})
@@ -693,14 +668,10 @@ def create_incident_chat_router(
                         crop_image_url=crop_url,
                     )
                 )
-                item_name = item.get("name") or item.get("label") or item_id
-                inc_type = incident.get("incident_type", "incident")
-                item_summaries.append(f"{item_name} ({item_id}) in {inc_id} ({inc_type} at {int(ts)}s)")
+                cited_hits.append(hit)
 
-        summary_text = "; ".join(item_summaries)
-        content = (
-            f"Based on the surveillance evidence, {len(citations)} relevant item(s) were identified: {summary_text}."
-        )
+        # Prose names incidents by type and title and items by name; the ids stay in the citations.
+        content = report_answers.compose_hits(cited_hits)
 
         return ChatResponse(
             session_id=session_id,
@@ -712,6 +683,68 @@ def create_incident_chat_router(
         )
 
     return router
+
+
+NOT_SEARCHED = {
+    "official": (
+        "This chat mode doesn't answer questions about the official version yet, so no evidence was searched. "
+        "You can ask about any other version of this report, or about an unsaved edit."
+    ),
+    "incident": (
+        "This chat mode only answers questions about a report version, so no evidence was searched. "
+        "Ask from the incident's report page."
+    ),
+    "library": (
+        "This chat mode doesn't answer questions across the whole library yet, so no incidents were searched. "
+        "Open an incident's report to ask about it."
+    ),
+}
+
+
+def _composed_answer(
+    session_id: str,
+    query: str,
+    video_id: str,
+    revision: dict[str, Any],
+    draft_report: dict[str, Any] | None,
+) -> ChatResponse:
+    """The answer to a question about one revision (or a draft of it), composed from its report.
+
+    The citations are the items the answer relies on, each with the crop and second of its evidence entry
+    (a draft item takes the saved crop of the same item in the base revision).
+    """
+    saved = revision.get("evidence") or []
+    report: dict[str, Any] | None
+    if draft_report is not None:
+        report, evidence = draft_report, _draft_evidence(draft_report, saved)
+    else:
+        payload = revision.get("payload")
+        report, evidence = (payload if isinstance(payload, dict) else None), saved
+    view = report_answers.report_view(report, evidence)
+    answer = report_answers.compose(query, view)
+    entries = {(str(e.get("item_type")), str(e.get("item_id"))): e for e in evidence if isinstance(e, dict)}
+    citations: list[EvidenceCitation] = []
+    for item_id in answer.item_ids:
+        item = view.item(item_id)
+        if item is None:
+            continue
+        entry = entries.get((item.kind, item_id), {})
+        seconds = entry.get("timestamp_seconds")
+        if not isinstance(seconds, int | float) or isinstance(seconds, bool):
+            seconds = item.seconds or 0
+        citations.append(
+            EvidenceCitation(
+                incident_id=video_id,
+                item_id=item_id,
+                item_type=item.kind,  # type: ignore[arg-type]
+                timestamp_seconds=max(0.0, float(seconds)),
+                crop_image_url=resolve_r2_url(str(entry.get("image") or "")),
+            )
+        )
+    return ChatResponse(
+        session_id=session_id,
+        message=AssistantMessage(role="assistant", content=answer.text, citations=citations),
+    )
 
 
 def register_incident_chat_routes(

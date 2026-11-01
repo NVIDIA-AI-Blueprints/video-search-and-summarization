@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from fastapi import FastAPI
@@ -14,9 +15,11 @@ from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 import pytest
 
+from vss_agents.api.incident_chat import NOT_SEARCHED
 from vss_agents.api.incident_chat import AssistantMessage
 from vss_agents.api.incident_chat import ChatRequest
 from vss_agents.api.incident_chat import ChatResponse
+from vss_agents.api.incident_chat import InMemorySearchClient
 from vss_agents.api.incident_chat import RevisionStoreUnavailableError
 from vss_agents.api.incident_chat import register_incident_chat_routes
 
@@ -117,7 +120,7 @@ def _ask(client: TestClient, **extra: Any):
 
 
 def test_chat_minimal_request_returns_grounded_answer():
-    client = _make_client()
+    client = _make_client(InMemorySearchClient())  # the demo hits are a test fixture, never the default
     resp = client.post(
         "/api/v1/incidents/chat",
         json={"messages": [{"role": "user", "content": "What weapon was brandished in the altercation?"}]},
@@ -347,9 +350,17 @@ def test_chat_draft_uses_draft_items_with_crops_from_base_version():
             {"instrument_id": "I2", "name": "torch", "description": "Handheld torch", "timestamp_seconds": 11},
         ]
     }
-    resp = _ask(_make_client(search, store), version_id=3, draft_report=draft)
+    resp = _make_client(search, store).post(
+        "/api/v1/incidents/chat",
+        json={
+            "messages": [{"role": "user", "content": "Which tools are there?"}],
+            "version_id": 3,
+            "draft_report": draft,
+        },
+    )
     assert resp.status_code == 200
     assert search.last_query is None
+    assert "lockpick" in resp.json()["message"]["content"] and "torch" in resp.json()["message"]["content"]
     cits = {c["item_id"]: c for c in resp.json()["message"]["citations"]}
     assert set(cits) == {"I1", "I2"}
     assert cits["I1"]["timestamp_seconds"] == 9
@@ -394,3 +405,259 @@ def test_chat_version_store_error_returns_502():
 def test_chat_draft_without_version_returns_422():
     resp = _ask(_make_client(FakeSearchClient(), FakeRevisionStore()), draft_report={"entities": []})
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Template answers composed from the report (regression: the item-list template)
+# ---------------------------------------------------------------------------
+
+VIDEO = "vc8328cb9cdcdfa99fa8"
+ID_TOKEN = re.compile(r"(?<![A-Za-z0-9])[EIA][0-9]+(?![A-Za-z0-9])")
+
+
+def _robbery_revision(revision_id: int = 7) -> dict[str, Any]:
+    """A report shaped like the one that drew the item-list answer: three people and a till that is both."""
+    payload = {
+        "incident": {
+            "type": "robbery",
+            "title": "Counter robbery at a convenience store",
+            "start_timestamp": 130,
+            "end_timestamp": 180,
+            "description": "E1 approaches the counter while E2 serves; E1 grabs cash from I1 and leaves with E3.",
+            "severity_level": 4,
+            "severity_reason": "E1 threatens E2 and takes cash.",
+            "confidence_score": 0.8,
+            "location": "shop",
+        },
+        "entities": [
+            {
+                "entity_id": "E1",
+                "type": "human",
+                "description": "Man in a black hoodie and grey jeans",
+                "label": "man in black hoodie",
+                "timestamp_seconds": 134,
+                "first_seen_seconds": 130,
+                "last_seen_seconds": 175,
+            },
+            {
+                "entity_id": "E2",
+                "type": "human",
+                "description": "Cashier in a red apron behind the counter",
+                "label": "cashier in red apron",
+                "timestamp_seconds": 141,
+                "first_seen_seconds": 130,
+                "last_seen_seconds": 180,
+            },
+            {
+                "entity_id": "E3",
+                "type": "human",
+                "description": "Second man in a white cap waiting by the door",
+                "label": "man in white cap",
+                "timestamp_seconds": 173,
+                "first_seen_seconds": 160,
+                "last_seen_seconds": 178,
+            },
+        ],
+        "instruments": [
+            {
+                "instrument_id": "I1",
+                "entity_id": "E1",
+                "name": "cash register",
+                "description": "Cash register drawer pulled open by E1",
+                "threat_level": 2,
+                "timestamp_seconds": 134,
+                "label": "cash register",
+            },
+        ],
+        "assets": [
+            {
+                "asset_id": "A1",
+                "name": "cash register",
+                "description": "Till on the shop counter",
+                "timestamp_seconds": 142,
+                "label": "cash register",
+            },
+        ],
+        "timeline": [  # stored out of order on purpose: the answer must sort it
+            {
+                "start_seconds": 141,
+                "end_seconds": 150,
+                "description": "E1 pulls open I1 and takes cash while E2 steps back.",
+            },
+            {
+                "start_seconds": 134,
+                "end_seconds": 140,
+                "description": "E1 (E1) walks up to the counter and confronts E2.",
+            },
+            {"start_seconds": 170, "end_seconds": None, "description": "E1 leaves through the door with E3."},
+        ],
+        "uncertainties": [],
+    }
+    evidence = [
+        {
+            "item_type": kind,
+            "item_id": item_id,
+            "item_name": name,
+            "label": name,
+            "timestamp_seconds": seconds,
+            "image": f"evidence/{VIDEO}/run1/{item_id}.jpg",
+        }
+        for kind, item_id, name, seconds in (
+            ("entity", "E1", "human", 134),
+            ("entity", "E2", "human", 141),
+            ("entity", "E3", "human", 173),
+            ("instrument", "I1", "cash register", 134),
+            ("asset", "A1", "cash register", 142),
+        )
+    ]
+    return {"id": revision_id, "video_id": VIDEO, "payload": payload, "evidence": evidence}
+
+
+def _ask_version(question: str, *, official: bool = False, search=None) -> dict[str, Any]:
+    store = FakeRevisionStore(revisions={7: _robbery_revision()}, official={VIDEO: 7} if official else {})
+    resp = _make_client(search or FakeSearchClient(), store).post(
+        "/api/v1/incidents/chat",
+        json={
+            "messages": [{"role": "user", "content": question}],
+            "version_id": 7,
+            "context": {"scope": "incident", "incident_id": VIDEO},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert not list(response_validator.iter_errors(data))
+    return data["message"]
+
+
+def test_a_chronological_question_gets_the_timeline_in_order_not_an_item_list():
+    message = _ask_version("What happened, in order?")
+    content = message["content"]
+    assert "relevant item(s) were identified" not in content, "the old item-list template is gone"
+    assert content.index("2:14") < content.index("2:21") < content.index("2:50"), content
+    assert "walks up to the counter" in content and "leaves through the door" in content
+    assert "the man in black hoodie" in content and "the cashier in red apron" in content
+    assert [c["item_id"] for c in message["citations"]] == ["E1", "E2", "I1", "E3"]
+    assert message["citations"][0]["crop_image_url"].endswith(f"evidence/{VIDEO}/run1/E1.jpg")
+
+
+def test_an_object_question_describes_the_objects_and_cites_them():
+    message = _ask_version("What could cause harm here?")
+    assert "cash register" in message["content"] and "held by the man in black hoodie" in message["content"]
+    assert [c["item_id"] for c in message["citations"]] == ["I1", "A1"]
+    assert {c["item_type"] for c in message["citations"]} == {"instrument", "asset"}
+
+
+def test_a_people_question_describes_the_people():
+    message = _ask_version("Who is involved?")
+    assert message["content"].startswith("Three people are involved: a man in a black hoodie")
+    assert [c["item_id"] for c in message["citations"]] == ["E1", "E2", "E3"]
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        ("What is the weather like?", 'This report doesn\'t mention "weather".'),
+        ("Is there a knife?", 'This report doesn\'t mention "knife".'),
+    ],
+)
+def test_a_question_the_report_cannot_answer_says_so_and_cites_nothing(question, expected):
+    message = _ask_version(question)
+    assert message["content"].startswith(expected) and message["citations"] == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "What happened, in order?",
+        "Who is involved?",
+        "What could cause harm here?",
+        "When did it happen?",
+        "How serious is it?",
+        "What kind of incident is this?",
+        "What happened to the cash register?",
+        "Who held the cash register?",
+        "When is the cash register seen?",
+        "Was anyone carrying a gun?",
+        "Describe the incident",
+        "What is the weather like?",
+    ],
+)
+def test_no_answer_writes_an_internal_id_unless_asked(question):
+    message = _ask_version(question)
+    assert not ID_TOKEN.search(message["content"]), message["content"]
+    assert VIDEO not in message["content"]
+    for citation in message["citations"]:
+        assert citation["incident_id"] == VIDEO and ID_TOKEN.fullmatch(citation["item_id"])
+
+
+def test_ids_are_written_only_when_the_question_asks_for_them():
+    message = _ask_version("What are the item ids of the people?")
+    assert "E1 is the man in black hoodie" in message["content"]
+
+
+def test_the_default_client_never_serves_demo_hits_for_a_library_question():
+    resp = _make_client().post(
+        "/api/v1/incidents/chat",
+        json={"messages": [{"role": "user", "content": "What weapon was brandished in the altercation?"}]},
+    )
+    message = resp.json()["message"]
+    assert message["content"] == NOT_SEARCHED["library"] and message["citations"] == []
+    assert "Assault007" not in resp.text and "machete" not in resp.text
+
+
+def test_the_official_version_keeps_the_decision_and_says_nothing_was_searched():
+    search = FakeSearchClient()  # an enabled client: the official version is searched (decision 2026-10-24)
+    message = _ask_version("What happened, in order?", official=True, search=search)
+    assert search.last_filters == {"incident_id": VIDEO}
+    assert message["content"] == (
+        "No matching incidents or evidence items were found for 'What happened, in order?' in this incident."
+    )
+    store = FakeRevisionStore(revisions={7: _robbery_revision()}, official={VIDEO: 7})
+    resp = _make_client(revision_store=store).post(
+        "/api/v1/incidents/chat",
+        json={"messages": [{"role": "user", "content": "What happened?"}], "version_id": 7},
+    )
+    assert resp.json()["message"] == {"role": "assistant", "content": NOT_SEARCHED["official"], "citations": []}
+
+
+def test_search_hits_read_as_prose_by_incident_with_ids_only_in_citations():
+    hits = [
+        {
+            "item": {
+                "item_type": "instrument",
+                "item_id": "I1",
+                "name": "crowbar",
+                "timestamp_seconds": 8,
+                "crop_image_url": "https://r2.example/a.jpg",
+            },
+            "incident": {
+                "incident_id": "va11111111111111111a",
+                "incident_type": "burglary",
+                "title": "Shop door forced",
+            },
+        },
+        {
+            "item": {
+                "item_type": "entity",
+                "item_id": "E2",
+                "name": "person",
+                "label": "man in a hood",
+                "timestamp_seconds": 61,
+                "crop_image_url": "https://r2.example/b.jpg",
+            },
+            "incident": {"incident_id": "vb22222222222222222b", "incident_type": "assault"},
+        },
+    ]
+    resp = _make_client(FakeSearchClient(hits=hits)).post(
+        "/api/v1/incidents/chat", json={"messages": [{"role": "user", "content": "Any crowbars or hoods?"}]}
+    )
+    message = resp.json()["message"]
+    assert message["content"] == (
+        'I found matching evidence in two incidents. In a burglary ("Shop door forced"): a crowbar (seen at 0:08). '
+        "In an assault: a man in a hood (seen at 1:01)."
+    )
+    assert not ID_TOKEN.search(message["content"]) and "va111" not in message["content"]
+    assert [(c["incident_id"], c["item_id"]) for c in message["citations"]] == [
+        ("va11111111111111111a", "I1"),
+        ("vb22222222222222222b", "E2"),
+    ]
