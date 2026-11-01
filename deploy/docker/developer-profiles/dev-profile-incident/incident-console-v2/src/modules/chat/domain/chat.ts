@@ -56,6 +56,10 @@ export interface ChatGrounding {
   draft: boolean;
   /** Item ids the model cited that the report does not hold (never shown as citations). */
   droppedCitations: string[];
+  /** Ids the model wrote in the answer text although not asked; the agent replaced each with a description. */
+  idsResolved: string[];
+  /** Library answers: how each incident shown is named (type and title), keyed by incident id, for id-free labels. */
+  incidentTitles: Record<string, string>;
 }
 
 export interface ChatResponse {

@@ -32,6 +32,13 @@ type ChatMessage = {
   citations?: ChatCitation[];
   /** chat-contract-v2: the reports could not answer this question. */
   insufficientEvidence?: boolean;
+  /** How the answer names each incident (type and title), so its citations are labelled without ids. */
+  incidentTitles?: Record<string, string>;
+};
+
+const groupTitle = (titles: Record<string, string> | undefined, id: string) => {
+  const title = titles?.[id];
+  return title ? title.charAt(0).toUpperCase() + title.slice(1) : 'An incident';
 };
 
 /**
@@ -67,7 +74,10 @@ export function LibraryChat() {
       if (!response.ok || !payload.message) throw new Error(payload.error || 'No answer returned');
       setSessionId(payload.sessionId);
       messageSequence += 1;
-      setMessages([...next, { ...payload.message, id: `library-msg-${messageSequence}` }]);
+      setMessages([
+        ...next,
+        { ...payload.message, id: `library-msg-${messageSequence}`, incidentTitles: payload.grounding?.incidentTitles },
+      ]);
     } catch (cause) {
       setFailed(cause instanceof Error ? cause.message : 'Chat failed');
     } finally {
@@ -149,12 +159,14 @@ export function LibraryChat() {
                           <ul className="mt-2 flex flex-col gap-2" data-testid="library-chat-citations">
                             {citationsByIncident(message.citations).map((group) => (
                               <li key={group.incidentId}>
-                                <b className="block truncate text-xs">{group.incidentId}</b>
+                                <b className="block truncate text-xs" data-testid="library-chat-incident">
+                                  {groupTitle(message.incidentTitles, group.incidentId)}
+                                </b>
                                 <ul className="mt-1 flex flex-col gap-1">
                                   {group.citations.map((citation) => (
                                     <li key={`${citation.itemId}-${citation.timestampSeconds}`}>
                                       <Link
-                                        aria-label={`Open ${group.incidentId} at ${formatClock(citation.timestampSeconds)} (${citation.itemId})`}
+                                        aria-label={`Open ${groupTitle(message.incidentTitles, group.incidentId)} at ${formatClock(citation.timestampSeconds)}`}
                                         className="grid w-full grid-cols-[52px_minmax(0,1fr)] items-center gap-2 rounded-xl border border-border bg-card p-1 text-left transition hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                         href={citationHref(citation)}
                                       >

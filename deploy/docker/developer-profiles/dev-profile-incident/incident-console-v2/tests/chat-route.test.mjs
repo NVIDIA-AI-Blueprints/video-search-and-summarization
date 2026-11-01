@@ -145,6 +145,8 @@ test('a grounded (chat-contract-v2) answer carries the insufficient-evidence fla
       official: true,
       draft: false,
       dropped_citations: ['E9'],
+      ids_resolved: ['E2'],
+      incident_titles: { V1: 'the assault ("Fight at the door")', V2: 5 },
       prompt_sha256: 'a'.repeat(64),
       usage: { total_tokens: 5 },
     },
@@ -161,6 +163,8 @@ test('a grounded (chat-contract-v2) answer carries the insufficient-evidence fla
     official: true,
     draft: false,
     droppedCitations: ['E9'],
+    idsResolved: ['E2'],
+    incidentTitles: { V1: 'the assault ("Fight at the door")' },
   });
 });
 

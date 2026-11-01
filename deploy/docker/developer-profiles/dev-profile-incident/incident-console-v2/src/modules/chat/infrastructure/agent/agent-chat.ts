@@ -40,6 +40,8 @@ type AgentGrounding = {
   official?: boolean | null;
   draft?: boolean;
   dropped_citations?: string[];
+  ids_resolved?: string[];
+  incident_titles?: Record<string, unknown>;
 };
 type AgentChatResponse = {
   session_id?: string;
@@ -57,6 +59,10 @@ function groundingFrom(grounding: AgentGrounding | undefined): ChatResponse['gro
     official: typeof grounding.official === 'boolean' ? grounding.official : null,
     draft: grounding.draft === true,
     droppedCitations: Array.isArray(grounding.dropped_citations) ? grounding.dropped_citations.map(String) : [],
+    idsResolved: Array.isArray(grounding.ids_resolved) ? grounding.ids_resolved.map(String) : [],
+    incidentTitles: Object.fromEntries(
+      Object.entries(grounding.incident_titles ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    ),
   };
 }
 
