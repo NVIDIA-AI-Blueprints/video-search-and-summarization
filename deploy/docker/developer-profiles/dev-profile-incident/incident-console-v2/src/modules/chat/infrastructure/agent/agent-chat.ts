@@ -32,10 +32,36 @@ type AgentCitation = {
   timestamp_seconds: number;
   crop_image_url: string;
 };
-type AgentChatResponse = { session_id?: string; message?: { role?: string; content?: string; citations?: AgentCitation[] } };
+type AgentGrounding = {
+  mode?: string;
+  scope?: string;
+  model?: string;
+  version_id?: number | null;
+  official?: boolean | null;
+  draft?: boolean;
+  dropped_citations?: string[];
+};
+type AgentChatResponse = {
+  session_id?: string;
+  message?: { role?: string; content?: string; citations?: AgentCitation[]; insufficient_evidence?: boolean };
+  grounding?: AgentGrounding;
+};
+
+function groundingFrom(grounding: AgentGrounding | undefined): ChatResponse['grounding'] {
+  if (grounding?.mode !== 'grounded' || (grounding.scope !== 'incident' && grounding.scope !== 'library')) return undefined;
+  return {
+    mode: 'grounded',
+    scope: grounding.scope,
+    model: String(grounding.model ?? ''),
+    versionId: typeof grounding.version_id === 'number' ? grounding.version_id : null,
+    official: typeof grounding.official === 'boolean' ? grounding.official : null,
+    draft: grounding.draft === true,
+    droppedCitations: Array.isArray(grounding.dropped_citations) ? grounding.dropped_citations.map(String) : [],
+  };
+}
 
 export function fromAgentChatResponse(payload: unknown): ChatResponse {
-  const { session_id: sessionId, message } = (payload ?? {}) as AgentChatResponse;
+  const { session_id: sessionId, message, grounding } = (payload ?? {}) as AgentChatResponse;
   if (!sessionId || message?.role !== 'assistant' || typeof message.content !== 'string' || !Array.isArray(message.citations)) {
     throw new Error('Agent returned an invalid chat response');
   }
@@ -51,7 +77,9 @@ export function fromAgentChatResponse(payload: unknown): ChatResponse {
         timestampSeconds: c.timestamp_seconds,
         cropImageUrl: c.crop_image_url,
       })),
+      ...(typeof message.insufficient_evidence === 'boolean' ? { insufficientEvidence: message.insufficient_evidence } : {}),
     },
+    ...(groundingFrom(grounding) ? { grounding: groundingFrom(grounding) } : {}),
   };
 }
 

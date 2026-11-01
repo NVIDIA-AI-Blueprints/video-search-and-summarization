@@ -84,12 +84,20 @@ test('no messages is a 400 and never reaches the agent', async () => {
   assert.equal(upstream.calls.length, 0);
 });
 
-test('an agent error is a 500 carrying the agent status', async () => {
-  upstream.status = 422;
-  upstream.body = { detail: 'bad' };
-  const response = await post({ messages: [{ role: 'user', content: 'Hi' }] });
-  assert.equal(response.status, 500);
-  assert.match((await response.json()).error, /HTTP 422/);
+test("an agent 4xx is kept with the agent's message, and an agent 5xx is a 502", async () => {
+  for (const [agentStatus, routeStatus] of [
+    [422, 422],
+    [409, 409],
+    [400, 400],
+    [502, 502],
+    [503, 502],
+  ]) {
+    upstream.status = agentStatus;
+    upstream.body = { detail: 'bad' };
+    const response = await post({ messages: [{ role: 'user', content: 'Hi' }] });
+    assert.equal(response.status, routeStatus, `agent ${agentStatus}`);
+    assert.match((await response.json()).error, new RegExp(`HTTP ${agentStatus}`));
+  }
 });
 
 test('a malformed agent response is a 500', async () => {
@@ -123,4 +131,41 @@ test('a draft without its version, or a bad version, is a 400 and never reaches 
   assert.equal((await post({ messages: [{ role: 'user', content: 'Hi' }], versionId: 0 })).status, 400);
   assert.equal((await post({ messages: [{ role: 'user', content: 'Hi' }], versionId: 'x' })).status, 400);
   assert.equal(upstream.calls.length, 0);
+});
+
+test('a grounded (chat-contract-v2) answer carries the insufficient-evidence flag and the grounding record', async () => {
+  upstream.body = {
+    session_id: 's9',
+    message: { role: 'assistant', content: 'The report does not say.', citations: [], insufficient_evidence: true },
+    grounding: {
+      mode: 'grounded',
+      scope: 'incident',
+      model: 'nvidia/nemotron-3-ultra',
+      version_id: 7,
+      official: true,
+      draft: false,
+      dropped_citations: ['E9'],
+      prompt_sha256: 'a'.repeat(64),
+      usage: { total_tokens: 5 },
+    },
+  };
+  const response = await post({ messages: [{ role: 'user', content: 'Licence plate?' }], incidentId: 'V1', versionId: 7 });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.message.insufficientEvidence, true);
+  assert.deepEqual(payload.grounding, {
+    mode: 'grounded',
+    scope: 'incident',
+    model: 'nvidia/nemotron-3-ultra',
+    versionId: 7,
+    official: true,
+    draft: false,
+    droppedCitations: ['E9'],
+  });
+});
+
+test('a template (chat-contract-v1) answer has no flag and no grounding', async () => {
+  const payload = await (await post({ messages: [{ role: 'user', content: 'Hi' }] })).json();
+  assert.equal('insufficientEvidence' in payload.message, false);
+  assert.equal('grounding' in payload, false);
 });

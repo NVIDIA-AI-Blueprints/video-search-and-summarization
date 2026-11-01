@@ -45,7 +45,27 @@ export interface ChatCitation {
   cropImageUrl: string;
 }
 
+/** chat-contract-v2 (agent INCIDENT_CHAT_MODE=grounded): which report the answer is grounded in. */
+export interface ChatGrounding {
+  mode: 'grounded';
+  scope: 'incident' | 'library';
+  model: string;
+  /** The report version answered from; null for a library question. */
+  versionId: number | null;
+  official: boolean | null;
+  draft: boolean;
+  /** Item ids the model cited that the report does not hold (never shown as citations). */
+  droppedCitations: string[];
+}
+
 export interface ChatResponse {
   sessionId: string;
-  message: { role: 'assistant'; content: string; citations: ChatCitation[] };
+  message: {
+    role: 'assistant';
+    content: string;
+    citations: ChatCitation[];
+    /** chat-contract-v2: the report cannot answer (or contradicts the question); citations are then empty. */
+    insufficientEvidence?: boolean;
+  };
+  grounding?: ChatGrounding;
 }

@@ -3,7 +3,7 @@
 import { NextResponse } from 'next/server';
 import { sendAgentChat } from '@/modules/chat/infrastructure/agent/agent-chat';
 import { getServiceConfiguration } from '@/lib/env';
-import { errorResponse } from '@/lib/http';
+import { errorResponse, UpstreamError } from '@/lib/http';
 import type { ChatMessage } from '@/modules/chat/domain/chat';
 
 export const maxDuration = 120;
@@ -45,6 +45,10 @@ export async function POST(request: Request) {
     );
     return NextResponse.json(result);
   } catch (error) {
+    // The agent's own 4xx (a version of another incident, no official version, ...) is kept for the panel to show;
+    // its 5xx (model or store failure) is a bad gateway here.
+    if (error instanceof UpstreamError)
+      return NextResponse.json({ error: error.message }, { status: error.status >= 400 && error.status < 500 ? error.status : 502 });
     return errorResponse(error, 'Follow-up chat failed');
   }
 }
