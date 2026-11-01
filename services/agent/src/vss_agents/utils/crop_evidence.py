@@ -684,9 +684,10 @@ class DefaultDetector:
     def _chat_json(
         self, images: Sequence[bytes], text: str, check: Callable[[dict[str, Any]], _Checked], max_tokens: int = 256
     ) -> _Checked:
-        """One unbudgeted chat completion (images first, then ``text``) parsed as a JSON object and passed through
-        ``check`` (the strict reply parser). The attempt counts as failed in the run provenance unless ``check``
-        accepts the reply.
+        """One chat completion (images first, then ``text``) parsed as a JSON object and passed through ``check``
+        (the strict reply parser). The attempt counts as failed in the run provenance unless ``check`` accepts the
+        reply. Outside any grounding ``CropCallBudget``; an experiment's ``zoom_budget``, when set, is checked
+        before each attempt.
 
         A rate limit or server error is retried once after ``retry-after`` (default 2 s); the gateway answers 429
         when a report's items are checked concurrently.

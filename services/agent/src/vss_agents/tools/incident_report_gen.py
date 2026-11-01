@@ -1002,8 +1002,8 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
             experiment["crop"] = crop_telemetry(evidence, budget, time.perf_counter() - crop_started)
             if zoom_budget is not None:
                 experiment["zoom"] = zoom_budget.summary()
-            if objects is not None:
-                experiment["object_tracking"] = objects.summary.to_dict()
+            # experiment["object_tracking"] stays the request's setting (a bool); the tracker's summary is the
+            # response's own object_tracking field, as for a production request.
         else:
             evidence = await collect_evidence(
                 video_url=tool_input.video_url,
