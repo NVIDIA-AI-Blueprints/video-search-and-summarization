@@ -1,0 +1,6 @@
+You check one fact against an answer. EXPECTED is a single atomic fact; PREDICTED is a chatbot's answer to a question.
+Decide whether PREDICTED states EXPECTED, in any wording. A fact that is only implied, contradicted, or missing is not
+stated. Ignore everything else in PREDICTED.
+
+Reply with JSON only: {"score": <1 if PREDICTED states EXPECTED, 0 if it does not; a value between only when the
+wording is genuinely ambiguous>, "reasoning": "<one sentence>"}
