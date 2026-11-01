@@ -43,6 +43,7 @@ Finals is the live database; the laptop console and the VM agent both point at i
 | `20261031090000_dashboard_official_else_newest.sql` | Applied 2026-10-31 by direct `psql`, on the captain's approval, and recorded with `supabase migration repair` for this version only. A caller that omits `p_scope` gets official reports only, so a console from before this change keeps showing official reports |
 | `20261031120000_analysis_jobs.sql` | Applied 2026-10-31 (approved by the captain for the background-jobs task), then recorded with `supabase migration repair`; `security_check.sql` returned 0 rows. Applied on its own, not with `db push`, because finals' history lacks the two `20261028090000` files (applied by hand), so `db push` would re-run them. The laptop cannot reach the finals pooler on 5432 or 6543, but `kwanz-ws` can, so the connection went through an SSH tunnel via `kwanz-ws` |
 | `20261101090000_video_blur_faces.sql` | Applied 2026-11-01 for the privacy-blur task the same way (on its own through a tunnel via `kwanz-ws`, then `supabase migration repair` for this version only); `security_check.sql` returned 0 rows. From then on `claim_analysis_job` leaves re-analysis jobs to consoles with this change. Finals' history also holds `20261031150000`, another task's migration not yet on main |
+| `20261101120000_dashboard_byte_order_ties.sql` | **Not applied** (draft PR). Pins tie order only; applying it to finals is ask-first |
 
 Data state (as of 2026-10-28):
 - The library shows 17 videos.
