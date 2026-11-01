@@ -201,6 +201,13 @@ test('agent mode: configuration validation requires agentUrl and Supabase, but n
 });
 
 const contractFixture = (name) => readFileSync(join(process.cwd(), '..', 'contracts', 'fixtures', name), 'utf8');
+const AGENT_PROVENANCE = {
+  schema: 'incident-run-provenance-v1',
+  agent: { git_sha: 'abc123', source: 'git', dirty: false, package_version: '3.2.1' },
+  contract_version: 'incident-contract-v4',
+  flags: { chunking: { enabled: true }, tracking: true, object_tracking: false },
+  stages: { p1: { model: 'agent/vlm-on-the-vm', prompts: {}, calls: 2, failed: 1, refused: 0, total_tokens: 9000 } },
+};
 const validContractReport = () => JSON.parse(contractFixture('valid/full-report.json'));
 
 test('agent mode: calls agent analyze endpoint with video_url and model_run_id, validates and records contract run', async () => {
@@ -228,6 +235,7 @@ test('agent mode: calls agent analyze endpoint with video_url and model_run_id, 
         chunking: { window_seconds: 20, calls: 1 },
         tracking: { enabled: true, matched: 2, tracks: 3, elapsed_ms: 91000, skipped: null },
         object_tracking: { enabled: true, seeds: 2, tracked: 1, tracker: 'MIL', items: { I1: { samples: 9 } } },
+        provenance: AGENT_PROVENANCE,
       };
       return new Response(JSON.stringify(mockAgentResponse), {
         status: 200,
@@ -286,8 +294,9 @@ test('agent mode: calls agent analyze endpoint with video_url and model_run_id, 
       finishReason: 'stop',
       tracking: { enabled: true, matched: 2, tracks: 3, elapsed_ms: 91000, skipped: null },
       object_tracking: { enabled: true, seeds: 2, tracked: 1, tracker: 'MIL', items: { I1: { samples: 9 } } },
+      provenance: AGENT_PROVENANCE,
     },
-    'the raw output and the tracking summaries only; captions are never stored',
+    'the raw output, the tracking summaries and the run provenance only; captions are never stored',
   );
 });
 
@@ -328,6 +337,7 @@ test('agent mode: a 422 carrying the raw output is validated and recorded like g
             finish_reason: 'stop',
             model: 'agent/vlm-on-the-vm',
             contract_version: contractVersion(),
+            provenance: AGENT_PROVENANCE,
           },
         }),
         { status: 422, headers: { 'Content-Type': 'application/json' } },
@@ -348,6 +358,7 @@ test('agent mode: a 422 carrying the raw output is validated and recorded like g
   assert.equal(row.model_name, 'agent/vlm-on-the-vm');
   assert.equal(notes.status, 'contract_failed');
   assert.equal(notes.response.content, content, 'the original response is stored unaltered');
+  assert.deepEqual(notes.response.provenance, AGENT_PROVENANCE, 'a rejected attempt keeps its calls and costs too');
   assert.deepEqual(
     notes.validation.firstPass.map((v) => v.code),
     ['WINDOW_END_BEFORE_START', 'TIMELINE_START_OUTSIDE_WINDOW', 'TIMELINE_START_OUTSIDE_WINDOW'],
