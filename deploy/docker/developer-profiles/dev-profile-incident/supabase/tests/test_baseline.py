@@ -14,6 +14,7 @@ service key.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -354,6 +355,13 @@ with tempfile.TemporaryDirectory() as tmp:
         assert all(asset["official"] + asset["notOfficial"] == asset["count"] for asset in dashboard["topAssets"]), dashboard["topAssets"]
         coverage = {row["model"]: row for row in dashboard["modelCoverage"]}
         assert coverage["model-a"]["withReport"] == 2 and coverage["model-b"]["legacy"] == 1, coverage
+
+    @test("dashboard ties between equal counts are broken in byte order (COLLATE \"C\"), whatever the database collation")
+    def _():
+        definition = one(conn, "SELECT pg_get_functiondef('public.get_incident_dashboard'::regproc)")[0]
+        tie_breaks = re.findall(r"ORDER BY [^)\n]*?\b(?:label|incident_type|model_name)\b[^)\n]*", definition)
+        assert len(tie_breaks) >= 11, tie_breaks
+        assert all('COLLATE "C"' in clause for clause in tie_breaks), [c for c in tie_breaks if 'COLLATE "C"' not in c]
 
     @test("every dashboard number equals the total of the library list it opens")
     def _():

@@ -1,0 +1,1 @@
+The image is a video frame with one person marked by a red box. Describe the marked person from what is visible: clothing, build, what they carry or hold. Return JSON only, in the form {"name": "person", "description": "<one sentence>", "confidence": <0 to 1: how sure you are>}.

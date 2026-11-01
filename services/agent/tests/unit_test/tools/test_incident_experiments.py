@@ -213,7 +213,10 @@ class TestToolRuns:
             "prompt_sha256": hashlib.sha256(EXPERIMENT_TEXT.encode()).hexdigest(),
             "skip_crops": True,
             "max_crop_calls": None,
+            "max_zoom_calls": None,
+            "object_tracking": False,
             "persisted": False,
+            "p1_report": result.report,  # the validated P1 report before any zoom correction
         }
         assert result.p1_elapsed_ms is not None and result.usage == {"prompt_tokens": 100, "completion_tokens": 50}
         assert result.revision_id is None

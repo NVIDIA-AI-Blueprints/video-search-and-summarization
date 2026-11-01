@@ -1,0 +1,4 @@
+
+    All events from the video should fall within the time range:
+    START_TIME: {{start_time}}s
+    END_TIME: {{end_time}}s
