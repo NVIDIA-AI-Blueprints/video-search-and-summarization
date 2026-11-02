@@ -3,8 +3,6 @@
 import { AnalysisWorkspace } from '@/sections/analysis/components/AnalysisWorkspace';
 import { AppHeader } from '@/sections/shell/components/AppHeader';
 
-const stages = ['Upload secured', 'Video understood', 'Evidence structured', 'Report ready'];
-
 export default function HomePage() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-canvas text-ink">
@@ -23,17 +21,6 @@ export default function HomePage() {
             Drop in a video. Incident Studio will identify the critical sequence, organize the evidence, and prepare a report people can act
             on.
           </p>
-
-          <ol className="mt-10 grid gap-3 sm:grid-cols-2">
-            {stages.map((stage, index) => (
-              <li className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-white/50 px-4 py-3" key={stage}>
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink font-mono text-[11px] text-white">
-                  {index + 1}
-                </span>
-                <span className="text-sm font-medium">{stage}</span>
-              </li>
-            ))}
-          </ol>
         </div>
 
         <AnalysisWorkspace />
