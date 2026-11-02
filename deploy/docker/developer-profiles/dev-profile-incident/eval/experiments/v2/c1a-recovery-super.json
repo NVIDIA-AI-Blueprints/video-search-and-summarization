@@ -1,0 +1,139 @@
+{
+  "config_version": "evalv2-config-v1",
+  "experiment": "v2-c1a-track-a-recovery-super",
+  "split": {
+    "version": "split-v2",
+    "half": "dev"
+  },
+  "datasets": {
+    "incident_gt": "ground-truth-v1.0"
+  },
+  "subjects": [
+    {
+      "id": "super-direct",
+      "adapter": "openai_compat",
+      "endpoint": "switchyard",
+      "model": "nvidia/cosmos-3-super-reasoner"
+    }
+  ],
+  "tasks": {
+    "incident_objects": {
+      "subjects": "all",
+      "scorers": [
+        "incident_objects.score_video@1",
+        "incident_objects.aggregate@1"
+      ],
+      "options": {
+        "judges": {
+          "primary": "catalog-gpt-oss-20b-v1",
+          "sensitivity": "catalog-mistral-large-4-v1"
+        }
+      }
+    }
+  },
+  "repeats": 2,
+  "seed": 20261101,
+  "retry_policy": "retry-v2",
+  "caps": [
+    {
+      "ledger": "inference",
+      "subject": "super-direct",
+      "task": "incident_objects",
+      "max_attempts": 20,
+      "max_tokens": 500000
+    },
+    {
+      "ledger": "inference",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 20,
+      "max_tokens": 500000
+    },
+    {
+      "ledger": "judge",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 0,
+      "max_tokens": 0
+    }
+  ],
+  "notes": "C1a recovery (methodology v2.0 section 2): re-sends only Super's 14 open C1a items (8 refused by C1a's 65-attempt per-subject cap, 4 gateway 524 timeouts, 2 rate-limited) with C1a's request, seed and repeats. Caps keep C1a plus this run inside the owner-approved Track A totals: C1a used 175 of 195 attempts and 1.84 M of 6 M tokens; this run may use 20 attempts and 0.5 M tokens. Item count stays at 150 (no new work items). No judge calls (judge credits not confirmed). The judge cap is 0: this run's items are judge-scored, if at all, under C1a's judge share.",
+  "purpose": "pilot",
+  "budget_mode": "hard_stop",
+  "recovery": {
+    "of_experiment": "v2-c1a-track-a-pilot",
+    "of_manifest": "manifest.start.json sha256:95145fa3f24966028e65c21c9e2a494ccd59722aa4183b95d9ad0c7ed61c7f6f",
+    "items": [
+      {
+        "subject": "super-direct",
+        "item_id": "Animal002",
+        "repeat": 2
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "Animal005",
+        "repeat": 2
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "Animal011",
+        "repeat": 2
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "Animal012",
+        "repeat": 2
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "Assault007",
+        "repeat": 2
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "Assault011",
+        "repeat": 2
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "Assault015",
+        "repeat": 2
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "Burglary004",
+        "repeat": 1
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "Explosion003",
+        "repeat": 1
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "Explosion029",
+        "repeat": 1
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "Explosion029",
+        "repeat": 2
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "RoadAccidents017",
+        "repeat": 1
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "RoadAccidents017",
+        "repeat": 2
+      },
+      {
+        "subject": "super-direct",
+        "item_id": "RoadAccidents051",
+        "repeat": 2
+      }
+    ]
+  }
+}
