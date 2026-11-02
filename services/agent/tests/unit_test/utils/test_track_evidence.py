@@ -36,6 +36,7 @@ from vss_agents.utils.track_evidence import build_tracks
 from vss_agents.utils.track_evidence import cut_at_replay
 from vss_agents.utils.track_evidence import first_seen_sample
 from vss_agents.utils.track_evidence import is_hdr
+from vss_agents.utils.track_evidence import is_real
 from vss_agents.utils.track_evidence import is_solid
 from vss_agents.utils.track_evidence import nearest_sample
 from vss_agents.utils.track_evidence import parse_probe
@@ -47,6 +48,9 @@ from vss_agents.utils.track_evidence import visible_samples
 
 FIXTURES = Path(__file__).parent / "fixtures" / "perception"
 CLIP_8206 = ClipInfo(width=854, height=480, fps=29.97, frames=2823, duration_seconds=94.2)
+CLIP_REV116 = ClipInfo(width=1388, height=752, fps=30.0, frames=759, duration_seconds=25.3)
+CLIP_REV119 = ClipInfo(width=320, height=240, fps=30.0, frames=912, duration_seconds=30.4)
+CLIP_REV124 = ClipInfo(width=320, height=240, fps=30.0, frames=1767, duration_seconds=58.9)
 CLIP_9170 = ClipInfo(
     width=270,
     height=480,
@@ -79,22 +83,68 @@ class TestTimeBaseAndCut:
         assert kept[-1].frame_id == 2737
         assert [f.frame_id for f in kept] == sorted(f.frame_id for f in kept)
 
-    def test_the_per_run_anchor_puts_the_last_frame_at_the_end_of_the_clip(self):
-        tracks = build_tracks(_frames("frames_8206.json"), CLIP_8206)
-        last = max(track.last_seen for track in tracks)
-        assert 93.0 < last <= 94.2  # the last person box is within the clip, at its end
-
-    def test_the_anchor_is_clip_frames_minus_last_frame_id(self):
+    def test_a_frame_id_is_read_as_its_own_second_with_no_start_loss(self):
         clip = ClipInfo(100, 100, 10.0, 200, 20.0)
-        frames = [_frame(100, _person("1")), _frame(190, _person("1"))]  # lost 10 frames = 1 s
+        frames = [_frame(100, _person("1")), _frame(190, _person("1"))]
         (track,) = build_tracks(frames, clip)
-        assert [s.t for s in track.samples] == [11.0, 20.0]
+        assert [s.t for s in track.samples] == [10.0, 19.0]
 
-    def test_the_fallback_is_2_85_seconds_when_the_stream_stopped_short_of_the_end(self):
+    def test_a_stream_that_stopped_short_of_the_end_is_not_shifted(self):
         clip = ClipInfo(100, 100, 10.0, 2000, 200.0)
         frames = [_frame(100, _person("1")), _frame(500, _person("1"))]  # 1500 frames short of the end
         (track,) = build_tracks(frames, clip)
-        assert [s.t for s in track.samples] == [12.85, 52.85]
+        assert [s.t for s in track.samples] == [10.0, 50.0]
+
+    def test_the_last_person_box_of_a_recorded_clip_is_at_its_own_frame_second(self):
+        tracks = build_tracks(_frames("frames_8206.json"), CLIP_8206)
+        last = max(track.last_seen for track in tracks)
+        assert last == pytest.approx(2737 / 29.97, abs=0.2)  # the last frame read, not the end of the clip
+
+    def test_the_recorded_clips_are_not_shifted_by_the_unread_tail(self):
+        """Revisions 116, 119 and 124 of the person-box diagnosis: the stream stopped 98, 111 and 136 frames short."""
+        for name, clip, last_id in (
+            ("frames_rev116.json", CLIP_REV116, 661),
+            ("frames_rev119.json", CLIP_REV119, 801),
+            ("frames_rev124.json", CLIP_REV124, 1631),
+        ):
+            tracks = build_tracks(_frames(name), clip)
+            assert tracks
+            assert min(track.first_seen for track in tracks) == pytest.approx(3 / clip.fps, abs=0.1)
+            assert max(track.last_seen for track in tracks) <= last_id / clip.fps  # nothing later than the last frame
+            for track in tracks:
+                for sample in track.samples:
+                    assert sample.t * clip.fps == pytest.approx(round(sample.t * clip.fps), abs=0.02)  # id / fps
+
+    def test_a_moving_person_keeps_the_box_the_locate_step_found_at_the_same_second(self):
+        """124 E1 and E2 are located boxes no fallback touched: the track sample of the same second overlaps them."""
+        tracks = build_tracks(_frames("frames_rev124.json"), CLIP_REV124)
+        assert box_confirmed([241, 616, 567, 725], 54.0, tracks, 0.3)  # 54.0 s, IoU 0.87 (0.29 with the old +2.85 s)
+        assert box_confirmed([264, 536, 710, 685], 50.85, tracks, 0.3)
+
+    def test_the_first_seen_sample_of_a_person_is_the_second_they_enter(self):
+        """119 E3 was first seen at 3.65 s under the old time base, which carried +2.85 s; it is 0.8 s now."""
+        tracks = {t.track_id: t for t in build_tracks(_frames("frames_rev119.json"), CLIP_REV119)}
+        assert first_seen_sample(tracks["9"]).t == pytest.approx(0.8, abs=0.05)
+        assert first_seen_sample(tracks["12"]).t == pytest.approx(22.133, abs=0.05)
+
+    def test_a_real_detection_wins_its_bucket_over_a_tracker_only_box(self):
+        clip = ClipInfo(100, 100, 30.0, 300, 10.0)
+        frames = [
+            _frame(60, _person("1", confidence=-0.1)),
+            _frame(61, _person("1", box=(30.0, 30.0, 90.0, 90.0), confidence=0.9)),  # same 200 ms bucket
+            _frame(62, _person("1", confidence=-0.1)),
+        ]
+        (track,) = build_tracks(frames, clip)
+        assert [(s.t, s.score) for s in track.samples] == [(round(61 / 30, 3), 0.9)]
+
+    def test_is_solid_does_not_depend_on_the_frame_parity(self):
+        """A detector that publishes every second frame is solid whichever parity the ids have."""
+        clip = ClipInfo(100, 100, 30.0, 300, 10.0)
+        for parity in (0, 1):
+            frames = [_frame(i, _person("1", confidence=0.9 if i % 2 == parity else -0.1)) for i in range(30, 90)]
+            (track,) = build_tracks(frames, clip)
+            assert is_solid(track)
+            assert all(is_real(sample) for sample in track.samples)
 
 
 class TestGroupingAndSampling:
@@ -127,12 +177,12 @@ class TestGroupingAndSampling:
 
     def test_the_recorded_clips_keep_the_two_men_and_the_three_people_as_separate_tracks(self):
         tracks = {t.track_id: t for t in build_tracks(_frames("frames_8206.json"), CLIP_8206)}
-        # ids 3 and 4 are the two men at 81 to 83 s; both have a sample at 82 s with different boxes
-        a = min(tracks["3"].samples, key=lambda s: abs(s.t - 82.0))
-        b = min(tracks["4"].samples, key=lambda s: abs(s.t - 82.0))
-        assert abs(a.t - 82.0) < 0.5 and abs(b.t - 82.0) < 0.5 and a.box != b.box
+        # ids 3 and 4 are the two men at 78 to 80 s (frame id / fps); both have a sample at 82 s with different boxes
+        a = min(tracks["3"].samples, key=lambda s: abs(s.t - 79.2))
+        b = min(tracks["4"].samples, key=lambda s: abs(s.t - 79.2))
+        assert abs(a.t - 79.2) < 0.5 and abs(b.t - 79.2) < 0.5 and a.box != b.box
         people = build_tracks(_frames("frames_9170.json"), CLIP_9170)
-        at_23 = [t for t in people if any(abs(s.t - 23.0) < 0.3 for s in t.samples)]
+        at_23 = [t for t in people if any(abs(s.t - 20.0) < 0.3 for s in t.samples)]
         assert len(at_23) == 3
 
 
@@ -355,6 +405,39 @@ class TestRunLifecycle:
         outcome = await run
         assert outcome.skipped is None
         assert max(t.last_seen for t in outcome.tracks) <= 94.2
+
+    @pytest.mark.asyncio
+    async def test_a_stream_short_of_the_end_is_read_until_the_deadline_not_the_100_frame_margin(self):
+        # 119: the last frame with a person is id 801 of 912; the old 100-frame margin stopped the read there.
+        client = FakePerceptionClient([_pass_one("frames_rev119.json")])
+        time, _, run = self._run(client, clip=CLIP_REV119, end_margin_seconds=20.0)
+        outcome = await run
+        assert time.now > CLIP_REV119.duration_seconds + 20.0  # waited to the deadline
+        assert outcome.end_reached is False and outcome.clip_frames == 912
+        assert outcome.last_frame_id == 801 and outcome.frames > 0
+        assert max(t.last_seen for t in outcome.tracks) == pytest.approx(801 / 30.0, abs=0.2)
+
+    @pytest.mark.asyncio
+    async def test_a_stream_that_reaches_the_last_frame_ends_the_read_early(self):
+        clip = ClipInfo(width=320, height=240, fps=30.0, frames=803, duration_seconds=26.8)
+        client = FakePerceptionClient([_pass_one("frames_rev119.json")])
+        time, _, run = self._run(client, clip=clip, end_margin_seconds=20.0)
+        outcome = await run
+        assert outcome.end_reached is True and time.now < clip.duration_seconds
+
+    @pytest.mark.asyncio
+    async def test_a_replay_of_the_file_means_the_end_was_reached(self):
+        class Replaying(FakePerceptionClient):
+            latest = iter([1000, 2737, 5])  # the counter resets when DeepStream replays the file
+
+            async def latest_frame_id(self, sensor_id: str) -> int | None:
+                return next(self.latest)
+
+        client = Replaying([json.loads((FIXTURES / "frames_8206.json").read_text())])
+        time, _, run = self._run(client)
+        outcome = await run
+        assert outcome.skipped is None and outcome.last_frame_id == 2737
+        assert outcome.end_reached is True and time.now < CLIP_8206.duration_seconds
 
     @pytest.mark.asyncio
     async def test_no_frames_within_40_seconds_skips_and_still_removes_and_deletes(self):

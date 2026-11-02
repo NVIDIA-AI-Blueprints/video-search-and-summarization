@@ -1601,8 +1601,10 @@ class CropEvidenceService:
             A box is confirmed when a solid track's sample within 0.5 s of its second overlaps it (the test the
             association applies). An unconfirmed box, such as a person pictured on a screen, is retried at the
             locate seconds not yet tried and replaced by the first box a track confirms; with none, the box
-            becomes the nearest track sample inside the entity's first to last seen span. No detector call is made
-            when the first box is confirmed, and nothing changes without solid person tracks.
+            becomes the nearest track sample inside the entity's first to last seen span, but only a sample within
+            0.5 s of the box's own second: a sample from another moment is a different picture, so the located box
+            is kept. No detector call is made when the first box is confirmed, and nothing changes without solid
+            person tracks.
             """
             solid = [track for track in tracks if track_evidence.is_solid(track)]
             if not solid or isinstance(video_ref, np.ndarray):
@@ -1611,7 +1613,7 @@ class CropEvidenceService:
             def seconds_of(entry: dict[str, Any], crop: CropResult) -> float:
                 return float(crop.box_seconds if crop.box_seconds is not None else entry["timestamp_seconds"])
 
-            pending = [
+            located = [
                 (entry, crop)
                 for entry in entries
                 if entry["item_type"] == "entity"
@@ -1619,8 +1621,15 @@ class CropEvidenceService:
                 and (crop := crops.get(entry["item_id"])) is not None
                 and crop.located
                 and crop.normalized_box
-                and not track_evidence.box_confirmed(crop.normalized_box, seconds_of(entry, crop), solid, min_iou)
             ]
+            pending = [
+                (entry, crop)
+                for entry, crop in located
+                if not track_evidence.box_confirmed(crop.normalized_box, seconds_of(entry, crop), solid, min_iou)
+            ]
+            summary = tracking.summary if tracking is not None else None
+            if summary is not None:
+                summary.boxes_confirmed += len(located) - len(pending)
 
             async def _retry(entry: dict[str, Any], crop: CropResult) -> CropResult | None:
                 base = entry["timestamp_seconds"]
@@ -1678,22 +1687,36 @@ class CropEvidenceService:
                         again.box_seconds,
                     )
                     crops[entry["item_id"]] = again
+                    if summary is not None:
+                        summary.boxes_moved += 1
                     continue
-                # Entities share nothing here, so each takes a track of its own where there are enough.
+                # Entities share nothing here, so each takes a track of its own where there are enough. The sample
+                # must be from the box's own second (the box is right in time, the track may not be).
+                box_seconds = seconds_of(entry, crop)
                 nearest = track_evidence.nearest_sample(
                     solid,
-                    seconds_of(entry, crop),
-                    entry.get("first_seen_seconds", entry["timestamp_seconds"]),
-                    entry.get("last_seen_seconds", entry["timestamp_seconds"]),
+                    box_seconds,
+                    max(
+                        entry.get("first_seen_seconds", entry["timestamp_seconds"]),
+                        box_seconds - track_evidence.ASSOCIATION_WINDOW_SECONDS,
+                    ),
+                    min(
+                        entry.get("last_seen_seconds", entry["timestamp_seconds"]),
+                        box_seconds + track_evidence.ASSOCIATION_WINDOW_SECONDS,
+                    ),
                     taken,
                 )
                 if nearest is None:
+                    if summary is not None:
+                        summary.boxes_kept += 1
                     continue
                 try:
                     async with semaphore:
                         cut = await asyncio.to_thread(_cut, entry["label"], nearest[1])
                 except Exception as exc:
                     logger.warning("Track-confirm fallback failed for %s %s: %s", video_id, entry["item_id"], exc)
+                    if summary is not None:
+                        summary.boxes_kept += 1
                     continue
                 if cut is not None:
                     taken.add(nearest[0].track_id)
@@ -1705,6 +1728,10 @@ class CropEvidenceService:
                         nearest[1].t,
                     )
                     crops[entry["item_id"]] = cut
+                    if summary is not None:
+                        summary.boxes_moved += 1
+                elif summary is not None:
+                    summary.boxes_kept += 1
 
         entries = blank_evidence_entries(report, image_gap=None)
         by_id = {entry["item_id"]: entry for entry in entries}
@@ -1723,6 +1750,10 @@ class CropEvidenceService:
             tracking.summary.tracks = len(outcome.tracks)
             tracking.summary.elapsed_ms = outcome.elapsed_ms
             tracking.summary.skipped = outcome.skipped
+            tracking.summary.clip_frames = outcome.clip_frames
+            tracking.summary.frames = outcome.frames
+            tracking.summary.last_frame_id = outcome.last_frame_id
+            tracking.summary.end_reached = outcome.end_reached
             # Entities set-of-marks matched keep their track; the rest are associated by box overlap with the
             # tracks no mark took.
             marked = {

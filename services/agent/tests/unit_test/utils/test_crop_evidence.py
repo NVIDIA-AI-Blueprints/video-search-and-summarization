@@ -853,22 +853,34 @@ class TestTrackConfirmedEntityBox:
         assert request.summary.matched == 1
 
     @pytest.mark.asyncio
-    async def test_with_no_confirming_box_it_falls_back_to_the_nearest_track_sample_in_its_span(
+    async def test_with_no_confirming_box_it_falls_back_to_a_track_sample_of_the_boxs_own_second(
         self, tiny_video_path: Path
     ) -> None:
         detector = _SecondDetector({0: self.SCREEN, 1: self.NOWHERE})
-        request = self._request(self._person_track("2", 1.0, (700, 700, 950, 950)))
+        request = self._request(self._person_track("2", 0.2, (700, 700, 950, 950)))
         person = (await self._run(tiny_video_path, detector, request))[0]
         assert detector.person_seconds[:2] == [0, 1], "the remaining locate seconds were tried before the fallback"
-        assert person["located"] is True and person["box_seconds"] == 1.0 and person["track"]
+        assert person["located"] is True and person["box_seconds"] == pytest.approx(0.2) and person["track"]
         assert person["bounding_box"] == pytest.approx(self.PERSON, abs=60)
+        assert request.summary.boxes_moved == 1 and request.summary.boxes_kept == 0
+
+    @pytest.mark.asyncio
+    async def test_a_track_sample_from_another_moment_never_replaces_the_located_box(
+        self, tiny_video_path: Path
+    ) -> None:
+        detector = _SecondDetector({0: self.SCREEN, 1: self.NOWHERE})
+        request = self._request(self._person_track("2", 1.0, (700, 700, 950, 950)))  # a second after the box
+        person = (await self._run(tiny_video_path, detector, request))[0]
+        assert person["box_seconds"] == 0 and "track" not in person
+        assert person["bounding_box"] == pytest.approx(self.SCREEN, abs=60)
+        assert request.summary.boxes_moved == 0 and request.summary.boxes_kept == 1
 
     @pytest.mark.asyncio
     async def test_a_track_outside_the_entitys_span_is_not_a_fallback(self, tiny_video_path: Path) -> None:
         report = copy.deepcopy(REPORT)
         report["entities"][0]["last_seen_seconds"] = 0
         detector = _SecondDetector({0: self.SCREEN, 1: self.NOWHERE})
-        request = self._request(self._person_track("2", 1.0, (700, 700, 950, 950)))
+        request = self._request(self._person_track("2", 0.2, (700, 700, 950, 950)))
         person = (await self._run(tiny_video_path, detector, request, report))[0]
         assert person["box_seconds"] == 0 and "track" not in person
         assert person["bounding_box"] == pytest.approx(self.SCREEN, abs=60)
@@ -879,10 +891,10 @@ class TestTrackConfirmedEntityBox:
         report["entities"].append({**report["entities"][0], "entity_id": "E2"})
         detector = _SecondDetector({0: self.SCREEN, 1: self.NOWHERE})
         request = self._request(
-            self._person_track("2", 1.0, (700, 700, 950, 950)), self._person_track("3", 1.2, (100, 500, 400, 700))
+            self._person_track("2", 0.2, (700, 700, 950, 950)), self._person_track("3", 0.4, (100, 500, 400, 700))
         )
         first, second = (await self._run(tiny_video_path, detector, request, report))[:2]
-        assert first["box_seconds"] == 1.0 and second["box_seconds"] == pytest.approx(1.2)
+        assert first["box_seconds"] == pytest.approx(0.2) and second["box_seconds"] == pytest.approx(0.4)
         assert first["bounding_box"] != second["bounding_box"]
 
     @pytest.mark.asyncio

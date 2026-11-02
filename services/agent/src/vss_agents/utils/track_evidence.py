@@ -22,11 +22,11 @@ box. :func:`first_seen_sample` then picks the sample to re-cut the evidence imag
 binary, a stack that is down or a stream that never produces a frame returns a ``skipped`` reason and never raises
 to the analysis.
 
-Time base (measured by the Phase 0 scout): DeepStream numbers frames from the first frame it decodes and loses the
-first ~85 to 91 frames of every replay, so frame ``n`` shows video second ``(n + loss) / fps``, where ``loss`` is
-``clip_frames - last_frame_id`` once the stream reached the end of the file, else the 2.85 s measured on every clip.
-At the end of the file DeepStream reconnects and replays the clip with the counter reset, so the read is cut at the
-first frame-id decrease.
+Time base (measured against the video, see ``.docs/decisions.md``): DeepStream numbers frames from the first frame it
+decodes (id 2 on every recorded clip) and loses nothing at the start, so frame ``n`` shows video second ``n / fps``.
+DeepStream publishes only frames with objects, so the last id can fall short of the clip's frame count; that is the
+tail not yet read, not a start loss. At the end of the file DeepStream reconnects and replays the clip with the
+counter reset, so the read is cut at the first frame-id decrease.
 """
 
 import asyncio
@@ -76,9 +76,9 @@ NO_FRAMES_TIMEOUT_SECONDS = 40.0
 POLL_INTERVAL_SECONDS = 2.0
 # After the last frames appear, wait for the indexer (Logstash flushes every few seconds) before reading.
 SETTLE_SECONDS = 3.0
-# The stream has reached the end of the file when its last frame id is within this many frames of the clip's.
-END_REACHED_WITHIN_FRAMES = 100
-FALLBACK_LOSS_SECONDS = 2.85
+# The stream has reached the end of the file when its last frame id is within this many frames of the clip's, or when
+# the frame ids fall back (DeepStream replays the file).
+END_REACHED_WITHIN_FRAMES = 3
 SAMPLES_PER_SECOND = 5
 ASSOCIATION_WINDOW_SECONDS = 0.5
 # A track backs an entity only when it is solid: at least this many real detections, and at
@@ -201,6 +201,15 @@ class TrackingSummary:
     elapsed_ms: float = 0.0
     skipped: str | None = None
     marks: dict[str, Any] | None = None
+    # The time base: frame ids are read as ``id / fps``, so these show how much of the clip the read covered.
+    clip_frames: int | None = None
+    frames: int | None = None
+    last_frame_id: int | None = None
+    end_reached: bool | None = None
+    # Entities whose located box a person track confirmed, replaced at another second, or that kept the located box.
+    boxes_confirmed: int = 0
+    boxes_moved: int = 0
+    boxes_kept: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         summary: dict[str, Any] = {
@@ -210,6 +219,18 @@ class TrackingSummary:
             "elapsed_ms": round(self.elapsed_ms, 1),
             "skipped": self.skipped,
         }
+        if self.clip_frames is not None:
+            summary["time_base"] = {
+                "clip_frames": self.clip_frames,
+                "frames": self.frames,
+                "last_frame_id": self.last_frame_id,
+                "end_reached": self.end_reached,
+            }
+            summary["boxes"] = {
+                "confirmed": self.boxes_confirmed,
+                "moved": self.boxes_moved,
+                "kept": self.boxes_kept,
+            }
         if self.marks is not None:
             summary["marks"] = self.marks
         return summary
@@ -220,6 +241,10 @@ class TrackingOutcome:
     tracks: list[Track] = field(default_factory=list)
     skipped: str | None = None
     elapsed_ms: float = 0.0
+    clip_frames: int | None = None
+    frames: int = 0
+    last_frame_id: int | None = None
+    end_reached: bool = False
 
 
 # --- clip probe and HDR transcode -------------------------------------------------------------------------------
@@ -366,28 +391,23 @@ def build_tracks(frames: Sequence[Frame], clip: ClipInfo) -> list[Track]:
     """``Person`` tracks of one clip from its ``/frames`` (oldest first), on the clip's own time base.
 
     Boxes are normalised to 0..1000 as ``[top, left, bottom, right]`` from the clip's pixel size. Every sample is
-    kept, including those with score -0.1, but at most :data:`SAMPLES_PER_SECOND` a second per track (the first of
-    each 200 ms bucket).
+    kept, including those with score -0.1, but at most :data:`SAMPLES_PER_SECOND` a second per track: the first
+    real detection of each 200 ms bucket, else its first tracker-only box (the detector publishes every second
+    frame, so which sample comes first in a bucket would otherwise depend on the frame parity).
     """
     frames = cut_at_replay(frames)
-    if not frames:
-        return []
-    last_frame_id = frames[-1].frame_id
-    lost_frames = clip.frames - last_frame_id
-    if 0 <= lost_frames <= END_REACHED_WITHIN_FRAMES:
-        loss_seconds = lost_frames / clip.fps
-    else:
-        loss_seconds = FALLBACK_LOSS_SECONDS
-
     tracks: dict[str, Track] = {}
-    buckets: dict[str, int] = {}
+    kept: dict[str, dict[int, Sample]] = {}
     for frame in frames:
-        t = round(frame.frame_id / clip.fps + loss_seconds, 3)
+        t = round(frame.frame_id / clip.fps, 3)
         bucket = math.floor(t * SAMPLES_PER_SECOND)
         for obj in frame.objects:
             if obj.type != PERSON_TYPE:
                 continue
-            if buckets.get(obj.object_id) == bucket:
+            tracks.setdefault(obj.object_id, Track(track_id=obj.object_id))
+            in_bucket = kept.setdefault(obj.object_id, {})
+            held = in_bucket.get(bucket)
+            if held is not None and (is_real(held) or obj.confidence < 0):
                 continue
             left, top, right, bottom = obj.bbox
             box = (
@@ -396,10 +416,9 @@ def build_tracks(frames: Sequence[Frame], clip: ClipInfo) -> list[Track]:
                 _clamp(bottom / clip.height * 1000),
                 _clamp(right / clip.width * 1000),
             )
-            buckets[obj.object_id] = bucket
-            tracks.setdefault(obj.object_id, Track(track_id=obj.object_id)).samples.append(
-                Sample(t, box, obj.confidence)
-            )
+            in_bucket[bucket] = Sample(t, box, obj.confidence)
+    for object_id, track in tracks.items():
+        track.samples = [kept[object_id][bucket] for bucket in sorted(kept[object_id])]
     return list(tracks.values())
 
 
@@ -556,6 +575,7 @@ async def run_tracking(
             await active_client.add_stream(sensor_id, camera_url)
             added_at = clock()
             highest: int | None = None
+            end_reached = False
             deadline = clip.duration_seconds + active.end_margin_seconds
             while True:
                 try:
@@ -569,7 +589,12 @@ async def run_tracking(
                 if highest is None and waited > active.no_frames_timeout_seconds:
                     logger.warning("incident tracking: no frames within %.0f s of the stream add", waited)
                     return done(skipped="no frames from perception")
-                if highest is not None and clip.frames - highest <= END_REACHED_WITHIN_FRAMES:
+                if (
+                    latest is not None
+                    and highest is not None
+                    and (latest < highest or clip.frames - highest <= END_REACHED_WITHIN_FRAMES)
+                ):
+                    end_reached = True
                     await sleep(active.settle_seconds)
                     break
                 if waited > deadline:
@@ -577,8 +602,13 @@ async def run_tracking(
                         return done(skipped="no frames from perception")
                     break
                 await sleep(active.poll_interval_seconds)
-            frames = await active_client.frames(sensor_id)
-            return done(tracks=build_tracks(frames, clip))
+            frames = cut_at_replay(await active_client.frames(sensor_id))
+            outcome = done(tracks=build_tracks(frames, clip))
+            outcome.clip_frames = clip.frames
+            outcome.frames = len(frames)
+            outcome.last_frame_id = frames[-1].frame_id if frames else None
+            outcome.end_reached = end_reached
+            return outcome
         except Exception as exc:
             logger.warning("incident tracking skipped: %s: %s", type(exc).__name__, exc)
             return done(skipped=f"perception failed: {type(exc).__name__}")
