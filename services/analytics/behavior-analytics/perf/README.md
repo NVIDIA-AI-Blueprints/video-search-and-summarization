@@ -60,6 +60,12 @@ Use another scenario configuration file or choose the canonical output file:
 The runner performs pre-flight checks, deploys the required services, runs the
 playback measurement, writes the reports, and tears the stack down.
 
+The runner creates the output directories before starting lifecycle stages.
+A directory passed to `--output-json` stores canonical reports in its
+`vss-perf-results/` subdirectory; an explicit `.json` file keeps its exact path.
+Internal shell stages require an existing, writable output directory and reject
+symlink paths. Use `scripts/run_benchmark.sh` to run the complete lifecycle.
+
 Scenario duration, warmup, topics, and percentiles are defined in
 `perf/configs/config.yaml`. KPI thresholds are defined in
 `perf/configs/kpis.yaml`.

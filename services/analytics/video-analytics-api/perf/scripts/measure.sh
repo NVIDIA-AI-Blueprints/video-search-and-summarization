@@ -5,7 +5,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 load_compose_env
-ensure_host_dir "$OUTPUT_DIR"
+validate_output_dir
 export VA_API_URL="http://127.0.0.1:${VIDEO_ANALYTICS_API_HOST_PORT}"
 export PERF_REQUEST_COUNT PERF_WARMUP_REQUESTS PERF_SENSOR_ID PERF_PLACE PERF_FROM_TS PERF_TO_TS
 export PERF_LOOKUP_X PERF_LOOKUP_Y PERF_ENDPOINTS

@@ -7,7 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 load_compose_env
 cd "$COMPOSE_DIR"
 image="$BEHAVIOR_ANALYTICS_IMAGE"
-ensure_host_dir "$OUTPUT_DIR"
+validate_output_dir
 report="$OUTPUT_DIR/latency.txt"
 rm -f "$report"
 

@@ -28,5 +28,5 @@ for dump in "${dump_files[@]}"; do
     fi
 done
 resolve_apps_dir "$(resolve_repo_root)" >/dev/null
-ensure_host_dir "$OUTPUT_DIR"
+validate_output_dir
 echo "Video Analytics API query pre-flight passed."
