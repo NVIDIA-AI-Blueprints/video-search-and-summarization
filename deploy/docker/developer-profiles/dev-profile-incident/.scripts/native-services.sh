@@ -144,6 +144,12 @@ source "${SCRIPT_DIR}/media-tools.sh"
 PATH="$(media_tools_path)"
 export PATH
 
+# Object tracking prefers NanoTrack when its two model files are in this dir; _start_vss_agent fetches them
+# there (pinned by SHA-256, never committed). Without them the agent tracks with MIL. See tracker-models.sh.
+# shellcheck source=SCRIPTDIR/tracker-models.sh
+source "${SCRIPT_DIR}/tracker-models.sh"
+export INCIDENT_OBJECT_TRACKING_MODEL_DIR="${INCIDENT_OBJECT_TRACKING_MODEL_DIR:-$(tracker_models_dir)}"
+
 # -----------------------------------------------------------------------------
 # Service Helpers
 # -----------------------------------------------------------------------------
@@ -225,6 +231,10 @@ _start_vss_agent() {
 
   if ! media_tools_install; then
     echo "WARNING: ffmpeg/ffprobe unavailable; vss-agent will skip the caption pass and person tracking" >&2
+  fi
+
+  if ! tracker_models_install; then
+    echo "WARNING: tracker model files unavailable; object tracking will use the MIL tracker" >&2
   fi
 
   # Loopback by default: the agent has no auth. The laptop reaches it through the SSH tunnel.
