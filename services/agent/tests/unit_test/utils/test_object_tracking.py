@@ -115,6 +115,31 @@ class StubbornTracker(OracleTracker):
         return True, self.rect
 
 
+class InitFailsOnLargeBox(OracleTracker):
+    """Like MIL on a whole-frame or edge-touching box: ``init`` raises when the rectangle covers 90% of the frame."""
+
+    def init(self, frame: np.ndarray, rect: tuple[int, int, int, int]) -> None:
+        height, width = frame.shape[:2]
+        if rect[2] * rect[3] >= 0.9 * width * height:
+            raise RuntimeError("init failed")
+
+
+def tracker_failing_nth_init(n: int) -> Any:
+    """A tracker factory whose ``n``-th tracker (1-based) cannot ``init``; the others follow the square."""
+    created = {"count": 0}
+
+    class Nth(OracleTracker):
+        def __init__(self) -> None:
+            created["count"] += 1
+            self.fails = created["count"] == n
+
+        def init(self, frame: np.ndarray, rect: tuple[int, int, int, int]) -> None:
+            if self.fails:
+                raise RuntimeError("init failed")
+
+    return Nth
+
+
 class OracleDetector:
     """Finds the square on the frame it is given (the whole frame, as the real detector is), and counts its calls."""
 
@@ -263,6 +288,60 @@ class TestReanchoring:
         outcome = await run(clip, OracleDetector(error_at=2), seed_at(4.0))
         item = outcome.items["I1"]
         assert item["detector_errors"] == 1 and item["lost"] == 0 and item["samples"] > 5
+
+
+class TestAnchoring:
+    @pytest.mark.asyncio
+    async def test_a_whole_frame_seed_is_skipped_without_a_detector_call(self, clip: Path) -> None:
+        detector = OracleDetector()
+        whole = ObjectSeed(item_id="A1", label="elevator", box=(0, 0, 1000, 1000), seconds=4.0)
+        outcome = await run(clip, detector, whole, tracker=InitFailsOnLargeBox)
+        item = outcome.items["A1"]
+        assert item["samples"] == 0 and "100.0%" in item["skipped"] and item["detector_calls"] == 0
+        assert "error" not in item and outcome.tracks == {} and detector.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_a_seed_below_the_area_limit_is_tracked(self, clip: Path) -> None:
+        big = ObjectSeed(item_id="A2", label="doors", box=(0, 0, 1000, 450), seconds=4.0)  # 45% of the frame
+        outcome = await run(clip, OracleDetector(blind=True), big, tracker=InitFailsOnLargeBox)
+        assert "skipped" not in outcome.items["A2"] and "error" not in outcome.items["A2"]
+
+    @pytest.mark.asyncio
+    async def test_a_seed_the_tracker_cannot_start_on_is_not_an_error_and_is_tried_once(self, clip: Path) -> None:
+        detector = OracleDetector()
+        outcome = await run(clip, detector, seed_at(4.0), tracker=tracker_failing_nth_init(1))
+        item = outcome.items["I1"]
+        assert item["anchor_errors"] == 1 and item["samples"] == 0 and "error" not in item
+        assert outcome.tracks == {} and detector.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_a_failed_reanchor_keeps_the_previous_tracker_and_the_confirmed_sample(self, clip: Path) -> None:
+        # trackers 1 (seed) and 2 (first re-anchor) are built forwards; the second one cannot start
+        outcome = await run(clip, OracleDetector(), seed_at(4.0), tracker=tracker_failing_nth_init(2))
+        item = outcome.items["I1"]
+        assert item["anchor_errors"] == 1 and "error" not in item
+        assert item["reanchors"] == 5 and item["lost"] == 0  # 6 checks, one of them could not re-anchor
+        confirmed = [s for s in outcome.tracks["I1"].samples if s.score == 1.0]
+        assert len(confirmed) == 6 + 1  # the failed re-anchor's detector sample is kept
+        assert item["forward_samples"] > 0 and item["backward_samples"] > 0
+
+    @pytest.mark.asyncio
+    async def test_a_failed_init_does_not_replace_the_running_tracker(self) -> None:
+        frame = draw(0)
+        tracker = object_tracking._Tracker(tracker_failing_nth_init(2))
+        tracker.anchor(frame, (400, 50, 600, 150))
+        before = tracker._tracker
+        with pytest.raises(RuntimeError):
+            tracker.anchor(frame, (0, 0, 1000, 1000))
+        assert tracker._tracker is before and tracker.anchor_area == 200 * 100
+
+    @pytest.mark.asyncio
+    async def test_the_real_tracker_on_an_edge_touching_seed_never_raises(self, clip: Path) -> None:
+        edge = ObjectSeed(item_id="A3", label="doors", box=(0, 0, 1000, 480), seconds=4.0)
+        outcome = await run_object_tracking(
+            clip, [edge], detector=OracleDetector(blind=True), settings=settings(span_seconds=2.0)
+        )
+        assert "error" not in outcome.items["A3"]
 
 
 class TestLoss:

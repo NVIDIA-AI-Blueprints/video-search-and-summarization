@@ -2,6 +2,12 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-02: Whole-frame seeds are not tracked; a failed anchor keeps the previous tracker
+- **Decision:** `track_item` skips an item whose seed box covers more than `ObjectTrackingSettings.max_seed_area` (0.5, a field, no env var) of the frame, with `skipped: "seed box covers <n>% of the frame"` and no detector call. `_Tracker.anchor` builds and initialises the new OpenCV tracker before replacing the old one. `follow` catches a refused seed anchor (no track, `anchor_errors: 1`, the other direction is not tried) and a refused re-anchor (`anchor_errors += 1`, the detector-confirmed sample is kept and the previous tracker keeps running).
+- **Why:** in the end-to-end test OpenCV's MIL `init` raised on whole-frame and edge-touching boxes; run_object_tracking turned that into `error` and a re-anchor crash discarded the item's whole track (4569 A3 failed in 11 of 14 runs). A track of a whole-frame box carries no information. The seeds scout found items track on target up to about 44% of the frame, so the limit is 0.5, not 0.4.
+- **Rejected:** padding or shrinking seeds (hurts tracking); an env var for the limit (no case for tuning per deployment yet).
+- **Links:** [`object_tracking.py`](../../../../../services/agent/src/vss_agents/utils/object_tracking.py), plan `vss-objtrack-plan` unit U2.
+
 ### 2026-11-02: The privacy blur is removed entirely
 - **Decision:** every form of face blur is gone. The agent no longer detects heads or pixelates evidence frames and crops (`privacy_blur.py`, `EvidenceBlur`, the `every-match` head query and `INCIDENT_BLUR_DETECTOR_CALL_CAP` are deleted), `/analyze` ignores `blur_faces` (the console no longer sends it), `POST /api/v1/incidents/{id}/reblur` and `<itemId>-heads.json` are deleted, and the console has no **Blur faces** switch, no `PUT /api/videos/<id>/privacy`, no blurred clips (`-clip-blur.mp4`) and no re-analysis job. Migration `20261102090000_drop_blur_faces.sql` drops `videos.blur_faces`, `analysis_jobs.blur_faces`, `analysis_jobs.reanalyse_video_id` and `claim_queued_analysis_job`, and restores the standalone `claim_analysis_job(p_stale_seconds)`; it cancels any queued or running re-analysis job first.
 - **Why:** the blur added processing time (a whole-frame head search per frame and per clip second, and a 2.5 minute re-blur for a four-item report) without enough benefit.

@@ -126,6 +126,7 @@ class ObjectTrackingSettings:
     time_cap_seconds: float = DEFAULT_TIME_CAP_SECONDS  # for the whole request
     max_detector_calls: int = DEFAULT_MAX_DETECTOR_CALLS  # for the whole request
     max_misses: int = 2  # detector checks in a row without agreement before a segment ends
+    max_seed_area: float = 0.5  # a seed box covering more of the frame than this is not tracked (a track says nothing)
     concurrency: int = 3  # items followed at once
     max_edge: int = MAX_FRAME_EDGE
 
@@ -193,8 +194,9 @@ class _Tracker:
     def anchor(self, frame: np.ndarray, box: Sequence[float]) -> None:
         """(Re)start the tracker on ``box`` of ``frame`` (a new tracker each time, OpenCV trackers do not re-init well)."""
         height, width = frame.shape[:2]
-        self._tracker = self._factory()
-        self._tracker.init(frame, _pixel_rect(box, width, height))
+        tracker = self._factory()
+        tracker.init(frame, _pixel_rect(box, width, height))  # may raise: the previous tracker stays in place
+        self._tracker = tracker
         self.anchor_area = _area(box)
 
     def update(self, frame: np.ndarray) -> tuple[list[float] | None, bool]:
@@ -290,6 +292,8 @@ class _Pass:
     detector_calls: int = 0
     detector_errors: int = 0
     reanchors: int = 0
+    anchor_errors: int = 0  # (re-)anchors the tracker refused; a refused re-anchor keeps the previous tracker
+    seed_refused: bool = False  # the tracker could not start on the seed box, so there is nothing to follow
     lost: bool = False  # the segment ended because the item was lost, not because the clip or the span did
     capped: str | None = None  # "time" or "detector-budget" when a cap stopped the pass
 
@@ -323,7 +327,13 @@ def follow(
     if first is None or abs(first[0] - seed.seconds) > SEED_FRAME_TOLERANCE_SECONDS:
         return result
     tracker = _Tracker(tracker_factory)
-    tracker.anchor(first[1], seed.box)
+    try:
+        tracker.anchor(first[1], seed.box)
+    except Exception as exc:  # cv2.error subclasses Exception; cv2 may be None, so it is not named
+        logger.warning("Object tracking could not start on the seed of '%s': %s", seed.label, type(exc).__name__)
+        result.anchor_errors = 1
+        result.seed_refused = result.lost = True
+        return result
     last_box: Sequence[float] = seed.box
     last_check = seed.seconds
     confirmed = 0  # how many samples are known good: up to the last one the detector agreed with
@@ -355,8 +365,12 @@ def follow(
             result.samples.append(
                 Sample(second, (agreed_box[0], agreed_box[1], agreed_box[2], agreed_box[3]), agreed[1])
             )
-            tracker.anchor(frame, agreed_box)
-            result.reanchors += 1
+            try:
+                tracker.anchor(frame, agreed_box)
+                result.reanchors += 1
+            except Exception as exc:  # the detector-confirmed sample stands; the previous tracker keeps running
+                logger.warning("Object tracking re-anchor failed for '%s': %s", seed.label, type(exc).__name__)
+                result.anchor_errors += 1
             last_box = agreed_box
             confirmed = len(result.samples)
             misses = 0
@@ -387,7 +401,10 @@ def track_item(
 ) -> tuple[Track | None, dict[str, Any]]:
     """Follow one item forwards and backwards from its seed: its track (None when it gained no sample) and telemetry."""
     started = time.monotonic()
-    passes: dict[str, _Pass] = {}
+    seed_area = _area(seed.box) / 1_000_000.0
+    if seed_area > settings.max_seed_area:
+        return None, {"samples": 0, "skipped": f"seed box covers {seed_area:.1%} of the frame", "detector_calls": 0}
+    passes: dict[str, _Pass] = {"forward": _Pass(), "backward": _Pass()}
     clip = ClipReader(video_ref, settings.max_edge)
     try:
         for name, forward in (("forward", True), ("backward", False)):
@@ -397,6 +414,8 @@ def track_item(
             passes[name] = follow(
                 frames, seed, detect=detect, settings=settings, tracker_factory=tracker_factory, deadline=deadline
             )
+            if passes[name].seed_refused:  # the other direction would start on the same seed box
+                break
     finally:
         clip.close()
     ahead, behind = passes["forward"], passes["backward"]
@@ -410,6 +429,7 @@ def track_item(
         "detector_calls": ahead.detector_calls + behind.detector_calls,
         "detector_errors": ahead.detector_errors + behind.detector_errors,
         "reanchors": ahead.reanchors + behind.reanchors,
+        "anchor_errors": ahead.anchor_errors + behind.anchor_errors,
         "lost": int(ahead.lost) + int(behind.lost),
         "capped": capped,
         "elapsed_ms": round((time.monotonic() - started) * 1000.0, 1),
