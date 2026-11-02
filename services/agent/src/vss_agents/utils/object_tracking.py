@@ -30,7 +30,8 @@ detector (the one that located the item) is asked for the item's label on the cu
 
 Which trackers exist depends on the OpenCV build. CSRT and KCF need ``opencv-contrib``; ``opencv-python-headless``
 (the dependency) ships only MIL (plus the model-based Vit, Nano, DaSiamRPN and GOTURN trackers, which need model
-files). :func:`select_tracker` takes the best one present. MIL never reports failure, it keeps returning a drifting
+files). :func:`select_tracker` takes the best one present: NanoTrack, then Vit, when their ONNX files are in the
+directory named by ``INCIDENT_OBJECT_TRACKING_MODEL_DIR``, otherwise CSRT, KCF or MIL. MIL never reports failure, it keeps returning a drifting
 box, so a tracker is also treated as failed when its box leaves the frame (less than a quarter of it visible),
 collapses or changes area by more than a factor of :data:`MAX_AREA_CHANGE`; otherwise the detector's misses alone
 end a segment.
@@ -50,6 +51,7 @@ from dataclasses import field
 import logging
 import math
 import os
+from pathlib import Path
 import time
 from typing import Any
 
@@ -79,6 +81,10 @@ MIN_IOU_ENV_VAR = "INCIDENT_OBJECT_TRACKING_MIN_IOU"
 SPAN_ENV_VAR = "INCIDENT_OBJECT_TRACKING_SPAN_SECONDS"
 TIME_CAP_ENV_VAR = "INCIDENT_OBJECT_TRACKING_MAX_SECONDS"
 DETECTOR_CALLS_ENV_VAR = "INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS"
+MODEL_DIR_ENV_VAR = "INCIDENT_OBJECT_TRACKING_MODEL_DIR"
+NANO_BACKBONE = "nanotrack_backbone_sim.onnx"
+NANO_HEAD = "nanotrack_head_sim.onnx"
+VIT_MODEL = "object_tracking_vittrack_2023sep.onnx"
 DETECTOR_TIMEOUT_ENV_VAR = "INCIDENT_OBJECT_TRACKING_DETECTOR_TIMEOUT_SECONDS"
 
 DEFAULT_SAMPLE_FPS = 4.0
@@ -132,6 +138,7 @@ class ObjectTrackingSettings:
     max_seed_area: float = 0.5  # a seed box covering more of the frame than this is not tracked (a track says nothing)
     concurrency: int = 3  # items followed at once
     max_edge: int = MAX_FRAME_EDGE
+    model_dir: str = ""  # holds the NanoTrack or Vit ONNX files; empty means the OpenCV built-in trackers only
     detector_timeout_seconds: float = DEFAULT_DETECTOR_TIMEOUT_SECONDS
 
     @classmethod
@@ -143,6 +150,7 @@ class ObjectTrackingSettings:
             span_seconds=_env_float(SPAN_ENV_VAR, DEFAULT_SPAN_SECONDS),
             time_cap_seconds=_env_float(TIME_CAP_ENV_VAR, DEFAULT_TIME_CAP_SECONDS),
             max_detector_calls=int(_env_float(DETECTOR_CALLS_ENV_VAR, DEFAULT_MAX_DETECTOR_CALLS, minimum=0.5)),
+            model_dir=(os.getenv(MODEL_DIR_ENV_VAR) or "").strip(),
             detector_timeout_seconds=_env_float(DETECTOR_TIMEOUT_ENV_VAR, DEFAULT_DETECTOR_TIMEOUT_SECONDS),
         )
 
@@ -154,10 +162,46 @@ class TrackerUnavailableError(RuntimeError):
     """The installed OpenCV has no usable single-object tracker (``str(exc)`` is the ``skipped`` reason)."""
 
 
-def select_tracker() -> tuple[str, TrackerFactory]:
-    """The best single-object tracker the installed OpenCV has: CSRT, then KCF (both contrib), then MIL."""
+def _model_tracker(model_dir: str | os.PathLike[str] | None) -> tuple[str, TrackerFactory] | None:
+    """NanoTrack, else Vit, built from the ONNX files in ``model_dir``; None when absent, unsupported or unloadable."""
+    if cv2 is None or not model_dir:
+        return None
+    directory = Path(model_dir).expanduser().resolve()
+    candidates = (
+        ("Nano", "TrackerNano_create", "TrackerNano_Params", {"backbone": NANO_BACKBONE, "neckhead": NANO_HEAD}),
+        ("Vit", "TrackerVit_create", "TrackerVit_Params", {"net": VIT_MODEL}),
+    )
+    for name, create_name, params_name, files in candidates:
+        paths = {attr: directory / filename for attr, filename in files.items()}
+        create, params_type = getattr(cv2, create_name, None), getattr(cv2, params_name, None)
+        if create is None or params_type is None or not all(path.is_file() for path in paths.values()):
+            continue
+
+        def factory(create: Any = create, params_type: Any = params_type, paths: dict[str, Path] = paths) -> Any:
+            params = params_type()  # fresh per tracker: items are followed on several threads at once
+            for attr, path in paths.items():
+                setattr(params, attr, str(path))
+            return create(params)
+
+        try:
+            factory()  # a corrupt or unsupported model file fails here, not in the middle of an item
+        except Exception as exc:
+            logger.warning(
+                "Object tracking: the %s model in %s could not be loaded: %s", name, directory, type(exc).__name__
+            )
+            continue
+        return name, factory
+    return None
+
+
+def select_tracker(model_dir: str | os.PathLike[str] | None = None) -> tuple[str, TrackerFactory]:
+    """The best single-object tracker available: NanoTrack, then Vit (both need ONNX files in ``model_dir``), then
+    CSRT and KCF (both contrib), then MIL."""
     if cv2 is None:
         raise TrackerUnavailableError("OpenCV is not installed")
+    chosen = _model_tracker(model_dir)
+    if chosen is not None:
+        return chosen
     legacy = getattr(cv2, "legacy", None)
     for name in ("CSRT", "KCF", "MIL"):
         for owner in (legacy, cv2):
@@ -481,7 +525,7 @@ async def run_object_tracking(
         if tracker_factory is not None:
             outcome.tracker, factory = "custom", tracker_factory
         else:
-            outcome.tracker, factory = select_tracker()
+            outcome.tracker, factory = select_tracker(active.model_dir)
     except TrackerUnavailableError as exc:
         outcome.skipped = str(exc)
         return outcome

@@ -21,6 +21,7 @@ square off the frame itself (an oracle), so a test decides what is found by deci
 
 from collections.abc import Generator
 import json
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -516,9 +517,94 @@ class TestTrackerSelection:
             with pytest.raises(TrackerUnavailableError):
                 select_tracker()
 
-    def test_the_installed_opencv_has_a_tracker(self) -> None:
+    def test_the_installed_opencv_has_a_tracker(self, tmp_path: Path) -> None:
         name, factory = select_tracker()
         assert name in {"CSRT", "KCF", "MIL"} and callable(factory)
+        # an empty model directory changes nothing
+        assert select_tracker(tmp_path)[0] == name
+
+    @staticmethod
+    def _model_cv2(tmp_path: Path, *, nano: tuple[str, ...] = (), vit: bool = False, nano_raises: bool = False) -> Any:
+        """A fake ``cv2`` with Nano and Vit factories, and the model files named in ``nano`` / ``vit`` written."""
+        made: list[Any] = []
+
+        class Params(SimpleNamespace):
+            pass
+
+        def create_nano(params: Any) -> str:
+            if nano_raises:
+                raise RuntimeError("bad model")
+            made.append(params)
+            return "nano"
+
+        def create_vit(params: Any) -> str:
+            made.append(params)
+            return "vit"
+
+        for filename in nano:
+            (tmp_path / filename).write_bytes(b"x")
+        if vit:
+            (tmp_path / object_tracking.VIT_MODEL).write_bytes(b"x")
+        fake = SimpleNamespace(
+            TrackerNano_create=create_nano,
+            TrackerNano_Params=Params,
+            TrackerVit_create=create_vit,
+            TrackerVit_Params=Params,
+            TrackerMIL_create=lambda: "mil",
+        )
+        fake.made = made
+        return fake
+
+    def test_nano_is_preferred_when_both_model_files_are_present(self, tmp_path: Path) -> None:
+        both = (object_tracking.NANO_BACKBONE, object_tracking.NANO_HEAD)
+        fake = self._model_cv2(tmp_path, nano=both, vit=True)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            name, factory = select_tracker(tmp_path)
+            assert (name, factory()) == ("Nano", "nano")
+        params = fake.made[-1]
+        assert params.backbone == str((tmp_path / object_tracking.NANO_BACKBONE).resolve())
+        assert params.neckhead == str((tmp_path / object_tracking.NANO_HEAD).resolve())
+
+    def test_every_tracker_gets_its_own_params(self, tmp_path: Path) -> None:
+        both = (object_tracking.NANO_BACKBONE, object_tracking.NANO_HEAD)
+        fake = self._model_cv2(tmp_path, nano=both)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            _, factory = select_tracker(tmp_path)
+            factory()
+            factory()
+        assert fake.made[-1] is not fake.made[-2]
+
+    def test_one_missing_nano_file_falls_back_to_mil(self, tmp_path: Path) -> None:
+        fake = self._model_cv2(tmp_path, nano=(object_tracking.NANO_BACKBONE,))
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            assert select_tracker(tmp_path)[0] == "MIL"
+
+    def test_an_unloadable_model_falls_back_to_mil(self, tmp_path: Path) -> None:
+        both = (object_tracking.NANO_BACKBONE, object_tracking.NANO_HEAD)
+        fake = self._model_cv2(tmp_path, nano=both, nano_raises=True)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            assert select_tracker(tmp_path)[0] == "MIL"
+
+    def test_vit_is_used_when_only_its_file_is_present(self, tmp_path: Path) -> None:
+        fake = self._model_cv2(tmp_path, vit=True)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            name, factory = select_tracker(tmp_path)
+            assert (name, factory()) == ("Vit", "vit")
+        assert fake.made[-1].net == str((tmp_path / object_tracking.VIT_MODEL).resolve())
+
+    def test_no_model_dir_keeps_the_built_in_order(self, tmp_path: Path) -> None:
+        both = (object_tracking.NANO_BACKBONE, object_tracking.NANO_HEAD)
+        fake = self._model_cv2(tmp_path, nano=both)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            assert select_tracker()[0] == "MIL"
+            assert select_tracker("")[0] == "MIL"
+            assert select_tracker(tmp_path / "missing")[0] == "MIL"
 
 
 class TestFlagAndSettings:
@@ -542,6 +628,12 @@ class TestFlagAndSettings:
         monkeypatch.setenv(object_tracking.DETECTOR_TIMEOUT_ENV_VAR, "9")
         assert ObjectTrackingSettings.from_env().detector_timeout_seconds == 9.0
         assert config.detect_interval_seconds == object_tracking.DEFAULT_DETECT_INTERVAL_SECONDS
+
+    def test_the_model_directory_comes_from_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(object_tracking.MODEL_DIR_ENV_VAR, raising=False)
+        assert ObjectTrackingSettings.from_env().model_dir == ""
+        monkeypatch.setenv(object_tracking.MODEL_DIR_ENV_VAR, "  /models/trackers ")
+        assert ObjectTrackingSettings.from_env().model_dir == "/models/trackers"
 
 
 class TestRealTracker:
@@ -578,3 +670,47 @@ class TestRealTracker:
         # MIL samples its updates at random, so a single frame can stray: the median is what must hold
         assert sorted(overlaps)[len(overlaps) // 2] > 0.3
         assert track.samples[-1].box[1] > track.samples[0].box[1] + 100
+
+
+class TestRealModelTracker:
+    """NanoTrack from its real ONNX files (set ``INCIDENT_OBJECT_TRACKING_MODEL_DIR`` to a directory holding them)."""
+
+    @pytest.mark.skipif(
+        not all(
+            (Path(os.getenv(object_tracking.MODEL_DIR_ENV_VAR) or "/nonexistent") / name).is_file()
+            for name in (object_tracking.NANO_BACKBONE, object_tracking.NANO_HEAD)
+        ),
+        reason="the NanoTrack model files are not in INCIDENT_OBJECT_TRACKING_MODEL_DIR",
+    )
+    @pytest.mark.asyncio
+    async def test_nano_follows_a_moving_textured_square(self) -> None:
+        rng = np.random.default_rng(0)
+        background = rng.integers(0, 60, (HEIGHT, WIDTH, 3), dtype=np.uint8)
+        patch = rng.integers(150, 256, (SIDE, SIDE, 3), dtype=np.uint8)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "textured.mp4"
+            writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), float(FPS), (WIDTH, HEIGHT))
+            for index in range(FPS * SECONDS):
+                frame = background.copy()
+                ymin, xmin, ymax, xmax = square_box(index)
+                frame[ymin:ymax, xmin:xmax] = patch
+                writer.write(frame)
+            writer.release()
+            detector = OracleDetector(blind=True)
+            config = settings(
+                sample_fps=10.0,
+                detect_interval_seconds=60.0,
+                span_seconds=2.0,
+                model_dir=os.environ[object_tracking.MODEL_DIR_ENV_VAR],
+            )
+            outcome = await run_object_tracking(path, [seed_at(3.0)], detector=detector, settings=config)
+        assert outcome.tracker == "Nano" and detector.calls == 0
+        track = outcome.tracks["I1"]
+        moved = [s for s in track.samples if s.score == -0.1]
+        assert len(moved) >= 6
+        overlaps = [
+            box_iou(s.box, (b[0] * 10, b[1] * 5, b[2] * 10, b[3] * 5))
+            for s in moved
+            for b in [square_box(round(s.t * FPS))]
+        ]
+        assert sorted(overlaps)[len(overlaps) // 2] > 0.5
