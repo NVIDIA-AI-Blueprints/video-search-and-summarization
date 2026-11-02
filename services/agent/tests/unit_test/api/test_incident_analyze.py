@@ -279,6 +279,7 @@ def test_a_production_response_keeps_exactly_its_documented_keys(monkeypatch):
     assert set(response.json()) == PRODUCTION_KEYS
     assert "experiment_prompt_id" not in tool.ainvoke.await_args.args[0]
     assert "skip_crops" not in tool.ainvoke.await_args.args[0]
+    assert not {"experiment_captions", "max_caption_calls"} & set(tool.ainvoke.await_args.args[0])
 
 
 @pytest.mark.parametrize(
@@ -289,6 +290,8 @@ def test_a_production_response_keeps_exactly_its_documented_keys(monkeypatch):
         {"max_crop_calls": 10},
         {"max_zoom_calls": 4},
         {"experiment_object_tracking": True},
+        {"experiment_captions": "inline", "max_caption_calls": 9, "skip_crops": True},
+        {"max_caption_calls": 9},
     ],
 )
 def test_experimental_fields_are_refused_without_the_flag(monkeypatch, extra):
@@ -365,6 +368,61 @@ def test_a_crop_call_cap_is_forwarded_to_the_tool(monkeypatch):
     )
     assert response.status_code == 200
     assert tool.ainvoke.await_args.args[0]["max_crop_calls"] == 40
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"experiment_captions": "inline", "skip_crops": True},  # captions without their cap
+        {"max_caption_calls": 9, "skip_crops": True},  # a caption cap with no caption pass
+    ],
+)
+def test_experimental_captions_need_exactly_a_cap(monkeypatch, extra):
+    monkeypatch.setenv(incident_experiments.EXPERIMENTS_FLAG, "1")
+    client, tool = _client(result=OUTPUT)
+    response = client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL, **extra})
+    assert response.status_code == 400
+    tool.ainvoke.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"experiment_captions": "s3", "max_caption_calls": 9},  # only inline or r2
+        {"experiment_captions": "inline", "max_caption_calls": 0},
+        {"experiment_captions": "inline", "max_caption_calls": 201},
+    ],
+)
+def test_an_unknown_caption_store_or_an_out_of_range_caption_cap_is_422(monkeypatch, extra):
+    monkeypatch.setenv(incident_experiments.EXPERIMENTS_FLAG, "1")
+    client, tool = _client(result=OUTPUT)
+    response = client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL, "skip_crops": True, **extra})
+    assert response.status_code == 422
+    tool.ainvoke.assert_not_awaited()
+
+
+@pytest.mark.parametrize("store", ["inline", "r2"])
+def test_caption_settings_are_forwarded_to_the_tool(monkeypatch, store):
+    monkeypatch.setenv(incident_experiments.EXPERIMENTS_FLAG, "1")
+    client, tool = _client(result=OUTPUT.model_copy(update={"experiment": EXPERIMENT, "revision_id": None}))
+    response = client.post(
+        "/api/v1/incidents/v1/analyze",
+        json={"video_url": VIDEO_URL, "experiment_captions": store, "max_caption_calls": 9, "skip_crops": True},
+    )
+    assert response.status_code == 200
+    sent = tool.ainvoke.await_args.args[0]
+    assert sent["experiment_captions"] == store and sent["max_caption_calls"] == 9 and sent["skip_crops"] is True
+    assert response.json()["experiment"] == EXPERIMENT
+
+
+def test_r2_captions_refused_by_the_tool_are_409(monkeypatch):
+    monkeypatch.setenv(incident_experiments.EXPERIMENTS_FLAG, "1")
+    client, _ = _client(side_effect=ExperimentRefusedError("needs INCIDENT_EXPERIMENT_SCRATCH_PREFIX"))
+    response = client.post(
+        "/api/v1/incidents/v1/analyze",
+        json={"video_url": VIDEO_URL, "experiment_captions": "r2", "max_caption_calls": 9, "skip_crops": True},
+    )
+    assert response.status_code == 409 and "INCIDENT_EXPERIMENT_SCRATCH_PREFIX" in response.json()["detail"]
 
 
 def test_an_experiment_cannot_carry_a_reviewer_prompt(monkeypatch):

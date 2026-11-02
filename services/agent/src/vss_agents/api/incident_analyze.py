@@ -42,6 +42,12 @@ request's grounding HTTP attempts, retries included; an item beyond it keeps an 
 An experimental request never writes a report revision, and its response adds ``experiment``
 (prompt id and SHA-256 used, and for a crops-on request ``crop``: wall time, calls against the cap,
 tokens, images and gaps), ``p1_elapsed_ms`` and ``usage``.
+``experiment_captions`` (``inline`` or ``r2``) runs production's caption pass in an experiment, with
+``max_caption_calls`` (required, 1-200) capping its HTTP attempts: ``inline`` sends each window as a base64 data
+URL and stores nothing; ``r2`` writes the windows under the owner-approved ``INCIDENT_EXPERIMENT_SCRATCH_PREFIX``
+and deletes each after its call, and is 409 without that prefix, without R2 settings or with cropping on. One
+setting without the other is 400. A pass that cannot run or finish is skipped as in production (P1 runs without
+context) and ``experiment.caption`` says why.
 A request without them gets exactly the production response.
 With ``INCIDENT_TRACKING_ENABLED`` on, a production response adds ``tracking`` (``{enabled, matched, tracks,
 elapsed_ms, skipped}``); with it off the key is absent.
@@ -60,6 +66,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Literal
 
 from fastapi import APIRouter
 from fastapi import FastAPI
@@ -162,6 +169,25 @@ class AnalyzeIncidentRequest(BaseModel):
             "in a crops-on request, under its own detector-call budget (INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS)."
         ),
     )
+    experiment_captions: Literal["inline", "r2"] | None = Field(
+        default=None,
+        description=(
+            "Experimental (INCIDENT_EXPERIMENTS_ENABLED=1 only): run production's caption pass before P1 with its "
+            "windows in this scratch store: 'inline' (base64 data URLs, nothing stored) or 'r2' (the owner-approved "
+            "INCIDENT_EXPERIMENT_SCRATCH_PREFIX, each window deleted after its call; needs skip_crops). Needs "
+            "max_caption_calls."
+        ),
+    )
+    max_caption_calls: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_CROP_CALLS_LIMIT,
+        description=(
+            "Experimental (INCIDENT_EXPERIMENTS_ENABLED=1 only): the cap of the caption pass's HTTP attempts "
+            "(retries included). Required with experiment_captions; a clip with more windows than the cap gets no "
+            "caption pass."
+        ),
+    )
 
     blur_faces: bool = Field(
         default=False,
@@ -179,6 +205,8 @@ class AnalyzeIncidentRequest(BaseModel):
             or self.max_crop_calls is not None
             or self.max_zoom_calls is not None
             or self.experiment_object_tracking
+            or self.experiment_captions is not None
+            or self.max_caption_calls is not None
         )
 
 
@@ -212,6 +240,12 @@ def create_incident_analyze_router(config: Any, builder: WorkflowBuilder) -> API
         if body.is_experimental() and not body.skip_crops and body.max_crop_calls is None:
             raise HTTPException(
                 status_code=400, detail="an experimental request with cropping on needs max_crop_calls (its cap)"
+            )
+        if body.max_caption_calls is not None and body.experiment_captions is None:
+            raise HTTPException(status_code=400, detail="max_caption_calls applies only with experiment_captions")
+        if body.experiment_captions is not None and body.max_caption_calls is None:
+            raise HTTPException(
+                status_code=400, detail="experiment_captions needs max_caption_calls (its caption-call cap)"
             )
         if body.model and body.model not in allowed_models():
             raise HTTPException(
@@ -253,6 +287,10 @@ def create_incident_analyze_router(config: Any, builder: WorkflowBuilder) -> API
             tool_input["max_zoom_calls"] = body.max_zoom_calls
         if body.experiment_object_tracking:
             tool_input["experiment_object_tracking"] = True
+        if body.experiment_captions is not None:
+            tool_input["experiment_captions"] = body.experiment_captions
+        if body.max_caption_calls is not None:
+            tool_input["max_caption_calls"] = body.max_caption_calls
         if body.blur_faces:
             tool_input["blur_faces"] = True
 

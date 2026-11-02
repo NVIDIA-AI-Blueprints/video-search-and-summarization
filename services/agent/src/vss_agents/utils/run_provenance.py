@@ -28,8 +28,9 @@ always counts as ``zoom``.
 The record (:meth:`RunProvenance.to_dict`) also names the agent's code (:func:`agent_identity`), the analysis
 flags and each stage's prompt SHA-256 from the shared registry. The flags are the agent's settings
 (:func:`analysis_flags`) overlaid with what this analysis actually ran (:meth:`RunProvenance.ran`): an experiment
-never runs the caption pass, person tracking or set-of-marks whatever the agent's settings say, and it runs object
-tracking only when it asks for it. The console writes the record once into ``model_runs.notes``
+never runs person tracking or set-of-marks whatever the agent's settings say, and it runs the caption pass
+(``experiment_captions``) and object tracking only when it asks for them. ``chunking.enabled`` says whether the
+caption pass ran (a skipped pass reads false). The console writes the record once into ``model_runs.notes``
 (``response.provenance``).
 """
 

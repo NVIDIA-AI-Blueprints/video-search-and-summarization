@@ -31,6 +31,10 @@ bound to VST, the NAT object store and a LangChain VLM, none of which the incide
 Everything here is best-effort for the caller: :func:`caption_video` raises :class:`ChunkCaptionError` with a
 plain reason (ffmpeg missing, a window call that failed after retries, ...) and ``incident_report_gen`` turns
 that into a logged skip reason and runs P1 without context.
+
+An experimental request runs the same pass with a scratch store of its own (``experiment_captions``, blocker X16):
+the inline store sends each window as a base64 data URL, and the R2 store under an owner-approved root deletes each
+window as soon as its caption call is over. Its caption calls then draw on a per-request cap (``max_caption_calls``).
 """
 
 from __future__ import annotations
@@ -45,17 +49,26 @@ import re
 import shutil
 import tempfile
 import time
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import Protocol
+from typing import TypeVar
+from typing import cast
 
 import httpx
 
 from vss_agents import incident_contract
 from vss_agents.utils import run_provenance
+from vss_agents.utils.crop_evidence import CropCallBudget
+from vss_agents.utils.crop_evidence import CropCallCapReachedError
 from vss_agents.utils.r2 import get_r2_client
 from vss_agents.utils.r2 import get_r2_presigned_url
 from vss_agents.utils.r2 import is_r2_configured
 from vss_agents.utils.retry import create_retry_strategy
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
+    from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +99,10 @@ SCRATCH_URL_SECONDS = 3600
 DOWNLOAD_TIMEOUT_SECONDS = 120.0
 FFMPEG_TIMEOUT_SECONDS = 120.0
 SCRATCH_PREFIX = "scratch/analyze"
+# The largest window the inline store sends as a data URL. Whether an endpoint accepts a base64 video, and up to
+# what size, is unverified (it needs a model call), so this is a guess that keeps a request body near 11 MB.
+INLINE_MAX_BYTES = 8 * 1024 * 1024
+_T = TypeVar("_T")
 
 # The base profile's video_understanding.system_prompt (dev-profile-base/vss-agent/configs/config.yml).
 CAPTION_SYSTEM_PROMPT = incident_contract.prompt("caption/system")
@@ -350,15 +367,20 @@ class CaptionCallRetryableError(RuntimeError):
 class ScratchStorage(Protocol):
     """Where a caption pass keeps its window clips while the model fetches them (blocker X16 for experiments).
 
-    ``put_video`` stores one window and returns its key, ``signed_url`` gives the model a URL it can fetch, and
-    ``delete_prefix`` removes a pass's windows (it runs in a ``finally`` block, whether or not the pass succeeded).
+    Every key of a pass is ``<root>/<video key>/<run id>/<index>.mp4``. ``put_video`` stores one window and returns
+    its key, ``signed_url`` gives the model a URL it can fetch, ``release`` is called once that window's caption call
+    is over (answered or failed), and ``delete_prefix`` removes whatever is left of a pass's windows (it runs in a
+    ``finally`` block, whether or not the pass succeeded).
     """
 
     name: str
+    root: str
 
     async def put_video(self, key: str, path: Path) -> str: ...
 
     async def signed_url(self, key: str) -> str: ...
+
+    async def release(self, key: str) -> None: ...
 
     async def delete_prefix(self, prefix: str) -> int: ...
 
@@ -372,16 +394,26 @@ class ScratchStore:
 
     The store is confined to ``root`` (default ``scratch/analyze``, the production prefix). It refuses a key or a
     delete prefix outside ``root``, and a delete of ``root`` itself or of one level under it, so a pass can only
-    ever touch ``<root>/<video key>/<run id>/``. An evaluation run would use its own approved root (for example
-    ``scratch/eval``, blocker X16) with the same guard.
+    ever touch ``<root>/<video key>/<run id>/``. An experiment uses its own owner-approved root
+    (``INCIDENT_EXPERIMENT_SCRATCH_PREFIX``, blocker X16) with the same guard and ``delete_after_use``: each window
+    is then deleted as soon as its caption call is over, so it exists only while the model may fetch it. Production
+    keeps the single delete at the end of the pass.
     """
 
     name = "r2"
 
-    def __init__(self, bucket: str | None = None, client: Any = None, root: str = SCRATCH_PREFIX) -> None:
+    def __init__(
+        self,
+        bucket: str | None = None,
+        client: Any = None,
+        root: str = SCRATCH_PREFIX,
+        *,
+        delete_after_use: bool = False,
+    ) -> None:
         self.bucket = bucket or (os.getenv("R2_BUCKET") or "").strip()
         self._client = client
         self.root = root.strip("/")
+        self.delete_after_use = delete_after_use
         if not self.root:
             raise ScratchStoreError("a scratch store needs a non-empty root prefix")
 
@@ -410,6 +442,13 @@ class ScratchStore:
             )
         )
 
+    async def release(self, key: str) -> None:
+        """Delete one window (``<root>/<video key>/<run id>/<file>``) when this store deletes after use; else no-op."""
+        if not self.delete_after_use:
+            return
+        self._check(key, min_depth=3)
+        await asyncio.to_thread(self._get_client().delete_object, Bucket=self.bucket, Key=key)
+
     async def delete_prefix(self, prefix: str) -> int:
         """Delete every object under ``prefix`` (at least two levels under the root) and return how many."""
         self._check(prefix, min_depth=2)
@@ -430,15 +469,17 @@ class ScratchStore:
 class InlineScratchStore:
     """A scratch store that keeps nothing: each window goes to the model inline, as a ``data:video/mp4;base64`` URL.
 
-    It needs no storage at all, so an experiment agent without R2 could run the caption pass (blocker X16). Whether
+    It needs no storage at all, so an experiment agent without R2 can run the caption pass (blocker X16). Whether
     an endpoint accepts a base64 video URL, and up to what size, is unverified (it needs a model call), so a window
-    larger than ``max_bytes`` is refused rather than sent.
+    larger than ``max_bytes`` (default :data:`INLINE_MAX_BYTES`) is refused rather than sent; the pass then fails
+    with that reason. A window's bytes are dropped once its caption call is over.
     """
 
     name = "inline"
+    root = "inline"  # the keys only name windows held in memory for one pass
 
-    def __init__(self, max_bytes: int = 8 * 1024 * 1024) -> None:
-        self.max_bytes = max_bytes
+    def __init__(self, max_bytes: int | None = None) -> None:
+        self.max_bytes = INLINE_MAX_BYTES if max_bytes is None else max_bytes
         self._windows: dict[str, bytes] = {}
 
     async def put_video(self, key: str, path: Path) -> str:
@@ -450,6 +491,9 @@ class InlineScratchStore:
 
     async def signed_url(self, key: str) -> str:
         return "data:video/mp4;base64," + base64.b64encode(self._windows[key]).decode("ascii")
+
+    async def release(self, key: str) -> None:
+        self._windows.pop(key, None)
 
     async def delete_prefix(self, prefix: str) -> int:
         keys = [key for key in self._windows if key.startswith(prefix)]
@@ -467,8 +511,21 @@ class ChunkCaptions:
     context: str | None = None
 
 
-def scratch_prefix(video_key: str, run_id: str) -> str:
-    return f"{SCRATCH_PREFIX}/{video_key.strip('/')}/{run_id}/"
+def scratch_prefix(video_key: str, run_id: str, root: str = SCRATCH_PREFIX) -> str:
+    return f"{root.strip('/')}/{video_key.strip('/')}/{run_id}/"
+
+
+async def _settle(awaitables: Iterable[Awaitable[_T]]) -> list[_T]:  # noqa: UP047 (mypy targets Python 3.11)
+    """Run every awaitable to its end, then raise the first failure in order (a plain ``gather`` raises at once).
+
+    So no window is still uploading or being captioned when the pass returns or raises: the scratch delete in its
+    ``finally`` block runs after the last upload, and every caption attempt is in the run provenance by then.
+    """
+    results = await asyncio.gather(*awaitables, return_exceptions=True)
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+    return cast("list[_T]", results)
 
 
 def ffmpeg_path() -> str | None:
@@ -534,8 +591,13 @@ async def caption_window(
     num_frames: int,
     semaphore: asyncio.Semaphore,
     telemetry: dict[str, Any],
+    budget: CropCallBudget | None = None,
 ) -> dict[str, Any]:
-    """Caption one window with retries on 429, 5xx and transport errors; returns the timeline entry."""
+    """Caption one window with retries on 429, 5xx and transport errors; returns the timeline entry.
+
+    With ``budget`` (an experiment's ``max_caption_calls``) every attempt, retries included, is checked against the
+    cap before it is sent; a refused attempt fails the window (and so the pass) and is counted as refused.
+    """
     body = caption_request_body(model, signed_url, window.length, num_frames)
     attempts = 0
     content = ""
@@ -544,6 +606,14 @@ async def caption_window(
             retries=CAPTION_RETRIES, exceptions=(CaptionCallRetryableError, httpx.TransportError)
         ):
             with attempt:
+                if budget is not None:
+                    try:
+                        budget.acquire()  # before sending: a refused attempt is never made
+                    except CropCallCapReachedError:
+                        run_provenance.record_refused("caption")
+                        raise ChunkCaptionError(
+                            f"caption-call cap of {budget.limit} reached (max_caption_calls) at window {window.index}"
+                        ) from None
                 attempts += 1
                 started = time.perf_counter()
                 try:
@@ -557,6 +627,8 @@ async def caption_window(
                         elapsed_ms=(time.perf_counter() - started) * 1000.0,
                     )
                     raise
+                if budget is not None:
+                    budget.record_response(response)
                 answered = response.status_code < 400
                 run_provenance.record_call(
                     "caption",
@@ -597,12 +669,16 @@ async def caption_video(
     model: str,
     settings: ChunkSettings,
     store: ScratchStorage | None = None,
+    budget: CropCallBudget | None = None,
 ) -> ChunkCaptions:
     """The whole caption pass: plan, cut, upload, caption, then delete the scratch prefix.
 
     ``client`` is the model client (bearer key set) ``run_p1`` uses; the video download uses a client of its
-    own. Raises :class:`ChunkCaptionError` with a plain reason when the pass cannot run or a window failed
-    after its retries; the scratch prefix is deleted either way.
+    own. ``store`` defaults to the production R2 store (``scratch/analyze``); each window is released to it once
+    its caption call is over. ``budget`` caps the caption attempts (an experiment's ``max_caption_calls``): a clip
+    with more windows than the cap is refused before anything is touched. Raises :class:`ChunkCaptionError` with
+    a plain reason when the pass cannot run or a window failed after its retries; the scratch prefix is deleted
+    either way, after every window has finished.
     """
     windows = plan_windows(
         duration_seconds,
@@ -613,6 +689,11 @@ async def caption_video(
     if not windows:
         raise ChunkCaptionError(
             f"clip is {duration_seconds:.1f} s, at or under {MIN_CLIP_ENV} ({settings.min_clip_seconds:g} s)"
+        )
+    if budget is not None and len(windows) > budget.limit:
+        raise ChunkCaptionError(
+            f"the clip has {len(windows)} windows, more than the caption-call cap of {budget.limit} allows "
+            "(max_caption_calls)"
         )
     ffmpeg = ffmpeg_path()
     if ffmpeg is None:
@@ -633,27 +714,36 @@ async def caption_video(
         "completion_tokens": 0,
         "elapsed_ms": 0.0,
     }
-    prefix = scratch_prefix(video_key, run_id)
+    prefix = scratch_prefix(video_key, run_id, store.root)
     chat_url = f"{vlm_base_url.rstrip('/')}/v1/chat/completions"
     semaphore = asyncio.Semaphore(settings.concurrency)
+    active = store  # bound for the closures below (mypy keeps ``store`` optional there)
     try:
         with tempfile.TemporaryDirectory(prefix="chunk-captions-") as workdir:
             source = Path(workdir) / "source.mp4"
             await download_video(video_url, source)
 
-            async def cut_and_upload(window: Window) -> str:
+            async def cut_and_upload(window: Window) -> tuple[str, str]:
                 target = Path(workdir) / f"{window.index}.mp4"
                 async with semaphore:
                     await cut_window(ffmpeg, source, window, target)
-                    key = await store.put_video(f"{prefix}{window.index}.mp4", target)
-                return await store.signed_url(key)
+                    key = await active.put_video(f"{prefix}{window.index}.mp4", target)
+                return key, await active.signed_url(key)
 
-            signed_urls = await asyncio.gather(*(cut_and_upload(window) for window in windows))
-            timeline = await asyncio.gather(
-                *(
-                    caption_window(client, chat_url, model, window, url, settings.num_frames, semaphore, telemetry)
-                    for window, url in zip(windows, signed_urls, strict=True)
-                )
+            async def caption_and_release(window: Window, key: str, url: str) -> dict[str, Any]:
+                try:
+                    return await caption_window(
+                        client, chat_url, model, window, url, settings.num_frames, semaphore, telemetry, budget
+                    )
+                finally:
+                    try:
+                        await active.release(key)
+                    except Exception as exc:  # the prefix delete below removes it instead
+                        logger.warning("chunk_captions: could not release scratch window %s: %s", key, exc)
+
+            uploaded = await _settle(cut_and_upload(window) for window in windows)
+            timeline = await _settle(
+                caption_and_release(window, key, url) for window, (key, url) in zip(windows, uploaded, strict=True)
             )
     except ChunkCaptionError:
         raise
