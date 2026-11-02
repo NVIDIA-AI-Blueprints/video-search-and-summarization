@@ -183,3 +183,10 @@ def test_the_frame_script_runs_in_its_own_environment():
     header = script.read_text().splitlines()[:4]
     assert header[0] == "# /// script" and "opencv-python-headless" in header[2]
     compile(script.read_text(), str(script), "exec")
+
+
+def test_the_detector_timeout_grows_with_the_clip_so_long_clips_finish():
+    from evalv2.references.detector import SubprocessDetector
+
+    d = SubprocessDetector(command=["x"])
+    assert d.timeout_for(10) == 3600.0 and d.timeout_for(393) == 393 * 30.0 and d.timeout_for(666) == 666 * 30.0
