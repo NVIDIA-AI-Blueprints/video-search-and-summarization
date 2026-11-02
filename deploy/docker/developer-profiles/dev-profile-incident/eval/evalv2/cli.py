@@ -601,9 +601,13 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
 
 
 def load_env_files(paths: Sequence[Path] | None = None) -> list[str]:
-    """Load credentials from ``.env.local`` files into the environment (values already set win); the names of the
-    files read are returned, never a value."""
-    from dotenv import load_dotenv
+    """Load credentials from ``.env.local`` files into the environment; the names of the files read are returned,
+    never a value.
+
+    A non-empty value already in the environment wins; an empty one does not. V1's ``eval/config.py`` loads the
+    profile's committed ``.env``, whose credential names are blank placeholders, so a plain ``override=False`` load
+    would leave them blank and the run would refuse for a credential the file holds."""
+    from dotenv import dotenv_values
 
     from evalv2.executor import EVAL_DIR
 
@@ -615,7 +619,9 @@ def load_env_files(paths: Sequence[Path] | None = None) -> list[str]:
     read = []
     for path in candidates:
         if Path(path).is_file():
-            load_dotenv(path, override=False)
+            for name, value in dotenv_values(path).items():
+                if value and not os.environ.get(name):
+                    os.environ[name] = value
             read.append(str(path))
     return read
 

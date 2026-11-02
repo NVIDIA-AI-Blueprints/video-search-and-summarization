@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 
 import pytest
 from pydantic import ValidationError
@@ -203,3 +204,12 @@ def test_an_explicit_env_file_that_does_not_exist_is_an_error(tmp_path, monkeypa
     present.write_text("EVALV2_TEST_ONLY_NAME=1\n")
     assert cli.load_env_files([present]) == [str(present)]
     monkeypatch.delenv("EVALV2_TEST_ONLY_NAME")
+
+
+def test_an_env_file_fills_blank_placeholders_but_never_replaces_a_set_value(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVALV2_TEST_BLANK", "")
+    monkeypatch.setenv("EVALV2_TEST_SET", "kept")
+    path = tmp_path / "creds.env"
+    path.write_text("EVALV2_TEST_BLANK=filled\nEVALV2_TEST_SET=other\n")
+    cli.load_env_files([path])
+    assert os.environ["EVALV2_TEST_BLANK"] == "filled" and os.environ["EVALV2_TEST_SET"] == "kept"
