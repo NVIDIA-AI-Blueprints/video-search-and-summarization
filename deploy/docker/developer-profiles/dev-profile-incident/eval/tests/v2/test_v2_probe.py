@@ -371,3 +371,18 @@ def test_the_probe_store_compacts_inline_clips_and_keeps_other_urls(tmp_path):
     assert body["messages"][0]["content"][0]["video_url"]["url"] == probe.data_url(clip), "the request is unchanged"
     assert probe.compact_data_url("data:video/mp4;base64,@@@").endswith("that are not valid base64]")
     assert store.get(store.put("response", {"x": 1})) == {"x": 1}
+
+
+def test_external_candidates_are_probed_on_the_catalog_only_when_named():
+    from evalv2 import probe as pr
+
+    default = pr.build_plan()
+    assert all(c.endpoint == "switchyard" for c in default if c.kind != "judge"), "the default plan is unchanged"
+    assert not any(c.kind == "over_60s" for c in default)
+    plan = pr.build_plan(kinds=["schema_inline", "frames_many", "long_clip", "over_60s"],
+                         models=["google/gemma-4-31b-it"])
+    assert [c.kind for c in plan] == ["schema_inline", "frames_many", "long_clip", "over_60s"]
+    assert {c.endpoint for c in plan} == {"nvidia-api-catalog"} and plan[-1].clip == pr.OVER_60S_CLIP
+    assert all(c.requires == "schema_inline:google/gemma-4-31b-it" for c in plan[1:])
+    with pytest.raises(pr.ProbeRefused, match="external candidates"):
+        pr.build_plan(models=["qwen/qwen3-vl-8b-instruct"])

@@ -82,11 +82,16 @@ TASK = "probe"
 VIDEO_MODELS = ("nvidia/cosmos-3-nano-reasoner", "nvidia/cosmos-3-super-reasoner",
                 "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")  # Track A's video subjects (Switchyard ids, RB1)
 VIDEO_ENDPOINT = "switchyard"
+# External open-weight candidates (independent families) on the NVIDIA API catalog, probed only when named with
+# --models; their endpoint is the catalog's. Documented inputs are in adapters/capabilities.json (unverified).
+EXTERNAL_VIDEO_MODELS = {"google/gemma-4-31b-it": "nvidia-api-catalog", "moonshotai/kimi-k2.6": "nvidia-api-catalog"}
 JUDGE_IDS = ("catalog-gpt-oss-20b-v1", "catalog-mistral-large-4-v1")
 CONTINUITY_JUDGE_ID = "switchyard-nemotron-3-nano-v1"  # opt-in (--with-continuity-judge); its budget is not approved
-KINDS = ("schema_inline", "frames_many", "long_clip", "judge")
+KINDS = ("schema_inline", "frames_many", "long_clip", "judge", "over_60s")
+DEFAULT_KINDS = ("schema_inline", "frames_many", "long_clip", "judge")  # over_60s is opt-in (--only)
 SHORT_CLIP = "RoadAccidents017"  # dev, 8.1 s, 1.68 MB: the smallest dev file
 LONG_CLIP = "Burglary093"  # dev, 25.4 s, 4.94 MB: about three times the short clip at a fixed 2 fps
+OVER_60S_CLIP = "Explosion029"  # dev, 80.3 s, 6.9 MB: past Gemma 4's documented 60 s video limit; under the inline cap
 FEW_FRAMES, MANY_FRAMES = 8, 64  # 64 is the P1 setting (contracts/inference.json)
 VIDEO_MAX_TOKENS = 8192  # enough for a reasoning model's thinking on a one-line answer
 # The most video and text a probe prompt can carry: 64 frames at up to ~300 tokens each with room to spare. The
@@ -250,26 +255,28 @@ def judge_request(spec: judge_registry.JudgeSpec) -> dict[str, Any]:
     return judge_registry.build_request(spec, "incident", *JUDGE_PROBE_TEXTS)
 
 
-def build_plan(*, kinds: Sequence[str] = KINDS, models: Sequence[str] = VIDEO_MODELS,
+def build_plan(*, kinds: Sequence[str] = DEFAULT_KINDS, models: Sequence[str] = VIDEO_MODELS,
                judges: Sequence[str] = JUDGE_IDS) -> list[ProbeCall]:
     """Every call, in the order it would be sent: each video model's three probes, then each judge."""
     unknown = sorted(set(kinds) - set(KINDS))
     if unknown:
         raise ProbeRefused(f"unknown probe kinds {unknown}; known: {list(KINDS)}")
-    bad = sorted(set(models) - set(VIDEO_MODELS))
+    known = [*VIDEO_MODELS, *EXTERNAL_VIDEO_MODELS]
+    bad = sorted(set(models) - set(known))
     if bad:
-        raise ProbeRefused(f"{bad} are not Track A video subjects {list(VIDEO_MODELS)}")
+        raise ProbeRefused(f"{bad} are not Track A video subjects or external candidates {known}")
     registry = judge_registry.load_judges()
     plan: list[ProbeCall] = []
     video_bound = VIDEO_PROMPT_TOKENS_BOUND + VIDEO_MAX_TOKENS
     for model in models:
         first = f"schema_inline:{model}"
         steps = (("schema_inline", SHORT_CLIP, FEW_FRAMES), ("frames_many", SHORT_CLIP, MANY_FRAMES),
-                 ("long_clip", LONG_CLIP, MANY_FRAMES))
+                 ("long_clip", LONG_CLIP, MANY_FRAMES), ("over_60s", OVER_60S_CLIP, MANY_FRAMES))
         for kind, clip, frames in steps:
             if kind in kinds:
                 requires = first if kind != "schema_inline" and "schema_inline" in kinds else None
-                plan.append(ProbeCall(f"{kind}:{model}", kind, model, VIDEO_ENDPOINT, "inference", video_bound,
+                endpoint = EXTERNAL_VIDEO_MODELS.get(model, VIDEO_ENDPOINT)
+                plan.append(ProbeCall(f"{kind}:{model}", kind, model, endpoint, "inference", video_bound,
                                       clip=clip, num_frames=frames, requires=requires))
     if "judge" in kinds:
         for judge_id in judges:
@@ -524,7 +531,9 @@ def summarise(plan: Sequence[ProbeCall], lines: Sequence[Mapping[str, Any]]) -> 
                                              finding(f"frames_many:{model}", "prompt_tokens"),
                                              finding(f"long_clip:{model}", "prompt_tokens")),
             "frames_self_report": {kind: finding(f"{kind}:{model}", "frames_self_report")
-                                   for kind in ("schema_inline", "frames_many", "long_clip")}}
+                                   for kind in ("schema_inline", "frames_many", "long_clip", "over_60s")},
+            "over_60s": {"answered": finding(f"over_60s:{model}", "accepted"),
+                         "prompt_tokens": finding(f"over_60s:{model}", "prompt_tokens")}}
     judges = {call.judge_id: {"answered": finding(call.id, "accepted"),
                               "expected_json": finding(call.id, "expected_json"),
                               "score": finding(call.id, "score"),
@@ -652,7 +661,8 @@ def run_live(plan: Sequence[ProbeCall], *, approval: Mapping[str, Any], max_call
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m evalv2.probe", description=__doc__.splitlines()[0])
-    parser.add_argument("--only", help=f"comma-separated probe kinds (default all: {','.join(KINDS)})")
+    parser.add_argument("--only", help=f"comma-separated probe kinds from {','.join(KINDS)} "
+                                       f"(default: {','.join(DEFAULT_KINDS)})")
     parser.add_argument("--models", help="comma-separated video models (default: every Track A video subject)")
     parser.add_argument("--judges", help=f"comma-separated judge ids (default: {','.join(JUDGE_IDS)})")
     parser.add_argument("--with-continuity-judge", action="store_true",
@@ -676,7 +686,8 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
     args = _parser().parse_args(argv)
     environ = os.environ if environ is None else environ
     judges = _split(args.judges, JUDGE_IDS) + ([CONTINUITY_JUDGE_ID] if args.with_continuity_judge else [])
-    selection = {"kinds": _split(args.only, KINDS), "models": _split(args.models, VIDEO_MODELS), "judges": judges}
+    selection = {"kinds": _split(args.only, DEFAULT_KINDS), "models": _split(args.models, VIDEO_MODELS),
+                 "judges": judges}
     try:
         if not args.live:
             with no_network():  # the dry run proves itself offline: any connection attempt raises

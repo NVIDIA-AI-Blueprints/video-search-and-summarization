@@ -130,7 +130,33 @@
       "listed_on": [
         "nvidia-api-catalog"
       ],
-      "notes": "Open-weight video reasoning model on the catalog; its API reference was not found, so every capability is assumed from the name and unverified."
+      "notes": "NVIDIA post-training of Qwen3-VL-8B-Instruct (same architecture; model card: use 4 fps video). Open weights, but an NVIDIA model, not an independent family. Catalog API reference 404 on 2026-11-01 and 2026-11-02; every capability unverified."
+    },
+    "google/gemma-4-31b-it": {
+      "video_input": true,
+      "image_input": true,
+      "text_input": true,
+      "json_schema": false,
+      "bbox": false,
+      "frame_policy": "documented: video up to 60 s at 1 fps (frames); behaviour past 60 s unverified (probe over_60s)",
+      "verified": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Independent family (Google), open weights (Apache 2.0 base; NVIDIA Open Model Agreement on the catalog), 31B dense, 256K context. Catalog card 2026-11-02: inputs text, image, video (MP4/WebM); json_schema / response_format not documented (vLLM/SGLang runtime), so false until a probe shows it. Proposed primary external baseline."
+    },
+    "moonshotai/kimi-k2.6": {
+      "video_input": true,
+      "image_input": true,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": false,
+      "frame_policy": "undocumented: 'video frames' via MoonViT; no limits stated",
+      "verified": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Independent family (Moonshot AI), open weights (modified MIT), 1T MoE / 32B active, 256K context. Catalog card 2026-11-02 lists video input and JSON-structured outputs but no video request format or limits. Optional second external baseline, only if probes show real video input."
     }
   }
 }

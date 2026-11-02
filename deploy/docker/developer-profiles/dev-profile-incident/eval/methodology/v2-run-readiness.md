@@ -106,6 +106,8 @@ uv run --frozen python -m evalv2 score --config experiments/v2/c1a-track-a-pilot
 - **What it records.** `attempts.jsonl` (one row per HTTP attempt: model, prompt SHA-256, request hash, tokens, latency, waiting, outcome, failure kind); `manifest.start.json` (write-once) and the sealed manifest: eval commit and dirty flag, config hash, dataset hashes, the marker, the config and marker caps, pacing, endpoints by variable name, P1 prompt provenance or the Track B profiles, and Track B's pinned agent.
 - **Refused before sending:** preflight problems; no marker, or one that does not fit (below); a test-half clip in a pilot (in the plan, and again at signing); a dirty eval tree; a missing credential (named, never printed); a resume whose config, inputs or plan changed.
 
+- **C1e external baseline (proposed, not approved).** First the probes, which are opt-in for catalog candidates: `python -m evalv2.probe --models google/gemma-4-31b-it --only schema_inline,frames_many,long_clip,over_60s` (dry run without `--live`; 4 calls, worst case 0.13 M tokens). Then `experiments/v2/c1e-external-baseline-pilot.json` (50 dev runs, ≤ 65 attempts, ≤ 1.5 M tokens). Both need catalog credits confirmed and their own markers.
+
 **Approval marker** (`evalv2-live-approval-v1`, JSON). `approval draft` fills everything except the approval itself:
 
 ```json
