@@ -290,3 +290,17 @@ def test_the_openrouter_judges_fit_the_approved_judge_budget():
     usd = p.max_tokens * 0.13 / 1e6 + s.max_tokens * 2.10 / 1e6
     probe_worst = 2 * 2_275 * 2.10 / 1e6  # the compatibility probe, priced at the dearer judge
     assert usd + probe_worst <= 1.77, usd
+
+
+def test_a_judge_endpoint_swap_keeps_the_marker_pinned_to_the_run_config(tmp_path, gt):
+    from evalv2.approval import config_sha256
+    from evalv2.score_stage import JUDGE_APPROVAL_VERSION, marker_problems, with_judge_endpoint
+
+    config, _ = _run_track_a(tmp_path)
+    task = next(iter(config.tasks))
+    marker = {"approval": JUDGE_APPROVAL_VERSION, "experiment": config.experiment, "config_sha256": config_sha256(config),
+              "judges": ["openrouter-gpt-oss-20b-v1"], "judge": {"max_requests": 5, "max_tokens": 10_000},
+              "approved_by": "owner", "approved_at": "2026-11-02"}
+    swapped = with_judge_endpoint(config, task, "primary", "openrouter-gpt-oss-20b-v1")
+    assert marker_problems(marker, swapped, config_sha256(config)) == []
+    assert any("another config" in p for p in marker_problems(marker, swapped))

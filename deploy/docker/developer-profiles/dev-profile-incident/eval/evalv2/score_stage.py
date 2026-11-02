@@ -369,14 +369,15 @@ def judge_run_caps(config: Any, marker: Mapping[str, Any] | None) -> list[Cap]:
     return caps
 
 
-def marker_problems(marker: Mapping[str, Any], config: Any) -> list[str]:
-    """Why a marker does not approve this run's live judge stage."""
+def marker_problems(marker: Mapping[str, Any], config: Any, config_hash: str | None = None) -> list[str]:
+    """Why a marker does not approve this run's live judge stage (``config_hash``: the run's own config, before any
+    ``--judge`` endpoint swap)."""
     from evalv2.approval import config_sha256
 
     problems = []
     if marker.get("experiment") != config.experiment:
         problems.append(f"the marker approves {marker.get('experiment')!r}, not {config.experiment!r}")
-    if marker.get("config_sha256") != config_sha256(config):
+    if marker.get("config_sha256") != (config_hash or config_sha256(config)):
         problems.append("the marker pins another config (an edited config needs a new approval)")
     judge = marker.get("judge")
     if not judge:
@@ -428,6 +429,9 @@ def run_score(config: Any, out: Path, *, datasets: Mapping[str, Any], sheets: Ma
     if not (out / "checkpoint.jsonl").exists():
         raise ScoreRefused([f"{out} holds no run (no checkpoint.jsonl)"])
     ensure_private(out)
+    from evalv2.approval import config_sha256
+
+    run_config_hash = config_sha256(config)  # the sealed run's config; the marker pins this, not the swapped one
     if judge_override:
         config = with_judge_endpoint(config, task, slot, judge_override)
     spec = select_judge(config, task, slot)
@@ -448,7 +452,7 @@ def run_score(config: Any, out: Path, *, datasets: Mapping[str, Any], sheets: Ma
     environ = os.environ if environ is None else environ
     problems = [] if marker is not None else ["a live score needs an approval marker with a judge budget (--approval)"]
     if marker is not None:
-        problems += marker_problems(marker, config)
+        problems += marker_problems(marker, config, run_config_hash)
         if marker.get("approval") == JUDGE_APPROVAL_VERSION and spec.id not in (marker.get("judges") or []):
             problems.append(f"the judge approval does not name judge {spec.id}")
     from evalv2.adapters.openai_compat import ENDPOINTS
