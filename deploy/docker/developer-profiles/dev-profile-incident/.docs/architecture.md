@@ -295,7 +295,7 @@ The report shows "Reviewer-edited after generation", "Model assessed N/5; review
 - **Report chat:** `POST /api/chat` sends `version_id` (the version on screen in View, or the version an Edit draft came from) and, in Edit, `draft_report`. Each answer is tagged with the version it came from.
   - **Template mode:** the agent composes the answer from that version's report (`utils/report_answers.py`): the timeline in time order for "what happened", otherwise the people, objects, what was taken, what could cause harm, times, severity or type. It names items by their descriptions, keeps ids in the citations, and says what the report doesn't mention ([`vm-api-contracts.md`](vm-api-contracts.md#post-apiv1incidentschat)). The panel's citation chips show each item's name from its evidence card (`citationTitles`), never its id.
   - **Not searched:** the official version (decision 2026-10-24) and library questions get a "not searched in this chat mode" answer.
-- **Report chat, grounded answers (proposed, Gate M2):**
+- **Report chat, grounded answers (Gate M2 approved 2026-11-02 by the chatbot feature owner; shown only when the agent runs `INCIDENT_CHAT_MODE=grounded`, which stays off until Evaluation V2 validates it):**
   - **Agent answers:** the agent's `chat-contract-v2` flag shows as a **Not in this report** badge, and `grounding` reaches the panel as `grounding`. A v1 answer has neither.
   - **Errors:** an agent 4xx (a version of another incident, no official version) keeps its status; an agent 5xx becomes a 502.
   - **Reset:** the panel is keyed by the version and draft state, so changing version starts a new conversation.
