@@ -1,0 +1,79 @@
+{
+  "golden": "rp1",
+  "description": "RP1 prose-report requests: the contract report prompt with the validated P1 JSON, text only.",
+  "cases": {
+    "report": {
+      "description": "One RP1 call for a validated report (its JSON indented by 2 inside the prompt).",
+      "producers": [
+        "agent",
+        "eval"
+      ],
+      "inputs": {
+        "report": {
+          "incident": {
+            "type": "burglary",
+            "title": "Man hides a bottle in his jacket and leaves without paying",
+            "start_timestamp": 6,
+            "end_timestamp": 41,
+            "description": "E1 takes a bottle from the shelf, hides it in his jacket and walks out without paying.",
+            "severity_level": 2,
+            "severity_reason": "Theft of one item, no violence.",
+            "confidence_score": 0.8,
+            "location": "shop aisle"
+          },
+          "entities": [
+            {
+              "entity_id": "E1",
+              "type": "human",
+              "description": "Man in a grey hoodie.",
+              "timestamp_seconds": 8,
+              "first_seen_seconds": 0,
+              "last_seen_seconds": 41,
+              "label": "shoplifter"
+            }
+          ],
+          "instruments": [],
+          "assets": [
+            {
+              "asset_id": "A1",
+              "name": "bottle",
+              "description": "Green glass bottle taken from the shelf.",
+              "timestamp_seconds": 8,
+              "label": "stolen item"
+            }
+          ],
+          "timeline": [
+            {
+              "start_seconds": 6,
+              "end_seconds": 20,
+              "description": "E1 hides A1 inside his jacket."
+            },
+            {
+              "start_seconds": 36,
+              "end_seconds": 41,
+              "description": "E1 leaves through the front door."
+            }
+          ],
+          "uncertainties": []
+        }
+      },
+      "transport": {
+        "stream": false
+      },
+      "body": {
+        "model": "nvidia/nemotron-3-nano-30b-a3b",
+        "messages": [
+          {
+            "role": "user",
+            "content": "REPORT GENERATION PROMPT - RP1 (incident-contract-v4)\n\nGenerate a concise, objective incident report using ONLY the structured\nincident information provided below.\n\nThe report must accurately reflect the supplied structured data.\nDo not invent, infer, or assume identities, motives, relationships,\ncauses, injuries, weapons, actions, outcomes, or other details that are\nnot supported by the supplied data.\n\nDo not independently reinterpret or reanalyse the source video. The\nstructured incident data is the sole source of information for this report.\n\n==================================================\nINCIDENT REPORT\n==================================================\n\nIncident Type: <type>\nSeverity: <severity_level>/5\nIncident Time: <start_timestamp>–<end_timestamp>\nDuration: <duration> seconds\n\nSUMMARY\n\nProvide a concise overview of the incident.\n\nSummarise:\n- what happened;\n- the directly relevant entities involved;\n- the most important actions or interactions; and\n- the main observable outcome, if available.\n\nAim for approximately 40–60 words, but use fewer words when the incident\nis simple.\n\n==================================================\nINCIDENT DETAILS\n==================================================\n\nProvide an objective, chronological account of the incident based on the\nsupplied structured data.\n\nFocus on the sequence of important observable events and interactions.\nTimeline events outside the incident time are context.\nMention relevant instruments and assets where they contribute to\nunderstanding what occurred.\n\nDo not speculate about intent, motivation, relationships, causation, or\nevents that are not represented in the supplied data.\n\nAim for approximately 60–100 words, but use fewer words when sufficient.\n\n==================================================\nENTITIES INVOLVED\n==================================================\n\nList each supplied entity separately.\n\nFor each entity, provide:\n- Entity_ID\n- Type\n- Description\n- relevant role/actions, if available from the supplied data\n\nExample:\nE1 — Human: Person wearing a dark shirt who approached E2 and initiated\nthe physical confrontation.\n\nDo not add people or animals that are not present in the structured data.\n\nIf there are no entities, write:\n\"None identified.\"\n\n==================================================\nINSTRUMENTS\n==================================================\n\nList each supplied instrument separately.\n\nFor each instrument, provide:\n- Instrument_ID\n- Name\n- Description\n- Entity_ID of the entity holding it, if available\n- Threat Level: <level>/5\n\nExample:\nI1 — Knife — Held by E1 — Threat Level: 4/5\n\nThreat level represents the instrument's potential to cause harm in the\nobserved context, not the amount of harm actually caused.\n\nDo not add instruments that are not present in the structured data.\n\nIf there are no instruments, write:\n\"None identified.\"\n\n==================================================\nASSETS\n==================================================\n\nList each supplied asset separately.\n\nFor each asset, provide:\n- Asset_ID\n- Name\n- Description\n\nMention its relevance to the incident only when that information is\nsupported by the supplied data.\n\nDo not add assets that are not present in the structured data.\n\nIf there are no assets, write:\n\"None identified.\"\n\n==================================================\nOBSERVATIONS / LIMITATIONS\n==================================================\n\nBriefly state any material uncertainty or missing information explicitly\npresent in the supplied data that affects interpretation of the incident.\n\nDo not create uncertainties merely to populate this section.\n\nIf there are no material limitations represented in the supplied data,\nwrite:\n\"No material limitations identified from the supplied incident data.\"\n\n==================================================\nLENGTH AND STYLE\n==================================================\n\n- Keep the report concise and proportional to the complexity of the incident.\n- Most reports should be approximately 150–250 words.\n- Simple incidents may be shorter than 150 words.\n- Never exceed 300 words.\n- Do NOT add unnecessary information to reach a target word count.\n- Use neutral, factual, professional language.\n- Avoid dramatic, emotive, or speculative language.\n- Do not repeat the same information unnecessarily across sections.\n- Preserve the supplied Entity_ID, Instrument_ID, and Asset_ID values.\n- Do not introduce facts that are absent from the structured incident data.\n\nReturn only the completed incident report. Do not include commentary about\nhow the report was generated.\n\n==================================================\nSTRUCTURED INCIDENT DATA\n==================================================\n\n{\n  \"incident\": {\n    \"type\": \"burglary\",\n    \"title\": \"Man hides a bottle in his jacket and leaves without paying\",\n    \"start_timestamp\": 6,\n    \"end_timestamp\": 41,\n    \"description\": \"E1 takes a bottle from the shelf, hides it in his jacket and walks out without paying.\",\n    \"severity_level\": 2,\n    \"severity_reason\": \"Theft of one item, no violence.\",\n    \"confidence_score\": 0.8,\n    \"location\": \"shop aisle\"\n  },\n  \"entities\": [\n    {\n      \"entity_id\": \"E1\",\n      \"type\": \"human\",\n      \"description\": \"Man in a grey hoodie.\",\n      \"timestamp_seconds\": 8,\n      \"first_seen_seconds\": 0,\n      \"last_seen_seconds\": 41,\n      \"label\": \"shoplifter\"\n    }\n  ],\n  \"instruments\": [],\n  \"assets\": [\n    {\n      \"asset_id\": \"A1\",\n      \"name\": \"bottle\",\n      \"description\": \"Green glass bottle taken from the shelf.\",\n      \"timestamp_seconds\": 8,\n      \"label\": \"stolen item\"\n    }\n  ],\n  \"timeline\": [\n    {\n      \"start_seconds\": 6,\n      \"end_seconds\": 20,\n      \"description\": \"E1 hides A1 inside his jacket.\"\n    },\n    {\n      \"start_seconds\": 36,\n      \"end_seconds\": 41,\n      \"description\": \"E1 leaves through the front door.\"\n    }\n  ],\n  \"uncertainties\": []\n}\n"
+          }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 4096,
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        }
+      }
+    }
+  }
+}
