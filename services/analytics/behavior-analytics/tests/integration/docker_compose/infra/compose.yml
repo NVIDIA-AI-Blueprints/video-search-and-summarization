@@ -19,7 +19,9 @@
 # layer that generate_env.sh writes. The deployment file also defines HAProxy
 # and the SDR controller; neither is in COMPOSE_PROFILES, so neither starts.
 include:
-  - path: ${INFRA_DIR}/compose.yml
+  - path:
+      - ${INFRA_DIR}/compose.yml
+      - ${MDX_SAMPLE_APPS_DIR}/infra/build-network.yml
 
 # The MQTT broker is the deployment's own mosquitto service, selected through
 # COMPOSE_PROFILES like every other included service. Only the bridge below is
