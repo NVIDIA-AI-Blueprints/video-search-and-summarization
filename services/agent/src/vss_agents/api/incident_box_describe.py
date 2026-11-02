@@ -123,7 +123,11 @@ def create_incident_box_describe_router(detector: Any | None = None) -> APIRoute
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except (httpx.HTTPError, ValueError) as exc:
             logger.error("box/describe failed for video_id=%s: %s", video_id, exc, exc_info=True)
-            raise HTTPException(status_code=502, detail=f"The video model failed: {exc}") from exc
+            if isinstance(exc, httpx.TimeoutException):
+                detail = "The video model did not answer in time, even after a second try. Try again in a moment."
+            else:
+                detail = f"The video model failed: {exc}"
+            raise HTTPException(status_code=502, detail=detail) from exc
         if result.item_type is None:
             return BoxDescribeResponse(proposal=None, reason=result.reason)
         return BoxDescribeResponse(

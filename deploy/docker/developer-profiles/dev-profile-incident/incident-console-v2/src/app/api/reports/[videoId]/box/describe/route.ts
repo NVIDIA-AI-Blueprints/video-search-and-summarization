@@ -6,7 +6,7 @@ import { getServiceConfiguration } from '@/lib/env';
 import { boxAgentFailure, parseSecondsAndBox } from '@/lib/http/box-route';
 import { describeBox } from '@/modules/reports/infrastructure/agent/box-tools';
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /** Body {seconds, box}; asks the agent to read the boxed region. Answers {proposal, reason}; nothing is stored. */
 export async function POST(request: Request, context: { params: Promise<{ videoId: string }> }) {

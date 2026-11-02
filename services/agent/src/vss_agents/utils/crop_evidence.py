@@ -122,6 +122,9 @@ ZOOM_CROP_PADDING = 0.25
 ZOOM_MIN_SHORT_SIDE = 256
 ZOOM_CONFIDENCE_THRESHOLD = 0.7
 ZOOM_TIMEOUT_SECONDS = 60.0
+# Describing a reviewer-drawn box waits on a person, so it runs with reasoning off (about 2.5 s instead of 30 s on
+# the shared VLM) and tries a timed-out request once more; two tries stay under the console's 120 s wait.
+DESCRIBE_BOX_TIMEOUT_SECONDS = 40.0
 _FALSE_FLAG_VALUES = frozenset({"0", "false", "no", "off"})
 
 
@@ -727,7 +730,15 @@ class DefaultDetector:
         raise RuntimeError("unreachable")  # pragma: no cover
 
     def _chat_json(
-        self, images: Sequence[bytes], text: str, check: Callable[[dict[str, Any]], _Checked], max_tokens: int = 256
+        self,
+        images: Sequence[bytes],
+        text: str,
+        check: Callable[[dict[str, Any]], _Checked],
+        max_tokens: int = 256,
+        *,
+        timeout_seconds: float = ZOOM_TIMEOUT_SECONDS,
+        thinking: bool = True,
+        retry_timeout: bool = False,
     ) -> _Checked:
         """One chat completion (images first, then ``text``) parsed as a JSON object and passed through ``check``
         (the strict reply parser). The attempt counts as failed in the run provenance unless ``check`` accepts the
@@ -735,7 +746,8 @@ class DefaultDetector:
         before each attempt.
 
         A rate limit or server error is retried once after ``retry-after`` (default 2 s); the gateway answers 429
-        when a report's items are checked concurrently.
+        when a report's items are checked concurrently. With ``retry_timeout`` a request that times out is tried once
+        more too. ``thinking=False`` turns the model's reasoning off for the call.
         """
         body = {
             "model": self.model_name,
@@ -760,6 +772,8 @@ class DefaultDetector:
             "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
         }
+        if not thinking:
+            body["chat_template_kwargs"] = {"enable_thinking": False}
         for attempt in (1, 2):
             if self.zoom_budget is not None:
                 try:
@@ -773,10 +787,13 @@ class DefaultDetector:
                     self._chat_url(),
                     json=body,
                     headers={"Authorization": f"Bearer {self.api_key}"},
-                    timeout=ZOOM_TIMEOUT_SECONDS,
+                    timeout=timeout_seconds,
                 )
-            except Exception:
+            except Exception as exc:
                 self._count("zoom", started, None, ok=False)
+                if retry_timeout and attempt == 1 and isinstance(exc, httpx.TimeoutException):
+                    logger.warning("Chat request timed out after %.0f s; trying once more", timeout_seconds)
+                    continue
                 raise
             if self.zoom_budget is not None:
                 self.zoom_budget.record_response(resp)
@@ -836,8 +853,8 @@ class DefaultDetector:
     def describe_box(self, jpeg: bytes, *, context_jpeg: bytes) -> BoxProposal:
         """Name and describe a reviewer-drawn box in one call: the frame with the box drawn, then the close-up.
 
-        The same endpoint, model, timeout and single retry as the zoomed second look (``_chat_json``), with the
-        ``zoom/describe-box`` prompt. Raises ``httpx.HTTPError`` on transport or status errors and ``ValueError`` on
+        The same endpoint and model as the zoomed second look (``_chat_json``), with the ``zoom/describe-box``
+        prompt, reasoning off, a 40 s timeout and one more try after a timeout. Raises ``httpx.HTTPError`` on transport or status errors and ``ValueError`` on
         a reply that is not the strict JSON asked for.
         """
         return self._chat_json(
@@ -845,6 +862,9 @@ class DefaultDetector:
             incident_contract.prompt("zoom/describe-box"),
             parse_box_proposal,
             max_tokens=384,
+            timeout_seconds=DESCRIBE_BOX_TIMEOUT_SECONDS,
+            thinking=False,
+            retry_timeout=True,
         )
 
     def detect(self, frame: np.ndarray, query: str) -> list[Detection]:

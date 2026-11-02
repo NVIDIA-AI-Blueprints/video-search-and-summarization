@@ -122,6 +122,12 @@ def test_model_failure_is_502(error: Exception) -> None:
     assert _post(FakeModel(error))[0].status_code == 502
 
 
+def test_model_timeout_is_502_with_a_plain_message() -> None:
+    response, _ = _post(FakeModel(httpx.ReadTimeout("")))
+    assert response.status_code == 502
+    assert "did not answer in time" in response.json()["detail"]
+
+
 def test_missing_vlm_key_is_503() -> None:
     assert _post(FakeModel(GOOD, available=False))[0].status_code == 503
 
@@ -188,3 +194,63 @@ def test_detector_sends_describe_box_prompt_with_frame_then_close_up(monkeypatch
     content = sent[0]["messages"][0]["content"]
     assert [part["type"] for part in content] == ["image_url", "image_url", "text"]
     assert content[2]["text"].startswith("The first image is a video frame with one thing marked")
+
+
+def _reply_class() -> type:
+    class Reply:
+        status_code = 200
+        headers: ClassVar[dict] = {}
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            import json
+
+            return {"choices": [{"message": {"content": json.dumps(GOOD)}}]}
+
+    return Reply
+
+
+def test_detector_turns_reasoning_off_and_uses_the_shorter_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[tuple[dict, float]] = []
+
+    def fake_post(url: str, *, json: dict, headers: dict, timeout: float):
+        seen.append((json, timeout))
+        return _reply_class()()
+
+    monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
+    detector = crop_evidence.DefaultDetector(model_name="m", base_url="http://x.invalid", api_key="k")
+    detector.describe_box(b"close-up", context_jpeg=b"frame")
+    body, timeout = seen[0]
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert timeout == crop_evidence.DESCRIBE_BOX_TIMEOUT_SECONDS
+
+
+def test_detector_tries_a_timed_out_describe_once_more(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+
+    def fake_post(url: str, *, json: dict, headers: dict, timeout: float):
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("")
+        return _reply_class()()
+
+    monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
+    detector = crop_evidence.DefaultDetector(model_name="m", base_url="http://x.invalid", api_key="k")
+    assert detector.describe_box(b"close-up", context_jpeg=b"frame").name == "crowbar"
+    assert len(calls) == 2
+
+
+def test_detector_gives_up_after_two_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+
+    def fake_post(url: str, *, json: dict, headers: dict, timeout: float):
+        calls.append(1)
+        raise httpx.ReadTimeout("")
+
+    monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
+    detector = crop_evidence.DefaultDetector(model_name="m", base_url="http://x.invalid", api_key="k")
+    with pytest.raises(httpx.ReadTimeout):
+        detector.describe_box(b"close-up", context_jpeg=b"frame")
+    assert len(calls) == 2

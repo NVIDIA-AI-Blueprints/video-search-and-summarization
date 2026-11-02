@@ -13,6 +13,8 @@ type ReviewerTrackSample = ReviewerTrack['samples'][number];
 
 /** How far one "Extend" button reaches, and the window either side of a fresh box. */
 export const TRACK_WINDOW_SECONDS = 3;
+/** Milliseconds of waiting on the AI before the box tool says it is still looking. */
+export const SLOW_NOTICE_MS = 6000;
 
 const spanOf = (samples: readonly ReviewerTrackSample[]): [number, number] => [samples[0].t, samples[samples.length - 1].t];
 

@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { type BoxToolClient, boxToolClient } from '@/lib/evidence/box-tool-client';
-import { endTrackAt, extendTrack, extensionRequest, TRACK_WINDOW_SECONDS } from '@/lib/evidence/box-tool';
+import { endTrackAt, extendTrack, extensionRequest, SLOW_NOTICE_MS, TRACK_WINDOW_SECONDS } from '@/lib/evidence/box-tool';
 import { videoFrameUrl } from '@/lib/evidence/evidence-view';
 import { pickSeconds } from '@/lib/evidence/frame-picker';
 import { scrubberBoxAt, trackSecond, trackSpan } from '@/lib/evidence/track';
@@ -93,12 +93,21 @@ export function BoxTool({
   const [partialKept, setPartialKept] = useState(false);
   const [phase, setPhase] = useState<'describe' | 'track' | null>(null);
   const [busy, setBusy] = useState(false);
+  const [slow, setSlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewSeconds, setPreviewSeconds] = useState(0);
   const [drawing, setDrawing] = useState(false);
   const [drawnBox, setDrawnBox] = useState<Box | null>(null);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // After a few seconds of waiting on the AI, say it is still working rather than leave the same line on screen.
+  useEffect(() => {
+    setSlow(false);
+    if (stage !== 'working') return;
+    const timer = setTimeout(() => setSlow(true), SLOW_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [stage]);
 
   const run = async <T,>(task: (signal: AbortSignal) => Promise<T>): Promise<T | undefined> => {
     abortRef.current?.abort();
@@ -316,7 +325,11 @@ export function BoxTool({
         {stage === 'working' && (
           <div className="space-y-3 py-6" data-testid="box-tool-progress">
             <p className="text-sm font-semibold text-ink">
-              {phase === 'describe' ? 'The AI is reading the box…' : `Following ${card.name || 'it'} through the video…`}
+              {phase === 'describe'
+                ? slow
+                  ? 'The AI is still looking…'
+                  : 'The AI is reading the box…'
+                : `Following ${card.name || 'it'} through the video…`}
             </p>
             <Progress value={phase === 'describe' ? 30 : 70} />
             <p className="text-[11px] text-muted-foreground">

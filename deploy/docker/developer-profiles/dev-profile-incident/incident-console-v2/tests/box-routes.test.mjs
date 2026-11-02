@@ -112,3 +112,26 @@ test('track: an unusable track from the agent is a 502', async () => {
   agent(200, { track: { samples: [] } });
   assert.equal((await post(trackRoute, { seconds: 1, box, itemType: 'asset', name: 'bag', description: '' })).status, 502);
 });
+
+test("describe: the agent's own message is shown, not the raw HTTP body", async () => {
+  agent(502, { detail: 'The video model did not answer in time, even after a second try. Try again in a moment.' });
+  const response = await post(describeRoute, { seconds: 1, box });
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).error, 'The video model did not answer in time, even after a second try. Try again in a moment.');
+});
+
+test("describe waits longer than the agent's two tries", async () => {
+  const timeouts = [];
+  const original = AbortSignal.timeout;
+  AbortSignal.timeout = (ms) => {
+    timeouts.push(ms);
+    return original.call(AbortSignal, ms);
+  };
+  try {
+    agent(200, { proposal: null, reason: 'unclear' });
+    await post(describeRoute, { seconds: 1, box });
+  } finally {
+    AbortSignal.timeout = original;
+  }
+  assert.deepEqual(timeouts, [120_000]);
+});

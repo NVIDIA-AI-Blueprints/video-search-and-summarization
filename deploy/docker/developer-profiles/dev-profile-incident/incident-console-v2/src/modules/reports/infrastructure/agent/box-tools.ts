@@ -24,9 +24,20 @@ export class BoxAgentError extends Error {
   }
 }
 
-const DESCRIBE_TIMEOUT_MS = 60_000;
+/** The agent tries the model twice (40 s each, reasoning off, about 3 s when healthy); the console waits longer so a failure shows the agent's own message. */
+const DESCRIBE_TIMEOUT_MS = 120_000;
 /** The agent answers within about 60 s; the extra margin is for the 15 s detector timeout it may spend re-anchoring. */
 const TRACK_TIMEOUT_MS = 90_000;
+
+/** The agent's plain `{"detail": "..."}` message, when it sent one as a string. */
+function agentDetail(text: string): string | null {
+  try {
+    const detail = (JSON.parse(text) as { detail?: unknown }).detail;
+    return typeof detail === 'string' && detail ? detail : null;
+  } catch {
+    return null;
+  }
+}
 
 async function postBox(config: ServiceConfiguration, videoId: string, action: 'describe' | 'track', body: unknown, timeoutMs: number) {
   if (!config.agentUrl) throw new Error('INCIDENT_AGENT_BASE_URL is not configured; the agent reads the reviewer box');
@@ -45,8 +56,9 @@ async function postBox(config: ServiceConfiguration, videoId: string, action: 'd
     );
   }
   if (!response.ok) {
-    const detail = (await response.text().catch(() => '')).slice(0, 300);
-    throw new BoxAgentError(`The agent returned HTTP ${response.status} for the box ${action}: ${detail}`, response.status);
+    const text = (await response.text().catch(() => '')).slice(0, 300);
+    const detail = agentDetail(text);
+    throw new BoxAgentError(detail ?? `The agent returned HTTP ${response.status} for the box ${action}: ${text}`, response.status);
   }
   return (await response.json().catch(() => null)) as Record<string, unknown> | null;
 }
