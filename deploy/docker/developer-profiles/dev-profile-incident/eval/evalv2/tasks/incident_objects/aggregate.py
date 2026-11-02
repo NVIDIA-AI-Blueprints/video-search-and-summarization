@@ -85,19 +85,105 @@ def type_metrics(videos: list[Mapping[str, Any]]) -> dict[str, Any]:
             "support": support, "confusion": {gt: dict(row) for gt, row in confusion.items()}}
 
 
+SEVERITY_METRIC_VERSION = "severity-v2-mae"
+INVALID_OUTCOMES = frozenset({"contract_invalid", "parse_failure"})
+SEVERITY_STATUSES = ("valid", "no_model_output", "missing_ground_truth", "invalid_output", "invalid_label",
+                     "missing_prediction")
+
+
+def _level(value: Any) -> int | None:
+    """A level on the canonical 1-5 scale (an integral number or numeric string), else ``None`` (V1's rule)."""
+    if isinstance(value, bool):
+        return None
+    try:
+        level = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(level) if level.is_integer() and int(level) in SEVERITY_LEVELS else None
+
+
+def severity_status(video: Mapping[str, Any]) -> tuple[str, int | None, int | None]:
+    """``(status, expected, predicted)`` of one video-run's severity (see :data:`SEVERITY_STATUSES`).
+
+    ``valid`` needs a model output, a ground-truth level and a predicted level on the 1-5 scale. Otherwise, in this
+    order: the run had no model output (request failure); the clip has no ground-truth level; the output was invalid
+    (``contract_invalid`` or ``parse_failure``: no severity is read from it); the predicted value is not a 1-5 level;
+    no severity was predicted.
+    """
+    entry = (video.get("incident_field_scores") or {}).get("severity_level") or {}
+    expected, raw = _level(entry.get("expected")), entry.get("predicted")
+    predicted = _level(raw)
+    if not v1.has_model_output(video):
+        return "no_model_output", expected, None
+    if expected is None:
+        return "missing_ground_truth", None, predicted
+    if str(video.get("outcome")) in INVALID_OUTCOMES:
+        return "invalid_output", expected, None
+    if predicted is not None:
+        return "valid", expected, predicted
+    if raw is not None and str(raw).strip():
+        return "invalid_label", expected, None
+    return "missing_prediction", expected, None
+
+
+def _severity_core(pairs: list[tuple[int, int]]) -> dict[str, Any]:
+    n = len(pairs)
+    errors = [p - g for g, p in pairs]
+    kappa = weighted_kappa({str(i): g for i, (g, _) in enumerate(pairs)}, {str(i): p for i, (_, p) in enumerate(pairs)},
+                           categories=list(SEVERITY_LEVELS), weights="quadratic") if n else {"kappa": None}
+    return {"n": n,
+            "mae": _ratio(sum(abs(e) for e in errors), n),
+            "exact": _ratio(sum(e == 0 for e in errors), n),
+            "qwk": round(kappa["kappa"], 4) if kappa["kappa"] is not None else None,
+            "within_one": _ratio(sum(abs(e) <= 1 for e in errors), n),
+            "mean_signed_error": _ratio(sum(errors), n)}
+
+
 def severity_metrics(videos: list[Mapping[str, Any]]) -> dict[str, Any]:
-    """Quadratic-weighted κ over valid predictions (a level 1-5 on a run with model output)."""
-    expected, predicted = {}, {}
-    for index, video in enumerate(videos):
-        if not v1.has_model_output(video):
+    """Severity on the ordinal 1-5 scale (``severity-v2-mae``): MAE primary, exact accuracy and QWK secondary.
+
+    All three are computed over the same valid pairs (:func:`severity_status`), so they share one denominator
+    (``n``). Runs without a valid pair are never dropped silently: they are counted by status and by outcome, and
+    ``coverage`` is ``n / attempted``. MAE is in severity levels (lower is better); exact and QWK are higher-better.
+    ``by_category`` repeats the three metrics per ground-truth incident type.
+    """
+    statuses: Counter[str] = Counter()
+    outcomes_without: Counter[str] = Counter()
+    pairs: list[tuple[int, int]] = []
+    by_category: dict[str, list[tuple[int, int]]] = {}
+    category_attempts: Counter[str] = Counter()
+    for video in videos:
+        status, expected, predicted = severity_status(video)
+        statuses[status] += 1
+        category = _category(video)
+        category_attempts[category] += 1
+        if status != "valid":
+            outcomes_without[str(video.get("outcome"))] += 1
             continue
-        entry = (video.get("incident_field_scores") or {}).get("severity_level") or {}
-        gt, pred = entry.get("expected"), entry.get("predicted")
-        if gt in SEVERITY_LEVELS and pred in SEVERITY_LEVELS:
-            key = f"{video.get('incident_id')}#{video.get('repeat', 1)}#{index}"
-            expected[key], predicted[key] = gt, pred
-    kappa = weighted_kappa(expected, predicted, categories=list(SEVERITY_LEVELS), weights="quadratic")
-    return {"valid": len(expected), "qwk": round(kappa["kappa"], 4) if kappa["kappa"] is not None else None}
+        assert expected is not None and predicted is not None
+        pairs.append((expected, predicted))
+        by_category.setdefault(category, []).append((expected, predicted))
+    errors = [p - g for g, p in pairs]
+    core = _severity_core(pairs)
+    return {
+        "metric_version": SEVERITY_METRIC_VERSION, "primary": "mae",
+        "direction": {"mae": "lower_is_better", "exact": "higher_is_better", "qwk": "higher_is_better"},
+        **core, "valid": core["n"], "attempted": len(videos), "coverage": _ratio(core["n"], len(videos)),
+        "counts": {status: statuses[status] for status in SEVERITY_STATUSES},
+        "outcomes_without_valid_severity": dict(outcomes_without),
+        "over_rated": sum(e > 0 for e in errors), "under_rated": sum(e < 0 for e in errors),
+        "abs_error_histogram": {str(k): sum(abs(e) == k for e in errors) for k in range(len(SEVERITY_LEVELS))},
+        "by_category": {category: {**_severity_core(by_category.get(category, [])),
+                                   "attempted": category_attempts[category]}
+                        for category in sorted(category_attempts)},
+    }
+
+
+def _category(video: Mapping[str, Any]) -> str:
+    """The clip's ground-truth incident type (canonical), the category of the per-category breakdowns."""
+    entry = (video.get("incident_field_scores") or {}).get("type") or {}
+    gt = entry.get("expected") or ((video.get("ground_truth") or {}).get("incident") or {}).get("type")
+    return v1.canonical_incident_type(gt) or "unknown"
 
 
 def timestamp_metrics(videos: list[Mapping[str, Any]]) -> dict[str, Any]:

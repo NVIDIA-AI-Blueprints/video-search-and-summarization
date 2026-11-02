@@ -340,6 +340,12 @@ def _parser() -> argparse.ArgumentParser:
     verify.add_argument("--record", type=Path, action="append", required=True)
     verify.add_argument("--report", type=Path)
     verify.add_argument("--data-root", type=Path, default=None)
+    severity = sub.add_parser("severity-report", help="severity MAE (primary), exact and QWK per model from saved "
+                              "per-video scores; no model, judge or network")
+    severity.add_argument("--videos", type=Path, action="append", required=True,
+                          help="a score output's *-videos.jsonl; repeat for a pilot and its recovery run")
+    severity.add_argument("--out", type=Path, required=True, help="private output directory")
+    severity.add_argument("--title", default="Severity")
     references = sub.add_parser("references", help="advance a reference run (RA1, RA2, RB2); no model is called")
     references_sub = references.add_subparsers(dest="run", required=True)
     for name in ("ra1", "ra2", "rb2"):
@@ -556,6 +562,20 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
                     else ArtifactStore(args.store).run(args.run).verify())
         print(json.dumps({"ok": not problems, "problems": problems}, indent=2))
         return 1 if problems else 0
+    if args.command == "severity-report":
+        from evalv2 import severity_report
+
+        try:
+            result = severity_report.report(severity_report.load_rows(args.videos))
+        except severity_report.SeverityReportError as exc:
+            print(json.dumps({"ok": False, "problems": [str(exc)]}, indent=2))
+            return 1
+        written = severity_report.write(result, args.out, args.title)
+        print(json.dumps({"ok": True, "out": str(written), "rows": [
+            {"subject": r["subject"], "stage": r["stage"], **{k: r["severity"][k] for k in
+                                                            ("mae", "exact", "qwk", "n", "attempted", "coverage")}}
+            for r in result["rows"]]}, indent=2))
+        return 0
     if args.command == "verify-v1":
         try:
             return _verify_v1(args)

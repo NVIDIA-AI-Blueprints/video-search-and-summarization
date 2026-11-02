@@ -63,7 +63,10 @@ from evalv2.tasks.incident_objects.aggregate import aggregate
 from evalv2.tasks.incident_objects.scoring import SimilarityUnavailableError, embedder_similarity, score_video
 from evalv2.tasks.judging import Judge
 
-SCORE_VERSION = "evalv2-score-stage-v1"
+SCORE_VERSION = "evalv2-score-stage-v2"  # v2: severity-v2-mae (MAE primary); outputs under scoring/<version>/
+# The files whose bytes define the scores; their SHA-256 and the eval commit go into every summary.
+SCORER_FILES = ("evalv2/score_stage.py", "evalv2/tasks/incident_objects/aggregate.py",
+                "evalv2/tasks/incident_objects/scoring.py", "evalv2/tasks/pipeline/scoring.py")
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # methodology.EMBEDDING_MODEL (V1's matcher)
 VIDEO_BLOCKS = ("incident_field_scores", "entities", "instruments", "assets", "scoring_errors")
 
@@ -196,8 +199,9 @@ def score_run(config: Any, out: Path, *, gt_index: Mapping[str, Any], sheets: Ma
     by_clip = gt_index["by_incident_id"]
     videos: list[dict[str, Any]] = []
     tasks = sorted({row["task"] for row in rows})
-    summary: dict[str, Any] = {"score_version": SCORE_VERSION, "experiment": config.experiment, "tasks": tasks,
-                               "final_items": len(rows), "subjects": {}}
+    summary: dict[str, Any] = {"score_version": SCORE_VERSION, "scorer": scorer_provenance(),
+                               "experiment": config.experiment, "tasks": tasks, "final_items": len(rows),
+                               "subjects": {}}
     if "incident_objects" in tasks:
         per_subject: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for row in (r for r in rows if r["task"] == "incident_objects"):
@@ -281,9 +285,27 @@ def _score_pipeline(rows: Sequence[Mapping[str, Any]], store: ArtifactStore, gt_
         summary["subjects"].setdefault(subject, {})["pipeline"] = block
 
 
+def scorer_provenance() -> dict[str, Any]:
+    """The eval commit (and whether the tree was dirty) and the SHA-256 of every scorer file."""
+    import hashlib
+
+    from evalv2.core.manifest import git_info
+    from evalv2.executor import EVAL_DIR
+
+    return {**git_info(EVAL_DIR), "files_sha256": {name: hashlib.sha256((EVAL_DIR / name).read_bytes()).hexdigest()
+                                                   for name in SCORER_FILES}}
+
+
+def output_dir(out: Path, slot: str) -> Path:
+    """``scoring/<score version>/<slot>``: a new score version never overwrites an earlier one's outputs."""
+    return Path(out) / "scoring" / SCORE_VERSION / slot
+
+
 def write_outputs(out: Path, slot: str, result: Mapping[str, Any], mode: str) -> Path:
-    """``scoring/<slot>/<mode>-summary.json`` and ``<mode>-videos.jsonl`` (private: they quote the ground truth)."""
-    directory = Path(out) / "scoring" / slot
+    """``scoring/<version>/<slot>/<mode>-summary.json`` and ``<mode>-videos.jsonl`` (private: they quote the GT).
+
+    Outputs of score versions before v2 sit in ``scoring/<slot>/`` and are left as they are."""
+    directory = output_dir(out, slot)
     ensure_private(directory)
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{mode}-summary.json").write_text(json.dumps(result["summary"], indent=1, sort_keys=True) + "\n",

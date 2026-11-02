@@ -15,7 +15,7 @@ import pytest
 
 from evalv2 import cli
 from evalv2.core.config import RunConfig
-from evalv2.score_stage import EmbeddingCache, ScoreRefused, StackedLedger, cached_embedder, run_score
+from evalv2.score_stage import SCORE_VERSION, EmbeddingCache, ScoreRefused, StackedLedger, cached_embedder, run_score
 from evalv2.tasks.incident_objects.scoring import SimilarityUnavailableError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -98,7 +98,7 @@ def test_track_a_scores_live_then_offline_from_the_caches_identically(tmp_path, 
     offline = _score(tmp_path, gt, config, offline=True, judge=Judge(fail=True), compute=None)
     assert _without_mode(offline["summary"]) == _without_mode(summary)
     assert offline["videos"] == live["videos"] and offline["summary"]["mode"]["judge_cache_misses"] == 0
-    assert (tmp_path / "run" / "scoring" / "primary" / "offline-summary.json").exists()
+    assert (tmp_path / "run" / "scoring" / SCORE_VERSION / "primary" / "offline-summary.json").exists()
 
 
 def test_offline_without_caches_leaves_fields_unscored_and_sends_nothing(tmp_path, gt):
@@ -206,7 +206,7 @@ def test_score_offline_through_the_cli(tmp_path, gt, capsys):
                     load_datasets=lambda cfg: {**_datasets(), "incident_gt": gt[0]}, load_sheets=lambda: gt[1])
     report = json.loads(capsys.readouterr().out)
     assert code == 0 and report["unscored"]["fields"] == 0 and report["mode"]["offline"]
-    shutil.rmtree(tmp_path / "run" / "scoring" / "primary")
+    shutil.rmtree(tmp_path / "run" / "scoring" / SCORE_VERSION / "primary")
 
 
 def test_a_live_score_through_the_cli_needs_the_live_switch(tmp_path, gt, monkeypatch, capsys):
