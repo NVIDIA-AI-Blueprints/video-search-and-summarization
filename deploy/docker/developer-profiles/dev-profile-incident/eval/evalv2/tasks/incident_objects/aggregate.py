@@ -179,6 +179,18 @@ def severity_metrics(videos: list[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def with_failed_runs(stage_videos: list[Mapping[str, Any]], p1_videos: list[Mapping[str, Any]],
+                     stage: str) -> list[Mapping[str, Any]]:
+    """A Track B stage's rows plus the runs that never reached it (no usable reply: only a ``p1`` row exists).
+
+    Those runs keep their outcome, so severity counts them as ``no_model_output`` or ``invalid_output`` and every
+    stage shares the same ``attempted``: a failed run is never dropped from a later stage's denominator.
+    """
+    present = {(v.get("incident_id"), v.get("repeat")) for v in stage_videos}
+    missing = [{**dict(v), "stage": stage} for v in p1_videos if (v.get("incident_id"), v.get("repeat")) not in present]
+    return [*stage_videos, *missing]
+
+
 def _category(video: Mapping[str, Any]) -> str:
     """The clip's ground-truth incident type (canonical), the category of the per-category breakdowns."""
     entry = (video.get("incident_field_scores") or {}).get("type") or {}

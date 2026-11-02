@@ -90,10 +90,10 @@ EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 score --config experiments/
 EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 score --config experiments/v2/c1b-track-b-pilot.json \
     --out $RUNS/c1b --approval $RUNS/c1b-approval.json --env-file $ENVF
 uv run --frozen python -m evalv2 score --config experiments/v2/c1a-track-a-pilot.json --out $RUNS/c1a --offline
-#   Outputs: scoring/<score version>/<slot>/ (score stage v2 and later); v1 outputs in scoring/<slot>/ stay as they were.
+#   Outputs: scoring/<score version>/<slot>/ (score stage v2 and later; v3 is current); v1 outputs in scoring/<slot>/ stay as they were.
 #   Severity per model (MAE primary), merging a pilot and its recovery run item by item:
-#   uv run --frozen python -m evalv2 severity-report --videos $RUNS/c1a/scoring/evalv2-score-stage-v2/primary/offline-videos.jsonl \
-#     --videos $RUNS/c1a-recovery/scoring/evalv2-score-stage-v2/primary/offline-videos.jsonl --out <private dir> --title "C1a"
+#   uv run --frozen python -m evalv2 severity-report --videos $RUNS/c1a/scoring/evalv2-score-stage-v3/primary/offline-videos.jsonl \
+#     --videos $RUNS/c1a-recovery/scoring/evalv2-score-stage-v3/primary/offline-videos.jsonl --out <private dir> --title "C1a"
 #   --offline --embed-local also computes the MiniLM vectors locally (no network, no judge): object matching
 #   is scored before judge credits are confirmed; judge fields stay unscored until a live score
 #   --slot sensitivity re-judges with catalog-mistral-large-4-v1 (Omni sensitivity check)

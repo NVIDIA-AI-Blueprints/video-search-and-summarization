@@ -59,11 +59,11 @@ from evalv2.core.checkpoint import Checkpoint
 from evalv2.core.hashing import canonical_json, sha256_json
 from evalv2.core.private import ensure_private
 from evalv2.tasks.incident_objects import v1
-from evalv2.tasks.incident_objects.aggregate import aggregate
+from evalv2.tasks.incident_objects.aggregate import aggregate, severity_metrics, with_failed_runs
 from evalv2.tasks.incident_objects.scoring import SimilarityUnavailableError, embedder_similarity, score_video
 from evalv2.tasks.judging import Judge
 
-SCORE_VERSION = "evalv2-score-stage-v2"  # v2: severity-v2-mae (MAE primary); outputs under scoring/<version>/
+SCORE_VERSION = "evalv2-score-stage-v3"  # v2: severity-v2-mae, outputs under scoring/<version>/; v3: Track B stages keep failed runs in severity
 # The files whose bytes define the scores; their SHA-256 and the eval commit go into every summary.
 SCORER_FILES = ("evalv2/score_stage.py", "evalv2/tasks/incident_objects/aggregate.py",
                 "evalv2/tasks/incident_objects/scoring.py", "evalv2/tasks/pipeline/scoring.py")
@@ -280,6 +280,10 @@ def _score_pipeline(rows: Sequence[Mapping[str, Any]], store: ArtifactStore, gt_
                                                               scored_by_stage[subject]["final"]),
                                  "caps": crops.cap_summary(artifacts[subject]),
                                  "caption_pass": dict(caption[subject])}
+        for stage, stage_block in block["stages"].items():  # failed runs stay in every stage's severity
+            if stage != "p1":
+                stage_block["severity"] = severity_metrics(with_failed_runs(
+                    stage_videos[subject][stage], stage_videos[subject]["p1"], stage))
         block["crops"] = (crop_scoring.aggregate(crop_rows[subject]) if box_references is not None
                           else {"unscored": "no box_references dataset in the config (RA1 not registered)"})
         summary["subjects"].setdefault(subject, {})["pipeline"] = block

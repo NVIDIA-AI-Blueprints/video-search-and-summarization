@@ -115,3 +115,14 @@ def test_severity_report_merges_a_pilot_and_its_recovery_and_refuses_duplicates(
     assert (out / "severity-mae.svg").read_text().startswith("<svg") and "MAE" in (out / "severity-report.md").read_text()
     assert cli.main(["severity-report", "--videos", str(pilot), "--videos", str(pilot), "--out", str(out)]) == 1
     assert "appears in both" in capsys.readouterr().out
+
+
+def test_a_track_b_run_without_a_reply_stays_in_every_later_stage_denominator():
+    from evalv2.severity_report import report
+
+    ok = [dict(run(2, 2, clip=c), subject="s", stage=st) for c in ("a", "b") for st in ("p1", "final")]
+    failed = dict(run(3, None, clip="z", outcome="http_error"), subject="s", stage="p1")
+    invalid = dict(run(3, None, clip="y", outcome="parse_failure"), subject="s", stage="p1")
+    rows = {r["stage"]: r["severity"] for r in report([*ok, failed, invalid])["rows"]}
+    assert rows["final"]["attempted"] == rows["p1"]["attempted"] == 4 and rows["final"]["coverage"] == 0.5
+    assert rows["final"]["counts"]["no_model_output"] == 1 and rows["final"]["counts"]["invalid_output"] == 1

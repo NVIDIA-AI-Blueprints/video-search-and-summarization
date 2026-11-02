@@ -25,6 +25,7 @@ from evalv2.core.private import ensure_private
 from evalv2.tasks.incident_objects.aggregate import (
     SEVERITY_METRIC_VERSION,
     severity_metrics,
+    with_failed_runs,
 )
 
 REPORT_VERSION = "evalv2-severity-report-v1"
@@ -55,7 +56,10 @@ def report(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         groups[(str(row.get("subject")), row.get("stage"))].append(row)
     out = []
     for (subject, stage), videos in sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1] or "")):
-        out.append({"subject": subject, "stage": stage, "severity": severity_metrics(list(videos))})
+        rows_for = list(videos)
+        if stage not in (None, "p1"):  # Track B: runs that never reached this stage stay in its denominator
+            rows_for = with_failed_runs(rows_for, groups.get((subject, "p1"), []), stage)
+        out.append({"subject": subject, "stage": stage, "severity": severity_metrics(rows_for)})
     return {"report_version": REPORT_VERSION, "metric_version": SEVERITY_METRIC_VERSION, "primary": "mae",
             "rows": out}
 
