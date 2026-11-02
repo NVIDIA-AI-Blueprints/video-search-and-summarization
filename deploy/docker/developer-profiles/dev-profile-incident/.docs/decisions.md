@@ -1505,3 +1505,8 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
 - **Why:** the shared VM has no manual step, matches how `media-tools.sh` handles ffmpeg, and a mismatching download is refused rather than loaded.
 - **Rejected:** committing the binaries (licence); an unpinned download (a moved upstream file would change tracking silently).
 - **Links:** [`../.scripts/tracker-models.sh`](../.scripts/tracker-models.sh), [`../.scripts/native-services.sh`](../.scripts/native-services.sh), [`../.scripts/test-native-services.sh`](../.scripts/test-native-services.sh).
+
+### 2026-11-02: Library cards trade info lines for a bigger thumbnail
+- **Decision:** `IncidentCard` shows only the incident type, official status, title and one-line summary under the thumbnail. The file name and "Added" date are in the title tooltip; evidence and version counts are only in the "..." menu.
+- **Why:** the earlier cards led with a larger thumbnail. Card height is fixed by the viewport grid (PR 264), so every info line removed gives the thumbnail height (93 to 137 px at 1440x900). The pre-shadcn card (before PR 255) had a 16:9 thumbnail; PR 255 cut it to 96 px, PR 260 to 80 px and PR 264 made it fill what the info left.
+- **Rejected:** shrinking the summary or title (the title and type are what people scan for).
