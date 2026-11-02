@@ -115,6 +115,12 @@ Called by the console when a revision becomes a video's searchable revision: mad
 
 Request: exactly one of `{"revision_id": <int >= 1>}` (the route reads that revision's `evidence`) or `{"evidence": [{"item_type", "item_id", "item_name"?, "description"?}, ...]}` (nothing is read). Response `200`: a list of `{"item_type", "item_id", "embedding"}` (empty when there are no items). Errors: `404` unknown revision, `422` neither or both sources, `502` embedding service failed, `503` database or embedding key not configured.
 
+## `POST /api/v1/incidents/{video_id}/box/describe`
+
+What is the box a reviewer drew? The agent reads the frame at `seconds` from the video's stored file (`videos.filepath`, an R2 key), cuts the zoomed second look's close-up and its whole frame with the box drawn, and makes one VLM call with the `zoom/describe-box` prompt (same model, endpoint and 60 s timeout as the second look). Nothing is stored. Part of the reviewer box tool (see the add/track evidence contract).
+
+Request: `{"seconds": <float >= 0>, "box": [ymin, xmin, ymax, xmax]}`, the box normalised 0-1000 with min below max. Response `200`: `{"proposal": {"item_type": "entity"|"instrument"|"asset", "name", "description", "holder": str|null, "threat_level": 1-5|null, "confidence": 0-1} | null, "reason": str|null}`. `proposal` is null with a plain `reason` when the model cannot tell. `holder` (instruments only) is a few plain words describing who holds the item, not an entity id; `holder` and `threat_level` are null for an entity or asset. Errors: `404` unknown video, `422` bad body or no frame at that second, `502` the model failed or did not answer the strict JSON, `503` database or VLM key not configured.
+
 ## `POST /api/v1/incidents/revisions/search`
 
 Searches saved report revisions by their summary embedding. The route embeds `query` with the search query model (1024 dimensions, `query` input type), then calls `search_report_revisions`. Only revisions with a stored vector are searched: AI revisions saved with an embedding; human revisions and AI revisions saved while the embedding endpoint was unavailable are not. The zero-GPU mocks answer this route from their finals snapshot.

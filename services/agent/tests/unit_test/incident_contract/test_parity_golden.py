@@ -60,6 +60,7 @@ TESTED = sorted(
     + ["rp1/report", "caption/window", "caption/remainder", "grounding/best-match"]
     + ["chat/incident-answer", "chat/library-plan", "chat/library-answer"]
     + [f"zoom/{step}" for item_type in ZOOM_ITEM_TYPES for step in _zoom_steps(item_type)]
+    + ["zoom/describe-box"]
 )
 
 
@@ -190,6 +191,21 @@ def test_zoom_requests_equal_the_golden(monkeypatch: pytest.MonkeyPatch, item_ty
     # The golden writes every inline JPEG as one placeholder, so it cannot see the images swapped; the prompt says
     # the frame comes first and the close-up second, and the decoded bytes must say the same.
     assert [_images(body) for body in sent] == [[b"frame"], [b"frame", b"close-up"], []]
+
+
+def test_describe_box_request_equals_the_golden(monkeypatch: pytest.MonkeyPatch) -> None:
+    case = golden.case("zoom", "describe-box")
+    sent: list[dict[str, Any]] = []
+
+    def fake_post(url: str, *, json: dict[str, Any], headers: dict[str, str], timeout: float) -> _Reply:
+        sent.append(json)
+        return _Reply(case["inputs"]["reply"])
+
+    monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
+    _detector(case["inputs"]["model"]).describe_box(b"close-up", context_jpeg=b"frame")
+    assert len(sent) == 1
+    _assert_golden("zoom", "describe-box", sent[0])
+    assert _images(sent[0]) == [b"frame", b"close-up"]
 
 
 def _images(body: dict[str, Any]) -> list[bytes]:

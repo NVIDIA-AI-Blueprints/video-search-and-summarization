@@ -192,6 +192,67 @@ def parse_zoom_reply(data: dict[str, Any]) -> ZoomVerdict:
     )
 
 
+BOX_ITEM_TYPES = ("entity", "instrument", "asset")
+
+
+@dataclass(frozen=True)
+class BoxProposal:
+    """What the model made of a reviewer-drawn box: proposal is None, with a plain reason, when it cannot tell.
+
+    holder (instruments only) is a few plain words describing who holds the item, not an entity id: the reviewer's
+    item is not yet in any report. threat_level (instruments only) is 1-5.
+    """
+
+    item_type: str | None
+    name: str | None = None
+    description: str | None = None
+    holder: str | None = None
+    threat_level: int | None = None
+    confidence: float | None = None
+    reason: str | None = None
+
+
+def parse_box_proposal(data: dict[str, Any]) -> BoxProposal:
+    """A strict zoom/describe-box reply; anything else raises ValueError.
+
+    item_type null is the model's "cannot tell" and needs no other field. holder and threat_level are only
+    kept for an instrument (a person or an asset has neither).
+    """
+    item_type = data.get("item_type")
+    if item_type is None:
+        reason = data.get("reason")
+        text = " ".join(reason.split()) if isinstance(reason, str) else ""
+        return BoxProposal(item_type=None, reason=text or "The model could not tell what the marked thing is.")
+    if item_type not in BOX_ITEM_TYPES:
+        raise ValueError(f"box reply item_type is not entity, instrument or asset: {item_type!r}")
+    name = data.get("name")
+    description = data.get("description")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("box reply has no name")
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError("box reply has no description")
+    holder: str | None = None
+    threat_level: int | None = None
+    if item_type == "instrument":
+        raw_holder = data.get("holder")
+        if raw_holder is not None and not isinstance(raw_holder, str):
+            raise ValueError(f"box reply holder is not text or null: {raw_holder!r}")
+        holder = " ".join(raw_holder.split()) or None if raw_holder is not None else None
+        raw_level = data.get("threat_level")
+        if raw_level is not None:
+            if isinstance(raw_level, bool) or not isinstance(raw_level, int) or not 1 <= raw_level <= 5:
+                raise ValueError(f"box reply threat_level is not an integer in 1..5: {raw_level!r}")
+            threat_level = raw_level
+    return BoxProposal(
+        item_type=item_type,
+        name=" ".join(name.split()),
+        description=description.strip(),
+        holder=holder,
+        threat_level=threat_level,
+        confidence=_confidence(data.get("confidence")),
+    )
+
+
 @runtime_checkable
 class ZoomNamer(Protocol):
     """Port for the zoomed second look: names a located item again from its close-up and marked frame."""
@@ -770,6 +831,20 @@ class DefaultDetector:
             confidence=min(merged.confidence, look_confidence),
             changed=merged.changed,
             seen=seen,
+        )
+
+    def describe_box(self, jpeg: bytes, *, context_jpeg: bytes) -> BoxProposal:
+        """Name and describe a reviewer-drawn box in one call: the frame with the box drawn, then the close-up.
+
+        The same endpoint, model, timeout and single retry as the zoomed second look (``_chat_json``), with the
+        ``zoom/describe-box`` prompt. Raises ``httpx.HTTPError`` on transport or status errors and ``ValueError`` on
+        a reply that is not the strict JSON asked for.
+        """
+        return self._chat_json(
+            [context_jpeg, jpeg],
+            incident_contract.prompt("zoom/describe-box"),
+            parse_box_proposal,
+            max_tokens=384,
         )
 
     def detect(self, frame: np.ndarray, query: str) -> list[Detection]:

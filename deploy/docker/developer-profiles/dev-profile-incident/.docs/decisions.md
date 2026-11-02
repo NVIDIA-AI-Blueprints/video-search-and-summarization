@@ -2,6 +2,12 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-03: Reviewer box describe is one new prompt on the second look's machinery
+- **Decision:** `POST /api/v1/incidents/{video_id}/box/describe` reuses the zoomed second look's crop (`zoom_crop`), marked frame (`zoom_context_frame`), `DefaultDetector._chat_json` client and strict-parser style, and adds one registered prompt, `zoom/describe-box` (frame with the box, then the close-up; one call). `holder` is plain words, not an entity id.
+- **Why:** the existing look prompts return only name, description and confidence and are split by person versus object, so none gives the item type, holder or threat level the draft item needs, and the merge step needs report text a new item does not have. One call keeps the box tool fast. A reviewer's item is not in any report yet, so there is no entity id to hold it.
+- **Rejected:** chaining the two looks and a merge (three calls, no type); asking the model for an entity id (none exists).
+- **Links:** [`incident_box_describe.py`](../../../../../services/agent/src/vss_agents/api/incident_box_describe.py), [prompt registry](../contracts/prompts/README.md), [`vm-api-contracts.md`](vm-api-contracts.md).
+
 ### 2026-11-03: A reviewer's box is tracked by the analysis tracker, with the name and description as the detector prompt
 - **Decision:** `POST /api/v1/incidents/{video_id}/box/track` calls `object_tracking.track_item` with the reviewer's box as the seed and `"<name>: <description>"` as the label, asymmetric back and forward windows (`spans`) and a 50 s cap. A track that cannot reach the end of the window is returned as `partial` with `lost_at`, never as an error. The video comes from `videos.filepath`, so the body stays as the shared contract has it.
 - **Why:** no new model or service; the failure modes are the ones the team already knows. Samples carry `conf` (contract) and `score` (stored track files, console reader).

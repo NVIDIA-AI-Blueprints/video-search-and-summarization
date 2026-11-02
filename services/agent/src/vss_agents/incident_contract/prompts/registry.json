@@ -163,6 +163,17 @@
       "purpose": "Text-only merge of the agreeing looks with an instrument's or asset's report text."
     },
     {
+      "id": "zoom/describe-box",
+      "file": "zoom/describe-box.txt",
+      "sha256": "2fe35295a5058d7e4ae8623aae54b975f121905cafc8c0bd987ea638b0ba8a83",
+      "stage": "zoom",
+      "placeholders": [],
+      "used_by": [
+        "agent"
+      ],
+      "purpose": "Names and describes a reviewer-drawn box: the frame with the box drawn, then the close-up; item type, name, description, holder, threat level."
+    },
+    {
       "id": "chart/system",
       "file": "chart/system.txt",
       "sha256": "c6cf07800e90541b63650db8e2bd279e4fc2cf482207176cb749b6a361a27c70",

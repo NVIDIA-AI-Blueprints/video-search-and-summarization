@@ -20,6 +20,7 @@ This registry holds every model prompt the profile sends besides the contract's 
 | [`zoom/look-object-close-up`](zoom/look-object-close-up.txt) | zoom | agent | - | Blind look at an instrument or asset: the frame, then the close-up. |
 | [`zoom/merge-entity`](zoom/merge-entity.txt) | zoom | agent | `description`, `look_description`, `look_name`, `name` | Text-only merge of the agreeing looks with a person's report text. |
 | [`zoom/merge-object`](zoom/merge-object.txt) | zoom | agent | `description`, `item_type`, `look_description`, `look_name`, `name` | Text-only merge of the agreeing looks with an instrument's or asset's report text. |
+| [`zoom/describe-box`](zoom/describe-box.txt) | zoom | agent | - | Names and describes a reviewer-drawn box: the frame with the box drawn, then the close-up; item type, name, description, holder, threat level. |
 | [`chart/system`](chart/system.txt) | chart | console | - | The dashboard chart interpreter's system prompt, built from the allowlist (source: chart-interpreter.ts). |
 | [`chart/allowlist`](chart/allowlist.json) | chart | console | - | The chart allowlist (metrics, dimensions, periods, severities, incident types; source: chart-spec.ts). |
 | [`chat/incident-answer`](chat/incident-answer.txt) | chat | agent | - | The grounded chat's system prompt: answer one report version from its JSON, cite item ids, flag insufficient evidence. |
