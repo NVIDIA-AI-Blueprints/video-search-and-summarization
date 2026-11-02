@@ -50,7 +50,7 @@ MANIFEST_NAME = "env-manifest.json"
 # 960 px (the real model's architecture and FLOPs, no weights downloaded) took 8.8-9.1 s per frame at 6 or 12
 # threads, batch 1, four text queries.
 MEASURED_SECONDS_PER_FRAME = 9.0
-CHECK_CODE = ("import json, platform, numpy, PIL, safetensors, tokenizers, torch, transformers, huggingface_hub; "
+CHECK_CODE = ("import json, platform, numpy, PIL, scipy, safetensors, tokenizers, torch, transformers, huggingface_hub; "
               "print(json.dumps({'python': platform.python_version(), 'torch': torch.__version__, "
               "'torch_cuda': torch.version.cuda, 'transformers': transformers.__version__, "
               "'tokenizers': tokenizers.__version__, 'huggingface_hub': huggingface_hub.__version__, "
