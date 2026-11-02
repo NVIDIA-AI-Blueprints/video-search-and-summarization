@@ -95,7 +95,7 @@ def test_a_library_validator_sees_the_whole_library_and_stays_blind():
     chat.assert_blind(packet, record)
     reports = packet["context"]["reports"]
     assert list(reports) == sorted(GT["by_incident_id"]), "every incident, in id order: nothing marks the target"
-    assert set(packet) == {"role", "prompt", "record_id", "class", "question", "context"}
+    assert set(packet) == {"role", "prompt", "item", "class", "question", "context"}
     assert "targets" not in json.dumps({k: v for k, v in packet.items() if k != "context"})
 
 

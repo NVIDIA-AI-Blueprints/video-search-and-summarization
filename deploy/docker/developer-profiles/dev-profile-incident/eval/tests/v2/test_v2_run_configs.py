@@ -23,6 +23,7 @@ EXPECTED = {
     "c1a-track-a-pilot.json": ("incident_objects", {"nano-direct": 50, "super-direct": 50, "omni-direct": 50}),
     "c1b-track-b-pilot.json": ("pipeline", {"nano-pipeline": 25, "super-pipeline": 25}),
     "c1b-track-b-pilot-captions.json": ("pipeline", {"nano-pipeline": 25, "super-pipeline": 25}),
+    "c1a-recovery-super.json": ("incident_objects", {"super-direct": 14}),
 }
 
 
@@ -52,7 +53,8 @@ def test_a_pilot_config_runs_on_dev_only_and_preflights(name):
 
 
 APPROVED_TOKENS = {"c1a-track-a-pilot.json": 6_000_000, "c1b-track-b-pilot.json": 9_000_000,
-                   "c1b-track-b-pilot-captions.json": 9_000_000}
+                   "c1b-track-b-pilot-captions.json": 9_000_000,
+                   "c1a-recovery-super.json": 500_000}  # inside C1a's 6 M with C1a's 1.84 M spend
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))
@@ -121,3 +123,17 @@ def test_plan_and_preflight_pass_offline_on_the_frozen_ground_truth(name, capsys
         printed = printed.lstrip()[end:]
     assert reports[1]["ok"] and reports[1]["half"] == "dev" and reports[1]["problems"] == []
     assert reports[1]["budget_mode"] == "hard_stop" and reports[1]["hard_stop"]
+
+
+def test_the_c1a_recovery_stays_inside_the_approved_track_a_totals():
+    """C1a's caps plus the recovery's: no new work items, at most 195 attempts and 6 M tokens after C1a's spend."""
+    c1a = load_config(CONFIGS / "c1a-track-a-pilot.json")
+    recovery = load_config(CONFIGS / "c1a-recovery-super.json")
+    assert recovery.recovery is not None and recovery.recovery.of_experiment == c1a.experiment
+    whole = next(c for c in recovery.caps if c.ledger == "inference" and c.subject == "*")
+    c1a_used_attempts, c1a_used_tokens = 175, 1_836_208  # C1a's settled ledger at its exit 4
+    assert c1a_used_attempts + whole.max_attempts <= 195 and c1a_used_tokens + whole.max_tokens <= 6_000_000
+    keys = {(i.subject, i.item_id, i.repeat) for i in recovery.recovery.items}
+    planned = cli.plan(c1a, _split_only)["incident_objects"]
+    assert keys <= {(i.subject, i.item_id, i.repeat) for i in planned}, "only C1a's own work items"
+    assert next(c for c in recovery.caps if c.ledger == "judge").max_attempts == 0

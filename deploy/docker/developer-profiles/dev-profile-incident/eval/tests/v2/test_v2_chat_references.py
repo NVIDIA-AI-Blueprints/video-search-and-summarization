@@ -143,7 +143,7 @@ def test_the_validator_packet_is_blind():
                                generator=GEN)
     packet = chat.validator_packet(record, GT, prompt_id="gen-chat-rederive-v1")
     chat.assert_blind(packet, record)
-    assert set(packet) == {"role", "prompt", "record_id", "class", "question", "context"}
+    assert set(packet) == {"role", "prompt", "item", "class", "question", "context"}
     with pytest.raises(chat.ChatReferenceError, match="holds"):
         chat.assert_blind({**packet, "answer": {"kind": "count", "value": 2}}, record)
     with pytest.raises(chat.ChatReferenceError, match="another question"):
