@@ -160,6 +160,18 @@ test('only tracked items are drawn, each with its own colour in id order', () =>
   assert.notEqual(trackColour(0), trackColour(1));
 });
 
+test('a track label is the item name, falling back to its id only when it has no name', () => {
+  const structured = structuredFromPayload(payload, [
+    entry('E1', { track: TRACK_KEY, track_first_seen_seconds: 78, track_last_seen_seconds: 95 }),
+  ]);
+  structured.entities[0].evidence.trackUrl = '/t/E1';
+  structured.entities[0].label = '';
+  structured.entities[0].type = '';
+  assert.equal(trackedReportItems(structured)[0].label, 'E1');
+  structured.entities[0].label = 'man in red';
+  assert.equal(trackedReportItems(structured)[0].label, 'man in red');
+});
+
 function trackedRecord() {
   const record = aiRunReport(smoke);
   record.evidence = [

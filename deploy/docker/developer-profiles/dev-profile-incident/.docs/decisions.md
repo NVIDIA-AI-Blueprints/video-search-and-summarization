@@ -1510,3 +1510,8 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
 - **Decision:** `IncidentCard` shows only the incident type, official status, title and one-line summary under the thumbnail. The file name and "Added" date are in the title tooltip; evidence and version counts are only in the "..." menu.
 - **Why:** the earlier cards led with a larger thumbnail. Card height is fixed by the viewport grid (PR 264), so every info line removed gives the thumbnail height (93 to 137 px at 1440x900). The pre-shadcn card (before PR 255) had a 16:9 thumbnail; PR 255 cut it to 96 px, PR 260 to 80 px and PR 264 made it fill what the info left.
 - **Rejected:** shrinking the summary or title (the title and type are what people scan for).
+
+### 2026-11-03: Track labels show the item's name, never its id
+- **Decision:** the player overlay box, the presence bars' accessible names, the pop-up and the Edit-mode frame picker's scrubber label a track with the item's name (`TrackedReportItem.label`: entity label or type, instrument or asset name; the id only when a name is empty). Ids (`E1`, `T-1`, `N-1`) stay internal keys (`data-track-item`, selection, routes) and the id badge on cards and the pop-up title is unchanged.
+- **Why:** captain, 2 Nov: tracking reads by the names of evidence, not codes; part of the add/track evidence build.
+- **Links:** [`TrackOverlay.tsx`](../incident-console-v2/src/sections/reports/components/TrackOverlay/TrackOverlay.tsx), [`track.ts`](../incident-console-v2/src/modules/reports/domain/track.ts).
