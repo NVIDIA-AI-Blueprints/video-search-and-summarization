@@ -224,16 +224,30 @@ class CallRecord:
     error: str | None = None
 
 
+RATE_LIMITED = "HTTP 429"  # the gateway refused the request: no inference ran, no token was used
+MIN_INTERVAL_S = 1.2  # at most 50 calls a minute, under Switchyard's 60 requests a minute
+BACKOFF_S = (60.0, 180.0)  # retry-v2's rate-limit back-off; each retry is a new reserved attempt
+
+
 class MeteredChatModel:
-    """Wraps a chat model: records each call and, with a ledger, reserves before the call and settles after."""
+    """Wraps a chat model: paces calls, records each one and, with a ledger, reserves before and settles after.
+
+    A rate-limited reply (HTTP 429) is settled at 0 tokens (the gateway ran no inference) and retried after
+    ``BACKOFF_S``; every attempt, retries included, is reserved on the ledger, so the attempt cap still binds.
+    """
 
     def __init__(self, inner: Any, *, ledger: BudgetLedger | None = None, subject: str = "", task: str = "chat",
-                 clock: Callable[[], float] = time.perf_counter) -> None:
+                 clock: Callable[[], float] = time.perf_counter, min_interval_s: float = MIN_INTERVAL_S,
+                 backoff_s: Sequence[float] = BACKOFF_S, sleep: Callable[[float], Any] | None = None) -> None:
         self.inner = inner
         self.ledger = ledger
         self.subject = subject
         self.task = task
         self.clock = clock
+        self.min_interval_s = min_interval_s
+        self.backoff_s = tuple(backoff_s)
+        self._sleep = sleep or asyncio.sleep
+        self._last_start: float | None = None
         self.records: list[CallRecord] = []
 
     @property
@@ -248,18 +262,37 @@ class MeteredChatModel:
         self.records = []
 
     async def complete(self, messages: Sequence[Mapping[str, Any]], schema: Mapping[str, Any]) -> dict[str, Any]:
+        for attempt in range(len(self.backoff_s) + 1):
+            try:
+                return await self._attempt(messages, schema)
+            except Exception as exc:  # only a rate limit is retried; anything else propagates
+                if RATE_LIMITED not in str(exc) or attempt >= len(self.backoff_s):
+                    raise
+                await self._sleep(self.backoff_s[attempt])
+        raise AssertionError("unreachable")
+
+    async def _pace(self) -> None:
+        if self._last_start is not None:
+            wait = self.min_interval_s - (self.clock() - self._last_start)
+            if wait > 0:
+                await self._sleep(wait)
+        self._last_start = self.clock()
+
+    async def _attempt(self, messages: Sequence[Mapping[str, Any]], schema: Mapping[str, Any]) -> dict[str, Any]:
         kind = FakeChatModel.kind(messages, schema)
         bound = call_tokens_bound(messages)
         reservation = (self.ledger.reserve("inference", subject=self.subject, task=self.task, tokens_bound=bound)
                        if self.ledger is not None else None)
         context = next((str(m["content"]) for m in messages if m.get("role") == "user"
                         and str(m.get("content") or "").startswith(("REPORT:\n", "LIBRARY:\n"))), "")
+        await self._pace()
         started = self.clock()
         try:
             reply: dict[str, Any] = await self.inner.complete(messages, schema)
         except BaseException as exc:
             if reservation is not None and self.ledger is not None:
-                self.ledger.settle(reservation, tokens_used=_tokens(self.last_usage))
+                used = 0 if RATE_LIMITED in str(exc) else _tokens(self.last_usage)
+                self.ledger.settle(reservation, tokens_used=used)
             self.records.append(CallRecord(kind, context, self.last_usage, (self.clock() - started) * 1000, bound,
                                            f"{type(exc).__name__}: {exc}"[:300]))
             raise

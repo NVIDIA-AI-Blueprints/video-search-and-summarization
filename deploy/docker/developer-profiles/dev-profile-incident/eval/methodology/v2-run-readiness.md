@@ -362,6 +362,12 @@ Each block carries its denominator, per tier group (`all`, `ai_validated`, `ai_p
 - **Scoring** (`evaluate.py`) reuses the chat scorers.
   - A library answer names incidents by type and title, never by id. So an incident list is read from the incidents the answer cites, and a code-composed count's citations are the incidents its prose names.
 
+**Pacing (fixed 2026-11-02, after the first live attempt):**
+- **What went wrong:** the first live run sent calls back to back while another pilot shared the gateway key. Switchyard refused 136 of 140 with HTTP 429 (60 requests a minute, 4 in flight), so no inference ran for them.
+- **The fix:** the metered model now spaces calls at least 1.2 s apart (50 a minute) and retries a 429 after 60 s, then 180 s. Each retry is a reserved attempt, so the attempt cap still binds, and a 429 is settled at 0 tokens.
+- **Rule:** run the chat pilot alone on the gateway.
+- **Agent-side tests:** run them with the agent's Python and `--noconftest`, because the eval conftest imports streamlit: `$A -m pytest tests/v2/test_v2_chat_harness_agent.py --noconftest`.
+
 **Launch** (from `eval/`, `EVALV2_DATA_ROOT=/home/hengz/evalv2-data` or the main checkout's `eval/eval_data`; `$OUT` private):
 ```bash
 C=experiments/v2/c1c-chat-pilot.json; A=../../../../../services/agent/.venv/bin/python

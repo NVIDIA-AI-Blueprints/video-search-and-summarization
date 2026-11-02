@@ -509,3 +509,38 @@ def test_the_generic_executor_refuses_a_chat_config(capsys):
     code = evalv2_cli.main(["run", "--config", str(CONFIG_PATH), "--live"], load_datasets=loader)
     assert code == 2 and "evalv2.tasks.chat" in capsys.readouterr().err
     assert config.tasks["chat"]
+
+
+def test_a_rate_limited_call_is_paced_retried_and_settled_at_zero_tokens(tmp_path):
+    import asyncio
+
+    from evalv2.core.budget import BudgetLedger, Cap
+    from evalv2.tasks.chat.harness import MeteredChatModel
+
+    class Flaky:
+        model = "m"
+
+        def __init__(self):
+            self.calls = 0
+            self.last_usage: dict = {}
+
+        async def complete(self, messages, schema):
+            self.calls += 1
+            if self.calls < 3:
+                self.last_usage = {}
+                raise RuntimeError("chat model returned HTTP 429: rate limited")
+            self.last_usage = {"total_tokens": 100}
+            return {"answer": "ok", "citations": [], "insufficient_evidence": False}
+
+    slept = []
+
+    async def sleep(s):
+        slept.append(s)
+
+    ledger = BudgetLedger([Cap("inference", max_attempts=3, max_tokens=100_000)], tmp_path / "budget.jsonl")
+    model = MeteredChatModel(Flaky(), ledger=ledger, subject="s", sleep=sleep, min_interval_s=0.0, backoff_s=(1.0, 2.0))
+    reply = asyncio.run(model.complete([{"role": "user", "content": "REPORT:\n{}"}, {"role": "user", "content": "q"}], {}))
+    assert reply["answer"] == "ok" and slept == [1.0, 2.0]
+    snap = ledger.snapshot()
+    used = next(c for c in snap["caps"] if c["ledger"] == "inference")
+    assert used["attempts"] == 3 and used["tokens"] == 100, "three attempts charged; the two 429s at 0 tokens"
