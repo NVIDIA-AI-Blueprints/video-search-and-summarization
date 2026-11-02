@@ -283,10 +283,31 @@ def facts_agree(reference: Sequence[str], rederived: Sequence[str], *, threshold
     return all(any(_jaccard(words(f), words(g)) >= threshold for g in rederived) for f in reference)
 
 
-def answers_agree(reference: Mapping[str, Any], rederived: Mapping[str, Any]) -> bool:
-    """Exact agreement for computed answers; fact agreement for written ones; both refusals agree.
+def _canonical(value: Any) -> Any:
+    """A scalar as the references compare it: a number as a float (``3``, ``3.0`` and ``"3"`` agree), text by its
+    content words (``"Road accident"`` and ``"road accident"`` agree), ``None`` as itself."""
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return float(value)
+    text = str(value).strip()
+    try:
+        return float(text)
+    except ValueError:
+        return normalise(text)
 
-    A holder agrees when the validator names the holder's ground-truth id or describes them in agreeing words.
+
+_SCALAR_KINDS = frozenset({"value", "count"})
+
+
+def answers_agree(reference: Mapping[str, Any], rederived: Mapping[str, Any]) -> bool:
+    """Exact agreement for computed answers, after normalising; fact agreement for written ones; refusals agree.
+
+    The validator copies values as the report writes them, so both sides are compared in canonical form
+    (:func:`_canonical`): a list as the set of its items (the reference list is the deduplicated, normalised set,
+    so "Wooden stick" twice agrees with ``["wooden stick"]``), a window bound by bound, a value or count as one
+    scalar (the two kinds are one family: a count labelled ``value`` still agrees). A holder agrees when the
+    validator names the holder's ground-truth id or describes them in agreeing words.
     """
     if reference["kind"] == "facts":
         return rederived.get("kind") == "facts" and facts_agree(reference["facts"], rederived.get("facts", []))
@@ -295,9 +316,37 @@ def answers_agree(reference: Mapping[str, Any], rederived: Mapping[str, Any]) ->
         if rederived.get("kind") not in ("value", "holder") or given is None or reference.get("value") is None:
             return False
         return str(given).strip() == str(reference.get("entity_id")) or facts_agree([reference["value"]], [str(given)])
+    if reference["kind"] == "refusal":
+        return rederived.get("kind") == "refusal"
+    given = rederived.get("value")
     if reference["kind"] == "list":
-        return sorted(map(str, reference["value"])) == sorted(map(str, rederived.get("value") or []))
-    return reference == {"kind": rederived.get("kind"), "value": rederived.get("value")}
+        if rederived.get("kind") != "list" or not isinstance(given, list | tuple):
+            return False
+        return {_canonical(item) for item in reference["value"]} == {_canonical(item) for item in given}
+    if reference["kind"] == "window":
+        if isinstance(given, Mapping):  # {"start": 2, "end": 9} as well as [2, 9]
+            given = [given.get("start", given.get("start_timestamp")), given.get("end", given.get("end_timestamp"))]
+        return (rederived.get("kind") == "window" and isinstance(given, list | tuple) and len(given) == 2
+                and [_canonical(v) for v in reference["value"]] == [_canonical(v) for v in given])
+    return (reference["kind"] in _SCALAR_KINDS and rederived.get("kind") in _SCALAR_KINDS
+            and _canonical(reference["value"]) == _canonical(given))
+
+
+# A severity scale named in a question ("on a scale of 1 to 5") states no level; the chat scorer drops it the same way.
+_SCALE = re.compile(r"\b(?:1|one)\s*(?:-|–|—|to)\s*(?:5|five)\b|\bout\s+of\s+(?:5|five)\b|/\s*(?:5|five)\b"
+                    r"|\bscale\s+of\s+(?:5|five)\b")
+
+
+def states(text: str, value: Any) -> bool:
+    """Whether ``text`` states ``value``: its content words appear as whole consecutive words (a plural ``-s`` or
+    ``-es`` on the last word counts), never inside another word ("car" is not stated by "carried", "bat" not by
+    "combat"), and a 1-5 severity scale is not a stated level."""
+    target = words(str(value))
+    if not target:
+        return False
+    said = words(_SCALE.sub(" ", (text or "").lower()))
+    plurals = [target[:-1] + [target[-1] + ending] for ending in ("s", "es")]
+    return any(has_phrase(said, phrase) for phrase in (target, *plurals))
 
 
 def leakage(record: Mapping[str, Any], gt_index: Mapping[str, Any]) -> dict[str, Any]:
@@ -311,7 +360,7 @@ def leakage(record: Mapping[str, Any], gt_index: Mapping[str, Any]) -> dict[str,
     value = payload["answer"].get("value")
     values = value if isinstance(value, list) else [value]
     stated = [str(v) for v in values if v not in (None, "") and payload["answer"]["kind"] in ("value", "list", "holder")
-              and any(normalise(str(v)) and normalise(str(v)) in normalise(t) for t in texts)]
+              and any(states(t, v) for t in texts)]
     return {"description_overlap": round(overlap, 4), "answer_in_question": stated}
 
 

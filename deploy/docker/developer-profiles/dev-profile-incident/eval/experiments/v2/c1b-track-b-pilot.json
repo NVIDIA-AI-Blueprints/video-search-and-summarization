@@ -1,0 +1,106 @@
+{
+  "config_version": "evalv2-config-v1",
+  "experiment": "v2-c1b-track-b-pilot",
+  "split": {
+    "version": "split-v2",
+    "half": "dev"
+  },
+  "datasets": {
+    "incident_gt": "ground-truth-v1.0"
+  },
+  "subjects": [
+    {
+      "id": "nano-pipeline",
+      "adapter": "vss",
+      "endpoint": "experiment-agent",
+      "model": "nvidia/cosmos-3-nano-reasoner",
+      "profile": "production-v4"
+    },
+    {
+      "id": "super-pipeline",
+      "adapter": "vss",
+      "endpoint": "experiment-agent",
+      "model": "nvidia/cosmos-3-super-reasoner",
+      "profile": "production-v4"
+    }
+  ],
+  "tasks": {
+    "pipeline": {
+      "subjects": "all",
+      "scorers": [
+        "pipeline.score_stage@1",
+        "pipeline.paired_effect@1",
+        "pipeline.crops@1"
+      ]
+    }
+  },
+  "repeats": 1,
+  "seed": 20261101,
+  "retry_policy": "retry-v2",
+  "caps": [
+    {
+      "ledger": "inference",
+      "subject": "nano-pipeline",
+      "task": "pipeline",
+      "max_attempts": 65,
+      "max_tokens": 2275000
+    },
+    {
+      "ledger": "grounding",
+      "subject": "nano-pipeline",
+      "task": "pipeline",
+      "max_attempts": 1300,
+      "max_tokens": 7800000
+    },
+    {
+      "ledger": "zoom",
+      "subject": "nano-pipeline",
+      "task": "pipeline",
+      "max_attempts": 2600,
+      "max_tokens": 10400000
+    },
+    {
+      "ledger": "inference",
+      "subject": "super-pipeline",
+      "task": "pipeline",
+      "max_attempts": 65,
+      "max_tokens": 2275000
+    },
+    {
+      "ledger": "grounding",
+      "subject": "super-pipeline",
+      "task": "pipeline",
+      "max_attempts": 1300,
+      "max_tokens": 7800000
+    },
+    {
+      "ledger": "zoom",
+      "subject": "super-pipeline",
+      "task": "pipeline",
+      "max_attempts": 2600,
+      "max_tokens": 10400000
+    },
+    {
+      "ledger": "inference",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 130,
+      "max_tokens": 4550000
+    },
+    {
+      "ledger": "grounding",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 2600,
+      "max_tokens": 15600000
+    },
+    {
+      "ledger": "zoom",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 5200,
+      "max_tokens": 20800000
+    }
+  ],
+  "notes": "C1b Track B pilot (methodology v2.0 section 2): the production-v4 profile (P1, grounding crops, zoomed second look; no caption pass, tracking or set-of-marks) on the local experiment agent for Cosmos 3 Nano and Super; 25 dev clips x 1 repeat = 25 /analyze runs per subject. Dev only. Each per-subject cap is the profile's worst case x 25 runs (the agent's own retries included) plus 30%; the last three caps bound the run. It calibrates the provisional crop and zoom caps (tasks/pipeline/crops.py cap_summary). Readiness: methodology/v2-run-readiness.md."
+}

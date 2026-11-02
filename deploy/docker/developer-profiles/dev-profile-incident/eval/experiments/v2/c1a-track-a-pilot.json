@@ -1,0 +1,74 @@
+{
+  "config_version": "evalv2-config-v1",
+  "experiment": "v2-c1a-track-a-pilot",
+  "split": {
+    "version": "split-v2",
+    "half": "dev"
+  },
+  "datasets": {
+    "incident_gt": "ground-truth-v1.0"
+  },
+  "subjects": [
+    {
+      "id": "nano-direct",
+      "adapter": "openai_compat",
+      "endpoint": "switchyard",
+      "model": "nvidia/cosmos-3-nano-reasoner"
+    },
+    {
+      "id": "super-direct",
+      "adapter": "openai_compat",
+      "endpoint": "switchyard",
+      "model": "nvidia/cosmos-3-super-reasoner"
+    },
+    {
+      "id": "omni-direct",
+      "adapter": "openai_compat",
+      "endpoint": "switchyard",
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    }
+  ],
+  "tasks": {
+    "incident_objects": {
+      "subjects": "all",
+      "scorers": [
+        "incident_objects.score_video@1",
+        "incident_objects.aggregate@1"
+      ]
+    }
+  },
+  "repeats": 2,
+  "seed": 20261101,
+  "retry_policy": "retry-v2",
+  "caps": [
+    {
+      "ledger": "inference",
+      "subject": "nano-direct",
+      "task": "incident_objects",
+      "max_attempts": 195,
+      "max_tokens": 6825000
+    },
+    {
+      "ledger": "inference",
+      "subject": "super-direct",
+      "task": "incident_objects",
+      "max_attempts": 195,
+      "max_tokens": 6825000
+    },
+    {
+      "ledger": "inference",
+      "subject": "omni-direct",
+      "task": "incident_objects",
+      "max_attempts": 195,
+      "max_tokens": 6825000
+    },
+    {
+      "ledger": "inference",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 585,
+      "max_tokens": 20475000
+    }
+  ],
+  "notes": "C1a Track A pilot (methodology v2.0 section 2): the production v4 P1 request, alone, to three video models on Switchyard; 25 dev clips x 2 repeats = 50 P1 calls per subject. Dev only: no test clip. Each per-subject cap is the preflight worst case (50 items x 3 attempts under retry-v2, 35,000 tokens each) plus 30% for recovery-v1 re-attempts and resumes; the last cap bounds the run. Judge and embedding calls for scoring are a separate, separately capped stage. Readiness, budgets and the launch command: methodology/v2-run-readiness.md."
+}
