@@ -57,7 +57,7 @@ class FlakyFrameGetter:
             return [], [], [], "qtdemux not-linked"
         return ["frame"], [1.234], [], None
 
-    def destroy_pipeline(self):
+    def destroy_pipeline(self, **kwargs):
         self.destroyed += 1
 
     def flush_pipeline(self):

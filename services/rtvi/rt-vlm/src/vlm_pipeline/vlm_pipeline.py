@@ -785,7 +785,7 @@ class DecoderProcess(ProcessBase):
                     or not getattr(fgetter, "_file_pipeline_reusable", True)
                 ):
                     with self._fgetter_handoff_lock:
-                        fgetter.destroy_pipeline()
+                        fgetter.destroy_pipeline(force_gc=bool(error))
             except Exception as ex:
                 logger.warning("Failed to reset decoder pipeline for chunk %s: %s", chunk, ex)
                 try:
