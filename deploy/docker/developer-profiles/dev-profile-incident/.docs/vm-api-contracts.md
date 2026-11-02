@@ -269,3 +269,37 @@ Host requirement: `ffmpeg` on the agent's `PATH`. The VM has no system `ffmpeg`;
 - **Never persisted:** an experimental request writes no `report_revisions` row and no `model_runs` placeholder (`revision_id` is `null`). With `skip_crops` every evidence entry has `image: null` and `image_gap: "evidence cropping skipped (skip_crops)"`.
 - **Response additions:** `experiment` (`prompt_id` (null for the production prompt), `prompt_sha256`, `skip_crops`, `max_crop_calls`, `captions` and `max_caption_calls` (null unless asked for), `persisted: false`, `caption` when captions were asked for, and for a crops-on request `evidence_store` and `crop`: `elapsed_ms` (the crop stage's wall time), `items`, `images`, `gaps` (count per reason), `cap`, `calls`, `refused_by_cap`, `cap_reached`, `tokens` and `calls_without_usage`), `p1_elapsed_ms` (the P1 HTTP round trip) and `usage` (P1 token usage). A 422 contract violation of an experimental request carries the same three in `detail`.
 - **Where it runs:** a local agent started for the experiment with no Supabase or R2 settings (plan decision D14 (b)). Either caption store needs `ffmpeg` on that agent's `PATH`; `experiment_captions: "r2"` also needs R2 settings (ideally limited to the approved prefix) and `INCIDENT_EXPERIMENT_SCRATCH_PREFIX`, the one exception to that rule. Restarting or reconfiguring the shared VM agent is ask-first.
+
+## `POST /api/v1/incidents/{incident_id}/reblur`
+
+The face-blur toggle's route ([decision](decisions.md#2026-11-02-the-blur-faces-toggle-re-blurs-the-stored-evidence-it-does-not-analyse-the-video-again)). It makes one revision's evidence images again, blurred or not, and keeps its report. It never calls the caption pass, P1, grounding, the zoomed second look or tracking: the only model call is the head detection, and only when `blur_faces` is true. `incident_id` is the `videos.id`.
+
+Request body:
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `source_revision_id` | int ≥ 1 | required | The `report_revisions.id` whose payload and evidence are kept (the one the report page shows) |
+| `video_url` | string | required | Signed R2 URL of the video; every frame is read from it at the entry's own `box_seconds` |
+| `video_key` | string, max 900 | `incident_id` | The video's R2 key; the images go under `evidence/<video_key>/run-<N>/` (a new `N`, never an existing key) |
+| `blur_faces` | bool | required | `true`: pixelate every head (whole-frame head detection, the stored person tracks, located people and earlier recorded regions) and store `<itemId>-heads.json`; `false`: store the images as cut |
+| `model_run_id` | string 1-20 | required | The caller's `model_runs.id` for the new revision (the agent inserts a placeholder if absent; the caller owns its notes) |
+| `model` | string | required | The model name recorded on the run (the source run's) |
+| `video_duration_seconds` | number > 0 | none | Bounds the clip-head samples |
+
+Response `200`: `{incident_id, source_revision_id, revision_id, blur_faces, items, images, elapsed_ms, privacy?}`. `privacy` (the shape in the analyze section) is present only when `blur_faces` is true. The new revision is `kind='ai'`, `parent_id` NULL, with the source's payload unchanged, the new evidence, the source's embedding, and the note `Re-blur of revision N (faces blurred|not blurred); report unchanged`. The source revision and its images are not changed.
+
+| Status | Body |
+|---|---|
+| 422 | FastAPI validation detail |
+| 404 | `revision <id> does not exist` |
+| 409 | `revision <id> belongs to another video`, or has no report or evidence |
+| 503 | the incident DB, the evidence store (R2) or, when blurring, the head detector is not configured or reachable |
+| 504 | `the re-blur took longer than 480s; nothing was stored` (`REBLUR_DEADLINE_SECONDS`; the revision is inserted only after the images are stored, so none is written) |
+| 500 | `Re-blur failed: ...` |
+
+An item whose frame cannot be read again or whose images cannot be stored keeps no image and an `image_gap` saying why; the source's image is never reused. The console waits up to 600 s (`REBLUR_TIMEOUT_SECONDS`), longer than the agent's 480 s, so a call the console gave up on has written nothing.
+
+```bash
+curl -s localhost:8000/api/v1/incidents/<videos.id>/reblur -H 'content-type: application/json' \
+  -d '{"source_revision_id":106,"video_url":"https://<signed-r2-url>","video_key":"uploads/<name>.mp4","blur_faces":true,"model_run_id":"m<id>","model":"nvidia/cosmos-3-nano-reasoner"}'
+```

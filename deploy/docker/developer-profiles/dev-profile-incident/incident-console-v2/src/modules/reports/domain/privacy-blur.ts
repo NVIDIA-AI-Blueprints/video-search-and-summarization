@@ -305,7 +305,7 @@ export function clipBlurFilter(scale: string, regions: readonly ClipBlurRegion[]
   return parts.join(';');
 }
 
-/** What the face-blur toggle shows while its re-analysis job waits or runs. */
+/** What the face-blur toggle shows while its re-blur job waits or runs. */
 export function privacyJobLabel(job: { status: string }): string {
-  return job.status === 'queued' ? 'Re-analysis queued…' : job.status === 'running' ? 'Re-analysing…' : 'Finishing…';
+  return job.status === 'queued' ? 'Face blur queued…' : job.status === 'running' ? 'Updating images…' : 'Finishing…';
 }

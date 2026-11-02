@@ -21,13 +21,14 @@ import { fetchJob, findPendingReanalysis, setBlurFaces } from '@/lib/reports/pri
 import { isFinished } from '@/modules/jobs/domain/job';
 import { privacyJobLabel } from '@/modules/reports/domain/privacy-blur';
 
-/** How often the pending re-analysis is checked. */
+/** How often the pending re-blur is checked. */
 const POLL_MS = 4000;
 
 /**
- * The video's face-blur toggle. Switching it (after a confirmation) stores the setting and queues a re-analysis; the
- * control then follows that job and, when it is done, hands its new revision to onAnalysed so the page shows it.
- * Earlier versions keep their own images. A re-analysis already queued for the video is picked up on load.
+ * The video's face-blur toggle. Switching it (after a confirmation) stores the setting and queues a re-blur: the same
+ * report with its evidence images made again, blurred or not. The control then follows that job and, when it is done,
+ * hands its new revision to onAnalysed so the page shows it. Earlier versions keep their own images. A job already
+ * queued for the video is picked up on load.
  */
 export function PrivacyControls({
   videoId,
@@ -47,7 +48,7 @@ export function PrivacyControls({
 
   useEffect(() => setChecked(blurFaces), [blurFaces]);
 
-  // A re-analysis of this video that is still queued or running (switched before a reload) is followed as well.
+  // A re-blur of this video that is still queued or running (switched before a reload) is followed as well.
   useEffect(() => {
     const controller = new AbortController();
     findPendingReanalysis(videoId, controller.signal)
@@ -80,7 +81,7 @@ export function PrivacyControls({
         if (isFinished(job)) {
           setJobId(null);
           setStatus(null);
-          setErrorMessage(`The re-analysis did not finish: ${job.error ?? job.status}. Switch the setting off and on to try again.`);
+          setErrorMessage(`The face blur did not finish: ${job.error ?? job.status}. Switch the setting off and on to try again.`);
           return;
         }
       } catch (error) {
@@ -139,14 +140,14 @@ export function PrivacyControls({
             <AlertDialogTitle>{confirm ? 'Blur faces in this video?' : 'Stop blurring faces?'}</AlertDialogTitle>
             <AlertDialogDescription>
               {confirm
-                ? 'The video is analysed again with the heads of the people in its evidence frames, crops and clips blurred. The new version replaces what this report shows; earlier versions keep their own images.'
-                : 'The video is analysed again without blurring, and its new evidence frames, crops and clips show faces. Earlier blurred versions stay as they are.'}
+                ? 'The report is kept as it is. Its evidence frames, crops and clips are made again from the video with the heads of the people blurred, as a new version that this page then shows. Earlier versions keep their own images.'
+                : 'The report is kept as it is. Its evidence frames, crops and clips are made again from the video without blurring, so they show faces, as a new version that this page then shows. Earlier blurred versions stay as they are.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction data-testid="privacy-confirm" onClick={() => confirm !== null && void apply(confirm)}>
-              {confirm ? 'Blur faces and re-analyse' : 'Re-analyse without blur'}
+              {confirm ? 'Blur faces' : 'Stop blurring'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

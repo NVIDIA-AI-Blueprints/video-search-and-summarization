@@ -74,6 +74,8 @@ export interface AnalysisAttemptRecord {
     videoBoundsChecked?: boolean;
   };
   repair: AttemptRepair | null;
+  /** Present only on a re-blur run (the face-blur toggle): which revision and run its report and evidence entries were kept from. */
+  reblur?: { sourceRevisionId: number; sourceModelRunId: string | null };
 }
 
 /** A valid attempt: it also carries the final validated report. Its AI revision id is known only once the revision is stored. */

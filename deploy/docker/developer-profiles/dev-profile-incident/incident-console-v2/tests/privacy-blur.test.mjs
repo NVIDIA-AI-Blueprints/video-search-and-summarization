@@ -651,7 +651,7 @@ const VIDEO = {
   revisionIds: [],
 };
 
-test('switching the toggle stores it and queues one re-analysis of the video, asking for blur as switched', async () => {
+test('switching the toggle stores it and queues one job for the video, asking for blur as switched', async () => {
   const videos = new InMemoryVideoRepository([VIDEO]);
   const jobs = new InMemoryAnalysisJobRepository();
   const on = await setVideoPrivacy({ videos, jobs }, 'v1', true, 'model-a');
@@ -780,6 +780,6 @@ test('the report header shows the toggle and the Faces blurred badge only for a 
   );
   assert.match(controls, /<Switch[\s\S]*?disabled=\{pending\}/, 'the toggle waits for its re-analysis');
   assert.match(controls, /setConfirm\(next\)/, 'switching asks first');
-  assert.equal(privacy.privacyJobLabel({ status: 'queued' }), 'Re-analysis queued…');
-  assert.equal(privacy.privacyJobLabel({ status: 'running' }), 'Re-analysing…');
+  assert.equal(privacy.privacyJobLabel({ status: 'queued' }), 'Face blur queued…');
+  assert.equal(privacy.privacyJobLabel({ status: 'running' }), 'Updating images…');
 });

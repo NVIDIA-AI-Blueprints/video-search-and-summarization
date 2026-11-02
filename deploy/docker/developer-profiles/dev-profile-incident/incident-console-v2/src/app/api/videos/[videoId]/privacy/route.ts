@@ -8,9 +8,9 @@ import { getServiceConfiguration } from '@/lib/env';
 import { errorResponse, rejectionResponse } from '@/lib/http';
 import { setVideoPrivacy } from '@/modules/videos/application/set-video-privacy';
 
-// The video's face-blur toggle. PUT {blurFaces} stores it and, when it changed, queues one re-analysis of the video
-// with the console's default model through the background jobs, asking the agent to blur (or not) the faces in the
-// new run's stored evidence: { privacy: { videoId, blurFaces, job } } (job null when nothing changed). 400 for a
+// The video's face-blur toggle. PUT {blurFaces} stores it and, when it changed, queues one job for the video
+// with the console's default model through the background jobs: in agent mode a re-blur (the report is kept and its
+// evidence images are made again, blurred or not), in gateway mode a re-analysis. Response: { privacy: { videoId, blurFaces, job } } (job null when nothing changed). 400 for a
 // malformed body, 404 for an unknown video, 422 for a video with no stored file.
 
 const toggleSchema = z.object({ blurFaces: z.boolean() }).strict();

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Browser-side calls for the face-blur toggle: switch it (which queues a re-analysis job) and follow that job.
+// Browser-side calls for the face-blur toggle: switch it (which queues a re-blur job) and follow that job.
 // Both throw an Error whose message is the route's own.
 
 import { type AnalysisJob, isFinished } from '@/modules/jobs/domain/job';
@@ -28,7 +28,7 @@ export async function fetchJob(jobId: number, signal?: AbortSignal): Promise<Ana
   return (await listJobs(signal)).find((job) => job.id === jobId) ?? null;
 }
 
-/** A re-analysis of the video that is still queued or running; null when there is none. */
+/** A re-blur job of the video that is still queued or running; null when there is none. */
 export async function findPendingReanalysis(videoId: string, signal?: AbortSignal): Promise<AnalysisJob | null> {
   return (await listJobs(signal)).find((job) => job.reanalyseVideoId === videoId && !isFinished(job)) ?? null;
 }

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Set video privacy: the report page's face-blur toggle. Switching it stores videos.blur_faces and queues one
-// re-analysis of the stored video through the background jobs (lib/jobs/loop.ts), asking the agent for blur_faces as
-// the toggle now says. The new run's frames, crops and clips replace what the report shows; earlier runs keep theirs
-// in the version history. Setting the value the video already has changes nothing and queues nothing.
+// job through the background jobs (lib/jobs/loop.ts). In agent mode the job re-blurs: the report the page shows is kept
+// and its frames, crops and clips are made again from the video, blurred as the toggle now says (modules/analysis/
+// application/reblur-video.ts); no model analyses the video. In gateway mode, which stores no images, it re-analyses as
+// before. The new revision is what the report shows; earlier revisions keep their images in the version history. Setting the value the video already has changes nothing and queues nothing.
 
 import { isValidR2Key } from '@/lib/r2/key';
 import type { AnalysisJobRepository } from '@/modules/jobs/domain/AnalysisJobRepository';
@@ -14,12 +15,12 @@ import type { VideoRepository } from '@/modules/videos/domain/VideoRepository';
 export interface VideoPrivacyChange {
   videoId: string;
   blurFaces: boolean;
-  /** The re-analysis job queued for the change; null when the toggle already had this value. */
+  /** The job queued for the change; null when the toggle already had this value. */
   job: AnalysisJob | null;
 }
 
 /**
- * Stores the toggle, then queues the re-analysis with `model`. Throws StoreRejection: 'not-found' for an unknown video,
+ * Stores the toggle, then queues the job (the re-blur) with `model`, which labels the new run only if the source run names none. Throws StoreRejection: 'not-found' for an unknown video,
  * 'invalid' for one with no stored R2 file to analyse again. When the job cannot be queued, the toggle is put back
  * before the error is rethrown, so the toggle never says blurred while no blurred run is coming.
  */

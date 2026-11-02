@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // IncidentAgent: the native vss-agent's incident analysis (agent mode), P1 only
-// (skip_rp1). The port returns the raw HTTP outcome; the analysis decides what a
-// success, a contract refusal (422 with the raw output) or a failure means.
+// (skip_rp1), and the evidence re-blur of a stored revision. The port returns the raw
+// HTTP outcome; the caller decides what a success, a contract refusal (422 with the raw
+// output) or a failure means.
 
 export interface AgentAnalyzeRequest {
   videoId: string;
@@ -22,6 +23,21 @@ export interface AgentAnalyzeRequest {
   videoDurationSeconds: number | null;
   /** Ask the agent to blur the faces in the stored evidence (sent as blur_faces only when true). */
   blurFaces?: boolean;
+}
+
+export interface AgentReblurRequest {
+  videoId: string;
+  /** The video's R2 key; the new images go under evidence/<videoKey>/run-<n>/. */
+  videoKey: string;
+  /** The signed R2 playback URL the agent reads the frames from. */
+  videoUrl: string;
+  /** The revision whose report and evidence entries are kept (the one the report page shows). */
+  sourceRevisionId: number;
+  modelRunId: string;
+  model: string;
+  /** True to blur every head in the new images; false to store them unblurred. */
+  blurFaces: boolean;
+  videoDurationSeconds: number | null;
 }
 
 export interface AgentHttpResponse {
@@ -45,4 +61,9 @@ export class AgentRequestError extends Error {
 
 export interface IncidentAgent {
   analyze(request: AgentAnalyzeRequest, signal: AbortSignal): Promise<AgentHttpResponse>;
+  /**
+   * POST /api/v1/incidents/{videoId}/reblur: new evidence images of an existing revision, blurred or not, stored as a
+   * new AI revision with the same report. No model reads the video's content: only the head detector, when blurring.
+   */
+  reblur(request: AgentReblurRequest, signal: AbortSignal): Promise<AgentHttpResponse>;
 }
