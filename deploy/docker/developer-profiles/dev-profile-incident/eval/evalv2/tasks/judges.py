@@ -61,7 +61,7 @@ TASK_KINDS: dict[str, tuple[str, ...]] = {"incident_objects": ("incident",), "pi
 PARSER_ID = "v1-extract-score"  # eval_gt._extract_score's rules, re-implemented below and pinned by a test
 LEDGER = "judge"
 _SPEC_KEYS = frozenset({"id", "role", "model", "adapter", "endpoint", "settings", "kinds", "parse_retries",
-                        "max_prompt_bytes", "caps", "status", "notes"})
+                        "max_prompt_bytes", "caps", "status", "notes", "request"})
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 
 
@@ -84,6 +84,7 @@ class JudgeSpec:
     max_tokens: int
     status: str = ""
     notes: str = ""
+    request: Mapping[str, Any] | None = field(default=None, hash=False)  # routing only: {"extra_body": {"provider"}}
 
     @property
     def max_output_tokens(self) -> int:
@@ -119,7 +120,8 @@ def _spec(entry: Mapping[str, Any]) -> JudgeSpec:
                          settings=dict(entry["settings"]), kinds=tuple(entry["kinds"]),
                          parse_retries=int(entry["parse_retries"]), max_prompt_bytes=int(entry["max_prompt_bytes"]),
                          max_requests=int(caps["max_requests"]), max_tokens=int(caps["max_tokens"]),
-                         status=str(entry.get("status", "")), notes=str(entry.get("notes", "")))
+                         status=str(entry.get("status", "")), notes=str(entry.get("notes", "")),
+                         request=dict(entry["request"]) if entry.get("request") else None)
     except (KeyError, TypeError, ValueError) as exc:
         raise JudgeConfigError(f"judge {entry.get('id')!r}: malformed entry ({exc})") from exc
 
@@ -146,6 +148,8 @@ def registry_problems(registry: JudgeRegistry) -> list[str]:
             problems.append(f"{where}: settings.temperature must be pinned")
         if not 0 <= spec.parse_retries <= 2:
             problems.append(f"{where}: parse_retries must be 0, 1 or 2")
+        if spec.request is not None and set(spec.request) != {"extra_body"}:
+            problems.append(f"{where}: request may carry only extra_body (provider routing)")
         if spec.max_prompt_bytes <= 0 or spec.max_requests <= 0 or spec.max_tokens <= 0:
             problems.append(f"{where}: max_prompt_bytes and both caps must be positive")
         if spec.role == "continuity":

@@ -102,7 +102,8 @@
       "verified": false,
       "json_schema": false,
       "listed_on": [
-        "nvidia-api-catalog"
+        "nvidia-api-catalog",
+        "openrouter"
       ],
       "notes": "Third-family judge candidate (X19): listed on the catalog only, so inference needs NVIDIA_API_KEY (X18). Capabilities unverified."
     },
@@ -171,6 +172,19 @@
         "openrouter"
       ],
       "notes": "Independent family (Alibaba Qwen), open weights (HF Qwen/Qwen3.5-9B), 9B, 262K context. OpenRouter public model list 2026-11-02: inputs text, image, video; structured_outputs on DeepInfra/Parasail/Together/SiliconFlow (bf16 or fp8), $0.02-0.17 / M input. The closest reachable Qwen video model: Qwen3-VL-8B-Instruct is listed for text and image only. OpenRouter probes 2026-11-02 (DeepInfra/Parasail): inline base64 video accepted, strict json_schema enforced, num_frames ignored, about 1 frame per second (self-reported 9, 26 and 81 frames for 8, 25 and 80 s clips), about 50 prompt tokens a frame; the 80 s clip was accepted."
+    },
+    "mistralai/mistral-large-4-0": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "json_schema": false,
+      "listed_on": [
+        "openrouter"
+      ],
+      "notes": "OpenRouter id for the catalog's mistralai/mistral-large-4-1t-a52b (HF mistralai/Mistral-Large-4-1T-A52B), served by Mistral. Sensitivity judge candidate; unverified."
     }
   }
 }

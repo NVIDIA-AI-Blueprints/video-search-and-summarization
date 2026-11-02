@@ -242,3 +242,24 @@ def test_track_b_crops_are_scored_against_box_references_when_the_config_names_t
                        sheets=gt[1], offline=True)
     crops = result["summary"]["subjects"]["super-pipeline"]["pipeline"]["crops"]
     assert "unscored" not in crops, "with references named, A8 scores every evidence entry (here: none matched)"
+
+
+def test_a_judge_override_swaps_only_the_endpoint_of_the_same_model(tmp_path, gt):
+    from evalv2.score_stage import with_judge_endpoint
+
+    config, _ = _run_track_a(tmp_path)
+    task = next(iter(config.tasks))
+    swapped = with_judge_endpoint(config, task, "primary", "openrouter-gpt-oss-20b-v1")
+    assert swapped.tasks[task].options["judges"]["primary"] == "openrouter-gpt-oss-20b-v1"
+    assert config.tasks[task].options["judges"]["primary"] == "catalog-gpt-oss-20b-v1", "the original is untouched"
+    with pytest.raises(ScoreRefused, match="differs"):
+        with_judge_endpoint(config, task, "primary", "openrouter-mistral-large-4-v1")
+
+
+def test_the_openrouter_sensitivity_judge_is_mistral_large_4_served_elsewhere():
+    from evalv2.score_stage import _same_weights
+    from evalv2.tasks.judges import load_judges
+
+    registry = load_judges()
+    assert _same_weights(registry.get("catalog-mistral-large-4-v1").model, registry.get("openrouter-mistral-large-4-v1").model)
+    assert registry.get("openrouter-gpt-oss-20b-v1").request["extra_body"]["provider"]["allow_fallbacks"] is False

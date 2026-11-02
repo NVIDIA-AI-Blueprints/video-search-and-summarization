@@ -3,18 +3,25 @@
   "status": "Proposed (X19). Every judge stays unverified until the capability probe (python -m evalv2.probe) has answered from it; nothing here has called a model.",
   "note": "Judge configurations by id. A run config selects one per slot in a task's options: {\"judges\": {\"primary\": <id>, \"sensitivity\": <id>, \"continuity\": <id>}}. A primary or sensitivity judge must come from a family distinct from every V2 subject and from the reference generator (evalv2.tasks.chat.scoring.check_judge_family). The continuity judge is V1's pinned judge (methodology.py: model, judge-prompt-v1, settings) and is used only to compare with V1; it shares the Omni and chat subjects' family by design and may judge only the incident kind. Changing a judge's model, endpoint, settings, parse rule or prompt changes its cache identity, so no cached verdict is reused. caps are hard ceilings per judge stage (one budget log per judge); a run config may only tighten them. Sources: adapters/catalog_rb1.json (listings, 2026-11-01), adapters/capabilities.json, experiments/pricing.json (V1 judge).",
   "budget": {
-    "judges": ["catalog-gpt-oss-20b-v1", "catalog-mistral-large-4-v1"],
+    "judges": [
+      "catalog-gpt-oss-20b-v1",
+      "catalog-mistral-large-4-v1"
+    ],
     "max_requests": 2000,
     "max_tokens": 3000000,
     "approval": "Owner approval of the third-family judge budget, relayed by the evaluation lead on 2026-11-01: gpt-oss-20b primary, mistral-large-4 sensitivity, at most 2,000 calls and about 3 M tokens in total. The caps of the judges listed here must not sum past it."
   },
-  "reference_generators": ["anthropic/claude"],
+  "reference_generators": [
+    "anthropic/claude"
+  ],
   "v2_subject_models": [
     "nvidia/cosmos-3-nano-reasoner",
     "nvidia/cosmos-3-super-reasoner",
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
     "nvidia/nemotron-3-ultra",
-    "nvidia/nemotron-3-ultra-550b-a55b"
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "google/gemma-4-31b-it",
+    "qwen/qwen3.5-9b"
   ],
   "judges": [
     {
@@ -23,11 +30,22 @@
       "model": "openai/gpt-oss-20b",
       "adapter": "openai_compat",
       "endpoint": "nvidia-api-catalog",
-      "settings": {"temperature": 0.0, "max_tokens": 1500},
-      "kinds": ["incident", "fact", "unsupported", "contradiction"],
+      "settings": {
+        "temperature": 0.0,
+        "max_tokens": 1500
+      },
+      "kinds": [
+        "incident",
+        "fact",
+        "unsupported",
+        "contradiction"
+      ],
       "parse_retries": 0,
       "max_prompt_bytes": 65536,
-      "caps": {"max_requests": 1500, "max_tokens": 2250000},
+      "caps": {
+        "max_requests": 1500,
+        "max_tokens": 2250000
+      },
       "status": "budget approved; unverified (probe pending, X18 key on the harness host)",
       "notes": "Listed only on the NVIDIA API catalog (RB1), so it needs NVIDIA_API_KEY on the harness host (X18). V1's request settings (temperature 0, 1,500 output tokens, reasoning included). A reasoning model: a reply cut off at max_tokens is unscored, never a score."
     },
@@ -37,11 +55,22 @@
       "model": "mistralai/mistral-large-4-1t-a52b",
       "adapter": "openai_compat",
       "endpoint": "nvidia-api-catalog",
-      "settings": {"temperature": 0.0, "max_tokens": 1500},
-      "kinds": ["incident", "fact", "unsupported", "contradiction"],
+      "settings": {
+        "temperature": 0.0,
+        "max_tokens": 1500
+      },
+      "kinds": [
+        "incident",
+        "fact",
+        "unsupported",
+        "contradiction"
+      ],
       "parse_retries": 0,
       "max_prompt_bytes": 65536,
-      "caps": {"max_requests": 500, "max_tokens": 750000},
+      "caps": {
+        "max_requests": 500,
+        "max_tokens": 750000
+      },
       "status": "budget approved; unverified (probe pending, X18 key on the harness host)",
       "notes": "Judge-sensitivity check (methodology v2.0 section 7): a second family, distinct from the primary's, re-judges a subset (the human calibration set, the subject that shares V1's judge family)."
     },
@@ -51,13 +80,114 @@
       "model": "nvidia/nemotron-3-nano-30b-a3b",
       "adapter": "openai_compat",
       "endpoint": "switchyard",
-      "settings": {"temperature": 0.0, "max_tokens": 1500},
-      "kinds": ["incident"],
+      "settings": {
+        "temperature": 0.0,
+        "max_tokens": 1500
+      },
+      "kinds": [
+        "incident"
+      ],
       "parse_retries": 2,
       "max_prompt_bytes": 65536,
-      "caps": {"max_requests": 1500, "max_tokens": 2250000},
+      "caps": {
+        "max_requests": 1500,
+        "max_tokens": 2250000
+      },
       "status": "not approved: no live call until the owner approves a continuity budget",
       "notes": "V1's pinned judge (methodology.JUDGE_MODEL, judge-prompt-v1, JUDGE_REQUEST_SETTINGS, two parse retries) for the continuity comparison only. Shares the Omni and chat subjects' family, so it never judges a primary or sensitivity row."
+    },
+    {
+      "id": "openrouter-gpt-oss-20b-v1",
+      "role": "primary",
+      "model": "openai/gpt-oss-20b",
+      "adapter": "openai_compat",
+      "endpoint": "openrouter",
+      "settings": {
+        "temperature": 0.0,
+        "max_tokens": 1500
+      },
+      "kinds": [
+        "incident",
+        "fact",
+        "unsupported",
+        "contradiction"
+      ],
+      "parse_retries": 0,
+      "max_prompt_bytes": 65536,
+      "caps": {
+        "max_requests": 2000,
+        "max_tokens": 3000000
+      },
+      "status": "PROPOSED, not approved: OpenRouter route for the approved primary judge model (no NVIDIA catalog key)",
+      "notes": "The same model and settings as catalog-gpt-oss-20b-v1, served by OpenRouter on bf16 providers (DeepInfra, DekaLLM), no fallback, no data retention. OpenRouter price 2026-11-02: $0.03 in / $0.13 out per M tokens.",
+      "request": {
+        "extra_body": {
+          "provider": {
+            "order": [
+              "DeepInfra",
+              "DekaLLM"
+            ],
+            "allow_fallbacks": false,
+            "data_collection": "deny",
+            "require_parameters": true
+          }
+        }
+      }
+    },
+    {
+      "id": "openrouter-mistral-large-4-v1",
+      "role": "sensitivity",
+      "model": "mistralai/mistral-large-4-0",
+      "adapter": "openai_compat",
+      "endpoint": "openrouter",
+      "settings": {
+        "temperature": 0.0,
+        "max_tokens": 1500
+      },
+      "kinds": [
+        "incident",
+        "fact",
+        "unsupported",
+        "contradiction"
+      ],
+      "parse_retries": 0,
+      "max_prompt_bytes": 65536,
+      "caps": {
+        "max_requests": 600,
+        "max_tokens": 900000
+      },
+      "status": "PROPOSED, not approved: OpenRouter route for the approved sensitivity judge model",
+      "notes": "Mistral Large 4 (HF mistralai/Mistral-Large-4-1T-A52B, the catalog's mistral-large-4-1t-a52b) served by Mistral via OpenRouter. OpenRouter price 2026-11-02: $0.70 in / $2.10 out per M tokens. Re-judges the calibration set and a 20% stratified subset.",
+      "request": {
+        "extra_body": {
+          "provider": {
+            "order": [
+              "Mistral"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true
+          }
+        }
+      }
     }
-  ]
+  ],
+  "proposed_budget": {
+    "judges": [
+      "openrouter-gpt-oss-20b-v1",
+      "openrouter-mistral-large-4-v1"
+    ],
+    "status": "proposed 2026-11-02, not approved",
+    "pilot_backlog": {
+      "primary_calls": 1349,
+      "sensitivity_calls": 270
+    },
+    "calibration": {
+      "pairs": 80,
+      "calls_per_judge": 80
+    },
+    "c3_estimate": {
+      "primary_calls": 3100,
+      "sensitivity_calls": 620
+    }
+  }
 }

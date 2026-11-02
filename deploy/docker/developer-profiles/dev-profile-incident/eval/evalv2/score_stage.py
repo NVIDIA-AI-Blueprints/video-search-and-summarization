@@ -289,6 +289,39 @@ def _score_pipeline(rows: Sequence[Mapping[str, Any]], store: ArtifactStore, gt_
         summary["subjects"].setdefault(subject, {})["pipeline"] = block
 
 
+def with_judge_endpoint(config: Any, task: str, slot: str, judge_id: str) -> Any:
+    """The config with ``slot``'s judge swapped for ``judge_id``: the same model and role served elsewhere.
+
+    The pre-registered judge is a model, a prompt and settings; only where it is served may change, so a judge with a
+    different model, role, settings or kinds is refused. The summary names the judge id that scored."""
+    from evalv2.tasks.judges import configured_judges, load_judges
+
+    registry = load_judges()
+    configured = configured_judges(config, task)
+    if slot not in configured:
+        raise ScoreRefused([f"task {task!r} names no {slot} judge to serve elsewhere"])
+    current = registry.get(configured[slot])
+    chosen = registry.get(judge_id)
+    differs = [name for name in ("model", "role", "kinds", "parse_retries", "max_prompt_bytes")
+               if getattr(current, name) != getattr(chosen, name)]
+    if dict(current.settings) != dict(chosen.settings):
+        differs.append("settings")
+    if differs and not (differs == ["model"] and _same_weights(current.model, chosen.model)):
+        raise ScoreRefused([f"judge {judge_id} is not {current.id} served elsewhere: it differs in {differs}"])
+    options = dict(config.tasks[task].options)
+    options["judges"] = {**dict(options.get("judges") or {}), slot: judge_id}
+    tasks = {**config.tasks, task: config.tasks[task].model_copy(update={"options": options})}
+    return config.model_copy(update={"tasks": tasks})
+
+
+# Endpoint ids for one model's weights where two endpoints name it differently (catalog vs OpenRouter).
+SAME_WEIGHTS = {frozenset({"mistralai/mistral-large-4-1t-a52b", "mistralai/mistral-large-4-0"})}
+
+
+def _same_weights(a: str, b: str) -> bool:
+    return a == b or frozenset({a, b}) in SAME_WEIGHTS
+
+
 def scorer_provenance() -> dict[str, Any]:
     """The eval commit (and whether the tree was dirty) and the SHA-256 of every scorer file."""
     import hashlib
@@ -363,7 +396,7 @@ JUDGE_RPM = 40  # assumed for the catalog judge until the probe measures it (rea
 
 def run_score(config: Any, out: Path, *, datasets: Mapping[str, Any], sheets: Mapping[str, list[dict[str, Any]]],
               offline: bool, slot: str = "primary", marker: Mapping[str, Any] | None = None,
-              embed_local: bool = False,
+              embed_local: bool = False, judge_override: str | None = None,
               judge_ledger_dir: Path | None = None, environ: Mapping[str, str] | None = None, transport: Any = None,
               compute: Callable[[list[str]], list[list[float]]] | None = None,
               sleep: Callable[[float], None] | None = None, clock: Callable[[], float] | None = None
@@ -385,6 +418,8 @@ def run_score(config: Any, out: Path, *, datasets: Mapping[str, Any], sheets: Ma
     if not (out / "checkpoint.jsonl").exists():
         raise ScoreRefused([f"{out} holds no run (no checkpoint.jsonl)"])
     ensure_private(out)
+    if judge_override:
+        config = with_judge_endpoint(config, task, slot, judge_override)
     spec = select_judge(config, task, slot)
     cache_dir = out / "scoring" / "judge-cache"
     vectors = EmbeddingCache(out / "scoring" / "embeddings.jsonl")

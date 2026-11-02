@@ -295,6 +295,8 @@ def _parser() -> argparse.ArgumentParser:
     score.add_argument("--out", type=Path, required=True, help="the run directory run --live wrote")
     score.add_argument("--data-root", type=Path, default=None)
     score.add_argument("--offline", action="store_true", help="caches only, under the network guard: no call")
+    score.add_argument("--judge", help="a registry judge id that serves the configured judge's model elsewhere "
+                       "(for example openrouter-gpt-oss-20b-v1 for catalog-gpt-oss-20b-v1)")
     score.add_argument("--embed-local", action="store_true",
                        help="with --offline: compute missing MiniLM vectors locally (no network, no judge)")
     score.add_argument("--approval", type=Path, help="the marker approving this run's judge budget (live only)")
@@ -525,7 +527,8 @@ def _score(args: argparse.Namespace, load_datasets: DatasetLoader | None,
     try:
         datasets = loader(config)
         sheets = load_sheets() if load_sheets else load_gt_v1_sheets(data_root=args.data_root)
-        result = run_score(config, args.out, datasets=datasets, sheets=sheets, offline=args.offline, slot=args.slot, embed_local=args.embed_local,
+        result = run_score(config, args.out, datasets=datasets, sheets=sheets, offline=args.offline, slot=args.slot,
+                           embed_local=args.embed_local, judge_override=args.judge,
                            marker=marker, judge_ledger_dir=ledger_dir)
     except ScoreRefused as exc:
         print(json.dumps({"ok": False, "refused": exc.problems}, indent=2))
