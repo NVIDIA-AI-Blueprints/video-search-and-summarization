@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+report_service: Alerts-Verification
+deployment_mode: compose
+broker: kafka

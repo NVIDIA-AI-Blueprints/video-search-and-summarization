@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# The tested alert image is always supplied by ARTIFACT_REF (IMAGE_TAG in Jenkins).
+# Blueprint image defaults remain explicit and editable here. develop-latest is
+# a mutable POC baseline; use a release/commit tag here for reproducible comparisons.
+blueprint_environment:
+  VSS_CONTAINER_TAG: develop-latest
+  VSS_RT_CV_TAG: develop-latest
+  VSS_RT_VLM_TAG: develop-latest
+  VSS_BEHAVIOR_ANALYTICS_TAG: develop-latest
+eval_images:
+  init-config-manager: nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-configurator:nightly-20260906
+  bp-configurator: nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-configurator:nightly-20260906
+  bp-configurator-init: curlimages/curl:latest
+  eval-orchestrator-init: curlimages/curl:latest
+  alert-bridge-evaluator-init: busybox:latest
+  alert-bridge-evaluator: nvcr.io/nv-metropolis-dev/metropolis-analytic/alert-bridge-evaluator:2026.09.22
+  eval-orchestrator: nvcr.io/nvstaging/vss-core/vss-surf-trigger-eval-svc:3.2-2026.05.06
+  prometheus: quay.io/prometheus/prometheus:v3.11.3
