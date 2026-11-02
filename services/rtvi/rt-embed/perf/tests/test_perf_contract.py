@@ -100,6 +100,21 @@ class RTVIEmbedPerfContractTest(unittest.TestCase):
         self.assertIn('docker run --rm --user 0', teardown)
         self.assertIn('chown -R ${owner} /cleanup', teardown)
 
+    def test_node_exporter_uses_nonstandard_host_port_by_default(self):
+        setup = (PERF_ROOT / "scripts/native_setup_perf_env.sh").read_text()
+        compose = (PERF_ROOT / "setup/compose/compose.perf.yaml").read_text()
+        self.assertIn('NODE_EXPORTER_PORT="${NODE_EXPORTER_PORT:-9102}"', setup)
+        self.assertIn('"${NODE_EXPORTER_PORT:-9102}:9100"', compose)
+        config_paths = [PERF_ROOT / "configs/config.yaml"]
+        config_paths.extend(sorted((PERF_ROOT / "benchmark").glob("rtvi_embed*config.yaml")))
+        for config_path in config_paths:
+            with self.subTest(config_path=config_path):
+                config = yaml.safe_load(config_path.read_text())
+                self.assertEqual(
+                    config["global"]["gpu_monitoring"]["prometheus"]["node_exporter_url"],
+                    "http://localhost:9102/metrics",
+                )
+
     def test_setup_validates_host_prerequisites(self):
         setup = (PERF_ROOT / "scripts/native_setup_perf_env.sh").read_text()
         self.assertIn("require_cmd docker", setup)

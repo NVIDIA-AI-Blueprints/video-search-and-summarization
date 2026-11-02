@@ -104,7 +104,7 @@ class NodeExporterCollector:
     ):
         """
         Args:
-            node_exporter_url: URL to Node Exporter /metrics (e.g. http://localhost:9101/metrics)
+            node_exporter_url: URL to Node Exporter /metrics (e.g. http://localhost:9102/metrics)
             session: Optional requests Session
         """
         self.logger = logging.getLogger(self.__class__.__name__)
