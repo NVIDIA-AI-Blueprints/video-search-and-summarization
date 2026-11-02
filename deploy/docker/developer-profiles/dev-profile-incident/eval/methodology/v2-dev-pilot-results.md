@@ -68,6 +68,7 @@ Figures: [contract validity](results/v2-dev/fig_contract_validity.svg), [severit
 | Cosmos 3 Super | P1 | 24/25 | 0.92 | 0.96 | 0.51 | 5.0 / 6.0 |
 | Cosmos 3 Super | Final | 24/25 | 0.92 | 0.96 | 0.57 | 5.0 / 6.0 |
 
+- **Grounding and zoom model:** in both subjects these stages run on the agent's production VLM, Cosmos 3 Super, as in production. So the Nano pipeline is Nano for P1 and Super for grounding and zoom.
 - **Zoom:** it changes names and descriptions only, so severity and timing are identical across stages. Zoom effect on entity F1, paired by run: Super +0.026, Nano about 0.
 - **Captions:** the caption pass ran on every clip over 30 s (Nano 14/25, Super 13/24 runs).
 - **Caps:** Nano hit its crop cap twice (111 crop calls refused) and its zoom cap twice (30 refused). Super hit neither.
@@ -75,7 +76,7 @@ Figures: [contract validity](results/v2-dev/fig_contract_validity.svg), [severit
 
 ## 5. Provider, video-input and comparability limitations
 
-The same P1 v4 request (prompt, strict `json_schema`, settings) went to every Track A model as an inline base64 MP4. **How each serving stack turns the video into model input differs**, so Track A compares *models as served*, not bare model capability.
+The same P1 v4 request (prompt, strict `json_schema`, settings) went to every Track A model. The clip was a **read-only presigned R2 GET URL** (one-hour lifetime) that the provider fetched itself; only the capability probes sent inline base64. A re-hash of all 137 stored request bodies confirms that the prompt text (`409ed9b3…`, `p1-v4-base`), the response format (incident-contract-v4), temperature 0, `max_tokens` 16,384 and `num_frames` 64 were byte-identical across the five models. Apart from `model` and OpenRouter's routing-only `provider` block, the bodies match for every clip. **How each serving stack turns the video into model input differs**, so Track A compares *models as served*, not bare model capability.
 
 | Model | Route and providers | Frames the model receives (probes, 2 Nov) | Temporal information | Decoding constraint |
 |---|---|---|---|---|
