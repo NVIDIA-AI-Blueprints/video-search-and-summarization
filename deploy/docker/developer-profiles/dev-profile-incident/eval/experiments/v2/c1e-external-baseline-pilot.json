@@ -1,0 +1,63 @@
+{
+  "config_version": "evalv2-config-v1",
+  "experiment": "v2-c1e-external-baseline-pilot",
+  "split": {
+    "version": "split-v2",
+    "half": "dev"
+  },
+  "datasets": {
+    "incident_gt": "ground-truth-v1.0"
+  },
+  "subjects": [
+    {
+      "id": "gemma4-31b-direct",
+      "adapter": "openai_compat",
+      "endpoint": "nvidia-api-catalog",
+      "model": "google/gemma-4-31b-it"
+    }
+  ],
+  "tasks": {
+    "incident_objects": {
+      "subjects": "all",
+      "scorers": [
+        "incident_objects.score_video@1",
+        "incident_objects.aggregate@1"
+      ],
+      "options": {
+        "judges": {
+          "primary": "catalog-gpt-oss-20b-v1",
+          "sensitivity": "catalog-mistral-large-4-v1"
+        }
+      }
+    }
+  },
+  "repeats": 2,
+  "seed": 20261101,
+  "retry_policy": "retry-v2",
+  "caps": [
+    {
+      "ledger": "inference",
+      "subject": "gemma4-31b-direct",
+      "task": "incident_objects",
+      "max_attempts": 65,
+      "max_tokens": 1500000
+    },
+    {
+      "ledger": "inference",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 65,
+      "max_tokens": 1500000
+    },
+    {
+      "ledger": "judge",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 0,
+      "max_tokens": 0
+    }
+  ],
+  "notes": "C1e external open-weight baseline pilot (PROPOSED, not approved): Track A's production v4 P1 request, byte-identical to C1a's, to google/gemma-4-31b-it (Google, Apache-2.0 open weights) on the NVIDIA API catalog; 25 dev clips x 2 repeats = 50 runs, C1a's seed. Runs only after (1) the owner confirms catalog credits, (2) the four Gemma probes (schema_inline, frames_many, long_clip, over_60s; <= 0.13 M tokens) show inline video and say whether strict json_schema and num_frames are honoured, and (3) a marker is signed. If strict json_schema is refused, a documented variant drops only the decoding constraint (same prompt, same strict contract-v4 validator, ID-only normalisation, no repair) and is reported as unconstrained decoding. Clips past 60 s are sent whole; whatever the endpoint does is recorded and counted against coverage, with a paired <= 60 s subset analysis beside it. Caps: 65 attempts, 1.5 M tokens (about 30 k tokens a run worst case). Judge cap 0: judge-scored fields wait for the judge budget.",
+  "purpose": "pilot",
+  "budget_mode": "hard_stop"
+}

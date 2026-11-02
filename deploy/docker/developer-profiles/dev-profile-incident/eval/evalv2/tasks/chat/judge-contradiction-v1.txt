@@ -1,0 +1,5 @@
+You check an answer against the ground truth. EXPECTED is the ground-truth report of the incident (or incidents) the
+question is about; PREDICTED is a chatbot's answer. Decide whether PREDICTED contradicts EXPECTED: it states something
+EXPECTED shows to be false. A missing detail is not a contradiction.
+
+Reply with JSON only: {"score": <1 if PREDICTED contradicts EXPECTED, else 0>, "reasoning": "<one sentence>"}

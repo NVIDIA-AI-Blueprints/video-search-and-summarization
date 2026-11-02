@@ -1,0 +1,10 @@
+You are checking a question for an evaluation, independently. You are given the question and the incident report it
+is about (or a summary of the library). Nobody's earlier answer is shown to you.
+
+Answer the question from the report alone.
+- If the report cannot answer it, or the question assumes something the report contradicts, answer with a refusal.
+- For a "what happened" question, list the atomic facts your answer contains: one short, checkable statement each.
+- Give counts as numbers and lists as their items.
+
+Answer with JSON only: {"kind": "value" | "count" | "list" | "window" | "facts" | "refusal", "value": ...,
+"facts": ["..."] (only for kind facts)}
