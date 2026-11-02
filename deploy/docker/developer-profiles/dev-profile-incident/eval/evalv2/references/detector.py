@@ -50,10 +50,6 @@ class DetectorError(RuntimeError):
 class Detector(Protocol):
     identity: Mapping[str, Any]
 
-    def timeout_for(self, n_frames: int) -> float:
-        """The subprocess limit for one clip: the floor, or ``per_frame_s`` per frame for long clips."""
-        return max(self.timeout_s, self.per_frame_s * n_frames)
-
     def propose(self, frames: Sequence[str], queries: Sequence[str]) -> dict[str, list[Proposal]]: ...
 
 
@@ -80,6 +76,10 @@ class SubprocessDetector:
     per_frame_s: float = 30.0
     identity: dict[str, Any] = field(default_factory=dict)
     expected_weights_sha256: str | None = None  # the approved weights' lock; a reply naming other weights is refused
+
+    def timeout_for(self, n_frames: int) -> float:
+        """The subprocess limit for one clip: the floor, or ``per_frame_s`` per frame for long clips."""
+        return max(self.timeout_s, self.per_frame_s * n_frames)
 
     def propose(self, frames: Sequence[str], queries: Sequence[str]) -> dict[str, list[Proposal]]:
         request = json.dumps({"protocol": PROTOCOL, "frames": list(frames), "queries": list(queries)})
