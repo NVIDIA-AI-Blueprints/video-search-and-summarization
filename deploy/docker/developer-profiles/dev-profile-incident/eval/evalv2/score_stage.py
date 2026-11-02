@@ -353,9 +353,16 @@ def write_outputs(out: Path, slot: str, result: Mapping[str, Any], mode: str) ->
     return directory
 
 
+JUDGE_APPROVAL_VERSION = "evalv2-judge-approval-v1"
+
+
 def judge_run_caps(config: Any, marker: Mapping[str, Any] | None) -> list[Cap]:
-    """The run's judge caps: the config's judge caps, and the marker's judge budget when there is one."""
-    caps = [cap for cap in config.budget_caps() if cap.ledger == "judge"]
+    """The run's judge caps: the config's judge caps, and the marker's judge budget when there is one.
+
+    A dedicated judge approval (``evalv2-judge-approval-v1``, granted after the run, when its config carried no judge
+    share) replaces the config's judge caps with its own; the shared judge ledger's registry caps bind as well."""
+    judge_only = (marker or {}).get("approval") == JUDGE_APPROVAL_VERSION
+    caps = [] if judge_only else [cap for cap in config.budget_caps() if cap.ledger == "judge"]
     judge = (marker or {}).get("judge")
     if judge:
         caps.append(Cap("judge", judge["max_requests"], judge["max_tokens"]))
@@ -374,6 +381,9 @@ def marker_problems(marker: Mapping[str, Any], config: Any) -> list[str]:
     judge = marker.get("judge")
     if not judge:
         problems.append("the marker approves no judge budget (a judge block with max_requests and max_tokens)")
+    elif marker.get("approval") == JUDGE_APPROVAL_VERSION:
+        if not marker.get("approved_by") or not marker.get("approved_at"):
+            problems.append("the judge approval names no approver and date")
     else:
         for cap in config.caps:
             if cap.ledger == "judge" and ((cap.max_attempts or 0) > judge["max_requests"]
@@ -439,6 +449,8 @@ def run_score(config: Any, out: Path, *, datasets: Mapping[str, Any], sheets: Ma
     problems = [] if marker is not None else ["a live score needs an approval marker with a judge budget (--approval)"]
     if marker is not None:
         problems += marker_problems(marker, config)
+        if marker.get("approval") == JUDGE_APPROVAL_VERSION and spec.id not in (marker.get("judges") or []):
+            problems.append(f"the judge approval does not name judge {spec.id}")
     from evalv2.adapters.openai_compat import ENDPOINTS
 
     endpoint = ENDPOINTS[spec.endpoint]

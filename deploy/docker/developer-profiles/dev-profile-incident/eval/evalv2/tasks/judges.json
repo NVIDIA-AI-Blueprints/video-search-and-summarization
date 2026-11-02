@@ -115,10 +115,10 @@
       "parse_retries": 0,
       "max_prompt_bytes": 65536,
       "caps": {
-        "max_requests": 2000,
-        "max_tokens": 3000000
+        "max_requests": 999,
+        "max_tokens": 2299000
       },
-      "status": "PROPOSED, not approved: OpenRouter route for the approved primary judge model (no NVIDIA catalog key)",
+      "status": "APPROVED 2026-11-02 (owner): primary judge via OpenRouter; with the sensitivity judge and the compatibility probe at most 1,300 calls, 3.0 M tokens, $1.77",
       "notes": "The same model and settings as catalog-gpt-oss-20b-v1, served by OpenRouter on bf16 providers (DeepInfra, DekaLLM), no fallback, no data retention. OpenRouter price 2026-11-02: $0.03 in / $0.13 out per M tokens.",
       "request": {
         "extra_body": {
@@ -153,10 +153,10 @@
       "parse_retries": 0,
       "max_prompt_bytes": 65536,
       "caps": {
-        "max_requests": 600,
-        "max_tokens": 900000
+        "max_requests": 299,
+        "max_tokens": 695000
       },
-      "status": "PROPOSED, not approved: OpenRouter route for the approved sensitivity judge model",
+      "status": "APPROVED 2026-11-02 (owner): sensitivity judge via OpenRouter (calibration set + 20% stratified subset)",
       "notes": "Mistral Large 4 (HF mistralai/Mistral-Large-4-1T-A52B, the catalog's mistral-large-4-1t-a52b) served by Mistral via OpenRouter. OpenRouter price 2026-11-02: $0.70 in / $2.10 out per M tokens. Re-judges the calibration set and a 20% stratified subset.",
       "request": {
         "extra_body": {
@@ -176,7 +176,7 @@
       "openrouter-gpt-oss-20b-v1",
       "openrouter-mistral-large-4-v1"
     ],
-    "status": "proposed 2026-11-02, not approved",
+    "status": "approved 2026-11-02 by the owner: 1,300 calls, 3.0 M tokens, $1.77 max (registry caps 999 + 299 calls, 2.299 M + 0.695 M tokens, leaving 2 calls and 2,000 tokens for the compatibility probe)",
     "pilot_backlog": {
       "primary_calls": 1349,
       "sensitivity_calls": 270

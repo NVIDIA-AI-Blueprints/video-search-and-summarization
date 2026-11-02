@@ -263,3 +263,30 @@ def test_the_openrouter_sensitivity_judge_is_mistral_large_4_served_elsewhere():
     registry = load_judges()
     assert _same_weights(registry.get("catalog-mistral-large-4-v1").model, registry.get("openrouter-mistral-large-4-v1").model)
     assert registry.get("openrouter-gpt-oss-20b-v1").request["extra_body"]["provider"]["allow_fallbacks"] is False
+
+
+def test_a_dedicated_judge_approval_replaces_a_zero_judge_share_and_must_name_the_judge(tmp_path, gt):
+    from evalv2.approval import config_sha256
+    from evalv2.score_stage import JUDGE_APPROVAL_VERSION, judge_run_caps, marker_problems
+
+    config, _ = _run_track_a(tmp_path)
+    marker = {"approval": JUDGE_APPROVAL_VERSION, "experiment": config.experiment, "config_sha256": config_sha256(config),
+              "judges": ["openrouter-gpt-oss-20b-v1"], "judge": {"max_requests": 50, "max_tokens": 100_000},
+              "approved_by": "owner", "approved_at": "2026-11-02"}
+    assert marker_problems(marker, config) == []
+    caps = judge_run_caps(config, marker)
+    assert [(c.max_attempts, c.max_tokens) for c in caps] == [(50, 100_000)], "only the judge approval's caps"
+    assert "approver" in " ".join(marker_problems({**marker, "approved_by": ""}, config))
+    with pytest.raises(ScoreRefused, match="does not name judge"):
+        _score(tmp_path, gt, config, offline=False, marker={**marker, "judges": ["someone-else"]})
+
+
+def test_the_openrouter_judges_fit_the_approved_judge_budget():
+    from evalv2.tasks.judges import load_judges
+
+    reg = load_judges()
+    p, s = reg.get("openrouter-gpt-oss-20b-v1"), reg.get("openrouter-mistral-large-4-v1")
+    assert p.max_requests + s.max_requests <= 1_298 and p.max_tokens + s.max_tokens <= 2_998_000, "2 calls kept for the probe"
+    usd = p.max_tokens * 0.13 / 1e6 + s.max_tokens * 2.10 / 1e6
+    probe_worst = 2 * 2_275 * 2.10 / 1e6  # the compatibility probe, priced at the dearer judge
+    assert usd + probe_worst <= 1.77, usd
