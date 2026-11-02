@@ -102,12 +102,16 @@ uv run python scripts/eval_benchmark_export.py        # tables -> eval_data/resu
 
 ### Evaluation V2 (`evalv2/`, methodology v2.0)
 
-The V2 package sits beside the V1 modules and changes none of them. It does not run live yet. `run` refuses unless both `--live` and `EVALV2_ALLOW_LIVE=1` are given, and live execution needs the owner's approval.
+The V2 package sits beside the V1 modules and changes none of them. A live run (`run --live`) or a live `score` needs `EVALV2_ALLOW_LIVE=1` **and** the owner's approval marker (`--approval`, `evalv2-live-approval-v1`); without both it refuses and sends nothing. Never write `approved_by` yourself: only the owner's approval fills it. Launch commands, marker format and budgets: [`eval/methodology/v2-run-readiness.md`](../../eval/methodology/v2-run-readiness.md#2-launch-commands).
 
 ```bash
 uv run python -m evalv2 plan --config <config.json>             # work items per task and subject; no calls
 uv run python -m evalv2 preflight --config <config.json>        # config rules + each cap covers the summed worst case of every task and subject it scopes; every charged task, subject and ledger has a cap
 uv run python -m evalv2 run --config <config.json> --dry-run    # plan + preflight as one statement
+uv run python -m evalv2 approval draft --config <config.json>   # marker skeleton for the owner (approves nothing)
+EVALV2_ALLOW_LIVE=1 uv run python -m evalv2 run --config <config.json> --live --approval <marker.json> --out <eval_data/v2/runs/X> --env-file <eval/.env.local>   # live, approval-gated; same command resumes
+EVALV2_ALLOW_LIVE=1 uv run python -m evalv2 score --config <config.json> --out <run dir> --approval <marker.json> --env-file <eval/.env.local>   # judge calls, approval-gated
+uv run python -m evalv2 score --config <config.json> --out <run dir> --offline   # re-score from the judge and embedding caches; no network
 uv run python -m evalv2 audit frozen-v1                         # V1's frozen artifacts unchanged (90 files)
 uv run python -m evalv2 audit run --store <dir> --run <run id>  # a sealed run's index and artifacts intact
 uv run python -m evalv2 datasets list                           # registered datasets (ids, kinds, how verified)
@@ -124,7 +128,7 @@ uv run python -m evalv2 verify-v1 --record <results.json> [--record ...] [--repo
 - **Track B** (task `pipeline`) runs subjects with `adapter: vss`, endpoint `experiment-agent` and a `profile` (`production-v4`, `production-v4-object-tracking`), with `request` overriding only caps and token bounds.
   - It runs only against the local experiment agent (`experiments/agent/start-experiment-agent.sh`, `EVALV2_VSS_AGENT_URL` on loopback). Never the shared VM agent.
   - Set caps for the `inference`, `grounding` and `zoom` ledgers, and `object_tracking` for the tracking profile. For the tracking profile the experiment agent's `INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS` must be at most 80 (its default): a reply reporting a higher cap stops the run.
-  - The experimental path runs no caption pass until the R2 scratch prefix (X16) is approved.
+  - The caption pass runs only with the gated `production-v4-captions` profile (inline, 30 caption calls), and only when the run's marker lists it in `enabled_profiles` (after the base64 probe).
   - Crop evidence is scored through `tasks/pipeline/crops.py`, which needs box references (run **RA1**). Its `cap_summary` shows whether the profile caps bound; recalibrate them before the freeze.
   - Running it is the approved pilot **C1b**.
 - **Dashboard figure checks:**

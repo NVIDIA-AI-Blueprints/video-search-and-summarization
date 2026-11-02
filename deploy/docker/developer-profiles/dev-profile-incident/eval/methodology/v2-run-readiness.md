@@ -1,6 +1,6 @@
 # Evaluation V2: run readiness (RA1, RA2, RB2, C1a, C1b)
 
-> **Status (2026-11-01): prepared, not run.** No model, embedding, R2 or database call was made, no weight was downloaded, and no reference dataset was generated.
+> **Status (2026-11-02): prepared, not run.** No model, embedding, R2 or database call was made, no weight was downloaded, and no reference dataset was generated. The live executor (B1) and the scoring stage are built and tested with fakes only; B3 is fixed. The pilots wait only for the owner's approval markers (and, for C1b, B2).
 > - Counts come from offline dry runs on `ground-truth-v1.0` (read-only) with a synthetic detector and scripted passes. Their answers are fake; their counts are the real runs' counts.
 > - Budgets use measured V1 figures where they exist and say so where a figure is an assumption.
 > - Dry-run outputs are private (`eval/eval_data/v2-dry-run/`, gitignored) and are never registered.
@@ -13,9 +13,9 @@
 | **RA1** box references | 298 box records (80 clips) | X5 detector env and weights (B5); a session plan for 45,709 frame reads (B6); X6 reviewers (B7) | `$EVALV2_DATA_ROOT/v2/references/box-references-v1/`: frames, cached proposals, packets and answers (keyed by packet SHA-256), `records.jsonl`, `summary.json`, review sheets |
 | **RA2** chat references | 189 questions (dev 70, test 119) | X7 and X20 (owner); X6 reviewers | `.../chat-references-v1/`: packets, answers, `records.jsonl`, `summary.json` |
 | **RB2** dashboard references | 75 requests (60 specs, 15 unsupported) and the corpus snapshot | The allowlist export, on `main` but not on this branch until it is refreshed (B4); the C2 frozen clock for the real snapshot | `.../dashboard-references-v1/`: packets, answers, `records.jsonl`, `corpus-snapshot.json`, `summary.json` |
-| **C1a** Track A pilot | 150 P1 calls (3 models × 25 dev clips × 2) | **A live executor (B1)**; the judge for scoring (B8) | Artifact store (content-addressed, append-only, sealed run), budget log, run manifest |
-| **C1b** Track B pilot | 50 `/analyze` runs (Nano, Super × 25 dev clips) | **B1**; an experiment agent running `main`'s P3 and P4 code (B2) | As C1a, plus crop and zoom summaries for recalibrating caps |
-| **C1b + captions** | As C1b, with the caption pass | **Pending X16**; B1, B2; the adapter's flag pin (B3) | As C1b |
+| **C1a** Track A pilot | 150 P1 calls (3 models × 25 dev clips × 2) | The approval marker (§2). Scoring: the judge probe (B8) | `--out` run directory: artifact store (content-addressed, append-only, sealed run), `budget.jsonl`, `checkpoint.jsonl`, `attempts.jsonl`, run manifest; `scoring/` |
+| **C1b** Track B pilot | 50 `/analyze` runs (Nano, Super × 25 dev clips) | The marker; an experiment agent running `main`'s P3 and P4 code (B2) | As C1a, plus `agent.jsonl` (the pinned agent) and crop and zoom summaries for recalibrating caps |
+| **C1b + captions** | As C1b, with the inline caption pass (agent PR #439) | B2 with #439; the base64 probe, then a marker that lists `production-v4-captions` in `enabled_profiles` | As C1b |
 
 - **Immutability.** A reference run only appends: packets and answers are addressed by the packet's SHA-256, and an answer to a changed packet is refused.
 - **Versioning.** A finished `records.jsonl` gets an append-only `datasets/registry.json` entry that pins its SHA-256 (`root: data`). Human review (`review apply`) writes a new file under a new dataset id; nothing is edited in place.
@@ -63,16 +63,66 @@ uv run python -m evalv2 review export --records $RUN/records.jsonl --out $RUN/re
 # Dry runs (what this page reports): add --dry-run, any private --out; RB2 also --allowlist tests/v2/fixtures/chart-allowlist.json
 ```
 
-**Pilots.** Both commands exit 2 today: live execution is not built (B1).
+**Pilots (B1 resolved).** `run --live` executes a Track A or Track B config; the same command on the same `--out` resumes it. Run from a clean checkout of this branch (a dirty eval tree is refused), with the main checkout's credentials file:
 
 ```bash
-EVALV2_ALLOW_LIVE=1 uv run python -m evalv2 run --config experiments/v2/c1a-track-a-pilot.json --live
+cd deploy/docker/developer-profiles/dev-profile-incident/eval
+export EVALV2_DATA_ROOT=/home/hengz/video-search-and-summarization/deploy/docker/developer-profiles/dev-profile-incident/eval/eval_data
+ENVF=$EVALV2_DATA_ROOT/../.env.local          # VLM_GATEWAY_*, R2_* (signing only), NVIDIA_API_KEY (judge)
+RUNS=$EVALV2_DATA_ROOT/v2/runs                # private (gitignored)
+
+# 1. Marker skeletons; the owner fills approved_by and approved_at (and may lower any figure, never raise it)
+uv run --frozen python -m evalv2 approval draft --config experiments/v2/c1a-track-a-pilot.json > $RUNS/c1a-approval.json
+uv run --frozen python -m evalv2 approval draft --config experiments/v2/c1b-track-b-pilot.json > $RUNS/c1b-approval.json
+
+# 2. C1a (Track A, Switchyard)
+EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 run --config experiments/v2/c1a-track-a-pilot.json --live \
+    --approval $RUNS/c1a-approval.json --out $RUNS/c1a --env-file $ENVF
+
+# 3. C1b (Track B, local experiment agent)
 NAT_BIN=<nat with P3+P4> experiments/agent/start-experiment-agent.sh       # loopback :8765, experiments on, no Supabase or R2
-EVALV2_VSS_AGENT_URL=http://127.0.0.1:8765 EVALV2_ALLOW_LIVE=1 \
-    uv run python -m evalv2 run --config experiments/v2/c1b-track-b-pilot.json --live
+EVALV2_VSS_AGENT_URL=http://127.0.0.1:8765 EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 run \
+    --config experiments/v2/c1b-track-b-pilot.json --live --approval $RUNS/c1b-approval.json --out $RUNS/c1b --env-file $ENVF
+
+# 4. Scoring: live (judge calls under the marker's judge budget), then any re-score offline from the caches
+EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 score --config experiments/v2/c1a-track-a-pilot.json \
+    --out $RUNS/c1a --approval $RUNS/c1a-approval.json --env-file $ENVF
+EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 score --config experiments/v2/c1b-track-b-pilot.json \
+    --out $RUNS/c1b --approval $RUNS/c1b-approval.json --env-file $ENVF
+uv run --frozen python -m evalv2 score --config experiments/v2/c1a-track-a-pilot.json --out $RUNS/c1a --offline
+#   --slot sensitivity re-judges with catalog-mistral-large-4-v1 (Omni sensitivity check)
 ```
 
-`plan` and `preflight` pass offline for all three configs (output in the [appendix](#appendix-plan-and-preflight-output)).
+- **Exit codes** of `run --live`: 0 sealed; 2 refused before anything was sent (every reason listed); 3 stopped part-way (agent drift, a refusal, a configuration error; finished items are kept, fix the cause and resume); 4 finished with open items (a budget refusal or an infrastructure failure after its retries; resume retries them, a cap refusal needs a new marker and config).
+- **What it does.** Work items run in V1's seeded interleaved order (`experiment_runner.schedule`). Track A is paced at the gateway's 60 rpm and 4 in flight, with a token window per model (Omni 30,000 tokens a minute, estimated from its measured calls); Track B runs one analysis at a time with V1's 20 s gap. Every attempt reserves its bound (Track B: holds the profile's worst case) before it is sent; retry-v2 and the host-suspend relabel are the adapters' own. Clip URLs are presigned R2 GETs from `dataset-manifest-v1` (signed locally, read-only, re-signed before expiry and on resume, never stored).
+- **What it records.** `attempts.jsonl` (one row per HTTP attempt: model, prompt SHA-256, request hash, tokens, latency, waiting, outcome, failure kind); `manifest.start.json` (write-once) and the sealed manifest: eval commit and dirty flag, config hash, dataset hashes, the marker, the config and marker caps, pacing, endpoints by variable name, P1 prompt provenance or the Track B profiles, and Track B's pinned agent.
+- **Refused before sending:** preflight problems; no marker, or one that does not fit (below); a test-half clip in a pilot (in the plan, and again at signing); a dirty eval tree; a missing credential (named, never printed); a resume whose config, inputs or plan changed.
+
+**Approval marker** (`evalv2-live-approval-v1`, JSON). `approval draft` fills everything except the approval itself:
+
+```json
+{
+  "approval": "evalv2-live-approval-v1",
+  "experiment": "v2-c1a-track-a-pilot",
+  "config_sha256": "<sha256_json of the validated config, as approval draft prints it>",
+  "purpose": "pilot",
+  "half": "dev",
+  "approved_by": "<owner>",
+  "approved_at": "2026-11-0X",
+  "max_items": 150,
+  "max_total_tokens": 6000000,
+  "caps": [{"ledger": "inference", "max_attempts": 195, "max_tokens": 6000000}],
+  "enabled_profiles": [],
+  "judge": {"max_requests": 1100, "max_tokens": 1650000},
+  "note": "relayed by the evaluation lead on ..."
+}
+```
+
+- The run is refused when the experiment, config hash, purpose or half differ, when the plan holds more items than `max_items`, when any config cap (of any scope) exceeds its ledger's marker cap or names a ledger the marker does not list, when a charged ledger has no run-wide cap, when the run-wide token caps sum past `max_total_tokens`, or when a gated profile is not in `enabled_profiles`. The marker's caps are also added to the run's ledger.
+- `judge` approves the scoring stage: a live `score` refuses without it, and the config's judge cap must fit it. Every judge attempt is reserved on the judge's shared ledger (`$EVALV2_DATA_ROOT/v2/judge-ledger/<judge id>.jsonl`, the `judges.json` ceilings: 1,500 + 500 calls and 2.25 M + 0.75 M tokens, together the approved 2,000 calls and 3 M tokens across every scoring stage) and on the run's own judge ledger.
+- C1b's marker draft has `max_items` 50, `max_total_tokens` 9,000,000 and caps inference 2 M, grounding 2.5 M, zoom 4.5 M tokens. The caption variant needs its own marker with `"enabled_profiles": ["production-v4-captions"]`, written only after the base64 probe.
+
+`plan` and `preflight` pass offline for all three configs (output in the [appendix](#appendix-plan-and-preflight-output)); with `budget_mode: hard_stop` preflight lists every cap below the worst case under `hard_stop`.
 
 ## 3. Counts from the dry runs
 
@@ -163,10 +213,10 @@ A record is `ai_validated` only when every second either pass saw agrees. The va
 | **C1a** | 150 P1 (≈ 166 attempts) | 1.92 M metered = 50 × (8,727 + 9,898 + 19,690); 2.48 M as charged (16 failed attempts at 35,000) | 15.75 M = 450 attempts × 35,000 (cap 20.48 M) | V1 pacing (one call at a time, 20 s gaps): 50 × (31.6 + 41.7 + 50.8) s + retries ≈ 2.3 h. At 4 in flight ≈ 13 min of model time, but Omni's quota sets a floor of 50 × 19,690 / 30,000 ≈ 33 min | $19.2 (worst $158) |
 | C1a scoring | ≤ 1,026 judge calls = 171 judged fields × 2 × 3, plus 342 for the Omni sensitivity check | 0.54 M + 0.18 M | same | catalog limits unverified (X18) | $7.2 |
 | **C1b** | 50 runs: P1 ≈ 53, grounding ≈ 250, zoom ≈ 550 | 1.38 M = P1 0.47 M + grounding 0.09 M + zoom 0.83 M | 31.5 M = 50 × (70 k + 240 k + 320 k) (cap 40.95 M) | One analysis at a time, since its own grounding fills 4 in flight: 50 × 60 s ≈ 50 min, worst ≈ 3.1 h | $13.8 (worst $315) |
-| C1b + captions | + ≈ 181 caption calls (86 dev windows × 2 × 1.05) | + 1.27 M | + 72.3 M = 50 × 60 × 24,096 | + ≈ 10–30 s per clip over 30 s | +$12.7 |
-| **C3** (rough, 55 test clips, 2 repeats) | Track A 330 P1; Track B 220 runs; ≤ 6,048 judge calls; dashboard 450; chat ≈ 476 answers | 16.7 M = A 4.21 M + B 6.06 M + judge 3.18 M + dashboard 1.35 M + chat 1.90 M; 21.7 M with captions (708 calls) | A + B 173 M (+ 318 M with captions) | A ≈ 3.8 h paced, ≈ 1.2 h at the Omni floor; B ≈ 3.7 h; judge ≈ 2.5 h at 40 rpm | $167 ($217 with captions; worst $1,733) |
+| C1b + captions | + ≈ 181 caption calls (86 dev windows × 2 × 1.05) | + 1.27 M | + 19.5 M = 50 × 30 × 13,000 (the profile's 30 caption calls at the 13,000-token bound) | + ≈ 10–30 s per clip over 30 s | +$12.7 |
+| **C3** (rough, 55 test clips, 2 repeats) | Track A 330 P1; Track B 220 runs; ≤ 6,048 judge calls; dashboard 450; chat ≈ 476 answers | 16.7 M = A 4.21 M + B 6.06 M + judge 3.18 M + dashboard 1.35 M + chat 1.90 M; 21.7 M with captions (708 calls) | A + B 173 M (+ 86 M with captions at 30 × 13,000 per run) | A ≈ 3.8 h paced, ≈ 1.2 h at the Omni floor; B ≈ 3.7 h; judge ≈ 2.5 h at 40 rpm | $167 ($217 with captions; worst $1,733) |
 
-- **Caps** in the configs are the preflight worst case plus 30%, which covers recovery-v1 re-attempts and resumes. The worst case already counts every retry the policy allows (retry-v2: 3 attempts per item) at the 35,000-token ceiling. Typical use is about 12% of C1a's token cap and 3% of C1b's; recalibrate the caps after the pilots (P5).
+- **Caps** in the pilot configs are the owner-approved budgets (`budget_mode: hard_stop`): C1a 6 M inference tokens (2 M per subject, 195 attempts for 150 calls plus retries); C1b 9 M tokens over its ledgers (inference 2 M, grounding 2.5 M, zoom 4.5 M, half per subject); judge 1,100 calls and 1.65 M tokens for C1a's scoring, 900 and 1.35 M for C1b's (2,000 and 3 M together). They sit below the pessimistic worst case (every attempt at the 35,000-token ceiling with every retry taken: 15.75 M for C1a, 31.5 M for C1b), so preflight lists that gap as `hard_stop` risks; the ledger refuses, before sending, any attempt that would pass a cap, and the item stays open. Typical use is about 1.9 M (C1a) and 1.4 M (C1b) tokens. Recalibrate after the pilots (P5).
 - **Rate limits:** 60 rpm and 4 in flight are never the binding limit at these volumes (C1a reaches ≈ 11 rpm at 4 in flight). Omni's token quota and the gateway's ≈ 100 s timeout are.
 - **C3** matches the plan's §6 range of 17–20 M tokens. It needs the C2 freeze manifest; the test half refuses to run without one.
 
@@ -245,28 +295,20 @@ Each re-imports with 0 decisions. Box review sheets (`v2_box_frames.py sheet`) a
 - the dry-run fakes (`references/dry_run.py`);
 - `python -m evalv2 references`;
 - box review sheets and `review export --links`;
-- the pending caption profile `production-v4-captions` (planned and preflighted; `build_analyze_request` refuses it while it is pending);
+- the caption profile `production-v4-captions` (then pending X16; since 2026-11-02 inline and gated on the base64 probe, see B3);
 - the three pilot configs under `experiments/v2/`.
 
 ## 7. Blockers beyond approval
-- **B1. No live executor.** `run --live` exits 2. C1a, C1b and C3 need one that wires:
-  - the work items, adapters, artifact store, budget log, checkpoints and run manifest;
-  - the seeded interleaved schedule and pacing;
-  - a video-URL resolver (presigned R2 GETs, read-only, as `scripts/eval_video_resolution.py` does);
-  - a scoring stage (judge, local MiniLM embeddings, offline score).
-
-  The pieces exist and are tested; the glue does not. This is the critical path for the pilots.
+- **B1. Resolved (2026-11-02).** `run --live` (`evalv2/executor.py`) wires the work items, the seeded V1 schedule, pacing (`core/pacing.py`), the adapters, the artifact store, budget log, checkpoint and run manifest, behind the approval marker (`evalv2/approval.py`), with presigned R2 GETs (`evalv2/clips.py`). `score` (`evalv2/score_stage.py`) scores stored predictions with the registry's judge, local MiniLM and their caches, and re-scores offline. Tests: `tests/v2/test_v2_live_executor.py` and `test_v2_score_stage.py` (fake upstream, fake agent, fake clock).
 - **B2. The experiment agent's code.** P3 (#422, run provenance) and P4 (#427, `max_zoom_calls`) are merged into `main` (`0d7d75930`). But `start-experiment-agent.sh` runs the `nat` at `NAT_BIN`, and the local one (`~/.cache/vss-agent-venv`) is an editable install of the main checkout's `services/agent`, which is still at `ae7dd8554`, before both. The Track B adapter refuses replies without provenance. Update that checkout to `origin/main` (the owner's checkout), or point `NAT_BIN` at a venv built from a checkout of `origin/main`.
-- **B3. The caption variant.** Besides X16 itself (the agent's experimental caption pass with `max_caption_calls`), the Track B adapter pins every provenance flag across runs (`adapters/vss.py`, `_pin`).
-  - The per-run `chunking` flag is false for a clip of 30 s or less (11 of the 25 dev clips) and true otherwise, so the first clip that differs stops the run with `AgentDriftError`.
-  - The fix belongs to the adapter's owner (pin the agent's chunking settings, not this run's outcome) or to X16's flag semantics.
+- **B3. Resolved (2026-11-02).** The adapter pins the agent's settings without per-run outcomes (`PER_RUN_FLAGS`: `chunking.enabled`), so a clip of 30 s or less no longer stops the run; a changed chunking setting is still drift. Each run's artifact records `caption_pass.chunking_enabled`, the skip reason and the store. The caption profile sends `experiment_captions: "inline"` and `max_caption_calls: 30` (13,000 tokens per caption call on the `caption` ledger, agent PR #439) and is gated: it is sent only when the marker enables it, after the base64 probe.
 - **B4. RB2's allowlist.** `contracts/prompts/chart/allowlist.json` (P2, #418) is on `main` and equal to the fixture the dry run used (checked). This branch gets it when it is refreshed from `main`; until then, pass `--allowlist tests/v2/fixtures/chart-allowlist.json`.
 - **B5. The detector (X5)** must:
   - label each proposal with the query that produced it (the driver keeps an item's proposals by label);
   - keep coordinates unrounded. An identical static box on a generator and a validator frame trips `assert_blind`, and that item then gets no record (tested).
 - **B6. RA1 session effort.** 45,709 drawn frames (7.9 M image tokens) at one image per read is about 38 h of session time. Parallel sessions, skipping frames with no marks, or contact sheets (P2) cut it.
 - **B7. Review load.** As §3 and §5 show, the box tier rule flags most records even with perfect passes, and about 31 h of review would follow.
-- **B8. Scoring.** The third-family judge (X18 catalog key, X19 choice) is another agent's work. Local MiniLM is already cached.
+- **B8. Scoring.** The configs name `catalog-gpt-oss-20b-v1` (primary) and `catalog-mistral-large-4-v1` (sensitivity); `NVIDIA_API_KEY` is in the main checkout's `.env.local`. Both judges stay unverified until the judge probe (`python -m evalv2.probe`) has answered from them; the catalog's rate limit is assumed at 40 rpm. Local MiniLM is cached and loaded with `HF_HUB_OFFLINE=1`.
 
 ## 8. Proposals awaiting approval (not adopted)
 - **P1. Box tier rule.** Two options; re-run the §3 scenario sweep to size either before deciding.
@@ -281,23 +323,24 @@ Each re-imports with 0 decisions. Box review sheets (`v2_box_frames.py sheet`) a
 - **P5.** Recalibrate every cap from the pilots' measured usage (`cap_summary`) before the C2 freeze.
 
 ## Appendix: plan and preflight output
-Run offline, with `EVALV2_DATA_ROOT` set to the main checkout's `eval/eval_data` (the frozen ground truth verified by hash). Every command exited 0.
+Run offline, with `EVALV2_DATA_ROOT` set to the main checkout's `eval/eval_data` (the frozen ground truth verified by hash). Every command exited 0. `hard_stop` lists, per cap, the gap between the approved cap and the pessimistic worst case (shortened here to its count).
 
 ```text
 $ uv run --frozen python -m evalv2 plan --config experiments/v2/c1a-track-a-pilot.json
 {"experiment": "v2-c1a-track-a-pilot", "tasks": {"incident_objects": {"items": 150, "by_subject": {"nano-direct": 50, "super-direct": 50, "omni-direct": 50}}}}
 $ uv run --frozen python -m evalv2 preflight --config experiments/v2/c1a-track-a-pilot.json
-{"experiment": "v2-c1a-track-a-pilot", "half": "dev", "tasks": {"incident_objects": {"items": 150, "by_subject": {"nano-direct": 50, "super-direct": 50, "omni-direct": 50}}}, "retry_policy": "retry-v2", "ok": true, "problems": []}
+{"experiment": "v2-c1a-track-a-pilot", "half": "dev", ..., "ok": true, "problems": [], "budget_mode": "hard_stop", "hard_stop": [8 entries]}
 $ uv run --frozen python -m evalv2 plan --config experiments/v2/c1b-track-b-pilot.json
 {"experiment": "v2-c1b-track-b-pilot", "tasks": {"pipeline": {"items": 50, "by_subject": {"nano-pipeline": 25, "super-pipeline": 25}}}}
 $ uv run --frozen python -m evalv2 preflight --config experiments/v2/c1b-track-b-pilot.json
-{"experiment": "v2-c1b-track-b-pilot", "half": "dev", "tasks": {"pipeline": {"items": 50, "by_subject": {"nano-pipeline": 25, "super-pipeline": 25}}}, "retry_policy": "retry-v2", "ok": true, "problems": []}
+{"experiment": "v2-c1b-track-b-pilot", "half": "dev", ..., "ok": true, "problems": [], "budget_mode": "hard_stop", "hard_stop": [9 entries]}
 $ uv run --frozen python -m evalv2 preflight --config experiments/v2/c1b-track-b-pilot-captions.json
-{"experiment": "v2-c1b-track-b-pilot-captions", "half": "dev", "tasks": {"pipeline": {"items": 50, "by_subject": {"nano-pipeline": 25, "super-pipeline": 25}}}, "retry_policy": "retry-v2", "ok": true, "problems": []}
+{"experiment": "v2-c1b-track-b-pilot-captions", "half": "dev", ..., "ok": true, "problems": [], "budget_mode": "hard_stop", "hard_stop": [12 entries]}
 ```
 
-| Config | Cap per subject (attempts / tokens) | Run cap | Preflight worst case per subject |
+| Config | Cap per subject (attempts / tokens) | Run cap | Pessimistic worst case per subject |
 |---|---|---|---|
-| C1a, ledger `inference` | 195 / 6,825,000 | 585 / 20,475,000 | 150 / 5,250,000 |
-| C1b: `inference`, `grounding`, `zoom` | 65 / 2,275,000; 1,300 / 7,800,000; 2,600 / 10,400,000 | ×2 | 50 / 1.75 M; 1,000 / 6 M; 2,000 / 8 M |
-| C1b + captions, ledger `caption` | 1,950 / 46,987,200 | ×2 | 1,500 / 36,144,000 |
+| C1a, ledger `inference` | 65 / 2,000,000 | 195 / 6,000,000 | 150 / 5,250,000 |
+| C1b: `inference`, `grounding`, `zoom` | 65 / 1 M; 1,300 / 1.25 M; 2,600 / 2.25 M | ×2 (9 M tokens in all) | 50 / 1.75 M; 1,000 / 6 M; 2,000 / 8 M |
+| C1b + captions: `inference`, `grounding`, `zoom`, `caption` | 65 / 0.75 M; 1,300 / 1 M; 2,600 / 1.75 M; 750 / 1 M | ×2 (9 M tokens in all) | as C1b; caption 750 / 9.75 M |
+| Judge (scoring stage) | — | C1a 1,100 / 1.65 M; C1b 900 / 1.35 M | C1a ≤ 1,026 calls (§4) |
