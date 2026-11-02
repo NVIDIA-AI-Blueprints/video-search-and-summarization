@@ -405,3 +405,18 @@ def test_gemmas_four_probes_fit_the_approved_budget():
 
     plan = pr.build_plan(kinds=["schema_inline", "frames_many", "long_clip", "over_60s"], models=["google/gemma-4-31b-it"])
     assert len(plan) == 4 and sum(c.tokens_bound for c in plan) <= 130_000
+
+
+def test_openrouter_candidates_carry_pinned_no_retention_routing():
+    from evalv2 import probe as pr
+
+    plan = pr.build_plan(kinds=["schema_inline"], models=["google/gemma-4-31b-it", "qwen/qwen3.5-9b"],
+                         endpoint="openrouter")
+    assert {c.endpoint for c in plan} == {"openrouter"}
+    for call in plan:
+        adapter = pr.live_adapter(call)
+        provider = adapter.extra_body["provider"]
+        assert provider["allow_fallbacks"] is False and provider["data_collection"] == "deny"
+        assert provider["require_parameters"] is True and provider["order"]
+    with pytest.raises(pr.ProbeRefused, match="--endpoint"):
+        pr.build_plan(kinds=["schema_inline"], models=["qwen/qwen3.5-9b"], endpoint="switchyard")

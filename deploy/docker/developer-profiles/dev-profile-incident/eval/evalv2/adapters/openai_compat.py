@@ -52,7 +52,26 @@ ENDPOINTS: dict[str, Endpoint] = {
     "nvidia-api-catalog": Endpoint("nvidia-api-catalog", "NVIDIA_API_BASE_URL", "NVIDIA_API_KEY",
                                    default_base_url="https://integrate.api.nvidia.com/v1"),
     "local-openai": Endpoint("local-openai", "EVALV2_LOCAL_BASE_URL", "EVALV2_LOCAL_API_KEY"),
+    # External open-weight baselines when no NVIDIA catalog key exists: prepaid, so a call fails (402) rather than
+    # bill past the balance. Subjects pin the serving provider with extra_body (see ROUTING_KEYS).
+    "openrouter": Endpoint("openrouter", "OPENROUTER_BASE_URL", "OPENROUTER_API_KEY",
+                           default_base_url="https://openrouter.ai/api/v1"),
 }
+# Request keys a subject may add to the body (routing only, never the prompt, schema or settings): OpenRouter's
+# provider selection, so a run names which provider, precision and data policy served it.
+ROUTING_KEYS = frozenset({"provider"})
+
+
+def with_routing(request: Mapping[str, Any], extra_body: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The request plus the subject's routing keys; a key outside ROUTING_KEYS, or one the request has, is refused."""
+    extra = dict(extra_body or {})
+    bad = sorted(set(extra) - ROUTING_KEYS)
+    if bad:
+        raise AdapterConfigError(f"extra_body may only carry routing keys {sorted(ROUTING_KEYS)}; got {bad}")
+    clash = sorted(set(extra) & set(request))
+    if clash:
+        raise AdapterConfigError(f"extra_body would replace request keys {clash}")
+    return {**dict(request), **extra}
 
 
 def _retry_after(response: httpx.Response) -> float | None:
@@ -64,8 +83,11 @@ def _retry_after(response: httpx.Response) -> float | None:
 
 class OpenAICompatAdapter:
     def __init__(self, id: str, model: str, endpoint: Endpoint, capabilities: Capabilities, *,
-                 transport: httpx.BaseTransport | None = None, environ: Mapping[str, str] | None = None) -> None:
+                 transport: httpx.BaseTransport | None = None, environ: Mapping[str, str] | None = None,
+                 extra_body: Mapping[str, Any] | None = None) -> None:
         self.id, self.model, self.endpoint, self.capabilities = id, model, endpoint, capabilities
+        self.extra_body = dict(extra_body or {})
+        with_routing({}, self.extra_body)  # refuse a bad routing block when the adapter is built
         self._transport = transport
         self._environ = environ if environ is not None else os.environ
 
@@ -82,6 +104,7 @@ class OpenAICompatAdapter:
         if request.get("model") != self.model:
             raise ValueError(f"request names model {request.get('model')!r}, adapter serves {self.model!r}")
         base_url, api_key = self._credentials()  # before anything is charged or sent
+        request = with_routing(request, self.extra_body)  # stored as sent, routing included
         request_ref = ctx.store.put("request", stored_request(request))
         attempts: list[dict[str, Any]] = []
         last: dict[str, Any] = {}

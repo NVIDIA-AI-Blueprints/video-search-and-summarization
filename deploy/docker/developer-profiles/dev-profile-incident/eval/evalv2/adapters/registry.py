@@ -48,8 +48,12 @@ def capabilities_for(model: str, table: Mapping[str, Capabilities] | None = None
 def _openai_compat(subject: Any, **kwargs: Any) -> ModelAdapter:
     if subject.endpoint not in ENDPOINTS:
         raise ValueError(f"subject {subject.id}: unknown endpoint {subject.endpoint!r}; known: {sorted(ENDPOINTS)}")
+    request = dict(getattr(subject, "request", None) or {})
+    unknown = sorted(set(request) - {"extra_body", "builder", "prompt"})
+    if unknown:
+        raise ValueError(f"subject {subject.id}: an openai_compat subject's request takes builder, prompt and extra_body; got {unknown}")
     return OpenAICompatAdapter(subject.id, subject.model, ENDPOINTS[subject.endpoint],
-                               capabilities_for(subject.model), **kwargs)
+                               capabilities_for(subject.model), extra_body=request.get("extra_body"), **kwargs)
 
 
 ADAPTERS: dict[str, Callable[..., ModelAdapter]] = {"openai_compat": _openai_compat}

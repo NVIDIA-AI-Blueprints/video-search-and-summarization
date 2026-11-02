@@ -25,6 +25,8 @@ EXPECTED = {
     "c1b-track-b-pilot-captions.json": ("pipeline", {"nano-pipeline": 25, "super-pipeline": 25}),
     "c1a-recovery-super.json": ("incident_objects", {"super-direct": 14}),
     "c1e-external-baseline-pilot.json": ("incident_objects", {"gemma4-31b-direct": 50}),
+    "c1e-openrouter-gemma4-31b.json": ("incident_objects", {"gemma4-31b-openrouter": 50}),
+    "c1f-openrouter-qwen35-9b.json": ("incident_objects", {"qwen35-9b-openrouter": 50}),
 }
 
 
@@ -56,7 +58,9 @@ def test_a_pilot_config_runs_on_dev_only_and_preflights(name):
 APPROVED_TOKENS = {"c1a-track-a-pilot.json": 6_000_000, "c1b-track-b-pilot.json": 9_000_000,
                    "c1b-track-b-pilot-captions.json": 9_000_000,
                    "c1a-recovery-super.json": 500_000,
-                   "c1e-external-baseline-pilot.json": 1_500_000}  # proposed (not yet approved): external baseline  # inside C1a's 6 M with C1a's 1.84 M spend
+                   "c1e-external-baseline-pilot.json": 1_500_000,
+                   "c1e-openrouter-gemma4-31b.json": 1_500_000,  # proposed: OpenRouter route
+                   "c1f-openrouter-qwen35-9b.json": 1_500_000}  # proposed: OpenRouter route  # proposed (not yet approved): external baseline  # inside C1a's 6 M with C1a's 1.84 M spend
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))

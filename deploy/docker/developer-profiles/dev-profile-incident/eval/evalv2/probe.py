@@ -84,7 +84,17 @@ VIDEO_MODELS = ("nvidia/cosmos-3-nano-reasoner", "nvidia/cosmos-3-super-reasoner
 VIDEO_ENDPOINT = "switchyard"
 # External open-weight candidates (independent families) on the NVIDIA API catalog, probed only when named with
 # --models; their endpoint is the catalog's. Documented inputs are in adapters/capabilities.json (unverified).
-EXTERNAL_VIDEO_MODELS = {"google/gemma-4-31b-it": "nvidia-api-catalog", "moonshotai/kimi-k2.6": "nvidia-api-catalog"}
+EXTERNAL_VIDEO_MODELS = {"google/gemma-4-31b-it": "nvidia-api-catalog", "moonshotai/kimi-k2.6": "nvidia-api-catalog",
+                         "qwen/qwen3.5-9b": "openrouter"}
+EXTERNAL_ENDPOINTS = ("nvidia-api-catalog", "openrouter")  # --endpoint may move an external candidate between these
+# OpenRouter routing per model (OpenRouter's provider block): pinned full-precision or fp8 providers that list
+# structured outputs, no fallback to other providers, no data collection, every request parameter required.
+OPENROUTER_ROUTING = {
+    "google/gemma-4-31b-it": {"provider": {"order": ["Crusoe", "Novita"], "allow_fallbacks": False,
+                                           "data_collection": "deny", "require_parameters": True}},
+    "qwen/qwen3.5-9b": {"provider": {"order": ["DeepInfra", "Parasail"], "allow_fallbacks": False,
+                                     "data_collection": "deny", "require_parameters": True}},
+}
 JUDGE_IDS = ("catalog-gpt-oss-20b-v1", "catalog-mistral-large-4-v1")
 CONTINUITY_JUDGE_ID = "switchyard-nemotron-3-nano-v1"  # opt-in (--with-continuity-judge); its budget is not approved
 KINDS = ("schema_inline", "frames_many", "long_clip", "judge", "over_60s", "p1_short")
@@ -149,6 +159,7 @@ class _Subject:
     adapter: str
     model: str
     endpoint: str
+    request: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -263,6 +274,7 @@ def judge_request(spec: judge_registry.JudgeSpec) -> dict[str, Any]:
 
 
 def build_plan(*, kinds: Sequence[str] = DEFAULT_KINDS, models: Sequence[str] = VIDEO_MODELS,
+               endpoint: str | None = None,
                judges: Sequence[str] = JUDGE_IDS) -> list[ProbeCall]:
     """Every call, in the order it would be sent: each video model's three probes, then each judge."""
     unknown = sorted(set(kinds) - set(KINDS))
@@ -284,9 +296,14 @@ def build_plan(*, kinds: Sequence[str] = DEFAULT_KINDS, models: Sequence[str] = 
         for kind, clip, frames in steps:
             if kind in kinds:
                 requires = first if kind != "schema_inline" and "schema_inline" in kinds else None
-                endpoint = EXTERNAL_VIDEO_MODELS.get(model, VIDEO_ENDPOINT)
+                if model in EXTERNAL_VIDEO_MODELS:
+                    call_endpoint = endpoint or EXTERNAL_VIDEO_MODELS[model]
+                    if call_endpoint not in EXTERNAL_ENDPOINTS:
+                        raise ProbeRefused(f"--endpoint {call_endpoint!r} is not one of {list(EXTERNAL_ENDPOINTS)}")
+                else:
+                    call_endpoint = VIDEO_ENDPOINT
                 bound = (P1_PROMPT_TOKENS_BOUND + p1_settings()["max_tokens"]) if kind == "p1_short" else video_bound
-                plan.append(ProbeCall(f"{kind}:{model}", kind, model, endpoint, "inference", bound,
+                plan.append(ProbeCall(f"{kind}:{model}", kind, model, call_endpoint, "inference", bound,
                                       clip=clip, num_frames=frames, requires=requires))
     if "judge" in kinds:
         for judge_id in judges:
@@ -610,7 +627,9 @@ def live_adapter(call: ProbeCall) -> ModelAdapter:
     """A real adapter for one call: a judge from its registry entry, a video model on Switchyard."""
     if call.judge_id:
         return build_adapter(judge_registry.load_judges().get(call.judge_id))
-    return build_adapter(_Subject(f"probe-{call.model.split('/')[-1]}", "openai_compat", call.model, call.endpoint))
+    routing = OPENROUTER_ROUTING.get(call.model) if call.endpoint == "openrouter" else None
+    return build_adapter(_Subject(f"probe-{call.model.split('/')[-1]}", "openai_compat", call.model, call.endpoint,
+                                  {"extra_body": routing} if routing else None))
 
 
 def ledger_caps(plan: Sequence[ProbeCall]) -> list[Cap]:
@@ -702,6 +721,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--only", help=f"comma-separated probe kinds from {','.join(KINDS)} "
                                        f"(default: {','.join(DEFAULT_KINDS)})")
     parser.add_argument("--models", help="comma-separated video models (default: every Track A video subject)")
+    parser.add_argument("--endpoint", help=f"endpoint for external candidates ({', '.join(EXTERNAL_ENDPOINTS)}); "
+                                           "default: each candidate's own")
     parser.add_argument("--judges", help=f"comma-separated judge ids (default: {','.join(JUDGE_IDS)})")
     parser.add_argument("--with-continuity-judge", action="store_true",
                         help=f"also probe {CONTINUITY_JUDGE_ID} (its budget needs its own approval)")
@@ -725,7 +746,7 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
     environ = os.environ if environ is None else environ
     judges = _split(args.judges, JUDGE_IDS) + ([CONTINUITY_JUDGE_ID] if args.with_continuity_judge else [])
     selection = {"kinds": _split(args.only, DEFAULT_KINDS), "models": _split(args.models, VIDEO_MODELS),
-                 "judges": judges}
+                 "judges": judges, "endpoint": args.endpoint}
     try:
         if not args.live:
             with no_network():  # the dry run proves itself offline: any connection attempt raises
