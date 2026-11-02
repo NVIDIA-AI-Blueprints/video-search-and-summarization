@@ -1,0 +1,80 @@
+{
+  "config_version": "evalv2-config-v1",
+  "experiment": "v2-c1c-chat-pilot",
+  "split": {
+    "version": "split-v2",
+    "half": "dev"
+  },
+  "datasets": {
+    "incident_gt": "ground-truth-v1.0"
+  },
+  "subjects": [
+    {
+      "id": "nemotron-ultra-chat",
+      "adapter": "agent_chat",
+      "endpoint": "switchyard",
+      "model": "nvidia/nemotron-3-ultra"
+    }
+  ],
+  "tasks": {
+    "chat": {
+      "subjects": "all",
+      "scorers": [
+        "chat.retrieval@1",
+        "chat.answers@1",
+        "chat.citations@1"
+      ],
+      "options": {
+        "references": {
+          "path": "v2/references/chat-references-v1/records.jsonl",
+          "sha256": "08ab3909eb0075eba8fee1d5b09d879264106ddfd4c68118e86793df983a0fc5"
+        },
+        "corpora": [
+          "oracle",
+          "system"
+        ],
+        "system": {
+          "store": "v2/runs/c1b/store",
+          "run": "v2-c1b-track-b-pilot-captions",
+          "subject": "super-pipeline",
+          "stage": "final",
+          "repeat": 1
+        },
+        "tokens_bound": {
+          "incident": 5000,
+          "library_plan": 2000,
+          "library_answer": 6000
+        }
+      }
+    }
+  },
+  "repeats": 1,
+  "seed": 20261101,
+  "retry_policy": "retry-v2",
+  "caps": [
+    {
+      "ledger": "inference",
+      "subject": "nemotron-ultra-chat",
+      "task": "chat",
+      "max_attempts": 180,
+      "max_tokens": 600000
+    },
+    {
+      "ledger": "inference",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 180,
+      "max_tokens": 600000
+    },
+    {
+      "ledger": "judge",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 0,
+      "max_tokens": 0
+    }
+  ],
+  "purpose": "pilot",
+  "budget_mode": "hard_stop",
+  "notes": "C1c-chat development pilot (PROPOSED, not approved): the grounded chat router (INCIDENT_CHAT_MODE=grounded, agent code in-process) with its default chat model nvidia/nemotron-3-ultra on Switchyard (the agent's own OpenAI-compatible client, LLM_BASE_URL), asked the 70 dev-half RA2 questions (50 incident, 20 library) on two corpora: oracle (the frozen ground truth's reports) and system (the C1b captions run's super-pipeline final reports; Burglary010 has none). 1 repeat: 140 items, at most 180 calls (an incident question 1, a library question 2). Offline estimate (prompt chars / 3 plus 1,024 output tokens a call): 527,848 tokens worst case over 179 calls; configured per-call bounds (5,000 / 2,000 / 6,000) give 820,000. Caps: 180 attempts and 600,000 tokens, hard stop. Judge cap 0: facts, holders, unsupported claims and contradictions stay pending until a judge budget is approved. References are AI-generated (163 ai_validated, 26 ai_proposed, 0 human_verified) and derived from the ground truth they are scored against (disclosed limitation)."
+}

@@ -639,6 +639,10 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
             report.update(budget_mode="hard_stop", hard_stop=hard_stop)
         print(json.dumps(report, indent=2))
         return 1 if problems else 0
+    if "chat" in config.tasks:
+        print("refusing: the chat task runs through `python -m evalv2.tasks.chat prepare|run|score` (the agent's "
+              "chat router in-process), never through the generic executor", file=sys.stderr)
+        return 2
     if not args.live or os.environ.get(LIVE_ENV) != "1":
         print(f"refusing a live run: pass --live and set {LIVE_ENV}=1, and only with the owner's approval",
               file=sys.stderr)

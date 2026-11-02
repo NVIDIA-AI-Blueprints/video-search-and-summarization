@@ -2,6 +2,13 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-02: The chat evaluation runs the agent's real chat router in-process over frozen corpus snapshots
+- **Status:** built and tested offline (Evaluation V2 J2/J3); the C1c-chat pilot itself is a proposal awaiting the owner's marker.
+- **Decision:** the chat task calls the route function of `create_incident_chat_router` (grounded mode) directly, with snapshot ports for `RevisionStore` and `LibraryIndex` and an injected chat model, over two frozen corpora (oracle = the ground truth's reports; system = a sealed Track B run's final reports). It runs in two interpreters: `prepare`, `score` and `readiness` in the eval venv (ground truth, scoring), and `estimate` and `run` in the agent venv (`vss_agents`), joined by hashed files in the run directory (`plan.json`, `corpora/`, `answers.jsonl`). Every model call is reserved on the budget ledger first; a live run needs `--live`, `EVALV2_ALLOW_LIVE=1` and the owner's marker.
+- **Why:** the answers must come from the same code the console calls (parity), and must never read or write the finals database. The eval venv cannot install the agent package without a new dependency, and the agent venv lacks the ground-truth workbook reader.
+- **Alternatives rejected:** an HTTP call to a running agent (needs a server and a database with the corpora loaded); re-implementing the router's planning and counting in `evalv2` (no parity); adding `vss_agents` to the eval environment (a heavy new dependency); routing chat through the generic executor (its adapters speak model APIs, not the router).
+- **Links:** [`eval/methodology/v2-run-readiness.md` §9](../eval/methodology/v2-run-readiness.md#9-chat-evaluation-c1c-chat), `eval/evalv2/tasks/chat/harness.py`.
+
 ### 2026-11-02: Library questions are answered by a planned search with exact counts (Gate M2 approved by the chatbot feature owner)
 - **Status:** approved on 2026-11-02 by the authorised chatbot feature owner (Gate M2), with grounded report chat (P5) and console report chat (P7). Only in grounded mode (`INCIDENT_CHAT_MODE=grounded`); template mode stays the default until Evaluation V2 validates grounded answers, and nothing is deployed by the merge. First proposed 2026-11-01.
 - **Decision:** a chat question with no incident is answered in steps:

@@ -1,4 +1,4 @@
-# Evaluation V2: run readiness (RA1, RA2, RB2, C1a, C1b)
+# Evaluation V2: run readiness (RA1, RA2, RB2, C1a, C1b, C1c-chat)
 
 > **Status (2026-11-02): prepared, not run.** No model, embedding, R2 or database call was made, no weight was downloaded, and no reference dataset was generated. The live executor (B1) and the scoring stage are built and tested with fakes only; B3 is fixed. The pilots wait only for the owner's approval markers (and, for C1b, B2).
 > - Counts come from offline dry runs on `ground-truth-v1.0` (read-only) with a synthetic detector and scripted passes. Their answers are fake; their counts are the real runs' counts.
@@ -16,6 +16,7 @@
 | **C1a** Track A pilot | 150 P1 calls (3 models × 25 dev clips × 2) | The approval marker (§2). Scoring: the judge probe (B8) | `--out` run directory: artifact store (content-addressed, append-only, sealed run), `budget.jsonl`, `checkpoint.jsonl`, `attempts.jsonl`, run manifest; `scoring/` |
 | **C1b** Track B pilot | 50 `/analyze` runs (Nano, Super × 25 dev clips) | The marker; an experiment agent running `main`'s P3 and P4 code (B2) | As C1a, plus `agent.jsonl` (the pinned agent) and crop and zoom summaries for recalibrating caps |
 | **C1b + captions** | As C1b, with the inline caption pass (agent PR #439) | B2 with #439; the base64 probe, then a marker that lists `production-v4-captions` in `enabled_profiles` | As C1b |
+| **C1c-chat** chat pilot | 140 chat answers (70 dev RA2 questions × oracle and system corpora), at most 180 chat-model calls | The marker; the RA2 human review for any result beyond plumbing (§9) | `--out` run directory: `plan.json`, `corpora/`, `answers.jsonl`, `budget.jsonl`, `manifest.json`; `score/` |
 
 - **Immutability.** A reference run only appends: packets and answers are addressed by the packet's SHA-256, and an answer to a changed packet is refused.
 - **Versioning.** A finished `records.jsonl` gets an append-only `datasets/registry.json` entry that pins its SHA-256 (`root: data`). Human review (`review apply`) writes a new file under a new dataset id; nothing is edited in place.
@@ -335,6 +336,78 @@ Each re-imports with 0 decisions. Box review sheets (`v2_box_frames.py sheet`) a
   - review: 20% plus every flag.
 - **P4.** Re-draw or keep the 5 dashboard specs whose reference chart is empty on the corpus.
 - **P5.** Recalibrate every cap from the pilots' measured usage (`cap_summary`) before the C2 freeze.
+
+## 9. Chat evaluation (C1c-chat)
+
+> **Status (2026-11-02): built and tested offline, not run.** No chat model, judge or network call was made. The config [`experiments/v2/c1c-chat-pilot.json`](../experiments/v2/c1c-chat-pilot.json) is a **proposal**, not approved.
+
+**What it measures, reported separately per corpus (never pooled):**
+- **retrieval** (library questions): P@K, R@K, MRR, nDCG at K = 1, 3, 5, 10 and V1's coverage (|L| / K) on the router's ranked matching reports, plus the matching set's precision and recall, against the reference's `support`;
+- **answers:** the exact rate on code-derived references (counts, values, lists, windows), by class; refusal recall on the unanswerable and false-premise questions, and the false-refusal rate on the rest. Judge-needed checks (written facts, holders, unsupported claims, contradictions) stay **pending** (counted, never 0) until a judge budget is approved;
+- **citations:** incident-level precision and recall against `support`, citation validity (the share of model citations the router kept), and answers that cite nothing.
+
+Each block carries its denominator, per tier group (`all`, `ai_validated`, `ai_proposed`), with 95% intervals from a cluster bootstrap (seed 20261027, 2,000 resamples; cluster = the incident for incident questions, the record for library questions).
+
+**Design (J2, J3).**
+- **The harness** (`evalv2/tasks/chat/harness.py`) runs the agent's real chat router (`create_incident_chat_router`, grounded mode) in-process. The route function is called directly, with no server or socket.
+- **Snapshot ports:** `SnapshotRevisionStore` and `SnapshotLibraryIndex` read a frozen corpus snapshot, never the finals database.
+  - The **oracle** corpus is `ground-truth-v1.0`'s reports (`p1_shaped`) of the dev half.
+  - The **system** corpus is the C1b captions run's `super-pipeline` final reports (crop images stripped). `Burglary010` has no report there, so its question is recorded `no_report`.
+  - Incident ids are clip ids in both corpora; expected answers never use item ids, so no item mapping is needed.
+- **Chat models:** a deterministic `FakeChatModel` for tests and dry runs (the network is blocked). The agent's own `OpenAIChatModel` is used only with `--live`.
+  - Every call goes through `MeteredChatModel`, which reserves the call's pessimistic tokens on the `inference` ledger before sending it and settles the measured tokens after. A call that would pass a cap is never sent; the run stops with the item left open.
+- **Two interpreters.** The agent's venv cannot read the ground-truth workbook loader, and the eval venv has no `vss_agents`. So `prepare`, `score` and `readiness` run with the eval Python, and `estimate` and `run` with the agent's.
+  - Build the agent venv without pycairo: `cd services/agent && uv sync --frozen --group dev --no-install-package pycairo`.
+- **The task** (`evalv2/tasks/chat/runner.py`, registered as `chat`) gives `python -m evalv2 plan|preflight` its items and worst case. The generic executor refuses a chat config.
+- **Scoring** (`evaluate.py`) reuses the chat scorers.
+  - A library answer names incidents by type and title, never by id. So an incident list is read from the incidents the answer cites, and a code-composed count's citations are the incidents its prose names.
+
+**Launch** (from `eval/`, `EVALV2_DATA_ROOT=/home/hengz/evalv2-data` or the main checkout's `eval/eval_data`; `$OUT` private):
+```bash
+C=experiments/v2/c1c-chat-pilot.json; A=../../../../../services/agent/.venv/bin/python
+uv run --frozen python -m evalv2 preflight --config $C                    # 140 items; hard_stop gap listed
+uv run --frozen python -m evalv2.tasks.chat prepare --config $C --out $OUT  # plan.json + corpora/ (frozen, hashed)
+$A -m evalv2.tasks.chat estimate --config $C --out $OUT                  # offline token estimate, no call
+$A -m evalv2.tasks.chat run --config $C --out $OUT                       # fake model, network blocked (plumbing)
+# Live, only with the owner's marker (approval draft --config $C prints a skeleton); the same command resumes:
+EVALV2_ALLOW_LIVE=1 LLM_BASE_URL=<Switchyard> INCIDENT_CHAT_API_KEY=<key> \
+  $A -m evalv2.tasks.chat run --config $C --out $OUT --live --approval <marker>   # --retry-errors re-asks http_error
+uv run --frozen python -m evalv2.tasks.chat score --config $C --out $OUT    # $OUT/score/report.json, offline
+uv run --frozen python -m evalv2.tasks.chat readiness --config $C           # reference readiness (below)
+```
+A fake run's numbers are not results. They only show that the plumbing works.
+
+**Expected calls, tokens and caps.**
+- **Calls:** an incident question costs 1 call. A library question costs 2: the plan, then an answer, which a count or breakdown question skips because code composes it.
+- **Pilot:** 140 items (100 incident, 40 library), so at most 180 calls.
+- **Offline estimate** (`estimate`: the registered chat prompts and the real corpus contexts, characters / 3 plus the client's 1,024 output tokens per call):
+
+| Call | Calls | Max bound | Sum of bounds |
+|---|---|---|---|
+| Incident answer | 99 | 4,769 | 260,842 |
+| Library plan | 40 | 1,494 | 59,166 |
+| Library answer | 40 | 5,600 | 207,840 |
+| **Total** | **179** | | **527,848** |
+
+- **Configured per-call bounds** (5,000 / 2,000 / 6,000) give a worst case of 820,000 tokens.
+- **Proposed caps:** 180 attempts and 600,000 tokens on `inference` (per subject and run-wide), `hard_stop`; judge 0.
+- **Endpoint:** Nemotron 3 Ultra (`nvidia/nemotron-3-ultra`, the grounded chat default) on the team's Switchyard gateway (`INCIDENT_CHAT_BASE_URL`, else `LLM_BASE_URL`), which the C1 pilots recorded as no charge to the project.
+
+**References and human review.**
+- RA2's references are **AI-generated**: 163 `ai_validated` and 26 `ai_proposed`, **0 `human_verified`**.
+- Every question is derived from the ground truth it is scored against. This leaks wording and is a **disclosed limitation**: the leakage overlap is in each record, and no question states its answer.
+- **Readiness report** (offline, private: `$EVALV2_DATA_ROOT/v2/references/chat-references-v1/readiness/readiness.json`): **all 189 records are consistent** with the frozen ground truth on code recount (answer, support and answer space).
+  - Two classes cannot be recounted: the 15 `incident.facts` (written facts) and the 10 `library.retrieval` (only the target is labelled relevant).
+- **Before any result counts as more than a pilot,** people must review 60 records: all 26 `ai_proposed`, plus a 20% class-stratified sample of 34 `ai_validated` (seed 20261101, strata `kind,tier,strata.class`).
+  - 22 of the 60 are dev-half (pilot) records: 5 facts, 5 retrieval, 12 others.
+  - By metric: answers.exact 36, retrieval 18, fact recall 15, refusal 6, holder 3; citations 54.
+  - The existing workbook `v2/review/ra2-chat-review.xlsx` (59 rows) was sampled with strata `kind,tier,strata.category`. Chat records have no category, so its 33-record random sample is not stratified by class. It overlaps this list on 55 records. Re-export it with `--strata kind,tier,strata.class`, or review the union (64).
+
+**Known limits.**
+- **One repeat:** run-to-run variance is not measured.
+- **Code-composed counts:** the planner decides whether code can count a question, so a count refused as uncountable shows as a refusal, not a wrong number.
+- **Unreviewed retrieval relevance:** for `library.retrieval`, another incident may also fit the question; only the target is labelled relevant until review.
+- **System corpus:** it is one subject's run (`super-pipeline`, captions) and is sealed; another analysis run is a new corpus.
 
 ## Appendix: plan and preflight output
 Run offline, with `EVALV2_DATA_ROOT` set to the main checkout's `eval/eval_data` (the frozen ground truth verified by hash). Every command exited 0. `hard_stop` lists, per cap, the gap between the approved cap and the pessimistic worst case (shortened here to its count).

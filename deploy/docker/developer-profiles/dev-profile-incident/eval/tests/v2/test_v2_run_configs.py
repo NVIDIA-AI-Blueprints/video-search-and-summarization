@@ -35,8 +35,12 @@ def _split_only(config):
     return load_for_config(config.model_copy(update={"datasets": {}}))
 
 
+# The chat pilot plans from private RA2 records, so it is checked in test_v2_chat_task.py, not with the split alone.
+CHAT_CONFIGS = ("c1c-chat-pilot.json",)
+
+
 def test_every_committed_v2_config_is_expected():
-    assert sorted(p.name for p in CONFIGS.glob("*.json")) == sorted(EXPECTED)
+    assert sorted(p.name for p in CONFIGS.glob("*.json")) == sorted([*EXPECTED, *CHAT_CONFIGS])
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))

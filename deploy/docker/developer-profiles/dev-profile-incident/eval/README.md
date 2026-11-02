@@ -90,6 +90,7 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
     - **Judged checks:** fact recall, unsupported claims and contradictions, each through the judge cache with a hash-pinned prompt (`judge-*-v1.txt`), so a re-score replays offline.
     - The judge must not share a model family with a subject or the reference generator (`check_judge_family`).
     - Oracle and system corpora, and reference tiers, are aggregated apart; `primary` is `human_verified`.
+  - **`tasks/chat/` harness and task (C1c-chat):** `runner.py` plans one item per RA2 record × corpus × subject × repeat (registered as `chat`); `corpus.py` freezes the oracle (ground truth) and system (a sealed Track B run) corpora; `harness.py` runs the agent's real chat router in-process over them with snapshot ports and a metered (budget-reserved) chat model, fake unless `--live`; `evaluate.py` reports retrieval, answers and citations as separate blocks with a cluster bootstrap; `readiness.py` recounts every reference against the frozen ground truth and lists the records to review. CLI: `python -m evalv2.tasks.chat prepare|estimate|run|score|readiness` (`estimate` and `run` with the agent's Python). See [`methodology/v2-run-readiness.md`](methodology/v2-run-readiness.md#9-chat-evaluation-c1c-chat).
   - **`tasks/judging.py`:** judge results as data. A cache is keyed by judge model, prompt hash, settings and texts. An offline judge never calls a model, and a missing judgement is unscored, not failed.
 - **`evalv2.references`:** the box-reference tooling (R2). Making references is the approved run RA1.
   - **`boxes.py`:**
@@ -159,7 +160,7 @@ The `test_every_adapter_meets_the_conformance_contract` test applies to every ad
 - Launch commands, the marker format and the pilot budgets: [`methodology/v2-run-readiness.md`](methodology/v2-run-readiness.md#2-launch-commands).
 - Development pilot results (development split only, no held-out results): [`methodology/v2-dev-pilot-results.md`](methodology/v2-dev-pilot-results.md); chart-ready tables and figures in [`methodology/results/v2-dev/`](methodology/results/v2-dev/), regenerated with `scripts/v2_dev_results_export.py`.
 
-Commands are in the [`incident-run-eval`](../skills/incident-run-eval/SKILL.md) skill. Tests live in `tests/v2/` and run with `uv run pytest tests/`. Only `run --live`, a live `score` and `python -m evalv2.probe --live` call a model, each behind `EVALV2_ALLOW_LIVE` (or the probe's marker) and an approval marker; the tests use fakes.
+Commands are in the [`incident-run-eval`](../skills/incident-run-eval/SKILL.md) skill. Tests live in `tests/v2/` and run with `uv run pytest tests/`; `tests/v2/test_v2_chat_harness_agent.py` needs the agent's Python (`../../../../../services/agent/.venv/bin/python -m pytest --noconftest tests/v2/test_v2_chat_harness_agent.py`) and is skipped otherwise. Only `run --live`, a live `score`, `python -m evalv2.tasks.chat run --live` and `python -m evalv2.probe --live` call a model, each behind `EVALV2_ALLOW_LIVE` (or the probe's marker) and an approval marker; the tests use fakes.
 
 ## Dataset videos (local copies and manifest)
 
