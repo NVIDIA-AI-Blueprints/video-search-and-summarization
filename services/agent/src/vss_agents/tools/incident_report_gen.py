@@ -48,7 +48,7 @@ Runs the same calls as ``incident-console-v2`` (gateway mode, P1 only) and the `
    ``timestamp_seconds`` and uploaded to R2 under ``evidence/<video key>/run-<n>/<itemId>.jpg``
    (the video's own R2 key and the next unused run number) (``crop_evidence``). An item without an image keeps a plain ``image_gap`` reason.
    With ``INCIDENT_TRACKING_ENABLED`` set, a production request also pushes the clip through the stock VSS
-   perception stack (``track_evidence``) and re-cuts each entity it matches to a person track at the track's best
+   perception stack (``track_evidence``) and re-cuts each entity it matches to a person track at the track's first-seen
    moment; the response carries a ``tracking`` summary and a tracking failure never fails the analysis.
    With ``INCIDENT_SOM_ENABLED`` set as well (set-of-marks prompting, ``utils/set_of_marks.py``), tracking runs
    before P1 instead: P1 sees a scratch copy of the clip with a numbered box on each person track and one more
@@ -58,7 +58,7 @@ Runs the same calls as ``incident-console-v2`` (gateway mode, P1 only) and the `
    With ``INCIDENT_OBJECT_TRACKING_ENABLED`` set, a production request also follows each located instrument and
    asset through the clip (``object_tracking``: a seeded OpenCV tracker corrected by the open-vocabulary detector),
    stores its track like a person's with ``track_source`` ``object-tracker``, and re-cuts its frame at the track's
-   best moment; the response carries an ``object_tracking`` summary and a failure never fails the analysis.
+   first-seen second; the response carries an ``object_tracking`` summary and a failure never fails the analysis.
 4. **Revision** - the validated report is appended best-effort as a new ``kind='ai'``
    ``report_revisions`` row (``payload`` = report, ``evidence`` = step 3, facet columns,
    ``parent_id`` NULL). A re-generation is a new branch and copies nothing from earlier revisions.

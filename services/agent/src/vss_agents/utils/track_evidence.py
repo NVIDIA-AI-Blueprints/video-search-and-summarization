@@ -18,7 +18,7 @@
 After the VLM report and the open-vocabulary locate step, :func:`run_tracking` pushes the clip through the stack
 (:mod:`vss_agents.utils.perception_client`), groups the per-frame ``Person`` boxes into tracks, and
 :func:`associate_tracks` matches each located entity of the report to the track whose box overlaps the entity's
-box. :func:`best_moment` then picks the sample to re-cut the evidence image at. Everything here is soft: a missing
+box. :func:`first_seen_sample` then picks the sample to re-cut the evidence image at (the track's first). Everything here is soft: a missing
 binary, a stack that is down or a stream that never produces a frame returns a ``skipped`` reason and never raises
 to the analysis.
 
@@ -80,7 +80,6 @@ SETTLE_SECONDS = 3.0
 END_REACHED_WITHIN_FRAMES = 100
 FALLBACK_LOSS_SECONDS = 2.85
 SAMPLES_PER_SECOND = 5
-BEST_MOMENT_MIN_SCORE = 0.85
 ASSOCIATION_WINDOW_SECONDS = 0.5
 # A track backs an entity only when it is solid: at least this many real detections, and at
 # least this share of its samples real. A ghost is one detection followed by tracker-only boxes drifting away.
@@ -415,10 +414,6 @@ def box_iou(a: Sequence[float], b: Sequence[float]) -> float:
     return inter / union if union > 0 else 0.0
 
 
-def _box_area(box: Sequence[float]) -> float:
-    return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
-
-
 def _sample_near(track: Track, seconds: float) -> Sample | None:
     samples = visible_samples(track)
     if not samples:
@@ -493,11 +488,9 @@ def associate_tracks(
     return matched
 
 
-def best_moment(track: Track) -> Sample:
-    """The sample with the largest box among those scoring at least 0.85, else among the real ones, else of the track."""
-    confident = [sample for sample in track.samples if sample.score >= BEST_MOMENT_MIN_SCORE]
-    real = [sample for sample in track.samples if is_real(sample)]
-    return max(confident or real or track.samples, key=lambda sample: _box_area(sample.box))
+def first_seen_sample(track: Track) -> Sample:
+    """The first sample of the track: the second the item is first seen, which is its evidence image."""
+    return track.samples[0]
 
 
 def track_json(track: Track) -> bytes:

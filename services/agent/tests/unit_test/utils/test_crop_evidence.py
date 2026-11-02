@@ -636,7 +636,7 @@ class TestCropEvidenceService:
 
 
 class TestTrackingEvidence:
-    """Tracks decide the best moment of a matched person and are stored beside the evidence."""
+    """Tracks decide the first-seen second of a matched person and are stored beside the evidence."""
 
     DETECTOR = FakeDetector(detections=[Detection(box=[200, 200, 600, 600], score=0.95, label="person")])
 
@@ -649,18 +649,18 @@ class TestTrackingEvidence:
 
     @staticmethod
     def _track() -> Track:
-        # the person overlaps the located box at second 0 and is biggest, and most confident, at second 1.5
+        # the person overlaps the located box from 0.3 s (first seen) and is biggest, and most confident, at 1.5 s
         return Track(
             "7",
             [
-                Sample(0.0, (210, 210, 590, 590), 0.9),
+                Sample(0.3, (150, 150, 650, 650), 0.9),
                 Sample(1.5, (100, 100, 900, 900), 0.95),
                 Sample(1.9, (300, 300, 400, 400), 0.4),
             ],
         )
 
     @pytest.mark.asyncio
-    async def test_a_matched_person_gets_the_best_moment_the_track_file_and_its_span(
+    async def test_a_matched_person_gets_the_first_seen_second_the_track_file_and_its_span(
         self, tiny_video_path: Path
     ) -> None:
         store = InMemoryEvidenceStore()
@@ -676,12 +676,14 @@ class TestTrackingEvidence:
         )
         person, instrument, asset = results
         assert person["track"] == "evidence/uploads/a.mp4/run-1/E1-track.json"
-        assert (person["track_first_seen_seconds"], person["track_last_seen_seconds"]) == (0.0, 1.9)
-        assert person["located"] is True and person["box_seconds"] == 1.5
-        assert person["bounding_box"] == pytest.approx([100, 100, 900, 900], abs=60)  # the moment's box plus padding
+        assert (person["track_first_seen_seconds"], person["track_last_seen_seconds"]) == (0.3, 1.9)
+        assert person["located"] is True and person["box_seconds"] == 0.3
+        assert person["bounding_box"] == pytest.approx(
+            [150, 150, 650, 650], abs=60
+        )  # the first sample's box plus padding
         assert person["image"] == "evidence/uploads/a.mp4/run-1/E1.jpg"
         stored = json.loads(await store.get_image(person["track"]))
-        assert [row["t"] for row in stored] == [0.0, 1.5, 1.9]
+        assert [row["t"] for row in stored] == [0.3, 1.5, 1.9]
         for other in (instrument, asset):
             assert "track" not in other and other["box_seconds"] == other["timestamp_seconds"]
         assert request.summary.matched == 1 and request.summary.tracks == 1 and request.summary.skipped is None
@@ -756,8 +758,10 @@ class TestTrackingEvidence:
             video_ref=tiny_video_path, video_id="v", report=REPORT, batch_id="b", tracking=request
         )
         person = results[0]
-        assert person["track"] == "evidence/v/b/E1-track.json" and person["box_seconds"] == 1.0
-        assert person["bounding_box"] == pytest.approx([700, 700, 950, 950], abs=60)  # cut at the mark's track
+        assert person["track"] == "evidence/v/b/E1-track.json" and person["box_seconds"] == 0.0
+        assert person["bounding_box"] == pytest.approx(
+            [800, 800, 950, 950], abs=60
+        )  # cut at the mark's track's first sample
         assert request.summary.matched == 1
         assert request.summary.marks == {"rendered": True, "parsed": 1, "fallback": 0, "invalid": 0}
 
@@ -932,7 +936,7 @@ class TestObjectTrackingEvidence:
         return Track(
             f"object-{item_id}",
             [
-                Sample(0.0, (210, 210, 590, 590), 0.9),
+                Sample(0.5, (150, 150, 650, 650), 0.9),
                 Sample(moment, (100, 100, 900, 900), 1.0),
                 Sample(1.9, (300, 300, 400, 400), -0.1),
             ],
@@ -957,7 +961,7 @@ class TestObjectTrackingEvidence:
         assert request.summary.seeds == 2 and request.summary.budget["cap"] == 10
 
     @pytest.mark.asyncio
-    async def test_a_tracked_item_gets_a_track_file_a_source_and_a_frame_at_its_best_moment(
+    async def test_a_tracked_item_gets_a_track_file_a_source_and_a_frame_at_its_first_seen_second(
         self, tiny_video_path: Path
     ) -> None:
         store = InMemoryEvidenceStore()
@@ -974,10 +978,10 @@ class TestObjectTrackingEvidence:
         person, instrument, asset = results
         assert instrument["track"] == "evidence/uploads/a.mp4/run-1/I1-track.json"
         assert instrument["track_source"] == OBJECT_TRACK_SOURCE
-        assert (instrument["track_first_seen_seconds"], instrument["track_last_seen_seconds"]) == (0.0, 1.9)
-        assert instrument["box_seconds"] == 1.5 and instrument["located"] is True  # re-cut at the best moment
-        assert instrument["bounding_box"] == pytest.approx([100, 100, 900, 900], abs=60)
-        assert [row["t"] for row in json.loads(await store.get_image(instrument["track"]))] == [0.0, 1.5, 1.9]
+        assert (instrument["track_first_seen_seconds"], instrument["track_last_seen_seconds"]) == (0.5, 1.9)
+        assert instrument["box_seconds"] == 0.5 and instrument["located"] is True  # re-cut at the first sample
+        assert instrument["bounding_box"] == pytest.approx([150, 150, 650, 650], abs=60)
+        assert [row["t"] for row in json.loads(await store.get_image(instrument["track"]))] == [0.5, 1.5, 1.9]
         for other in (person, asset):
             assert "track" not in other and "track_source" not in other
         assert asset["box_seconds"] == asset["timestamp_seconds"]
@@ -1050,7 +1054,7 @@ class TestObjectTrackingEvidence:
         assert request.summary.skipped is not None and "boom" not in request.summary.skipped
 
     @pytest.mark.asyncio
-    async def test_the_frame_is_re_cut_at_the_object_tracks_best_moment(self, tiny_video_path: Path) -> None:
+    async def test_the_frame_is_re_cut_at_the_object_tracks_first_seen_second(self, tiny_video_path: Path) -> None:
         request, _ = self._request(ObjectTrackingOutcome(tracks={"I1": self._track("I1")}))
         results = await CropEvidenceService(
             detector=self.DETECTOR, store=InMemoryEvidenceStore()
@@ -1063,7 +1067,7 @@ class TestObjectTrackingEvidence:
         )
         instrument = results[1]
         assert instrument["track_source"] == OBJECT_TRACK_SOURCE and instrument["track"]
-        assert instrument["box_seconds"] == 1.5 and instrument["located"] is True
+        assert instrument["box_seconds"] == 0.5 and instrument["located"] is True
 
 
 class TestZoomSecondLook:

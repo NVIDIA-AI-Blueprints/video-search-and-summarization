@@ -31,10 +31,10 @@ from vss_agents.utils.track_evidence import Track
 from vss_agents.utils.track_evidence import TrackingSettings
 from vss_agents.utils.track_evidence import TrackingUnavailableError
 from vss_agents.utils.track_evidence import associate_tracks
-from vss_agents.utils.track_evidence import best_moment
 from vss_agents.utils.track_evidence import box_confirmed
 from vss_agents.utils.track_evidence import build_tracks
 from vss_agents.utils.track_evidence import cut_at_replay
+from vss_agents.utils.track_evidence import first_seen_sample
 from vss_agents.utils.track_evidence import is_hdr
 from vss_agents.utils.track_evidence import is_solid
 from vss_agents.utils.track_evidence import nearest_sample
@@ -204,26 +204,22 @@ class TestGhostTracks:
         assert len(seen) < len(ghost.samples)
         assert visible_samples(Track("1", [Sample(1.0, self.PANEL, -0.1)])) == []
 
-    def test_best_moment_prefers_a_real_sample_over_a_larger_tracker_only_box(self):
-        track = Track("1", [Sample(1.0, (0, 0, 400, 400), 0.5), Sample(2.0, (0, 0, 800, 800), -0.1)])
-        assert best_moment(track).t == 1.0
 
-
-class TestBestMoment:
-    def test_the_largest_box_among_confident_samples_wins_over_a_larger_tracked_only_box(self):
+class TestFirstSeenSample:
+    def test_the_first_sample_wins_over_a_larger_or_more_confident_later_one(self):
         track = Track(
             "1",
             [
-                Sample(1.0, (0, 0, 400, 400), 0.9),
-                Sample(2.0, (0, 0, 800, 800), -0.1),
+                Sample(1.0, (0, 0, 400, 400), 0.5),
+                Sample(2.0, (0, 0, 800, 800), 0.95),
                 Sample(3.0, (0, 0, 500, 500), 0.86),
             ],
         )
-        assert best_moment(track).t == 3.0
+        assert first_seen_sample(track).t == 1.0
 
-    def test_without_a_confident_sample_the_largest_box_is_used(self):
+    def test_a_tracker_only_first_sample_is_still_the_first_seen(self):
         track = Track("1", [Sample(1.0, (0, 0, 400, 400), -0.1), Sample(2.0, (0, 0, 600, 600), 0.5)])
-        assert best_moment(track).t == 2.0
+        assert first_seen_sample(track).t == 1.0
 
     def test_the_stored_track_is_a_list_of_t_box_score(self):
         track = Track("1", [Sample(1.5, (1, 2, 3, 4), 0.9)])

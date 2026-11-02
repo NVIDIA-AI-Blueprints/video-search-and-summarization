@@ -1301,7 +1301,7 @@ class CropEvidenceService:
         and asset is followed through the clip from its box by a seeded OpenCV tracker that the detector keeps
         correcting, beside the person tracking run. The resulting track is stored like a person track
         (``track``, ``track_first_seen_seconds``, ``track_last_seen_seconds``) with ``track_source`` set to
-        ``object-tracker``, and the item's frame is re-cut at the track's best moment.
+        ``object-tracker``, and the item's frame is re-cut at the track's first sample (the second it is first seen).
         """
         active_detector = detector if detector is not None else self.detector
         zoom_on = zoom_names_enabled() if zoom_names is None else zoom_names
@@ -1326,7 +1326,7 @@ class CropEvidenceService:
                 tracking.summary.skipped = "tracking needs a video file or URL"
             else:
                 # Runs beside the locate step; the images are uploaded only once both are done, because a stored
-                # key is never overwritten and a matched entity's image is re-cut at its best moment.
+                # key is never overwritten and a matched entity's image is re-cut at its first-seen second.
                 tracking_task = asyncio.create_task(
                     tracking.runner(video_ref, sensor_id=tracking.sensor_id, **tracking.options)
                 )
@@ -1407,8 +1407,8 @@ class CropEvidenceService:
                 entry["zoom_gap"] = "object not located"
 
         async def _recut(entry: dict[str, Any], track: track_evidence.Track) -> track_evidence.Track | None:
-            """Re-cut a matched entity's frame and crop at the track's best moment; None keeps today's result."""
-            moment = track_evidence.best_moment(track)
+            """Re-cut a matched entity's frame and crop at the track's first-seen sample; None keeps today's result."""
+            moment = track_evidence.first_seen_sample(track)
 
             def _cut() -> CropResult | None:
                 if isinstance(video_ref, np.ndarray):
@@ -1683,7 +1683,7 @@ class CropEvidenceService:
                 object_tracks = {}
             for item_id, track in object_tracks.items():
                 crop = crops.get(item_id)
-                moment = track_evidence.best_moment(track)
+                moment = track_evidence.first_seen_sample(track)
                 if crop is not None and moment.t != crop.box_seconds:
                     await _recut(by_id[item_id], track)  # a failed re-cut keeps the located frame and the track
                 matched_tracks[item_id] = track
