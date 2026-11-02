@@ -110,6 +110,18 @@ def test_offline_without_caches_leaves_fields_unscored_and_sends_nothing(tmp_pat
     assert video["incident_field_scores"]["description"]["score"] is None, "unscored, never a fail"
 
 
+def test_offline_embed_local_scores_the_matching_without_any_judge(tmp_path, gt):
+    config, _ = _run_track_a(tmp_path)
+    judge = Judge(fail=True)
+    result = run_score(config, tmp_path / "run", datasets={**_datasets(), "incident_gt": gt[0]}, sheets=gt[1],
+                       offline=True, embed_local=True, compute=_embed, transport=httpx.MockTransport(judge))
+    unscored = result["summary"]["unscored"]
+    assert unscored["not_embedded"] == 0 and unscored["not_judged"] > 0, "vectors computed, the judge stays cached-only"
+    assert result["summary"]["mode"]["embed_local"] is True and not judge.requests
+    again = _score(tmp_path, gt, config, offline=True, judge=Judge(fail=True), compute=None)
+    assert again["summary"]["unscored"]["not_embedded"] == 0, "the vectors were cached for a plain offline re-score"
+
+
 def test_a_live_score_is_refused_without_a_judge_approval(tmp_path, gt):
     config, marker = _run_track_a(tmp_path)
     with pytest.raises(ScoreRefused, match="needs an approval marker"):

@@ -37,7 +37,9 @@ and the run's judge cap and the marker's judge budget in the run's ``scoring/jud
 judge cache (``scoring/judge-cache/``).
 
 **Offline** (``--offline``) uses the caches only, under the network guard: a verdict or vector that is not cached
-leaves its field unscored, never failed, and nothing is sent.
+leaves its field unscored, never failed, and nothing is sent. ``--offline --embed-local`` also computes missing
+vectors with the local MiniLM (still under the network guard, from the local model cache, and cached as above), so
+the object matching is scored while judge fields stay cache-only: no judge budget is needed.
 """
 
 from __future__ import annotations
@@ -335,6 +337,7 @@ JUDGE_RPM = 40  # assumed for the catalog judge until the probe measures it (rea
 
 def run_score(config: Any, out: Path, *, datasets: Mapping[str, Any], sheets: Mapping[str, list[dict[str, Any]]],
               offline: bool, slot: str = "primary", marker: Mapping[str, Any] | None = None,
+              embed_local: bool = False,
               judge_ledger_dir: Path | None = None, environ: Mapping[str, str] | None = None, transport: Any = None,
               compute: Callable[[list[str]], list[list[float]]] | None = None,
               sleep: Callable[[float], None] | None = None, clock: Callable[[], float] | None = None
@@ -363,10 +366,12 @@ def run_score(config: Any, out: Path, *, datasets: Mapping[str, Any], sheets: Ma
     if offline:
         with no_network():
             judges = task_judges(config, task, cache_dir=cache_dir, slot=slot)
+            local = (compute or local_minilm()) if embed_local else None
             result = score_run(config, out, gt_index=datasets["incident_gt"], sheets=sheets, judge=judges["incident"],
-                               embed=cached_embedder(vectors, None), box_references=box)
+                               embed=cached_embedder(vectors, local), box_references=box)
         misses = len(getattr(judges["incident"], "misses", []))
-        result["summary"]["mode"] = {"offline": True, "judge": spec.id, "slot": slot, "judge_cache_misses": misses}
+        result["summary"]["mode"] = {"offline": True, "judge": spec.id, "slot": slot, "judge_cache_misses": misses,
+                                     "embed_local": embed_local}
         write_outputs(out, slot, result, "offline")
         return result
     environ = os.environ if environ is None else environ

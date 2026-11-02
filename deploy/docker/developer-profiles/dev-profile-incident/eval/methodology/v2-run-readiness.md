@@ -90,6 +90,8 @@ EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 score --config experiments/
 EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 score --config experiments/v2/c1b-track-b-pilot.json \
     --out $RUNS/c1b --approval $RUNS/c1b-approval.json --env-file $ENVF
 uv run --frozen python -m evalv2 score --config experiments/v2/c1a-track-a-pilot.json --out $RUNS/c1a --offline
+#   --offline --embed-local also computes the MiniLM vectors locally (no network, no judge): object matching
+#   is scored before judge credits are confirmed; judge fields stay unscored until a live score
 #   --slot sensitivity re-judges with catalog-mistral-large-4-v1 (Omni sensitivity check)
 ```
 
