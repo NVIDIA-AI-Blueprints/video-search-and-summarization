@@ -30,6 +30,10 @@ seconds have passed since the window opened. A request budget is the right unit
 for statistics and the wrong one for anything read off a Prometheus scrape, so
 the two floors answer different questions and a run stops only when both are
 met.
+
+``execution.max_run_duration_sec`` is the ceiling on the same clock: past it no
+new slot is handed out, even below the target, so one slow cell cannot hold the
+sweep for hours. Requests already in flight still finish and are recorded.
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ class SampleBudget:
         query_ids: list[str],
         target_per_query: int,
         min_duration_sec: float = 0.0,
+        max_duration_sec: float = 0.0,
     ) -> None:
         self._lock = threading.Lock()
         self._target = target_per_query
@@ -66,16 +71,31 @@ class SampleBudget:
         # None until the window opens, and the extension is gated on it, so a
         # budget whose window never opened stops at the target as it always did.
         self._deadline: float | None = None
+        # 0 disables the ceiling. A ceiling below the floor would contradict it,
+        # so the floor wins.
+        max_duration = max(0.0, float(max_duration_sec or 0.0))
+        self._max_duration_sec = max(max_duration, self._min_duration_sec) if max_duration else 0.0
+        self._cutoff: float | None = None
+        self._capped = False
 
     def open_window(self) -> None:
-        """Start the minimum-duration clock. Called when the barrier releases.
+        """Start the duration clocks. Called when the barrier releases.
 
         Only the first call counts, so a worker that found the barrier broken
         can open it too without restarting a clock another worker started.
         """
         with self._lock:
             if self._deadline is None:
-                self._deadline = time.monotonic() + self._min_duration_sec
+                now = time.monotonic()
+                self._deadline = now + self._min_duration_sec
+                if self._max_duration_sec:
+                    self._cutoff = now + self._max_duration_sec
+
+    @property
+    def capped(self) -> bool:
+        """Whether the duration ceiling refused a slot the target still wanted."""
+        with self._lock:
+            return self._capped
 
     @property
     def extended(self) -> bool:
@@ -105,6 +125,10 @@ class SampleBudget:
             if self._attempts[query_id] >= self._attempt_cap(query_id):
                 return False
             held = self._committed[query_id] + self._in_flight[query_id]
+            if self._cutoff is not None and time.monotonic() >= self._cutoff:
+                if held < self._target:
+                    self._capped = True
+                return False
             if held < self._target:
                 return self._grant(query_id)
             if self._deadline is None or time.monotonic() >= self._deadline:

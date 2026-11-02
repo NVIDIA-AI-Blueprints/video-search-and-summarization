@@ -85,10 +85,13 @@ from urllib.parse import urlsplit, urlunsplit
 # one message naming all of them rather than as a traceback on whichever
 # import happened to come first.
 from bench.cli import (
+    RAW_INDEX_PREFIX,
     CliNotFoundError,
     EnvironmentFault,
     measure_spawn_cost,
+    parse_frame_lookup,
     preflight,
+    recorded_frame_lookup,
     prepare_sweep_config,
     probe_service_urls,
     require_origin,
@@ -124,7 +127,7 @@ from bench.plan import (
     samples_per_query,
     validate_path_selection,
 )
-from bench.resources import capture_wedge_state
+from bench.resources import capture_es_index_counts, capture_wedge_state
 from bench.run import (
     append_run_summary,
     capture_deployment_metadata,
@@ -343,6 +346,11 @@ def build_parser() -> argparse.ArgumentParser:
              "copied from ~/.vss/config.json as it stands, which may point at "
              "another deployment. ~/.vss itself is never written either way.",
     )
+    cli_group.add_argument(
+        "--frame-lookup", choices=["on", "off"],
+        help="per-candidate frame lookups on mdx-raw in attribute and fusion "
+             "search (default: cli.frame_lookup, which is off)",
+    )
 
     guards = parser.add_argument_group("guards")
     guards.add_argument(
@@ -376,6 +384,8 @@ def apply_setup_overrides(config: dict[str, Any], args: argparse.Namespace) -> N
         config.setdefault("corpus", {}).setdefault("ingest", {})["enabled"] = True
     if getattr(args, "llm_url", ""):
         config.setdefault("services", {})["llm_url"] = args.llm_url
+    if getattr(args, "frame_lookup", None):
+        config.setdefault("cli", {})["frame_lookup"] = args.frame_lookup
     if getattr(args, "smoke", False):
         apply_smoke_overrides(config)
 
@@ -470,6 +480,10 @@ def _print_dry_run(
             f"keeps any run")
         say("    that finishes sooner measuring, so fast cells collect "
             "several times this many")
+    ceiling_sec = float(exec_config.get("max_run_duration_sec", 0) or 0)
+    if ceiling_sec > 0:
+        say(f"    ...and a ceiling: max_run_duration_sec={max(ceiling_sec, floor_sec):.0f} "
+            "stops slow cells before their budget is spent")
     say(f"  Analysis data points: {sum(per_run)} (one per run per query)")
 
     # A lower bound, from arithmetic rather than from a guess at latency: every
@@ -599,6 +613,10 @@ def _print_dry_run(
     say(f"    CLI command:           {cmd_shown}")
     say(f"    CLI origin:            {origin}"
         + (" (vss configure skipped)" if args.skip_vss_configure else ""))
+    say("    Frame lookups:         "
+        + ("ON (attribute and fusion run one mdx-raw query per candidate)"
+           if parse_frame_lookup(cli_config.get("frame_lookup"))
+           else "off (cli.frame_lookup)"))
     # Printed because it changes what the numbers mean, not just how they are
     # routed: with it, a plateau is the services; without it, the ingress is
     # inside every measured request and could be the thing that plateaus.
@@ -721,6 +739,10 @@ def _build_plan(config: dict[str, Any], args: argparse.Namespace) -> tuple[list,
     # after them can raise ValueError for reasons that are bugs.
     try:
         validate_corpus_config(config)
+        cli_config = config.setdefault("cli", {})
+        cli_config["frame_lookup"] = (
+            "on" if parse_frame_lookup(cli_config.get("frame_lookup")) else "off"
+        )
         query_set = build_query_set(config)
         runs = build_execution_plan(
             config,
@@ -850,9 +872,21 @@ def _prepare_cli(
             str(k): str(v) for k, v in (cli_config.get("service_urls") or {}).items()
         }
         sweep_home = output_dir / "vss_config"
+        frame_lookup = parse_frame_lookup(cli_config.get("frame_lookup"))
+        earlier = recorded_frame_lookup(sweep_home)
+        if completed_run_ids(output_dir) and earlier is not None and earlier != frame_lookup:
+            raise _fail(
+                2,
+                f"this results directory already holds runs measured with frame "
+                f"lookups {'on' if earlier else 'off'}; resuming with them "
+                f"{'on' if frame_lookup else 'off'} would mix two Elasticsearch "
+                f"workloads in one sweep. Pass --frame-lookup "
+                f"{'on' if earlier else 'off'}, or start a new directory.",
+            )
         prepared = prepare_sweep_config(
             vss_cmd, origin, sweep_home, overrides,
             configure=not args.skip_vss_configure,
+            frame_lookup=frame_lookup,
         )
         cli_config["config_home"] = str(sweep_home.resolve())
         say(f"  CLI config: {sweep_home}/config.json "
@@ -860,6 +894,7 @@ def _prepare_cli(
                if args.skip_vss_configure else f"(vss configure --base-url {origin})"))
         say("    Every request runs with VSS_CONFIG_HOME set to it; ~/.vss is "
             "not touched.")
+        say(f"  Frame lookups: {cli_config['frame_lookup']} (cli.frame_lookup)")
         if prepared["applied"]:
             say("  Bypassing the ingress for: "
                 + ", ".join(f"{n} -> {u}" for n, u in sorted(prepared["applied"].items())))
@@ -896,6 +931,28 @@ def _prepare_cli(
     except CliNotFoundError as e:
         raise _fail(3, str(e)) from e
     return vss_cmd, Path(repo_root), spawn_cost
+
+
+def _check_frame_lookup_data(config: dict[str, Any]) -> None:
+    """With frame lookups on, refuse to sweep before mdx-raw holds documents.
+
+    The CLI's switch is the recorded index name, not the data, so an empty
+    raw family would run every lookup against nothing and measure a lighter
+    Elasticsearch load than the setting claims.
+    """
+    if not parse_frame_lookup((config.get("cli", {}) or {}).get("frame_lookup")):
+        return
+    es_url = (config.get("services", {}) or {}).get("elasticsearch_url", "")
+    pattern = f"{RAW_INDEX_PREFIX}*"
+    info = capture_es_index_counts(es_url, [pattern]).get("indices", {}).get(pattern)
+    if info is None:
+        raise _fail(2, "cli.frame_lookup is on, but services.elasticsearch_url is "
+                       "not set, so the mdx-raw corpus cannot be confirmed")
+    if "error" in info or not info.get("doc_count"):
+        raise _fail(4, f"cli.frame_lookup is on, but {pattern} holds no documents "
+                       f"({info.get('error', '0 docs')}). Ingest first, or sweep "
+                       "with --frame-lookup off.")
+    say(f"  Frame lookups on: {pattern} holds {info['doc_count']:,} docs")
 
 
 def _write_effective_config(config: dict[str, Any], output_dir: Path) -> None:
@@ -1210,6 +1267,7 @@ def _execute(args: argparse.Namespace, lock: RunLock | None) -> int:
     say("")
     say("[2/6] Preparing corpus")
     corpus_state = _prepare_corpus_stage(config, args, output_dir)
+    _check_frame_lookup_data(config)
 
     say("")
     say("[3/6] Capturing deployment metadata")

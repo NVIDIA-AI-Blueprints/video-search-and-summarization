@@ -125,6 +125,7 @@ def execute_single_run(
     min_stability = float(exec_config.get("min_path_stability", 0.95))
     inter_delay = float(exec_config.get("inter_request_delay_sec", 0) or 0)
     min_duration = float(exec_config.get("min_run_duration_sec", 0) or 0)
+    max_duration = float(exec_config.get("max_run_duration_sec", 0) or 0)
     cli_options = config.get("cli", {}) or {}
 
     run_output_dir = output_dir / run_config.run_id
@@ -167,6 +168,9 @@ def execute_single_run(
         say(f"  Floor:   >= {min_duration:g}s measured window "
             f"({points:.1f} metric samples at a {step:g}s step); the request "
             f"budget above is a minimum, not a cap")
+    if max_duration > 0:
+        say(f"  Ceiling: <= {max(max_duration, min_duration):g}s measured window; no new request "
+            f"is sent past it, even below the request budget")
     say(RULE)
 
     started_at = utc_now_iso()
@@ -177,6 +181,7 @@ def execute_single_run(
         query_ids=[q.id for q in query_set],
         target_per_query=min_samples,
         min_duration_sec=min_duration,
+        max_duration_sec=max_duration,
     )
     measurement_start_mono: list[float] = []
     rt_vlm_url = (config.get("services", {}) or {}).get("rt_vlm_metrics_url", "")
@@ -398,7 +403,10 @@ def execute_single_run(
             "(decompose_error); the CLI was not run for them.")
 
     on_target_count = len(latency_samples(all_records))
-    if len(success_records) < measured_target:
+    if len(success_records) < measured_target and budget.capped:
+        say(f"  Duration ceiling ({max(max_duration, min_duration):g}s) ended the window at "
+            f"{len(success_records)}/{measured_target} measured samples")
+    elif len(success_records) < measured_target:
         say(f"  !! Only {len(success_records)}/{measured_target} measured samples "
             f"collected -- percentiles are below the target of {min_samples}/query")
     elif budget.extended:

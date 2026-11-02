@@ -176,6 +176,20 @@ cli:
   # Blank leaves the CLI default. Only applies to embed and fusion.
   min_cosine_similarity: null
 
+  # Per-candidate frame lookups in attribute and fusion search: for each hit,
+  # one Painless-scored query over mdx-raw for its best frame, bbox and
+  # frame_score. Fusion runs it for all 10 candidates in parallel; on this
+  # corpus that was the bulk of Elasticsearch's CPU and disk reads.
+  #
+  # Off by default, which is what the agent's own search profile ships
+  # (enable_frame_lookup: false). The CLI has no flag for it: it turns lookups
+  # on whenever the index list `vss configure` recorded holds an mdx-raw index,
+  # so left alone the setting followed whether ingest had finished before
+  # stage 1 ran. The runner now writes this value into the sweep's CLI config
+  # instead. "on" also requires mdx-raw to hold documents after stage 2, or
+  # the sweep exits 4. --frame-lookup on|off overrides it.
+  frame_lookup: "off"
+
 # ---------------------------------------------------------------------------
 # Query decomposition
 # ---------------------------------------------------------------------------
@@ -485,13 +499,19 @@ execution:
   # one for anything read off a time series. One measured cell spent its whole
   # 200-request budget in 21 s -- 1.4 Prometheus scrapes at a 15 s interval, so
   # its GPU and CPU figures were one or two instantaneous readings that may not
-  # even fall inside the window. 300 s is 20 scrapes.
+  # even fall inside the window. 180 s is 36 scrapes at a 5 s step.
   #
   # A floor never shortens a run, so slow cells pay nothing. And the time is not
   # spent idling: requests past the budget are recorded like any other, so fast
   # cells gain samples instead. Read measured_requests rather than assuming the
   # budget.
-  min_run_duration_sec: 300
+  min_run_duration_sec: 180
+  # Ceiling on the same clock: past it no new request is sent, even below the
+  # request floors, and the requests already in flight finish. Critic-on cells
+  # at c20 took 23-177 s per request, so their 200 requests ran up to half an
+  # hour each. A capped cell has fewer samples than the budget; read
+  # measured_requests. 0 disables.
+  max_run_duration_sec: 600
 
   # The CLI alone. The whole request (decompose + CLI) is capped by
   # e2e_timeout_sec: the CLI gets whichever leaves less.
@@ -556,7 +576,7 @@ execution:
 # repeats the last scrape and the sample count then reads higher than the
 # evidence behind it.
 metrics:
-  range_step_sec: 15
+  range_step_sec: 5
   range_queries:
     gpu_utilization: 'max by (exported_pod, gpu) (DCGM_FI_DEV_GPU_UTIL{exported_namespace="vss-search"})'
     # Preferred over GPU_UTIL, which is an instantaneous sample and misses short

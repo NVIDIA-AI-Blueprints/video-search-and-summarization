@@ -307,6 +307,59 @@ def _write_config(home: Path, payload: dict[str, Any]) -> Path:
     return target
 
 
+#: The CLI enables frame lookups when, and only when, the Elasticsearch index
+#: list recorded by ``vss configure`` holds an index with this prefix; it then
+#: searches frames under the raw uploads anchor. It has no flag for it.
+RAW_INDEX_PREFIX = "mdx-raw-"
+RAW_INDEX_ANCHOR = "mdx-raw-2025-01-01"
+
+
+def parse_frame_lookup(value: Any) -> bool:
+    """``cli.frame_lookup`` as a bool. YAML reads a bare ``off`` as False."""
+    if isinstance(value, bool):
+        return value
+    text = str(value if value is not None else "off").strip().lower()
+    if text in ("on", "true", "yes", "1"):
+        return True
+    if text in ("off", "false", "no", "0", ""):
+        return False
+    raise ValueError(f"cli.frame_lookup must be 'on' or 'off', not {value!r}")
+
+
+def apply_frame_lookup(payload: dict[str, Any], enabled: bool) -> None:
+    """Set frame lookups on or off by editing the recorded index list.
+
+    The list is a snapshot taken when ``vss configure`` ran, so left alone it
+    turns frame lookups on or off depending on whether ingest had finished
+    by then -- the same code measured twice with a several-fold difference
+    in Elasticsearch load. Only the raw family is touched.
+    """
+    es = payload.get("services", {}).get("elasticsearch")
+    if not isinstance(es, dict):
+        if enabled:
+            raise CliNotFoundError(
+                "cli.frame_lookup is on, but the deployment exposes no elasticsearch service"
+            )
+        return
+    indices = [i for i in (es.get("indices") or []) if not str(i).startswith(RAW_INDEX_PREFIX)]
+    if enabled:
+        indices.append(RAW_INDEX_ANCHOR)
+    es["indices"] = indices
+
+
+def recorded_frame_lookup(sweep_home: Path) -> bool | None:
+    """Whether the CLI config already in ``sweep_home`` ran with frame lookups.
+
+    ``None`` when there is no readable config there yet.
+    """
+    try:
+        payload = json.loads((sweep_home / "config.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    es = (payload.get("services") or {}).get("elasticsearch") or {}
+    return any(str(i).startswith(RAW_INDEX_PREFIX) for i in (es.get("indices") or []))
+
+
 def prepare_sweep_config(
     vss_cmd: list[str],
     base_url: str,
@@ -314,6 +367,7 @@ def prepare_sweep_config(
     overrides: dict[str, str],
     configure: bool = True,
     timeout_sec: int = 300,
+    frame_lookup: bool = False,
 ) -> dict[str, Any]:
     """Write the CLI config every request of this sweep runs with.
 
@@ -328,6 +382,8 @@ def prepare_sweep_config(
     URL verbatim, so swapping in ClusterIPs leaves the rest of discovery --
     models, indices -- as it was. A name the deployment does not expose is
     refused: ignoring a typo would leave that leg on the ingress unnoticed.
+
+    ``frame_lookup`` is applied last, see :func:`apply_frame_lookup`.
     """
     target = sweep_home / "config.json"
     if configure:
@@ -359,10 +415,12 @@ def prepare_sweep_config(
     applied = {name: str(url).rstrip("/") for name, url in overrides.items()}
     for name, url in applied.items():
         services[name]["url"] = url
+    apply_frame_lookup(payload, frame_lookup)
     _write_config(sweep_home, payload)
     return {
         "configured": configure,
         "applied": applied,
+        "frame_lookup": frame_lookup,
         "config_path": str(target),
         "base_url": payload.get("base_url", ""),
         "service_urls": {

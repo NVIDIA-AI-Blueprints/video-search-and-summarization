@@ -51,7 +51,9 @@ from bench.corpus import (  # noqa: E402
 )
 from bench.cli import (  # noqa: E402
     CliNotFoundError,
+    parse_frame_lookup,
     prepare_sweep_config,
+    recorded_frame_lookup,
     build_argv,
     clean_cli_stderr,
     is_environment_fault,
@@ -432,7 +434,7 @@ def test_repointing_a_service_leaves_discovery_intact(tmp_path, monkeypatch):
     user = _write_cli_config(tmp_path, {
         "elasticsearch": {
             "url": "http://vss-search.10.0.0.1.nip.io/elasticsearch",
-            "indices": ["mdx-raw-1"],
+            "indices": ["mdx-behavior-1"],
         },
         "vst": {"url": "http://vss-search.10.0.0.1.nip.io/vst"},
     })
@@ -449,12 +451,60 @@ def test_repointing_a_service_leaves_discovery_intact(tmp_path, monkeypatch):
     written = json.loads((sweep_home / "config.json").read_text(encoding="utf-8"))
     assert written["services"]["elasticsearch"]["url"] == direct
     # What the backend holds does not change with the route taken to it.
-    assert written["services"]["elasticsearch"]["indices"] == ["mdx-raw-1"]
+    assert written["services"]["elasticsearch"]["indices"] == ["mdx-behavior-1"]
     # An untouched service keeps going through the ingress.
     assert written["services"]["vst"]["url"].endswith("/vst")
     # The user's own config is never rewritten.
     original = json.loads(user.read_text(encoding="utf-8"))
     assert original["services"]["elasticsearch"]["url"].endswith("/elasticsearch")
+
+
+def _sweep_indices(tmp_path, monkeypatch, discovered, **kwargs):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("VSS_CONFIG_HOME", raising=False)
+    _write_cli_config(tmp_path, {"elasticsearch": {"url": "http://es/", "indices": discovered}})
+    sweep_home = tmp_path / "sweep"
+    prepare_sweep_config(["vss"], "http://origin", sweep_home, {}, configure=False, **kwargs)
+    written = json.loads((sweep_home / "config.json").read_text(encoding="utf-8"))
+    return sweep_home, written["services"]["elasticsearch"]["indices"]
+
+
+def test_frame_lookup_defaults_off_even_when_discovery_saw_mdx_raw(tmp_path, monkeypatch):
+    # Discovery after ingest records mdx-raw, which alone turns the CLI's
+    # lookups on; the default must not depend on when configure ran.
+    home, indices = _sweep_indices(
+        tmp_path, monkeypatch, ["mdx-behavior-2025-01-01", "mdx-raw-2025-01-01", "lock"]
+    )
+    assert indices == ["mdx-behavior-2025-01-01", "lock"]
+    assert recorded_frame_lookup(home) is False
+
+
+def test_frame_lookup_on_records_the_raw_anchor_even_before_ingest(tmp_path, monkeypatch):
+    home, indices = _sweep_indices(tmp_path, monkeypatch, ["lock"], frame_lookup=True)
+    assert indices == ["lock", "mdx-raw-2025-01-01"]
+    assert recorded_frame_lookup(home) is True
+
+
+def test_the_critic_off_copy_inherits_the_frame_lookup_setting(tmp_path, monkeypatch):
+    from bench.cli import write_critic_off_config
+
+    home, _ = _sweep_indices(tmp_path, monkeypatch, ["mdx-raw-2025-01-01"])
+    off = tmp_path / "off"
+    write_critic_off_config(home, off)
+    assert recorded_frame_lookup(off) is False
+
+
+@pytest.mark.parametrize("value, expected", [
+    (False, False), (True, True), ("off", False), ("on", True), ("ON", True), (None, False),
+])
+def test_frame_lookup_accepts_on_off_and_yaml_booleans(value, expected):
+    # A bare `off` in YAML 1.1 loads as False.
+    assert parse_frame_lookup(value) is expected
+
+
+def test_frame_lookup_rejects_anything_else():
+    with pytest.raises(ValueError, match="frame_lookup"):
+        parse_frame_lookup("sometimes")
 
 
 def test_a_misspelled_service_stops_the_run(tmp_path, monkeypatch):
@@ -830,6 +880,33 @@ def test_the_duration_floor_hands_out_slots_past_the_target():
     assert budget.claim("q1"), "the clock floor should keep the window open"
     budget.commit("q1")
     assert budget.extended
+
+
+def test_the_duration_ceiling_stops_a_run_below_its_target(monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr("bench.budget.time.monotonic", lambda: clock[0])
+    budget = SampleBudget(["q1"], target_per_query=10, max_duration_sec=600)
+    budget.open_window()
+    assert budget.claim("q1")
+    budget.commit("q1")
+    clock[0] += 600
+    assert not budget.claim("q1"), "no new request past the ceiling"
+    assert budget.capped
+
+
+def test_the_ceiling_never_cuts_into_the_floor(monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr("bench.budget.time.monotonic", lambda: clock[0])
+    budget = SampleBudget(["q1"], target_per_query=1, min_duration_sec=180, max_duration_sec=60)
+    budget.open_window()
+    assert budget.claim("q1")
+    budget.commit("q1")
+    clock[0] += 120
+    assert budget.claim("q1"), "a ceiling below the floor is raised to it"
+    budget.commit("q1")
+    clock[0] += 60
+    assert not budget.claim("q1")
+    assert not budget.capped, "stopping after the target is not a cap"
 
 
 def test_an_extension_keeps_the_extra_samples_level():

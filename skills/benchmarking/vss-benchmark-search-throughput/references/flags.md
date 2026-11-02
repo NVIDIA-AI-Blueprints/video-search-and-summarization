@@ -121,6 +121,20 @@ copies `~/.vss/config.json` there as it stands instead, then applies
 `cli.service_urls` to the copy. Use it only when that config is known to point
 at this deployment — a CLI pointed at the wrong origin exits 4 on every search.
 
+### `--frame-lookup on|off`
+
+Overrides `cli.frame_lookup` (default `off`). On, attribute and fusion search
+run one Painless-scored `mdx-raw` query per candidate for its best frame and
+bbox — for fusion, 10 per request — which dominates Elasticsearch CPU and disk
+reads. The CLI has no switch of its own: it turns lookups on when the index
+list `vss configure` recorded holds an `mdx-raw` index, so without this setting
+the answer depended on whether ingest had finished before stage 1. The runner
+rewrites that list in `<results>/vss_config/config.json` (and the critic-off
+copy) to match.
+
+With `on`, the sweep exits 4 after stage 2 if `mdx-raw-*` holds no documents.
+`--resume` exits 2 if the directory's existing runs used the other setting.
+
 ## Stages
 
 ### `--ingest` / `--skip-ingest`
