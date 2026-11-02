@@ -145,7 +145,7 @@ A report is a list of immutable revisions in `report_revisions`; the columns, th
 - **The official revision** is the version statistics count.
 - **The report page** opens `?revision=<id>`, else the official revision, else the newest one. History lists every revision newest first; opening one loads it into the editor.
 - **Edits** are validated against the contract's own sub-schemas and the ID/holder/window rules before the call. Each item keeps the id of the item it came from through the editor's renumbering, so its evidence and image follow it.
-- **Evidence images** are never overwritten; a replacement is uploaded on Save to a new key ([R2 layout](data.md#2-cloudflare-r2-storage-architecture)). Each AI item stores its whole video frame (`frame`) and the box (`bounding_box`, `box_seconds`) the console draws on it; the crop (`image`) is only what evidence search embeds. An item the detector could not find has `located: false`, a frame and no box. An item without a frame records an `image_gap` reason.
+- **Evidence images** are never overwritten; a reviewer image is uploaded on Save to a new key ([R2 layout](data.md#2-cloudflare-r2-storage-architecture)). Each AI item stores its whole video frame (`frame`) and the box (`bounding_box`, `box_seconds`) the console draws on it; the crop (`image`) is only what evidence search embeds. An item the detector could not find has `located: false`, a frame and no box. An item without a frame records an `image_gap` reason.
 - **There is no verification status and no draft.** `kind='human'` with `created_by` and `created_at` says a person saved it; unsaved edits live only in the form.
 
 The report page:

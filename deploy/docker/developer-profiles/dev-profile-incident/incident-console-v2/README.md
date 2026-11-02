@@ -32,7 +32,7 @@ Tests need a Node.js with TypeScript type stripping (official Node 22+ builds); 
 
 ## shadcn/ui
 
-The console's screens are built on [shadcn/ui](https://ui.shadcn.com) (Radix, `radix-vega` preset) on Tailwind 4 and React 19, with the primitives in `src/components/ui/`. Some feature components stay custom (the video player and overlays, the versions graph, the evidence cards and the frame picker); add new UI from shadcn first.
+The console's screens are built on [shadcn/ui](https://ui.shadcn.com) (Radix, `radix-vega` preset) on Tailwind 4 and React 19, with the primitives in `src/components/ui/`. Some feature components stay custom (the video player and overlays, the versions graph, and the evidence cards); add new UI from shadcn first.
 
 Add a component from this directory (the CLI reads `components.json` here; from elsewhere pass `-c <path to this directory>`):
 

@@ -592,7 +592,6 @@ export function ReportPage({
             onSeek={seek}
             title={reportHeading(editBase.report)}
             videoId={videoId}
-            videoSrc={report.run.playbackUrl}
           />
         ) : null}
 

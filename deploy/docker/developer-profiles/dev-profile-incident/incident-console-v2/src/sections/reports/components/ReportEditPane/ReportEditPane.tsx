@@ -2,8 +2,6 @@
 
 'use client';
 
-import { useState } from 'react';
-
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -11,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { evidenceDisplay, videoFrameUrl } from '@/lib/evidence/evidence-view';
-import type { FramePick } from '@/lib/evidence/frame-picker';
 import {
   deleteDraftItem,
   draftItemName,
@@ -33,7 +30,6 @@ import { cn } from '@/lib/utils';
 import { EDITABLE_ENTITY_TYPES, EDITABLE_INCIDENT_TYPES, type EditDraft } from '@/modules/reports/domain/edit-draft';
 import { formatClock } from '@/modules/reports/domain/normalize';
 import { EvidenceFrame } from '@/sections/evidence/components/EvidenceFrame';
-import { EvidenceFramePicker } from '@/sections/evidence/components/EvidenceFramePicker';
 
 const capitalize = (value: string | null) => (value ? value[0].toUpperCase() + value.slice(1) : 'Unclassified');
 const clock = (seconds: number | null) => (seconds === null ? '—' : formatClock(seconds));
@@ -44,9 +40,7 @@ const rowKey = (row: PairRow) => `${row.kind}-${row.b?.key ?? (row.a ? savedItem
  * editable draft (B) on the right, field by field and evidence row by row. A
  * is never editable. Delete removes a draft item (and the instruments an entity
  * holds); Revert puts an edited or deleted item back exactly as A has it.
- * Replace image picks a frame from the video and a rectangle on it; the crop
- * and its frame second go into the draft item. Add evidence is not part of
- * this pane yet.
+ * Add evidence is not part of this pane yet.
  */
 export function ReportEditPane({
   a,
@@ -55,7 +49,6 @@ export function ReportEditPane({
   draft,
   title,
   videoId,
-  videoSrc,
   onChange,
   onSeek,
 }: {
@@ -65,13 +58,9 @@ export function ReportEditPane({
   draft: EditDraft;
   title: string;
   videoId: string;
-  videoSrc: string;
   onChange: (draft: EditDraft) => void;
   onSeek: (seconds: number) => void;
 }) {
-  const [picking, setPicking] = useState<PairRow['b'] | null>(null);
-  // The track of the saved item the picked draft item came from: the picker scrubs it instead of the whole video.
-  const [pickingTrack, setPickingTrack] = useState<string | null>(null);
   const pairing = pairReport(a, draft);
   const patchIncident = (patch: Partial<EditDraft['incident']>) => onChange({ ...draft, incident: { ...draft.incident, ...patch } });
   const patchEntity = (key: string, patch: Partial<EditDraft['entities'][number]>) =>
@@ -88,32 +77,6 @@ export function ReportEditPane({
   };
   const revert = (row: PairRow) => {
     if (a) onChange(revertDraftItem(draft, a, row));
-  };
-  const replace = (row: PairRow) => {
-    if (!row.b) return;
-    setPickingTrack(row.a?.evidence?.trackUrl ?? null);
-    setPicking(row.b);
-  };
-  const applyPick = (item: NonNullable<PairRow['b']>, pick: FramePick) => {
-    if (item.pendingImage && item.imageUrl) URL.revokeObjectURL(item.imageUrl);
-    // A track can run past the report's first to last seen, which the edit must keep the item's own second inside;
-    // such a pick changes the image's second only.
-    const outsideSpan =
-      isDraftEntity(item) &&
-      item.firstSeenSeconds !== null &&
-      (pick.timestampSeconds < item.firstSeenSeconds || pick.timestampSeconds > (item.lastSeenSeconds ?? item.firstSeenSeconds));
-    const frame = {
-      timestampSeconds: outsideSpan ? item.timestampSeconds : pick.timestampSeconds,
-      image: null,
-      imageUrl: pick.previewUrl,
-      pendingImage: pick.blob,
-      imageTimestampSeconds: pick.timestampSeconds,
-      imageBox: pick.box,
-    };
-    if (isDraftEntity(item)) patchEntity(item.key, frame);
-    else if (isDraftInstrument(item)) patchInstrument(item.key, frame);
-    else patchAsset(item.key, frame);
-    setPicking(null);
   };
   const holderOptions = draft.entities.map((entity, index) => ({
     key: entity.key,
@@ -325,7 +288,6 @@ export function ReportEditPane({
                     holderOptions={holderOptions}
                     inherited={inherited(unit.entity)}
                     onRemove={remove}
-                    onReplace={replace}
                     onRevert={revert}
                     onSeek={onSeek}
                     patchAsset={patchAsset}
@@ -346,7 +308,6 @@ export function ReportEditPane({
                       holderOptions={holderOptions}
                       inherited=""
                       onRemove={remove}
-                      onReplace={replace}
                       onRevert={revert}
                       onSeek={onSeek}
                       patchAsset={patchAsset}
@@ -362,23 +323,6 @@ export function ReportEditPane({
           </div>
         )}
       </section>
-
-      {picking && (
-        <EvidenceFramePicker
-          initialSeconds={picking.timestampSeconds ?? 0}
-          label={draftItemName(picking) || 'evidence'}
-          onClose={() => setPicking(null)}
-          onPick={(pick) => applyPick(picking, pick)}
-          trackUrl={pickingTrack}
-          range={
-            isDraftEntity(picking) && picking.firstSeenSeconds !== null
-              ? { first: picking.firstSeenSeconds, last: picking.lastSeenSeconds ?? picking.firstSeenSeconds }
-              : null
-          }
-          videoId={videoId}
-          videoSrc={videoSrc}
-        />
-      )}
     </div>
   );
 }
@@ -407,7 +351,6 @@ function PairRowView({
   draftHolder,
   holderOptions,
   onRemove,
-  onReplace,
   onRevert,
   onSeek,
   patchEntity,
@@ -423,7 +366,6 @@ function PairRowView({
   draftHolder: (instrument: EditDraft['instruments'][number]) => string;
   holderOptions: Array<{ key: string; label: string }>;
   onRemove: (row: PairRow) => void;
-  onReplace: (row: PairRow) => void;
   onRevert: (row: PairRow) => void;
   onSeek: (seconds: number) => void;
   patchEntity: PatchEntity;
@@ -461,7 +403,6 @@ function PairRowView({
             holderOptions={holderOptions}
             item={row.b}
             onRemove={() => onRemove(row)}
-            onReplace={() => onReplace(row)}
             onRevert={changed ? () => onRevert(row) : null}
             onSeek={onSeek}
             patchAsset={patchAsset}
@@ -552,7 +493,6 @@ function EditCard({
   holderOptions,
   draftHolder,
   onRemove,
-  onReplace,
   onRevert,
   onSeek,
   patchEntity,
@@ -561,12 +501,11 @@ function EditCard({
 }: {
   item: NonNullable<PairRow['b']>;
   videoId: string;
-  /** The saved item's evidence, whose frame and box the draft keeps showing until the reviewer replaces the image. */
+  /** The saved item's evidence, whose frame and box the draft keeps showing. */
   saved: NonNullable<PairRow['a']>['evidence'] | null;
   holderOptions: Array<{ key: string; label: string }>;
   draftHolder: (instrument: EditDraft['instruments'][number]) => string;
   onRemove: () => void;
-  onReplace: () => void;
   onRevert: (() => void) | null;
   onSeek: (seconds: number) => void;
   patchEntity: PatchEntity;
@@ -681,15 +620,6 @@ function EditCard({
         Most visible at <b className="font-mono">{clock(item.timestampSeconds)}</b>
       </p>
       <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] font-semibold">
-        <Button
-          className="h-6 rounded-full px-2 text-[11px] text-ink hover:bg-ink/5"
-          onClick={onReplace}
-          size="xs"
-          type="button"
-          variant="ghost"
-        >
-          Replace image
-        </Button>
         <Button
           className="h-6 rounded-full px-2 text-[11px] text-clay hover:bg-clay/10 hover:text-clay"
           onClick={onRemove}

@@ -113,7 +113,7 @@ export function evidenceFolder(videoKey: string): string {
 }
 
 /**
- * The R2 key of a reviewer's replacement image: `evidence/<video key>/edit-<n>/<itemId>.jpg`.
+ * The R2 key of a reviewer's evidence image: `evidence/<video key>/edit-<n>/<itemId>.jpg`.
  * The caller picks the first `n` whose key is free, so no object is ever overwritten.
  */
 export function uploadedEvidenceKey(videoKey: string, editNumber: number, itemId: string): string {
