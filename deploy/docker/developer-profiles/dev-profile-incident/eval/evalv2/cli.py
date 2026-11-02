@@ -91,7 +91,20 @@ def plan(config: RunConfig, load_datasets: DatasetLoader = _no_datasets) -> dict
     if unknown:
         raise KeyError(f"no task registered for {unknown}; registered: {sorted(TASKS)}")
     datasets = load_datasets(config)
-    return {name: TASKS[name]().plan(config, datasets) for name in config.tasks}
+    items = {name: TASKS[name]().plan(config, datasets) for name in config.tasks}
+    return items if config.recovery is None else _recovery_items(config, items)
+
+
+def _recovery_items(config: RunConfig, items: dict[str, list[WorkItem]]) -> dict[str, list[WorkItem]]:
+    """Keep only the open items a recovery run names; a name that matches no planned item is an error."""
+    wanted = {(i.subject, i.item_id, i.repeat) for i in config.recovery.items}
+    kept = {name: [i for i in task_items if (i.subject, i.item_id, i.repeat) in wanted]
+            for name, task_items in items.items()}
+    found = {(i.subject, i.item_id, i.repeat) for task_items in kept.values() for i in task_items}
+    missing = sorted(wanted - found)
+    if missing:
+        raise ValueError(f"recovery.items names {len(missing)} item(s) the plan does not hold: {missing[:5]}")
+    return kept
 
 
 def worst_cases(config: RunConfig, items: dict[str, list[WorkItem]]) -> dict[tuple[str, str, str], tuple[int, int]]:
@@ -490,7 +503,11 @@ def _score(args: argparse.Namespace, load_datasets: DatasetLoader | None,
             except ApprovalRefused as exc:
                 print(json.dumps({"ok": False, "refused": [str(exc)]}, indent=2))
                 return 2
-        load_env_files(args.env_file)
+        try:
+            load_env_files(args.env_file)
+        except FileNotFoundError as exc:
+            print(json.dumps({"ok": False, "refused": [str(exc)]}, indent=2))
+            return 2
     ledger_dir = args.judge_ledger_dir or (data_root(args.data_root) / "v2" / "judge-ledger")
     try:
         datasets = loader(config)
@@ -562,7 +579,7 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
 
     try:
         items = plan(config, loader)
-    except (KeyError, DatasetError) as exc:
+    except (KeyError, ValueError, DatasetError) as exc:
         print(json.dumps({"ok": False, "problems": [str(exc)]}, indent=2))
         return 1
     if args.command == "plan":
@@ -590,6 +607,10 @@ def load_env_files(paths: Sequence[Path] | None = None) -> list[str]:
 
     from evalv2.executor import EVAL_DIR
 
+    if paths:
+        absent = [str(path) for path in paths if not Path(path).is_file()]
+        if absent:  # an explicit file that is not there is an error, never a silent skip
+            raise FileNotFoundError(f"--env-file names a file that does not exist: {absent}")
     candidates = list(paths) if paths else [EVAL_DIR / ".env.local", EVAL_DIR.parent / ".env.local"]
     read = []
     for path in candidates:
@@ -631,7 +652,11 @@ def _run_live(args: argparse.Namespace, config: RunConfig, loader: DatasetLoader
     if refusals:
         print(json.dumps({"ok": False, "refused": refusals}, indent=2))
         return 2
-    env_files = load_env_files(args.env_file)
+    try:
+        env_files = load_env_files(args.env_file)
+    except FileNotFoundError as exc:
+        print(json.dumps({"ok": False, "refused": [str(exc)]}, indent=2))
+        return 2
     try:
         track = _track(config)
         executor = LiveExecutor(config, loader(config), items, out=args.out, marker=marker, hard_stop=hard_stop,

@@ -163,3 +163,43 @@ def test_plan_resolves_the_datasets_through_the_registry(tmp_path, fake_task, ca
     base.TASKS["fake"] = Recording
     assert cli.main(["plan", "--config", str(_write(tmp_path, split_only))]) == 0
     assert len(seen["clips"]) == 25 and seen["half"] == "dev" and "split-v2/split-v2.json" in seen["inputs"]
+
+
+RECOVERY = {"of_experiment": "v2-dev-incident-super-direct", "of_manifest": "run_manifest:abc",
+            "items": [{"subject": "super-direct", "item_id": "clip1", "repeat": 2},
+                      {"subject": "super-direct", "item_id": "clip3", "repeat": 1}]}
+
+
+def test_a_recovery_run_plans_only_the_named_open_items(tmp_path, fake_task, capsys):
+    path = _write(tmp_path, {**CONFIG, "recovery": RECOVERY})
+    assert cli.main(["plan", "--config", str(path)], load_datasets=_no_datasets) == 0
+    assert json.loads(capsys.readouterr().out)["tasks"]["fake"]["items"] == 2
+    items = cli.plan(RunConfig.model_validate({**CONFIG, "recovery": RECOVERY}), _no_datasets)["fake"]
+    assert sorted((i.item_id, i.repeat) for i in items) == [("clip1", 2), ("clip3", 1)]
+
+
+def test_a_recovery_item_outside_the_plan_is_refused(tmp_path, fake_task, capsys):
+    bad = {**RECOVERY, "items": [{"subject": "super-direct", "item_id": "clip99", "repeat": 1}]}
+    path = _write(tmp_path, {**CONFIG, "recovery": bad})
+    assert cli.main(["plan", "--config", str(path)], load_datasets=_no_datasets) == 1
+    assert "does not hold" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("items, message", [
+    ([{"subject": "other", "item_id": "clip1", "repeat": 1}], "undefined subjects"),
+    ([{"subject": "super-direct", "item_id": "clip1", "repeat": 3}], "above the config's repeats"),
+    ([{"subject": "super-direct", "item_id": "clip1", "repeat": 1}] * 2, "twice"),
+])
+def test_invalid_recovery_items_are_refused(items, message):
+    with pytest.raises(ValidationError, match=message):
+        RunConfig.model_validate({**CONFIG, "recovery": {**RECOVERY, "items": items}})
+
+
+def test_an_explicit_env_file_that_does_not_exist_is_an_error(tmp_path, monkeypatch):
+    monkeypatch.delenv("EVALV2_TEST_ONLY_NAME", raising=False)
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        cli.load_env_files([tmp_path / "missing.env"])
+    present = tmp_path / "present.env"
+    present.write_text("EVALV2_TEST_ONLY_NAME=1\n")
+    assert cli.load_env_files([present]) == [str(present)]
+    monkeypatch.delenv("EVALV2_TEST_ONLY_NAME")
