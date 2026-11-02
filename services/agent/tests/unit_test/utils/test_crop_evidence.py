@@ -27,6 +27,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import cv2
+import httpx
 import numpy as np
 import pytest
 
@@ -1319,6 +1320,27 @@ class TestZoomSecondLook:
             with pytest.raises(RuntimeError):
                 detector._chat_json([b"jpeg"], "look", dict)  # a second 429 is not retried again
         assert post.call_count == 4 and sleep.call_count == 2
+
+    def test_request_limits_give_a_copy_that_keeps_the_budget(self) -> None:
+        budget = CropCallBudget(5)
+        detector = DefaultDetector(api_key="k", call_budget=budget)
+        limited = detector.with_request_limits(15.0, 1)
+        assert limited is not detector and limited.call_budget is budget
+        assert (limited.timeout_seconds, limited.max_attempts) == (15.0, 1)
+        assert (detector.timeout_seconds, detector.max_attempts) == (120.0, 4)
+
+    def test_a_single_attempt_detector_does_not_retry_a_rate_limit(self) -> None:
+        detector = DefaultDetector(api_key="k").with_request_limits(15.0, 1)
+        limited = MagicMock(status_code=429, headers={"retry-after": "60"})
+        limited.raise_for_status.side_effect = httpx.HTTPStatusError("429", request=MagicMock(), response=limited)
+        with (
+            patch("vss_agents.utils.crop_evidence.httpx.post", return_value=limited) as post,
+            patch("vss_agents.utils.crop_evidence.time.sleep") as sleep,
+        ):
+            with pytest.raises(httpx.HTTPStatusError):
+                detector._request_box({})
+        assert post.call_count == 1 and sleep.call_count == 0
+        assert post.call_args.kwargs["timeout"] == 15.0
 
     def test_disagreeing_looks_skip_the_merge_call_and_keep_the_report(self) -> None:
         detector = DefaultDetector(api_key="k")

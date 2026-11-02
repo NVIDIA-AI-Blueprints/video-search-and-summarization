@@ -23,16 +23,20 @@ from collections.abc import Generator
 import json
 from pathlib import Path
 import tempfile
+import time
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import cv2
+import httpx
 import numpy as np
 import pytest
 
 from vss_agents.utils import object_tracking
 from vss_agents.utils.crop_evidence import BudgetedDetector
 from vss_agents.utils.crop_evidence import CropCallBudget
+from vss_agents.utils.crop_evidence import DefaultDetector
 from vss_agents.utils.crop_evidence import Detection
 from vss_agents.utils.object_tracking import ObjectTrackingSettings
 from vss_agents.utils.object_tracking import TrackerUnavailableError
@@ -143,16 +147,26 @@ def tracker_failing_nth_init(n: int) -> Any:
 class OracleDetector:
     """Finds the square on the frame it is given (the whole frame, as the real detector is), and counts its calls."""
 
-    def __init__(self, shift: int = 0, blind: bool = False, error_at: int | None = None) -> None:
+    def __init__(
+        self,
+        shift: int = 0,
+        blind: bool = False,
+        error_at: int | None = None,
+        error: Exception | None = None,
+        delay: float = 0.0,
+    ) -> None:
         self.shift, self.blind, self.error_at = shift, blind, error_at
+        self.error = error or RuntimeError("detector down")
+        self.delay = delay
         self.calls = 0
         self.queries: list[str] = []
 
     def detect(self, frame: np.ndarray, query: str) -> list[Detection]:
         self.calls += 1
         self.queries.append(query)
+        time.sleep(self.delay)
         if self.error_at is not None and self.calls == self.error_at:
-            raise RuntimeError("detector down")
+            raise self.error
         box = None if self.blind else seen(frame)
         if box is None:
             return []
@@ -288,6 +302,44 @@ class TestReanchoring:
         outcome = await run(clip, OracleDetector(error_at=2), seed_at(4.0))
         item = outcome.items["I1"]
         assert item["detector_errors"] == 1 and item["lost"] == 0 and item["samples"] > 5
+
+    @pytest.mark.asyncio
+    async def test_a_detector_timeout_is_an_error_not_a_miss(self, clip: Path) -> None:
+        detector = OracleDetector(error_at=2, error=httpx.ReadTimeout("timed out"))
+        outcome = await run(clip, detector, seed_at(4.0))
+        item = outcome.items["I1"]
+        assert item["detector_errors"] == 1 and item["lost"] == 0 and item["samples"] > 5
+
+
+class TestDetectorLatency:
+    @pytest.mark.asyncio
+    async def test_the_slowest_and_total_detector_time_are_reported(self, clip: Path) -> None:
+        outcome = await run(clip, OracleDetector(delay=0.02), seed_at(4.0))
+        item = outcome.items["I1"]
+        assert item["detector_max_ms"] >= 20 and item["detector_ms"] >= item["detector_max_ms"]
+        assert item["detector_ms"] >= 20 * item["detector_calls"] * 0.9
+
+    @pytest.mark.asyncio
+    async def test_a_failed_call_is_timed_too(self, clip: Path) -> None:
+        detector = OracleDetector(error_at=1, error=httpx.ReadTimeout("timed out"), delay=0.02)
+        outcome = await run(clip, detector, seed_at(4.0))
+        assert outcome.items["I1"]["detector_max_ms"] >= 20
+
+    @pytest.mark.asyncio
+    async def test_a_default_detector_is_limited_to_the_tracking_timeout_and_one_attempt(self, clip: Path) -> None:
+        seen_limits: list[tuple[float, int]] = []
+
+        def fake_request(self: DefaultDetector, body: dict[str, Any]) -> dict[str, Any]:
+            seen_limits.append((self.timeout_seconds, self.max_attempts))
+            raise httpx.ReadTimeout("timed out")
+
+        detector = DefaultDetector(api_key="k")
+        config = settings(detector_timeout_seconds=7.0)
+        with patch.object(DefaultDetector, "_request_box", fake_request):
+            outcome = await run(clip, detector, seed_at(4.0), config=config)
+        assert seen_limits and set(seen_limits) == {(7.0, 1)}
+        assert outcome.items["I1"]["detector_errors"] == outcome.items["I1"]["detector_calls"]
+        assert (detector.timeout_seconds, detector.max_attempts) == (120.0, 4)  # the shared detector is untouched
 
 
 class TestAnchoring:
@@ -486,6 +538,9 @@ class TestFlagAndSettings:
         config = ObjectTrackingSettings.from_env()
         assert config.sample_fps == 5.0 and config.reanchor_iou == object_tracking.DEFAULT_MIN_IOU
         assert config.max_detector_calls == 12
+        assert config.detector_timeout_seconds == object_tracking.DEFAULT_DETECTOR_TIMEOUT_SECONDS == 15.0
+        monkeypatch.setenv(object_tracking.DETECTOR_TIMEOUT_ENV_VAR, "9")
+        assert ObjectTrackingSettings.from_env().detector_timeout_seconds == 9.0
         assert config.detect_interval_seconds == object_tracking.DEFAULT_DETECT_INTERVAL_SECONDS
 
 

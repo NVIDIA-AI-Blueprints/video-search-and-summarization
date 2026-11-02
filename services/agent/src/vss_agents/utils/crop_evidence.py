@@ -565,6 +565,7 @@ class DefaultDetector:
         timeout_seconds: float = 120.0,
         call_budget: CropCallBudget | None = None,
         zoom_budget: CropCallBudget | None = None,
+        max_attempts: int = GROUNDING_MAX_ATTEMPTS,
     ) -> None:
         self.model_name = model_name or os.getenv("VLM_NAME") or DEFAULT_GROUNDING_MODEL
         self.min_score = min_score
@@ -577,6 +578,7 @@ class DefaultDetector:
         self.timeout_seconds = timeout_seconds
         self.call_budget = call_budget
         self.zoom_budget = zoom_budget
+        self.max_attempts = max_attempts
 
     def with_zoom_budget(self, budget: CropCallBudget) -> "DefaultDetector":
         """A copy for one request whose zoomed-second-look attempts draw on ``budget``."""
@@ -589,6 +591,16 @@ class DefaultDetector:
         budgeted = copy.copy(self)
         budgeted.call_budget = budget
         return budgeted
+
+    def with_request_limits(self, timeout_seconds: float, max_attempts: int) -> "DefaultDetector":
+        """A copy whose grounding requests time out after timeout_seconds and are tried max_attempts times.
+
+        The call budgets are kept; the shared detector is unchanged.
+        """
+        limited = copy.copy(self)
+        limited.timeout_seconds = timeout_seconds
+        limited.max_attempts = max(1, max_attempts)
+        return limited
 
     def is_available(self) -> bool:
         """Return True if the remote VLM endpoint is configured with credentials."""
@@ -610,7 +622,7 @@ class DefaultDetector:
         Every attempt is counted in the run provenance under the current detector stage (grounding, object
         tracking), refused, failed and retried ones included.
         """
-        for attempt in range(1, GROUNDING_MAX_ATTEMPTS + 1):
+        for attempt in range(1, self.max_attempts + 1):
             if self.call_budget is not None:
                 try:
                     self.call_budget.acquire()  # before sending: a refused attempt is never made
@@ -630,7 +642,7 @@ class DefaultDetector:
                 raise
             if self.call_budget is not None:
                 self.call_budget.record_response(resp)
-            last_attempt = attempt == GROUNDING_MAX_ATTEMPTS
+            last_attempt = attempt == self.max_attempts
             if resp.status_code in _RETRYABLE_STATUS_CODES and not last_attempt:
                 self._count(None, started, resp, ok=False)
                 time.sleep(float(resp.headers.get("retry-after") or 2.0 * attempt))
