@@ -518,7 +518,7 @@ export function AnalysisWorkspace({ initialStage, initialUploadProgress, initial
                 {announcement}
               </div>
 
-              <ol className="mt-1 grid gap-2 sm:grid-cols-5" aria-label="Analysis stages">
+              <ol className="mt-1 grid gap-2 sm:grid-cols-4" aria-label="Analysis stages">
                 {stageLabels.map((item, index) => {
                   const done = stage === 'complete' || (effectiveActiveIndex !== -1 && index < effectiveActiveIndex);
                   const active = index === effectiveActiveIndex && stage !== 'error';
@@ -545,7 +545,7 @@ export function AnalysisWorkspace({ initialStage, initialUploadProgress, initial
                         {active && item.key === 'uploading' && uploadProgress > 0 && (
                           <span className="font-mono text-[11px] text-primary/80">{uploadProgress}%</span>
                         )}
-                        {active && item.key === 'converting' && (
+                        {active && stage === 'converting' && (
                           <span className="font-mono text-[11px] text-primary/80" data-testid="converting-elapsed">
                             {formatElapsed(convertingSeconds)}
                           </span>
@@ -580,7 +580,7 @@ export function AnalysisWorkspace({ initialStage, initialUploadProgress, initial
           <div className="flex gap-3">
             <Button size="lg" className="flex-1 rounded-full text-sm font-semibold" disabled={busy} onClick={analyze} type="button">
               {busy
-                ? stageLabels.find((item) => item.key === stage)?.label
+                ? stageLabels[stageOrder[stage]]?.label
                 : stage === 'error'
                   ? 'Retry analysis'
                   : nameNotice && storedName

@@ -19,7 +19,7 @@ The report header's **Blur faces** switch stores a per-video setting (`videos.bl
 
 Settings come from `.env.local`, a symlink to the profile's shared `../.env.local`; edit that file, not the symlink.
 
-Analyses run as background jobs: the page uploads and converts each file, then queues its analysis in the `analysis_jobs` table, and a loop inside this console's server process (started by `src/instrumentation.ts`) analyses the queued jobs one at a time. Closing the tab after a file shows Queued loses nothing, and the upload page lists running, queued and recently finished jobs with Retry on a failed one. Every console pointed at finals with the loop on takes jobs from the same queue; set `ANALYSIS_JOB_LOOP=off` to keep this one out. Details: [`../.docs/architecture.md`](../.docs/architecture.md#background-analysis-jobs).
+Analyses run as background jobs: the page uploads and converts each file, then queues its analysis in the `analysis_jobs` table, and a loop inside this console's server process (started by `src/instrumentation.ts`) analyses the queued jobs one at a time. Closing the tab after a file shows Queued loses nothing, and the upload page lists running and queued jobs (a finished job leaves the list). Every console pointed at finals with the loop on takes jobs from the same queue; set `ANALYSIS_JOB_LOOP=off` to keep this one out. Details: [`../.docs/architecture.md`](../.docs/architecture.md#background-analysis-jobs).
 
 ## Check it
 

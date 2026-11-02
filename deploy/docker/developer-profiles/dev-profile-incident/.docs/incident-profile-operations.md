@@ -252,13 +252,13 @@ Run through these checks before any live demo or presentation:
 Verify deployment health against this checklist before declaring a build ready:
 
 - [ ] **Video Ingestion:** Upload an `.mp4` clip and a phone `.MOV` via `incident-console-v2` (`npm install` bundles `ffmpeg` and `ffprobe`). Verify that the upload succeeds,
-      the clip is stored in Cloudflare R2 as a classification-neutral `uploads/<original name>.mp4` key in both modes (no hash or UUID in the name; the `.MOV` shows the **Converting to H.264** step and is stored as H.264 MP4 at its original resolution, the H.264 `.mp4` is stored without conversion), `HeadObject` reports a nonzero size, and a playback URL generates.
+      the clip is stored in Cloudflare R2 as a classification-neutral `uploads/<original name>.mp4` key in both modes (no hash or UUID in the name; the `.MOV` shows the elapsed conversion time in the **Uploading videos** step and is stored as H.264 MP4 at its original resolution, the H.264 `.mp4` is stored without conversion), `HeadObject` reports a nonzero size, and a playback URL generates.
 - [ ] **Automated Report Generation:** Trigger incident analysis. Verify all structured fields populate
       (type, severity, confidence, summary, entities, instruments, assets). Confirm ambiguous footage
       gracefully degrades (e.g. empty persons array, unconfirmed start time).
 - [ ] **Persistence Read-Back:** Confirm a job (`GET /api/jobs`) reaches `done`, and `POST /api/analysis` returns 200, only after `videos`, `model_runs`,
       `report_revisions` (the AI revision) can be read back and `videos.filepath` exactly matches the submitted R2 key.
-- [ ] **Background Jobs:** Upload two clips, close the tab while one is Analysing, reopen `/` and confirm the Analysis jobs list shows it still running and then Done. Stop the console mid-job and start it again: after 180 s without a heartbeat the job is queued again and finishes.
+- [ ] **Background Jobs:** Upload two clips, close the tab while one is Analysing, reopen `/` and confirm the Analysis jobs list shows it still running; once finished it leaves the list and its report is in the library. Stop the console mid-job and start it again: after 180 s without a heartbeat the job is queued again and finishes.
 - [ ] **Re-Generation:** Re-generate with a different model and a reviewer prompt, and confirm a new AI revision appears in
       History while earlier revisions remain openable.
 - [ ] **Pipeline Error Handling:** Induce an invalid video or disconnect the tunnel; verify that the frontend surfaces
