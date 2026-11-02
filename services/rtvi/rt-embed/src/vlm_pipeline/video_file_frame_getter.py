@@ -54,7 +54,7 @@ import pyds
 import torch
 import torch.nn.functional as F
 import yaml
-from torchvision.transforms import v2
+from torchvision.transforms import InterpolationMode, Resize, v2
 
 from common.chunk_info import ChunkInfo
 from common.logger import TimeMeasure, logger
@@ -633,6 +633,29 @@ def _can_play_through_after_seek_failure(
     return True
 
 
+def select_file_indices(frames, timestamps, count):
+    """Match rounded linspace indices, including repetitions for short clips."""
+    if count <= 0 or not frames or len(frames) != len(timestamps):
+        raise ValueError(
+            "Index sampling requires aligned nonempty frames and a positive count"
+        )
+    indices = np.linspace(0, len(frames) - 1, count).round().astype(int).tolist()
+    return [frames[i] for i in indices], [timestamps[i] for i in indices]
+
+
+def resize_file_frames(frames, size):
+    """Match the release processor's uint8 RGB bilinear antialiased resize."""
+    if any(f.dtype != torch.uint8 or f.ndim != 3 or f.shape[-1] != 3 for f in frames):
+        raise ValueError("Antialiased file resize requires HWC RGB uint8 frames")
+    resize = Resize(size, interpolation=InterpolationMode.BILINEAR, antialias=True)
+    return [
+        resize(f.permute(2, 0, 1)).permute(1, 2, 0)
+        if tuple(f.shape[:2]) != tuple(size)
+        else f
+        for f in frames
+    ]
+
+
 class VideoFileFrameGetter:
     """Get frames from a video file as a list of tensors."""
 
@@ -654,7 +677,13 @@ class VideoFileFrameGetter:
         data_type_int8=False,
         audio_support=False,
         cv_pipeline_configs={},
+        file_index_sampling=False,
+        file_resize_antialias=False,
     ) -> None:
+        self._file_index_sampling = file_index_sampling
+        self._file_resize_antialias = file_resize_antialias
+        self._file_resize_active = False
+        self._file_resize_size = (frame_height, frame_width)
         self._selected_pts_array = deque()
         self._last_gst_buffer = None
         self._loop = None
@@ -949,6 +978,8 @@ class VideoFileFrameGetter:
             return True
 
     def _preprocess(self, frames):
+        if frames and self._file_resize_active and not self._is_live:
+            frames = resize_file_frames(frames, self._file_resize_size)
         if frames and not self._enable_jpeg_output:
             # Handle multi-image scenario where frames may have different dimensions
             if len(frames) > 1:
@@ -2656,6 +2687,36 @@ class VideoFileFrameGetter:
         frame_height=None,
         video_codec=None,
     ):
+        """Restore the reusable selector even if native decoding or resizing fails."""
+        selector = self._frame_selector
+        try:
+            return self._get_frames(
+                chunk,
+                frame_selector,
+                enable_audio,
+                request_id,
+                frame_width,
+                frame_height,
+                video_codec,
+            )
+        except BaseException:
+            if self._file_index_sampling or self._file_resize_antialias:
+                self.destroy_pipeline()
+            raise
+        finally:
+            self._frame_selector = selector
+            self._file_resize_active = False
+
+    def _get_frames(
+        self,
+        chunk: ChunkInfo,
+        frame_selector=None,
+        enable_audio=False,
+        request_id="",
+        frame_width=None,
+        frame_height=None,
+        video_codec=None,
+    ):
         """Get frames from a chunk
 
         Args:
@@ -2697,10 +2758,34 @@ class VideoFileFrameGetter:
         if not frame_height:
             frame_height = self._frame_height_orig
 
+        self._file_resize_active = self._file_resize_antialias and not self._is_live
+        self._file_resize_size = (frame_height, frame_width)
+        if self._file_resize_active:
+            if (
+                not frame_height
+                or not frame_width
+                or self._enable_jpeg_output
+                or self._do_preprocess
+            ):
+                raise ValueError(
+                    "Antialiased file resize requires positive dimensions and raw RGB frames"
+                )
+            frame_width = frame_height = 0
+
         frame_selector_backup = self._frame_selector
         if frame_selector:
             self._frame_selector = frame_selector
         self._frame_selector.set_chunk(chunk)
+        index_count = None
+        if self._file_index_sampling and not self._is_live:
+            if (
+                self._frame_selector._use_fps_for_chunking
+                or self._frame_selector.selects_all_frames
+            ):
+                raise ValueError("Index sampling requires a fixed positive frame count")
+            index_count = self._frame_selector._num_frames
+            self._frame_selector = DefaultFrameSelector(DefaultFrameSelector.ALL_FRAMES)
+            self._frame_selector.set_chunk(chunk)
 
         if (
             self._pipeline
@@ -2751,7 +2836,7 @@ class VideoFileFrameGetter:
                 old_pipeline = self._pipeline
                 self._pipeline = None
                 self._vdecodebin = None
-                if not (self._frame_width and self._frame_height):
+                if not self._file_resize_active and not (self._frame_width and self._frame_height):
                     # Next pipeline should use same resolution as first
                     # to allow all frames in the chunk have same resolution
                     self._frame_width = self._first_frame_width
@@ -3026,6 +3111,17 @@ class VideoFileFrameGetter:
             cached_frames_pts = self._cached_frames_pts or []
             self._cached_frames = None
             self._cached_frames_pts = None
+
+        # A failed decode must not embed a partially decoded clip.
+        if has_error and (index_count is not None or self._file_resize_active):
+            cached_frames.clear()
+            cached_frames_pts.clear()
+        if index_count is not None and cached_frames:
+            selected, selected_pts = select_file_indices(
+                cached_frames, cached_frames_pts, index_count
+            )
+            cached_frames.clear()  # Release unselected native-resolution CUDA tensors.
+            cached_frames, cached_frames_pts = selected, selected_pts
 
         # Adjust for the PTS offset if any.
         cached_frames_pts = [t + chunk.pts_offset_ns / 1e9 for t in cached_frames_pts]

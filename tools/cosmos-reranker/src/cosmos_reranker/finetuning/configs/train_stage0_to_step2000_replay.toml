@@ -1,0 +1,137 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+redis = "13221"
+results_dir = "__RUN_ROOT__/stage0"
+
+[train]
+resume = false
+epoch = 3
+max_num_steps = 200000
+save_ckpt_at_exit = true
+compile = false
+train_batch_per_replica = 80
+output_dir = "__RUN_ROOT__/stage0"
+optm_lr = [ 2e-5, 5e-6, 5e-6, 0.0,]
+optm_impl = "fused"
+optm_weight_decay = 0.01
+optm_min_lr_factor = 0.1
+optm_grad_norm_clip = 1.0
+epsilon = 1e-8
+optm_name = "AdamW"
+optm_betas = [ 0.9, 0.999,]
+optm_decay_type = "cosine"
+optm_warmup_steps = 500
+async_tp_enabled = false
+master_dtype = "float32"
+param_dtype = "bfloat16"
+transfer_dtype = "float32"
+logprob_dtype = "float32"
+fsdp_reduce_dtype = "float32"
+fsdp_offload = false
+fsdp_reshard_after_forward = "default"
+sync_weight_interval = 1
+sequence_packing = false
+seed = 160901
+timestamp = "pascr3reprostage0"
+
+[validation]
+enable = false
+
+[policy]
+model_name_or_path = "__BASE_MODEL__"
+model_max_length = 1024
+model_gradient_checkpointing = true
+enable_liger_fused_cross_entropy = true
+
+[logging]
+logger = [ "console", "wandb",]
+log_interval = 10
+project_name = "cr3-pas-reranker"
+group_name = "pas-v31-fresh-rank32-k20-all-structured-attribute-smallbatch"
+experiment_name = "freshcr3_rank32_k20_alltrain_smallbatch_rankpoint_attr025_fp32_e3_seed160901"
+
+[custom]
+system_prompt = ""
+fp32_trainable_master_only = true
+
+[train.ckpt]
+enable_checkpoint = true
+save_freq_in_epoch = 0
+save_mode = "sync"
+max_keep = 20
+export_safetensors = true
+save_freq = 500
+
+[train.train_policy]
+type = "sft"
+trainer_type = "pas_rank_point_sft"
+mini_batch = 20
+dataloader_batch_size = 80
+dataloader_shuffle = true
+dataloader_drop_last = true
+enable_dataset_cache = false
+dataloader_num_workers = 4
+dataloader_prefetch_factor = 2
+conversation_column_name = "conversations"
+dataloader_seed = 160901
+
+[train.fp8]
+enable_fp8 = false
+fp8_recipe = "dynamic_scaling"
+quant_recipe = "rowwise"
+
+[policy.parallelism]
+n_init_replicas = 1
+tp_size = 1
+cp_size = 1
+dp_shard_size = 1
+dp_replicate_size = 8
+pp_size = 1
+cp_rotate_method = "allgather"
+
+[policy.lora]
+r = 32
+lora_alpha = 64
+lora_dropout = 0.0
+target_modules = [ "q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj", "gate_proj", "model.visual.blocks.24.attn.qkv", "model.visual.blocks.24.attn.proj", "model.visual.blocks.24.mlp.linear_fc1", "model.visual.blocks.24.mlp.linear_fc2", "model.visual.blocks.25.attn.qkv", "model.visual.blocks.25.attn.proj", "model.visual.blocks.25.mlp.linear_fc1", "model.visual.blocks.25.mlp.linear_fc2", "model.visual.blocks.26.attn.qkv", "model.visual.blocks.26.attn.proj", "model.visual.blocks.26.mlp.linear_fc1", "model.visual.blocks.26.mlp.linear_fc2", "model.visual.merger.linear_fc1", "model.visual.merger.linear_fc2",]
+use_rslora = false
+init_lora_weights = true
+
+[custom.train_dataset]
+annotation_path = [ "__DATA_ROOT__/train_deployed_top20_k20_trainonly750k_seed880821.json", "__DATA_ROOT__/train_deployed_top20_k20_remaining_after750k_seed880822.json",]
+media_path = "__PAS_ROOT__/images"
+response_mode = "binary"
+
+[custom.vision]
+nframes = 1
+max_pixels = 81920
+
+[custom.loss]
+rank_mode = "probability_mass"
+rank_weight = 1.0
+point_weight = 1.0
+point_mode = "class_balanced"
+negative_point_weight = 1.0
+teacher_weight = 0.0
+rank_temperature = 1.0
+point_temperature = 1.0
+candidate_group_size = 20
+positive_response = "<answer>yes</answer>"
+negative_response = "<answer>no</answer>"
+
+[custom.structured_attribute]
+train_records_path = "__DATA_ROOT__/attribute_replay/train_records.json"
+validation_records_path = "__DATA_ROOT__/attribute_replay/val_records.json"
+attribute_vocab_path = "__PAS_ROOT__/attribute_vocab.json"
+loss_weight = 0.25
+seed = 160901
+
+[custom.visual_cache]
+resident_shards = 8
+slice_reads = false
+manifests = [ "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_trainonly750k_star/manifest_rank00.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_trainonly750k_star/manifest_rank01.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_trainonly750k_star/manifest_rank02.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_trainonly750k_star/manifest_rank03.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_trainonly750k_star/manifest_rank04.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_trainonly750k_star/manifest_rank05.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_trainonly750k_star/manifest_rank06.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_trainonly750k_star/manifest_rank07.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_top50_supplement4474_clean/manifest_rank00.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_top50_supplement4474_clean/manifest_rank01.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_top50_supplement4474_clean/manifest_rank02.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_top50_supplement4474_clean/manifest_rank03.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_top50_supplement4474_clean/manifest_rank04.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_top50_supplement4474_clean/manifest_rank05.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_top50_supplement4474_clean/manifest_rank06.json", "__CACHE_ROOT__/pas_cr3_block24_prefix_step03906_top50_supplement4474_clean/manifest_rank07.json",]
+
+[train.train_policy.dataset]
+name = "freshcr3_rank32_k20_alltrain_smallbatch_rankpoint_attr025_fp32_e3_seed160901"
+test_size = 0

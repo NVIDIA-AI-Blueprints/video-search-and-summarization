@@ -1,0 +1,40 @@
+--- ds-main-config.txt
++++ ds-main-config.txt
+@@ -170,7 +170,7 @@
+ height=1080
+ ##Enable to maintain aspect ratio wrt source, and allow black borders, works
+ ##along with width, height properties
+-enable-padding=0
++enable-padding=1
+ nvbuf-memory-type=0
+ ## If set to TRUE, system timestamp will be attached as ntp timestamp
+ ## If set to FALSE, ntp timestamp from rtspsrc, if available, will be attached
+@@ -194,7 +194,7 @@
+ bbox-border-color1=0;1;1;1
+ bbox-border-color2=0;1;1;1
+ bbox-border-color3=0;1;0;1
+-interval=1
++interval=0
+ #Required by the app for SGIE, when used along with config-file property
+ gie-unique-id=1
+ nvbuf-memory-type=0
+@@ -220,7 +220,7 @@
+ tensorrt-engine=/opt/storage/model_batch16.plan
+ onnx-model=/opt/storage/radio-clip_v1.0.onnx
+ batch-size=128
+-min-crop-size=32
++min-crop-size=12
+ verbose=1
+ gpu-id=0
+ skip-interval=0
+--- ds-pgie-config.yml
++++ ds-pgie-config.yml
+@@ -18,7 +18,7 @@
+   topk: 20
+ # Assign different thresholds for different classes for optimal performance
+ class-attrs-0:
+-  pre-cluster-threshold: 0.85
++  pre-cluster-threshold: 0.5
+   topk: 20
+ class-attrs-1:
+   pre-cluster-threshold: 0.85

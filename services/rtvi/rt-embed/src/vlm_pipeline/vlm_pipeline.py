@@ -306,6 +306,8 @@ class DecoderProcess(ProcessBase):
                 enable_jpeg_output=self._enable_jpeg_tensors,
                 data_type_int8=self._data_type_int8,
                 audio_support=self._enable_audio,
+                file_index_sampling=getattr(input_config, "file_index_sampling", False),
+                file_resize_antialias=getattr(input_config, "file_resize_antialias", False),
             )
             for _ in range(self._num_decoders_per_gpu)
         ]
