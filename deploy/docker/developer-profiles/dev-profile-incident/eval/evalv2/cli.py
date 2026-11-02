@@ -495,7 +495,7 @@ def _score(args: argparse.Namespace, load_datasets: DatasetLoader | None,
     from evalv2.approval import ApprovalRefused, read_approval
     from evalv2.datasets.ground_truth import load_gt_v1_sheets
     from evalv2.datasets.registry import data_root
-    from evalv2.score_stage import ScoreRefused, run_score
+    from evalv2.score_stage import ScoreRefused, output_dir, run_score
 
     config = load_config(args.config)
     loader = load_datasets or (lambda cfg: load_for_config(cfg, data_root=args.data_root))
@@ -531,7 +531,7 @@ def _score(args: argparse.Namespace, load_datasets: DatasetLoader | None,
     summary = result["summary"]
     print(json.dumps({"ok": True, "experiment": summary["experiment"], "final_items": summary["final_items"],
                       "unscored": summary["unscored"], "mode": summary["mode"],
-                      "outputs": str(args.out / "scoring" / args.slot)}, indent=2))
+                      "outputs": str(output_dir(args.out, args.slot))}, indent=2))
     return 0
 
 
