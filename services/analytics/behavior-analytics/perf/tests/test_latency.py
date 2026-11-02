@@ -807,7 +807,7 @@ INCIDENTS MESSAGES
         ).read_text()
         self.assertIn("git-lfs.github.com", pre_flight)
         self.assertIn('configs/kpis.yaml', pre_flight)
-        self.assertIn("ensure_host_dir", pre_flight)
+        self.assertIn("validate_output_dir", pre_flight)
         self.assertNotIn("chmod 0777", pre_flight)
         up_line = next(line for line in deploy.splitlines() if "compose up -d --build" in line)
         self.assertNotIn("playback", up_line)

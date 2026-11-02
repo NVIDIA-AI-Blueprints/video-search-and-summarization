@@ -16,6 +16,7 @@ PRE_FLIGHT = PERF_ROOT / "scripts" / "pre_flight.sh"
 def test_common_exports_required_lifecycle_helpers(tmp_path: Path) -> None:
     required = (
         "ensure_host_dir",
+        "validate_output_dir",
         "prepare_benchmark_dir",
         "remove_root_tree",
         "resolve_repo_root",
@@ -55,13 +56,14 @@ def test_common_exports_required_lifecycle_helpers(tmp_path: Path) -> None:
     subprocess.run(["bash", "-c", script], env=env, check=True)
 
 
-def test_pre_flight_runs_with_mocked_docker(tmp_path: Path) -> None:
+def test_pre_flight_validates_prepared_output_with_mocked_docker(tmp_path: Path) -> None:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
     docker.write_text("#!/bin/sh\nexit 0\n")
     docker.chmod(0o755)
     output = tmp_path / "results"
+    output.mkdir()
     env = os.environ.copy()
     env.update(
         {

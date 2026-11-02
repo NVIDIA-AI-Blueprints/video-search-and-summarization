@@ -79,6 +79,16 @@ ensure_host_dir() {
     refuse_symlink "$path"
 }
 
+validate_output_dir() {
+    # Python owns creation. Stages must not follow a replaced output symlink or
+    # let Docker create a missing bind-mount directory as root.
+    refuse_symlink_components "$OUTPUT_DIR"
+    if [[ ! -d "$OUTPUT_DIR" || ! -w "$OUTPUT_DIR" || ! -x "$OUTPUT_DIR" ]]; then
+        echo "Output directory must be prepared and writable; run scripts/run_benchmark.sh: $OUTPUT_DIR" >&2
+        return 1
+    fi
+}
+
 refuse_symlink_components() {
     local path="$1"
     local current="$path"

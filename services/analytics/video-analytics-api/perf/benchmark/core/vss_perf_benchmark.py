@@ -59,12 +59,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def result_target(args: argparse.Namespace) -> Path:
-    if args.output_json:
-        target = Path(args.output_json)
-        return target if target.suffix.lower() == ".json" else target / RESULTS_DIR_NAME
-    env_output = os.environ.get("OUTPUT_DIR")
-    if env_output:
-        return Path(env_output) / RESULTS_DIR_NAME
+    """Preserve explicit JSON files; normalize directory output for publication."""
+    requested = args.output_json or os.environ.get("OUTPUT_DIR") or os.environ.get("PERF_OUTPUT_DIR")
+    if requested:
+        target = Path(requested)
+        if args.output_json and target.suffix.lower() == ".json":
+            return target
+        return target if target.name == RESULTS_DIR_NAME else target / RESULTS_DIR_NAME
     return (
         PERF_ROOT
         / "results"
@@ -81,6 +82,18 @@ def result_dir(args: argparse.Namespace) -> Path:
 def measurement_dir(args: argparse.Namespace) -> Path:
     directory = result_dir(args)
     return directory.parent if directory.name == RESULTS_DIR_NAME else directory
+
+
+def prepare_output_directories(args: argparse.Namespace) -> None:
+    """Prepare outputs before stages run, checking lexical paths before resolve()."""
+    target = result_target(args).absolute()
+    for path in (target, *target.parents):
+        if path.is_symlink():
+            raise ValueError(f"Refusing symlink in benchmark output path: {path}")
+    for directory in (measurement_dir(args), result_dir(args)):
+        directory.mkdir(parents=True, exist_ok=True)
+        if not directory.is_dir() or not os.access(directory, os.W_OK | os.X_OK):
+            raise PermissionError(f"Benchmark output directory is not writable: {directory}")
 
 
 def _write_canonical_result(payload: dict[str, Any], args: argparse.Namespace) -> Path:
@@ -123,10 +136,8 @@ def _finish(dest: Path, success: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    canonical_dir = result_dir(args)
     work_dir = measurement_dir(args)
-    canonical_dir.mkdir(parents=True, exist_ok=True)
-    work_dir.mkdir(parents=True, exist_ok=True)
+    prepare_output_directories(args)
 
     target = result_target(args)
     if target.suffix.lower() == ".json":
