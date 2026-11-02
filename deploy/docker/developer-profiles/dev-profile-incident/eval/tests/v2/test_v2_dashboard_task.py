@@ -455,16 +455,16 @@ def test_sql_figures_equal_the_recount(tmp_path):
 def test_the_proposed_pilot_is_a_capped_dev_pilot_of_the_consoles_chart_model():
     config = load_config(CONFIG_PATH)
     assert config.purpose == "pilot" and config.split.half == "dev" and config.repeats == 1
-    assert "PROPOSED, NOT APPROVED" in config.notes
+    assert "APPROVED BY THE OWNER 2026-11-02" in config.notes
     assert config.subjects[0].model == "nvidia/nemotron-3-ultra", "the console's CHART_MODEL default (env.ts)"
     env_ts = (Path(__file__).resolve().parents[3] / "incident-console-v2" / "src" / "lib" / "env.ts").read_text()
     assert "optionalEnvironmentValue('CHART_MODEL') || 'nvidia/nemotron-3-ultra'" in env_ts
     assert {s.endpoint for s in config.subjects} == {"switchyard"}
     items = {"dashboard": [WorkItem("dashboard", s.id, f"r{i}", 1) for s in config.subjects for i in range(75)]}
     problems, hard_stop = cli.preflight_problems(config, items)
-    assert problems == [] and hard_stop == [], "the caps cover the pessimistic worst case"
+    assert problems == [] and hard_stop, "the approved caps (225 calls) sit below the retry worst case: hard stop"
     run_wide = next(c for c in config.caps if c.subject == "*")
-    assert run_wide.max_attempts == 225 * 3 and run_wide.max_tokens == 225 * 3 * TOKENS_PER_ATTEMPT
+    assert run_wide.max_attempts == 225 and run_wide.max_tokens == 1_010_000, "the owner-approved totals"
 
 
 REAL_RB2 = (Path(os.environ.get("EVALV2_DATA_ROOT") or "/nonexistent") / "v2" / "references"

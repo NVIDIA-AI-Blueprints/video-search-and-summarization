@@ -45,31 +45,32 @@
       "ledger": "inference",
       "subject": "ultra-chart",
       "task": "dashboard",
-      "max_attempts": 225,
-      "max_tokens": 337500
+      "max_attempts": 100,
+      "max_tokens": 450000
     },
     {
       "ledger": "inference",
       "subject": "nano-chart",
       "task": "dashboard",
-      "max_attempts": 225,
-      "max_tokens": 337500
+      "max_attempts": 100,
+      "max_tokens": 450000
     },
     {
       "ledger": "inference",
       "subject": "super-chart",
       "task": "dashboard",
-      "max_attempts": 225,
-      "max_tokens": 337500
+      "max_attempts": 100,
+      "max_tokens": 450000
     },
     {
       "ledger": "inference",
       "subject": "*",
       "task": "*",
-      "max_attempts": 675,
-      "max_tokens": 1012500
+      "max_attempts": 225,
+      "max_tokens": 1010000
     }
   ],
-  "notes": "PROPOSED, NOT APPROVED (2026-11-02). C1c dashboard development pilot (methodology v2.0 section 4 E): the console's exact 'Ask for a chart' request (contracts/golden/chart.json) for each of the 75 RB2 references (dashboard-references-v2: 60 specs, 15 unsupported; all ai_validated, a development set), to the console's chart model (CHART_MODEL default nvidia/nemotron-3-ultra) and, for comparison, the text Nemotron 3 Nano and Super, all on Switchyard. 75 x 3 x 1 repeat = 225 calls. Caps are the pessimistic worst case (every attempt at 1,500 tokens, every retry-v2 retry taken: 675 attempts, 1.01 M tokens), so budget_mode stays worst_case; typical use is about 0.25 M tokens. Text only: no clip, no R2. Scored by code (no judge): python -m evalv2 score --figures sql. Launch, marker and caps: methodology/v2-run-readiness.md, section 'Dashboard evaluation (C1c)'. Needs the owner's approval marker before any call.",
-  "purpose": "pilot"
+  "notes": "APPROVED BY THE OWNER 2026-11-02 (caps below) (2026-11-02). C1c dashboard development pilot (methodology v2.0 section 4 E): the console's exact 'Ask for a chart' request (contracts/golden/chart.json) for each of the 75 RB2 references (dashboard-references-v2: 60 specs, 15 unsupported; all ai_validated, a development set), to the console's chart model (CHART_MODEL default nvidia/nemotron-3-ultra) and, for comparison, the text Nemotron 3 Nano and Super, all on Switchyard. 75 x 3 x 1 repeat = 225 calls. Caps are the pessimistic worst case (every attempt at 1,500 tokens, every retry-v2 retry taken: 675 attempts, 1.01 M tokens), so budget_mode stays worst_case; typical use is about 0.25 M tokens. Text only: no clip, no R2. Scored by code (no judge): python -m evalv2 score --figures sql. Launch, marker and caps: methodology/v2-run-readiness.md, section 'Dashboard evaluation (C1c)'. Needs the owner's approval marker before any call. APPROVED 2026-11-02 by the owner: max 225 calls and 1.01M tokens in total, so the caps are 225 attempts / 1,010,000 tokens run-wide (100 attempts / 450,000 tokens per subject; the run-wide cap binds), hard stop; retries draw from the same caps.",
+  "purpose": "pilot",
+  "budget_mode": "hard_stop"
 }

@@ -342,7 +342,7 @@ Each re-imports with 0 decisions. Box review sheets (`v2_box_frames.py sheet`) a
 
 ## 9. Dashboard evaluation (C1c)
 
-> **Status (2026-11-02): built and tested offline, PROPOSED, not approved, not run.** No chart request was sent. `experiments/v2/c1c-dashboard-pilot.json` needs the owner's approval and marker first.
+> **Status (2026-11-02): approved by the owner (225 calls, 1.01 M tokens); run from this branch.**
 
 **What it measures.** The AI dashboard ("Ask for a chart", methodology v2.0 §4 E). For each RB2 reference request, the `dashboard` task (`evalv2/tasks/dashboard/runner.py`) sends the console's chart request to a subject and stores the reply. Scoring then compares the reply with the reference's spec or refusal and draws both charts from the frozen corpus snapshot.
 
@@ -381,7 +381,7 @@ Each re-imports with 0 decisions. Box review sheets (`v2_box_frames.py sheet`) a
 | $ at the $10/M planning rate | ≈ $0.9 (worst $3.4) | ≈ $2.7 (worst $10.1); Switchyard bills $0 |
 | Wall time at 60 rpm and 4 in flight | — | ≈ 4–5 min |
 
-The marker draft (`approval draft`) is `max_items` 225, `max_total_tokens` 1,012,500, `caps` inference 675 attempts and 1,012,500 tokens. The scoring stage makes no model call and needs no judge budget.
+**Approved by the owner on 2026-11-02:** at most 225 calls and 1.01 M tokens. The config therefore caps 225 attempts and 1,010,000 tokens run-wide (100 attempts and 450,000 tokens per subject), in `hard_stop` mode. Retries draw from the same caps, and an item a cap refuses stays open and is reported. The scoring stage makes no model call and needs no judge budget.
 
 **Launch** (from `eval/`, after the owner approves; the config hash changes if the subjects are cut):
 
