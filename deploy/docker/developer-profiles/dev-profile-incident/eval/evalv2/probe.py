@@ -90,7 +90,7 @@ EXTERNAL_ENDPOINTS = ("nvidia-api-catalog", "openrouter")  # --endpoint may move
 # OpenRouter routing per model (OpenRouter's provider block): pinned full-precision or fp8 providers that list
 # structured outputs, no fallback to other providers, no data collection, every request parameter required.
 OPENROUTER_ROUTING = {
-    "google/gemma-4-31b-it": {"provider": {"order": ["Crusoe", "Novita"], "allow_fallbacks": False,
+    "google/gemma-4-31b-it": {"provider": {"order": ["Crusoe", "Parasail", "DeepInfra"], "allow_fallbacks": False,
                                            "data_collection": "deny", "require_parameters": True}},
     "qwen/qwen3.5-9b": {"provider": {"order": ["DeepInfra", "Parasail"], "allow_fallbacks": False,
                                      "data_collection": "deny", "require_parameters": True}},

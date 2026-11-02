@@ -144,7 +144,7 @@
         "nvidia-api-catalog",
         "openrouter"
       ],
-      "notes": "Independent family (Google), open weights (Apache 2.0 base; NVIDIA Open Model Agreement on the catalog), 31B dense, 256K context. Catalog card 2026-11-02: inputs text, image, video (MP4/WebM); json_schema / response_format not documented (vLLM/SGLang runtime), so false until a probe shows it. Proposed primary external baseline. OpenRouter (2026-11-02 public model list): video input, structured_outputs on most providers (bf16: Crusoe, Novita), $0.10-0.75 / M input; the :free route (Google AI Studio) lacks structured outputs."
+      "notes": "Independent family (Google), open weights (Apache 2.0 base; NVIDIA Open Model Agreement on the catalog), 31B dense, 256K context. Catalog card 2026-11-02: inputs text, image, video (MP4/WebM); json_schema / response_format not documented (vLLM/SGLang runtime), so false until a probe shows it. Proposed primary external baseline. OpenRouter (2026-11-02 public model list): video input, structured_outputs on most providers (bf16: Crusoe, Novita), $0.10-0.75 / M input; the :free route (Google AI Studio) lacks structured outputs. OpenRouter probe 2026-11-02: Novita returned 400 'model features video not support'; Crusoe returned 429 (rate-limited upstream)."
     },
     "moonshotai/kimi-k2.6": {
       "video_input": true,
@@ -165,12 +165,12 @@
       "text_input": true,
       "json_schema": true,
       "bbox": false,
-      "frame_policy": "unverified (provider-side sampling)",
+      "frame_policy": "provider: about 1 fps by clip length, ignores num_frames (probe 2026-11-02)",
       "verified": false,
       "listed_on": [
         "openrouter"
       ],
-      "notes": "Independent family (Alibaba Qwen), open weights (HF Qwen/Qwen3.5-9B), 9B, 262K context. OpenRouter public model list 2026-11-02: inputs text, image, video; structured_outputs on DeepInfra/Parasail/Together/SiliconFlow (bf16 or fp8), $0.02-0.17 / M input. The closest reachable Qwen video model: Qwen3-VL-8B-Instruct is listed for text and image only."
+      "notes": "Independent family (Alibaba Qwen), open weights (HF Qwen/Qwen3.5-9B), 9B, 262K context. OpenRouter public model list 2026-11-02: inputs text, image, video; structured_outputs on DeepInfra/Parasail/Together/SiliconFlow (bf16 or fp8), $0.02-0.17 / M input. The closest reachable Qwen video model: Qwen3-VL-8B-Instruct is listed for text and image only. OpenRouter probes 2026-11-02 (DeepInfra/Parasail): inline base64 video accepted, strict json_schema enforced, num_frames ignored, about 1 frame per second (self-reported 9, 26 and 81 frames for 8, 25 and 80 s clips), about 50 prompt tokens a frame; the 80 s clip was accepted."
     }
   }
 }

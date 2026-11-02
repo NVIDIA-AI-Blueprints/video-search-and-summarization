@@ -19,7 +19,8 @@
           "provider": {
             "order": [
               "Crusoe",
-              "Novita"
+              "Parasail",
+              "DeepInfra"
             ],
             "allow_fallbacks": false,
             "data_collection": "deny",
@@ -70,7 +71,7 @@
       "max_tokens": 0
     }
   ],
-  "notes": "External open-weight baseline pilot via OpenRouter (PROPOSED, not approved): Gemma 4 31B IT (Google, Apache-2.0). Track A's production v4 P1 request, byte-identical to C1a's, plus OpenRouter routing only (pinned providers, no fallback, data_collection deny, require_parameters); 25 dev clips x 2 repeats = 50 runs, C1a's seed. Needs an OpenRouter account and key (OPENROUTER_API_KEY), a prepaid balance (calls fail with 402 when it runs out, so exposure is the top-up), probes first, then a signed marker. Caps: 65 attempts, 1.5 M tokens. Judge cap 0.",
+  "notes": "External open-weight baseline pilot via OpenRouter (PROPOSED, not approved): Gemma 4 31B IT (Google, Apache-2.0). Track A's production v4 P1 request, byte-identical to C1a's, plus OpenRouter routing only (pinned providers, no fallback, data_collection deny, require_parameters); 25 dev clips x 2 repeats = 50 runs, C1a's seed. Needs an OpenRouter account and key (OPENROUTER_API_KEY), a prepaid balance (calls fail with 402 when it runs out, so exposure is the top-up), probes first, then a signed marker. Caps: 65 attempts, 1.5 M tokens. Judge cap 0. Routing (2 Nov probes): Novita rejects video ('model features video not support'), so the order is Crusoe (bf16), Parasail (fp8), DeepInfra (fp8).",
   "purpose": "pilot",
   "budget_mode": "hard_stop"
 }
