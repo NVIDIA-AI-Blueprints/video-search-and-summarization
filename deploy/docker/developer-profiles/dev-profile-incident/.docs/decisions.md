@@ -2,6 +2,13 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-02: Object tracking is on for the VM agent
+- **Decision:** `native-services.sh` exports `INCIDENT_OBJECT_TRACKING_ENABLED=1` unless the env file or the caller sets it, like `INCIDENT_CHUNKING_ENABLED`. `=0` in `generated.env.remote` turns it off and a restart applies it.
+- **Why:** the four fixes it waited for are merged: the 15 s one-attempt detector timeout, the whole-frame seed skip with the anchor guard, NanoTrack ahead of MIL, and the pinned model fetch at agent start. The scout measurements (Nano tracked 6 of 6 seeds at 0.4-0.8 s each against MIL's 3 of 8) are the reason. It is a native-services default and not a `generated.env.remote` line so that it survives a regenerated env file.
+- **Rejected:** leaving it off until another end-to-end run (the captain asked to see it on); setting it only in the env file.
+- **Rollback:** `INCIDENT_OBJECT_TRACKING_ENABLED=0` in `generated.env.remote`, restart `vss-agent`.
+- **Links:** [status](status.md), [`native-services.sh`](../.scripts/native-services.sh)
+
 ### 2026-11-02: Object tracking's detector calls get a 15 s timeout and one attempt
 - **Decision:** object tracking sends each detector request once, with a 15 s timeout (`INCIDENT_OBJECT_TRACKING_DETECTOR_TIMEOUT_SECONDS`), through `DefaultDetector.with_request_limits` applied in `run_object_tracking`. A timeout or a 429 is a `detector_errors` and not a miss, so a failed call never ends a segment. Each item reports `detector_ms` and `detector_max_ms`.
 - **Why:** the 10-65 s per item came from the detector's stall tail, not the tracker. In the speed scout, 11% of 320 calls took 60-130 s and made up 77% of detector time (median 2.3 s); a 429 cost 62 s with one retry and 122 s with two. Tracker and decode cost 1-3 s per item.

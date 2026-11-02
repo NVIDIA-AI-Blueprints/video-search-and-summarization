@@ -302,6 +302,18 @@ tracking_off="$(unset INCIDENT_TRACKING_ENABLED; ENV_FILE="$tracking_env"; sourc
 assert_eq "false" "$tracking_off" "an env file INCIDENT_TRACKING_ENABLED=false wins"
 
 # -----------------------------------------------------------------------------
+# Object tracking: on for vss-agent by default, the env file can turn it off
+# -----------------------------------------------------------------------------
+# shellcheck disable=SC1090
+objtrack_default="$(unset INCIDENT_OBJECT_TRACKING_ENABLED; source "$SUT" status >/dev/null; echo "$INCIDENT_OBJECT_TRACKING_ENABLED")"
+assert_eq "1" "$objtrack_default" "INCIDENT_OBJECT_TRACKING_ENABLED defaults to 1"
+objtrack_env="$TMP/objtrack-off.env"
+echo "INCIDENT_OBJECT_TRACKING_ENABLED=0" >"$objtrack_env"
+# shellcheck disable=SC1090
+objtrack_off="$(unset INCIDENT_OBJECT_TRACKING_ENABLED; ENV_FILE="$objtrack_env"; source "$SUT" status >/dev/null; echo "$INCIDENT_OBJECT_TRACKING_ENABLED")"
+assert_eq "0" "$objtrack_off" "an env file INCIDENT_OBJECT_TRACKING_ENABLED=0 wins"
+
+# -----------------------------------------------------------------------------
 # Caption pass: on for vss-agent by default, the env file can turn it off
 # -----------------------------------------------------------------------------
 # shellcheck disable=SC1090

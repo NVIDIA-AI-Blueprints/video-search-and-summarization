@@ -130,8 +130,9 @@ load_env
 # tracking stack down the agent skips the step and the analysis runs as before.
 export INCIDENT_TRACKING_ENABLED="${INCIDENT_TRACKING_ENABLED:-true}"
 
-# Object tracking (INCIDENT_OBJECT_TRACKING_ENABLED) is off for vss-agent: it is not exported here, so only an
-# env file (or the caller) that sets it to 1/true/yes/on turns it on.
+# Object tracking is on for vss-agent unless the env file (or the caller) turns it off; the agent reads only
+# 1/true/yes/on as on. It prefers NanoTrack when its model files are present (see tracker-models.sh below).
+export INCIDENT_OBJECT_TRACKING_ENABLED="${INCIDENT_OBJECT_TRACKING_ENABLED:-1}"
 
 # The caption pass is on for vss-agent unless the env file (or the caller) sets it to 0; the agent reads
 # only "1" as on, and with it off the analysis runs without it.
