@@ -1,0 +1,8 @@
+dimension,status,evidence,files
+Incident extraction,complete (development),"Track A five models and Track B (Nano, Super), dev split; severity MAE primary with cluster-bootstrap CIs; description fields await the judge",track_a_models.csv; track_b_pipeline.csv
+Object identification,partial (development),"Entity/instrument/asset matching F1 (MiniLM, V1 rules) done; attribute correctness (names, descriptions, threat level) awaits the judge",track_a_models.csv
+Evidence localisation,pending,Box references (RA1) still being generated; crops recorded in C1b but unscored,-
+Querying (chatbot),pending,"References RA2 built (189; 163 ai_validated, 26 flagged); grounded chat blocked on Gate M2; no chat pilot run; judge needed",-
+AI dashboard,pending,References RB2 built (75 ai_validated after blind re-validation); dashboard pilot (C1c) not run,-
+Token usage / cost,complete (development),Per-call tokens for every model and stage; OpenRouter cost from per-call usage; Switchyard is not charged to the project,tokens_cost_latency.csv
+Latency,complete (development),"Per-call p50/p95 for Track A, per-run p50/p95 for Track B",tokens_cost_latency.csv

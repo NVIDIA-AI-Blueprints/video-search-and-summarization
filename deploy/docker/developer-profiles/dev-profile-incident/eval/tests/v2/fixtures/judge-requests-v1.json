@@ -1,0 +1,264 @@
+{
+ "note": "Judge request bodies, pinned byte for byte (key order included) by tests/v2/test_v2_judges.py. Regenerate only with a reviewed change to a judge's model, endpoint, settings or prompt, which also changes its cache identity.",
+ "texts": {
+  "expected": "Two men fight at the café door; the man in red swings a wooden stick at the man in blue.",
+  "predicted": "A man in a red jacket hits another man with a stick near a café entrance — he falls."
+ },
+ "requests": {
+  "catalog-gpt-oss-20b-v1/incident": {
+   "model": "openai/gpt-oss-20b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "INCIDENT_JUDGE_REQUEST\nYou are scoring whether two incident descriptions describe the same underlying\nevent, allowing for different wording, phrasing, and level of detail. Score\n0.0 (unrelated events) to 1.0 (semantically equivalent). Respond with a JSON\nobject: {\"score\": <float 0.0-1.0>, \"reasoning\": \"<one sentence>\"}."
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "catalog-gpt-oss-20b-v1/fact": {
+   "model": "openai/gpt-oss-20b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check one fact against an answer. EXPECTED is a single atomic fact; PREDICTED is a chatbot's answer to a question.\nDecide whether PREDICTED states EXPECTED, in any wording. A fact that is only implied, contradicted, or missing is not\nstated. Ignore everything else in PREDICTED.\n\nReply with JSON only: {\"score\": <1 if PREDICTED states EXPECTED, 0 if it does not; a value between only when the\nwording is genuinely ambiguous>, \"reasoning\": \"<one sentence>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "catalog-gpt-oss-20b-v1/unsupported": {
+   "model": "openai/gpt-oss-20b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check an answer for unsupported claims. EXPECTED is the context the chatbot retrieved (incident reports);\nPREDICTED is its answer. Decide whether PREDICTED makes any factual claim about the incidents that EXPECTED does not\nsupport. Hedged statements and refusals are not claims.\n\nReply with JSON only: {\"score\": <1 if PREDICTED contains at least one unsupported claim, else 0>, \"reasoning\": \"<one\nsentence naming the claim, or none>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "catalog-gpt-oss-20b-v1/contradiction": {
+   "model": "openai/gpt-oss-20b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check an answer against the ground truth. EXPECTED is the ground-truth report of the incident (or incidents) the\nquestion is about; PREDICTED is a chatbot's answer. Decide whether PREDICTED contradicts EXPECTED: it states something\nEXPECTED shows to be false. A missing detail is not a contradiction.\n\nReply with JSON only: {\"score\": <1 if PREDICTED contradicts EXPECTED, else 0>, \"reasoning\": \"<one sentence>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "catalog-mistral-large-4-v1/incident": {
+   "model": "mistralai/mistral-large-4-1t-a52b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "INCIDENT_JUDGE_REQUEST\nYou are scoring whether two incident descriptions describe the same underlying\nevent, allowing for different wording, phrasing, and level of detail. Score\n0.0 (unrelated events) to 1.0 (semantically equivalent). Respond with a JSON\nobject: {\"score\": <float 0.0-1.0>, \"reasoning\": \"<one sentence>\"}."
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "catalog-mistral-large-4-v1/fact": {
+   "model": "mistralai/mistral-large-4-1t-a52b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check one fact against an answer. EXPECTED is a single atomic fact; PREDICTED is a chatbot's answer to a question.\nDecide whether PREDICTED states EXPECTED, in any wording. A fact that is only implied, contradicted, or missing is not\nstated. Ignore everything else in PREDICTED.\n\nReply with JSON only: {\"score\": <1 if PREDICTED states EXPECTED, 0 if it does not; a value between only when the\nwording is genuinely ambiguous>, \"reasoning\": \"<one sentence>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "catalog-mistral-large-4-v1/unsupported": {
+   "model": "mistralai/mistral-large-4-1t-a52b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check an answer for unsupported claims. EXPECTED is the context the chatbot retrieved (incident reports);\nPREDICTED is its answer. Decide whether PREDICTED makes any factual claim about the incidents that EXPECTED does not\nsupport. Hedged statements and refusals are not claims.\n\nReply with JSON only: {\"score\": <1 if PREDICTED contains at least one unsupported claim, else 0>, \"reasoning\": \"<one\nsentence naming the claim, or none>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "catalog-mistral-large-4-v1/contradiction": {
+   "model": "mistralai/mistral-large-4-1t-a52b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check an answer against the ground truth. EXPECTED is the ground-truth report of the incident (or incidents) the\nquestion is about; PREDICTED is a chatbot's answer. Decide whether PREDICTED contradicts EXPECTED: it states something\nEXPECTED shows to be false. A missing detail is not a contradiction.\n\nReply with JSON only: {\"score\": <1 if PREDICTED contradicts EXPECTED, else 0>, \"reasoning\": \"<one sentence>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "switchyard-nemotron-3-nano-v1/incident": {
+   "model": "nvidia/nemotron-3-nano-30b-a3b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "INCIDENT_JUDGE_REQUEST\nYou are scoring whether two incident descriptions describe the same underlying\nevent, allowing for different wording, phrasing, and level of detail. Score\n0.0 (unrelated events) to 1.0 (semantically equivalent). Respond with a JSON\nobject: {\"score\": <float 0.0-1.0>, \"reasoning\": \"<one sentence>\"}."
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "openrouter-gpt-oss-20b-v1/incident": {
+   "model": "openai/gpt-oss-20b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "INCIDENT_JUDGE_REQUEST\nYou are scoring whether two incident descriptions describe the same underlying\nevent, allowing for different wording, phrasing, and level of detail. Score\n0.0 (unrelated events) to 1.0 (semantically equivalent). Respond with a JSON\nobject: {\"score\": <float 0.0-1.0>, \"reasoning\": \"<one sentence>\"}."
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "openrouter-gpt-oss-20b-v1/fact": {
+   "model": "openai/gpt-oss-20b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check one fact against an answer. EXPECTED is a single atomic fact; PREDICTED is a chatbot's answer to a question.\nDecide whether PREDICTED states EXPECTED, in any wording. A fact that is only implied, contradicted, or missing is not\nstated. Ignore everything else in PREDICTED.\n\nReply with JSON only: {\"score\": <1 if PREDICTED states EXPECTED, 0 if it does not; a value between only when the\nwording is genuinely ambiguous>, \"reasoning\": \"<one sentence>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "openrouter-gpt-oss-20b-v1/unsupported": {
+   "model": "openai/gpt-oss-20b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check an answer for unsupported claims. EXPECTED is the context the chatbot retrieved (incident reports);\nPREDICTED is its answer. Decide whether PREDICTED makes any factual claim about the incidents that EXPECTED does not\nsupport. Hedged statements and refusals are not claims.\n\nReply with JSON only: {\"score\": <1 if PREDICTED contains at least one unsupported claim, else 0>, \"reasoning\": \"<one\nsentence naming the claim, or none>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "openrouter-gpt-oss-20b-v1/contradiction": {
+   "model": "openai/gpt-oss-20b",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check an answer against the ground truth. EXPECTED is the ground-truth report of the incident (or incidents) the\nquestion is about; PREDICTED is a chatbot's answer. Decide whether PREDICTED contradicts EXPECTED: it states something\nEXPECTED shows to be false. A missing detail is not a contradiction.\n\nReply with JSON only: {\"score\": <1 if PREDICTED contradicts EXPECTED, else 0>, \"reasoning\": \"<one sentence>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "openrouter-mistral-large-4-v1/incident": {
+   "model": "mistralai/mistral-large-4-0",
+   "messages": [
+    {
+     "role": "system",
+     "content": "INCIDENT_JUDGE_REQUEST\nYou are scoring whether two incident descriptions describe the same underlying\nevent, allowing for different wording, phrasing, and level of detail. Score\n0.0 (unrelated events) to 1.0 (semantically equivalent). Respond with a JSON\nobject: {\"score\": <float 0.0-1.0>, \"reasoning\": \"<one sentence>\"}."
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "openrouter-mistral-large-4-v1/fact": {
+   "model": "mistralai/mistral-large-4-0",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check one fact against an answer. EXPECTED is a single atomic fact; PREDICTED is a chatbot's answer to a question.\nDecide whether PREDICTED states EXPECTED, in any wording. A fact that is only implied, contradicted, or missing is not\nstated. Ignore everything else in PREDICTED.\n\nReply with JSON only: {\"score\": <1 if PREDICTED states EXPECTED, 0 if it does not; a value between only when the\nwording is genuinely ambiguous>, \"reasoning\": \"<one sentence>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "openrouter-mistral-large-4-v1/unsupported": {
+   "model": "mistralai/mistral-large-4-0",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check an answer for unsupported claims. EXPECTED is the context the chatbot retrieved (incident reports);\nPREDICTED is its answer. Decide whether PREDICTED makes any factual claim about the incidents that EXPECTED does not\nsupport. Hedged statements and refusals are not claims.\n\nReply with JSON only: {\"score\": <1 if PREDICTED contains at least one unsupported claim, else 0>, \"reasoning\": \"<one\nsentence naming the claim, or none>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  },
+  "openrouter-mistral-large-4-v1/contradiction": {
+   "model": "mistralai/mistral-large-4-0",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You check an answer against the ground truth. EXPECTED is the ground-truth report of the incident (or incidents) the\nquestion is about; PREDICTED is a chatbot's answer. Decide whether PREDICTED contradicts EXPECTED: it states something\nEXPECTED shows to be false. A missing detail is not a contradiction.\n\nReply with JSON only: {\"score\": <1 if PREDICTED contradicts EXPECTED, else 0>, \"reasoning\": \"<one sentence>\"}\n"
+    },
+    {
+     "role": "user",
+     "content": "EXPECTED: Two men fight at the café door; the man in red swings a wooden stick at the man in blue.\nPREDICTED: A man in a red jacket hits another man with a stick near a café entrance — he falls."
+    }
+   ],
+   "temperature": 0.0,
+   "max_tokens": 1500
+  }
+ }
+}

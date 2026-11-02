@@ -1,0 +1,66 @@
+{
+  "registry_version": 1,
+  "note": "Append-only. Prompts that generate or validate V2 references; never sent to a subject. A changed prompt is a new id with a parent; never edit or remove an entry or its file.",
+  "prompts": [
+    {
+      "id": "gen-box-select-v1",
+      "purpose": "box_reference",
+      "role": "generator",
+      "file": "box_reference/gen-box-select-v1.txt",
+      "sha256": "489e194fa6d18b2a812f856d516b4aeea85c79986b22b769896f67f2182117a6",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "First pass of a box reference: pick the numbered detector proposal that contains the ground-truth item, per frame."
+    },
+    {
+      "id": "gen-box-validate-v1",
+      "purpose": "box_reference",
+      "role": "validator",
+      "file": "box_reference/gen-box-validate-v1.txt",
+      "sha256": "8cfa761953c6b3029a94f8a5614e30c7762a1aacca2c7d7cf6a882f544433ca5",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "Blind second pass on offset frames with its own numbering; never shown the first pass."
+    },
+    {
+      "id": "gen-chat-wording-v1",
+      "purpose": "chat_reference",
+      "role": "generator",
+      "file": "chat_reference/gen-chat-wording-v1.txt",
+      "sha256": "52e833f9ee3af450d15cc0c440c2832d7a30ec748d66a9c698478011b0d47936",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "Words a chat question (and two paraphrases) for a code-computed answer, or writes atomic facts."
+    },
+    {
+      "id": "gen-chat-rederive-v1",
+      "purpose": "chat_reference",
+      "role": "validator",
+      "file": "chat_reference/gen-chat-rederive-v1.txt",
+      "sha256": "6895523d3fb44519b18c30db0a0d39707521673327147d3e2c901d7a3d60a6e7",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "Blind re-derivation: answers the question from the report alone, never shown the reference."
+    },
+    {
+      "id": "gen-dashboard-request-v1",
+      "purpose": "dashboard_reference",
+      "role": "generator",
+      "file": "dashboard_reference/gen-dashboard-request-v1.txt",
+      "sha256": "2aa7c15574e2b92b9ae559c3f0d6883e3a153062c86cb85f59340bf96197e0e1",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "Words a chart request (and two paraphrases) for a code-chosen allowlisted spec, or an unsupported one."
+    },
+    {
+      "id": "gen-dashboard-respec-v1",
+      "purpose": "dashboard_reference",
+      "role": "validator",
+      "file": "dashboard_reference/gen-dashboard-respec-v1.txt",
+      "sha256": "f9108701b77e23ecfcb3395153e1299a6a5ffcb23dfa62e0bfc4b7f369796d51",
+      "parent": null,
+      "created": "2026-11-01",
+      "notes": "Blind re-derivation of the spec from the request and the allowlist; never shown the expected spec."
+    }
+  ]
+}
