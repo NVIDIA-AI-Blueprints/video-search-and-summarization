@@ -30,6 +30,8 @@ Every C3 table and slide that shows held-out numbers should carry a one-line ver
 
 ## 5. Is an additional independent test set feasible?
 
+The full plan (sourcing, four-person labelling, isolation, inference) is in [v2-fresh-test-set-proposal.md](v2-fresh-test-set-proposal.md).
+
 **Option A, recommended if time allows: a small fresh test set ("test-fresh").**
 - **Clips:** about 20 new clips, 4 per incident type, from the same public sources. Duplicates, near-duplicates and any clip already in the 80 are excluded by file hash and visual check.
 - **Labelling:** the same protocol as `ground-truth-v1.0`.
