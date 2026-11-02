@@ -496,7 +496,8 @@ class TestProductionUnchanged:
         production = Gateway(fake_r2)
         result, persist = await _analyze(production, model_run_id="run1")
         puts = [key for event, key in fake_r2.events if event == "put"]
-        assert puts == [f"scratch/analyze/v1/run1/{i}.mp4" for i in range(3)]
+        # Windows upload concurrently (asyncio.to_thread), so the put order can vary under load; the set is fixed.
+        assert sorted(puts) == [f"scratch/analyze/v1/run1/{i}.mp4" for i in range(3)]
         assert all(event != "delete_one" for event, _ in fake_r2.events), "production deletes once, at the end"
         assert sorted(fake_r2.deleted) == puts and fake_r2.objects == {}
         assert result.experiment is None and result.revision_id == 7
