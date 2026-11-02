@@ -157,6 +157,7 @@ The `test_every_adapter_meets_the_conformance_contract` test applies to every ad
 - `budget_mode: hard_stop` in a config marks its caps as an approved budget below the pessimistic worst case: preflight lists the gap under `hard_stop` instead of failing.
 - Track B's caption pass runs only with the gated `production-v4-captions` profile (`experiment_captions: "inline"`, 30 caption calls, agent PR #439), sent only when the marker lists it in `enabled_profiles`. `chunking.enabled` varies per clip and is recorded per run, never pinned.
 - Launch commands, the marker format and the pilot budgets: [`methodology/v2-run-readiness.md`](methodology/v2-run-readiness.md#2-launch-commands).
+- Development pilot results (development split only, no held-out results): [`methodology/v2-dev-pilot-results.md`](methodology/v2-dev-pilot-results.md); chart-ready tables and figures in [`methodology/results/v2-dev/`](methodology/results/v2-dev/), regenerated with `scripts/v2_dev_results_export.py`.
 
 Commands are in the [`incident-run-eval`](../skills/incident-run-eval/SKILL.md) skill. Tests live in `tests/v2/` and run with `uv run pytest tests/`. Only `run --live`, a live `score` and `python -m evalv2.probe --live` call a model, each behind `EVALV2_ALLOW_LIVE` (or the probe's marker) and an approval marker; the tests use fakes.
 
