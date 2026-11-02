@@ -1463,3 +1463,8 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
 - **Why:** The campus firewall on `kwanz-ws` drops outbound port 5432, so raw Postgres drivers fail; PostgREST lacks client-held transactions, so each write is one row.
 - **Rejected:** direct Postgres / `asyncpg` on the VM.
 - **Links:** [`data.md`](data.md); `services/agent/src/vss_agents/utils/incident_db.py`.
+
+### 2026-11-02: `compose up --yes` in every start path
+- **Decision:** Every `docker compose up` that start.sh reaches (`vm-ensure-docker.sh`, `tracking-stack.sh`, `rebuild-svc.sh`) passes `--yes`.
+- **Why:** Compose 2.35.1 asks "Volume exists but doesn't match configuration. Recreate?" and waits on stdin, which hung start.sh for 13 minutes over no-tty ssh. With stdin closed and no `--yes` it does not abort, it silently keeps the old container. `--yes` recreates both. Verified on kwanz-ws with a throwaway project.
+- **Rejected:** piping `yes` (undocumented, masks other prompts); `down -v` first (destroys unrelated state).

@@ -67,7 +67,9 @@
 #      Starting Docker services runs .scripts/vm-ensure-docker.sh on the VM
 #      (piped over SSH): it clones the repo if the checkout is missing, fixes a
 #      stale HOST_IP in generated.env.remote (backed up first), pulls missing
-#      images, then runs `docker compose up -d` under a timeout. Every step is
+#      images, then runs `docker compose up -d --yes` under a timeout (--yes
+#      recreates volumes/containers that no longer match the config instead
+#      of prompting). Every step is
 #      bounded and fails with a message instead of hanging.
 #   3. The tunnel step is laptop-side only (same hostname guard the old
 #      `mdx-tunnel-incident` alias had — refuse if run ON kwanz-ws:
