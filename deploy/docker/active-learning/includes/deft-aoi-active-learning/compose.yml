@@ -178,10 +178,10 @@ services:
     - -port=8333
     - -filer=seaweedfs-filer:8888
     environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
     ports:
-    - ${SEAWEEDFS_S3_PORT:-8333}:8333
+    - ${SEAWEEDFS_S3_BIND_ADDRESS:-127.0.0.1}:${SEAWEEDFS_S3_PORT:-8333}:8333
     depends_on:
       seaweedfs-filer:
         condition: service_started
@@ -203,16 +203,16 @@ services:
     container_name: seaweedfs-bucket-bootstrap
     command:
     - -c
-    - set -eu; attempt=0; until aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET" >/dev/null 2>&1;
-      do attempt=$((attempt + 1)); aws --endpoint-url "$AWS_ENDPOINT" s3api create-bucket --bucket "$AWS_BUCKET" >/dev/null
-      2>&1 || true; if [ "$((attempt))" -ge "$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $AWS_BUCKET was not ready after
-      $((attempt)) attempts." >&2; aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET"; exit 1; fi;
-      echo "Waiting for S3 bucket $AWS_BUCKET at $AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $AWS_BUCKET is ready."
+    - set -eu; attempt=0; until aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET" >/dev/null 2>&1;
+      do attempt=$$((attempt + 1)); aws --endpoint-url "$$AWS_ENDPOINT" s3api create-bucket --bucket "$$AWS_BUCKET" >/dev/null
+      2>&1 || true; if [ "$$((attempt))" -ge "$$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $$AWS_BUCKET was not ready after
+      $$((attempt)) attempts." >&2; aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET"; exit 1; fi;
+      echo "Waiting for S3 bucket $$AWS_BUCKET at $$AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $$AWS_BUCKET is ready."
     entrypoint:
     - sh
     environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       S3_READY_MAX_ATTEMPTS: ${S3_READY_MAX_ATTEMPTS:-150}
@@ -244,8 +244,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR:-1}
       KAFKA_LOG_DIRS: ${KAFKA_LOG_DIRS:-/var/lib/kafka/data}
     ports:
-    - ${KAFKA_INTERNAL_PORT:-9092}:9092
-    - ${KAFKA_EXTERNAL_PORT:-9094}:9094
+    - 127.0.0.1:${KAFKA_EXTERNAL_PORT:-9094}:9094
     volumes:
     - kafka-data:/var/lib/kafka/data
     networks:
@@ -467,17 +466,17 @@ services:
     image: amazon/aws-cli:2.36.9
     command:
     - -c
-    - set -eu; attempt=0; until aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET" >/dev/null 2>&1;
-      do attempt=$((attempt + 1)); if [ "$((attempt))" -ge "$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $AWS_BUCKET was
-      not ready after $((attempt)) attempts." >&2; aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET";
-      exit 1; fi; echo "Waiting for S3 bucket $AWS_BUCKET at $AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $AWS_BUCKET
+    - set -eu; attempt=0; until aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET" >/dev/null 2>&1;
+      do attempt=$$((attempt + 1)); if [ "$$((attempt))" -ge "$$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $$AWS_BUCKET was
+      not ready after $$((attempt)) attempts." >&2; aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET";
+      exit 1; fi; echo "Waiting for S3 bucket $$AWS_BUCKET at $$AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $$AWS_BUCKET
       is ready."
     entrypoint:
     - sh
     environment:
-      AWS_ENDPOINT: s3/http://seaweedfs-s3:8333
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ENDPOINT: http://seaweedfs-s3:8333
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       S3_READY_MAX_ATTEMPTS: ${S3_READY_MAX_ATTEMPTS:-150}
@@ -533,10 +532,10 @@ services:
     container_name: backend-api
     environment:
       AWS_PUBLIC_ENDPOINT: ${AWS_PUBLIC_ENDPOINT:-}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
-      KAFKA_TOPIC: ${AOI_BACKEND_KAFKA_TOPIC:-aoi-metadata}
+      KAFKA_TOPIC: aoi-metadata
       INFERENCE_ENABLED: ${INFERENCE_ENABLED:-true}
       AOI_CLIENT_TIMEOUT_S: ${AOI_CLIENT_TIMEOUT_S:-10}
       AOI_CLIENT_MAX_RETRIES: ${AOI_CLIENT_MAX_RETRIES:-3}
@@ -617,7 +616,7 @@ services:
       AOI2_BASE_URL: http://aoi-inference:5000
       AOI2_BATCH_PATH: ${AOI2_BATCH_PATH:-/v1/predict:batch}
       AOI2_READY_PATH: ${AOI2_READY_PATH:-/v1/ready}
-      KAFKA_TOPIC: ${AOI_CLIENT_KAFKA_TOPIC:-aoi-inference-results}
+      KAFKA_TOPIC: aoi-inference-results
       SEMAPHORE_PERMITS: ${SEMAPHORE_PERMITS:-48}
       INTAKE_QUEUE_SIZE: ${INTAKE_QUEUE_SIZE:-64}
       BATCH_SIZE: ${BATCH_SIZE:-16}
@@ -679,7 +678,7 @@ services:
     image: ${AOI_ARCHIVER_IMAGE:-nvcr.io/0691049440816435/mdx/al-archiver:v0.0.1}
     container_name: al-archiver
     environment:
-      KAFKA_TOPIC: ${AOI_ARCHIVER_KAFKA_TOPIC:-aoi-inference-results}
+      KAFKA_TOPIC: aoi-inference-results
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID:-al-archiver}
       BE_INFERENCE_RESULT_PATH: ${BE_INFERENCE_RESULT_PATH:-/api/inference-results}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -741,17 +740,17 @@ services:
     image: amazon/aws-cli:2.36.9
     command:
     - -c
-    - set -eu; attempt=0; until aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET" >/dev/null 2>&1;
-      do attempt=$((attempt + 1)); if [ "$((attempt))" -ge "$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $AWS_BUCKET was
-      not ready after $((attempt)) attempts." >&2; aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET";
-      exit 1; fi; echo "Waiting for S3 bucket $AWS_BUCKET at $AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $AWS_BUCKET
+    - set -eu; attempt=0; until aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET" >/dev/null 2>&1;
+      do attempt=$$((attempt + 1)); if [ "$$((attempt))" -ge "$$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $$AWS_BUCKET was
+      not ready after $$((attempt)) attempts." >&2; aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET";
+      exit 1; fi; echo "Waiting for S3 bucket $$AWS_BUCKET at $$AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $$AWS_BUCKET
       is ready."
     entrypoint:
     - sh
     environment:
-      AWS_ENDPOINT: s3/http://seaweedfs-s3:8333
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ENDPOINT: http://seaweedfs-s3:8333
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       S3_READY_MAX_ATTEMPTS: ${S3_READY_MAX_ATTEMPTS:-150}
@@ -768,8 +767,8 @@ services:
     - -m
     - snapshot_worker.slice_service
     environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       ES_URL: http://elasticsearch:9200
@@ -825,17 +824,17 @@ services:
     image: amazon/aws-cli:2.36.9
     command:
     - -c
-    - set -eu; attempt=0; until aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET" >/dev/null 2>&1;
-      do attempt=$((attempt + 1)); if [ "$((attempt))" -ge "$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $AWS_BUCKET was
-      not ready after $((attempt)) attempts." >&2; aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET";
-      exit 1; fi; echo "Waiting for S3 bucket $AWS_BUCKET at $AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $AWS_BUCKET
+    - set -eu; attempt=0; until aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET" >/dev/null 2>&1;
+      do attempt=$$((attempt + 1)); if [ "$$((attempt))" -ge "$$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $$AWS_BUCKET was
+      not ready after $$((attempt)) attempts." >&2; aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET";
+      exit 1; fi; echo "Waiting for S3 bucket $$AWS_BUCKET at $$AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $$AWS_BUCKET
       is ready."
     entrypoint:
     - sh
     environment:
-      AWS_ENDPOINT: s3/http://seaweedfs-s3:8333
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ENDPOINT: http://seaweedfs-s3:8333
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       S3_READY_MAX_ATTEMPTS: ${S3_READY_MAX_ATTEMPTS:-150}
@@ -853,8 +852,8 @@ services:
     - -m
     - snapshot_worker.finalizer_service
     environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       ES_URL: http://elasticsearch:9200
@@ -908,17 +907,17 @@ services:
     image: amazon/aws-cli:2.36.9
     command:
     - -c
-    - set -eu; attempt=0; until aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET" >/dev/null 2>&1;
-      do attempt=$((attempt + 1)); if [ "$((attempt))" -ge "$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $AWS_BUCKET was
-      not ready after $((attempt)) attempts." >&2; aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET";
-      exit 1; fi; echo "Waiting for S3 bucket $AWS_BUCKET at $AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $AWS_BUCKET
+    - set -eu; attempt=0; until aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET" >/dev/null 2>&1;
+      do attempt=$$((attempt + 1)); if [ "$$((attempt))" -ge "$$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $$AWS_BUCKET was
+      not ready after $$((attempt)) attempts." >&2; aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET";
+      exit 1; fi; echo "Waiting for S3 bucket $$AWS_BUCKET at $$AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $$AWS_BUCKET
       is ready."
     entrypoint:
     - sh
     environment:
-      AWS_ENDPOINT: s3/http://seaweedfs-s3:8333
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ENDPOINT: http://seaweedfs-s3:8333
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       S3_READY_MAX_ATTEMPTS: ${S3_READY_MAX_ATTEMPTS:-150}
@@ -935,8 +934,8 @@ services:
     - -m
     - eval_set_worker.slice_service
     environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       EVAL_SLICES_TOPIC: ${EVAL_SLICES_TOPIC:-eval-slices}
       EVAL_RESULTS_TOPIC: ${EVAL_RESULTS_TOPIC:-eval-results}
@@ -1001,17 +1000,17 @@ services:
     image: amazon/aws-cli:2.36.9
     command:
     - -c
-    - set -eu; attempt=0; until aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET" >/dev/null 2>&1;
-      do attempt=$((attempt + 1)); if [ "$((attempt))" -ge "$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $AWS_BUCKET was
-      not ready after $((attempt)) attempts." >&2; aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET";
-      exit 1; fi; echo "Waiting for S3 bucket $AWS_BUCKET at $AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $AWS_BUCKET
+    - set -eu; attempt=0; until aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET" >/dev/null 2>&1;
+      do attempt=$$((attempt + 1)); if [ "$$((attempt))" -ge "$$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $$AWS_BUCKET was
+      not ready after $$((attempt)) attempts." >&2; aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET";
+      exit 1; fi; echo "Waiting for S3 bucket $$AWS_BUCKET at $$AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $$AWS_BUCKET
       is ready."
     entrypoint:
     - sh
     environment:
-      AWS_ENDPOINT: s3/http://seaweedfs-s3:8333
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ENDPOINT: http://seaweedfs-s3:8333
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       S3_READY_MAX_ATTEMPTS: ${S3_READY_MAX_ATTEMPTS:-150}
@@ -1029,8 +1028,8 @@ services:
     - -m
     - eval_set_worker.summary_service
     environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       EVAL_SLICES_TOPIC: ${EVAL_SLICES_TOPIC:-eval-slices}
       EVAL_RESULTS_TOPIC: ${EVAL_RESULTS_TOPIC:-eval-results}
@@ -1093,17 +1092,17 @@ services:
     image: amazon/aws-cli:2.36.9
     command:
     - -c
-    - set -eu; attempt=0; until aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET" >/dev/null 2>&1;
-      do attempt=$((attempt + 1)); if [ "$((attempt))" -ge "$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $AWS_BUCKET was
-      not ready after $((attempt)) attempts." >&2; aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET";
-      exit 1; fi; echo "Waiting for S3 bucket $AWS_BUCKET at $AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $AWS_BUCKET
+    - set -eu; attempt=0; until aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET" >/dev/null 2>&1;
+      do attempt=$$((attempt + 1)); if [ "$$((attempt))" -ge "$$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $$AWS_BUCKET was
+      not ready after $$((attempt)) attempts." >&2; aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET";
+      exit 1; fi; echo "Waiting for S3 bucket $$AWS_BUCKET at $$AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $$AWS_BUCKET
       is ready."
     entrypoint:
     - sh
     environment:
-      AWS_ENDPOINT: s3/http://seaweedfs-s3:8333
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ENDPOINT: http://seaweedfs-s3:8333
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       S3_READY_MAX_ATTEMPTS: ${S3_READY_MAX_ATTEMPTS:-150}
@@ -1120,8 +1119,8 @@ services:
     - -m
     - kpi_worker.slice_service
     environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       KPI_SLICES_TOPIC: ${KPI_SLICES_TOPIC:-kpi-slices}
       KPI_SUMMARY_TOPIC: ${KPI_SUMMARY_TOPIC:-kpi-summary}
@@ -1180,17 +1179,17 @@ services:
     image: amazon/aws-cli:2.36.9
     command:
     - -c
-    - set -eu; attempt=0; until aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET" >/dev/null 2>&1;
-      do attempt=$((attempt + 1)); if [ "$((attempt))" -ge "$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $AWS_BUCKET was
-      not ready after $((attempt)) attempts." >&2; aws --endpoint-url "$AWS_ENDPOINT" s3api head-bucket --bucket "$AWS_BUCKET";
-      exit 1; fi; echo "Waiting for S3 bucket $AWS_BUCKET at $AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $AWS_BUCKET
+    - set -eu; attempt=0; until aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET" >/dev/null 2>&1;
+      do attempt=$$((attempt + 1)); if [ "$$((attempt))" -ge "$$S3_READY_MAX_ATTEMPTS" ]; then echo "S3 bucket $$AWS_BUCKET was
+      not ready after $$((attempt)) attempts." >&2; aws --endpoint-url "$$AWS_ENDPOINT" s3api head-bucket --bucket "$$AWS_BUCKET";
+      exit 1; fi; echo "Waiting for S3 bucket $$AWS_BUCKET at $$AWS_ENDPOINT..."; sleep 2; done; echo "S3 bucket $$AWS_BUCKET
       is ready."
     entrypoint:
     - sh
     environment:
-      AWS_ENDPOINT: s3/http://seaweedfs-s3:8333
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ENDPOINT: http://seaweedfs-s3:8333
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       S3_READY_MAX_ATTEMPTS: ${S3_READY_MAX_ATTEMPTS:-150}
@@ -1208,8 +1207,8 @@ services:
     - -m
     - kpi_worker.finalizer_service
     environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-seaweedfs}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-seaweedfs}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env.secrets}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env.secrets}
       AWS_BUCKET: ${AWS_BUCKET:-aoi-samples}
       KPI_SLICES_TOPIC: ${KPI_SLICES_TOPIC:-kpi-slices}
       KPI_SUMMARY_TOPIC: ${KPI_SUMMARY_TOPIC:-kpi-summary}

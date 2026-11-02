@@ -94,7 +94,7 @@ services:
     - --source
     - /opt/data-flywheel/config/config.deft.yaml
     - --output
-    - /tmp/data-flywheel/config.deft.yaml
+    - ${DFW_CONFIG_PATH:-/tmp/data-flywheel/config.deft.yaml}
     - --
     environment:
       BACKEND: ${BACKEND:-deft}
@@ -240,7 +240,6 @@ services:
     - --queues=celery
     - -n
     - main_worker@%h
-    - --purge
     entrypoint:
     - uv
     - run
@@ -249,7 +248,7 @@ services:
     - --source
     - /opt/data-flywheel/config/config.deft.yaml
     - --output
-    - /tmp/data-flywheel/config.deft.yaml
+    - ${DFW_CONFIG_PATH:-/tmp/data-flywheel/config.deft.yaml}
     - --
     environment:
       BACKEND: ${BACKEND:-deft}
@@ -393,7 +392,6 @@ services:
     - --queues=parent_queue
     - -n
     - parent_worker@%h
-    - --purge
     entrypoint:
     - uv
     - run
@@ -402,7 +400,7 @@ services:
     - --source
     - /opt/data-flywheel/config/config.deft.yaml
     - --output
-    - /tmp/data-flywheel/config.deft.yaml
+    - ${DFW_CONFIG_PATH:-/tmp/data-flywheel/config.deft.yaml}
     - --
     environment:
       BACKEND: ${BACKEND:-deft}
@@ -551,7 +549,7 @@ services:
     - --source
     - /opt/data-flywheel/config/config.deft.yaml
     - --output
-    - /tmp/data-flywheel/config.deft.yaml
+    - ${DFW_CONFIG_PATH:-/tmp/data-flywheel/config.deft.yaml}
     - --
     environment:
       BACKEND: ${BACKEND:-deft}

@@ -52,3 +52,6 @@ deploy/helm/**/charts/*.tgz
 # the Dockerfiles' pinned VSS_REF fetch).
 .openclaw/.vss-src/
 .hermes/.vss-src/
+
+# AOI Active Learning secrets (copy .env.secrets.example to .env.secrets)
+deploy/docker/active-learning/.env.secrets
