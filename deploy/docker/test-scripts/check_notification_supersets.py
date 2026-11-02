@@ -9,8 +9,9 @@ superset: one item per capability per event, every item carrying an id, so a
 build resolves its fan-out by setting `enabled` alone. This checks the item
 inventory and the stock enable vector -- what a build that inherits the config
 actually gets -- against the expectations in
-skills/vss-build-vision-ai/references/services/vios.md, and checks that the Helm
-copy of each superset carries the same items, flags and requests.
+skills/vss-build-vision-ai/references/services/vios.md, checks that the Helm
+copy of each superset carries the same items, flags and requests, and checks
+that RTSP-only receivers are never sent file sources.
 
 Usage: check_notification_supersets.py <deploy/docker>
 """
@@ -64,6 +65,11 @@ MODE_FILES = {
     },
 }
 
+# Receivers that register live RTSP streams only. Alert Bridge hands the camera
+# URL to RT-VLM, which rejects any other scheme, so an uploaded file must be
+# filtered out by camera_type before VIOS posts it.
+RTSP_ONLY = {"alert-bridge-camera-streaming", "alert-bridge-camera-remove"}
+
 
 def items(path: Path) -> list[dict]:
     doc = json.loads(path.read_text(encoding="utf-8"))
@@ -103,6 +109,13 @@ def check(root: Path) -> list[str]:
         found_ids = {item.get("id", "") for item in items(root / relative)}
         if found_ids != expected_ids:
             errors.append(f"{relative}: item ids are {sorted(found_ids)}, expected {sorted(expected_ids)}")
+    for relative in [*EXPECTED, *MODE_FILES]:
+        for item in items(root / relative):
+            if item.get("id") not in RTSP_ONLY:
+                continue
+            for request in item.get("request", []):
+                if request.get("camera_type") != ["rtsp"]:
+                    errors.append(f"{relative}: item {item['id']} camera_type must be [\"rtsp\"]")
     helm_root = root.parent / "helm"
     for relative, (docker_relative, docker_only, docker_only_fields) in HELM_MIRRORS.items():
         expected = {k: v for k, v in EXPECTED[docker_relative].items() if k not in docker_only}

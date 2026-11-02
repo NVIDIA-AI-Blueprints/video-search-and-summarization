@@ -26,7 +26,7 @@
             "headers": {
               "Content-Type": "application/json"
             },
-            "camera_type": ["rtsp", "file"],
+            "camera_type": ["rtsp"],
             "timeout_ms": 10000,
             "retry": {
               "max_attempts": 60,
@@ -47,7 +47,7 @@
             "headers": {
               "Content-Type": "application/json"
             },
-            "camera_type": ["rtsp", "file"],
+            "camera_type": ["rtsp"],
             "timeout_ms": 10000,
             "retry": {
               "max_attempts": 60,

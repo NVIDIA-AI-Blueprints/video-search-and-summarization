@@ -165,8 +165,7 @@
                             "Content-Type": "application/json"
                         },
                         "camera_type": [
-                            "rtsp",
-                            "file"
+                            "rtsp"
                         ],
                         "timeout_ms": 10000,
                         "retry": {
@@ -310,8 +309,7 @@
                             "Content-Type": "application/json"
                         },
                         "camera_type": [
-                            "rtsp",
-                            "file"
+                            "rtsp"
                         ],
                         "timeout_ms": 10000,
                         "retry": {

@@ -74,6 +74,7 @@ class AlwaysOnReason:
     ADD_PARTIAL_SUCCESS = "STREAM_ADD_PARTIAL_SUCCESS"
     ADD_FAILED = "STREAM_ADD_FAILED"
     ADD_ALREADY_ACTIVE = "STREAM_ADD_ALREADY_ACTIVE"
+    ADD_SKIPPED = "STREAM_ADD_SKIPPED"
     REMOVE_SUCCESS = "STREAM_REMOVE_SUCCESS"
     REMOVE_FAILED = "STREAM_REMOVE_FAILED"
 
@@ -353,6 +354,7 @@ class AlwaysOnService:
         camera_id: str,
         camera_url: str,
         camera_name: str,
+        camera_type: Optional[str] = None,
     ) -> AlwaysOnResult:
         """Fan out ``camera_streaming`` across every configured rule.
 
@@ -375,17 +377,52 @@ class AlwaysOnService:
 
         Args:
             camera_id: Unique camera identifier from the lifecycle event.
-            camera_url: RTSP URL of the live stream.
+            camera_url: RTSP URL of the live stream. Any other URL (an
+                uploaded file, sent as an HTTP URL or a file path) is
+                skipped. The check is on the URL only, so a file sensor
+                served over ``rtsp://`` is not skipped here; keeping
+                files out relies on the sender's ``camera_type`` filter.
             camera_name: Human-readable camera label forwarded to RTVI
                 as ``sensor_name``.
+            camera_type: Camera type from the event, when the sender
+                provides one (VIOS sends ``rtsp``, ``file``, ...). Used
+                only to log a skipped non-file camera as a warning.
 
         Returns:
             An :class:`AlwaysOnResult` carrying a fan-out-style
-            response. ``CONFIG_ERROR`` is returned if the rules config
-            is unusable; otherwise one of ``STREAM_ADD_SUCCESS``,
+            response. ``STREAM_ADD_SKIPPED`` is returned for a non-RTSP
+            ``camera_url`` and ``CONFIG_ERROR`` if the rules config is
+            unusable; otherwise one of ``STREAM_ADD_SUCCESS``,
             ``STREAM_ADD_PARTIAL_SUCCESS``, ``STREAM_ADD_FAILED``, or
             ``STREAM_ADD_ALREADY_ACTIVE``.
         """
+        # RTVI VLM registers live RTSP streams only: its stream URL must
+        # match ``^rtsp://``, so no rule can ever start for any other
+        # URL. Answer 200 rather than 502: VIOS retries a 502 although
+        # every retry fails the same way.
+        if not camera_url.startswith("rtsp://"):
+            # An uploaded file is the expected case. A camera the sender
+            # says is not a file is a live source that will never be
+            # monitored, so make it stand out. Log the scheme, not the
+            # URL, which can carry credentials.
+            level = (
+                logging.WARNING
+                if camera_type and camera_type != "file"
+                else logging.INFO
+            )
+            logger.log(
+                level,
+                "camera_streaming for camera_id=%s skipped: camera_url is "
+                "not an RTSP URL (scheme=%r, camera_type=%r), and RTVI VLM "
+                "accepts RTSP streams only",
+                camera_id,
+                camera_url.partition("://")[0] if "://" in camera_url else "",
+                camera_type,
+            )
+            return AlwaysOnResult(
+                status_code=200, reason=AlwaysOnReason.ADD_SKIPPED,
+            )
+
         try:
             rules = self.load_rules()
         except AlwaysOnRulesConfigError as exc:
