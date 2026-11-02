@@ -252,6 +252,15 @@ def _parser() -> argparse.ArgumentParser:
         if name == "run":
             command.add_argument("--dry-run", action="store_true")
             command.add_argument("--live", action="store_true")
+            command.add_argument("--approval", type=Path, help="the owner's evalv2-live-approval-v1 marker")
+            command.add_argument("--out", type=Path, help="private run directory; the same directory resumes the run")
+            command.add_argument("--env-file", type=Path, action="append",
+                                 help="credentials file (default: eval/.env.local, then the profile's .env.local)")
+            command.add_argument("--allow-dirty", action="store_true",
+                                 help="run from an eval tree with uncommitted changes (recorded in the manifest)")
+            command.add_argument("--rpm", type=int, help="Track A requests per minute (default: the gateway's 60)")
+            command.add_argument("--parallel", type=int,
+                                 help="Track A calls in flight (default and maximum: the gateway's 4)")
     audit = sub.add_parser("audit")
     audit_sub = audit.add_subparsers(dest="target", required=True)
     audit_sub.add_parser("frozen-v1")
@@ -464,7 +473,14 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
             return 1
 
     config = load_config(args.config)
-    loader = load_datasets or (lambda cfg: load_for_config(cfg, data_root=args.data_root))
+    base_loader = load_datasets or (lambda cfg: load_for_config(cfg, data_root=args.data_root))
+    loaded: dict[str, Any] = {}
+
+    def loader(cfg: RunConfig) -> dict[str, Any]:  # loaded and verified once, for the plan and a live run
+        if "datasets" not in loaded:
+            loaded["datasets"] = base_loader(cfg)
+        return loaded["datasets"]
+
     try:
         items = plan(config, loader)
     except (KeyError, DatasetError) as exc:
@@ -485,5 +501,71 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
         print(f"refusing a live run: pass --live and set {LIVE_ENV}=1, and only with the owner's approval",
               file=sys.stderr)
         return 2
-    print("live execution is not available yet (it arrives with the adapters and is approval-gated)", file=sys.stderr)
-    return 2
+    return _run_live(args, config, loader, items, problems, hard_stop)
+
+
+def load_env_files(paths: Sequence[Path] | None = None) -> list[str]:
+    """Load credentials from ``.env.local`` files into the environment (values already set win); the names of the
+    files read are returned, never a value."""
+    from dotenv import load_dotenv
+
+    from evalv2.executor import EVAL_DIR
+
+    candidates = list(paths) if paths else [EVAL_DIR / ".env.local", EVAL_DIR.parent / ".env.local"]
+    read = []
+    for path in candidates:
+        if Path(path).is_file():
+            load_dotenv(path, override=False)
+            read.append(str(path))
+    return read
+
+
+def _lazy_signer() -> Callable[[str, int], str]:
+    from evalv2.clips import r2_signer
+
+    made: list[Callable[[str, int], str]] = []
+
+    def sign(key: str, ttl: int) -> str:
+        if not made:
+            made.append(r2_signer())
+        return made[0](key, ttl)
+
+    return sign
+
+
+def _run_live(args: argparse.Namespace, config: RunConfig, loader: DatasetLoader, items: dict[str, list[WorkItem]],
+              problems: list[str], hard_stop: list[str]) -> int:
+    from evalv2.approval import ApprovalRefused, read_approval
+    from evalv2.executor import LiveExecutor, LiveRefused, RunStopped, default_pacer, load_manifest_clips, _track
+
+    refusals = list(problems)
+    marker: dict[str, Any] = {}
+    if args.approval is None:
+        refusals.append("a live run needs an approval marker (--approval FILE, evalv2-live-approval-v1)")
+    else:
+        try:
+            marker = read_approval(args.approval)
+        except ApprovalRefused as exc:
+            refusals.append(str(exc))
+    if args.out is None:
+        refusals.append("a live run needs --out DIR (a private run directory; the same DIR resumes it)")
+    if refusals:
+        print(json.dumps({"ok": False, "refused": refusals}, indent=2))
+        return 2
+    env_files = load_env_files(args.env_file)
+    try:
+        track = _track(config)
+        executor = LiveExecutor(config, loader(config), items, out=args.out, marker=marker, hard_stop=hard_stop,
+                                manifest_clips=load_manifest_clips(), signer=_lazy_signer(),
+                                pacer=default_pacer(track, rpm=args.rpm, parallel=args.parallel),
+                                allow_dirty=args.allow_dirty, log=lambda line: print(line, file=sys.stderr))
+        summary = executor.run()
+    except LiveRefused as exc:
+        print(json.dumps({"ok": False, "refused": exc.problems, "env_files": env_files}, indent=2))
+        return 2
+    except RunStopped as exc:
+        print(json.dumps({"ok": False, "stopped": str(exc), "resume": "fix the cause, then run the same command"},
+                         indent=2))
+        return 3
+    print(json.dumps({"ok": True, **summary}, indent=2))
+    return 0 if summary["sealed"] else 4
