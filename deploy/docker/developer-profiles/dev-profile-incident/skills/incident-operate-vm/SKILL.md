@@ -21,7 +21,7 @@ Canonical facts: [`.docs/incident-profile-operations.md`](../../.docs/incident-p
 | Start the `vss-agent` Docker container | The native agent already owns `:8000` ("no double agent") | `./.scripts/native-services.sh restart vss-agent` |
 | `uv sync` in `services/agent` on the VM | The VM venv was built by hand (editable install plus extras); a sync would replace it and needs `pycairo` build tools | The reinstall procedure below |
 | `_type: nim` for remote models, or a `*_BASE_URL` ending in `/v1` | `nim_langchain` leaks `verify_ssl` into the request body (HTTP 400), and clients append `/v1` themselves | `_type: openai`, bare host URL |
-| Set `INCIDENT_EXPERIMENTS_ENABLED=1` on the shared VM agent | It enables the eval-experiment `/analyze` settings (`experiment_prompt_id`, `skip_crops`, `max_crop_calls`) for every caller | Run prompt experiments on a separate local agent with no Supabase or R2 settings ([vm-api-contracts.md](../../.docs/vm-api-contracts.md#experimental-settings-prompt-experiments-pr-6b)) |
+| Set `INCIDENT_EXPERIMENTS_ENABLED=1` or `INCIDENT_EXPERIMENT_SCRATCH_PREFIX` on the shared VM agent | It enables the eval-experiment `/analyze` settings (`experiment_prompt_id`, `skip_crops`, `max_crop_calls`, `experiment_captions`, ...) for every caller; the prefix lets experiments write caption windows to R2 | Run experiments on a separate local agent with no Supabase or R2 settings; only `experiment_captions: "r2"` adds R2 settings and the owner-approved prefix there ([vm-api-contracts.md](../../.docs/vm-api-contracts.md#experimental-settings-prompt-experiments-pr-6b)) |
 
 **Ask first:** stopping services teammates may be using, editing `generated.env.remote`, or pruning images.
 

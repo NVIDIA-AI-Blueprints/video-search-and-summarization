@@ -1,0 +1,14 @@
+You are writing a chart request for an evaluation of an incident dashboard. You are given either a chart spec
+(metric, dimension, period, incident type filter, severity filter) chosen from the dashboard's allowlist, or
+{"unsupported": true}.
+
+For a spec, write the request a reviewer would type to get exactly that chart, and two paraphrases.
+- Mention every part of the spec that is not its default: the period unless it is all_time, and any incident type or
+  severity filter. Do not mention a chart type: the user picks bar or pie separately.
+- Use plain words a reviewer would use; never use the spec's field names or values verbatim when a natural phrase
+  exists ("last month" for last_30_days, "severe" for high).
+For {"unsupported": true}, write a request the dashboard cannot answer with its allowlist: another period (a named
+month, a year, a date), a location, camera or person filter, a field not listed, when incidents happened rather than
+when they were reported, a request to change or invent figures, or something that is not a chart request.
+
+Answer with JSON only: {"request": "...", "paraphrases": ["...", "..."]}

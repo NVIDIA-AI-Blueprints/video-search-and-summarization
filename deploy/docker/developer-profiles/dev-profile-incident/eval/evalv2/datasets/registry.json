@@ -1,0 +1,41 @@
+{
+  "registry_version": 1,
+  "note": "Append-only. Never edit or remove an entry: a changed dataset is a new id. Only hashes, counts and locations are committed; ground-truth and reference text stays under the gitignored data root.",
+  "datasets": [
+    {
+      "id": "dataset-manifest-v1",
+      "kind": "clips",
+      "description": "The 80 verified clips: R2 keys, durations and categories.",
+      "location": {"root": "eval", "path": "eval_reproducibility/dataset-manifest-v1.json"},
+      "files": {"dataset-manifest-v1.json": "aebb209b527de9bea24ca66a3e5f316fb78385ca62ef9957130341d24a225d8e"},
+      "verification": "verified clip list (V1 PR 1)",
+      "committed": true,
+      "created": "2026-10-27"
+    },
+    {
+      "id": "split-v2",
+      "kind": "split",
+      "description": "25 dev / 55 test, the seeded partition renamed; dev for development and pilots, test for frozen runs.",
+      "location": {"root": "eval", "path": "eval_reproducibility/split-v2.json"},
+      "files": {"split-v2.json": "c03919fa8c9f2436a1efb4164d3cd5d9cfcbfb5102d9637a19a398f24d280579"},
+      "counts": {"dev": 25, "test": 55},
+      "verification": "membership fixed by the seed; frozen with ground-truth-v1.0 (no exclusions)",
+      "committed": true,
+      "created": "2026-10-27"
+    },
+    {
+      "id": "ground-truth-v1.0",
+      "kind": "ground_truth",
+      "description": "Incident and object ground truth for the 80 clips, frozen on 2026-10-28.",
+      "location": {"root": "data", "path": "ground_truth/ground-truth-v1.0"},
+      "files": {
+        "ground_truth.json": "b90654c3c16068ab22d7ba0389224770e66f507f0235d5eabf031d2f1db17f09",
+        "split-v2.json": "1625d5753fde1fab3f3318f115f3a91f43760f1f03f34c4f8820d4703e0fa319"
+      },
+      "records_sha256": "391fcd272bf224af258c543251030ab4457a153f89816d5ace8e37c57bdc24f5",
+      "verification": "human-labelled, AI-adjudicated corrections; not individually human-verified",
+      "committed": false,
+      "created": "2026-10-28"
+    }
+  ]
+}

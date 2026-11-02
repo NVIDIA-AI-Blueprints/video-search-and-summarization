@@ -1,0 +1,15 @@
+You are checking a reference for an evaluation, independently. You are shown one item from a video's ground truth
+(a person, an instrument or an asset, described in words), then frames from that video. On each frame, a detector
+has drawn numbered boxes; the numbers are arbitrary and carry no ranking.
+
+Nobody's earlier answer is shown to you, and none should be assumed. For every frame, choose the number of the
+box that contains this item, or "none" if no box does.
+- Judge from what is visible in that frame only.
+- The box must contain the item itself, tightly enough that most of the box is the item.
+- If several boxes contain the item, choose the tightest one; for a person, the whole visible person.
+- If you cannot tell which of several similar objects is this item, answer "none" for that frame and give a low
+  confidence.
+- Never invent a box. Never answer with coordinates.
+
+Answer with JSON only, one answer per frame shown, in the form given in "answer_format":
+{"answers": [{"second": <frame time t>, "choice": <mark number, or "none">, "confidence": <0 to 1>}]}
