@@ -19,6 +19,7 @@ There is one Supabase project per project phase ([decision](decisions.md)): **fi
 - `20261031090000_dashboard_official_else_newest.sql` — rewrites `get_incident_dashboard` to count official, else newest, with the official split and `p_scope`, and adds `not_official` to `list_incident_report_summaries`.
 - `20261031120000_analysis_jobs.sql` — adds the background analysis queue: the `analysis_jobs` table and `claim_analysis_job`, `touch_analysis_job`, `finish_analysis_job`, `retry_analysis_job` and `cancel_analysis_job`.
 - `20261101090000_video_blur_faces.sql` — the privacy blur: adds `videos.blur_faces`, `analysis_jobs.reanalyse_video_id` and `analysis_jobs.blur_faces`, and `claim_queued_analysis_job`; `claim_analysis_job` (what consoles built before it call) now claims upload jobs only.
+- `20261101120000_dashboard_byte_order_ties.sql` — the same `get_incident_dashboard`, with every tie between equal counts (types, entity, instrument and asset labels, models) broken in byte order (`COLLATE "C"`), whatever the database's collation; it also decides which tied labels make a top-3 or top-8 cut.
 
 Which of these are applied to finals is in [`status.md`](status.md#3-database-status). The midterm history is archived, never to be pushed, in [`supabase/midterm/`](../supabase/midterm/README.md). The SQL harness in `supabase/tests/` builds the schema on a throwaway local Postgres.
 
@@ -342,6 +343,8 @@ stored. It never returns `payload`, notes, signed URLs or video content.
 
 Counts each video once through `searchable_revision_id`: its **official revision, else its newest**,
 the same rule as the library and search (migration `20261031090000_dashboard_official_else_newest.sql`).
+Ranked lists and types sort by count, then by label, type or model name in byte order (`COLLATE "C"`,
+migration `20261101120000`), so ties rank the same on every database.
 It only reads `videos.official_revision_id`, to report the split, and never sets it. Filtered by the
 revision's `created_at` plus optional type, severity band, weekday and hour (in `p_timezone`, default
 UTC) and `p_scope` (`all`, `official` or `not_official`; a caller that omits it gets `official`,

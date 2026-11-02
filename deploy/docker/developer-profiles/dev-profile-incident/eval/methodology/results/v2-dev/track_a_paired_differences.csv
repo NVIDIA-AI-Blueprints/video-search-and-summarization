@@ -1,0 +1,41 @@
+model_a,model_b,metric,a,b,difference,ci_low,ci_high,excludes_zero,lower_is_better,runs_used
+Gemma 4 31B,Cosmos 3 Super,contract_valid,0.48,0.98,-0.5,-0.7,-0.3,True,False,all runs
+Gemma 4 31B,Cosmos 3 Super,end_mae_s,33.4348,9.0,24.4348,2.2142,55.7602,True,True,23 both-valid
+Gemma 4 31B,Cosmos 3 Super,entities_f1,0.6087,0.5669,0.0418,-0.156,0.2262,False,False,23 both-valid
+Gemma 4 31B,Cosmos 3 Super,severity_exact,0.4783,0.087,0.3913,0.1,0.6923,True,False,23 both-valid
+Gemma 4 31B,Cosmos 3 Super,severity_mae,0.5652,1.087,-0.5217,-0.8571,-0.2,True,True,23 both-valid
+Gemma 4 31B,Cosmos 3 Super,severity_qwk,0.5756,0.4456,0.1301,-0.3674,0.3589,False,False,23 both-valid
+Gemma 4 31B,Cosmos 3 Super,start_mae_s,13.1304,8.3913,4.7391,-6.6318,21.2596,False,True,23 both-valid
+Gemma 4 31B,Cosmos 3 Super,type_accuracy,0.8261,0.9565,-0.1304,-0.375,0.0741,False,False,23 both-valid
+Cosmos 3 Nano,Cosmos 3 Super,contract_valid,0.96,0.98,-0.02,-0.12,0.06,False,False,all runs
+Cosmos 3 Nano,Cosmos 3 Super,end_mae_s,6.234,7.2128,-0.9787,-3.3619,0.766,False,True,47 both-valid
+Cosmos 3 Nano,Cosmos 3 Super,entities_f1,0.1559,0.5963,-0.4404,-0.6118,-0.043,True,False,47 both-valid
+Cosmos 3 Nano,Cosmos 3 Super,severity_exact,0.1915,0.2128,-0.0213,-0.1957,0.1633,False,False,47 both-valid
+Cosmos 3 Nano,Cosmos 3 Super,severity_mae,1.234,0.9574,0.2766,-0.0652,0.6327,False,True,47 both-valid
+Cosmos 3 Nano,Cosmos 3 Super,severity_qwk,0.3006,0.5001,-0.1995,-0.4513,0.0173,False,False,47 both-valid
+Cosmos 3 Nano,Cosmos 3 Super,start_mae_s,6.2553,6.5319,-0.2766,-3.5748,2.5319,False,True,47 both-valid
+Cosmos 3 Nano,Cosmos 3 Super,type_accuracy,0.9362,0.9787,-0.0426,-0.1556,0.0435,False,False,47 both-valid
+Nemotron 3 Nano Omni,Cosmos 3 Super,contract_valid,0.52,0.98,-0.46,-0.64,-0.28,True,False,all runs
+Nemotron 3 Nano Omni,Cosmos 3 Super,end_mae_s,7.4,7.8,-0.4,-2.8636,1.8667,False,True,25 both-valid
+Nemotron 3 Nano Omni,Cosmos 3 Super,entities_f1,0.4615,0.6299,-0.1684,-0.3593,0.0216,False,False,25 both-valid
+Nemotron 3 Nano Omni,Cosmos 3 Super,severity_exact,0.44,0.28,0.16,-0.0952,0.4286,False,False,25 both-valid
+Nemotron 3 Nano Omni,Cosmos 3 Super,severity_mae,0.6,0.92,-0.32,-0.7407,0.0455,False,True,25 both-valid
+Nemotron 3 Nano Omni,Cosmos 3 Super,severity_qwk,0.6646,0.4828,0.1818,-0.1172,0.4849,False,False,25 both-valid
+Nemotron 3 Nano Omni,Cosmos 3 Super,start_mae_s,7.76,4.44,3.32,-1.6365,9.2502,False,True,25 both-valid
+Nemotron 3 Nano Omni,Cosmos 3 Super,type_accuracy,0.72,1.0,-0.28,-0.5185,-0.08,True,False,25 both-valid
+Qwen3.5-9B,Gemma 4 31B,contract_valid,0.76,0.48,0.28,-0.02,0.56,False,False,all runs
+Qwen3.5-9B,Gemma 4 31B,end_mae_s,9.0,20.2857,-11.2857,-40.6276,3.625,False,True,14 both-valid
+Qwen3.5-9B,Gemma 4 31B,entities_f1,0.4,0.5965,-0.1965,-0.516,-0.004,True,False,14 both-valid
+Qwen3.5-9B,Gemma 4 31B,severity_exact,0.5714,0.6429,-0.0714,-0.4,0.1667,False,False,14 both-valid
+Qwen3.5-9B,Gemma 4 31B,severity_mae,0.4286,0.4286,0.0,-0.2667,0.375,False,True,14 both-valid
+Qwen3.5-9B,Gemma 4 31B,severity_qwk,0.7742,0.7083,0.0659,-0.3611,0.1753,False,False,14 both-valid
+Qwen3.5-9B,Gemma 4 31B,start_mae_s,5.0,10.9286,-5.9286,-22.4167,2.5333,False,True,14 both-valid
+Qwen3.5-9B,Gemma 4 31B,type_accuracy,0.8571,0.8571,0.0,-0.3636,0.3846,False,False,14 both-valid
+Qwen3.5-9B,Cosmos 3 Super,contract_valid,0.76,0.98,-0.22,-0.36,-0.1,True,False,all runs
+Qwen3.5-9B,Cosmos 3 Super,end_mae_s,6.6842,6.5526,0.1316,-1.75,1.6571,False,True,38 both-valid
+Qwen3.5-9B,Cosmos 3 Super,entities_f1,0.5075,0.6506,-0.1431,-0.3609,0.0682,False,False,38 both-valid
+Qwen3.5-9B,Cosmos 3 Super,severity_exact,0.5263,0.2632,0.2632,0.0,0.5,False,False,38 both-valid
+Qwen3.5-9B,Cosmos 3 Super,severity_mae,0.6053,0.9211,-0.3158,-0.6765,0.0968,False,True,38 both-valid
+Qwen3.5-9B,Cosmos 3 Super,severity_qwk,0.524,0.4701,0.0539,-0.2999,0.4145,False,False,38 both-valid
+Qwen3.5-9B,Cosmos 3 Super,start_mae_s,4.5526,5.2368,-0.6842,-4.1515,1.532,False,True,38 both-valid
+Qwen3.5-9B,Cosmos 3 Super,type_accuracy,0.7895,0.9737,-0.1842,-0.3684,0.0,False,False,38 both-valid

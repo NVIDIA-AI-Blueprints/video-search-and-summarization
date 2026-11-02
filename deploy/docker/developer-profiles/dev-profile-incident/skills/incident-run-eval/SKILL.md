@@ -3,7 +3,7 @@ name: incident-run-eval
 description: Use to run the standalone P1/RP1 evaluation pipeline in eval/ - start the local embedding server, ingest ground truth, generate the seeded split, batch-score VLM incident extraction against ground truth, aggregate across models and categories, or run its hermetic tests. Not for producing a single report (use incident-analyze-video) and not NVIDIA's `nat eval`.
 license: Apache-2.0
 metadata:
-  version: "0.14.0"
+  version: "0.20.0"
   profile: "dev-profile-incident"
   tags: "incident evaluation benchmark ground-truth vlm"
 ---
@@ -99,6 +99,60 @@ uv run python scripts/eval_benchmark_export.py        # tables -> eval_data/resu
 - Every attempted `(video, model)` pair stays a row, failures included.
 - There is no blended score. `duration` is a derived diagnostic.
 - Details: [`eval/README.md`](../../eval/README.md#vlm-benchmark-incident-fields-processing-time).
+
+### Evaluation V2 (`evalv2/`, methodology v2.0)
+
+The V2 package sits beside the V1 modules and changes none of them. A live run (`run --live`) or a live `score` needs `EVALV2_ALLOW_LIVE=1` **and** the owner's approval marker (`--approval`, `evalv2-live-approval-v1`); without both it refuses and sends nothing. Never write `approved_by` yourself: only the owner's approval fills it. Launch commands, marker format and budgets: [`eval/methodology/v2-run-readiness.md`](../../eval/methodology/v2-run-readiness.md#2-launch-commands).
+
+```bash
+uv run python -m evalv2 plan --config <config.json>             # work items per task and subject; no calls
+uv run python -m evalv2 preflight --config <config.json>        # config rules + each cap covers the summed worst case of every task and subject it scopes; every charged task, subject and ledger has a cap
+uv run python -m evalv2 run --config <config.json> --dry-run    # plan + preflight as one statement
+uv run python -m evalv2 approval draft --config <config.json>   # marker skeleton for the owner (approves nothing)
+EVALV2_ALLOW_LIVE=1 uv run python -m evalv2 run --config <config.json> --live --approval <marker.json> --out <eval_data/v2/runs/X> --env-file <eval/.env.local>   # live, approval-gated; same command resumes
+EVALV2_ALLOW_LIVE=1 uv run python -m evalv2 score --config <config.json> --out <run dir> --approval <marker.json> --env-file <eval/.env.local>   # judge calls, approval-gated
+uv run python -m evalv2 score --config <config.json> --out <run dir> --offline   # re-score from the judge and embedding caches; no network
+uv run python -m evalv2 audit frozen-v1                         # V1's frozen artifacts unchanged (90 files)
+uv run python -m evalv2 audit run --store <dir> --run <run id>  # a sealed run's index and artifacts intact
+uv run python -m evalv2 datasets list                           # registered datasets (ids, kinds, how verified)
+uv run python -m evalv2 datasets verify --data-root <eval_data> # pinned hashes hold; absent private data is reported
+uv run python -m evalv2 review export --records <r.jsonl> --out <eval_data/...xlsx> --seed <n>   # 20% stratified + flagged
+uv run python -m evalv2 review import --workbook <w.xlsx> --out <decisions.jsonl>                # people's decisions
+uv run python -m evalv2 review apply --records <r.jsonl> --decisions <d.jsonl> --out <r2.jsonl>  # -> human_verified
+uv run python -m evalv2 review kappa --a <a.jsonl> --b <b.jsonl> [--categories 1,2,3,4,5]        # Cohen or weighted κ
+uv run python -m evalv2 verify-v1 --record <results.json> [--record ...] [--report <stage3-report.json>] --data-root <eval_data>
+```
+
+- **Box references** (R2) are made by `evalv2.references` with the prompts `gen-box-select-v1` and `gen-box-validate-v1`. `scripts/v2_box_frames.py` runs in a throwaway environment (`uv run --no-project --script ... extract|draw`). Making references, the detector's weights and the frame extraction belong to the approved run **RA1**.
+- **Chat references** (R3) are made by `evalv2.references.chat`. Every countable answer is computed from the ground truth, and the prompts are `gen-chat-wording-v1` and `gen-chat-rederive-v1`. Generating them is the approved run **RA2**.
+- **Track B** (task `pipeline`) runs subjects with `adapter: vss`, endpoint `experiment-agent` and a `profile` (`production-v4`, `production-v4-object-tracking`), with `request` overriding only caps and token bounds.
+  - It runs only against the local experiment agent (`experiments/agent/start-experiment-agent.sh`, `EVALV2_VSS_AGENT_URL` on loopback). Never the shared VM agent.
+  - Set caps for the `inference`, `grounding` and `zoom` ledgers, and `object_tracking` for the tracking profile. For the tracking profile the experiment agent's `INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS` must be at most 80 (its default): a reply reporting a higher cap stops the run.
+  - The caption pass runs only with the gated `production-v4-captions` profile (inline, 30 caption calls), and only when the run's marker lists it in `enabled_profiles` (after the base64 probe).
+  - Crop evidence is scored through `tasks/pipeline/crops.py`, which needs box references (run **RA1**). Its `cap_summary` shows whether the profile caps bound; recalibrate them before the freeze.
+  - Running it is the approved pilot **C1b**.
+- **Dashboard figure checks:**
+  - The recount against the production SQL: `uv run --frozen --with pgserver --with 'psycopg[binary]' pytest tests/v2/test_v2_dashboard_figures.py -k sql`. This runs a throwaway local Postgres; nothing is shared.
+  - The console's own chart code against the recount: `EVALV2_NODE=<node 22.18+ with type stripping> uv run --frozen pytest tests/v2/test_v2_dashboard_figures.py -k console`. It needs the console's `npm ci`.
+  - Both tests are skipped in the plain suite. The local `node` 22.22.1 has no TypeScript support; a cached `npx -y node@22` binary does.
+- **SQL figures:** `uv run --no-project --script scripts/v2_sql_harness.py dashboard|summaries --snapshot S.json --params P.json` runs the production SQL on a frozen snapshot in a throwaway Postgres. Every parameter must be explicit, and dashboard period bounds are required.
+- **`verify-v1`** re-scores stored V1 records with V2's incident-and-object scoring, with no model, embedder or judge call, and exits 1 on any difference. Running it on the real Stage 3 records is the separately approved check **RA0**; do not run it without that approval.
+
+- **Private datasets** (ground truth, references) are read from `--data-root`, else `EVALV2_DATA_ROOT`, else `eval/eval_data`. In a worktree, point `--data-root` at the main checkout's `eval/eval_data`; it is read-only there.
+  - Workbooks, decisions and records quote ground-truth text. They are written only to gitignored paths or outside the repository; any other path is refused.
+- **Tiers.** Each new reference record is `ai_proposed`, `ai_validated` or `human_verified`.
+  - Only `review apply` with a person's decision makes a record `human_verified`.
+  - Primary metrics use `human_verified` records only.
+
+- Configs are JSON (`evalv2-config-v1`). A run on the test half must name the approved freeze manifest.
+- **Endpoints and their environment variables.** Names only; the values live in `.env.local` and are never printed.
+  - `switchyard`: `VLM_GATEWAY_BASE_URL` (with `/v1`) and `VLM_GATEWAY_API_KEY`, as in V1.
+  - `nvidia-api-catalog`: `NVIDIA_API_BASE_URL` (default `https://integrate.api.nvidia.com/v1`) and `NVIDIA_API_KEY`.
+  - `local-openai`: `EVALV2_LOCAL_BASE_URL` and `EVALV2_LOCAL_API_KEY`.
+- **Model capabilities** are in `evalv2/adapters/capabilities.json`, all `verified: false` until a model call confirms them. A subject that lacks a capability a task requires is reported as unsupported, never scored 0.
+  - RB1's listings are in `evalv2/adapters/catalog_rb1.json`.
+  - Use the endpoint's own id: on `nvidia-api-catalog`, Nemotron 3 Ultra is `nvidia/nemotron-3-ultra-550b-a55b` and Nemotron 3 Nano is `nvidia/nemotron-nano-3-30b-a3b`. Cosmos 3 is Switchyard only.
+- Caps are per ledger: inference, caption, grounding, zoom, object_tracking, embedding, judge, generation.
 
 ## Verify
 

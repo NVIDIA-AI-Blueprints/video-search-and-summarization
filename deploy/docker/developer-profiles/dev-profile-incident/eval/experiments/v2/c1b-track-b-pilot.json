@@ -1,0 +1,121 @@
+{
+  "config_version": "evalv2-config-v1",
+  "experiment": "v2-c1b-track-b-pilot",
+  "split": {
+    "version": "split-v2",
+    "half": "dev"
+  },
+  "datasets": {
+    "incident_gt": "ground-truth-v1.0"
+  },
+  "subjects": [
+    {
+      "id": "nano-pipeline",
+      "adapter": "vss",
+      "endpoint": "experiment-agent",
+      "model": "nvidia/cosmos-3-nano-reasoner",
+      "profile": "production-v4"
+    },
+    {
+      "id": "super-pipeline",
+      "adapter": "vss",
+      "endpoint": "experiment-agent",
+      "model": "nvidia/cosmos-3-super-reasoner",
+      "profile": "production-v4"
+    }
+  ],
+  "tasks": {
+    "pipeline": {
+      "subjects": "all",
+      "scorers": [
+        "pipeline.score_stage@1",
+        "pipeline.paired_effect@1",
+        "pipeline.crops@1"
+      ],
+      "options": {
+        "judges": {
+          "primary": "catalog-gpt-oss-20b-v1",
+          "sensitivity": "catalog-mistral-large-4-v1"
+        }
+      }
+    }
+  },
+  "repeats": 1,
+  "seed": 20261101,
+  "retry_policy": "retry-v2",
+  "caps": [
+    {
+      "ledger": "inference",
+      "subject": "nano-pipeline",
+      "task": "pipeline",
+      "max_attempts": 65,
+      "max_tokens": 1000000
+    },
+    {
+      "ledger": "grounding",
+      "subject": "nano-pipeline",
+      "task": "pipeline",
+      "max_attempts": 1300,
+      "max_tokens": 1250000
+    },
+    {
+      "ledger": "zoom",
+      "subject": "nano-pipeline",
+      "task": "pipeline",
+      "max_attempts": 2600,
+      "max_tokens": 2250000
+    },
+    {
+      "ledger": "inference",
+      "subject": "super-pipeline",
+      "task": "pipeline",
+      "max_attempts": 65,
+      "max_tokens": 1000000
+    },
+    {
+      "ledger": "grounding",
+      "subject": "super-pipeline",
+      "task": "pipeline",
+      "max_attempts": 1300,
+      "max_tokens": 1250000
+    },
+    {
+      "ledger": "zoom",
+      "subject": "super-pipeline",
+      "task": "pipeline",
+      "max_attempts": 2600,
+      "max_tokens": 2250000
+    },
+    {
+      "ledger": "inference",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 130,
+      "max_tokens": 2000000
+    },
+    {
+      "ledger": "grounding",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 2600,
+      "max_tokens": 2500000
+    },
+    {
+      "ledger": "zoom",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 5200,
+      "max_tokens": 4500000
+    },
+    {
+      "ledger": "judge",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 900,
+      "max_tokens": 1350000
+    }
+  ],
+  "notes": "C1b Track B pilot (methodology v2.0 section 2): the production-v4 profile (P1, grounding crops, zoomed second look; no caption pass, tracking or set-of-marks) on the local experiment agent for Cosmos 3 Nano and Super; 25 dev clips x 1 repeat = 25 /analyze runs per subject, 50 in all. Dev only (purpose pilot). budget_mode hard_stop: the run-wide token caps sum to the owner-approved 9 M tokens (inference 2 M, grounding 2.5 M, zoom 4.5 M; each subject half of each), below the profile's worst case; every run holds its worst case (70 k + 240 k + 320 k tokens) before it is sent and is refused when a cap cannot cover it. Typical use is about 1.4 M tokens. It calibrates the provisional crop and zoom caps (tasks/pipeline/crops.py cap_summary). The judge cap is this run's share of the approved judge budget. Readiness: methodology/v2-run-readiness.md.",
+  "purpose": "pilot",
+  "budget_mode": "hard_stop"
+}

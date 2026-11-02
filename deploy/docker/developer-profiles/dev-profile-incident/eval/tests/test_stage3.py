@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+import contract
 import experiment_runner as er
 import stage3
 
@@ -57,7 +58,12 @@ def test_the_committed_configs_are_final_test_runs_of_the_selected_prompt(config
 
 def test_the_committed_manifest_equals_a_fresh_build(configs):
     committed = json.loads(stage3.MANIFEST_PATH.read_text())
-    assert stage3.manifest_problems(committed, stage3.build_manifest(configs, SPLIT)) == []
+    problems = stage3.manifest_problems(committed, stage3.build_manifest(configs, SPLIT))
+    if committed["p1_request"]["contract_version"] == contract.contract_version():
+        assert problems == []
+    else:  # Stage 3 is frozen on incident-contract-v4; under a later contract only its contract-bound section drifts
+        assert committed["p1_request"]["contract_version"] == "incident-contract-v4"
+        assert problems and all("'p1_request'" in problem for problem in problems)
     assert committed["split"]["clips"] == 55 and committed["order"]["video_runs"] == 220
     assert committed["methodology"]["match_threshold"] == 0.40
     assert committed["ground_truth"]["status"] == "frozen"

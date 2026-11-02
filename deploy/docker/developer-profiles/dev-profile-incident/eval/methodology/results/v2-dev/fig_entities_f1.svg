@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 240" role="img" aria-label="Entity matching F1 on valid outputs" font-family="sans-serif" font-size="12">
+<text x="10" y="22" font-size="14" font-weight="bold">Entity matching F1 on valid outputs</text>
+<text x="10" y="38" font-size="11" fill="#555">Development split, 25 clips x 2 repeats; bars: estimate, whiskers: 95% video-level bootstrap CI</text>
+<text x="182" y="65" text-anchor="end">Cosmos 3 Nano</text>
+<rect x="190" y="54" width="61.1" height="16" fill="#4e79a7"/>
+<line x1="214.5" y1="62" x2="395.0" y2="62" stroke="#222" stroke-width="1.5"/>
+<line x1="214.5" y1="57" x2="214.5" y2="67" stroke="#222"/>
+<line x1="395.0" y1="57" x2="395.0" y2="67" stroke="#222"/>
+<text x="401.0" y="65">0.16</text>
+<text x="182" y="93" text-anchor="end">Cosmos 3 Super</text>
+<rect x="190" y="82" width="230.0" height="16" fill="#4e79a7"/>
+<line x1="359.6" y1="90" x2="475.0" y2="90" stroke="#222" stroke-width="1.5"/>
+<line x1="359.6" y1="85" x2="359.6" y2="95" stroke="#222"/>
+<line x1="475.0" y1="85" x2="475.0" y2="95" stroke="#222"/>
+<text x="481.0" y="93">0.61</text>
+<text x="182" y="121" text-anchor="end">Nemotron 3 Nano Omni</text>
+<rect x="190" y="110" width="165.8" height="16" fill="#4e79a7"/>
+<line x1="285.0" y1="118" x2="418.0" y2="118" stroke="#222" stroke-width="1.5"/>
+<line x1="285.0" y1="113" x2="285.0" y2="123" stroke="#222"/>
+<line x1="418.0" y1="113" x2="418.0" y2="123" stroke="#222"/>
+<text x="424.0" y="121">0.44</text>
+<text x="182" y="149" text-anchor="end">Qwen3.5-9B</text>
+<rect x="190" y="138" width="192.8" height="16" fill="#4e79a7"/>
+<line x1="314.2" y1="146" x2="437.6" y2="146" stroke="#222" stroke-width="1.5"/>
+<line x1="314.2" y1="141" x2="314.2" y2="151" stroke="#222"/>
+<line x1="437.6" y1="141" x2="437.6" y2="151" stroke="#222"/>
+<text x="443.6" y="149">0.51</text>
+<text x="182" y="177" text-anchor="end">Gemma 4 31B</text>
+<rect x="190" y="166" width="232.6" height="16" fill="#4e79a7"/>
+<line x1="356.2" y1="174" x2="471.5" y2="174" stroke="#222" stroke-width="1.5"/>
+<line x1="356.2" y1="169" x2="356.2" y2="179" stroke="#222"/>
+<line x1="471.5" y1="169" x2="471.5" y2="179" stroke="#222"/>
+<text x="477.5" y="177">0.61</text>
+<line x1="190" y1="196" x2="570" y2="196" stroke="#888"/>
+<text x="190" y="211" text-anchor="middle" fill="#555">0</text>
+<text x="285" y="211" text-anchor="middle" fill="#555">0.25</text>
+<text x="380" y="211" text-anchor="middle" fill="#555">0.5</text>
+<text x="475" y="211" text-anchor="middle" fill="#555">0.75</text>
+<text x="570" y="211" text-anchor="middle" fill="#555">1</text>
+</svg>
