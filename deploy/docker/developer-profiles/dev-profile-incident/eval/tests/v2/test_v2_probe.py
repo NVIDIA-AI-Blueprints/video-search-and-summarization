@@ -386,3 +386,22 @@ def test_external_candidates_are_probed_on_the_catalog_only_when_named():
     assert all(c.requires == "schema_inline:google/gemma-4-31b-it" for c in plan[1:])
     with pytest.raises(pr.ProbeRefused, match="external candidates"):
         pr.build_plan(models=["qwen/qwen3-vl-8b-instruct"])
+
+
+def test_kimis_two_probes_fit_the_approved_fifty_thousand_tokens():
+    from evalv2 import probe as pr
+
+    plan = pr.build_plan(kinds=["schema_inline", "p1_short"], models=["moonshotai/kimi-k2.6"])
+    assert [c.kind for c in plan] == ["schema_inline", "p1_short"] and {c.endpoint for c in plan} == {"nvidia-api-catalog"}
+    assert sum(c.tokens_bound for c in plan) <= 50_000
+    p1 = pr.request_for(plan[1], {pr.SHORT_CLIP: "data:video/mp4;base64,AA"})
+    from evalv2.requests.p1 import build_p1_request
+    assert p1 == build_p1_request("moonshotai/kimi-k2.6", "data:video/mp4;base64,AA"), "the unchanged P1 request"
+    assert pr.request_for(plan[0], {pr.SHORT_CLIP: "u"})["max_tokens"] == 2048
+
+
+def test_gemmas_four_probes_fit_the_approved_budget():
+    from evalv2 import probe as pr
+
+    plan = pr.build_plan(kinds=["schema_inline", "frames_many", "long_clip", "over_60s"], models=["google/gemma-4-31b-it"])
+    assert len(plan) == 4 and sum(c.tokens_bound for c in plan) <= 130_000

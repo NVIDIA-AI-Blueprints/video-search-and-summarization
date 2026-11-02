@@ -340,6 +340,11 @@ def _parser() -> argparse.ArgumentParser:
     verify.add_argument("--record", type=Path, action="append", required=True)
     verify.add_argument("--report", type=Path)
     verify.add_argument("--data-root", type=Path, default=None)
+    track_a = sub.add_parser("track-a-report", help="Track A model comparison from saved runs: full set, valid outputs, "
+                             "paired clips, duration buckets, reliability; no model, judge or network")
+    track_a.add_argument("--run", type=Path, action="append", required=True, help="a scored run directory (repeatable)")
+    track_a.add_argument("--out", type=Path, required=True, help="private output directory")
+    track_a.add_argument("--title", default="Track A comparison")
     severity = sub.add_parser("severity-report", help="severity MAE (primary), exact and QWK per model from saved "
                               "per-video scores; no model, judge or network")
     severity.add_argument("--videos", type=Path, action="append", required=True,
@@ -562,6 +567,22 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
                     else ArtifactStore(args.store).run(args.run).verify())
         print(json.dumps({"ok": not problems, "problems": problems}, indent=2))
         return 1 if problems else 0
+    if args.command == "track-a-report":
+        from evalv2 import track_a_report
+        from evalv2.executor import load_manifest_clips
+        from evalv2.score_stage import SCORE_VERSION
+
+        try:
+            videos, attempts = track_a_report.load(args.run, SCORE_VERSION)
+        except track_a_report.TrackAReportError as exc:
+            print(json.dumps({"ok": False, "problems": [str(exc)]}, indent=2))
+            return 1
+        durations = {c["incident_id"]: c.get("duration_seconds") for c in load_manifest_clips()}
+        clips = {v["incident_id"] for v in videos}
+        result = track_a_report.report(videos, attempts, {c: d for c, d in durations.items() if c in clips})
+        written = track_a_report.write(result, args.out, args.title)
+        print(json.dumps({"ok": True, "out": str(written), "paired_items": result["paired_items"]}, indent=2))
+        return 0
     if args.command == "severity-report":
         from evalv2 import severity_report
 
