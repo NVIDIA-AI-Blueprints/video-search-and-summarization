@@ -59,7 +59,7 @@ def _zoom_steps(item_type: str) -> list[str]:
 TESTED = sorted(
     [f"p1/{name}" for name in P1_CASES]
     + ["rp1/report", "caption/window", "caption/remainder", "grounding/best-match", "grounding/every-match"]
-    + ["chat/incident-answer"]
+    + ["chat/incident-answer", "chat/library-plan", "chat/library-answer"]
     + [f"zoom/{step}" for item_type in ZOOM_ITEM_TYPES for step in _zoom_steps(item_type)]
 )
 
@@ -212,3 +212,23 @@ def test_chat_request_equals_the_golden() -> None:
     context = grounded_chat.report_context(inputs["report"], inputs["evidence"])
     body = model.request_body(grounded_chat.chat_messages(context, inputs["history"]), grounded_chat.ANSWER_SCHEMA)
     _assert_golden("chat", "incident-answer", body)
+
+
+def test_library_plan_request_equals_the_golden() -> None:
+    inputs = golden.case("chat", "library-plan")["inputs"]
+    model = grounded_chat.OpenAIChatModel(model=inputs["model"], base_url="http://golden.invalid", api_key="k")
+    messages = grounded_chat.plan_messages(inputs["question"], inputs["history"])
+    _assert_golden("chat", "library-plan", model.request_body(messages, grounded_chat.PLAN_SCHEMA))
+
+
+def test_library_answer_request_equals_the_golden() -> None:
+    inputs = golden.case("chat", "library-answer")["inputs"]
+    model = grounded_chat.OpenAIChatModel(model=inputs["model"], base_url="http://golden.invalid", api_key="k")
+    plan = grounded_chat.check_plan(inputs["plan"])
+    reports = [grounded_chat.LibraryReport(r["incident_id"], r["version_id"], r["payload"]) for r in inputs["reports"]]
+    matching = [report for report in reports if grounded_chat.matches(report, plan)]
+    context = grounded_chat.library_context(grounded_chat.rank(matching, plan["query"]), matching, plan)
+    body = model.request_body(
+        grounded_chat.library_messages(context, inputs["history"]), grounded_chat.LIBRARY_ANSWER_SCHEMA
+    )
+    _assert_golden("chat", "library-answer", body)

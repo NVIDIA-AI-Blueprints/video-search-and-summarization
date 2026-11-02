@@ -86,12 +86,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "draft",
+        "dropped_citations",
         "mode",
         "model",
-        "version_id",
         "official",
-        "draft",
-        "dropped_citations"
+        "scope",
+        "version_id"
       ],
       "properties": {
         "mode": {
@@ -106,13 +107,19 @@
           "description": "The chat model that answered."
         },
         "version_id": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1,
-          "description": "The report version the answer is grounded in."
+          "description": "The report version the answer is grounded in (null in library scope)."
         },
         "official": {
-          "type": "boolean",
-          "description": "Whether that version is the incident's official one."
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether that version is official (null in library scope)."
         },
         "draft": {
           "type": "boolean",
@@ -138,7 +145,70 @@
         },
         "usage": {
           "type": "object",
-          "description": "The chat model's reported usage and elapsed_ms, as returned."
+          "description": "The chat model's reported usage and elapsed_ms, as returned; a library answer adds up its calls (planner and answer) and gives their number as calls."
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "incident",
+            "library"
+          ],
+          "description": "incident: one report version; library: a planned search over every incident's report."
+        },
+        "plan": {
+          "type": "object",
+          "description": "Library scope: the planner's checked filters and search phrase."
+        },
+        "matching": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Library scope: reports matching the plan's filters, counted by code."
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Library scope: the best matching incidents (up to 8), shown to the model or named in a count."
+        },
+        "incident_titles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Library answers: how each incident shown is named in prose (its type and title), keyed by incident id, for labelling citations without ids."
+        },
+        "count_exact": {
+          "type": "boolean",
+          "description": "Library scope: whether the plan's filters capture the whole question (nothing left in the search phrase, no filter value dropped), so matching is the question's exact count. A count or breakdown question with count_exact false is refused."
+        },
+        "answered_by": {
+          "type": "string",
+          "enum": [
+            "model",
+            "code"
+          ],
+          "description": "Library scope: code composes every count and breakdown answer (and a no-match answer) from the code counts; the model answers every other question."
+        },
+        "versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": "Library scope: the report version each incident shown was read from (official, else newest), keyed by incident id, for links to that version."
+        },
+        "plan_prompt_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Library scope: the planner prompt's hash (prompt_sha256 is the answer prompt's, present only when the model answered)."
+        },
+        "item_names": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Library answers: how the answer names each cited item (\"the glass bottle\"), keyed by incident_id/item_id, for labelling citations without ids."
         }
       }
     }
