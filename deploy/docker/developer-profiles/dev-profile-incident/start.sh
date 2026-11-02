@@ -82,9 +82,11 @@
 #      you're done.
 #   5. Cleanup on exit (Ctrl-C, SIGTERM, SIGHUP, normal exit): tears down each
 #      local process with everything it started (uv -> uvicorn, npm -> next dev
-#      -> next-server) and the SSH tunnel, releases the VM active-run flock, and if
-#      this run was the last active session on kwanz-ws, stops VM native
-#      services and Docker containers in-place (.scripts/vm-stop-backend.sh).
+#      -> next-server) and the SSH tunnel. Nothing on the VM is stopped, whether this
+#      was the last session or not: the backend (vss-agent, Phoenix, the tracking
+#      stack) is shared by several people and workers and keeps running. To stop
+#      it deliberately, use `.scripts/native-services.sh stop` and
+#      `.scripts/tracking-stack.sh stop` on the VM (incident-operate-vm skill).
 #
 # Overrides:
 #   VSS_START_MODE           'vm' or 'mock' ('local' is a deprecated alias for
@@ -101,8 +103,6 @@
 #   VSS_REPO_ROOT            the VM's shared checkout (default: /srv/rise-up/vss)
 #   VSS_REPO_URL             git URL to clone if the VM has no checkout (default: this
 #                            clone's `origin`)
-#   VSS_LOCK_FILE            VM lock file for active runs (default:
-#                            $VSS_REPO_ROOT/.run/active-runs.lock)
 #   VSS_SSH_CONNECT_TIMEOUT  SSH connect timeout in seconds (default: 10)
 #   VSS_PULL_TIMEOUT         image pull/clone timeout on the VM, seconds (default: 1800)
 #   VSS_COMPOSE_UP_TIMEOUT   `docker compose up` timeout on the VM, seconds (default: 600)
@@ -116,8 +116,8 @@
 #                            .scripts/tracking-stack.sh start: NvStreamer, DeepStream perception
 #                            (RT-DETR warehouse, GPU 0), Kafka, Logstash, Elasticsearch and the
 #                            video-analytics API. Stages the RT-DETR model on first use; the first
-#                            start builds TensorRT engines (about 10 minutes). Stopped again by
-#                            vm-stop-backend.sh when the last session exits. Set 'false' to skip
+#                            start builds TensorRT engines (about 10 minutes). Left running when
+#                            start.sh exits. Set 'false' to skip
 #                            the stack: the agent (INCIDENT_TRACKING_ENABLED, on by default via
 #                            native-services.sh) then skips tracking and analysis runs as before.
 #   INCIDENT_DOCKER_SERVICES space-separated list of Docker services to expect/run
@@ -178,9 +178,6 @@ TUNNEL_LOG=""
 MOCK_BACKEND_PID=""
 VLM_GATEWAY_PID=""
 CONSOLE_PID=""
-LOCK_SSH_PID=""
-LOCK_LOG=""
-LOCK_HELD=0
 CLEANUP_RUNNING=""
 
 # Every process below pid, found through parent pids (pgrep -P works on Linux and macOS).
@@ -234,30 +231,6 @@ cleanup() {
     echo "start.sh: closed the backgrounded SSH tunnel (pid $TUNNEL_PID)."
     TUNNEL_PID=""
   fi
-
-  # Release this run's shared flock on the VM
-  if [ -n "$LOCK_SSH_PID" ]; then
-    if kill -0 "$LOCK_SSH_PID" 2>/dev/null; then
-      kill "$LOCK_SSH_PID" 2>/dev/null || true
-      wait "$LOCK_SSH_PID" 2>/dev/null || true
-    fi
-    LOCK_SSH_PID=""
-  fi
-  [ -n "$LOCK_LOG" ] && rm -f "$LOCK_LOG"
-
-  # Stop backend services on the VM if this was the last active session
-  if [ "${VSS_START_MODE:-}" = "vm" ] && [ "${LOCK_HELD:-0}" = "1" ]; then
-    if [ -n "${VSS_SSH_TARGET:-}" ]; then
-      echo "start.sh: checking active sessions on $VSS_SSH_TARGET..."
-      stop_rc=0
-      remote_cmd="bash -s -- $(printf '%q ' "$VSS_LOCK_FILE" "$VSS_REPO_ROOT" "${INCIDENT_DOCKER_SERVICES:-}" "${INCIDENT_NATIVE_SERVICES:-}")"
-      # shellcheck disable=SC2029
-      ssh "${VSS_SSH_OPTS[@]}" "$VSS_SSH_TARGET" "$remote_cmd" < "${SCRIPT_DIR}/.scripts/vm-stop-backend.sh" || stop_rc=$?
-      if [ "$stop_rc" -ne 0 ]; then
-        echo "start.sh: warning: failed to check or stop VM backend services (exit $stop_rc)." >&2
-      fi
-    fi
-  fi
 }
 trap cleanup EXIT INT TERM HUP
 
@@ -304,47 +277,6 @@ if [ "$VSS_START_MODE" = "vm" ]; then
   VSS_NATIVE_START_TIMEOUT="${VSS_NATIVE_START_TIMEOUT:-300}"
   VSS_REPO_URL="${VSS_REPO_URL:-$(git -C "$SCRIPT_DIR" remote get-url origin 2>/dev/null || true)}"
   vm_profile_dir="$VSS_REPO_ROOT/deploy/docker/developer-profiles/dev-profile-incident"
-
-  # Register active run via long-lived SSH connection holding a shared flock on kwanz-ws
-  VSS_LOCK_FILE="${VSS_LOCK_FILE:-$VSS_REPO_ROOT/.run/active-runs.lock}"
-  echo "=== Registering active run on $VSS_SSH_TARGET ==="
-  LOCK_LOG="$(mktemp)"
-  lock_cmd="
-    target='$VSS_LOCK_FILE'
-    dir=\"\$(dirname \"\$target\")\"
-    if [ ! -r \"\$target\" ]; then
-      mkdir -p \"\$dir\" 2>/dev/null || true
-      touch \"\$target\" 2>/dev/null || true
-      chmod 777 \"\$dir\" 2>/dev/null || true
-      chmod 666 \"\$target\" 2>/dev/null || true
-    fi
-    exec 200<\"\$target\"
-    flock -s 200 || exit 1
-    echo \"LOCKED:\$target\"
-    exec sleep infinity
-  "
-  # shellcheck disable=SC2029
-  ssh -tt "${VSS_SSH_OPTS[@]}" "$VSS_SSH_TARGET" "$lock_cmd" >"$LOCK_LOG" 2>&1 &
-  LOCK_SSH_PID=$!
-
-  lock_deadline=$((SECONDS + 10))
-  while [ "$SECONDS" -lt "$lock_deadline" ]; do
-    if grep -q "^LOCKED:" "$LOCK_LOG" 2>/dev/null; then
-      LOCK_HELD=1
-      break
-    fi
-    if ! kill -0 "$LOCK_SSH_PID" 2>/dev/null; then
-      break
-    fi
-    sleep 0.2
-  done
-
-  if [ "$LOCK_HELD" = "1" ]; then
-    echo "  active run lock registered ($VSS_LOCK_FILE)"
-  else
-    echo "start.sh: error: could not register active run lock on $VSS_SSH_TARGET within 10s ($(cat "$LOCK_LOG" 2>/dev/null || echo "timeout")). The backend may currently be stopping; please retry once the stop has finished." >&2
-    exit 1
-  fi
 
   echo "=== STEP 1/3 — Checking backend deploy state on $VSS_SSH_TARGET ==="
 

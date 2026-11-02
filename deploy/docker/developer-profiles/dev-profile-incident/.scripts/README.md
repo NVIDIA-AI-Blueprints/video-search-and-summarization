@@ -12,7 +12,6 @@ executable scripts, ready to run individually. Since the native split ([architec
 | `.scripts/tunnel-check.sh` | `mdx-tunnel-incident-check` | **laptop** | Check the tunnel from the laptop (agent health, search route, proxy) |
 | `.scripts/vm-preflight.sh` | — (new) | **laptop** | Sourced by `start.sh` and `tunnel.sh`: SSH target, SSH probe with the cause of a failure, VM address. Tests: `test-vm-preflight.sh` |
 | `.scripts/vm-ensure-docker.sh` | — (new) | VM (piped by `start.sh`) | Bounded Docker deploy on the VM (clone, env check, `HOST_IP` fix, pull, `compose up`). Tests: `test-vm-ensure-docker.sh` |
-| `.scripts/vm-stop-backend.sh` | — (new) | VM (piped by `start.sh`) | Stop the backend when the last `start.sh` session exits (never removes containers or volumes). Tests: `test-vm-stop-backend.sh` |
 | `.scripts/native-services.sh` | — (new) | VM | `start`/`stop`/`restart`/`status`/`logs` for the native services. Tests: `test-native-services.sh` |
 | `.scripts/media-tools.sh` | — (new) | VM (run by `native-services.sh` before it starts `vss-agent`) | `install`/`check` for `ffmpeg` and `ffprobe`: a SHA-256-checked static build in `<repo>/.tools/ffmpeg/bin` unless both are on `PATH`. Tests: `test-native-services.sh` |
 | `.scripts/tracking-stack.sh` | — (new) | VM (started by `start.sh` unless `ENABLE_TRACKING=false`) | `start`/`stop`/`status`/`restart-perception` for the person-tracking stack (stages the RT-DETR model, never removes containers) |

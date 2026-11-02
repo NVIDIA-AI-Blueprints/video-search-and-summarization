@@ -57,7 +57,7 @@ Details of each path: [`.docs/architecture.md` §2](../../.docs/architecture.md#
 ./start.sh --mode vm --no-console   # VM side only: backend + tunnel, no Next.js console
 ```
 
-`start.sh` waits on the console. Ctrl-C, closing the terminal or `kill <start.sh pid>` stops it, along with the backgrounded mock, gateway and tunnel, including the servers those wrappers started (no `next-server` or `uvicorn` is left listening). In vm mode, exiting also stops the VM backend services (`vss-agent`, the Docker containers in-place via `docker stop`, never removed, and the tracking stack) if this run was the last active session on `kwanz-ws`; that includes a shared agent a teammate restarted by hand outside `start.sh`.
+`start.sh` waits on the console. Ctrl-C, closing the terminal or `kill <start.sh pid>` stops it, along with the backgrounded mock, gateway and tunnel, including the servers those wrappers started (no `next-server` or `uvicorn` is left listening). In vm mode, exiting stops nothing on the VM: the shared `vss-agent`, Phoenix and tracking stack keep running for everyone (stop them by hand with `native-services.sh stop` and `tracking-stack.sh stop`, see `incident-operate-vm`).
 
 **Lifecycle (vm mode):** when every expected Docker and native service is already up, `start.sh` skips the backend deploy and goes straight to the tunnel. The person-tracking stack (`ENABLE_TRACKING`, default on) is started on every run, even when the deploy was skipped, and if it fails `start.sh` exits with status 1 before the tunnel opens; `ENABLE_TRACKING=false ./start.sh` skips it.
 
