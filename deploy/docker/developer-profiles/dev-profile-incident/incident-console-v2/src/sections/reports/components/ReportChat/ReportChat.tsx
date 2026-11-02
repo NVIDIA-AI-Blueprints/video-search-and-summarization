@@ -31,6 +31,8 @@ type ChatMessage = {
   content: string;
   citations?: ChatCitation[] /** The version label the answer came from. */;
   answeredFrom?: string;
+  /** chat-contract-v2: the report could not answer this question. */
+  insufficientEvidence?: boolean;
 };
 
 /**
@@ -202,6 +204,11 @@ export function ReportChat({
                               </li>
                             ))}
                           </ul>
+                        )}
+                        {message.insufficientEvidence && (
+                          <Badge className="mt-2" data-testid="chat-insufficient" variant="secondary">
+                            Not in this report
+                          </Badge>
                         )}
                         <p className="mt-1.5 text-[10.5px] text-muted-foreground" data-testid="chat-answered-from">
                           Answered from {message.answeredFrom}

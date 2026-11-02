@@ -747,16 +747,23 @@ export function ReportPage({
             <SheetTitle>Ask about this incident</SheetTitle>
             <SheetDescription>Conversational questions and answers about this incident</SheetDescription>
           </SheetHeader>
-          <ReportChat
-            onSeek={seek}
-            titles={citationTitles(mode === 'edit' && draft && editBase ? editBase.report.structured : report.structured)}
-            target={chatTarget(
+          {(() => {
+            const target = chatTarget(
               mode === 'edit' && draft && editBase
                 ? { revision: editBase.report.revision, isOfficial: editBase.report.official.isOfficial, draft }
                 : { revision: report.revision, isOfficial: report.official.isOfficial, draft: null },
-            )}
-            videoId={videoId}
-          />
+            );
+            // Keyed by the version (and whether it is a draft), so changing version starts a new conversation.
+            return (
+              <ReportChat
+                key={`${target.versionId}-${mode === 'edit' && draft ? 'draft' : 'saved'}`}
+                onSeek={seek}
+                target={target}
+                titles={citationTitles(mode === 'edit' && draft && editBase ? editBase.report.structured : report.structured)}
+                videoId={videoId}
+              />
+            );
+          })()}
         </SheetContent>
       </Sheet>
     </div>

@@ -45,7 +45,41 @@ export interface ChatCitation {
   cropImageUrl: string;
 }
 
+/** chat-contract-v2 (agent INCIDENT_CHAT_MODE=grounded): which report the answer is grounded in. */
+export interface ChatGrounding {
+  mode: 'grounded';
+  scope: 'incident' | 'library';
+  model: string;
+  /** The report version answered from; null for a library question. */
+  versionId: number | null;
+  official: boolean | null;
+  draft: boolean;
+  /** Item ids the model cited that the report does not hold (never shown as citations). */
+  droppedCitations: string[];
+  /** Ids the model wrote in the answer text although not asked; the agent replaced each with a description. */
+  idsResolved: string[];
+  /** Library answers: how each incident shown is named (type and title), keyed by incident id, for id-free labels. */
+  incidentTitles: Record<string, string>;
+  /** Library answers: how each cited item is named ("the glass bottle"), keyed by `incidentId/itemId`. */
+  itemNames: Record<string, string>;
+  /** Library answers: the report version each incident shown was read from, for links to that version. */
+  versions: Record<string, number>;
+  /** Library answers: the best matching incidents (shown to the model, or named in a count). */
+  candidates: string[];
+  /** Library answers: `code` composed a count or breakdown from exact counts; `model` answered from the reports. */
+  answeredBy: 'model' | 'code' | null;
+  /** Library answers: whether the filters captured the whole question, so the count is exact. */
+  countExact: boolean | null;
+}
+
 export interface ChatResponse {
   sessionId: string;
-  message: { role: 'assistant'; content: string; citations: ChatCitation[] };
+  message: {
+    role: 'assistant';
+    content: string;
+    citations: ChatCitation[];
+    /** chat-contract-v2: the report cannot answer (or contradicts the question); citations are then empty. */
+    insufficientEvidence?: boolean;
+  };
+  grounding?: ChatGrounding;
 }
