@@ -32,10 +32,12 @@ from vss_agents.utils.track_evidence import TrackingSettings
 from vss_agents.utils.track_evidence import TrackingUnavailableError
 from vss_agents.utils.track_evidence import associate_tracks
 from vss_agents.utils.track_evidence import best_moment
+from vss_agents.utils.track_evidence import box_confirmed
 from vss_agents.utils.track_evidence import build_tracks
 from vss_agents.utils.track_evidence import cut_at_replay
 from vss_agents.utils.track_evidence import is_hdr
 from vss_agents.utils.track_evidence import is_solid
+from vss_agents.utils.track_evidence import nearest_sample
 from vss_agents.utils.track_evidence import parse_probe
 from vss_agents.utils.track_evidence import run_tracking
 from vss_agents.utils.track_evidence import sensor_id_for
@@ -447,3 +449,22 @@ class TestSettings:
         assert a.startswith("incident-") and "/" not in a and " " not in a
         assert a != sensor_id_for("uploads/clip.mp4", "run-2")
         assert a != sensor_id_for("uploads/other.mp4", "run 1/../x")
+
+
+class TestConfirmation:
+    TRACK = Track("2", [Sample(81.0, (233, 417, 448, 482), 0.9), Sample(81.2, (233, 417, 448, 482), 0.9)])
+    GHOST = Track("9", [Sample(81.0, (233, 417, 448, 482), 0.9)])
+
+    def test_a_box_is_confirmed_by_a_solid_track_sample_within_the_window(self) -> None:
+        assert box_confirmed((271, 385, 494, 460), 81.0, [self.TRACK], 0.3)
+        assert not box_confirmed((115, 488, 229, 523), 81.0, [self.TRACK], 0.3), "the TV box"
+        assert not box_confirmed((271, 385, 494, 460), 79.0, [self.TRACK], 0.3), "no sample within 0.5 s"
+        assert not box_confirmed((271, 385, 494, 460), 81.0, [self.GHOST], 0.3), "a ghost confirms nothing"
+
+    def test_the_nearest_sample_stays_in_the_span_and_skips_excluded_tracks(self) -> None:
+        other = Track("3", [Sample(81.75, (400, 100, 700, 300), 0.9), Sample(81.95, (400, 100, 700, 300), 0.9)])
+        found = nearest_sample([self.TRACK, other, self.GHOST], 80.0, 80, 92)
+        assert found is not None and found[0].track_id == "2" and found[1].t == 81.0
+        found = nearest_sample([self.TRACK, other], 80.0, 80, 92, exclude={"2"})
+        assert found is not None and found[0].track_id == "3"
+        assert nearest_sample([self.TRACK], 80.0, 80, 80.5) is None

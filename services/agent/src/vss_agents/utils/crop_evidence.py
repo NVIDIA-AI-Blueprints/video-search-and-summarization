@@ -49,6 +49,7 @@ from abc import abstractmethod
 import asyncio
 import base64
 from collections.abc import Callable
+from collections.abc import Collection
 from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -1814,6 +1815,121 @@ class CropEvidenceService:
             summary.budget = object_tracking.budget.summary()
             return outcome.tracks
 
+        async def _confirm_entities(
+            tracks: Sequence[track_evidence.Track], skip: Collection[str], min_iou: float
+        ) -> None:
+            """Check each located person's box against the person tracks and move the ones no track confirms.
+
+            A box is confirmed when a solid track's sample within 0.5 s of its second overlaps it (the test the
+            association applies). An unconfirmed box, such as a person pictured on a screen, is retried at the
+            locate seconds not yet tried and replaced by the first box a track confirms; with none, the box
+            becomes the nearest track sample inside the entity's first to last seen span. No detector call is made
+            when the first box is confirmed, and nothing changes without solid person tracks.
+            """
+            solid = [track for track in tracks if track_evidence.is_solid(track)]
+            if not solid or isinstance(video_ref, np.ndarray):
+                return
+
+            def seconds_of(entry: dict[str, Any], crop: CropResult) -> float:
+                return float(crop.box_seconds if crop.box_seconds is not None else entry["timestamp_seconds"])
+
+            pending = [
+                (entry, crop)
+                for entry in entries
+                if entry["item_type"] == "entity"
+                and entry["item_id"] not in skip
+                and (crop := crops.get(entry["item_id"])) is not None
+                and crop.located
+                and crop.normalized_box
+                and not track_evidence.box_confirmed(crop.normalized_box, seconds_of(entry, crop), solid, min_iou)
+            ]
+
+            async def _retry(entry: dict[str, Any], crop: CropResult) -> CropResult | None:
+                base = entry["timestamp_seconds"]
+                attempts = [0, *LOCATE_RETRY_OFFSETS]
+                found = seconds_of(entry, crop) - base
+                untried = attempts[attempts.index(found) + 1 :] if found in attempts else []
+                for offset in untried:
+                    if base + offset < 0:
+                        continue
+                    try:
+                        async with semaphore:
+                            again = await asyncio.to_thread(
+                                crop_evidence_item,
+                                video_ref,
+                                base + offset,
+                                entry["label"],
+                                active_detector,
+                                keep_frame=privacy is not None,
+                            )
+                    except CropCallCapReachedError:
+                        return None
+                    except Exception as exc:
+                        logger.warning("Track-confirm retry failed for %s %s: %s", video_id, entry["item_id"], exc)
+                        return None
+                    if (
+                        again is not None
+                        and again.located
+                        and again.normalized_box
+                        and track_evidence.box_confirmed(again.normalized_box, seconds_of(entry, again), solid, min_iou)
+                    ):
+                        return again
+                return None
+
+            retried = await asyncio.gather(*(_retry(entry, crop) for entry, crop in pending))
+
+            def _cut(label: str, sample: track_evidence.Sample) -> CropResult | None:
+                frame = extract_frame(video_ref, sample.t)
+                if frame is None:
+                    return None
+                return _locate_in_frame(
+                    frame,
+                    sample.t,
+                    [Detection(box=list(sample.box), score=1.0)],
+                    label,
+                    0.0,
+                    keep_frame=privacy is not None,
+                )
+
+            taken: set[str] = set()
+            for (entry, crop), again in zip(pending, retried, strict=True):
+                if again is not None:
+                    logger.info(
+                        "Evidence box for %s %s moved from %ss to %ss: a person track confirms it",
+                        video_id,
+                        entry["item_id"],
+                        seconds_of(entry, crop),
+                        again.box_seconds,
+                    )
+                    crops[entry["item_id"]] = again
+                    continue
+                # Entities share nothing here, so each takes a track of its own where there are enough.
+                nearest = track_evidence.nearest_sample(
+                    solid,
+                    seconds_of(entry, crop),
+                    entry.get("first_seen_seconds", entry["timestamp_seconds"]),
+                    entry.get("last_seen_seconds", entry["timestamp_seconds"]),
+                    taken,
+                )
+                if nearest is None:
+                    continue
+                try:
+                    async with semaphore:
+                        cut = await asyncio.to_thread(_cut, entry["label"], nearest[1])
+                except Exception as exc:
+                    logger.warning("Track-confirm fallback failed for %s %s: %s", video_id, entry["item_id"], exc)
+                    continue
+                if cut is not None:
+                    taken.add(nearest[0].track_id)
+                    logger.info(
+                        "Evidence box for %s %s moved to track %s at %ss: no located box overlapped a person track",
+                        video_id,
+                        entry["item_id"],
+                        nearest[0].track_id,
+                        nearest[1].t,
+                    )
+                    crops[entry["item_id"]] = cut
+
         entries = blank_evidence_entries(report, image_gap=None)
         by_id = {entry["item_id"]: entry for entry in entries}
         await asyncio.gather(*(_crop(entry) for entry in entries))
@@ -1841,6 +1957,7 @@ class CropEvidenceService:
                 if item_id in by_id and by_id[item_id]["item_type"] == "entity" and track_evidence.is_solid(track)
             }
             taken = {track.track_id for track in marked.values()}
+            await _confirm_entities(outcome.tracks, marked.keys(), tracking.min_iou)
             located = [
                 (
                     entry["item_id"],

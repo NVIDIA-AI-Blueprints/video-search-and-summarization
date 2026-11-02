@@ -75,7 +75,7 @@
     {
       "id": "grounding/best-match",
       "file": "grounding/best-match.txt",
-      "sha256": "1fa6ac8ee584d405fbd9d48ebb90d53a6837232a456a91ac8e535cf5af73c581",
+      "sha256": "9931f951e60f996c55ed17310297899e6cfdc8bb95e8edf53afe3df727213271",
       "stage": "grounding",
       "placeholders": [
         "query"

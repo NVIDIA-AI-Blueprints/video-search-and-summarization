@@ -790,6 +790,128 @@ class TestTrackingEvidence:
         assert results[0]["track"] and fallback.summary.marks["fallback"] == 1 and fallback.summary.marks["parsed"] == 0
 
 
+class _SecondDetector:
+    """Answers the person query from a per-second script (the tiny video's second 0 is blue, second 1 green)."""
+
+    def __init__(self, person_boxes: dict[int, list[int]]) -> None:
+        self.person_boxes = person_boxes
+        self.person_seconds: list[int] = []
+
+    def is_available(self) -> bool:
+        return True
+
+    def detect(self, frame: np.ndarray, query: str) -> list[Detection]:
+        if query != "person":
+            return [Detection(box=[100, 100, 300, 300], score=1.0, label=query)]
+        second = 0 if frame[0, 0, 0] > frame[0, 0, 1] else 1
+        self.person_seconds.append(second)
+        box = self.person_boxes.get(second)
+        return [Detection(box=box, score=1.0, label=query)] if box else []
+
+
+class TestTrackConfirmedEntityBox:
+    """A person's box that no solid person track confirms is retried, then moved onto a track."""
+
+    SCREEN: ClassVar[list[int]] = [200, 200, 600, 600]  # what the detector boxes first, not a tracked person
+    PERSON: ClassVar[list[int]] = [700, 700, 950, 950]
+    NOWHERE: ClassVar[list[int]] = [10, 10, 100, 100]
+
+    @staticmethod
+    def _request(*tracks: Track) -> TrackingRequest:
+        async def runner(video_ref: object, *, sensor_id: str, **_: object) -> TrackingOutcome:
+            return TrackingOutcome(tracks=list(tracks))
+
+        return TrackingRequest(sensor_id="s", runner=runner)
+
+    @staticmethod
+    def _person_track(track_id: str, start: float, box: tuple[int, int, int, int]) -> Track:
+        return Track(track_id, [Sample(start, box, 0.9), Sample(start + 0.2, box, 0.9)])
+
+    async def _run(
+        self,
+        video: Path,
+        detector: _SecondDetector,
+        request: TrackingRequest | None,
+        report: dict | None = None,
+    ) -> list[dict]:
+        return await CropEvidenceService(detector=detector, store=InMemoryEvidenceStore()).process_incident_report(
+            video_ref=video, video_id="v", report=report or REPORT, batch_id="b", tracking=request
+        )
+
+    @pytest.mark.asyncio
+    async def test_an_unconfirmed_box_retries_to_the_second_a_track_confirms(self, tiny_video_path: Path) -> None:
+        detector = _SecondDetector({0: self.SCREEN, 1: self.PERSON})
+        request = self._request(self._person_track("2", 1.0, (700, 700, 950, 950)))
+        person = (await self._run(tiny_video_path, detector, request))[0]
+        assert detector.person_seconds == [0, 1], "the first box, then the first retry second"
+        assert person["box_seconds"] == 1.0 and person["track"] == "evidence/v/b/E1-track.json"
+        assert person["bounding_box"] == pytest.approx(self.PERSON, abs=60)
+        assert request.summary.matched == 1
+
+    @pytest.mark.asyncio
+    async def test_with_no_confirming_box_it_falls_back_to_the_nearest_track_sample_in_its_span(
+        self, tiny_video_path: Path
+    ) -> None:
+        detector = _SecondDetector({0: self.SCREEN, 1: self.NOWHERE})
+        request = self._request(self._person_track("2", 1.0, (700, 700, 950, 950)))
+        person = (await self._run(tiny_video_path, detector, request))[0]
+        assert detector.person_seconds[:2] == [0, 1], "the remaining locate seconds were tried before the fallback"
+        assert person["located"] is True and person["box_seconds"] == 1.0 and person["track"]
+        assert person["bounding_box"] == pytest.approx(self.PERSON, abs=60)
+
+    @pytest.mark.asyncio
+    async def test_a_track_outside_the_entitys_span_is_not_a_fallback(self, tiny_video_path: Path) -> None:
+        report = copy.deepcopy(REPORT)
+        report["entities"][0]["last_seen_seconds"] = 0
+        detector = _SecondDetector({0: self.SCREEN, 1: self.NOWHERE})
+        request = self._request(self._person_track("2", 1.0, (700, 700, 950, 950)))
+        person = (await self._run(tiny_video_path, detector, request, report))[0]
+        assert person["box_seconds"] == 0 and "track" not in person
+        assert person["bounding_box"] == pytest.approx(self.SCREEN, abs=60)
+
+    @pytest.mark.asyncio
+    async def test_two_unconfirmed_entities_fall_back_to_different_tracks(self, tiny_video_path: Path) -> None:
+        report = copy.deepcopy(REPORT)
+        report["entities"].append({**report["entities"][0], "entity_id": "E2"})
+        detector = _SecondDetector({0: self.SCREEN, 1: self.NOWHERE})
+        request = self._request(
+            self._person_track("2", 1.0, (700, 700, 950, 950)), self._person_track("3", 1.2, (100, 500, 400, 700))
+        )
+        first, second = (await self._run(tiny_video_path, detector, request, report))[:2]
+        assert first["box_seconds"] == 1.0 and second["box_seconds"] == pytest.approx(1.2)
+        assert first["bounding_box"] != second["bounding_box"]
+
+    @pytest.mark.asyncio
+    async def test_a_confirmed_first_box_makes_no_extra_detector_call(self, tiny_video_path: Path) -> None:
+        detector = _SecondDetector({0: self.SCREEN})
+        request = self._request(self._person_track("2", 0.0, (210, 210, 590, 590)))
+        person = (await self._run(tiny_video_path, detector, request))[0]
+        assert detector.person_seconds == [0]
+        assert person["track"] and person["bounding_box"] == pytest.approx(self.SCREEN, abs=60)
+
+    @pytest.mark.asyncio
+    async def test_without_solid_tracks_the_first_box_stands(self, tiny_video_path: Path) -> None:
+        ghost = Track("9", [Sample(1.0, (700, 700, 950, 950), 0.9)])  # one detection: not solid
+        for tracks in ((), (ghost,)):
+            detector = _SecondDetector({0: self.SCREEN, 1: self.PERSON})
+            person = (await self._run(tiny_video_path, detector, self._request(*tracks)))[0]
+            assert detector.person_seconds == [0]
+            assert person["box_seconds"] == 0 and "track" not in person
+
+    @pytest.mark.asyncio
+    async def test_with_tracking_off_the_first_box_stands(self, tiny_video_path: Path) -> None:
+        detector = _SecondDetector({0: self.SCREEN, 1: self.PERSON})
+        person = (await self._run(tiny_video_path, detector, None))[0]
+        assert detector.person_seconds == [0] and person["box_seconds"] == 0 and "track" not in person
+
+    @pytest.mark.asyncio
+    async def test_instruments_and_assets_keep_their_first_box(self, tiny_video_path: Path) -> None:
+        detector = _SecondDetector({0: self.SCREEN})
+        request = self._request(self._person_track("2", 1.0, (700, 700, 950, 950)))
+        _, instrument, asset = await self._run(tiny_video_path, detector, request)
+        assert instrument["box_seconds"] == 1 and asset["box_seconds"] == 1
+
+
 class TestObjectTrackingEvidence:
     """Instrument and asset tracks are stored like person tracks, marked with their source."""
 

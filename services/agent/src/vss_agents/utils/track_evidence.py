@@ -32,6 +32,7 @@ first frame-id decrease.
 import asyncio
 from collections.abc import Awaitable
 from collections.abc import Callable
+from collections.abc import Collection
 from collections.abc import Coroutine
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -424,6 +425,39 @@ def _sample_near(track: Track, seconds: float) -> Sample | None:
         return None
     nearest = min(samples, key=lambda sample: abs(sample.t - seconds))
     return nearest if abs(nearest.t - seconds) <= ASSOCIATION_WINDOW_SECONDS else None
+
+
+def box_confirmed(box: Sequence[float], seconds: float, tracks: Sequence[Track], min_iou: float) -> bool:
+    """Whether a solid track's visible sample nearest to ``seconds`` (within 0.5 s) overlaps ``box`` by ``min_iou``.
+
+    The test :func:`associate_tracks` applies to one pair, asked of every solid track at once.
+    """
+    for track in tracks:
+        if not is_solid(track):
+            continue
+        sample = _sample_near(track, seconds)
+        if sample is not None and box_iou(box, sample.box) >= min_iou:
+            return True
+    return False
+
+
+def nearest_sample(
+    tracks: Sequence[Track], seconds: float, first_seen: float, last_seen: float, exclude: Collection[str] = ()
+) -> tuple[Track, Sample] | None:
+    """The visible sample of a solid track nearest to ``seconds`` within ``first_seen`` to ``last_seen``, or None.
+
+    Tracks whose id is in ``exclude`` are skipped, so two entities do not fall back to the same person.
+    """
+    best: tuple[Track, Sample] | None = None
+    for track in tracks:
+        if track.track_id in exclude or not is_solid(track):
+            continue
+        for sample in visible_samples(track):
+            if first_seen <= sample.t <= last_seen and (
+                best is None or abs(sample.t - seconds) < abs(best[1].t - seconds)
+            ):
+                best = (track, sample)
+    return best
 
 
 def associate_tracks(
