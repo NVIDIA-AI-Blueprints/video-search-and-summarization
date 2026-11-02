@@ -19,6 +19,12 @@ The detector runs in its own throwaway environment (its model weights are a sepa
 eval never imports it: :class:`SubprocessDetector` sends one JSON request on stdin and reads one JSON reply,
 ``{"detector": {"name", "version", "weights_sha256"}, "frames": {"<path>": [{"box", "score", "label"}]}}``. Each
 reference record names the detector that proposed its boxes. :class:`FakeDetector` serves hermetic tests.
+
+The proposed detector is OWLv2 base (``google/owlv2-base-patch16-ensemble``, Apache-2.0) on CPU:
+``scripts/v2_detector.py`` is its runner, ``scripts/v2_detector_env.py`` builds the environment and
+``scripts/v2_detector_weights.py`` is the approved weights download, which writes the lock the runner checks.
+:func:`runner_command` is the command a reference run gives :class:`SubprocessDetector`, and
+:func:`frames_needed` counts the frames a box-reference run sends it.
 """
 
 from __future__ import annotations
@@ -27,11 +33,14 @@ import json
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 
-from evalv2.references.boxes import Proposal
+from evalv2.references.boxes import VALIDATOR_OFFSET_S, Proposal, frame_plan
 
 PROTOCOL = "evalv2-detector-v1"
+OWLV2_MODEL = "google/owlv2-base-patch16-ensemble"
+RUNNER_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "v2_detector.py"
 
 
 class DetectorError(RuntimeError):
@@ -65,6 +74,7 @@ class SubprocessDetector:
     command: Sequence[str]
     timeout_s: float = 3600.0
     identity: dict[str, Any] = field(default_factory=dict)
+    expected_weights_sha256: str | None = None  # the approved weights' lock; a reply naming other weights is refused
 
     def propose(self, frames: Sequence[str], queries: Sequence[str]) -> dict[str, list[Proposal]]:
         request = json.dumps({"protocol": PROTOCOL, "frames": list(frames), "queries": list(queries)})
@@ -79,7 +89,11 @@ class SubprocessDetector:
             reply = json.loads(done.stdout)
         except json.JSONDecodeError as exc:
             raise DetectorError(f"detector reply is not JSON: {exc}") from exc
-        self.identity, proposals = parse_reply(reply, frames)
+        identity, proposals = parse_reply(reply, frames)
+        if self.expected_weights_sha256 and identity["weights_sha256"] != self.expected_weights_sha256:
+            raise DetectorError(f"the detector ran weights {identity['weights_sha256']}, not the approved "
+                                f"{self.expected_weights_sha256}")
+        self.identity = identity
         return proposals
 
 
@@ -93,3 +107,19 @@ class FakeDetector:
 
     def propose(self, frames: Sequence[str], queries: Sequence[str]) -> dict[str, list[Proposal]]:
         return {frame: list(self.proposals.get(frame, ())) for frame in frames}
+
+
+def runner_command(python: Path | str, weights_dir: Path | str, *, script: Path = RUNNER_SCRIPT,
+                   extra: Sequence[str] = ()) -> list[str]:
+    """The OWLv2 runner in its throwaway environment (``python`` is that environment's interpreter), reading the
+    weights and their lock from ``weights_dir``. The runner never downloads anything."""
+    return [str(python), str(script), "--backend", "owlv2", "--weights-dir", str(weights_dir), *extra]
+
+
+def frames_needed(durations: Mapping[str, float]) -> dict[str, int]:
+    """The frames a box-reference run sends the detector: every second of each clip for the generator pass, and
+    the validator's frames half a second later (:func:`~evalv2.references.boxes.frame_plan`). One detector pass per
+    frame covers every item query of its clip."""
+    generator = sum(len(frame_plan(d)) for d in durations.values())
+    validator = sum(len(frame_plan(d, offset_s=VALIDATOR_OFFSET_S)) for d in durations.values())
+    return {"clips": len(durations), "generator": generator, "validator": validator, "frames": generator + validator}
