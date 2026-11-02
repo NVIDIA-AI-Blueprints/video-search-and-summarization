@@ -107,7 +107,17 @@ def _reliability(attempts: list[Mapping[str, Any]], items: int) -> dict[str, Any
             "latency_p95_s": round(latency[max(0, int(0.95 * len(latency)) - 1)], 1) if latency else None}
 
 
-def report(videos: list[dict], attempts: list[dict], durations: Mapping[str, float]) -> dict[str, Any]:
+REFERENCE = "super-direct"  # the agent default; every other subject is compared with it, plus named extra pairs
+EXTRA_PAIRS = (("nano-direct", "super-direct"), ("qwen35-9b-openrouter", "gemma4-31b-openrouter"))
+
+
+def default_pairs(subjects: Sequence[str]) -> list[tuple[str, str]]:
+    pairs = [(s, REFERENCE) for s in subjects if s != REFERENCE and REFERENCE in subjects]
+    return list(dict.fromkeys([*pairs, *((a, b) for a, b in EXTRA_PAIRS if a in subjects and b in subjects)]))
+
+
+def report(videos: list[dict], attempts: list[dict], durations: Mapping[str, float], *,
+           bootstrap: bool = True, resamples: int | None = None) -> dict[str, Any]:
     by_subject: dict[str, list[dict]] = defaultdict(list)
     for row in videos:
         by_subject[row["subject"]].append(row)
@@ -127,7 +137,12 @@ def report(videos: list[dict], attempts: list[dict], durations: Mapping[str, flo
                             for name, _, _ in BUCKETS if buckets.get(name)},
             "paired": _valid([r for r in rows if (r["incident_id"], r["repeat"]) in paired]) if paired else None,
         }
-    return {"report_version": REPORT_VERSION, "paired_items": len(paired),
+    stats = None
+    if bootstrap:
+        from evalv2 import cluster_bootstrap as cb
+
+        stats = cb.analysis(videos, default_pairs(sorted(by_subject)), resamples=resamples or cb.RESAMPLES)
+    return {"report_version": REPORT_VERSION, "paired_items": len(paired), "bootstrap": stats,
             "duration_buckets": {name: sum(1 for d in durations.values() if _bucket(d) == name) for name, _, _ in BUCKETS},
             "subjects": subjects}
 
@@ -173,10 +188,47 @@ def markdown(result: Mapping[str, Any], title: str) -> str:
     return "\n".join(out) + "\n"
 
 
+_LABELS = {"contract_valid": "Contract-valid (all runs)", "severity_mae": "Severity MAE ↓", "severity_exact": "Severity exact",
+           "severity_qwk": "Severity QWK", "type_accuracy": "Type accuracy", "start_mae_s": "Start error s ↓",
+           "end_mae_s": "End error s ↓", "entities_f1": "Entities F1"}
+
+
+def _ci(entry: Mapping[str, Any]) -> str:
+    ci = entry.get("ci95")
+    return f"[{ci[0]:.2f}, {ci[1]:.2f}]" if ci else "n/a"
+
+
+def bootstrap_markdown(stats: Mapping[str, Any]) -> str:
+    m = stats["method"]
+    method = (f"Unit: {m['unit']}; {m['resamples']} resamples, seed {m['seed']}, {int(m['confidence'] * 100)}% "
+              f"{m['interval']} intervals. Contract validity is over all runs; every other metric is conditional on a "
+              "valid output, so the two must be read together.")
+    out = ["", "## Uncertainty (video-level cluster bootstrap)", "", method, "",
+           "| Model | Valid runs | " + " | ".join(_LABELS[k] for k in _LABELS) + " |",
+           "|---|---|" + "---|" * len(_LABELS)]
+    for subject, block in stats["subjects"].items():
+        cells = [f"{_f(block['metrics'][k]['estimate'])} {_ci(block['metrics'][k])}" for k in _LABELS]
+        out.append(f"| {subject} | {block['valid_runs']}/{block['runs']} | " + " | ".join(cells) + " |")
+    note = ("Conditional metrics use only the runs where both models are valid; contract validity uses all runs. "
+            "A bold interval excludes zero.")
+    out += ["", "### Paired differences (A − B)", "", note, "",
+            "| A − B | Both-valid runs | " + " | ".join(_LABELS[k] for k in _LABELS) + " |",
+            "|---|---|" + "---|" * len(_LABELS)]
+    for pair, block in stats["paired"].items():
+        cells = []
+        for k in _LABELS:
+            e = block["metrics"][k]
+            text = f"{_f(e['difference'])} {_ci(e)}"
+            cells.append(f"**{text}**" if e.get("excludes_zero") else text)
+        out.append(f"| {pair} | {block['both_valid_runs']} | " + " | ".join(cells) + " |")
+    return "\n".join(out) + "\n"
+
+
 def write(result: Mapping[str, Any], out: Path, title: str) -> Path:
     out = Path(out)
     ensure_private(out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "track-a-report.json").write_text(json.dumps(result, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-    (out / "track-a-report.md").write_text(markdown(result, title), encoding="utf-8")
+    text = markdown(result, title) + (bootstrap_markdown(result["bootstrap"]) if result.get("bootstrap") else "")
+    (out / "track-a-report.md").write_text(text, encoding="utf-8")
     return out
