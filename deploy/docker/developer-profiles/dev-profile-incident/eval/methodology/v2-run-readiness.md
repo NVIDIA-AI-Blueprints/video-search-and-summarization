@@ -110,6 +110,8 @@ uv run --frozen python -m evalv2 score --config experiments/v2/c1a-track-a-pilot
 
 - **OpenRouter route (proposed, no account yet).** Probes: `python -m evalv2.probe --models google/gemma-4-31b-it,qwen/qwen3.5-9b --endpoint openrouter --only schema_inline,frames_many,long_clip,over_60s` (8 calls, worst case 257,536 tokens). Pilots: `experiments/v2/c1e-openrouter-gemma4-31b.json` and `c1f-openrouter-qwen35-9b.json` (50 dev runs each, ≤ 65 attempts, ≤ 1.5 M tokens). Needs `OPENROUTER_API_KEY` in `.env.local` and a prepaid balance. An `openai_compat` subject's `request.extra_body` may carry only the `provider` routing block; anything else is refused.
 
+- **C3 external add-on (proposed for the C2 package):** 55 test clips × 2 repeats per external model. Measured tokens per answered call: Gemma 6.7 k, Qwen 14.9 k (a runaway costs up to about 20 k). Expected about 0.8 M (Gemma) and 1.9 M (Qwen); proposed caps 1.2 M / 145 attempts and 2.6 M / 145 attempts. At the pinned providers' prices that is under $1.50 together, within the $10 key limit.
+
 **Approval marker** (`evalv2-live-approval-v1`, JSON). `approval draft` fills everything except the approval itself:
 
 ```json
