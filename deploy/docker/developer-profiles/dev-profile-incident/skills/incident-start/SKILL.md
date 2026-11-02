@@ -32,7 +32,7 @@ Details of each path: [`.docs/architecture.md` §2](../../.docs/architecture.md#
    | console, mock-backend, eval | `INCIDENT_SUPABASE_URL`, `INCIDENT_SUPABASE_SERVICE_ROLE_KEY` (the **finals** project) |
    | eval, database scripts | `INCIDENT_DB_DSN` (finals session pooler, port 5432) |
    | console, mock-backend, eval | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_BUCKET` |
-   | vlm-gateway (mock mode; in vm mode only dashboard chart requests use it) | `VLM_GATEWAY_API_KEY`, optional `VLM_GATEWAY_BASE_URL`; the console's optional `CHART_MODEL` picks the model for chart requests |
+   | vlm-gateway (mock mode only) | `VLM_GATEWAY_API_KEY`, optional `VLM_GATEWAY_BASE_URL`. Vm mode needs no gateway key: the VM agent reads dashboard chart requests with its own LLM |
 
    Check names only, without echoing values:
    ```bash
@@ -74,7 +74,7 @@ Environment overrides such as `ENABLE_ANALYTICS`, `VSS_REPO_ROOT`, `INCIDENT_DOC
 | Gateway: `curl -s 127.0.0.1:8600/health` returns `{"status":"ok"}` | yes | - |
 | Tunnel, agent and search: `./.scripts/tunnel-check.sh` or `curl -s localhost:8000/health` | - | yes |
 
-In vm mode `start.sh` also starts the local gateway on `:8600`, used only by the dashboard's chart requests, and skips it with a warning when `uv` or `vlm-gateway/.env.local` is missing. The console's health check leaves out gateway readiness, so a missing key shows up as a chart error, not a degraded check. HTTP 503 from the VM for the first 60-90 s after a cold start is normal.
+In vm mode `start.sh` starts no local gateway. Dashboard chart requests go to the VM agent (`POST /api/v1/incidents/chart-requests`), which uses its own configured LLM. The console's health check leaves out gateway readiness in vm mode. HTTP 503 from the VM for the first 60-90 s after a cold start is normal.
 
 Then run one upload to report with [`incident-analyze-video`](../incident-analyze-video/SKILL.md).
 

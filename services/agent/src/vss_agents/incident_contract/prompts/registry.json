@@ -182,7 +182,7 @@
       "used_by": [
         "console"
       ],
-      "purpose": "The dashboard chart interpreter's system prompt, built from the allowlist (source: chart-interpreter.ts)."
+      "purpose": "The dashboard chart interpreter's system prompt, built from the allowlist (source: domain/chart-prompt.ts)."
     },
     {
       "id": "chart/allowlist",

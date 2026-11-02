@@ -10,9 +10,8 @@
 #           tunnel for the agent on :8000 only; uploads go straight from the
 #           console to R2, and the VM runs no VST/HAProxy). Exports
 #           ANALYSIS_MODE=agent so v2 calls the agent's
-#           /analyze endpoint directly. Also starts the local vlm-gateway
-#           (127.0.0.1:8600), used only by the dashboard's chart requests, when
-#           uv and vlm-gateway/.env.local are present. The search route
+#           /analyze endpoint directly. Dashboard chart requests also go through
+#           the agent (its own LLM), so no local vlm-gateway is started. The search route
 #           (POST /api/v1/incidents/search) is always mounted on vss-agent (:8000)
 #           with an always-on VLM critic and persisted ranking/verdicts.
 #   mock  — fully local, no VM/SSH. Starts mock-backend (127.0.0.1:7777)
@@ -467,17 +466,8 @@ if [ "$VSS_START_MODE" = "vm" ]; then
   export INCIDENT_AGENT_BASE_URL="http://localhost:8000"
   export ANALYSIS_MODE="agent"
 
-  # The agent does the analysis; the dashboard's chart requests are the one model call the console
-  # makes itself, and the gateway holds the key for it. Nothing else depends on it, so a laptop
-  # without it still starts, and a chart request says it is not set up.
-  if [ "$NO_CONSOLE" = 1 ]; then
-    :
-  elif [ -f "${SCRIPT_DIR}/vlm-gateway/.env.local" ] && command -v uv >/dev/null 2>&1; then
-    start_vlm_gateway
-    export VLM_GATEWAY_URL="http://127.0.0.1:8600"
-  else
-    echo "start.sh: no local vlm-gateway (it needs uv and vlm-gateway/.env.local); dashboard chart requests are off." >&2
-  fi
+  # No local vlm-gateway here: the agent does the analysis and reads the dashboard's chart requests
+  # with its own LLM, so this laptop needs no gateway key.
 elif [ "$VSS_START_MODE" = "mock" ]; then
   # Each local service reads its own .env.local symlink to the shared
   # ../.env.local (README.md §1, kept in place by .githooks/setup-worktree.sh).

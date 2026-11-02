@@ -32,7 +32,7 @@ The exact bodies are request goldens in [`contracts/golden/`](../contracts/golde
 - the agent's extra caption and set-of-marks messages;
 - RP1;
 - the caption, grounding and zoom calls;
-- the dashboard chart call.
+- the dashboard chart request, which the agent sends to its own LLM (`chart_generator.llm_name`) with the chart prompt.
 
 ## 3. Validation, ID-only repair and outcomes
 

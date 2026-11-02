@@ -241,7 +241,7 @@ The untracked deployment environment file on `kwanz-ws` (`generated.env.remote`)
 
 Run through these checks before any live demo or presentation:
 
-- [ ] **Health Endpoint Check:** Call `GET /api/health` on `incident-console-v2` (`curl -s http://localhost:3200/api/health`). It should answer 200 with `status: "ready"` (`services.agent`, `services.gateway` (absent in agent mode, where the local gateway serves only dashboard chart requests), `services.postgrest` and `services.r2`). `degraded` (503) is an active warning: investigate before presenting.
+- [ ] **Health Endpoint Check:** Call `GET /api/health` on `incident-console-v2` (`curl -s http://localhost:3200/api/health`). It should answer 200 with `status: "ready"` (`services.agent`, `services.gateway` (absent in agent mode, which starts no local gateway), `services.postgrest` and `services.r2`). `degraded` (503) is an active warning: investigate before presenting.
 - [ ] **Search Configuration & UX:** Keep search `top_k` set to 5–10 (with the critic off, the default, latency does not grow with `top_k`; if `INCIDENT_SEARCH_CRITIC` is on, each candidate hit adds ~1 s of critic delay spacing). Ensure the frontend displays a loading state during query evaluation.
 - [ ] **Recorded Fallback Asset:** Keep a pre-recorded demo video or offline screencast ready in case remote inference or network connectivity degrades during the demo.
 - [ ] **Evidence Rows:** Search needs `evidence_crops` rows for each demo video's searchable revision ([what writes them](data.md#evidence_crops)). Confirm a search returns the demo incidents before the demo.

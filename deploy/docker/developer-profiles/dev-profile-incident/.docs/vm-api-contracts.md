@@ -170,9 +170,19 @@ Response `200`: `{"session_id", "message": {"role": "assistant", "content", "cit
   - **`grounding`:** gains `scope: "library"`, `plan`, `matching`, `count_exact`, `answered_by`, `candidates`, `versions` (each incident's version, for links), `incident_titles`, `item_names` (each cited item's name, so citations are labelled without ids) and `plan_prompt_sha256`; `usage` adds up the turn's calls. `version_id` and `official` are `null`.
 - **Unchanged:** every question in template mode (composed from the report, above) keeps exactly the v1 keys.
 
+## `POST /api/v1/incidents/chart-requests`
+
+Reads one dashboard chart request with the agent's own LLM: the `llms:` entry named by `chart_generator.llm_name` in `dev-profile-base/vss-agent/configs/config.yml` (`${LLM_MODEL_TYPE:-nim}_llm`). The console sends the two messages the model gets, and the route passes them to that LLM unchanged. It returns the JSON object the model wrote. It validates nothing else: the console checks the object against its allowlist and refuses anything else.
+
+Request: `{"messages": [{"role": "system", "content": "<the chart prompt, 1-20000 characters>"}, {"role": "user", "content": "<the request, 1-300 characters>"}]}`. Exactly those two messages in that order; any other key or shape is `422`.
+
+Response `200`: `{"reply": {...} | null}`, with `null` when the model wrote no JSON object.
+
+Status codes: `501` when `chart_generator.llm_name` is unset or names no LLM; `502` when the model call fails or takes longer than 40 s. A `502` body never echoes the request or the model's text, and the log records the exception type only.
+
 ## `POST /api/v1/incidents/charts`
 
-Draws the figures it is given with the `chart_generator` tool. The dashboard's chart requests call it from the console server; the route chooses and computes nothing. It needs `chart_generator` in the agent's config (`dev-profile-base/vss-agent/configs/config.yml`). The mock has no such route, so chart requests show an error there.
+Draws the figures it is given with the `chart_generator` tool. The dashboard's chart requests call it from the console server; the route chooses and computes nothing. It needs `chart_generator` in the agent's config (`dev-profile-base/vss-agent/configs/config.yml`). The mock has neither chart route, so chart requests show an error there.
 
 Request: `{"charts_data": [<bar or pie>], "output_dir": "<dir>", "file_prefix": "<prefix>"}`. A bar is `{"title", "chart_file_format": "png", "x_categories": [...], "series": {"<name>": [...]}, "x_label", "y_label"}`; a pie is `{"title", "chart_file_format": "png", "sizes": [...], "labels": [...]}`.
 
