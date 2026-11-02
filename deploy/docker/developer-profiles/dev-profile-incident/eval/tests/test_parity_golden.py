@@ -37,7 +37,7 @@ assert _spec is not None and _spec.loader is not None
 golden = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(golden)
 
-TESTED = ["p1/base", "rp1/report"]
+TESTED = ["chart/request", "p1/base", "rp1/report"]
 
 
 def _cases(producer: str | None = None) -> list[tuple[str, str]]:
@@ -95,6 +95,28 @@ def test_rp1_sent_body_equals_the_golden(sent):
     )
     assert len(sent) == 1
     _assert_golden("rp1", "report", sent[0])
+
+
+def test_chart_request_equals_the_golden_byte_for_byte():
+    """The C1c chart body equals the console's: as a JSON value, and as the bytes httpx posts upstream.
+
+    ``vlm-gateway`` re-posts the console's parsed body with httpx (``json=body``), and the eval adapter posts its body
+    the same way, so equal key order and values give identical upstream bytes."""
+    import httpx
+
+    from evalv2.requests.chart import build_chart_request
+
+    inputs = golden.case("chart", "request")["inputs"]
+    built = build_chart_request(inputs["model"], inputs["request"])
+    _assert_golden("chart", "request", built)
+    on_file = json.loads((GOLDEN_DIR / "chart.json").read_text(encoding="utf-8"))["cases"]["request"]["body"]
+
+    def wire(body: dict) -> bytes:
+        return httpx.Request("POST", "https://upstream.example/v1/chat/completions", json=body).content
+
+    assert wire(built) == wire(on_file)
+    assert json.dumps(built, separators=(",", ":"), ensure_ascii=False) == json.dumps(
+        on_file, separators=(",", ":"), ensure_ascii=False), "JSON.stringify order and text, as the console sends"
 
 
 @pytest.mark.parametrize(("name", "case"), _cases())

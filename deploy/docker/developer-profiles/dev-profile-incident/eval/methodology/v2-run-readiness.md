@@ -1,4 +1,4 @@
-# Evaluation V2: run readiness (RA1, RA2, RB2, C1a, C1b)
+# Evaluation V2: run readiness (RA1, RA2, RB2, C1a, C1b, C1c)
 
 > **Status (2026-11-02): prepared, not run.** No model, embedding, R2 or database call was made, no weight was downloaded, and no reference dataset was generated. The live executor (B1) and the scoring stage are built and tested with fakes only; B3 is fixed. The pilots wait only for the owner's approval markers (and, for C1b, B2).
 > - Counts come from offline dry runs on `ground-truth-v1.0` (read-only) with a synthetic detector and scripted passes. Their answers are fake; their counts are the real runs' counts.
@@ -16,6 +16,7 @@
 | **C1a** Track A pilot | 150 P1 calls (3 models × 25 dev clips × 2) | The approval marker (§2). Scoring: the judge probe (B8) | `--out` run directory: artifact store (content-addressed, append-only, sealed run), `budget.jsonl`, `checkpoint.jsonl`, `attempts.jsonl`, run manifest; `scoring/` |
 | **C1b** Track B pilot | 50 `/analyze` runs (Nano, Super × 25 dev clips) | The marker; an experiment agent running `main`'s P3 and P4 code (B2) | As C1a, plus `agent.jsonl` (the pinned agent) and crop and zoom summaries for recalibrating caps |
 | **C1b + captions** | As C1b, with the inline caption pass (agent PR #439) | B2 with #439; the base64 probe, then a marker that lists `production-v4-captions` in `enabled_profiles` | As C1b |
+| **C1c** dashboard pilot (**proposed**) | 225 chart calls (3 text models × 75 RB2 requests × 1) | The owner's approval of the proposal and its marker ([§9](#9-dashboard-evaluation-c1c)) | As C1a (no clip, no R2); `scoring/evalv2-dashboard-score-v1/` |
 
 - **Immutability.** A reference run only appends: packets and answers are addressed by the packet's SHA-256, and an answer to a changed packet is refused.
 - **Versioning.** A finished `records.jsonl` gets an append-only `datasets/registry.json` entry that pins its SHA-256 (`root: data`). Human review (`review apply`) writes a new file under a new dataset id; nothing is edited in place.
@@ -335,6 +336,111 @@ Each re-imports with 0 decisions. Box review sheets (`v2_box_frames.py sheet`) a
   - review: 20% plus every flag.
 - **P4.** Re-draw or keep the 5 dashboard specs whose reference chart is empty on the corpus.
 - **P5.** Recalibrate every cap from the pilots' measured usage (`cap_summary`) before the C2 freeze.
+- **P6. C1c ([§9](#9-dashboard-evaluation-c1c)):**
+  - treat `dashboard-references-v2` as the dashboard development set, and make the held-out set a fresh RB2 at the C2 clock with another plan seed;
+  - the pilot itself: 3 Switchyard text models × 75 requests × 1 repeat, capped at 675 attempts and 1.01 M tokens.
+
+## 9. Dashboard evaluation (C1c)
+
+> **Status (2026-11-02): built and tested offline, PROPOSED, not approved, not run.** No chart request was sent. `experiments/v2/c1c-dashboard-pilot.json` needs the owner's approval and marker first.
+
+**What it measures.** The AI dashboard ("Ask for a chart", methodology v2.0 §4 E). For each RB2 reference request, the `dashboard` task (`evalv2/tasks/dashboard/runner.py`) sends the console's chart request to a subject and stores the reply. Scoring then compares the reply with the reference's spec or refusal and draws both charts from the frozen corpus snapshot.
+
+- **The request is the console's, byte for byte.** `evalv2/requests/chart.py` ports `GatewayChartInterpreter` and the route's rules: the system prompt is `contracts/prompts/chart/system.txt` (hash-checked against the prompt registry), the request is trimmed as zod trims it, 1 to 300 characters, and the settings are `temperature 0`, `max_tokens 200`, `stream false` and `enable_thinking false`, in the console's key order. Eval is now a producer of `contracts/golden/chart.json` `request`. `tests/test_parity_golden.py` checks the body as JSON and as the bytes httpx posts upstream: `vlm-gateway` re-posts the console's body with httpx, as the eval adapter does.
+- **The reply is read the way the console reads it.** `parse_reply` takes the JSON from the first `{` to the last `}`. A reply is then a spec, a refusal, an invalid object, no JSON, or empty (`reply_kind`).
+- **Two differences from the console, both recorded.** The adapter waits up to 300 s, where the console gives up after 45 s; a slower reply is counted in `over_console_timeout`. Each figure is drawn as a bar chart in UTC at the snapshot's clock, the same rule as RB2's `corpus_figures`.
+
+**References and the split (proposal).** `dashboard-references-v2` is now registered (hashes only; the text stays in `$EVALV2_DATA_ROOT/v2/references/`). It holds 75 records: 60 specs over all 16 dimensions and 5 periods, and 15 unsupported requests. Every record is `ai_validated` and none is `human_verified`. It also holds the 80-report corpus snapshot.
+- RB2 has no dev/test halves. **The proposal is to treat all of v2 as the development set**, without carving it up. A split of 75 records would leave about 15 test requests, too few for any interval. The v2 clock is also the dry-run clock (2026-11-01T12:00Z), and RB2 must be re-run at the C2 frozen clock anyway.
+- The held-out set is then a fresh RB2 at the C2 clock (a new id, `dashboard-references-v3`), made with another plan seed so that its filters differ, and freshly worded. Nothing tuned on v2 can leak into it.
+- `purpose: pilot` and `half: dev` are kept, so the executor's pilot rules still apply (the plan names record ids, never test clips).
+
+**Subjects (proposed).** All three are on Switchyard (`VLM_GATEWAY_BASE_URL`, `VLM_GATEWAY_API_KEY`), which charges the project $0. They are not paid.
+- `ultra-chart`: `nvidia/nemotron-3-ultra`, the console's chart model (`CHART_MODEL` default in `src/lib/env.ts`; the local console sets no override).
+- `nano-chart`: `nvidia/nemotron-3-nano-30b-a3b`, for comparison.
+- `super-chart`: `nvidia/nemotron-3-super-120b-a12b`, for comparison. Switchyard lists it (RB1), but it is unverified.
+- The owner may approve only `ultra-chart` by setting `tasks.dashboard.subjects` to `["ultra-chart"]` before drafting the marker. That gives 75 calls, 225 attempts at worst and 337,500 tokens.
+
+**Calls and tokens per record** (estimated offline; no tokenizer of these models is local):
+
+| | Estimate | Basis |
+|---|---|---|
+| System prompt | ≈ 1,000 tokens | 3,883 characters: 971 at 4 characters a token, 986 MiniLM WordPiece tokens |
+| Request | ≈ 14 tokens (at most 24) | RB2 requests: 71 characters on average, at most 113 |
+| Reply | ≈ 30–50 tokens (at most 200) | The longest spec is 127 characters and 49 WordPiece tokens; `max_tokens` is 200 |
+| **Per call** | **≈ 1,080 typical; 1,500 reserved** | `TOKENS_PER_ATTEMPT` is the bound every attempt reserves and preflight assumes |
+| Calls per record | 1 per subject and repeat | Plus at most 2 retry-v2 retries, on a 429, a timeout, a transport error or a host suspend |
+
+**Proposed pilot and caps** (`budget_mode: worst_case`: the caps cover the pessimistic worst case, so preflight passes and no cap can stop the run):
+
+| | Per subject | Run (3 subjects) |
+|---|---|---|
+| Work items (calls without retries) | 75 | **225** |
+| Attempts: typical / cap (worst case) | ≈ 83 / 225 | ≈ 250 / **675** |
+| Tokens: typical / cap (worst case) | ≈ 0.09 M / 337,500 | ≈ 0.27 M / **1,012,500** |
+| $ at the $10/M planning rate | ≈ $0.9 (worst $3.4) | ≈ $2.7 (worst $10.1); Switchyard bills $0 |
+| Wall time at 60 rpm and 4 in flight | — | ≈ 4–5 min |
+
+The marker draft (`approval draft`) is `max_items` 225, `max_total_tokens` 1,012,500, `caps` inference 675 attempts and 1,012,500 tokens. The scoring stage makes no model call and needs no judge budget.
+
+**Launch** (from `eval/`, after the owner approves; the config hash changes if the subjects are cut):
+
+```bash
+export EVALV2_DATA_ROOT=/home/hengz/evalv2-data   # where v2/references/dashboard-references-v2/ lives
+ENVF=<profile .env.local with VLM_GATEWAY_BASE_URL and VLM_GATEWAY_API_KEY>   # no R2 is needed
+RUNS=$EVALV2_DATA_ROOT/v2/runs
+uv run --frozen python -m evalv2 preflight --config experiments/v2/c1c-dashboard-pilot.json      # 225 items, ok
+uv run --frozen python -m evalv2 approval draft --config experiments/v2/c1c-dashboard-pilot.json > $RUNS/c1c-approval.json
+#   the owner fills approved_by and approved_at (and may lower any figure, never raise it)
+EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 run --config experiments/v2/c1c-dashboard-pilot.json --live \
+    --approval $RUNS/c1c-approval.json --out $RUNS/c1c --env-file $ENVF            # the same command resumes
+uv run --frozen --with pgserver==0.1.4 --with 'psycopg[binary]>=3.2,<4' python -m evalv2 score \
+    --config experiments/v2/c1c-dashboard-pilot.json --out $RUNS/c1c --figures sql  # code only: no judge, no network
+#   --figures recount: the Python recount (equal to the SQL by test), without pgserver; --figures none: specs only
+```
+
+**Scoring outputs** (`$RUNS/c1c/scoring/evalv2-dashboard-score-v1/primary/dashboard-summary.json` and `dashboard-items.jsonl`, private). Per subject:
+- **Coverage.** `items`, `answered` and `request_failed`. A failed request (an HTTP error, or a non-completion after its retries) is counted but never scored.
+- **Spec metrics, each with its numerator, denominator and interval:**
+  - exact-spec accuracy, over supported requests answered;
+  - refusal precision, over refusals;
+  - refusal recall, over unsupported requests;
+  - overall accuracy, over every answered request: the exact spec, or a correct refusal;
+  - invalid-reply rate;
+  - figure accuracy.
+- **Errors, kept apart:**
+  - an invalid reply (`parse_failure`, split by `no_json`, `empty` and `invalid_object`);
+  - a wrong spec (`valid_but_wrong`);
+  - `false_accept` and `false_refusal`.
+- **Per-field accuracy** over valid specs: `metric`, `dimension`, `period`, `incidentType`, `severity`, and `filters` (both filters right), with its denominator.
+- **Figures.** The production `get_incident_dashboard` runs in the SQL harness on the snapshot. An all-time query that counts nothing would read `CURRENT_DATE`, so only that query uses the frozen-clock recount. The summary counts the calls from each source.
+- **Per tier.** Results are also given per reference tier (`by_tier`). Today everything is `ai_validated`.
+- **Intervals.** A record-level bootstrap: requests are resampled, and a request's repeats stay together. It uses 10,000 resamples, seed 20261027 and 95% percentiles. The video-level cluster bootstrap does not apply here: a dashboard request belongs to no video, and the corpus is shared.
+
+**Functional tests are not quality results.** `tests/v2/test_v2_dashboard_task.py` (fake models, synthetic references) shows that the plumbing works, not how good any model is:
+- request parity with the golden;
+- a correct spec, a wrong spec, a refusal and an invalid reply, each stored and scored apart;
+- a failed request;
+- a refusal at the cap, made before sending;
+- a marker that does not fit;
+- resume without re-sending;
+- aggregation with denominators and a reproducible bootstrap;
+- figures from the recount and from the SQL. The SQL test runs where pgserver is installed: `uv run --with pgserver ... pytest`.
+
+**Oracle check on the real references** (offline, no model call). Each reference spec was given as its own reply and scored with SQL figures on the real snapshot:
+- 60 `exact`, 15 `refusal_correct`, and every figure right;
+- 137 SQL dashboard calls, and 11 all-time calls that counted nothing and so used the frozen-clock recount.
+
+Quality numbers come only from the approved pilot, and only as development results.
+
+**Before C1c results count as final:**
+1. **Human review of RB2 (X6).** None of the 75 records is `human_verified`. A reviewer must accept, edit (wording only, never `expected`) or reject them, using the §5 sheet, item 5. Only `human_verified` records count as primary. `review apply` writes them under a new dataset id with the same record ids, so the run is re-scored against it, through a copy of the config that names it. Accepted and rejected records need no new call; a record whose wording was edited needs its items sent again, since the stored reply answers the old wording. The existing workbook (`v2/review/rb2-dashboard-review.xlsx`, 30 rows, a 40% stratified sample) covers a sample only. A primary result needs every scored record reviewed, or the reported tier restricted to the reviewed ones.
+2. **Validator ambiguities to settle in review:**
+   - "last month" and "past week" were read as rolling 30 and 7 days;
+   - minor, moderate and severe were mapped to low, medium and high;
+   - "property" was read as asset, and "official" as report status;
+   - 4 breakdowns filter on their own dimension (for example severity filtered to one severity).
+3. **The figure snapshot.** The corpus snapshot is the ground-truth reports, spread over 90 days before the dry-run clock. P4 (the 5 specs whose reference chart is empty) is still open. The held-out result needs the C2 clock and the fresh RB2 (above).
 
 ## Appendix: plan and preflight output
 Run offline, with `EVALV2_DATA_ROOT` set to the main checkout's `eval/eval_data` (the frozen ground truth verified by hash). Every command exited 0. `hard_stop` lists, per cap, the gap between the approved cap and the pessimistic worst case (shortened here to its count).
@@ -350,6 +456,8 @@ $ uv run --frozen python -m evalv2 preflight --config experiments/v2/c1b-track-b
 {"experiment": "v2-c1b-track-b-pilot", "half": "dev", ..., "ok": true, "problems": [], "budget_mode": "hard_stop", "hard_stop": [9 entries]}
 $ uv run --frozen python -m evalv2 preflight --config experiments/v2/c1b-track-b-pilot-captions.json
 {"experiment": "v2-c1b-track-b-pilot-captions", "half": "dev", ..., "ok": true, "problems": [], "budget_mode": "hard_stop", "hard_stop": [12 entries]}
+$ EVALV2_DATA_ROOT=/home/hengz/evalv2-data uv run --frozen python -m evalv2 preflight --config experiments/v2/c1c-dashboard-pilot.json
+{"experiment": "v2-c1c-dashboard-pilot", "half": "dev", "tasks": {"dashboard": {"items": 225, "by_subject": {"ultra-chart": 75, "nano-chart": 75, "super-chart": 75}}}, "retry_policy": "retry-v2", "ok": true, "problems": []}
 ```
 
 | Config | Cap per subject (attempts / tokens) | Run cap | Pessimistic worst case per subject |

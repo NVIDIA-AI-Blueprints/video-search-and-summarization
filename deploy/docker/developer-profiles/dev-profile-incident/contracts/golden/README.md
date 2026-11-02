@@ -11,12 +11,12 @@ The exact request bodies this profile sends to models, one JSON file per request
 | [`caption.json`](caption.json) | `window` (default 20 s, 32 frames), `remainder` (a shorter last window) | agent |
 | [`grounding.json`](grounding.json) | `best-match` (grounding, object tracking), `every-match` (the privacy blur's head search) | agent |
 | [`zoom.json`](zoom.json) | `look-<type>-frame`, `look-<type>-close-up`, `merge-<type>` for `entity` and `asset` (an instrument takes the asset branch with its own word) | agent |
-| [`chart.json`](chart.json) | `request` (dashboard "Ask for a chart") | console |
+| [`chart.json`](chart.json) | `request` (dashboard "Ask for a chart") | console, eval (C1c, byte for byte as posted upstream) |
 | [`chat.json`](chat.json) | `incident-answer` (grounded chat, `INCIDENT_CHAT_MODE=grounded`), `library-plan` and `library-answer` (a library question's plan and answer) | agent |
 
 The tests:
 - console: [`tests/parity-golden.test.mjs`](../../incident-console-v2/tests/parity-golden.test.mjs), with the rules in [`tests/support/golden.mjs`](../../incident-console-v2/tests/support/golden.mjs);
-- eval: [`tests/test_parity_golden.py`](../../eval/tests/test_parity_golden.py), which also checks that every golden is well formed;
+- eval: [`tests/test_parity_golden.py`](../../eval/tests/test_parity_golden.py), which also checks that every golden is well formed (the chart request is built by `evalv2/requests/chart.py`);
 - agent: [`tests/unit_test/incident_contract/test_parity_golden.py`](../../../../../../services/agent/tests/unit_test/incident_contract/test_parity_golden.py).
 
 Each test also asserts that it covers every case naming its producer, so a new case cannot go unchecked.

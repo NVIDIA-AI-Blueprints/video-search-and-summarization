@@ -31,6 +31,7 @@ from evalv2.datasets.records import load_records
 from evalv2.datasets.registry import REFERENCE_KINDS, DatasetError, entry, resolve
 
 RECORDS_FILE = "records.jsonl"
+SNAPSHOT_FILE = "corpus-snapshot.json"
 
 
 def load_for_config(config: Any, *, data_root: Path | str | None = None, registry: dict[str, Any] | None = None,
@@ -55,6 +56,8 @@ def load_for_config(config: Any, *, data_root: Path | str | None = None, registr
             dataset = resolve(dataset_id, data_root_path=data_root, registry=registry)
             records = load_records(dataset.file(RECORDS_FILE))
             out[role] = {"dataset": dataset_id, "kind": item["kind"], "records": records}
+            if SNAPSHOT_FILE in item["files"]:  # a dashboard reference set's frozen corpus (its figures' source)
+                out[role]["snapshot"] = json.loads(dataset.file(SNAPSHOT_FILE).read_text(encoding="utf-8"))
         else:
             dataset = resolve(dataset_id, data_root_path=data_root, registry=registry)
             out[role] = json.loads(dataset.path.read_text(encoding="utf-8")) if dataset.path.is_file() else dataset

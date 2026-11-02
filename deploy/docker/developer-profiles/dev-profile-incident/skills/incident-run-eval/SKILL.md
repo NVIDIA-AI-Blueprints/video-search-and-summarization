@@ -112,6 +112,7 @@ uv run python -m evalv2 approval draft --config <config.json>   # marker skeleto
 EVALV2_ALLOW_LIVE=1 uv run python -m evalv2 run --config <config.json> --live --approval <marker.json> --out <eval_data/v2/runs/X> --env-file <eval/.env.local>   # live, approval-gated; same command resumes
 EVALV2_ALLOW_LIVE=1 uv run python -m evalv2 score --config <config.json> --out <run dir> --approval <marker.json> --env-file <eval/.env.local>   # judge calls, approval-gated
 uv run python -m evalv2 score --config <config.json> --out <run dir> --offline   # re-score from the judge and embedding caches; no network
+uv run --with pgserver==0.1.4 --with 'psycopg[binary]>=3.2,<4' python -m evalv2 score --config experiments/v2/c1c-dashboard-pilot.json --out <run dir> --figures sql   # C1c dashboard: code-only scoring, no judge (--figures recount needs no pgserver)
 uv run python -m evalv2 audit frozen-v1                         # V1's frozen artifacts unchanged (90 files)
 uv run python -m evalv2 audit run --store <dir> --run <run id>  # a sealed run's index and artifacts intact
 uv run python -m evalv2 datasets list                           # registered datasets (ids, kinds, how verified)

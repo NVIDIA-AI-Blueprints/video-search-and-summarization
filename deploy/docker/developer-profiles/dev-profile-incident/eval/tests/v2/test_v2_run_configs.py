@@ -35,8 +35,12 @@ def _split_only(config):
     return load_for_config(config.model_copy(update={"datasets": {}}))
 
 
+# Configs of other tasks, each checked by its own test module.
+OTHER_TASKS = {"c1c-dashboard-pilot.json": "test_v2_dashboard_task.py"}
+
+
 def test_every_committed_v2_config_is_expected():
-    assert sorted(p.name for p in CONFIGS.glob("*.json")) == sorted(EXPECTED)
+    assert sorted(p.name for p in CONFIGS.glob("*.json")) == sorted([*EXPECTED, *OTHER_TASKS])
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))

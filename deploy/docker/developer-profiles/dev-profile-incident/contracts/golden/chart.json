@@ -1,11 +1,12 @@
 {
   "golden": "chart",
-  "description": "Dashboard 'Ask for a chart' requests (console only; CHART_MODEL through the gateway): one stateless call whose system prompt is built from the chart allowlist; the user's request is the only other message.",
+  "description": "Dashboard 'Ask for a chart' requests (the console, CHART_MODEL through the gateway; eval's C1c dashboard task sends the same body): one stateless call whose system prompt is built from the chart allowlist; the user's request is the only other message.",
   "cases": {
     "request": {
       "description": "A chart request; the reply is classified by generateChart, never shown.",
       "producers": [
-        "console"
+        "console",
+        "eval"
       ],
       "inputs": {
         "model": "<model>",

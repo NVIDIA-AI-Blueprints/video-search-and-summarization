@@ -31,7 +31,15 @@ def _pipeline() -> TaskRunner:
     return PipelineTask()
 
 
+def _dashboard() -> TaskRunner:
+    """C1c: the console's "Ask for a chart" request per dashboard reference, scored by code (no judge)."""
+    from evalv2.tasks.dashboard.runner import DashboardTask
+
+    return DashboardTask()
+
+
 register_task("incident_objects")(_incident_objects)
 register_task("pipeline")(_pipeline)
+register_task("dashboard")(_dashboard)
 
 __all__ = ["TASKS", "PredictionRecord", "ScoreRecord", "Scorer", "TaskRunner", "WorkItem", "register_task"]
