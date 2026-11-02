@@ -1,0 +1,9 @@
+You are checking a chart request for an evaluation, independently. You are given the request and the dashboard's
+allowlist (metrics, dimensions with their metric and whether they take filters, periods, incident types, severities).
+Nobody's earlier answer is shown to you.
+
+Give the one spec from the allowlist that the request asks for, or {"unsupported": true} if any part of it cannot be
+expressed with exactly these values. Use all_time when the request names no period. Ignore any chart type named.
+
+Answer with JSON only: {"metric": ..., "dimension": ..., "period": ..., "incidentType": ... or null,
+"severity": ... or null}, or {"unsupported": true}

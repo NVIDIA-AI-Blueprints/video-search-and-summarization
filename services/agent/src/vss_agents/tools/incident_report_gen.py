@@ -18,13 +18,15 @@
 Runs the same calls as ``incident-console-v2`` (gateway mode, P1 only) and the ``eval/`` benchmark
 (see ``.docs/analysis-schema.md`` in the incident profile):
 
-0. **Caption pass** (``INCIDENT_CHUNKING_ENABLED=1``, production requests only) - the clip is cut into
+0. **Caption pass** (``INCIDENT_CHUNKING_ENABLED=1`` for a production request) - the clip is cut into
    overlapping windows, each captioned by the same VLM at its full frame rate, and the timed captions are
    appended to the P1 request as one more user message (``utils/chunk_captions.py``). The prompt file,
    ``inference.json`` and the schema are untouched. The captions are context for P1 only: the response
    does not return them and nothing stores them (their telemetry is logged). A failure of this pass never
-   fails the analysis: the reason is logged and P1 runs without context. Experimental requests
-   (``experiment_prompt_id``, ``skip_crops``, ``max_crop_calls``) never run it, so eval runs are unchanged.
+   fails the analysis: the reason is logged and P1 runs without context. An experimental request runs it only
+   when it sets ``experiment_captions`` (whatever ``INCIDENT_CHUNKING_ENABLED`` says), with its own scratch store
+   (``inline``: base64 data URLs, nothing stored; ``r2``: the owner-approved ``INCIDENT_EXPERIMENT_SCRATCH_PREFIX``,
+   each window deleted after its call) and its own cap (``max_caption_calls``); ``experiment.caption`` reports it.
 1. **P1** - the video as a signed R2 URL first, then the contract extraction prompt (plus the
    reviewer prompt of a re-generation, framed exactly as the console frames its additional
    instruction), with the contract JSON Schema enforced through ``response_format`` and the fixed
@@ -246,6 +248,23 @@ class IncidentReportGenInput(BaseModel):
         default=False,
         description="Experimental: run the object tracker in a crops-on request, under its own detector-call budget.",
     )
+    experiment_captions: Literal["inline", "r2"] | None = Field(
+        default=None,
+        description=(
+            "Experimental: run the caption pass before P1, as production does, with its windows in this scratch "
+            "store: 'inline' (each window sent as a base64 data URL, nothing stored) or 'r2' (the owner-approved "
+            "INCIDENT_EXPERIMENT_SCRATCH_PREFIX, each window deleted after its call). Needs max_caption_calls."
+        ),
+    )
+    max_caption_calls: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_CROP_CALLS_LIMIT,
+        description=(
+            "Experimental: the most caption HTTP attempts (retries included) this request's caption pass may make. "
+            "Required with experiment_captions; a clip with more windows than the cap gets no caption pass."
+        ),
+    )
     blur_faces: bool = Field(
         default=False,
         description=(
@@ -261,6 +280,9 @@ class ExperimentRefusedError(RuntimeError):
 
 
 EXPERIMENT_EVIDENCE_STORE = "temporary in-memory store, discarded after the request (no disk, no R2)"
+# The owner-approved R2 root of experimental caption windows (blocker X16): the one shared-storage write an
+# experiment may make, and only when this is set. Never production's scratch/analyze.
+EXPERIMENT_SCRATCH_PREFIX_ENV = "INCIDENT_EXPERIMENT_SCRATCH_PREFIX"
 # Fields only an experimental request returns; production responses never carry them.
 EXPERIMENT_OUTPUT_FIELDS = ("experiment", "p1_elapsed_ms", "usage")
 
@@ -298,7 +320,11 @@ class IncidentReportGenOutput(BaseModel):
         default=None, description="Why the video-bounds rules were not applied; null when they were."
     )
     experiment: dict[str, Any] | None = Field(
-        default=None, description="Experimental requests only: the prompt id and SHA-256 used, skip_crops, persisted."
+        default=None,
+        description=(
+            "Experimental requests only: the prompt id and SHA-256 used, skip_crops, the caps, captions, persisted, "
+            "and what the crop stage and the caption pass cost (crop, zoom, caption)."
+        ),
     )
     p1_elapsed_ms: float | None = Field(default=None, description="Experimental requests only: the P1 round trip.")
     usage: dict[str, Any] | None = Field(default=None, description="Experimental requests only: P1 token usage.")
@@ -727,6 +753,20 @@ async def persist_revision(
         return None
 
 
+def _skipped_captions(reason: str) -> chunk_captions.ChunkCaptions:
+    """A caption pass that did not run: no timeline, and why in ``telemetry["skipped"]``."""
+    return chunk_captions.ChunkCaptions(timeline=[], telemetry={"skipped": reason})
+
+
+def _caption_settings() -> chunk_captions.ChunkSettings | chunk_captions.ChunkCaptions:
+    """The caption settings, or the skipped pass a rejected setting gives (logged)."""
+    try:
+        return chunk_captions.chunk_settings()
+    except ValueError as exc:
+        logger.warning("incident_report_gen: chunking settings rejected, caption pass skipped: %s", exc)
+        return _skipped_captions(f"bad chunking settings: {exc}")
+
+
 async def run_caption_pass(
     client: httpx.AsyncClient,
     config: IncidentReportGenConfig,
@@ -741,32 +781,57 @@ async def run_caption_pass(
     when the pass did not run (short clip, unknown length, ffmpeg missing, a failed window call, ...): the
     analysis goes on without context.
     """
-    try:
-        settings = chunk_captions.chunk_settings()
-    except ValueError as exc:
-        logger.warning("incident_report_gen: chunking settings rejected, caption pass skipped: %s", exc)
-        return chunk_captions.ChunkCaptions(timeline=[], telemetry={"skipped": f"bad chunking settings: {exc}"})
+    settings = _caption_settings()
+    if isinstance(settings, chunk_captions.ChunkCaptions):
+        return settings
     if not settings.enabled:
         return None
+    return await _caption_pass(
+        client,
+        config,
+        tool_input,
+        model_name,
+        video_duration_seconds,
+        settings,
+        run_id=tool_input.model_run_id or uuid.uuid4().hex[:12],
+    )
+
+
+async def _caption_pass(
+    client: httpx.AsyncClient,
+    config: IncidentReportGenConfig,
+    tool_input: IncidentReportGenInput,
+    model_name: str,
+    video_duration_seconds: float | None,
+    settings: chunk_captions.ChunkSettings,
+    *,
+    run_id: str,
+    store: chunk_captions.ScratchStorage | None = None,
+    budget: crop_evidence.CropCallBudget | None = None,
+) -> chunk_captions.ChunkCaptions:
+    """One caption pass with ``settings`` (``store`` None is production's R2 store). Never raises: a pass that
+    could not run or finish is an empty timeline with its reason, logged."""
     if video_duration_seconds is None:
         reason = "video length unknown"
         logger.warning("incident_report_gen: caption pass skipped for %s: %s", tool_input.incident_id, reason)
-        return chunk_captions.ChunkCaptions(timeline=[], telemetry={"skipped": reason})
+        return _skipped_captions(reason)
     try:
         captions = await chunk_captions.caption_video(
             video_url=tool_input.video_url,
             video_key=tool_input.video_key or tool_input.incident_id,
-            run_id=tool_input.model_run_id or uuid.uuid4().hex[:12],
+            run_id=run_id,
             duration_seconds=video_duration_seconds,
             client=client,
             vlm_base_url=config.vlm_base_url,
             model=model_name,
             settings=settings,
+            store=store,
+            budget=budget,
         )
     except Exception as exc:
         reason = str(exc) if isinstance(exc, chunk_captions.ChunkCaptionError) else f"{type(exc).__name__}: {exc}"
         logger.warning("incident_report_gen: caption pass skipped for %s: %s", tool_input.incident_id, reason)
-        return chunk_captions.ChunkCaptions(timeline=[], telemetry={"skipped": reason})
+        return _skipped_captions(reason)
     logger.info(
         "incident_report_gen: caption pass for %s: %d windows, %d calls, %d retries, %.0f ms",
         tool_input.incident_id,
@@ -775,6 +840,107 @@ async def run_caption_pass(
         captions.telemetry["retries"],
         captions.telemetry["elapsed_ms"],
     )
+    return captions
+
+
+def experiment_scratch_root() -> str:
+    """The owner-approved R2 root of an experiment's caption windows, from ``INCIDENT_EXPERIMENT_SCRATCH_PREFIX``.
+
+    ``experiment_captions: "r2"`` is the one experimental setting that writes to shared storage, so it needs this
+    explicit setting (blocker X16), a dedicated folder under ``scratch/`` other than production's ``scratch/analyze``
+    (a root inside or above it is refused, as is any other top-level folder), and R2 settings on the agent.
+    Raises ``ExperimentRefusedError``.
+    """
+    root = (os.environ.get(EXPERIMENT_SCRATCH_PREFIX_ENV) or "").strip().strip("/")
+    if not root:
+        raise ExperimentRefusedError(
+            f"experiment_captions 'r2' needs the owner-approved scratch prefix in {EXPERIMENT_SCRATCH_PREFIX_ENV} "
+            "(blocker X16); without it use experiment_captions 'inline'"
+        )
+    parts = root.split("/")
+    production = chunk_captions.SCRATCH_PREFIX.split("/")
+    if (
+        parts[0] != "scratch"
+        or len(parts) < 2
+        or any(part in ("", ".", "..") for part in parts)
+        or parts[: len(production)] == production
+    ):
+        raise ExperimentRefusedError(
+            f"{EXPERIMENT_SCRATCH_PREFIX_ENV}={root!r} must be a dedicated folder under scratch/ other than "
+            f"{chunk_captions.SCRATCH_PREFIX}/ (production's caption windows), for example scratch/eval"
+        )
+    if not is_r2_configured():
+        raise ExperimentRefusedError("experiment_captions 'r2' needs R2 settings (R2_*) on the experiment agent")
+    return root
+
+
+def experiment_scratch_store(captions: str, scratch_root: str | None) -> chunk_captions.ScratchStorage:
+    """The scratch store of an experimental caption pass: inline (nothing stored), or R2 confined to the approved
+    root with each window deleted after its call. Never production's store."""
+    if captions == "inline":
+        return chunk_captions.InlineScratchStore()
+    if captions != "r2" or not scratch_root:  # experiment_settings refuses both; this guards a direct call
+        raise ExperimentRefusedError(f"experiment_captions {captions!r} needs an approved scratch root")
+    return chunk_captions.ScratchStore(root=scratch_root, delete_after_use=True)
+
+
+def caption_telemetry(
+    captions: chunk_captions.ChunkCaptions,
+    store: chunk_captions.ScratchStorage,
+    budget: crop_evidence.CropCallBudget,
+    elapsed_s: float,
+) -> dict[str, Any]:
+    """What an experimental caption pass cost and gave P1: its store, wall time, windows captioned, whether P1 got
+    the context message, why the pass was skipped (``None`` when it ran) and its caption calls against the cap."""
+    return {
+        "store": store.name,
+        "scratch_root": store.root if store.name == "r2" else None,
+        "elapsed_ms": round(elapsed_s * 1000.0, 1),
+        "windows": len(captions.timeline),
+        "context_sent": bool(captions.context),
+        "skipped": captions.telemetry.get("skipped"),
+        **budget.summary(),
+    }
+
+
+async def run_experiment_caption_pass(
+    client: httpx.AsyncClient,
+    config: IncidentReportGenConfig,
+    tool_input: IncidentReportGenInput,
+    model_name: str,
+    video_duration_seconds: float | None,
+    experiment: dict[str, Any],
+    scratch_root: str | None,
+) -> chunk_captions.ChunkCaptions:
+    """The caption pass an experiment asked for (``experiment_captions``). Never raises for a request that
+    :func:`experiment_settings` accepted.
+
+    It runs as production's does (the same settings, prompts, model, retries and context message) whatever
+    ``INCIDENT_CHUNKING_ENABLED`` says, with the request's scratch store, its caption-call cap, and a run id of its
+    own, so its scratch keys never meet another request's. A pass that could not run or finish (a short clip, a
+    window over the inline limit, the cap, ...) is skipped as in production: P1 runs without context.
+    ``experiment["caption"]`` receives :func:`caption_telemetry`.
+    """
+    store = experiment_scratch_store(experiment["captions"], scratch_root)
+    budget = crop_evidence.CropCallBudget(experiment["max_caption_calls"])
+    started = time.perf_counter()
+    settings = _caption_settings()
+    captions = (
+        settings
+        if isinstance(settings, chunk_captions.ChunkCaptions)
+        else await _caption_pass(
+            client,
+            config,
+            tool_input,
+            model_name,
+            video_duration_seconds,
+            settings,
+            run_id=f"exp-{uuid.uuid4().hex[:12]}",
+            store=store,
+            budget=budget,
+        )
+    )
+    experiment["caption"] = caption_telemetry(captions, store, budget, time.perf_counter() - started)
     return captions
 
 
@@ -806,14 +972,18 @@ def experiment_settings(tool_input: IncidentReportGenInput, reviewer_prompt: str
 
     Raises ``ExperimentsDisabledError`` unless the agent runs with ``INCIDENT_EXPERIMENTS_ENABLED=1``,
     ``ExperimentPromptError`` for an unknown or edited prompt, ``ValueError`` when combined with a
-    reviewer prompt, and ``ExperimentRefusedError`` when cropping would upload images to R2.
+    reviewer prompt or for a cap without its setting (or the reverse), and ``ExperimentRefusedError`` when
+    cropping would upload images to R2 or R2 caption windows have no approved scratch root.
     """
+    captions = tool_input.experiment_captions
     if (
         tool_input.experiment_prompt_id is None
         and not tool_input.skip_crops
         and tool_input.max_crop_calls is None
         and tool_input.max_zoom_calls is None
         and not tool_input.experiment_object_tracking
+        and captions is None
+        and tool_input.max_caption_calls is None
     ):
         return None
     incident_experiments.require_enabled()
@@ -827,6 +997,15 @@ def experiment_settings(tool_input: IncidentReportGenInput, reviewer_prompt: str
         raise ValueError("max_zoom_calls and experiment_object_tracking need cropping; drop skip_crops")
     if not tool_input.skip_crops and tool_input.max_crop_calls is None:
         raise ValueError("an experimental request with cropping on needs max_crop_calls (its crop-call cap)")
+    if tool_input.max_caption_calls is not None and captions is None:
+        raise ValueError("max_caption_calls applies only with experiment_captions")
+    if captions is not None and tool_input.max_caption_calls is None:
+        raise ValueError("experiment_captions needs max_caption_calls (its caption-call cap)")
+    if captions == "r2" and not tool_input.skip_crops:
+        raise ExperimentRefusedError(
+            "experiment_captions 'r2' needs R2 settings, and experimental cropping refuses to run on an agent with "
+            "R2 settings: set skip_crops, or use experiment_captions 'inline' on an agent without R2 settings"
+        )
     if not tool_input.skip_crops and is_r2_configured():
         # Defence in depth: experimental crops go to a temporary in-memory store, and an experiment agent
         # must not hold shared-storage settings at all.
@@ -834,6 +1013,8 @@ def experiment_settings(tool_input: IncidentReportGenInput, reviewer_prompt: str
             "experimental cropping refuses to run on an agent with R2 settings; run the experiment agent without "
             "R2 settings (its crops go to a temporary in-memory store) or set skip_crops"
         )
+    # The single shared-storage write an experiment may make: R2 caption windows under the approved root.
+    scratch_root = experiment_scratch_root() if captions == "r2" else None
     settings: dict[str, Any] = {"prompt_id": None, "prompt_sha256": incident_experiments.production_prompt_sha256()}
     if tool_input.experiment_prompt_id is not None:
         text, digest = incident_experiments.resolve_prompt(tool_input.experiment_prompt_id)
@@ -844,7 +1025,10 @@ def experiment_settings(tool_input: IncidentReportGenInput, reviewer_prompt: str
         "max_crop_calls": tool_input.max_crop_calls,
         "max_zoom_calls": tool_input.max_zoom_calls,
         "object_tracking": tool_input.experiment_object_tracking,
+        "captions": captions,
+        "max_caption_calls": tool_input.max_caption_calls,
         "persisted": False,
+        **({"_scratch_root": scratch_root} if scratch_root else {}),
     }
 
 
@@ -864,6 +1048,7 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
         reviewer_prompt = normalize_reviewer_prompt(tool_input.reviewer_prompt)
         experiment = experiment_settings(tool_input, reviewer_prompt)
         prompt_text = experiment.pop("_prompt_text", None) if experiment else None
+        scratch_root = experiment.pop("_scratch_root", None) if experiment else None
         telemetry: dict[str, Any] | None = {} if experiment else None
         p1_prompt_sha256 = (experiment or {}).get("prompt_sha256") or incident_experiments.production_prompt_sha256()
         provenance.use("p1", model=model_name, prompts={"contract/incident_extraction_prompt": p1_prompt_sha256})
@@ -905,9 +1090,13 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
                     run_caption_pass(client, config, tool_input, model_name, video_length.seconds),
                     run_marks_pass(tool_input, tracking),
                 )
+            elif experiment["captions"] is not None:
+                captions = await run_experiment_caption_pass(
+                    client, config, tool_input, model_name, video_length.seconds, experiment, scratch_root
+                )
             marked_url = marked.url if marked is not None else None
-            # What this request runs, whatever the agent's settings say (an experiment runs no caption pass,
-            # tracking or marks): the provenance flags must describe the run, not the environment.
+            # What this request runs, whatever the agent's settings say (an experiment runs the caption pass only
+            # when it asks for it, and never tracking or marks): the provenance flags must describe the run.
             provenance.ran(
                 experiment=experiment is not None,
                 chunking=captions is not None and not captions.telemetry.get("skipped"),

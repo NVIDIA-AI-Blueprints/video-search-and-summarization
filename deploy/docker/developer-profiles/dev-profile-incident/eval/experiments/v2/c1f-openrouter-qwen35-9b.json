@@ -1,0 +1,76 @@
+{
+  "config_version": "evalv2-config-v1",
+  "experiment": "v2-c1f-openrouter-qwen35-9b",
+  "split": {
+    "version": "split-v2",
+    "half": "dev"
+  },
+  "datasets": {
+    "incident_gt": "ground-truth-v1.0"
+  },
+  "subjects": [
+    {
+      "id": "qwen35-9b-openrouter",
+      "adapter": "openai_compat",
+      "endpoint": "openrouter",
+      "model": "qwen/qwen3.5-9b",
+      "request": {
+        "extra_body": {
+          "provider": {
+            "order": [
+              "DeepInfra",
+              "Parasail"
+            ],
+            "allow_fallbacks": false,
+            "data_collection": "deny",
+            "require_parameters": true
+          }
+        }
+      }
+    }
+  ],
+  "tasks": {
+    "incident_objects": {
+      "subjects": "all",
+      "scorers": [
+        "incident_objects.score_video@1",
+        "incident_objects.aggregate@1"
+      ],
+      "options": {
+        "judges": {
+          "primary": "catalog-gpt-oss-20b-v1",
+          "sensitivity": "catalog-mistral-large-4-v1"
+        }
+      }
+    }
+  },
+  "repeats": 2,
+  "seed": 20261101,
+  "retry_policy": "retry-v2",
+  "caps": [
+    {
+      "ledger": "inference",
+      "subject": "qwen35-9b-openrouter",
+      "task": "incident_objects",
+      "max_attempts": 65,
+      "max_tokens": 1500000
+    },
+    {
+      "ledger": "inference",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 65,
+      "max_tokens": 1500000
+    },
+    {
+      "ledger": "judge",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 0,
+      "max_tokens": 0
+    }
+  ],
+  "notes": "External open-weight baseline pilot via OpenRouter (PROPOSED, not approved): Qwen3.5-9B (Alibaba Qwen, open weights). Track A's production v4 P1 request, byte-identical to C1a's, plus OpenRouter routing only (pinned providers, no fallback, data_collection deny, require_parameters); 25 dev clips x 2 repeats = 50 runs, C1a's seed. Needs an OpenRouter account and key (OPENROUTER_API_KEY), a prepaid balance (calls fail with 402 when it runs out, so exposure is the top-up), probes first, then a signed marker. Caps: 65 attempts, 1.5 M tokens. Judge cap 0.",
+  "purpose": "pilot",
+  "budget_mode": "hard_stop"
+}

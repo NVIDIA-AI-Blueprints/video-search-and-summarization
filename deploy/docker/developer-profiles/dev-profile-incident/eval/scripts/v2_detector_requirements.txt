@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The Evaluation V2 detector's throwaway environment (X5), installed from PyPI by v2_detector_env.py after torch,
+# which comes from the PyTorch CPU index (pinned in v2_detector_env.py), so no CUDA build is ever installed.
+# The same versions as eval's uv.lock. No model weights: v2_detector_weights.py downloads them, only with approval.
+# torchvision is deliberately absent: transformers then uses OWLv2's PIL image processor, recorded in the identity.
+# scipy: transformers 5's PIL OWLv2 processor requires it (it refuses to load without it).
+transformers==5.17.0
+tokenizers==0.23.2
+huggingface-hub==1.32.0
+safetensors==0.8.0
+numpy==2.5.3
+pillow==12.3.0
+scipy==1.18.1

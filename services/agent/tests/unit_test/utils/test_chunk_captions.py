@@ -21,8 +21,11 @@ The caption texts come from the vss-chunk-scout run on IMG_8206 (20 s windows, 2
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 from pathlib import Path
+import time
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -30,10 +33,13 @@ import httpx
 import pytest
 
 from vss_agents.utils import chunk_captions
+from vss_agents.utils import run_provenance
 from vss_agents.utils.chunk_captions import CONTEXT_PREAMBLE
 from vss_agents.utils.chunk_captions import ChunkCaptionError
 from vss_agents.utils.chunk_captions import ChunkSettings
+from vss_agents.utils.chunk_captions import InlineScratchStore
 from vss_agents.utils.chunk_captions import ScratchStore
+from vss_agents.utils.chunk_captions import ScratchStoreError
 from vss_agents.utils.chunk_captions import Window
 from vss_agents.utils.chunk_captions import caption_request_body
 from vss_agents.utils.chunk_captions import caption_video
@@ -44,6 +50,7 @@ from vss_agents.utils.chunk_captions import parse_caption_events
 from vss_agents.utils.chunk_captions import plan_windows
 from vss_agents.utils.chunk_captions import scratch_prefix
 from vss_agents.utils.chunk_captions import window_is_empty
+from vss_agents.utils.crop_evidence import CropCallBudget
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "chunk_captions_img8206_w20.json").read_text())
 VIDEO_URL = "https://r2.example/uploads/IMG_8206_480.mp4?X-Amz-Signature=abc"
@@ -209,15 +216,26 @@ class TestCaptionRequest:
 
 
 class FakeR2:
-    """A boto3-like client recording puts and serving list/delete over what was put."""
+    """A boto3-like client recording puts and serving list/delete over what was put.
+
+    ``deleted`` lists what the end-of-pass prefix delete removed; ``events`` is every put and delete in order, as
+    ``("put" | "delete" | "delete_one", key)`` (``delete_one`` is a single window deleted after use).
+    """
 
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
         self.deleted: list[str] = []
+        self.events: list[tuple[str, str]] = []
 
     def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> None:  # noqa: N803
         assert Bucket == "bucket" and ContentType == "video/mp4"
         self.objects[Key] = Body
+        self.events.append(("put", Key))
+
+    def delete_object(self, *, Bucket: str, Key: str) -> None:  # noqa: N803
+        assert Bucket == "bucket"
+        self.objects.pop(Key, None)
+        self.events.append(("delete_one", Key))
 
     def generate_presigned_url(self, operation: str, *, Params: dict[str, str], ExpiresIn: int) -> str:  # noqa: N803
         assert operation == "get_object" and ExpiresIn == 3600
@@ -237,6 +255,7 @@ class FakeR2:
         for entry in Delete["Objects"]:
             self.deleted.append(entry["Key"])
             self.objects.pop(entry["Key"], None)
+            self.events.append(("delete", entry["Key"]))
 
 
 @pytest.fixture
@@ -515,3 +534,243 @@ class TestScratchStore:
     def test_scratch_prefix_layout(self):
         assert scratch_prefix("uploads/IMG_8206_480.mp4", "m1") == "scratch/analyze/uploads/IMG_8206_480.mp4/m1/"
         assert scratch_prefix("/v1/", "m1") == "scratch/analyze/v1/m1/"
+        assert scratch_prefix("v1", "m1", "/scratch/eval/") == "scratch/eval/v1/m1/"
+
+
+class TestScratchStores:
+    """Blocker X16: the scratch store is a port; the R2 one is confined to its root, the inline one stores nothing."""
+
+    @pytest.mark.asyncio
+    async def test_the_r2_store_never_touches_a_key_outside_its_root(self, tmp_path):
+        r2 = FakeR2()
+        r2.objects["uploads/keep.mp4"] = b"x"
+        r2.objects["scratch/analyze/other/run9/0.mp4"] = b"y"
+        store = ScratchStore(bucket="bucket", client=r2)
+        window = tmp_path / "0.mp4"
+        window.write_bytes(b"clip")
+        assert await store.put_video("scratch/analyze/v1/run1/0.mp4", window) == "scratch/analyze/v1/run1/0.mp4"
+        for key in ("uploads/0.mp4", "scratch/analyzed/v1/0.mp4", "scratch/0.mp4"):
+            with pytest.raises(ScratchStoreError, match="outside"):
+                await store.put_video(key, window)
+        for prefix in ("scratch/analyze/", "scratch/analyze/v1/", "scratch/", "", "uploads/"):
+            with pytest.raises(ScratchStoreError):
+                await store.delete_prefix(prefix)
+        assert await store.delete_prefix("scratch/analyze/v1/run1/") == 1
+        assert set(r2.objects) == {"uploads/keep.mp4", "scratch/analyze/other/run9/0.mp4"}
+
+    @pytest.mark.asyncio
+    async def test_an_evaluation_root_is_its_own_sandbox(self, tmp_path):
+        store = ScratchStore(bucket="bucket", client=FakeR2(), root="scratch/eval")
+        window = tmp_path / "0.mp4"
+        window.write_bytes(b"clip")
+        await store.put_video("scratch/eval/v1/run1/0.mp4", window)
+        with pytest.raises(ScratchStoreError):
+            await store.put_video("scratch/analyze/v1/run1/0.mp4", window)
+        with pytest.raises(ScratchStoreError):
+            ScratchStore(bucket="bucket", client=FakeR2(), root="/")
+
+    @pytest.mark.asyncio
+    async def test_the_inline_store_sends_windows_as_data_urls_and_keeps_nothing(self, tmp_path):
+        store = InlineScratchStore(max_bytes=10)
+        window = tmp_path / "0.mp4"
+        window.write_bytes(b"clip")
+        key = await store.put_video("scratch/analyze/v1/run1/0.mp4", window)
+        assert await store.signed_url(key) == "data:video/mp4;base64,Y2xpcA=="
+        assert await store.delete_prefix("scratch/analyze/v1/run1/") == 1
+        big = tmp_path / "1.mp4"
+        big.write_bytes(b"x" * 11)
+        with pytest.raises(ScratchStoreError, match="inline limit"):
+            await store.put_video("scratch/analyze/v1/run1/1.mp4", big)
+
+    @pytest.mark.asyncio
+    async def test_the_whole_pass_runs_with_the_inline_store(self, no_ffmpeg_work, monkeypatch):
+        monkeypatch.setattr(chunk_captions, "create_retry_strategy", _no_wait_retry)
+        by_index = {c["index"]: c for c in FIXTURE["chunks"]}
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            url = json.loads(request.content)["messages"][1]["content"][0]["video_url"]["url"]
+            assert url.startswith("data:video/mp4;base64,")
+            index = int(base64.b64decode(url.split(",", 1)[1]).decode().split()[1])  # fake_cut writes "window <i> ..."
+            seen.append(url)
+            chunk = by_index[index]
+            return _completion(chunk["content"], chunk["usage"]["prompt_tokens"])
+
+        store = InlineScratchStore()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await caption_video(
+                video_url=VIDEO_URL,
+                video_key="uploads/IMG_8206_480.mp4",
+                run_id="run1",
+                duration_seconds=FIXTURE["duration_s"],
+                client=client,
+                vlm_base_url="https://switchyard.example/",
+                model="nvidia/cosmos-3-nano-reasoner",
+                settings=SETTINGS,
+                store=store,
+            )
+        assert len(result.timeline) == 6 and len(seen) == 6
+        assert store._windows == {}, "nothing is kept after the pass"
+
+
+class TestExperimentScratch:
+    """Experimental captions (X16): R2 windows deleted after use, the caption-call cap, and nothing left behind."""
+
+    @pytest.mark.asyncio
+    async def test_the_r2_store_deletes_a_window_on_release_only_when_it_deletes_after_use(self, tmp_path):
+        window = tmp_path / "0.mp4"
+        window.write_bytes(b"clip")
+        r2 = FakeR2()
+        production = ScratchStore(bucket="bucket", client=r2)
+        await production.put_video("scratch/analyze/v1/run1/0.mp4", window)
+        await production.release("scratch/analyze/v1/run1/0.mp4")
+        assert list(r2.objects) == ["scratch/analyze/v1/run1/0.mp4"], "production keeps its end-of-pass delete"
+        experiment = ScratchStore(bucket="bucket", client=r2, root="scratch/eval", delete_after_use=True)
+        await experiment.put_video("scratch/eval/v1/run1/0.mp4", window)
+        await experiment.release("scratch/eval/v1/run1/0.mp4")
+        assert list(r2.objects) == ["scratch/analyze/v1/run1/0.mp4"]
+        assert r2.events[-1] == ("delete_one", "scratch/eval/v1/run1/0.mp4")
+        for key in ("scratch/analyze/v1/run1/0.mp4", "scratch/eval/v1/0.mp4", "uploads/v1/run1/0.mp4"):
+            with pytest.raises(ScratchStoreError):
+                await experiment.release(key)
+        assert list(r2.objects) == ["scratch/analyze/v1/run1/0.mp4"], "a refused release deletes nothing"
+
+    @pytest.mark.asyncio
+    async def test_the_inline_store_drops_a_window_once_released(self, tmp_path):
+        window = tmp_path / "0.mp4"
+        window.write_bytes(b"clip")
+        store = InlineScratchStore()
+        assert store.max_bytes == chunk_captions.INLINE_MAX_BYTES == 8 * 1024 * 1024
+        await store.put_video("inline/v1/run1/0.mp4", window)
+        await store.release("inline/v1/run1/0.mp4")
+        assert store._windows == {}
+        await store.release("inline/v1/run1/0.mp4")  # releasing twice is harmless
+
+    @pytest.mark.asyncio
+    async def test_a_pass_under_an_experiment_root_deletes_each_window_right_after_its_call(
+        self, no_ffmpeg_work, monkeypatch
+    ):
+        monkeypatch.setattr(chunk_captions, "create_retry_strategy", _no_wait_retry)
+        r2 = FakeR2()
+        store = ScratchStore(bucket="bucket", client=r2, root="scratch/eval", delete_after_use=True)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            url = json.loads(request.content)["messages"][1]["content"][0]["video_url"]["url"]
+            key = url.split("signed.example/")[1].split("?")[0]
+            assert key in r2.objects, "the window exists while the model may fetch it"
+            r2.events.append(("call", key))
+            return _completion("[0s-10s] a person walks")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await caption_video(
+                video_url=VIDEO_URL,
+                video_key="v1",
+                run_id="exp-1",
+                duration_seconds=60.0,
+                client=client,
+                vlm_base_url="https://switchyard.example",
+                model="vlm",
+                settings=SETTINGS,
+                store=store,
+            )
+        keys = [key for event, key in r2.events if event == "put"]
+        assert keys == [f"scratch/eval/v1/exp-1/{i}.mp4" for i in range(4)] and len(result.timeline) == 4
+        for key in keys:
+            assert r2.events.index(("call", key)) < r2.events.index(("delete_one", key))
+        assert r2.objects == {} and r2.deleted == [], "nothing was left for the end-of-pass delete"
+
+    @pytest.mark.asyncio
+    async def test_the_caption_call_cap_refuses_an_attempt_beyond_it(self, no_ffmpeg_work, monkeypatch):
+        monkeypatch.setattr(chunk_captions, "create_retry_strategy", _no_wait_retry)
+        r2 = FakeR2()
+        prefix = scratch_prefix("v1", "run1")
+        responses = {
+            f"{prefix}0.mp4": [httpx.Response(429, text="throttling_error"), _completion("[0s-20s] a")],
+            f"{prefix}1.mp4": [_completion("[0s-13s] b")],
+        }
+        seen: list[dict[str, Any]] = []
+        budget = CropCallBudget(2)
+        with run_provenance.collecting() as provenance:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(_gateway(responses, seen))) as client:
+                with pytest.raises(ChunkCaptionError, match="caption-call cap of 2 reached"):
+                    await caption_video(
+                        video_url=VIDEO_URL,
+                        video_key="v1",
+                        run_id="run1",
+                        duration_seconds=31.0,
+                        client=client,
+                        vlm_base_url="https://switchyard.example",
+                        model="vlm",
+                        settings=SETTINGS,
+                        store=ScratchStore(bucket="bucket", client=r2),
+                        budget=budget,
+                    )
+        assert len(seen) == 2, "the retry of the 429 was the third attempt, refused before it was sent"
+        assert budget.summary() == {
+            "cap": 2,
+            "calls": 2,
+            "refused_by_cap": 1,
+            "cap_reached": True,
+            "tokens": 110,
+            "calls_without_usage": 0,
+        }
+        caption = provenance.to_dict(contract_version="v", flags={})["stages"]["caption"]
+        assert caption["calls"] == 2 and caption["failed"] == 1 and caption["refused"] == 1
+        assert r2.objects == {}
+
+    @pytest.mark.asyncio
+    async def test_a_clip_with_more_windows_than_the_cap_is_refused_before_anything_is_touched(self, monkeypatch):
+        download = MagicMock(side_effect=AssertionError("nothing is downloaded"))
+        monkeypatch.setattr(chunk_captions, "download_video", download)
+        store_client = MagicMock()
+        with pytest.raises(ChunkCaptionError, match="4 windows, more than the caption-call cap of 3"):
+            await caption_video(
+                video_url=VIDEO_URL,
+                video_key="v1",
+                run_id="run1",
+                duration_seconds=60.0,
+                client=MagicMock(),
+                vlm_base_url="https://switchyard.example",
+                model="vlm",
+                settings=SETTINGS,
+                store=ScratchStore(bucket="bucket", client=store_client),
+                budget=CropCallBudget(3),
+            )
+        download.assert_not_called()
+        store_client.put_object.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_window_is_still_uploading_when_the_scratch_is_deleted(self, monkeypatch):
+        """A failed window no longer leaves its siblings running: a late upload lands before the delete, not after."""
+
+        class SlowR2(FakeR2):
+            def put_object(self, **kwargs: Any) -> None:
+                time.sleep(0.05)  # in the upload thread: still uploading window 1 when window 0 has failed
+                super().put_object(**kwargs)
+
+        async def fake_download(video_url: str, target: Path) -> None:
+            target.write_bytes(b"source")
+
+        async def cut(ffmpeg: str, source: Path, window: Window, target: Path) -> None:
+            if window.index == 0:
+                raise ChunkCaptionError("ffmpeg failed on window 0: boom")
+            target.write_bytes(b"late window")
+
+        monkeypatch.setattr(chunk_captions, "download_video", fake_download)
+        monkeypatch.setattr(chunk_captions, "cut_window", cut)
+        monkeypatch.setattr(chunk_captions, "ffmpeg_path", lambda: "/usr/bin/ffmpeg")
+        r2 = SlowR2()
+        with pytest.raises(ChunkCaptionError, match="window 0"):
+            await caption_video(
+                video_url=VIDEO_URL,
+                video_key="v1",
+                run_id="run1",
+                duration_seconds=31.0,
+                client=MagicMock(),
+                vlm_base_url="https://switchyard.example",
+                model="vlm",
+                settings=SETTINGS,
+                store=ScratchStore(bucket="bucket", client=r2),
+            )
+        await asyncio.sleep(0.1)  # had window 1 still been running, its upload would land now
+        assert r2.objects == {} and r2.deleted == ["scratch/analyze/v1/run1/1.mp4"]

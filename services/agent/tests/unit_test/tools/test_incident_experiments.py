@@ -215,6 +215,8 @@ class TestToolRuns:
             "max_crop_calls": None,
             "max_zoom_calls": None,
             "object_tracking": False,
+            "captions": None,  # no caption pass asked for
+            "max_caption_calls": None,
             "persisted": False,
             "p1_report": result.report,  # the validated P1 report before any zoom correction
         }

@@ -1,0 +1,17 @@
+You are writing a question for an evaluation of an incident-report chatbot. You are given a question class, the
+incident report it is about (or a summary of the library), and, for every class except "incident.facts", the
+answer computed by code from the ground truth.
+
+Write the question a reviewer would naturally ask to get exactly that answer, and two paraphrases of it.
+- Never state the answer, or a word that gives it away, in the question or the paraphrases.
+- Use plain words a reviewer would use; do not copy phrases from the report's description.
+- One question per item; it must have exactly the computed answer, no more and no less.
+- For "incident.unanswerable", ask something the report cannot answer (for example a licence plate, a name or
+  anything not recorded). For "incident.false_premise", ask a question that assumes something the report
+  contradicts. The expected answer for both is a refusal or a correction.
+- For "incident.facts", ask what happened, and list the atomic facts a correct answer must contain: one short,
+  checkable statement each, taken only from the report.
+- For "library.retrieval", describe the one target incident the way someone searching for it would, without
+  quoting its description.
+
+Answer with JSON only: {"question": "...", "paraphrases": ["...", "..."], "facts": ["..."] (only for incident.facts)}

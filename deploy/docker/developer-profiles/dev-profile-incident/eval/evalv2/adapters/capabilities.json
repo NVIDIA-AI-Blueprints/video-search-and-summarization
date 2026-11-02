@@ -1,0 +1,190 @@
+{
+  "note": "What each model is believed to support. verified=false until a model call confirms it (RB1 on 2026-11-01 was read-only: catalog listings and public docs, see catalog_rb1.json). listed_on says which endpoints listed the id on that date. Repository sources: contracts/inference.json, .docs/analysis-schema.md, .docs/architecture.md, eval/docs/vlm_benchmark_results.md, .docs/decisions.md (2026-10-31 chunked captioning), services/agent/src/vss_agents/utils/crop_evidence.py.",
+  "models": {
+    "nvidia/cosmos-3-super-reasoner": {
+      "video_input": true,
+      "image_input": true,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": true,
+      "frame_policy": "provider: about 24 frames, ignores num_frames",
+      "verified": false,
+      "notes": "V1's only P1 model; production grounding and zoom model (VLM_NAME). Strict json_schema works per analysis-schema.md. RB1: Switchyard only (not on the public catalog).",
+      "listed_on": [
+        "switchyard"
+      ]
+    },
+    "nvidia/cosmos-3-nano-reasoner": {
+      "video_input": true,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": false,
+      "frame_policy": "unverified: docs conflict (num_frames honoured vs fixed 2 fps capped near 60)",
+      "verified": false,
+      "notes": "Console default (VLM_MODEL). Image input and boxes never exercised. RB1: Switchyard only (not on the public catalog).",
+      "listed_on": [
+        "switchyard"
+      ]
+    },
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {
+      "video_input": true,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": false,
+      "frame_policy": "catalog docs: mp4 up to 2 min, up to 1 fps/128 frames at 1080p or 2 fps/256 frames at 720p and below; Switchyard's own sampling unverified",
+      "verified": false,
+      "notes": "Needs about 16k output tokens; 2 Oct benchmark: 10 of 55 invalid, 30k TPM quota. RB1 docs: video, audio, image and text input; 'Supports JSON output format' (strict schema not stated); 256k context.",
+      "listed_on": [
+        "switchyard",
+        "nvidia-api-catalog"
+      ]
+    },
+    "nvidia/nemotron-3-ultra": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "notes": "Chart-spec model (CHART_MODEL) and the VM's LLM_NAME; chatbot candidate. RB1: Switchyard id; the catalog names it nvidia/nemotron-3-ultra-550b-a55b.",
+      "listed_on": [
+        "switchyard"
+      ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": false,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "notes": "V1's pinned judge; same family as the Omni subject. RB1: Switchyard id; the catalog names it nvidia/nemotron-nano-3-30b-a3b.",
+      "listed_on": [
+        "switchyard"
+      ]
+    },
+    "nvidia/nemotron-3-ultra-550b-a55b": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "json_schema": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Catalog id of nemotron-3-ultra. RB1 docs: text only, tool calling, up to 1M context; JSON output not documented as a serving parameter."
+    },
+    "nvidia/nemotron-nano-3-30b-a3b": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "json_schema": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Catalog id of nemotron-3-nano-30b-a3b (V1's judge family)."
+    },
+    "openai/gpt-oss-20b": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "json_schema": false,
+      "listed_on": [
+        "nvidia-api-catalog",
+        "openrouter"
+      ],
+      "notes": "Third-family judge candidate (X19): listed on the catalog only, so inference needs NVIDIA_API_KEY (X18). Capabilities unverified."
+    },
+    "mistralai/mistral-large-4-1t-a52b": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "json_schema": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Third-family judge candidate (X19), catalog only (X18). Capabilities unverified."
+    },
+    "nvidia/cosmos-reason2-8b": {
+      "video_input": true,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": false,
+      "bbox": false,
+      "frame_policy": "unverified",
+      "verified": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "NVIDIA post-training of Qwen3-VL-8B-Instruct (same architecture; model card: use 4 fps video). Open weights, but an NVIDIA model, not an independent family. Catalog API reference 404 on 2026-11-01 and 2026-11-02; every capability unverified."
+    },
+    "google/gemma-4-31b-it": {
+      "video_input": true,
+      "image_input": true,
+      "text_input": true,
+      "json_schema": false,
+      "bbox": false,
+      "frame_policy": "documented: video up to 60 s at 1 fps (frames); behaviour past 60 s unverified (probe over_60s)",
+      "verified": false,
+      "listed_on": [
+        "nvidia-api-catalog",
+        "openrouter"
+      ],
+      "notes": "Independent family (Google), open weights (Apache 2.0 base; NVIDIA Open Model Agreement on the catalog), 31B dense, 256K context. Catalog card 2026-11-02: inputs text, image, video (MP4/WebM); json_schema / response_format not documented (vLLM/SGLang runtime), so false until a probe shows it. Proposed primary external baseline. OpenRouter (2026-11-02 public model list): video input, structured_outputs on most providers (bf16: Crusoe, Novita), $0.10-0.75 / M input; the :free route (Google AI Studio) lacks structured outputs. OpenRouter probe 2026-11-02: Novita returned 400 'model features video not support'; Crusoe returned 429 (rate-limited upstream)."
+    },
+    "moonshotai/kimi-k2.6": {
+      "video_input": true,
+      "image_input": true,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": false,
+      "frame_policy": "undocumented: 'video frames' via MoonViT; no limits stated",
+      "verified": false,
+      "listed_on": [
+        "nvidia-api-catalog"
+      ],
+      "notes": "Independent family (Moonshot AI), open weights (modified MIT), 1T MoE / 32B active, 256K context. Catalog card 2026-11-02 lists video input and JSON-structured outputs but no video request format or limits. Optional second external baseline, only if probes show real video input."
+    },
+    "qwen/qwen3.5-9b": {
+      "video_input": true,
+      "image_input": true,
+      "text_input": true,
+      "json_schema": true,
+      "bbox": false,
+      "frame_policy": "provider: about 1 fps by clip length, ignores num_frames (probe 2026-11-02)",
+      "verified": false,
+      "listed_on": [
+        "openrouter"
+      ],
+      "notes": "Independent family (Alibaba Qwen), open weights (HF Qwen/Qwen3.5-9B), 9B, 262K context. OpenRouter public model list 2026-11-02: inputs text, image, video; structured_outputs on DeepInfra/Parasail/Together/SiliconFlow (bf16 or fp8), $0.02-0.17 / M input. The closest reachable Qwen video model: Qwen3-VL-8B-Instruct is listed for text and image only. OpenRouter probes 2026-11-02 (DeepInfra/Parasail): inline base64 video accepted, strict json_schema enforced, num_frames ignored, about 1 frame per second (self-reported 9, 26 and 81 frames for 8, 25 and 80 s clips), about 50 prompt tokens a frame; the 80 s clip was accepted."
+    },
+    "mistralai/mistral-large-4-0": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "json_schema": false,
+      "listed_on": [
+        "openrouter"
+      ],
+      "notes": "OpenRouter id for the catalog's mistralai/mistral-large-4-1t-a52b (HF mistralai/Mistral-Large-4-1T-A52B), served by Mistral. Sensitivity judge candidate; unverified."
+    }
+  }
+}
