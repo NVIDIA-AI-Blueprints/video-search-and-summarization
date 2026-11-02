@@ -54,46 +54,14 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from evalv2.adapters.base import (AdapterConfigError, CallContext, Capabilities, PipelineResult, redact_strings,
-                                  redact_text, redact_url)
+from evalv2.adapters.base import (PER_RUN_FLAGS, AdapterConfigError, CallContext, Capabilities, PipelineResult,
+                                  per_run_flags, pinned_flags, redact_strings, redact_text, redact_url)
 from evalv2.core.budget import Hold
 
 AGENT_URL_ENV = "EVALV2_VSS_AGENT_URL"
 DEFAULT_AGENT_URL = "http://127.0.0.1:8765"  # experiments/agent/start-experiment-agent.sh
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 REFUSAL_STATUSES = frozenset({400, 403, 409, 501})
-
-
-# Flags that report what one run did, not how the agent is configured: recorded per run, never pinned (B3).
-PER_RUN_FLAGS: dict[str, tuple[str, ...]] = {"chunking": ("enabled",)}
-
-
-def pinned_flags(flags: Mapping[str, Any]) -> dict[str, Any]:
-    """The agent's settings among its provenance flags: ``flags`` without the per-run outcomes.
-
-    ``chunking`` keeps the agent's caption settings (window, overlap, limits) and drops ``enabled``; a bare boolean
-    ``chunking`` (an older agent) is itself the outcome and is dropped.
-    """
-    out: dict[str, Any] = {}
-    for name, value in flags.items():
-        per_run = PER_RUN_FLAGS.get(name)
-        if per_run is None:
-            out[name] = value
-        elif isinstance(value, Mapping):
-            out[name] = {key: item for key, item in value.items() if key not in per_run}
-    return out
-
-
-def per_run_flags(provenance: Mapping[str, Any] | None, experiment: Mapping[str, Any] | None = None
-                  ) -> dict[str, Any]:
-    """What one run's flags and experiment summary say it did: whether the caption pass ran, and why it was skipped."""
-    flags = (provenance or {}).get("flags") or {}
-    chunking = flags.get("chunking")
-    enabled = chunking.get("enabled") if isinstance(chunking, Mapping) else chunking
-    caption = (experiment or {}).get("caption")
-    caption = caption if isinstance(caption, Mapping) else {}
-    return {"chunking_enabled": None if enabled is None else bool(enabled),
-            "caption_skipped": caption.get("skipped"), "caption_store": caption.get("store")}
 
 
 class AgentDriftError(RuntimeError):

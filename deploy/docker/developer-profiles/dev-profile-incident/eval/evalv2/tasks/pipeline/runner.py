@@ -45,8 +45,7 @@ import copy
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-from evalv2.adapters.base import CallContext, PipelineAdapter
-from evalv2.adapters.vss import per_run_flags
+from evalv2.adapters.base import CallContext, PipelineAdapter, per_run_flags
 from evalv2.core.retry import classify_http_status
 from evalv2.requests.vss import VssProfile, build_analyze_request, profile_for
 from evalv2.tasks.base import PredictionRecord, WorkItem
