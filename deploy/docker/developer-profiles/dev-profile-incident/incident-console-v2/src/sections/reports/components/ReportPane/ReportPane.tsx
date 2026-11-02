@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { type CSSProperties, type MouseEvent, type ReactNode, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
+import { EvidenceBadges } from '@/sections/reports/components/EvidenceBadges';
 import { Button } from '@/components/ui/button';
 import { Card as UICard, CardContent } from '@/components/ui/card';
 import { evidenceDisplay } from '@/lib/evidence/evidence-view';
@@ -334,6 +335,7 @@ function Card({
           <IdBadge id={item.id} />
           <span className="min-w-0">{item.title}</span>
         </h4>
+        <EvidenceBadges badges={lines.badges} />
         <p className="text-muted-foreground">{item.description}</p>
         {lines.holds && (
           <p>

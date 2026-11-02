@@ -56,6 +56,12 @@ export interface ItemEvidence {
   /** The track's span on screen in video seconds, beside the report's own first_seen/last_seen (never rewritten). */
   trackFirstSeenSeconds: number | null;
   trackLastSeenSeconds: number | null;
+  /** 'reviewer' for a track made from a reviewer's box; null for an AI track or none. */
+  trackSource: 'reviewer' | null;
+  /** True when the tracker lost the item before the window ended: the View badge reads "Incomplete track". */
+  trackPartial: boolean;
+  /** True for an item the reviewer boxed (its entry's source is 'reviewer'): the View badge reads "Added by reviewer". */
+  addedByReviewer: boolean;
 }
 
 // timestampSeconds: when the item is most clearly visible; label: its short detector label.

@@ -11,6 +11,7 @@
 // database function checks the rest.
 
 import type { ReportView } from '@/modules/reports/domain/report-view';
+import { firstSeen, type ReviewerDraftItem, type ReviewerPayload, reviewerPayload } from '@/modules/reports/domain/reviewer-item';
 
 export const EDITABLE_INCIDENT_TYPES = ['road accident', 'burglary', 'explosion', 'assault', 'animal attack'] as const;
 export const EDITABLE_ENTITY_TYPES = ['human', 'animal', 'unknown'] as const;
@@ -23,6 +24,8 @@ interface EditItemDetails {
   image: string | null;
   image_timestamp_seconds?: number | null;
   image_box?: number[] | null;
+  /** A reviewer-boxed or re-tracked item: the server cuts its crop and frame at the first-seen second and stores its track. */
+  reviewer?: ReviewerPayload | null;
 }
 /** An entity's on-screen span, in seconds from the video start (the contract's first/last seen). */
 interface EditEntitySpan {
@@ -55,6 +58,8 @@ interface DraftItemDetails {
   pendingImage: Blob | null;
   imageTimestampSeconds: number | null;
   imageBox: number[] | null;
+  /** Set by the box tool (or a re-track): Save stores the track and cuts the evidence image from its first-seen second. */
+  reviewer: ReviewerDraftItem | null;
 }
 
 /** An in-progress edit: values a report may lack (type, times, threat level) start empty and must be chosen. */
@@ -126,6 +131,7 @@ export function newItemDetails(prefix: string, draft: EditDraft): DraftItemDetai
     pendingImage: null,
     imageTimestampSeconds: null,
     imageBox: null,
+    reviewer: null,
   };
 }
 
@@ -149,6 +155,7 @@ function details(
     pendingImage: null,
     imageTimestampSeconds: null,
     imageBox: null,
+    reviewer: null,
   };
 }
 
@@ -236,6 +243,7 @@ const sent = (item: DraftItemDetails): EditItemDetails => ({
   ...(item.imageTimestampSeconds !== null || item.imageBox
     ? { image_timestamp_seconds: item.imageTimestampSeconds, image_box: item.imageBox }
     : {}),
+  ...(item.reviewer ? { reviewer: reviewerPayload(item.reviewer) } : {}),
 });
 
 /** The edit sent to the server: sequential IDs by position, holders resolved to the renumbered entity IDs, each item's source_id kept. */
@@ -274,4 +282,49 @@ export function editFromDraft(draft: EditDraft): StructuredEdit {
       ...sent(asset),
     })),
   };
+}
+
+/**
+ * Adds an item from the box tool to the draft as a new entity, instrument or asset. The evidence image is the first second
+ * the item is seen, so the item is visible from there; an entity's span is its track's. An instrument's holder is the
+ * entity whose label matches `holder`, else nobody. The name is the item's label.
+ */
+export function addReviewerItem(draft: EditDraft, item: ReviewerDraftItem): EditDraft {
+  const seen = firstSeen(item);
+  const seconds = Math.round(seen.seconds);
+  const common = {
+    ...newItemDetails(item.itemType, draft),
+    timestampSeconds: seconds,
+    label: item.name,
+    reviewer: item,
+  };
+  if (item.itemType === 'entity') {
+    const span = item.track?.span ?? [seen.seconds, seen.seconds];
+    return {
+      ...draft,
+      entities: [
+        ...draft.entities,
+        {
+          ...common,
+          canonicalId: nextCanonicalEntityId(draft.entities),
+          type: 'unknown',
+          description: item.description,
+          firstSeenSeconds: Math.floor(Math.min(span[0], seconds)),
+          lastSeenSeconds: Math.ceil(Math.max(span[1], seconds)),
+        },
+      ],
+    };
+  }
+  if (item.itemType === 'instrument') {
+    const holder = item.holder?.trim().toLowerCase();
+    const holderKey = holder ? (draft.entities.find((entity) => entity.label.trim().toLowerCase() === holder)?.key ?? null) : null;
+    return {
+      ...draft,
+      instruments: [
+        ...draft.instruments,
+        { ...common, holderKey, name: item.name, description: item.description, threat_level: item.threatLevel ?? null },
+      ],
+    };
+  }
+  return { ...draft, assets: [...draft.assets, { ...common, name: item.name, description: item.description }] };
 }

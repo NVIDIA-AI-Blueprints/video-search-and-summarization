@@ -95,6 +95,8 @@ export interface EvidenceDetailLines {
   trackedOnScreen: string | null;
   /** The time the item is shown at, as a clock. */
   time: string | null;
+  /** Badges for a reviewer's work: "Added by reviewer", then "Incomplete track" when the tracker lost the item. */
+  badges: string[];
   /** Why Play from here is disabled; null when it can play. */
   playNote: string | null;
 }
@@ -115,6 +117,10 @@ export function evidenceDetailLines(item: EvidenceDetailItem): EvidenceDetailLin
         ? `On screen ${formatClock(item.evidence.trackFirstSeenSeconds)}–${formatClock(item.evidence.trackLastSeenSeconds)} (tracked)`
         : null,
     time: item.seconds === null ? null : formatClock(item.seconds),
+    badges: [
+      ...(item.evidence?.addedByReviewer ? ['Added by reviewer'] : []),
+      ...(item.evidence?.track && item.evidence.trackPartial ? ['Incomplete track'] : []),
+    ],
     playNote: item.seconds === null ? 'No time was recorded for this item, so it cannot be played from here.' : null,
   };
 }

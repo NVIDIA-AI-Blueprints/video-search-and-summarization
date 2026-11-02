@@ -24,13 +24,24 @@ const rows = (value: unknown): Row[] => (Array.isArray(value) ? value.map(asRow)
 const byId = (key: string) => (a: Row, b: Row) => String(a[key] ?? '').localeCompare(String(b[key] ?? ''), undefined, { numeric: true });
 
 /** The entry's track: a key and both span ends, else none at all (a half-written track is read as no track). */
-function trackOf(entry: EvidenceEntry): Pick<ItemEvidence, 'track' | 'trackUrl' | 'trackFirstSeenSeconds' | 'trackLastSeenSeconds'> {
+type TrackFields = Pick<
+  ItemEvidence,
+  'track' | 'trackUrl' | 'trackFirstSeenSeconds' | 'trackLastSeenSeconds' | 'trackSource' | 'trackPartial'
+>;
+function trackOf(entry: EvidenceEntry): TrackFields {
   const track = text(entry.track);
   const first = num(entry.track_first_seen_seconds);
   const last = num(entry.track_last_seen_seconds);
   if (!track || first === null || last === null || last < first)
-    return { track: null, trackUrl: null, trackFirstSeenSeconds: null, trackLastSeenSeconds: null };
-  return { track, trackUrl: null, trackFirstSeenSeconds: first, trackLastSeenSeconds: last };
+    return { track: null, trackUrl: null, trackFirstSeenSeconds: null, trackLastSeenSeconds: null, trackSource: null, trackPartial: false };
+  return {
+    track,
+    trackUrl: null,
+    trackFirstSeenSeconds: first,
+    trackLastSeenSeconds: last,
+    trackSource: entry.track_source === 'reviewer' ? 'reviewer' : null,
+    trackPartial: entry.track_partial === true,
+  };
 }
 
 function evidenceOf(entries: EvidenceEntry[], type: EvidenceItemType, itemId: string): ItemEvidence | null {
@@ -49,6 +60,7 @@ function evidenceOf(entries: EvidenceEntry[], type: EvidenceItemType, itemId: st
     uploaded: entry.source === 'upload',
     clipUrl: null,
     ...trackOf(entry),
+    addedByReviewer: entry.source === 'reviewer',
   };
 }
 

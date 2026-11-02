@@ -5,6 +5,7 @@ import { FilmIcon, Loader2Icon, PlayIcon } from 'lucide-react';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
+import { EvidenceBadges } from '@/sections/reports/components/EvidenceBadges';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { evidenceDisplay } from '@/lib/evidence/evidence-view';
@@ -105,6 +106,7 @@ function Detail({
           {KIND_LABEL[item.kind]}
           {lines.time && ` · most visible at ${lines.time}`}
         </DialogDescription>
+        <EvidenceBadges badges={lines.badges} />
       </DialogHeader>
       <EvidenceFrame
         aspect={16 / 9}

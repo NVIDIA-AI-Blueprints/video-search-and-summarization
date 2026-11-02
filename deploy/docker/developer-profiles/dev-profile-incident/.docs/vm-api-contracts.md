@@ -279,3 +279,14 @@ Host requirement: `ffmpeg` on the agent's `PATH`. The VM has no system `ffmpeg`;
 - **Never persisted:** an experimental request writes no `report_revisions` row and no `model_runs` placeholder (`revision_id` is `null`). With `skip_crops` every evidence entry has `image: null` and `image_gap: "evidence cropping skipped (skip_crops)"`.
 - **Response additions:** `experiment` (`prompt_id` (null for the production prompt), `prompt_sha256`, `skip_crops`, `max_crop_calls`, `captions` and `max_caption_calls` (null unless asked for), `persisted: false`, `caption` when captions were asked for, and for a crops-on request `evidence_store` and `crop`: `elapsed_ms` (the crop stage's wall time), `items`, `images`, `gaps` (count per reason), `cap`, `calls`, `refused_by_cap`, `cap_reached`, `tokens` and `calls_without_usage`), `p1_elapsed_ms` (the P1 HTTP round trip) and `usage` (P1 token usage). A 422 contract violation of an experimental request carries the same three in `detail`.
 - **Where it runs:** a local agent started for the experiment with no Supabase or R2 settings (plan decision D14 (b)). Either caption store needs `ffmpeg` on that agent's `PATH`; `experiment_captions: "r2"` also needs R2 settings (ideally limited to the approved prefix) and `INCIDENT_EXPERIMENT_SCRATCH_PREFIX`, the one exception to that rule. Restarting or reconfiguring the shared VM agent is ask-first.
+
+## Reviewer box tool (console proxy)
+
+The console proxies two agent endpoints for the report page's box tool (boxes `[ymin, xmin, ymax, xmax]` on 0-1000, seconds are floats). The agent side is in its own unit; the console side answers camelCase.
+
+| Console route | Agent route | Body | Answer |
+|---|---|---|---|
+| `POST /api/reports/[videoId]/box/describe` | `POST /api/v1/incidents/{video_id}/box/describe` | `{seconds, box}` | `{proposal: {itemType, name, description, holder, threatLevel, confidence} or null, reason}` |
+| `POST /api/reports/[videoId]/box/track` | `POST /api/v1/incidents/{video_id}/box/track` | `{seconds, box, itemType, name, description, backSeconds=3, forwardSeconds=3}` | `{track: {source: "reviewer", samples: [{t, box, conf}], span, partial, lostAt, reason}}` |
+
+A bad body is 400, an agent 4xx is passed on, an unreachable agent or a 5xx is 502.
