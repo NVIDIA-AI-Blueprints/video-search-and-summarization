@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "alert-agent"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "127.0.0.1:9081"
