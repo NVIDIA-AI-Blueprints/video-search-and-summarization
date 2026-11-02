@@ -145,6 +145,16 @@ How a question is answered (template mode: no model):
 
 Response `200`: `{"session_id", "message": {"role": "assistant", "content", "citations": [{"incident_id", "item_id", "item_type", "timestamp_seconds", "crop_image_url"}, ...]}}`. Errors: `400` no non-empty `user` message, or a `version_id` that belongs to another incident than `context.incident_id`; `404` unknown `version_id`; `502` evidence search or revision error; `503` report revisions unavailable.
 
+**Grounded mode (`INCIDENT_CHAT_MODE=grounded`; default `template`; proposed, not enabled on the VM).** An incident question is answered by a chat model from one report version: `version_id`, else the incident's official version (`409` when it has none), or the reviewer's `draft_report`.
+- **Model:** `INCIDENT_CHAT_MODEL`, default `nvidia/nemotron-3-ultra`, at `INCIDENT_CHAT_BASE_URL` (else `LLM_BASE_URL`) with `INCIDENT_CHAT_API_KEY` (else `OPENAI_API_KEY`). Strict JSON schema, temperature 0.
+- **What the model sees:** the registered system prompt `chat/incident-answer` ([`contracts/prompts/`](../contracts/prompts/README.md)), the version's incident, items (with ids and evidence seconds) and timeline as JSON, and the last eight user and assistant turns. The timeline is sorted by time, and each event carries `start_clock` and `end_clock` (`m:ss`). System turns are dropped.
+- **Prose:** the prompt has the model name people and objects by their descriptions, keep item ids out of the answer text unless the question asks for ids, and tell a what-happened question as the timeline in order (up to eight events, each with its time). A known id the model still writes in the prose is resolved to the item's description and listed in `grounding.ids_resolved`.
+- **Citations:** checked against the version's item ids. An unknown id is dropped and listed in `grounding.dropped_citations`.
+- **Insufficient evidence:** the model sets `insufficient_evidence` when the version cannot answer or contradicts the question's premise. Citations are then empty.
+- **Response:** follows [`chat-contract-v2`](../contracts/chat-contract-v2/README.md): the v1 answer plus `message.insufficient_evidence` and `grounding` `{mode, model, version_id, official, draft, dropped_citations, ids_resolved, prompt_sha256, usage}`.
+- **Errors:** a model failure or a malformed answer is a `502`.
+- **Unchanged:** a question with no incident (library scope) keeps the template answer until library chat arrives, and so does every question in template mode (composed from the report, above), both with exactly the v1 keys.
+
 ## `POST /api/v1/incidents/charts`
 
 Draws the figures it is given with the `chart_generator` tool. The dashboard's chart requests call it from the console server; the route chooses and computes nothing. It needs `chart_generator` in the agent's config (`dev-profile-base/vss-agent/configs/config.yml`). The mock has no such route, so chart requests show an error there.

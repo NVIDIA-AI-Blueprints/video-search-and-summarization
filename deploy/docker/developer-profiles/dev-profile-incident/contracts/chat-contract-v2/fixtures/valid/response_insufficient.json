@@ -1,0 +1,21 @@
+{
+  "session_id": "s1",
+  "message": {
+    "role": "assistant",
+    "content": "The report does not say.",
+    "citations": [],
+    "insufficient_evidence": true
+  },
+  "grounding": {
+    "mode": "grounded",
+    "model": "nvidia/nemotron-3-ultra",
+    "version_id": 7,
+    "official": true,
+    "draft": false,
+    "dropped_citations": [],
+    "prompt_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "usage": {
+      "total_tokens": 120
+    }
+  }
+}

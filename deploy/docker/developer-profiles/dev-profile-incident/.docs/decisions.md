@@ -2,6 +2,24 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-02: Grounded chat answers from one report version with a chat model, behind a mode switch (Gate M2 approved by the chatbot feature owner)
+- **Status:** approved on 2026-11-02 by the authorised chatbot feature owner (Gate M2). The decision covers implementing and integrating grounded report chat (P5), library chat (P6) and console report chat (P7), and it supersedes [2026-10-24: Chat about the official version uses the in-memory chat search client](#2026-10-24-chat-about-the-official-version-uses-the-in-memory-chat-search-client-for-mvp2) for grounded mode. **The production default does not change:** template mode stays the default (`INCIDENT_CHAT_MODE` unset) until Evaluation V2 validates grounded mode, and nothing is deployed to the shared agent by this merge. First proposed 2026-11-01.
+- **Decision:** with `INCIDENT_CHAT_MODE=grounded`, an incident question is answered by a chat model from one report version: the asked one, else the official one, or the reviewer's draft.
+  - The model is `INCIDENT_CHAT_MODEL`, default Nemotron 3 Ultra, which the endpoint check (RB1) must confirm.
+  - It sees the registered prompt `chat/incident-answer`, the version as JSON (incident, items with ids, timeline) and the last eight turns.
+  - It answers in a strict schema: `answer`, cited item ids, `insufficient_evidence`.
+  - Every cited id is checked against the version, and unknown ones are dropped and counted.
+  - The answer follows `chat-contract-v2`: v1 plus `insufficient_evidence` and `grounding`.
+  - The model client and its clock are injectable, and the request has a golden (`contracts/golden/chat.json`).
+  - **Prose and ids (revised 2026-11-01, after the item-list answer on localhost):** the prompt names people and objects by their descriptions, keeps item ids out of the answer unless the question asks for them, and tells a what-happened question as the timeline in order with `m:ss` times; the context sorts the timeline and adds the clock times. The first prompt said to refer to people "by their description as well as their id". A known id still written in the prose is resolved to the item's description by the same function the template mode uses, and listed in `grounding.ids_resolved`, so prompt compliance can be measured.
+- **Why:** today's chat makes no model call. It keyword-ranks saved evidence into a template sentence, and for the official version with no draft it asks a canned in-memory search client that knows no finals video. The brief asks for a working chatbot first, and Evaluation V2 measures answers: fact recall, citations, refusals.
+- **Rejected:**
+  - Retrieval over `evidence_crops` alone: it holds one version per video and no incident-level facts.
+  - Free-text answers with citations parsed from prose: they cannot be checked reliably.
+  - Changing the default mode now: it waits for Evaluation V2 to validate grounded answers (chat references RA2 and the judge).
+  - Library-wide questions in this step: they need a planner over SQL facets and revision search, which is P6.
+- **Links:** [contract](vm-api-contracts.md#post-apiv1incidentschat), [`grounded_chat.py`](../../../../../services/agent/src/vss_agents/utils/grounded_chat.py), [`chat-contract-v2`](../contracts/chat-contract-v2/README.md)
+
 ### 2026-11-02: Evaluation V2 proposes Gemma 4 31B as its independent open-weight Track A baseline (pending a capped dev pilot)
 - **Decision (proposed by the evaluation agent, pending the owner and the C2 freeze):** Track A adds `google/gemma-4-31b-it` on the NVIDIA API catalog as the external open-weight baseline, after four probes and a 50-run dev pilot (C1e, ≤ 1.5 M tokens). `moonshotai/kimi-k2.6` is an optional second only if its probes show real video input.
 - **Why:** Switchyard serves only NVIDIA models (RB1). On the catalog (re-listed 2026-11-02, unchanged), Gemma 4 31B is the only independent-family model with documented video input and a practical size. It is Google-built, Apache-2.0, 31B dense, and documents video up to 60 s at 1 fps. The pilots so far compare NVIDIA models only.
@@ -1012,6 +1030,7 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
 - **Links:** [`incident-profile-operations.md`](incident-profile-operations.md); `eval/tests/test_start_script.py`.
 
 ### 2026-10-24: Chat about the official version uses the in-memory chat search client for MVP2
+- **Superseded for grounded mode (2026-11-02):** see [Grounded chat answers from one report version](#2026-11-02-grounded-chat-answers-from-one-report-version-with-a-chat-model-behind-a-mode-switch-gate-m2-approved-by-the-chatbot-feature-owner). This entry still describes template mode, which remains the default.
 - **Decision:** A chat question about the official revision with no draft goes to the agent chat route's search client, which stays the in-memory canned client for MVP2, so it finds no evidence for a finals video. Other versions and drafts are answered from their saved evidence.
 - **Why:** A deliberate choice by the captain (2026-10-24); no reason was recorded.
 - **Rejected:** none recorded.

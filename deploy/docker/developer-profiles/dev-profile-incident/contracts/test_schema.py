@@ -8,6 +8,7 @@ import json
 import sys
 from pathlib import Path
 
+import jsonschema
 from jsonschema import ValidationError, validate
 
 CONTRACTS_DIR = Path(__file__).resolve().parent
@@ -231,3 +232,21 @@ def test_search_response_incident_metadata_present():
             isinstance(inc["incident_window"], list)
             and len(inc["incident_window"]) == 2
         ), f"hit[{idx}].incident.incident_window must be [start, end]"
+
+
+CHAT_V2 = Path(__file__).resolve().parent / "chat-contract-v2"
+
+
+def test_chat_v2_response_fixtures():
+    schema = json.loads((CHAT_V2 / "chat_response.schema.json").read_text())
+    validator = jsonschema.Draft202012Validator(schema)
+    for path in sorted((CHAT_V2 / "fixtures" / "valid").glob("response_*.json")):
+        validator.validate(json.loads(path.read_text()))
+    for path in sorted((CHAT_V2 / "fixtures" / "invalid").glob("response_*.json")):
+        assert list(validator.iter_errors(json.loads(path.read_text()))), path.name
+
+
+def test_chat_v2_request_schema_matches_v1_apart_from_its_id():
+    v1 = json.loads((CHAT_V2.parent / "chat-contract-v1" / "chat_request.schema.json").read_text())
+    v2 = json.loads((CHAT_V2 / "chat_request.schema.json").read_text())
+    assert {k: v for k, v in v1.items() if k != "$id"} == {k: v for k, v in v2.items() if k != "$id"}

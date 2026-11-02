@@ -1,0 +1,17 @@
+{
+  "session_id": "s1",
+  "message": {
+    "role": "assistant",
+    "content": "E1, the man in a red hood, held the bottle.",
+    "citations": [
+      {
+        "incident_id": "V1",
+        "item_id": "I1",
+        "item_type": "instrument",
+        "timestamp_seconds": 6.0,
+        "crop_image_url": "https://r2.example/evidence/V1/run-1/I1.jpg"
+      }
+    ],
+    "insufficient_evidence": false
+  }
+}
