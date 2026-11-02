@@ -203,3 +203,82 @@ def test_the_trackers_summary_is_stored_from_the_replys_top_level_field(tmp_path
     assert stored["object_tracking"]["detector"]["cap"] == 80 and stored["experiment"]["object_tracking"] is True
     _, untracked = _execute(tmp_path / "b", _answer())
     assert untracked["object_tracking"] is None
+
+
+# --- B3: per-run flags are recorded, never pinned ------------------------------------------------------------------
+
+CAPTIONS = requests_vss.PROFILES["production-v4-captions"]
+CHUNK_SETTINGS = {"window_seconds": 20.0, "overlap_seconds": 2.0, "min_video_seconds": 30.0, "max_windows": 40}
+
+
+def _caption_answer(enabled, skipped=None, settings=None):
+    stages = {"p1": {"model": MODEL, "calls": 1, "total_tokens": 9000, "calls_without_usage": 0},
+              "grounding": {"model": MODEL, "calls": 2, "total_tokens": 900, "calls_without_usage": 0},
+              "zoom": {"model": MODEL, "calls": 2, "total_tokens": 900, "calls_without_usage": 0}}
+    if enabled:
+        stages["caption"] = {"model": MODEL, "calls": 3, "total_tokens": 21000, "calls_without_usage": 0}
+    provenance = _provenance(flags={"chunking": {**(settings or CHUNK_SETTINGS), "enabled": enabled}}, stages=stages)
+    status, body = _answer(provenance)
+    body["experiment"]["caption"] = {"store": "inline", "skipped": skipped, "calls": 3 if enabled else 0, "cap": 30}
+    return status, body
+
+
+def _caption_request():
+    return requests_vss.build_analyze_request(CAPTIONS, video_url=SIGNED, model=MODEL, duration_seconds=60.0,
+                                              enabled=[CAPTIONS.id])
+
+
+def test_chunking_enabled_varies_per_clip_without_stopping_the_run(tmp_path):
+    caps = [Cap(ledger, max_attempts=10_000) for ledger in ("inference", "grounding", "zoom", "caption")]
+    ctx = _ctx(tmp_path, caps)
+    agent = FakeAgent(_caption_answer(True), _caption_answer(False, "video of 30 s or less"), _caption_answer(True))
+    adapter = VssAgentAdapter("super-b", MODEL, post=agent)
+    for _ in range(3):
+        adapter.analyze("Assault001", _caption_request(), ctx)
+    assert adapter.pinned["flags"]["chunking"] == CHUNK_SETTINGS, "the settings are pinned without enabled"
+    assert ctx.ledger.totals("caption").attempts == 6
+
+
+def test_a_changed_chunking_setting_is_still_drift(tmp_path):
+    caps = [Cap(ledger, max_attempts=10_000) for ledger in ("inference", "grounding", "zoom", "caption")]
+    ctx = _ctx(tmp_path, caps)
+    agent = FakeAgent(_caption_answer(True), _caption_answer(True, settings={**CHUNK_SETTINGS, "window_seconds": 30}))
+    adapter = VssAgentAdapter("super-b", MODEL, post=agent)
+    adapter.analyze("Assault001", _caption_request(), ctx)
+    with pytest.raises(AgentDriftError, match="changed during the run"):
+        adapter.analyze("Assault001", _caption_request(), ctx)
+
+
+def test_a_resumed_run_pins_against_the_stored_settings(tmp_path):
+    caps = [Cap(ledger, max_attempts=10_000) for ledger in ("inference", "grounding", "zoom", "caption")]
+    first = VssAgentAdapter("super-b", MODEL, post=FakeAgent(_caption_answer(True)))
+    first.analyze("Assault001", _caption_request(), _ctx(tmp_path, caps))
+    resumed = VssAgentAdapter("super-b", MODEL, post=FakeAgent(_caption_answer(False, "cap")),
+                              pinned=copy.deepcopy(first.pinned))
+    resumed.analyze("Assault001", _caption_request(), _ctx(tmp_path, caps))  # enabled differs: no drift
+
+
+def test_pinned_flags_drop_only_the_per_run_outcome():
+    from evalv2.adapters.vss import per_run_flags, pinned_flags
+
+    flags = {"zoom_names": True, "chunking": {"enabled": True, "window_seconds": 20.0}}
+    assert pinned_flags(flags) == {"zoom_names": True, "chunking": {"window_seconds": 20.0}}
+    assert pinned_flags({"chunking": False, "tracking": False}) == {"tracking": False}, "a bare boolean is the outcome"
+    assert per_run_flags({"flags": flags}, {"caption": {"skipped": None, "store": "inline"}}) == {
+        "chunking_enabled": True, "caption_skipped": None, "caption_store": "inline"}
+    assert per_run_flags(None)["chunking_enabled"] is None
+
+
+def test_the_pipeline_artifact_records_the_runs_caption_outcome(tmp_path):
+    caps = [Cap(ledger, max_attempts=10_000) for ledger in ("inference", "grounding", "zoom", "caption")]
+    ctx = _ctx(tmp_path, caps)
+    task = PipelineTask(video_url=lambda clip: SIGNED, video_duration=lambda clip: 60.0,
+                        enabled_profiles=[CAPTIONS.id])
+    item = next(i for i in task.plan(_config(), {"clips": ["Assault001"]}) if i.subject == "super-b")
+    item = type(item)(item.task, item.subject, item.item_id, item.repeat,
+                      {**item.spec, "profile": CAPTIONS.id})
+    record = task.execute(item, VssAgentAdapter("super-b", MODEL,
+                                                post=FakeAgent(_caption_answer(False, "video of 30 s or less"))), ctx)
+    stored = ctx.store.get(ArtifactRef.parse(record.prediction_ref))
+    assert stored["caption_pass"] == {"ran": False, "calls": 0, "chunking_enabled": False,
+                                      "caption_skipped": "video of 30 s or less", "caption_store": "inline"}

@@ -34,7 +34,13 @@
       "scorers": [
         "incident_objects.score_video@1",
         "incident_objects.aggregate@1"
-      ]
+      ],
+      "options": {
+        "judges": {
+          "primary": "catalog-gpt-oss-20b-v1",
+          "sensitivity": "catalog-mistral-large-4-v1"
+        }
+      }
     }
   },
   "repeats": 2,
@@ -45,30 +51,39 @@
       "ledger": "inference",
       "subject": "nano-direct",
       "task": "incident_objects",
-      "max_attempts": 195,
-      "max_tokens": 6825000
+      "max_attempts": 65,
+      "max_tokens": 2000000
     },
     {
       "ledger": "inference",
       "subject": "super-direct",
       "task": "incident_objects",
-      "max_attempts": 195,
-      "max_tokens": 6825000
+      "max_attempts": 65,
+      "max_tokens": 2000000
     },
     {
       "ledger": "inference",
       "subject": "omni-direct",
       "task": "incident_objects",
-      "max_attempts": 195,
-      "max_tokens": 6825000
+      "max_attempts": 65,
+      "max_tokens": 2000000
     },
     {
       "ledger": "inference",
       "subject": "*",
       "task": "*",
-      "max_attempts": 585,
-      "max_tokens": 20475000
+      "max_attempts": 195,
+      "max_tokens": 6000000
+    },
+    {
+      "ledger": "judge",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 1100,
+      "max_tokens": 1650000
     }
   ],
-  "notes": "C1a Track A pilot (methodology v2.0 section 2): the production v4 P1 request, alone, to three video models on Switchyard; 25 dev clips x 2 repeats = 50 P1 calls per subject. Dev only: no test clip. Each per-subject cap is the preflight worst case (50 items x 3 attempts under retry-v2, 35,000 tokens each) plus 30% for recovery-v1 re-attempts and resumes; the last cap bounds the run. Judge and embedding calls for scoring are a separate, separately capped stage. Readiness, budgets and the launch command: methodology/v2-run-readiness.md."
+  "notes": "C1a Track A pilot (methodology v2.0 section 2): the production v4 P1 request, alone, to three video models on Switchyard; 25 dev clips x 2 repeats = 50 P1 calls per subject, 150 in all. Dev only (purpose pilot). budget_mode hard_stop: the caps are the owner-approved budget (6 M inference tokens for the run, a third per subject; 195 attempts leaves 30% for retries), below the pessimistic worst case (every attempt at 35,000 tokens, every retry taken), so the ledger refuses any attempt that would pass a cap before sending it. Typical use is about 1.9 M tokens. The judge cap is this run's share of the approved judge budget (2,000 calls, 3 M tokens over every scoring stage). Launch, marker and scoring: methodology/v2-run-readiness.md.",
+  "purpose": "pilot",
+  "budget_mode": "hard_stop"
 }

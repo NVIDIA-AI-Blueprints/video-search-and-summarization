@@ -35,7 +35,7 @@ predictions of the same run, so the scorers can separate the effects (methodolog
 The artifact also keeps the evidence entries (the crop scorers' input), the agent's experiment summaries (crop and
 zoom calls against their caps), the object tracker's summary (the reply's top-level ``object_tracking``, whose
 ``detector`` is the tracker's call budget; ``experiment.object_tracking`` is only the request's setting), whether a
-caption pass ran, and whether V1's policy agreed with the agent's own validation. Executing is a live,
+caption pass ran (with the run's ``chunking.enabled`` and the agent's caption skip reason), and whether V1's policy agreed with the agent's own validation. Executing is a live,
 approval-gated run that needs the run's video-URL resolver.
 """
 
@@ -46,6 +46,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from evalv2.adapters.base import CallContext, PipelineAdapter
+from evalv2.adapters.vss import per_run_flags
 from evalv2.core.retry import classify_http_status
 from evalv2.requests.vss import VssProfile, build_analyze_request, profile_for
 from evalv2.tasks.base import PredictionRecord, WorkItem
@@ -93,9 +94,11 @@ class PipelineTask:
     retries_included = True  # the worst case counts the agent's own retries; an analysis is never re-sent
 
     def __init__(self, *, video_url: Callable[[str], str] | None = None,
-                 video_duration: Callable[[str], float | None] | None = None) -> None:
+                 video_duration: Callable[[str], float | None] | None = None,
+                 enabled_profiles: Sequence[str] = ()) -> None:
         self.video_url = video_url
         self.video_duration = video_duration or (lambda clip: None)
+        self.enabled_profiles = tuple(enabled_profiles)
 
     @staticmethod
     def profile(spec: Mapping[str, Any]) -> VssProfile:
@@ -133,7 +136,7 @@ class PipelineTask:
         profile = self.profile(item.spec)
         duration = self.video_duration(item.item_id)
         request = build_analyze_request(profile, video_url=self.video_url(item.item_id), model=adapter.model,
-                                        duration_seconds=duration)
+                                        duration_seconds=duration, enabled=self.enabled_profiles)
         result = adapter.analyze(item.item_id, request, ctx)
         provenance = {**dict(result.provenance or {}), "track": "B", "adapter": adapter.id,
                       "profile": profile.to_dict()}
@@ -168,7 +171,9 @@ class PipelineTask:
             "evidence": [dict(entry) for entry in result.evidence],
             "experiment": {k: v for k, v in result.experiment.items() if k != "p1_report"},
             "object_tracking": dict(result.object_tracking) if result.object_tracking is not None else None,
-            "caption_pass": {"ran": bool(caption.get("calls")), "calls": int(caption.get("calls") or 0)},
+            # Per run, never pinned (B3): whether the agent's caption pass ran (chunking.enabled) and why it skipped.
+            "caption_pass": {"ran": bool(caption.get("calls")), "calls": int(caption.get("calls") or 0),
+                             **per_run_flags(result.provenance, result.experiment)},
             "request_ref": result.request_ref, "response_ref": result.response_ref,
         }
         ref = ctx.store.put(PREDICTION_KIND, artifact)

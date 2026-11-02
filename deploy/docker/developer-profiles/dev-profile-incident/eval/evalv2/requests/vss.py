@@ -25,15 +25,20 @@ analysis flags the agent must run with, the stages it may call and what one run 
   provenance; an existing profile is never edited.
 - The caps are provisional until the Track B pilot (C1b) recalibrates them. A capped item keeps its gap and is
   unscorable, not a miss.
-- The experimental path runs no caption pass yet (the caption windows need the R2 scratch store, blocker X16), and
-  never person tracking or set-of-marks prompting. ``production-v4-captions`` is the profile that will declare the
-  caption stage once X16 lands: it is planned and budgeted now, and :func:`build_analyze_request` refuses to build a
-  request from it while it is ``pending``.
+- The experimental path never runs person tracking or set-of-marks prompting. It runs the caption pass only when the
+  request asks for it (X16, agent PR #439): ``experiment_captions`` (``"inline"`` sends each window to the model as
+  a base64 data URL and stores nothing; ``"r2"`` uses an approved scratch prefix) with ``max_caption_calls``
+  (1-200), the pass's HTTP attempts, retries included. ``production-v4-captions`` is that profile, inline, with
+  30 caption calls per run, each charged at most :data:`CAPTION_TOKENS_BOUND` tokens on the ``caption`` ledger.
+- A **gated** profile (``gate``) is planned and budgeted like any other, but :func:`build_analyze_request` builds a
+  request from it only when the run enables it by id (the approval marker's ``enabled_profiles``). The caption
+  profile is gated on the base64 probe: whether the endpoints accept an inline video is unverified until then.
+- A ``pending`` profile is never built at all (the agent cannot run it yet).
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
@@ -41,11 +46,15 @@ P1_MAX_ATTEMPTS = 2  # the agent's P1_MAX_ATTEMPTS: one retry after a runaway ou
 AGENT_CAP_LIMIT = 200  # the agent's MAX_CROP_CALLS_LIMIT, the upper bound of max_crop_calls and max_zoom_calls
 # The caption pass (services/agent utils/chunk_captions.py): 20 s windows overlapping by 2 s, none for a clip of 30 s
 # or less, each window at most CAPTION_RETRIES = 3 attempts with max_tokens 4,096. The longest of the 80 clips
-# (332.6 s) has 19 windows, so 57 attempts; 60 covers every clip at the agent's default window settings.
-CAPTION_CALLS_WORST_CASE = 60
-# A caption attempt's bound: the largest P1 prompt measured (17,970 tokens, a whole clip) rounded up to 20,000 (a
-# window's prompt is no larger), plus the caption pass's max_tokens.
-CAPTION_TOKENS_BOUND = 20_000 + 4_096
+# (332.6 s) has 19 windows. production-v4-captions caps the pass at 30 attempts per run (the agent's
+# max_caption_calls, retries included, checked before each attempt): every dev clip's windows fit once each, and a
+# clip whose windows exceed the cap gets no pass (the agent skips it and says so).
+CAPTION_CALLS_WORST_CASE = 30
+# A caption attempt's bound: one 20 s window's frames plus the caption prompt, and the 4,096-token output limit,
+# about 13,000 tokens (the evaluation lead's bound for the pilot). Charged until the agent reports the call's usage.
+CAPTION_TOKENS_BOUND = 13_000
+CAPTION_STORES = ("inline", "r2")
+CAPTION_GATE = "base64-probe"  # enabled only after the gated live probe shows the endpoints take an inline video
 # Agent run-provenance stages (run_provenance.STAGES) and the ledger each is charged to. ``embedding`` (the revision's
 # summary embedding) never runs in an experiment, which persists nothing; it is mapped so a stray call is charged.
 STAGE_LEDGERS = {"caption": "caption", "p1": "inference", "rp1": "inference", "grounding": "grounding",
@@ -53,6 +62,10 @@ STAGE_LEDGERS = {"caption": "caption", "p1": "inference", "rp1": "inference", "g
                  "embedding": "embedding"}
 OVERRIDABLE = frozenset({"max_crop_calls", "max_zoom_calls", "prompt_id", "p1_tokens_bound",
                          "detector_tokens_bound", "zoom_tokens_bound", "max_caption_calls", "caption_tokens_bound"})
+
+
+class ProfileGatedError(ValueError):
+    """A gated profile that the run has not enabled: planned and budgeted, never sent."""
 
 
 @dataclass(frozen=True)
@@ -71,12 +84,16 @@ class VssProfile:
     p1_tokens_bound: int = 35000
     detector_tokens_bound: int = 6000
     zoom_tokens_bound: int = 4000
-    # The caption pass (X16): when on, the request sends ``max_caption_calls``, the per-attempt cap the X16 design
-    # gives the agent, and the profile declares the ``caption`` stage and budgets it on the ``caption`` ledger.
+    # The caption pass (X16): when on, the request sends ``experiment_captions`` (the window store) and
+    # ``max_caption_calls`` (the pass's attempts, retries included), and the profile declares the ``caption`` stage
+    # and budgets it on the ``caption`` ledger.
     caption_pass: bool = False
+    captions: str | None = None
     max_caption_calls: int = 0
     caption_tokens_bound: int = CAPTION_TOKENS_BOUND
-    # A blocker id (``"X16"``) while the agent cannot run the profile: planned and budgeted, never sent.
+    # Built only when the run enables this profile by id (see ProfileGatedError); the gate names the condition.
+    gate: str | None = None
+    # A blocker id while the agent cannot run the profile: planned and budgeted, never sent.
     pending: str | None = None
 
     def __post_init__(self) -> None:
@@ -88,6 +105,10 @@ class VssProfile:
             raise ValueError(f"profile {self.id}: a caption pass needs max_caption_calls in 1..{AGENT_CAP_LIMIT}")
         if not self.caption_pass and self.max_caption_calls:
             raise ValueError(f"profile {self.id}: max_caption_calls without a caption pass")
+        if self.caption_pass and self.captions not in CAPTION_STORES:
+            raise ValueError(f"profile {self.id}: a caption pass names its window store, one of {CAPTION_STORES}")
+        if not self.caption_pass and self.captions is not None:
+            raise ValueError(f"profile {self.id}: experiment_captions without a caption pass")
 
     def with_overrides(self, overrides: Mapping[str, Any]) -> VssProfile:
         unknown = sorted(set(overrides) - OVERRIDABLE)
@@ -118,6 +139,7 @@ class VssProfile:
         body: dict[str, Any] = {"video_url": video_url, "model": model, "skip_rp1": True,
                                 "max_crop_calls": self.max_crop_calls, "max_zoom_calls": self.max_zoom_calls}
         if self.caption_pass:
+            body["experiment_captions"] = self.captions
             body["max_caption_calls"] = self.max_caption_calls
         if self.object_tracking:
             body["experiment_object_tracking"] = True
@@ -147,11 +169,12 @@ PROFILES: dict[str, VssProfile] = {
     "production-v4-object-tracking": VssProfile("production-v4-object-tracking", max_crop_calls=40,
                                                 max_zoom_calls=80, object_tracking=True,
                                                 expected_flags=OBJECT_TRACKING_FLAGS),
-    # Pending X16: the experiment agent runs no caption pass until the scratch store is approved and built. The flag
-    # that says a caption pass ran (``chunking``) is not prescribed: a clip of 30 s or less never runs one.
+    # The caption pass inline (X16, agent PR #439), gated on the base64 probe. The flag that says a caption pass ran
+    # (``chunking.enabled``) is not prescribed and not pinned: a clip of 30 s or less, or any skip, never runs one.
     "production-v4-captions": VssProfile("production-v4-captions", max_crop_calls=40, max_zoom_calls=80,
-                                         caption_pass=True, max_caption_calls=CAPTION_CALLS_WORST_CASE,
-                                         expected_flags=PRODUCTION_FLAGS, pending="X16"),
+                                         caption_pass=True, captions="inline",
+                                         max_caption_calls=CAPTION_CALLS_WORST_CASE,
+                                         expected_flags=PRODUCTION_FLAGS, gate=CAPTION_GATE),
 }
 
 
@@ -161,14 +184,18 @@ def profile_for(profile_id: str | None, overrides: Mapping[str, Any] | None = No
     return PROFILES[profile_id].with_overrides(overrides or {})
 
 
-def build_analyze_request(profile: VssProfile, *, video_url: str, model: str,
-                          duration_seconds: float | None) -> dict[str, Any]:
+def build_analyze_request(profile: VssProfile, *, video_url: str, model: str, duration_seconds: float | None,
+                          enabled: Iterable[str] = ()) -> dict[str, Any]:
     """``{"body", "accounting"}``: the request the adapter sends, and how it checks and charges it.
 
-    A ``pending`` profile is refused: it can be planned and preflighted, never sent.
+    A ``pending`` profile is refused: it can be planned and preflighted, never sent. A gated profile is refused
+    unless ``enabled`` names it (:class:`ProfileGatedError`).
     """
     if profile.pending:
         raise ValueError(f"profile {profile.id} is pending {profile.pending}: the agent cannot run it yet")
+    if profile.gate and profile.id not in set(enabled):
+        raise ProfileGatedError(f"profile {profile.id} is gated on {profile.gate}: it is sent only when the run's "
+                                "approval marker lists it in enabled_profiles")
     return {"body": profile.body(video_url=video_url, model=model, duration_seconds=duration_seconds),
             "accounting": {"profile": profile.to_dict(),
                            "worst_case": {ledger: list(pair) for ledger, pair in profile.worst_case().items()},

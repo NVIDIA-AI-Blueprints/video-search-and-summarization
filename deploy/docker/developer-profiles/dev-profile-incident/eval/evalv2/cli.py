@@ -116,7 +116,27 @@ def preflight(config: RunConfig, items: dict[str, list[WorkItem]]) -> list[str]:
     and task scope. A cap is checked against the summed worst case of every (task, subject) it matches, since all
     of them draw on it: two tasks that each fit a shared cap can still pass it together.
     """
+    problems, shortfalls = preflight_report(config, items)
+    return problems + shortfalls
+
+
+def preflight_problems(config: RunConfig, items: dict[str, list[WorkItem]]) -> tuple[list[str], list[str]]:
+    """``(blocking, hard_stop)``: what stops a run, and what only says it may stop at a cap.
+
+    A shortfall (a cap below the worst case) blocks under ``budget_mode: worst_case``. Under ``hard_stop`` (caps set
+    to an approved budget below the pessimistic worst case) it is only a risk that the run stops at a cap, since the
+    ledger refuses any attempt that would pass a cap before it is sent.
+    """
+    problems, shortfalls = preflight_report(config, items)
+    if config.budget_mode == "hard_stop":
+        return problems, shortfalls
+    return problems + shortfalls, []
+
+
+def preflight_report(config: RunConfig, items: dict[str, list[WorkItem]]) -> tuple[list[str], list[str]]:
+    """``(problems, shortfalls)``: every problem, with the caps below the worst case kept apart."""
     problems: list[str] = []
+    shortfalls: list[str] = []
     needs = worst_cases(config, items)
     caps = config.budget_caps()
     for (name, subject, ledger) in sorted(needs):
@@ -130,10 +150,10 @@ def preflight(config: RunConfig, items: dict[str, list[WorkItem]]) -> list[str]:
         covers = ", ".join(f"{name}/{subject}" for (name, subject, _), _ in drawn)
         scope = f"(cap subject={cap.subject}, task={cap.task}; draws: {covers})"
         if cap.max_attempts is not None and cap.max_attempts < attempts:
-            problems.append(f"{cap.ledger} attempts cap {cap.max_attempts} < worst case {attempts} {scope}")
+            shortfalls.append(f"{cap.ledger} attempts cap {cap.max_attempts} < worst case {attempts} {scope}")
         if cap.max_tokens is not None and cap.max_tokens < tokens:
-            problems.append(f"{cap.ledger} tokens cap {cap.max_tokens} < worst case {tokens} {scope}")
-    return problems + judge_problems(config)
+            shortfalls.append(f"{cap.ledger} tokens cap {cap.max_tokens} < worst case {tokens} {scope}")
+    return problems + judge_problems(config), shortfalls
 
 
 def _summary(items: dict[str, list[WorkItem]]) -> dict[str, Any]:
@@ -453,10 +473,13 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
     if args.command == "plan":
         print(json.dumps({"experiment": config.experiment, "tasks": _summary(items)}, indent=2))
         return 0
-    problems = preflight(config, items)
+    problems, hard_stop = preflight_problems(config, items)
     if args.command == "preflight" or args.dry_run:
-        print(json.dumps({"experiment": config.experiment, "half": config.split.half, "tasks": _summary(items),
-                          "retry_policy": config.retry_policy, "ok": not problems, "problems": problems}, indent=2))
+        report = {"experiment": config.experiment, "half": config.split.half, "tasks": _summary(items),
+                  "retry_policy": config.retry_policy, "ok": not problems, "problems": problems}
+        if config.budget_mode == "hard_stop":
+            report.update(budget_mode="hard_stop", hard_stop=hard_stop)
+        print(json.dumps(report, indent=2))
         return 1 if problems else 0
     if not args.live or os.environ.get(LIVE_ENV) != "1":
         print(f"refusing a live run: pass --live and set {LIVE_ENV}=1, and only with the owner's approval",
