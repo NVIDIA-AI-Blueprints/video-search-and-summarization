@@ -4,9 +4,7 @@
 // started once by src/instrumentation.ts. Every POLL_MS it runs one tick
 // (modules/jobs/application runNextJob): claim the oldest queued job, analyse
 // it with the same code as POST /api/analysis, store done or failed. A job queued
-// by the privacy toggle (reanalyseVideoId set) does not analyse: in agent mode it
-// re-blurs the video's evidence and keeps the report (reblurVideo, seconds, its own
-// timeout); in gateway mode no images are stored, so it re-analyses as before. One job at
+// One job at
 // a time per console, like the batch upload, which keeps within the model
 // provider's rate limits. It is not a request, so no route maxDuration applies;
 // each model's own timeout (contracts/inference.json) still bounds an analysis.
@@ -15,7 +13,6 @@
 import { getAnalysisJobs, getUploadAnalysis } from '@/lib/container';
 import { getServiceConfiguration, isSupabaseConfigured, requireAnalysisConfiguration } from '@/lib/env';
 import { analyseUpload } from '@/modules/analysis/application/analyse-upload';
-import { reblurVideo } from '@/modules/analysis/application/reblur-video';
 import { jobVideoId, runNextJob } from '@/modules/jobs/application';
 
 export const POLL_MS = 3000;
@@ -36,16 +33,11 @@ export async function tick(): Promise<boolean> {
     jobs: getAnalysisJobs(config),
     analyse: (job) => {
       const deps = getUploadAnalysis(requireAnalysisConfiguration(config));
-      if (job.reanalyseVideoId !== null && deps.mode === 'agent') {
-        return reblurVideo({ videoId: job.reanalyseVideoId, r2Key: job.filePath, model: job.model, blurFaces: job.blurFaces }, deps);
-      }
       return analyseUpload(
         {
           r2Key: job.filePath,
           model: job.model,
           videoId: jobVideoId(job),
-          existingVideo: job.reanalyseVideoId !== null,
-          blurFaces: job.blurFaces,
         },
         deps,
       );

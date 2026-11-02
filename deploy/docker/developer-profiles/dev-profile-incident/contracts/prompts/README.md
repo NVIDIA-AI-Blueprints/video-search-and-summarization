@@ -14,7 +14,6 @@ This registry holds every model prompt the profile sends besides the contract's 
 | [`p1/reviewer-preamble`](p1/reviewer-preamble.txt) | p1 | agent, console | - | Heads a reviewer's instruction in P1, in both analysis modes (console and agent). |
 | [`p1/marks-preamble`](p1/marks-preamble.txt) | p1 | agent | - | Heads the set-of-marks message P1 receives (flag, off by default). |
 | [`grounding/best-match`](grounding/best-match.txt) | grounding | agent | `query` | One box for a report item's label (grounding; object tracking's re-anchoring). |
-| [`grounding/every-match`](grounding/every-match.txt) | grounding | agent | `query` | Every match of a query (the privacy blur's whole-frame head search). |
 | [`zoom/look-entity-frame`](zoom/look-entity-frame.txt) | zoom | agent | - | Blind look at a person: the frame with the box drawn. |
 | [`zoom/look-entity-close-up`](zoom/look-entity-close-up.txt) | zoom | agent | - | Blind look at a person: the frame, then the close-up. |
 | [`zoom/look-object-frame`](zoom/look-object-frame.txt) | zoom | agent | - | Blind look at an instrument or asset: the frame with the box drawn. |

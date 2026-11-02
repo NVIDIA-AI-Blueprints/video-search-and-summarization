@@ -81,7 +81,7 @@ def test_passes_incident_id_video_url_and_model_run_id_to_the_tool():
     assert response.json() == {
         k: v
         for k, v in OUTPUT.model_dump().items()
-        if k not in EXPERIMENT_OUTPUT_FIELDS and k not in ("tracking", "privacy", "object_tracking")
+        if k not in EXPERIMENT_OUTPUT_FIELDS and k not in ("tracking", "object_tracking")
     }
 
 
@@ -451,24 +451,3 @@ def test_a_production_422_keeps_its_documented_detail():
     client, _ = _client(side_effect=IncidentExtractionError("bad", raw_output="{bad", model="m"))
     detail = client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL}).json()["detail"]
     assert set(detail) == {"message", "raw_output", "finish_reason", "model", "p1_attempts", "contract_version"}
-
-
-def test_blur_faces_is_passed_to_the_tool_only_when_true():
-    client, tool = _client(result=OUTPUT)
-    client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL, "blur_faces": False})
-    tool.ainvoke.assert_awaited_once_with({"incident_id": "v1", "video_url": VIDEO_URL, "skip_rp1": False})
-    client, tool = _client(result=OUTPUT)
-    client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL, "blur_faces": True})
-    tool.ainvoke.assert_awaited_once_with(
-        {"incident_id": "v1", "video_url": VIDEO_URL, "skip_rp1": False, "blur_faces": True}
-    )
-
-
-def test_a_privacy_summary_is_kept_in_the_response_only_when_the_tool_returned_one():
-    summary = {"blur_faces": True, "regions": 2, "frames": 2, "head_detections": 2, "detector_calls": 4, "failed": 0}
-    client, _ = _client(result=OUTPUT.model_copy(update={"privacy": summary}))
-    body = client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL, "blur_faces": True}).json()
-    assert body["privacy"] == summary
-    assert set(body) == PRODUCTION_KEYS | {"privacy"}
-    client, _ = _client(result=OUTPUT)
-    assert "privacy" not in client.post("/api/v1/incidents/v1/analyze", json={"video_url": VIDEO_URL}).json()

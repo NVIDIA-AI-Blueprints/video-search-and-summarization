@@ -18,11 +18,11 @@
 One analysis collects a :class:`RunProvenance` in a context variable (:func:`collecting`), so every model call
 inside it is counted without threading a meter through the evidence pipeline: the context reaches the request's
 tasks and ``asyncio.to_thread`` workers. Each stage (``caption``, ``p1``, ``rp1``, ``grounding``, ``zoom``,
-``object_tracking``, ``privacy_heads``, ``embedding``) counts the HTTP attempts it sent, the ones that failed (a
+``object_tracking``, ``embedding``) counts the HTTP attempts it sent, the ones that failed (a
 transport error or any status other than 2xx; for P1, grounding and zoom also a reply without a usable answer: P1's
 must pass the contract's strict parse, a zoom look or merge its strict reply check), the ones a cap refused before
 sending, tokens as reported (a malformed count reads as none), attempts that reported none, and time. A detector call is counted under the stage set
-by :func:`stage_scope` (``grounding`` unless the object tracker or the privacy head search set theirs); a zoom call
+by :func:`stage_scope` (``grounding`` unless the object tracker sets its own); a zoom call
 always counts as ``zoom``.
 
 The record (:meth:`RunProvenance.to_dict`) also names the agent's code (:func:`agent_identity`), the analysis
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 SCHEMA = "incident-run-provenance-v1"
-STAGES = ("caption", "p1", "rp1", "grounding", "zoom", "object_tracking", "privacy_heads", "embedding")
+STAGES = ("caption", "p1", "rp1", "grounding", "zoom", "object_tracking", "embedding")
 GIT_SHA_ENV = "VSS_AGENT_GIT_SHA"
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 
@@ -278,7 +278,6 @@ def analysis_flags() -> dict[str, Any]:
     from vss_agents.utils import chunk_captions
     from vss_agents.utils import crop_evidence
     from vss_agents.utils import object_tracking
-    from vss_agents.utils import privacy_blur
     from vss_agents.utils import set_of_marks
     from vss_agents.utils import track_evidence
 
@@ -292,6 +291,5 @@ def analysis_flags() -> dict[str, Any]:
         "object_tracking": object_tracking.object_tracking_enabled(),
         "set_of_marks": set_of_marks.som_enabled(),
         "zoom_names": crop_evidence.zoom_names_enabled(),
-        "blur_detector_call_cap": privacy_blur.call_cap(),
         "experiments": incident_experiments.experiments_enabled(),
     }

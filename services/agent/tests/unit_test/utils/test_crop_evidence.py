@@ -30,7 +30,6 @@ import cv2
 import numpy as np
 import pytest
 
-from vss_agents.utils import privacy_blur
 from vss_agents.utils.crop_evidence import BudgetedDetector
 from vss_agents.utils.crop_evidence import CropCallBudget
 from vss_agents.utils.crop_evidence import CropCallCapReachedError
@@ -1050,11 +1049,8 @@ class TestObjectTrackingEvidence:
         assert request.summary.skipped is not None and "boom" not in request.summary.skipped
 
     @pytest.mark.asyncio
-    async def test_with_the_blur_on_the_frame_is_still_re_cut_at_the_best_moment_and_blurred_there(
-        self, tiny_video_path: Path
-    ) -> None:
+    async def test_the_frame_is_re_cut_at_the_object_tracks_best_moment(self, tiny_video_path: Path) -> None:
         request, _ = self._request(ObjectTrackingOutcome(tracks={"I1": self._track("I1")}))
-        summary = privacy_blur.PrivacySummary()
         results = await CropEvidenceService(
             detector=self.DETECTOR, store=InMemoryEvidenceStore()
         ).process_incident_report(
@@ -1063,13 +1059,10 @@ class TestObjectTrackingEvidence:
             report=REPORT,
             batch_id="b",
             object_tracking=request,
-            privacy=summary,
         )
         instrument = results[1]
         assert instrument["track_source"] == OBJECT_TRACK_SOURCE and instrument["track"]
-        # The blur no longer depends on tracking: the frame at the new second gets its own head search.
         assert instrument["box_seconds"] == 1.5 and instrument["located"] is True
-        assert "blur_regions" in instrument and summary.failed == 0
 
 
 class TestZoomSecondLook:

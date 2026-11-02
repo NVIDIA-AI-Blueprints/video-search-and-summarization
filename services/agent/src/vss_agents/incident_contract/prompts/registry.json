@@ -86,19 +86,6 @@
       "purpose": "One box for a report item's label (grounding; object tracking's re-anchoring)."
     },
     {
-      "id": "grounding/every-match",
-      "file": "grounding/every-match.txt",
-      "sha256": "0609320c61eec1d61e98e80f3167ef3af89998e334ed6795baef23050c31cc33",
-      "stage": "grounding",
-      "placeholders": [
-        "query"
-      ],
-      "used_by": [
-        "agent"
-      ],
-      "purpose": "Every match of a query (the privacy blur's whole-frame head search)."
-    },
-    {
       "id": "zoom/look-entity-frame",
       "file": "zoom/look-entity-frame.txt",
       "sha256": "8917b6e889a0eb1cdc8bbbd3cccc4425cbe31e66784b38cf2fc9ec25ffa80ee3",

@@ -100,8 +100,8 @@ Failed attempts never create a revision or evidence rows, and never appear as re
   "failure": null,
   "contractVersion": "incident-contract-v4",
   "videoId": "…", "r2Key": "…", "modelRunId": "…", "attemptedAt": "…Z",
-  "request": { "model": "…", "inferenceConfig": {}, "additionalInstruction": null, "promptSha256": "…", "schemaSha256": "…", "videoDurationSeconds": 0, "blurFaces": false },
-  "response": { "content": "<original raw response, unaltered>", "reasoningContent": "…", "finishReason": "stop", "usage": {}, "httpStatus": 200, "errorBody": null, "tracking": {}, "privacy": {}, "object_tracking": {} },
+  "request": { "model": "…", "inferenceConfig": {}, "additionalInstruction": null, "promptSha256": "…", "schemaSha256": "…", "videoDurationSeconds": 0 },
+  "response": { "content": "<original raw response, unaltered>", "reasoningContent": "…", "finishReason": "stop", "usage": {}, "httpStatus": 200, "errorBody": null, "tracking": {}, "object_tracking": {} },
   "validation": { "firstPass": [ { "code": "…", "path": "…", "message": "…" } ] },
   "repair": null,
   "report": {},
@@ -115,7 +115,7 @@ Field notes:
 - `repair`: `null`, or `{ eligible: false, reason, blockingCodes }`, or `{ eligible: true, ruleSet, operations, revalidation }`.
 - `report`: the final validated contract report plus derived duration. Valid outcomes only.
 - `reportId` and `generatedAt`: valid outcomes only.
-- `request.videoDurationSeconds` and `request.blurFaces` and `response.httpStatus`, `response.errorBody` (a failed agent call), `response.tracking`, `response.privacy` and `response.object_tracking` are agent mode only, copied as returned.
+- `request.videoDurationSeconds` and `response.httpStatus`, `response.errorBody` (a failed agent call), `response.tracking` and `response.object_tracking` are agent mode only, copied as returned. Runs recorded before 2 Nov 2026 may also carry `request.blurFaces`, `response.privacy` or a `reblur` record; nothing reads them.
 - `response.provenance` (agent mode, valid and `contract_failed` attempts) is the agent's run provenance as returned: the agent's commit, the flags, and for each stage the model, prompt hashes, calls (failed and refused counted) and tokens ([vm-api-contracts.md](vm-api-contracts.md)). It is written once with the attempt, like everything else here.
 - `response`: holds only the fields the gateway actually returned. The caption pass's captions are never stored ([vm-api-contracts.md](vm-api-contracts.md#caption-pass-chunked-captioning-incident_chunking_enabled)); runs recorded before 1 Nov 2026 may still carry `chunkTimeline`, `chunking`, `chunkAlerts` or `alerting`, which nothing reads.
 
@@ -164,8 +164,7 @@ Their notes are parsed best-effort for the read-only Class B fields. Saving an e
 
 ## 6. Agent mode
 
-`ANALYSIS_MODE=agent` posts to `vss-agent`'s `/api/v1/incidents/{id}/analyze` with `{ video_url, video_key?, model_run_id?, model?, reviewer_prompt?, skip_rp1?, video_duration_seconds?, blur_faces? }` (`video_key`: evidence crops are stored under `evidence/<video_key>/run-<n>/`; the console always sends it).
-- `blur_faces: true` (sent for a video with `videos.blur_faces` on) pixelates every head in the stored evidence frames and crops (a whole-frame head detection of each frame, whatever tracking linked); P1 and the report are unchanged (contract v4), each evidence entry gains `blur_regions` (and `heads`, the key of its per-second clip heads file), and the console keeps the agent's `privacy` summary in the run's notes as `response.privacy`, with `request.blurFaces: true` ([data](data.md#privacy-blur)). Switching the toggle does not analyse again: `POST /api/v1/incidents/{id}/reblur` copies the shown revision's report and makes the images again, and its run record carries that report with `reblur: {sourceRevisionId, sourceModelRunId}` and no model response ([contract](vm-api-contracts.md#post-apiv1incidentsincident_idreblur)).
+`ANALYSIS_MODE=agent` posts to `vss-agent`'s `/api/v1/incidents/{id}/analyze` with `{ video_url, video_key?, model_run_id?, model?, reviewer_prompt?, skip_rp1?, video_duration_seconds? }` (`video_key`: evidence crops are stored under `evidence/<video_key>/run-<n>/`; the console always sends it).
 - `vss-agent` uses its vendored `incident-contract-v4` (`vss_agents/incident_contract/`) to run P1 (direct VLM call with JSON Schema response format) and RP1 (prose report generation). P1 and RP1 request settings come from the shared `contracts/inference.json` `p1` and `rp1` blocks (the agent reads its vendored copy; eval asserts its constants match). The request's `skip_rp1` flag runs P1 only; the console always sets it, because gateway mode runs P1 only too.
 - The agent validates P1 with strict Pydantic models under the same `core-scored-v1` policy and `id-normalization-v1` repair as the console (timeline-only violations are not fatal), derives `incident.duration` and, unless `skip_rp1`, runs RP1 on the result. Only a schema or unrepairable core violation is a 422, whose `detail` carries `raw_output`, `finish_reason`, `model` and `contract_version`.
 - With `INCIDENT_SOM_ENABLED` and `INCIDENT_TRACKING_ENABLED` on the agent, P1's `video_url` is a scratch copy of the clip with numbered person boxes drawn on it, and one more user message asks for the box number in brackets at the end of each human entity's `label`; the agent strips the number before the report is stored, so the prompt text, `inference.json` settings, schema and contract version are unchanged ([vm-api-contracts.md](vm-api-contracts.md#post-apiv1incidentsincident_idanalyze)).

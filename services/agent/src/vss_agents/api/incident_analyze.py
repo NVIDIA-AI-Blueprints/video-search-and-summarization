@@ -54,11 +54,6 @@ elapsed_ms, skipped}``); with it off the key is absent.
 With ``INCIDENT_OBJECT_TRACKING_ENABLED`` on, a production response adds ``object_tracking`` (``{enabled, seeds,
 tracked, tracker, elapsed_ms, time_cap_reached, skipped, detector, items}``) for the instrument and asset tracks, and
 those evidence entries gain ``track_source``; with it off both are absent.
-``blur_faces: true`` pixelates every head in every stored evidence frame and crop (a whole-frame head detection of
-each frame, plus the known people) and adds ``privacy`` (``{blur_faces, regions, frames, head_detections,
-detector_calls, call_cap, cap_refused, clip_samples, fallbacks, failed}``) to the response; each evidence entry gains
-``blur_regions`` and ``heads`` (the key of its per-second clip heads); without it the keys are absent and the
-evidence is unchanged.
 """
 
 from __future__ import annotations
@@ -189,15 +184,6 @@ class AnalyzeIncidentRequest(BaseModel):
         ),
     )
 
-    blur_faces: bool = Field(
-        default=False,
-        description=(
-            "Pixelate every head in every stored evidence frame and crop, found by a whole-frame head detection of "
-            "each frame (not only the people tracking knows), and store per-second clip heads beside each item. "
-            "Model calls still see the unblurred images."
-        ),
-    )
-
     def is_experimental(self) -> bool:
         return (
             self.experiment_prompt_id is not None
@@ -291,8 +277,6 @@ def create_incident_analyze_router(config: Any, builder: WorkflowBuilder) -> API
             tool_input["experiment_captions"] = body.experiment_captions
         if body.max_caption_calls is not None:
             tool_input["max_caption_calls"] = body.max_caption_calls
-        if body.blur_faces:
-            tool_input["blur_faces"] = True
 
         try:
             result = await incident_report_gen_tool.ainvoke(tool_input)
@@ -335,8 +319,8 @@ def create_incident_analyze_router(config: Any, builder: WorkflowBuilder) -> API
         if not body.is_experimental():
             for key in EXPERIMENT_OUTPUT_FIELDS:  # production responses keep exactly their documented shape
                 response.pop(key, None)
-        # Tracking off or no blur asked (the defaults): the response is exactly as it was.
-        for key in ("tracking", "privacy", "object_tracking"):
+        # Tracking off (the default): the response is exactly as it was.
+        for key in ("tracking", "object_tracking"):
             if response.get(key) is None:
                 response.pop(key, None)
         return response

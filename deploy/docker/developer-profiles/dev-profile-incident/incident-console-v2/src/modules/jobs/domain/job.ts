@@ -29,10 +29,6 @@ export interface AnalysisJob {
   /** The new video and AI revision once done (null again if the video was deleted later). */
   videoId: string | null;
   revisionId: number | null;
-  /** The existing video a re-analysis job analyses again (the privacy toggle queues one); null for a new upload. */
-  reanalyseVideoId: string | null;
-  /** Whether the run asks the agent to blur the faces in its stored evidence (the video's privacy toggle). */
-  blurFaces: boolean;
 }
 
 /** How the loop finished one claim. */

@@ -82,7 +82,7 @@ FALLBACK_LOSS_SECONDS = 2.85
 SAMPLES_PER_SECOND = 5
 BEST_MOMENT_MIN_SCORE = 0.85
 ASSOCIATION_WINDOW_SECONDS = 0.5
-# A track backs an entity (and a blurred head) only when it is solid: at least this many real detections, and at
+# A track backs an entity only when it is solid: at least this many real detections, and at
 # least this share of its samples real. A ghost is one detection followed by tracker-only boxes drifting away.
 MIN_REAL_SAMPLES = 2
 MIN_REAL_SHARE = 0.5

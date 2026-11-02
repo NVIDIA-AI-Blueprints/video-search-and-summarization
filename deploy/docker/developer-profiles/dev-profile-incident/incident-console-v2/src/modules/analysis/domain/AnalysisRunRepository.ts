@@ -39,8 +39,6 @@ export interface AnalysisAttemptRecord {
     schemaSha256: string;
     /** The video's length from its MP4 header; null when it could not be read (video-length rule not applied). */
     videoDurationSeconds?: number | null;
-    /** Present (true) only when the run asked the agent to blur faces (the video's privacy toggle). */
-    blurFaces?: true;
   };
   /** Only the fields the gateway actually returned; the content is the original, never altered. */
   response: {
@@ -52,8 +50,6 @@ export interface AnalysisAttemptRecord {
     usage?: Record<string, unknown> | null;
     /** Agent mode, person tracking on: the agent's tracking summary ({enabled, matched, tracks, elapsed_ms, skipped}) as returned. */
     tracking?: Record<string, unknown>;
-    /** Agent mode, blur_faces asked: the agent's privacy summary ({blur_faces, regions, frames, head_detections, detector_calls, call_cap, cap_refused, clip_samples, fallbacks, failed}) as returned. */
-    privacy?: Record<string, unknown>;
     /** Agent mode, object tracking on: the agent's object-tracking summary ({enabled, seeds, tracked, tracker, items, ...}) as returned. */
     object_tracking?: Record<string, unknown>;
     /** Agent mode: the run provenance ({schema, agent, contract_version, flags, stages}) as returned, failed and refused calls included. */
@@ -74,8 +70,6 @@ export interface AnalysisAttemptRecord {
     videoBoundsChecked?: boolean;
   };
   repair: AttemptRepair | null;
-  /** Present only on a re-blur run (the face-blur toggle): which revision and run its report and evidence entries were kept from. */
-  reblur?: { sourceRevisionId: number; sourceModelRunId: string | null };
 }
 
 /** A valid attempt: it also carries the final validated report. Its AI revision id is known only once the revision is stored. */

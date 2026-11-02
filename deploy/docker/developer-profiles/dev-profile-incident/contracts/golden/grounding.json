@@ -36,41 +36,6 @@
           "type": "json_object"
         }
       }
-    },
-    "every-match": {
-      "description": "The privacy blur's whole-frame head search: every match, as a list.",
-      "producers": [
-        "agent"
-      ],
-      "inputs": {
-        "model": "<model>",
-        "query": "every human head or face"
-      },
-      "body": {
-        "model": "<model>",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "type": "image_url",
-                "image_url": {
-                  "url": "data:image/jpeg;base64,<jpeg>"
-                }
-              },
-              {
-                "type": "text",
-                "text": "Locate every instance of \"every human head or face\" in this image, including small, distant, partly hidden, turned-away, lying or covered ones, and any shown on a screen or in a picture. Return JSON only, in the form {\"detections\": [{\"bbox_2d\": [xmin, ymin, xmax, ymax], \"label\": \"<what the box contains>\"}]} with integer coordinates normalised to 0-1000 (0,0 is the top-left corner). If there is none, return {\"detections\": []}."
-              }
-            ]
-          }
-        ],
-        "temperature": 0.0,
-        "max_tokens": 1024,
-        "response_format": {
-          "type": "json_object"
-        }
-      }
     }
   }
 }

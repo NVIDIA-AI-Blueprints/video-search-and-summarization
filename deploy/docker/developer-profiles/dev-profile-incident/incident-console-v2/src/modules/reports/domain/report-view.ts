@@ -140,11 +140,6 @@ export interface ReportView {
   revision: RevisionSummary;
   /** The incident's one official revision (D6); never inferred from recency. */
   official: { officialRevisionId: number | null; isOfficial: boolean };
-  /**
-   * Face blur: the video's toggle (every new analysis blurs, and every clip is cut blurred), and whether this
-   * revision's run had the agent blur the faces in its stored frames and crops (the "Faces blurred" badge).
-   */
-  privacy: { blurFaces: boolean; runBlurred: boolean };
   /** Where the current structured values differ from the model's original ones. */
   differences: { type?: { model: string; current: string }; severity?: { model: number; current: number }; fields: string[] };
 }
