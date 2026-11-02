@@ -20,7 +20,13 @@ methodology are enforced here, not left to the operator:
 
 - a run on the **test** half must name the approved freeze manifest (methodology v2.0 §8);
 - every task names subjects the config defines, and scorer ids carry a version (``incident.type@1``);
-- the retry policy is one of V1's named policies, and every cap names a known ledger.
+- the retry policy is one of V1's named policies, and every cap names a known ledger;
+- a **pilot** (``purpose: "pilot"``) runs on the dev half only, never the held-out test half.
+
+``budget_mode`` says what the caps are. ``worst_case`` (the default): every cap covers the preflight worst case, so a
+run can never stop at a cap. ``hard_stop``: the caps are the owner's approved budget, which may sit below the
+pessimistic worst case (every attempt at the token ceiling, every retry taken); preflight then lists the gap as
+``hard_stop`` risks instead of problems, and the ledger refuses, before sending, any attempt that would pass a cap.
 """
 
 from __future__ import annotations
@@ -85,7 +91,29 @@ class SplitConfig(_Strict):
     half: Literal["dev", "test"]
 
 
+class ItemSelector(_Strict):
+    """One work item a recovery run re-sends: a subject's clip at one repeat."""
+
+    subject: str = Field(pattern=_ID)
+    item_id: str = Field(min_length=1)
+    repeat: int = Field(ge=1, le=10)
+
+
+class RecoveryConfig(_Strict):
+    """A recovery run re-sends only named open items of an earlier run, under its own config, marker and --out.
+
+    ``of_experiment`` and ``of_manifest`` name the earlier run (its sealed manifest ref); ``items`` are the open
+    items to try again. The earlier run's final items are never re-sent, so the two runs together still hold one
+    outcome per work item.
+    """
+
+    of_experiment: str = Field(pattern=_ID)
+    of_manifest: str = Field(min_length=1)
+    items: list[ItemSelector] = Field(min_length=1)
+
+
 class RunConfig(_Strict):
+
     config_version: Literal["evalv2-config-v1"] = CONFIG_VERSION
     experiment: str = Field(pattern=_ID)
     split: SplitConfig
@@ -97,6 +125,9 @@ class RunConfig(_Strict):
     retry_policy: str = "retry-v2"
     caps: list[CapConfig] = Field(default_factory=list)
     freeze_manifest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    purpose: Literal["pilot", "final"] | None = None
+    budget_mode: Literal["worst_case", "hard_stop"] = "worst_case"
+    recovery: RecoveryConfig | None = None
     notes: str = ""
 
     @field_validator("retry_policy")
@@ -122,6 +153,17 @@ class RunConfig(_Strict):
                     raise ValueError(f"task {name!r} names undefined subjects {unknown}")
         if self.split.half == "test" and self.freeze_manifest is None:
             raise ValueError("a run on the test half must name the approved freeze manifest (freeze_manifest)")
+        if self.purpose == "pilot" and self.split.half != "dev":
+            raise ValueError("a pilot runs on the dev half only: the test half is held out for the final runs")
+        if self.recovery is not None:
+            keys = [(i.subject, i.item_id, i.repeat) for i in self.recovery.items]
+            if len(keys) != len(set(keys)):
+                raise ValueError("recovery.items names an item twice")
+            unknown = sorted({i.subject for i in self.recovery.items} - set(ids))
+            if unknown:
+                raise ValueError(f"recovery.items names undefined subjects {unknown}")
+            if any(i.repeat > self.repeats for i in self.recovery.items):
+                raise ValueError("recovery.items names a repeat above the config's repeats")
         return self
 
     def task_subjects(self, task: str) -> list[SubjectConfig]:

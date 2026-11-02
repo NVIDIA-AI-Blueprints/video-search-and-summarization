@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from evalv2.core.hashing import sha256_json
-from evalv2.datasets.records import new_record, promote_validated
+from evalv2.datasets.records import new_record, opaque_item_id, promote_validated
 
 ALLOWLIST_PATH = Path(__file__).resolve().parents[3] / "contracts" / "prompts" / "chart" / "allowlist.json"
 SPEC_KEYS = ("metric", "dimension", "period", "incidentType", "severity")
@@ -99,15 +99,20 @@ def generator_packet(expected: Mapping[str, Any], *, prompt_id: str) -> dict[str
 
 
 def validator_packet(record: Mapping[str, Any], allowlist: Mapping[str, Any], *, prompt_id: str) -> dict[str, Any]:
-    """The blind pass: the request and the allowlist, never the expected spec."""
-    return {"role": "validator", "prompt": prompt_id, "record_id": record["record_id"],
+    """The blind pass: the request and the allowlist, never the expected spec.
+
+    The record id names the class (``dash:unsupported:...``), so the packet carries an opaque item id instead."""
+    return {"role": "validator", "prompt": prompt_id, "item": opaque_item_id(record["record_id"]),
             "request": record["payload"]["request"], "allowlist": dict(allowlist)}
 
 
 def assert_blind(validator: Mapping[str, Any], record: Mapping[str, Any]) -> None:
+    if "record_id" in validator or record["record_id"] in json.dumps(validator, default=str):
+        raise DashboardReferenceError("the validator packet names the record id, which reveals its class")
     if validator.get("role") != "validator" or {"expected", "paraphrases"} & set(validator):
         raise DashboardReferenceError("the validator packet holds the expected spec or paraphrases")
-    if validator.get("request") != record["payload"]["request"]:
+    if validator.get("request") != record["payload"]["request"] or validator.get("item") != opaque_item_id(
+            record["record_id"]):
         raise DashboardReferenceError("the validator packet is for another request")
 
 

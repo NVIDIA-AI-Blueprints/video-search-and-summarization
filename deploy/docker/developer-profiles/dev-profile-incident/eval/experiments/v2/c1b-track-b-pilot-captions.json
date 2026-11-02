@@ -32,7 +32,13 @@
         "pipeline.paired_effect@1",
         "pipeline.crops@1",
         "pipeline.caption_effect@1"
-      ]
+      ],
+      "options": {
+        "judges": {
+          "primary": "catalog-gpt-oss-20b-v1",
+          "sensitivity": "catalog-mistral-large-4-v1"
+        }
+      }
     }
   },
   "repeats": 1,
@@ -44,85 +50,94 @@
       "subject": "nano-pipeline",
       "task": "pipeline",
       "max_attempts": 65,
-      "max_tokens": 2275000
+      "max_tokens": 750000
     },
     {
       "ledger": "grounding",
       "subject": "nano-pipeline",
       "task": "pipeline",
       "max_attempts": 1300,
-      "max_tokens": 7800000
+      "max_tokens": 1000000
     },
     {
       "ledger": "zoom",
       "subject": "nano-pipeline",
       "task": "pipeline",
       "max_attempts": 2600,
-      "max_tokens": 10400000
+      "max_tokens": 1750000
     },
     {
       "ledger": "caption",
       "subject": "nano-pipeline",
       "task": "pipeline",
-      "max_attempts": 1950,
-      "max_tokens": 46987200
+      "max_attempts": 750,
+      "max_tokens": 1000000
     },
     {
       "ledger": "inference",
       "subject": "super-pipeline",
       "task": "pipeline",
       "max_attempts": 65,
-      "max_tokens": 2275000
+      "max_tokens": 750000
     },
     {
       "ledger": "grounding",
       "subject": "super-pipeline",
       "task": "pipeline",
       "max_attempts": 1300,
-      "max_tokens": 7800000
+      "max_tokens": 1000000
     },
     {
       "ledger": "zoom",
       "subject": "super-pipeline",
       "task": "pipeline",
       "max_attempts": 2600,
-      "max_tokens": 10400000
+      "max_tokens": 1750000
     },
     {
       "ledger": "caption",
       "subject": "super-pipeline",
       "task": "pipeline",
-      "max_attempts": 1950,
-      "max_tokens": 46987200
+      "max_attempts": 750,
+      "max_tokens": 1000000
     },
     {
       "ledger": "inference",
       "subject": "*",
       "task": "*",
       "max_attempts": 130,
-      "max_tokens": 4550000
+      "max_tokens": 1500000
     },
     {
       "ledger": "grounding",
       "subject": "*",
       "task": "*",
       "max_attempts": 2600,
-      "max_tokens": 15600000
+      "max_tokens": 2000000
     },
     {
       "ledger": "zoom",
       "subject": "*",
       "task": "*",
       "max_attempts": 5200,
-      "max_tokens": 20800000
+      "max_tokens": 3500000
     },
     {
       "ledger": "caption",
       "subject": "*",
       "task": "*",
-      "max_attempts": 3900,
-      "max_tokens": 93974400
+      "max_attempts": 1500,
+      "max_tokens": 2000000
+    },
+    {
+      "ledger": "judge",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 900,
+      "max_tokens": 1350000
     }
   ],
-  "notes": "PENDING X16. C1b with the caption pass: the profile production-v4-captions declares the caption stage and budgets 60 caption attempts per run (19 windows x 3 attempts covers the longest clip). It plans and preflights now, and no request is built from it while the profile is pending. Before it can run: the agent's experimental caption pass with the max_caption_calls cap (X16), and a Track B adapter that does not pin the per-run chunking flag (see methodology/v2-run-readiness.md, blockers)."
+  "notes": "C1b with the caption pass (X16, agent PR #439): the production-v4-captions profile (experiment_captions inline, max_caption_calls 30, 13,000 tokens per caption call) on the experiment agent for Nano and Super, 25 dev clips each. Gated: the profile is sent only when the run's approval marker lists it in enabled_profiles, which the lead does after the base64 probe; this config needs its own approval. budget_mode hard_stop: the run-wide token caps sum to 9 M tokens (inference 1.5 M, grounding 2 M, zoom 3.5 M, caption 2 M). chunking.enabled varies per clip (false for a clip of 30 s or less) and is recorded per run, never pinned.",
+  "purpose": "pilot",
+  "budget_mode": "hard_stop"
 }

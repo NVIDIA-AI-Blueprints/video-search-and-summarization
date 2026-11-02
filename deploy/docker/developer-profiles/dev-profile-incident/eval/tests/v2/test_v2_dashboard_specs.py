@@ -95,6 +95,9 @@ def test_the_validator_packet_is_blind():
         dash.assert_blind({**packet, "expected": SPEC}, record)
     with pytest.raises(dash.DashboardReferenceError):
         dash.assert_blind({**packet, "request": "another request"}, record)
+    assert "record_id" not in packet and "unsupported" not in packet["item"] and packet["item"].startswith("item-")
+    with pytest.raises(dash.DashboardReferenceError, match="record id"):
+        dash.assert_blind({**packet, "record_id": record["record_id"]}, record)
 
 
 @pytest.mark.parametrize(("expected", "reply", "outcome"), [

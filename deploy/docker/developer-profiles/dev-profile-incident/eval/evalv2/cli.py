@@ -21,8 +21,12 @@
   and whether every charged task, subject and ledger has a cap. A task that names judges (``options.judges``) must
   name registered judges whose roles, kinds and families fit, and the run must cap the judge ledger. Exit 1 on any
   problem.
-- ``run --config C --dry-run``: plan plus preflight, printed as one statement. A live run is never started from
-  here without ``--live`` and ``EVALV2_ALLOW_LIVE=1``; live execution is gated by the owner's approval.
+- ``run --config C --dry-run``: plan plus preflight, printed as one statement.
+- ``run --config C --live --approval M --out DIR``: the live executor (:mod:`evalv2.executor`), only with
+  ``EVALV2_ALLOW_LIVE=1`` and the owner's approval marker (:mod:`evalv2.approval`); the same command resumes.
+  ``approval draft --config C`` prints a marker skeleton for the owner (it approves nothing).
+- ``score --config C --out DIR [--offline]``: score a live run's stored predictions (:mod:`evalv2.score_stage`); a
+  live score calls the judge under the marker's judge budget, ``--offline`` uses the caches only.
 - ``audit frozen-v1``: V1's frozen artifacts are unchanged. ``audit run --store S --run R``: a sealed run's
   index and artifacts are intact.
 - ``datasets list`` and ``datasets verify [--data-root D] [--id X ...]``: the registered datasets, and whether each
@@ -87,7 +91,20 @@ def plan(config: RunConfig, load_datasets: DatasetLoader = _no_datasets) -> dict
     if unknown:
         raise KeyError(f"no task registered for {unknown}; registered: {sorted(TASKS)}")
     datasets = load_datasets(config)
-    return {name: TASKS[name]().plan(config, datasets) for name in config.tasks}
+    items = {name: TASKS[name]().plan(config, datasets) for name in config.tasks}
+    return items if config.recovery is None else _recovery_items(config, items)
+
+
+def _recovery_items(config: RunConfig, items: dict[str, list[WorkItem]]) -> dict[str, list[WorkItem]]:
+    """Keep only the open items a recovery run names; a name that matches no planned item is an error."""
+    wanted = {(i.subject, i.item_id, i.repeat) for i in config.recovery.items}
+    kept = {name: [i for i in task_items if (i.subject, i.item_id, i.repeat) in wanted]
+            for name, task_items in items.items()}
+    found = {(i.subject, i.item_id, i.repeat) for task_items in kept.values() for i in task_items}
+    missing = sorted(wanted - found)
+    if missing:
+        raise ValueError(f"recovery.items names {len(missing)} item(s) the plan does not hold: {missing[:5]}")
+    return kept
 
 
 def worst_cases(config: RunConfig, items: dict[str, list[WorkItem]]) -> dict[tuple[str, str, str], tuple[int, int]]:
@@ -116,7 +133,27 @@ def preflight(config: RunConfig, items: dict[str, list[WorkItem]]) -> list[str]:
     and task scope. A cap is checked against the summed worst case of every (task, subject) it matches, since all
     of them draw on it: two tasks that each fit a shared cap can still pass it together.
     """
+    problems, shortfalls = preflight_report(config, items)
+    return problems + shortfalls
+
+
+def preflight_problems(config: RunConfig, items: dict[str, list[WorkItem]]) -> tuple[list[str], list[str]]:
+    """``(blocking, hard_stop)``: what stops a run, and what only says it may stop at a cap.
+
+    A shortfall (a cap below the worst case) blocks under ``budget_mode: worst_case``. Under ``hard_stop`` (caps set
+    to an approved budget below the pessimistic worst case) it is only a risk that the run stops at a cap, since the
+    ledger refuses any attempt that would pass a cap before it is sent.
+    """
+    problems, shortfalls = preflight_report(config, items)
+    if config.budget_mode == "hard_stop":
+        return problems, shortfalls
+    return problems + shortfalls, []
+
+
+def preflight_report(config: RunConfig, items: dict[str, list[WorkItem]]) -> tuple[list[str], list[str]]:
+    """``(problems, shortfalls)``: every problem, with the caps below the worst case kept apart."""
     problems: list[str] = []
+    shortfalls: list[str] = []
     needs = worst_cases(config, items)
     caps = config.budget_caps()
     for (name, subject, ledger) in sorted(needs):
@@ -130,10 +167,10 @@ def preflight(config: RunConfig, items: dict[str, list[WorkItem]]) -> list[str]:
         covers = ", ".join(f"{name}/{subject}" for (name, subject, _), _ in drawn)
         scope = f"(cap subject={cap.subject}, task={cap.task}; draws: {covers})"
         if cap.max_attempts is not None and cap.max_attempts < attempts:
-            problems.append(f"{cap.ledger} attempts cap {cap.max_attempts} < worst case {attempts} {scope}")
+            shortfalls.append(f"{cap.ledger} attempts cap {cap.max_attempts} < worst case {attempts} {scope}")
         if cap.max_tokens is not None and cap.max_tokens < tokens:
-            problems.append(f"{cap.ledger} tokens cap {cap.max_tokens} < worst case {tokens} {scope}")
-    return problems + judge_problems(config)
+            shortfalls.append(f"{cap.ledger} tokens cap {cap.max_tokens} < worst case {tokens} {scope}")
+    return problems + judge_problems(config), shortfalls
 
 
 def _summary(items: dict[str, list[WorkItem]]) -> dict[str, Any]:
@@ -232,6 +269,15 @@ def _parser() -> argparse.ArgumentParser:
         if name == "run":
             command.add_argument("--dry-run", action="store_true")
             command.add_argument("--live", action="store_true")
+            command.add_argument("--approval", type=Path, help="the owner's evalv2-live-approval-v1 marker")
+            command.add_argument("--out", type=Path, help="private run directory; the same directory resumes the run")
+            command.add_argument("--env-file", type=Path, action="append",
+                                 help="credentials file (default: eval/.env.local, then the profile's .env.local)")
+            command.add_argument("--allow-dirty", action="store_true",
+                                 help="run from an eval tree with uncommitted changes (recorded in the manifest)")
+            command.add_argument("--rpm", type=int, help="Track A requests per minute (default: the gateway's 60)")
+            command.add_argument("--parallel", type=int,
+                                 help="Track A calls in flight (default and maximum: the gateway's 4)")
     audit = sub.add_parser("audit")
     audit_sub = audit.add_subparsers(dest="target", required=True)
     audit_sub.add_parser("frozen-v1")
@@ -244,6 +290,25 @@ def _parser() -> argparse.ArgumentParser:
     verify = datasets_sub.add_parser("verify")
     verify.add_argument("--data-root", type=Path, default=None)
     verify.add_argument("--id", action="append")
+    score = sub.add_parser("score", help="score a live run's stored predictions (judge and embeddings cached)")
+    score.add_argument("--config", type=Path, required=True)
+    score.add_argument("--out", type=Path, required=True, help="the run directory run --live wrote")
+    score.add_argument("--data-root", type=Path, default=None)
+    score.add_argument("--offline", action="store_true", help="caches only, under the network guard: no call")
+    score.add_argument("--judge", help="a registry judge id that serves the configured judge's model elsewhere "
+                       "(for example openrouter-gpt-oss-20b-v1 for catalog-gpt-oss-20b-v1)")
+    score.add_argument("--embed-local", action="store_true",
+                       help="with --offline: compute missing MiniLM vectors locally (no network, no judge)")
+    score.add_argument("--approval", type=Path, help="the marker approving this run's judge budget (live only)")
+    score.add_argument("--slot", choices=("primary", "sensitivity"), default="primary")
+    score.add_argument("--judge-ledger-dir", type=Path,
+                       help="judge ledger shared by every scoring stage (default $EVALV2_DATA_ROOT/v2/judge-ledger)")
+    score.add_argument("--env-file", type=Path, action="append")
+    approval = sub.add_parser("approval", help="draft a live-run approval marker for the owner (approves nothing)")
+    approval_sub = approval.add_subparsers(dest="action", required=True)
+    drafted = approval_sub.add_parser("draft")
+    drafted.add_argument("--config", type=Path, required=True)
+    drafted.add_argument("--data-root", type=Path, default=None)
     review = sub.add_parser("review")
     review_sub = review.add_subparsers(dest="action", required=True)
     strata_help = ("comma-separated record fields to stratify by (default kind,tier,strata.category; chat records "
@@ -277,6 +342,17 @@ def _parser() -> argparse.ArgumentParser:
     verify.add_argument("--record", type=Path, action="append", required=True)
     verify.add_argument("--report", type=Path)
     verify.add_argument("--data-root", type=Path, default=None)
+    track_a = sub.add_parser("track-a-report", help="Track A model comparison from saved runs: full set, valid outputs, "
+                             "paired clips, duration buckets, reliability; no model, judge or network")
+    track_a.add_argument("--run", type=Path, action="append", required=True, help="a scored run directory (repeatable)")
+    track_a.add_argument("--out", type=Path, required=True, help="private output directory")
+    track_a.add_argument("--title", default="Track A comparison")
+    severity = sub.add_parser("severity-report", help="severity MAE (primary), exact and QWK per model from saved "
+                              "per-video scores; no model, judge or network")
+    severity.add_argument("--videos", type=Path, action="append", required=True,
+                          help="a score output's *-videos.jsonl; repeat for a pilot and its recovery run")
+    severity.add_argument("--out", type=Path, required=True, help="private output directory")
+    severity.add_argument("--title", default="Severity")
     references = sub.add_parser("references", help="advance a reference run (RA1, RA2, RB2); no model is called")
     references_sub = references.add_subparsers(dest="run", required=True)
     for name in ("ra1", "ra2", "rb2"):
@@ -421,14 +497,109 @@ def _verify_v1(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 1
 
 
-def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | None = None) -> int:
+def _score(args: argparse.Namespace, load_datasets: DatasetLoader | None,
+           load_sheets: Callable[[], dict[str, Any]] | None) -> int:
+    from evalv2.approval import ApprovalRefused, read_approval
+    from evalv2.datasets.ground_truth import load_gt_v1_sheets
+    from evalv2.datasets.registry import data_root
+    from evalv2.score_stage import ScoreRefused, output_dir, run_score
+
+    config = load_config(args.config)
+    loader = load_datasets or (lambda cfg: load_for_config(cfg, data_root=args.data_root))
+    marker = None
+    if not args.offline:
+        if os.environ.get(LIVE_ENV) != "1":
+            print(f"refusing a live score (judge calls): set {LIVE_ENV}=1 with the owner's approval, or pass "
+                  "--offline", file=sys.stderr)
+            return 2
+        if args.approval is not None:
+            try:
+                marker = read_approval(args.approval)
+            except ApprovalRefused as exc:
+                print(json.dumps({"ok": False, "refused": [str(exc)]}, indent=2))
+                return 2
+        try:
+            load_env_files(args.env_file)
+        except FileNotFoundError as exc:
+            print(json.dumps({"ok": False, "refused": [str(exc)]}, indent=2))
+            return 2
+    ledger_dir = args.judge_ledger_dir or (data_root(args.data_root) / "v2" / "judge-ledger")
+    try:
+        datasets = loader(config)
+        sheets = load_sheets() if load_sheets else load_gt_v1_sheets(data_root=args.data_root)
+        result = run_score(config, args.out, datasets=datasets, sheets=sheets, offline=args.offline, slot=args.slot,
+                           embed_local=args.embed_local, judge_override=args.judge,
+                           marker=marker, judge_ledger_dir=ledger_dir)
+    except ScoreRefused as exc:
+        print(json.dumps({"ok": False, "refused": exc.problems}, indent=2))
+        return 2
+    except DatasetError as exc:
+        print(json.dumps({"ok": False, "problems": [str(exc)]}, indent=2))
+        return 1
+    summary = result["summary"]
+    print(json.dumps({"ok": True, "experiment": summary["experiment"], "final_items": summary["final_items"],
+                      "unscored": summary["unscored"], "mode": summary["mode"],
+                      "outputs": str(output_dir(args.out, args.slot))}, indent=2))
+    return 0
+
+
+def _approval(args: argparse.Namespace, load_datasets: DatasetLoader | None) -> int:
+    from evalv2.approval import draft
+
+    config = load_config(args.config)
+    loader = load_datasets or (lambda cfg: load_for_config(cfg, data_root=args.data_root))
+    print(json.dumps(draft(config, plan(config, loader)), indent=2))
+    return 0
+
+
+def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | None = None,
+         load_sheets: Callable[[], dict[str, Any]] | None = None) -> int:
     args = _parser().parse_args(argv)
+
+    if args.command == "score":
+        return _score(args, load_datasets, load_sheets)
+    if args.command == "approval":
+        try:
+            return _approval(args, load_datasets)
+        except (KeyError, DatasetError) as exc:
+            print(json.dumps({"ok": False, "problems": [str(exc)]}, indent=2))
+            return 1
 
     if args.command == "audit":
         problems = (frozen_v1.drift() if args.target == "frozen-v1"
                     else ArtifactStore(args.store).run(args.run).verify())
         print(json.dumps({"ok": not problems, "problems": problems}, indent=2))
         return 1 if problems else 0
+    if args.command == "track-a-report":
+        from evalv2 import track_a_report
+        from evalv2.executor import load_manifest_clips
+        from evalv2.score_stage import SCORE_VERSION
+
+        try:
+            videos, attempts = track_a_report.load(args.run, SCORE_VERSION)
+        except track_a_report.TrackAReportError as exc:
+            print(json.dumps({"ok": False, "problems": [str(exc)]}, indent=2))
+            return 1
+        durations = {c["incident_id"]: c.get("duration_seconds") for c in load_manifest_clips()}
+        clips = {v["incident_id"] for v in videos}
+        result = track_a_report.report(videos, attempts, {c: d for c, d in durations.items() if c in clips})
+        written = track_a_report.write(result, args.out, args.title)
+        print(json.dumps({"ok": True, "out": str(written), "paired_items": result["paired_items"]}, indent=2))
+        return 0
+    if args.command == "severity-report":
+        from evalv2 import severity_report
+
+        try:
+            result = severity_report.report(severity_report.load_rows(args.videos))
+        except severity_report.SeverityReportError as exc:
+            print(json.dumps({"ok": False, "problems": [str(exc)]}, indent=2))
+            return 1
+        written = severity_report.write(result, args.out, args.title)
+        print(json.dumps({"ok": True, "out": str(written), "rows": [
+            {"subject": r["subject"], "stage": r["stage"], **{k: r["severity"][k] for k in
+                                                            ("mae", "exact", "qwk", "n", "attempted", "coverage")}}
+            for r in result["rows"]]}, indent=2))
+        return 0
     if args.command == "verify-v1":
         try:
             return _verify_v1(args)
@@ -444,23 +615,113 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
             return 1
 
     config = load_config(args.config)
-    loader = load_datasets or (lambda cfg: load_for_config(cfg, data_root=args.data_root))
+    base_loader = load_datasets or (lambda cfg: load_for_config(cfg, data_root=args.data_root))
+    loaded: dict[str, Any] = {}
+
+    def loader(cfg: RunConfig) -> dict[str, Any]:  # loaded and verified once, for the plan and a live run
+        if "datasets" not in loaded:
+            loaded["datasets"] = base_loader(cfg)
+        return loaded["datasets"]
+
     try:
         items = plan(config, loader)
-    except (KeyError, DatasetError) as exc:
+    except (KeyError, ValueError, DatasetError) as exc:
         print(json.dumps({"ok": False, "problems": [str(exc)]}, indent=2))
         return 1
     if args.command == "plan":
         print(json.dumps({"experiment": config.experiment, "tasks": _summary(items)}, indent=2))
         return 0
-    problems = preflight(config, items)
+    problems, hard_stop = preflight_problems(config, items)
     if args.command == "preflight" or args.dry_run:
-        print(json.dumps({"experiment": config.experiment, "half": config.split.half, "tasks": _summary(items),
-                          "retry_policy": config.retry_policy, "ok": not problems, "problems": problems}, indent=2))
+        report = {"experiment": config.experiment, "half": config.split.half, "tasks": _summary(items),
+                  "retry_policy": config.retry_policy, "ok": not problems, "problems": problems}
+        if config.budget_mode == "hard_stop":
+            report.update(budget_mode="hard_stop", hard_stop=hard_stop)
+        print(json.dumps(report, indent=2))
         return 1 if problems else 0
     if not args.live or os.environ.get(LIVE_ENV) != "1":
         print(f"refusing a live run: pass --live and set {LIVE_ENV}=1, and only with the owner's approval",
               file=sys.stderr)
         return 2
-    print("live execution is not available yet (it arrives with the adapters and is approval-gated)", file=sys.stderr)
-    return 2
+    return _run_live(args, config, loader, items, problems, hard_stop)
+
+
+def load_env_files(paths: Sequence[Path] | None = None) -> list[str]:
+    """Load credentials from ``.env.local`` files into the environment; the names of the files read are returned,
+    never a value.
+
+    A non-empty value already in the environment wins; an empty one does not. V1's ``eval/config.py`` loads the
+    profile's committed ``.env``, whose credential names are blank placeholders, so a plain ``override=False`` load
+    would leave them blank and the run would refuse for a credential the file holds."""
+    from dotenv import dotenv_values
+
+    from evalv2.executor import EVAL_DIR
+
+    if paths:
+        absent = [str(path) for path in paths if not Path(path).is_file()]
+        if absent:  # an explicit file that is not there is an error, never a silent skip
+            raise FileNotFoundError(f"--env-file names a file that does not exist: {absent}")
+    candidates = list(paths) if paths else [EVAL_DIR / ".env.local", EVAL_DIR.parent / ".env.local"]
+    read = []
+    for path in candidates:
+        if Path(path).is_file():
+            for name, value in dotenv_values(path).items():
+                if value and not os.environ.get(name):
+                    os.environ[name] = value
+            read.append(str(path))
+    return read
+
+
+def _lazy_signer() -> Callable[[str, int], str]:
+    from evalv2.clips import r2_signer
+
+    made: list[Callable[[str, int], str]] = []
+
+    def sign(key: str, ttl: int) -> str:
+        if not made:
+            made.append(r2_signer())
+        return made[0](key, ttl)
+
+    return sign
+
+
+def _run_live(args: argparse.Namespace, config: RunConfig, loader: DatasetLoader, items: dict[str, list[WorkItem]],
+              problems: list[str], hard_stop: list[str]) -> int:
+    from evalv2.approval import ApprovalRefused, read_approval
+    from evalv2.executor import LiveExecutor, LiveRefused, RunStopped, default_pacer, load_manifest_clips, _track
+
+    refusals = list(problems)
+    marker: dict[str, Any] = {}
+    if args.approval is None:
+        refusals.append("a live run needs an approval marker (--approval FILE, evalv2-live-approval-v1)")
+    else:
+        try:
+            marker = read_approval(args.approval)
+        except ApprovalRefused as exc:
+            refusals.append(str(exc))
+    if args.out is None:
+        refusals.append("a live run needs --out DIR (a private run directory; the same DIR resumes it)")
+    if refusals:
+        print(json.dumps({"ok": False, "refused": refusals}, indent=2))
+        return 2
+    try:
+        env_files = load_env_files(args.env_file)
+    except FileNotFoundError as exc:
+        print(json.dumps({"ok": False, "refused": [str(exc)]}, indent=2))
+        return 2
+    try:
+        track = _track(config)
+        executor = LiveExecutor(config, loader(config), items, out=args.out, marker=marker, hard_stop=hard_stop,
+                                manifest_clips=load_manifest_clips(), signer=_lazy_signer(),
+                                pacer=default_pacer(track, rpm=args.rpm, parallel=args.parallel),
+                                allow_dirty=args.allow_dirty, log=lambda line: print(line, file=sys.stderr))
+        summary = executor.run()
+    except LiveRefused as exc:
+        print(json.dumps({"ok": False, "refused": exc.problems, "env_files": env_files}, indent=2))
+        return 2
+    except RunStopped as exc:
+        print(json.dumps({"ok": False, "stopped": str(exc), "resume": "fix the cause, then run the same command"},
+                         indent=2))
+        return 3
+    print(json.dumps({"ok": True, **summary}, indent=2))
+    return 0 if summary["sealed"] else 4

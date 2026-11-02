@@ -371,3 +371,52 @@ def test_the_probe_store_compacts_inline_clips_and_keeps_other_urls(tmp_path):
     assert body["messages"][0]["content"][0]["video_url"]["url"] == probe.data_url(clip), "the request is unchanged"
     assert probe.compact_data_url("data:video/mp4;base64,@@@").endswith("that are not valid base64]")
     assert store.get(store.put("response", {"x": 1})) == {"x": 1}
+
+
+def test_external_candidates_are_probed_on_the_catalog_only_when_named():
+    from evalv2 import probe as pr
+
+    default = pr.build_plan()
+    assert all(c.endpoint == "switchyard" for c in default if c.kind != "judge"), "the default plan is unchanged"
+    assert not any(c.kind == "over_60s" for c in default)
+    plan = pr.build_plan(kinds=["schema_inline", "frames_many", "long_clip", "over_60s"],
+                         models=["google/gemma-4-31b-it"])
+    assert [c.kind for c in plan] == ["schema_inline", "frames_many", "long_clip", "over_60s"]
+    assert {c.endpoint for c in plan} == {"nvidia-api-catalog"} and plan[-1].clip == pr.OVER_60S_CLIP
+    assert all(c.requires == "schema_inline:google/gemma-4-31b-it" for c in plan[1:])
+    with pytest.raises(pr.ProbeRefused, match="external candidates"):
+        pr.build_plan(models=["qwen/qwen3-vl-8b-instruct"])
+
+
+def test_kimis_two_probes_fit_the_approved_fifty_thousand_tokens():
+    from evalv2 import probe as pr
+
+    plan = pr.build_plan(kinds=["schema_inline", "p1_short"], models=["moonshotai/kimi-k2.6"])
+    assert [c.kind for c in plan] == ["schema_inline", "p1_short"] and {c.endpoint for c in plan} == {"nvidia-api-catalog"}
+    assert sum(c.tokens_bound for c in plan) <= 50_000
+    p1 = pr.request_for(plan[1], {pr.SHORT_CLIP: "data:video/mp4;base64,AA"})
+    from evalv2.requests.p1 import build_p1_request
+    assert p1 == build_p1_request("moonshotai/kimi-k2.6", "data:video/mp4;base64,AA"), "the unchanged P1 request"
+    assert pr.request_for(plan[0], {pr.SHORT_CLIP: "u"})["max_tokens"] == 2048
+
+
+def test_gemmas_four_probes_fit_the_approved_budget():
+    from evalv2 import probe as pr
+
+    plan = pr.build_plan(kinds=["schema_inline", "frames_many", "long_clip", "over_60s"], models=["google/gemma-4-31b-it"])
+    assert len(plan) == 4 and sum(c.tokens_bound for c in plan) <= 130_000
+
+
+def test_openrouter_candidates_carry_pinned_no_retention_routing():
+    from evalv2 import probe as pr
+
+    plan = pr.build_plan(kinds=["schema_inline"], models=["google/gemma-4-31b-it", "qwen/qwen3.5-9b"],
+                         endpoint="openrouter")
+    assert {c.endpoint for c in plan} == {"openrouter"}
+    for call in plan:
+        adapter = pr.live_adapter(call)
+        provider = adapter.extra_body["provider"]
+        assert provider["allow_fallbacks"] is False and provider["data_collection"] == "deny"
+        assert provider["require_parameters"] is True and provider["order"]
+    with pytest.raises(pr.ProbeRefused, match="--endpoint"):
+        pr.build_plan(kinds=["schema_inline"], models=["qwen/qwen3.5-9b"], endpoint="switchyard")

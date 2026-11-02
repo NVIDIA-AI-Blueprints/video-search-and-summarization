@@ -240,3 +240,8 @@ def write_records(records: Sequence[Mapping[str, Any]], path: Path) -> str:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(body)
     return sha256_bytes(body)
+
+
+def opaque_item_id(record_id: str) -> str:
+    """A validator-facing id that reveals nothing about a record: record ids name its class and subject."""
+    return "item-" + sha256_json({"record_id": record_id})[:16]

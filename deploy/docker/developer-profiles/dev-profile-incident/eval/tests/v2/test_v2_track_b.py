@@ -300,7 +300,8 @@ def test_an_answered_run_stores_three_stages_evidence_and_provenance(tmp_path):
     assert stored["predictions"]["p1"]["entities"][1]["description"] == "Person in a blue jacket"
     assert stored["p1_agent_source"] == "experiment.p1_report" and stored["zoom_undo_consistent"] is True
     assert stored["evidence"] == evidence and "p1_report" not in stored["experiment"]
-    assert stored["caption_pass"] == {"ran": False, "calls": 0}
+    assert stored["caption_pass"] == {"ran": False, "calls": 0, "chunking_enabled": False, "caption_skipped": None,
+                                      "caption_store": None}
     assert record.provenance["track"] == "B" and record.provenance["stages"]["zoom"]["calls"] == 6
     assert record.provenance["profile"]["id"] == "production-v4"
     assert record.usage["ledgers"]["zoom"] == {"attempts": 6, "tokens": 12000}

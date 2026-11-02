@@ -128,47 +128,62 @@ def test_review_sampling_can_stratify_chat_records_by_class(tmp_path, capsys):
     assert "names no field" in capsys.readouterr().out
 
 
-# --- Track B: the caption-pass profile is budgeted now and never sent while pending -------------------------------
+# --- Track B: the caption-pass profile (X16 inline) is budgeted, and sent only when the run enables it --------------
 
 
 def test_the_caption_profile_declares_and_budgets_the_caption_stage():
     profile = vss.profile_for("production-v4-captions")
-    assert "caption" in profile.stages() and profile.pending == "X16"
-    assert profile.worst_case()["caption"] == (vss.CAPTION_CALLS_WORST_CASE,
-                                               vss.CAPTION_CALLS_WORST_CASE * vss.CAPTION_TOKENS_BOUND)
-    assert profile.body(video_url="u", model="m", duration_seconds=None)["max_caption_calls"] == 60
+    assert "caption" in profile.stages() and profile.pending is None and profile.gate == vss.CAPTION_GATE
+    assert profile.worst_case()["caption"] == (30, 30 * 13_000)
+    body = profile.body(video_url="u", model="m", duration_seconds=None)
+    assert body["max_caption_calls"] == 30 and body["experiment_captions"] == "inline"
     base = vss.profile_for("production-v4")
     assert "caption" not in base.stages() and "caption" not in base.worst_case()
     assert "max_caption_calls" not in base.body(video_url="u", model="m", duration_seconds=None)
+    assert "experiment_captions" not in base.body(video_url="u", model="m", duration_seconds=None)
     with pytest.raises(ValueError, match="without a caption pass"):
         vss.profile_for("production-v4", {"max_caption_calls": 5})
     with pytest.raises(ValueError, match="max_caption_calls in 1"):
         vss.profile_for("production-v4-captions", {"max_caption_calls": 0})
+    with pytest.raises(ValueError, match="window store"):
+        vss.VssProfile("x", max_crop_calls=1, max_zoom_calls=1, caption_pass=True, max_caption_calls=3)
+    with pytest.raises(ValueError, match="experiment_captions without"):
+        vss.VssProfile("x", max_crop_calls=1, max_zoom_calls=1, captions="inline")
 
 
-def test_the_caption_window_bound_covers_the_longest_clip():
-    """19 windows of 20 s overlapping by 2 s cover the longest clip (332.6 s); each window has at most 3 attempts."""
+def test_the_caption_cap_covers_every_window_of_the_longest_clip_once():
+    """19 windows of 20 s overlapping by 2 s cover the longest clip (332.6 s); 30 attempts cover each once."""
     step, window = 18.0, 20.0
     windows = 1 + -(-(332.6 - window) // step)
-    assert windows == 19 and windows * 3 <= vss.CAPTION_CALLS_WORST_CASE
+    assert windows == 19 and windows <= vss.CAPTION_CALLS_WORST_CASE
 
 
-def test_a_pending_profile_is_planned_but_never_sent():
+def test_a_gated_profile_is_planned_but_sent_only_when_enabled():
     profile = vss.profile_for("production-v4-captions")
-    with pytest.raises(ValueError, match="pending X16"):
+    with pytest.raises(vss.ProfileGatedError, match="gated on base64-probe"):
         vss.build_analyze_request(profile, video_url="https://r2/clip.mp4", model="m", duration_seconds=40.0)
+    built = vss.build_analyze_request(profile, video_url="https://r2/clip.mp4", model="m", duration_seconds=40.0,
+                                      enabled=["production-v4-captions"])
+    assert built["body"]["experiment_captions"] == "inline" and built["accounting"]["worst_case"]["caption"] == [
+        30, 390000]
 
     class Adapter:
         id, model = "a", "nvidia/cosmos-3-nano-reasoner"
 
         def analyze(self, *args, **kwargs):
-            raise AssertionError("a pending profile must never reach the agent")
+            raise AssertionError("a gated profile must never reach the agent unless enabled")
 
     task = PipelineTask(video_url=lambda clip: f"https://r2/{clip}.mp4")
     item = WorkItem("pipeline", "nano-pipeline", "Assault001", 1,
                     {"model": "nvidia/cosmos-3-nano-reasoner", "profile": "production-v4-captions", "overrides": {}})
-    with pytest.raises(ValueError, match="pending X16"):
+    with pytest.raises(vss.ProfileGatedError):
         task.execute(item, Adapter(), ctx=None)
+
+
+def test_a_pending_profile_is_never_sent_even_when_enabled():
+    profile = vss.VssProfile("blocked", max_crop_calls=1, max_zoom_calls=1, pending="X99")
+    with pytest.raises(ValueError, match="pending X99"):
+        vss.build_analyze_request(profile, video_url="u", model="m", duration_seconds=None, enabled=["blocked"])
 
 
 # --- Review packets for box records: a sheet of frames per record, linked from the workbook ------------------------

@@ -149,7 +149,17 @@ Settings come from `.env.local`, a symlink to the profile's shared `../.env.loca
 
 The `test_every_adapter_meets_the_conformance_contract` test applies to every adapter.
 
-Commands are in the [`incident-run-eval`](../skills/incident-run-eval/SKILL.md) skill. Tests live in `tests/v2/` and run with `uv run pytest tests/`. Nothing in the package calls a model yet.
+### Live runs and scoring (`executor.py`, `approval.py`, `clips.py`, `score_stage.py`)
+
+- **`run --config C --live --approval M --out DIR`** executes a Track A (`incident_objects`) or Track B (`pipeline`) config, with `EVALV2_ALLOW_LIVE=1` and the owner's `evalv2-live-approval-v1` marker; the same command on the same `DIR` resumes. It refuses before sending when the marker does not fit (config hash, purpose, half, items, any cap above the marker's, the run-wide token total, gated profiles), when a pilot would touch a test-half clip, on a dirty eval tree, or on a missing credential. Every attempt is reserved (or held) on the ledger first, paced (60 rpm, 4 in flight, per-model tokens per minute; Track B one at a time), and recorded in `attempts.jsonl`; the run manifest pins the commit, config, datasets, marker, caps and Track B's agent. Clip URLs are presigned R2 GETs (local signing, read-only).
+- **`approval draft --config C`** prints a marker skeleton for the owner; it approves nothing.
+- **`score --config C --out DIR`** scores the stored predictions (Track A incident and objects; Track B stages, zoom effect, caps and crops) with the registry's judge under the marker's `judge` budget and a judge ledger shared by every scoring stage, and MiniLM from the local cache. **`--offline`** re-scores from the judge and embedding caches under the network guard.
+- `budget_mode: hard_stop` in a config marks its caps as an approved budget below the pessimistic worst case: preflight lists the gap under `hard_stop` instead of failing.
+- Track B's caption pass runs only with the gated `production-v4-captions` profile (`experiment_captions: "inline"`, 30 caption calls, agent PR #439), sent only when the marker lists it in `enabled_profiles`. `chunking.enabled` varies per clip and is recorded per run, never pinned.
+- Launch commands, the marker format and the pilot budgets: [`methodology/v2-run-readiness.md`](methodology/v2-run-readiness.md#2-launch-commands).
+- Development pilot results (development split only, no held-out results): [`methodology/v2-dev-pilot-results.md`](methodology/v2-dev-pilot-results.md); chart-ready tables and figures in [`methodology/results/v2-dev/`](methodology/results/v2-dev/), regenerated with `scripts/v2_dev_results_export.py`.
+
+Commands are in the [`incident-run-eval`](../skills/incident-run-eval/SKILL.md) skill. Tests live in `tests/v2/` and run with `uv run pytest tests/`. Only `run --live`, a live `score` and `python -m evalv2.probe --live` call a model, each behind `EVALV2_ALLOW_LIVE` (or the probe's marker) and an approval marker; the tests use fakes.
 
 ## Dataset videos (local copies and manifest)
 

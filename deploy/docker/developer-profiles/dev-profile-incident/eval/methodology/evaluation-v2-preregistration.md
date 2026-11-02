@@ -35,7 +35,7 @@
 ## 4. Primary metric per dimension and the comparisons
 | Dimension | Primary metric | Comparisons (subject vs reference) | Family for multiplicity |
 |---|---|---|---|
-| A | | | |
+| A | Severity: **MAE** (`severity-v2-mae`, lower is better), proposed for the C2 freeze. Type: accuracy (proposed). Other A metrics are secondary. | Nano vs Super (Track A and Track B final stage), paired by clip, 95% cluster bootstrap on the MAE difference | A |
 | B | | | |
 | C | | | |
 | D | | | |
@@ -62,6 +62,9 @@
 
 ## 8. Default-model recommendation rule (R8)
 The rule fixed now and applied after the test runs to recommend whether the console default (Cosmos 3 Nano) and the agent default (Cosmos 3 Super) should be aligned. It weighs Track B results, reliability, latency and cost. There is no hidden threshold.
+
+- **Severity in the rule (proposed with `severity-v2-mae`):** severity enters as its own criterion, the paired MAE difference (Super − Nano) with its 95% interval; a negative difference favours Super. It is never added to, averaged with or re-weighted against accuracy-type metrics, and no composite incident score exists. Severity coverage (`n / attempted`) is reported beside it, and invalid outputs count against reliability, not against severity.
+- **Dependencies found (2 Nov):** no V2 code computes a composite incident score or applies a selection rule, and this rule has no weights yet, so nothing used severity accuracy. The only use was descriptive: pilot summaries quoted V1's field accuracy, now kept as a continuity metric.
 
 ## 9. Disclosures
 - The test clips are not unseen.

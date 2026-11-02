@@ -2,6 +2,19 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-02: Evaluation V2 proposes Gemma 4 31B as its independent open-weight Track A baseline (pending a capped dev pilot)
+- **Decision (proposed by the evaluation agent, pending the owner and the C2 freeze):** Track A adds `google/gemma-4-31b-it` on the NVIDIA API catalog as the external open-weight baseline, after four probes and a 50-run dev pilot (C1e, ≤ 1.5 M tokens). `moonshotai/kimi-k2.6` is an optional second only if its probes show real video input.
+- **Why:** Switchyard serves only NVIDIA models (RB1). On the catalog (re-listed 2026-11-02, unchanged), Gemma 4 31B is the only independent-family model with documented video input and a practical size. It is Google-built, Apache-2.0, 31B dense, and documents video up to 60 s at 1 fps. The pilots so far compare NVIDIA models only.
+- **Alternatives rejected:** Qwen3-VL-8B (not served by either endpoint; it needs a GPU host and a weight download, both gated, which would delay C2); Cosmos Reason 2 8B (open weights, but NVIDIA's post-training of Qwen3-VL-8B, so not independent; it can be added as an NVIDIA arm); image-only catalog VLMs (Llama 3.2 Vision, Phi-3 Vision, GLM-5.3 Flash, Step-5, Muse Glimmer).
+- **Update (2026-11-02):** the profile has no NVIDIA catalog key, so the proposed route is OpenRouter (prepaid; exposure is the top-up). It adds Qwen3.5-9B as a Qwen-family video arm, because Qwen3-VL-8B is not served there with video. Routing is pinned per subject (providers, no fallback, no data retention).
+- **Links:** [methodology v2.0 §2](../eval/methodology/evaluation-methodology-v2.0.md), [C1e config](../eval/experiments/v2/c1e-external-baseline-pilot.json), [OpenRouter configs](../eval/experiments/v2/c1e-openrouter-gemma4-31b.json).
+
+### 2026-11-02: Evaluation V2 scores severity by MAE (primary), with exact accuracy and QWK secondary, over one denominator
+- **Decision (evaluation owner, 2026-11-02; proposed primary metric for the C2 freeze, final with the freeze package):** severity_level is ordinal, so V2's primary severity metric is the mean absolute error on the canonical 1–5 scale (`severity-v2-mae`). Exact accuracy and quadratic-weighted κ stay as secondary metrics. All three are computed over the same valid pairs, with the denominator, coverage and every excluded status (invalid output, invalid label, missing prediction, no model output) reported beside them. Score stage `evalv2-score-stage-v2` (v3 also keeps failed Track B runs in later stages' severity) writes to a new versioned directory and records the eval commit and scorer-file hashes.
+- **Why:** exact accuracy counts a one-level miss the same as a four-level miss. The pilots show it: Super's QWK is well above Nano's while their exact accuracy is close. Mixing denominators (V1's field accuracy counts invalid outputs as misses; QWK skipped them) hid reliability inside a quality metric.
+- **Alternatives rejected:** QWK as primary (unstable on small, skewed subsets, and harder to read than a level error); a composite incident score (it would mix error and accuracy directions); changing V1's scorer (V1 is frozen; its own v1.3 MAE stays for continuity).
+- **Links:** [methodology v2.0 §4](../eval/methodology/evaluation-methodology-v2.0.md), [pre-registration §4 and §8](../eval/methodology/evaluation-v2-preregistration.md).
+
 ### 2026-11-01: Evaluation V2 runs on main with incident-contract-v4, in a layered eval/v2 package beside the frozen V1 code
 - **Decision (evaluation owner, 2026-11-01):** Evaluation V2 measures several models and the whole application.
   - **Scope:** incident fields, objects, evidence boxes, chatbot (incident and library scope), AI dashboard, tokens and cost, latency and reliability.

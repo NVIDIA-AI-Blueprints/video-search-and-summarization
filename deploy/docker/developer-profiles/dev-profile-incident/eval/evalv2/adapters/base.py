@@ -95,6 +95,38 @@ def stored_request(request: Mapping[str, Any]) -> dict[str, Any]:
     return stored
 
 
+# Flags that report what one run did, not how the agent is configured: recorded per run, never pinned (B3).
+PER_RUN_FLAGS: dict[str, tuple[str, ...]] = {"chunking": ("enabled",)}
+
+
+def pinned_flags(flags: Mapping[str, Any]) -> dict[str, Any]:
+    """The agent's settings among its provenance flags: ``flags`` without the per-run outcomes.
+
+    ``chunking`` keeps the agent's caption settings (window, overlap, limits) and drops ``enabled``; a bare boolean
+    ``chunking`` (an older agent) is itself the outcome and is dropped.
+    """
+    out: dict[str, Any] = {}
+    for name, value in flags.items():
+        per_run = PER_RUN_FLAGS.get(name)
+        if per_run is None:
+            out[name] = value
+        elif isinstance(value, Mapping):
+            out[name] = {key: item for key, item in value.items() if key not in per_run}
+    return out
+
+
+def per_run_flags(provenance: Mapping[str, Any] | None, experiment: Mapping[str, Any] | None = None
+                  ) -> dict[str, Any]:
+    """What one run's flags and experiment summary say it did: whether the caption pass ran, and why it was skipped."""
+    flags = (provenance or {}).get("flags") or {}
+    chunking = flags.get("chunking")
+    enabled = chunking.get("enabled") if isinstance(chunking, Mapping) else chunking
+    caption = (experiment or {}).get("caption")
+    caption = caption if isinstance(caption, Mapping) else {}
+    return {"chunking_enabled": None if enabled is None else bool(enabled),
+            "caption_skipped": caption.get("skipped"), "caption_store": caption.get("store")}
+
+
 @dataclass(frozen=True)
 class Capabilities:
     video_input: bool = False

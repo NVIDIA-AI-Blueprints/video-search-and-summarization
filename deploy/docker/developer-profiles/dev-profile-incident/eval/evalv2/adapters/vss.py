@@ -26,9 +26,12 @@ are not ours to send one by one. For each request built by :mod:`evalv2.requests
   attempt that reported no usage is charged at the profile's token bound; a failure that carries no provenance (a
   timeout, a 5xx, a dropped connection) keeps the worst case, so the ledger never undercounts. A refused connection
   or a refused request sent nothing and costs nothing;
-- pins the agent: its commit, dirty flag, analysis flags and contract version must stay the same for every run and
-  across a resume (pass the manifest's ``pinned`` back in). The profile's expected flags must hold, and no stage
-  outside the profile may have sent a call; either problem stops the run after the calls are charged;
+- pins the agent: its commit, dirty flag, analysis settings and contract version must stay the same for every run
+  and across a resume (pass the manifest's ``pinned`` back in). A flag that reports what *this* run did is not a
+  setting and is never pinned (:data:`PER_RUN_FLAGS`): ``chunking.enabled`` is true only when the caption pass ran,
+  which a clip of 30 s or less, or any other skip, never does. :func:`per_run_flags` returns those values for the
+  run's artifact. The profile's expected flags must hold, and no stage outside the profile may have sent a call;
+  either problem stops the run after the calls are charged;
 - checks the object tracker's detector cap the reply reports (``object_tracking.detector.cap``, the agent's
   ``INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS``): a cap above the profile's worst case, an unreported cap after
   tracker calls, or a cap that changes during the run stops the run after the calls are charged, never silently;
@@ -51,8 +54,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from evalv2.adapters.base import (AdapterConfigError, CallContext, Capabilities, PipelineResult, redact_strings,
-                                  redact_text, redact_url)
+from evalv2.adapters.base import (PER_RUN_FLAGS, AdapterConfigError, CallContext, Capabilities, PipelineResult,
+                                  per_run_flags, pinned_flags, redact_strings, redact_text, redact_url)
 from evalv2.core.budget import Hold
 
 AGENT_URL_ENV = "EVALV2_VSS_AGENT_URL"
@@ -143,10 +146,11 @@ class VssAgentAdapter:
                                   f"now {cap}")
 
     def _pin(self, provenance: Mapping[str, Any], accounting: Mapping[str, Any]) -> None:
-        identity = {"agent": dict(provenance.get("agent") or {}), "flags": dict(provenance.get("flags") or {}),
+        flags = dict(provenance.get("flags") or {})
+        identity = {"agent": dict(provenance.get("agent") or {}), "flags": pinned_flags(flags),
                     "contract_version": provenance.get("contract_version")}
-        wrong = {name: identity["flags"].get(name) for name, value in accounting["expected_flags"].items()
-                 if identity["flags"].get(name) != value}
+        wrong = {name: flags.get(name) for name, value in accounting["expected_flags"].items()
+                 if flags.get(name) != value}
         if wrong:
             raise ProfileMismatchError(f"profile {accounting['profile']['id']} expects "
                                        f"{accounting['expected_flags']}; the agent runs {wrong}")
@@ -230,5 +234,5 @@ def build_vss_adapter(subject: Any, *, environ: Mapping[str, str] | None = None,
     return VssAgentAdapter(subject.id, subject.model, base_url, capabilities or Capabilities(), **kwargs)
 
 
-__all__ = ["AgentDriftError", "AgentRefusedError", "ProfileMismatchError", "VssAgentAdapter", "build_vss_adapter",
-           "redact_url"]
+__all__ = ["PER_RUN_FLAGS", "AgentDriftError", "AgentRefusedError", "ProfileMismatchError", "VssAgentAdapter",
+           "build_vss_adapter", "per_run_flags", "pinned_flags", "redact_url"]

@@ -43,7 +43,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from evalv2.core.hashing import sha256_json
-from evalv2.datasets.records import new_record, promote_validated
+from evalv2.datasets.records import new_record, opaque_item_id, promote_validated
 
 CLASSES: dict[str, str] = {
     "incident.type": "incident",
@@ -254,7 +254,8 @@ def validator_packet(record: Mapping[str, Any], gt_index: Mapping[str, Any], *, 
     else:
         context = {"incidents": len(gt_index["by_incident_id"]),
                    "reports": dict(sorted(oracle_corpus(gt_index).items()))}
-    return {"role": "validator", "prompt": prompt_id, "record_id": record["record_id"], "class": payload["class"],
+    return {"role": "validator", "prompt": prompt_id, "item": opaque_item_id(record["record_id"]),
+            "class": payload["class"],
             "question": payload["question"], "context": context}
 
 
@@ -269,7 +270,10 @@ def assert_blind(validator: Mapping[str, Any], record: Mapping[str, Any]) -> Non
     forbidden = {"answer", "facts", "paraphrases", "computed_answer", "leakage", "support", "answer_space"}
     if forbidden & set(validator):
         raise ChatReferenceError(f"the validator packet holds {sorted(forbidden & set(validator))}")
-    if validator.get("question") != record["payload"]["question"] or validator.get("record_id") != record["record_id"]:
+    if "record_id" in validator:
+        raise ChatReferenceError("the validator packet names the record id (it reveals the class and subject)")
+    if validator.get("question") != record["payload"]["question"] or validator.get("item") != opaque_item_id(
+            record["record_id"]):
         raise ChatReferenceError("the validator packet is for another question")
 
 

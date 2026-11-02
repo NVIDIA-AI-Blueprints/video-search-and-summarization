@@ -82,11 +82,32 @@ TASK = "probe"
 VIDEO_MODELS = ("nvidia/cosmos-3-nano-reasoner", "nvidia/cosmos-3-super-reasoner",
                 "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")  # Track A's video subjects (Switchyard ids, RB1)
 VIDEO_ENDPOINT = "switchyard"
+# External open-weight candidates (independent families) on the NVIDIA API catalog, probed only when named with
+# --models; their endpoint is the catalog's. Documented inputs are in adapters/capabilities.json (unverified).
+EXTERNAL_VIDEO_MODELS = {"google/gemma-4-31b-it": "nvidia-api-catalog", "moonshotai/kimi-k2.6": "nvidia-api-catalog",
+                         "qwen/qwen3.5-9b": "openrouter"}
+EXTERNAL_ENDPOINTS = ("nvidia-api-catalog", "openrouter")  # --endpoint may move an external candidate between these
+# OpenRouter routing per model (OpenRouter's provider block): pinned full-precision or fp8 providers that list
+# structured outputs, no fallback to other providers, no data collection, every request parameter required.
+OPENROUTER_ROUTING = {
+    "google/gemma-4-31b-it": {"provider": {"order": ["Crusoe", "Parasail", "DeepInfra"], "allow_fallbacks": False,
+                                           "data_collection": "deny", "require_parameters": True}},
+    "qwen/qwen3.5-9b": {"provider": {"order": ["DeepInfra", "Parasail"], "allow_fallbacks": False,
+                                     "data_collection": "deny", "require_parameters": True}},
+}
 JUDGE_IDS = ("catalog-gpt-oss-20b-v1", "catalog-mistral-large-4-v1")
 CONTINUITY_JUDGE_ID = "switchyard-nemotron-3-nano-v1"  # opt-in (--with-continuity-judge); its budget is not approved
-KINDS = ("schema_inline", "frames_many", "long_clip", "judge")
+KINDS = ("schema_inline", "frames_many", "long_clip", "judge", "over_60s", "p1_short")
+DEFAULT_KINDS = ("schema_inline", "frames_many", "long_clip", "judge")  # over_60s and p1_short are opt-in (--only)
+# p1_short: the unchanged production v4 P1 request (prompt, strict schema, settings) on the short clip, so a candidate's
+# incident extraction is checked against the contract; its worst case is the P1 prompt bound plus P1's max_tokens.
+P1_PROMPT_TOKENS_BOUND = 18000  # the P1 prompt is about 4 k tokens; an 8 s clip leaves wide room (C1a: <= 12.8 k)
+# Per-model probe limits (max output tokens, prompt bound) where an approved probe budget is tight: Kimi's two probes
+# must fit 0.05 M tokens (schema_inline 14,048 + p1_short 34,384 = 48,432).
+PROBE_LIMITS = {"moonshotai/kimi-k2.6": {"max_tokens": 2048, "prompt_bound": 12000}}
 SHORT_CLIP = "RoadAccidents017"  # dev, 8.1 s, 1.68 MB: the smallest dev file
 LONG_CLIP = "Burglary093"  # dev, 25.4 s, 4.94 MB: about three times the short clip at a fixed 2 fps
+OVER_60S_CLIP = "Explosion029"  # dev, 80.3 s, 6.9 MB: past Gemma 4's documented 60 s video limit; under the inline cap
 FEW_FRAMES, MANY_FRAMES = 8, 64  # 64 is the P1 setting (contracts/inference.json)
 VIDEO_MAX_TOKENS = 8192  # enough for a reasoning model's thinking on a one-line answer
 # The most video and text a probe prompt can carry: 64 frames at up to ~300 tokens each with room to spare. The
@@ -138,6 +159,7 @@ class _Subject:
     adapter: str
     model: str
     endpoint: str
+    request: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -238,10 +260,11 @@ class CompactingStore(ArtifactStore):
 def video_request(model: str, video_url: str, num_frames: int) -> dict[str, Any]:
     """P1's request shape and settings (``contracts/inference.json``) with the probe's prompt, schema and limits."""
     settings = p1_settings()
+    max_tokens = PROBE_LIMITS.get(model, {}).get("max_tokens", VIDEO_MAX_TOKENS)
     return {"model": model,
             "messages": [{"role": "user", "content": [{"type": "video_url", "video_url": {"url": video_url}},
                                                       {"type": "text", "text": PROBE_PROMPT}]}],
-            "temperature": settings["temperature"], "max_tokens": VIDEO_MAX_TOKENS,
+            "temperature": settings["temperature"], "max_tokens": max_tokens,
             "media_io_kwargs": {"video": {"num_frames": num_frames}}, "response_format": PROBE_RESPONSE_FORMAT}
 
 
@@ -250,26 +273,37 @@ def judge_request(spec: judge_registry.JudgeSpec) -> dict[str, Any]:
     return judge_registry.build_request(spec, "incident", *JUDGE_PROBE_TEXTS)
 
 
-def build_plan(*, kinds: Sequence[str] = KINDS, models: Sequence[str] = VIDEO_MODELS,
+def build_plan(*, kinds: Sequence[str] = DEFAULT_KINDS, models: Sequence[str] = VIDEO_MODELS,
+               endpoint: str | None = None,
                judges: Sequence[str] = JUDGE_IDS) -> list[ProbeCall]:
     """Every call, in the order it would be sent: each video model's three probes, then each judge."""
     unknown = sorted(set(kinds) - set(KINDS))
     if unknown:
         raise ProbeRefused(f"unknown probe kinds {unknown}; known: {list(KINDS)}")
-    bad = sorted(set(models) - set(VIDEO_MODELS))
+    known = [*VIDEO_MODELS, *EXTERNAL_VIDEO_MODELS]
+    bad = sorted(set(models) - set(known))
     if bad:
-        raise ProbeRefused(f"{bad} are not Track A video subjects {list(VIDEO_MODELS)}")
+        raise ProbeRefused(f"{bad} are not Track A video subjects or external candidates {known}")
     registry = judge_registry.load_judges()
     plan: list[ProbeCall] = []
-    video_bound = VIDEO_PROMPT_TOKENS_BOUND + VIDEO_MAX_TOKENS
     for model in models:
+        limits = PROBE_LIMITS.get(model, {})
+        video_bound = limits.get("prompt_bound", VIDEO_PROMPT_TOKENS_BOUND) + limits.get("max_tokens", VIDEO_MAX_TOKENS)
         first = f"schema_inline:{model}"
         steps = (("schema_inline", SHORT_CLIP, FEW_FRAMES), ("frames_many", SHORT_CLIP, MANY_FRAMES),
-                 ("long_clip", LONG_CLIP, MANY_FRAMES))
+                 ("long_clip", LONG_CLIP, MANY_FRAMES), ("over_60s", OVER_60S_CLIP, MANY_FRAMES),
+                 ("p1_short", SHORT_CLIP, None))
         for kind, clip, frames in steps:
             if kind in kinds:
                 requires = first if kind != "schema_inline" and "schema_inline" in kinds else None
-                plan.append(ProbeCall(f"{kind}:{model}", kind, model, VIDEO_ENDPOINT, "inference", video_bound,
+                if model in EXTERNAL_VIDEO_MODELS:
+                    call_endpoint = endpoint or EXTERNAL_VIDEO_MODELS[model]
+                    if call_endpoint not in EXTERNAL_ENDPOINTS:
+                        raise ProbeRefused(f"--endpoint {call_endpoint!r} is not one of {list(EXTERNAL_ENDPOINTS)}")
+                else:
+                    call_endpoint = VIDEO_ENDPOINT
+                bound = (P1_PROMPT_TOKENS_BOUND + p1_settings()["max_tokens"]) if kind == "p1_short" else video_bound
+                plan.append(ProbeCall(f"{kind}:{model}", kind, model, call_endpoint, "inference", bound,
                                       clip=clip, num_frames=frames, requires=requires))
     if "judge" in kinds:
         for judge_id in judges:
@@ -283,6 +317,10 @@ def request_for(call: ProbeCall, video_urls: Mapping[str, str]) -> dict[str, Any
     """The body of one call; ``video_urls`` maps a clip to the URL to put in it (stored form or real data URL)."""
     if call.kind == "judge":
         return judge_request(judge_registry.load_judges().get(call.judge_id or ""))
+    if call.kind == "p1_short":
+        from evalv2.requests.p1 import build_p1_request
+
+        return build_p1_request(call.model, video_urls[call.clip or ""])
     return video_request(call.model, video_urls[call.clip or ""], call.num_frames or 0)
 
 
@@ -462,6 +500,22 @@ def analyse_video(result: CallResult) -> dict[str, Any]:
             "strict_json_schema": enforced, "frames_self_report": frames if isinstance(frames, int) else None}
 
 
+def analyse_p1(result: CallResult, duration_s: float | None) -> dict[str, Any]:
+    """Whether the production P1 request yields a contract-v4 report: V1's policy (strict validation, ID-only
+    normalisation, no repair), the same check Track A's runner applies, and the outcome it would record."""
+    from evalv2.tasks.incident_objects import v1
+
+    findings = _transport(result)
+    if not result.ok:
+        return {**findings, "contract_ok": None, "core_ok": None, "outcome": None}
+    policy = v1.evaluate_policy(result.text, duration_s)
+    validation = {"core_violations": policy["core"], "enrichment_violations": policy["enrichment"],
+                  "full_contract_ok": policy["full_contract_ok"], "core_ok": policy["core_ok"]}
+    return {**findings, "contract_ok": bool(policy["full_contract_ok"]), "core_ok": bool(policy["core_ok"]),
+            "outcome": v1.outcome({"ok": True, "core_ok": policy["core_ok"]}, validation),
+            "violations": [str(v)[:160] for v in [*policy["core"], *policy["enrichment"]]][:8]}
+
+
 def analyse_judge(result: CallResult) -> dict[str, Any]:
     """Whether the judge answered with the expected JSON and a usable score (the pair is a paraphrase)."""
     findings = _transport(result)
@@ -524,7 +578,12 @@ def summarise(plan: Sequence[ProbeCall], lines: Sequence[Mapping[str, Any]]) -> 
                                              finding(f"frames_many:{model}", "prompt_tokens"),
                                              finding(f"long_clip:{model}", "prompt_tokens")),
             "frames_self_report": {kind: finding(f"{kind}:{model}", "frames_self_report")
-                                   for kind in ("schema_inline", "frames_many", "long_clip")}}
+                                   for kind in ("schema_inline", "frames_many", "long_clip", "over_60s")},
+            "p1_short": {"answered": finding(f"p1_short:{model}", "accepted"),
+                         "contract_ok": finding(f"p1_short:{model}", "contract_ok"),
+                         "outcome": finding(f"p1_short:{model}", "outcome")},
+            "over_60s": {"answered": finding(f"over_60s:{model}", "accepted"),
+                         "prompt_tokens": finding(f"over_60s:{model}", "prompt_tokens")}}
     judges = {call.judge_id: {"answered": finding(call.id, "accepted"),
                               "expected_json": finding(call.id, "expected_json"),
                               "score": finding(call.id, "score"),
@@ -568,7 +627,9 @@ def live_adapter(call: ProbeCall) -> ModelAdapter:
     """A real adapter for one call: a judge from its registry entry, a video model on Switchyard."""
     if call.judge_id:
         return build_adapter(judge_registry.load_judges().get(call.judge_id))
-    return build_adapter(_Subject(f"probe-{call.model.split('/')[-1]}", "openai_compat", call.model, call.endpoint))
+    routing = OPENROUTER_ROUTING.get(call.model) if call.endpoint == "openrouter" else None
+    return build_adapter(_Subject(f"probe-{call.model.split('/')[-1]}", "openai_compat", call.model, call.endpoint,
+                                  {"extra_body": routing} if routing else None))
 
 
 def ledger_caps(plan: Sequence[ProbeCall]) -> list[Cap]:
@@ -623,7 +684,12 @@ def run_live(plan: Sequence[ProbeCall], *, approval: Mapping[str, Any], max_call
                           budget_ledger=call.ledger, tokens_bound=call.tokens_bound, sleep=sleep)
         result = adapter.complete(request, ctx)
         sent += sum(1 for attempt in result.attempts if attempt.get("failure") != "budget_exceeded")
-        findings = analyse_judge(result) if call.kind == "judge" else analyse_video(result)
+        if call.kind == "judge":
+            findings = analyse_judge(result)
+        elif call.kind == "p1_short":
+            findings = analyse_p1(result, clip_meta(call.clip or "").get("duration_seconds"))
+        else:
+            findings = analyse_video(result)
         line = {**base, "status": "answered" if result.ok else "failed",
                 "request_sha256": sha256_json(compact_request(request)), "request_ref": str(result.request_ref),
                 "response_ref": str(result.response_ref) if result.response_ref else None,
@@ -652,8 +718,11 @@ def run_live(plan: Sequence[ProbeCall], *, approval: Mapping[str, Any], max_call
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m evalv2.probe", description=__doc__.splitlines()[0])
-    parser.add_argument("--only", help=f"comma-separated probe kinds (default all: {','.join(KINDS)})")
+    parser.add_argument("--only", help=f"comma-separated probe kinds from {','.join(KINDS)} "
+                                       f"(default: {','.join(DEFAULT_KINDS)})")
     parser.add_argument("--models", help="comma-separated video models (default: every Track A video subject)")
+    parser.add_argument("--endpoint", help=f"endpoint for external candidates ({', '.join(EXTERNAL_ENDPOINTS)}); "
+                                           "default: each candidate's own")
     parser.add_argument("--judges", help=f"comma-separated judge ids (default: {','.join(JUDGE_IDS)})")
     parser.add_argument("--with-continuity-judge", action="store_true",
                         help=f"also probe {CONTINUITY_JUDGE_ID} (its budget needs its own approval)")
@@ -676,7 +745,8 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
     args = _parser().parse_args(argv)
     environ = os.environ if environ is None else environ
     judges = _split(args.judges, JUDGE_IDS) + ([CONTINUITY_JUDGE_ID] if args.with_continuity_judge else [])
-    selection = {"kinds": _split(args.only, KINDS), "models": _split(args.models, VIDEO_MODELS), "judges": judges}
+    selection = {"kinds": _split(args.only, DEFAULT_KINDS), "models": _split(args.models, VIDEO_MODELS),
+                 "judges": judges, "endpoint": args.endpoint}
     try:
         if not args.live:
             with no_network():  # the dry run proves itself offline: any connection attempt raises
