@@ -172,6 +172,12 @@ Request: `{"charts_data": [<bar or pie>], "output_dir": "<dir>", "file_prefix": 
 
 Response `200`: one entry per chart, `{"success", "error_message", "object_store_key"}`. `GET /static/<object_store_key>` returns the image and `DELETE` the same path removes it. The store is in memory, so images do not survive an agent restart. `422` for a body that does not validate, `501` when the profile does not configure the tool, `500` when it fails.
 
+## `POST /api/v1/incidents/{video_id}/box/track`
+
+Edit mode's tracker: the reviewer boxed an item at a second and named it; the agent follows that box back and forward. It seeds the object tracker ([`object_tracking.py`](../../../../../services/agent/src/vss_agents/utils/object_tracking.py), NanoTrack from `INCIDENT_OBJECT_TRACKING_MODEL_DIR`) with the box and re-anchors with the open-vocabulary detector asked for `"<name>: <description>"`, with the analysis tracker's settings (4 fps, a check every 2.5 s, the 15 s one-attempt detector timeout, the whole-frame seed skip) and a 50 s cap. The video is found through `videos.filepath` (an R2 key). Nothing is stored. Code: [`incident_box_track.py`](../../../../../services/agent/src/vss_agents/api/incident_box_track.py), [`box_track.py`](../../../../../services/agent/src/vss_agents/utils/box_track.py).
+
+Request: `{"seconds": float >= 0, "box": [ymin, xmin, ymax, xmax] (0-1000), "item_type": str, "name": str, "description": str = "", "back_seconds": float = 3, "forward_seconds": float = 3}` (windows 0-30 s). Response `200`: `{"track": {"source": "reviewer", "samples": [{"t", "box", "conf", "score"}], "span": [first_t, last_t], "partial": bool, "lost_at": float|null, "reason": str|null}}`. The sample list always holds the seed. `partial` is true when the item was lost inside the window (`lost_at` is that second, forward loss first), a cap stopped the run, or nothing could be followed (one sample, `reason` says why). `conf` is the detector's score (`-0.1` for a tracker-only sample); `score` repeats it because stored AI track files and the console's track reader use that name. Errors: `404` unknown video or no stored file, `422` invalid body, `502` the clip cannot be read, `503` database or tracker unavailable.
+
 ## `POST /api/v1/incidents/{incident_id}/analyze`
 
 Runs the `incident_report_gen` tool (P1 extraction, then RP1 prose report) on an uploaded video. Called by `incident-console-v2` in agent mode; `incident_id` is the console's `videos.id`. Field-level report schema: [analysis-schema.md](analysis-schema.md).

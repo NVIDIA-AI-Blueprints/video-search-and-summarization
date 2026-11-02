@@ -344,6 +344,7 @@ class _Pass:
     anchor_errors: int = 0  # (re-)anchors the tracker refused; a refused re-anchor keeps the previous tracker
     seed_refused: bool = False  # the tracker could not start on the seed box, so there is nothing to follow
     lost: bool = False  # the segment ended because the item was lost, not because the clip or the span did
+    lost_at: float | None = None  # the video second of the frame the item was lost on
     capped: str | None = None  # "time" or "detector-budget" when a cap stopped the pass
     detector_ms: float = 0.0  # time spent in detector calls, failed ones included
     detector_max_ms: float = 0.0  # the slowest single detector call
@@ -384,6 +385,7 @@ def follow(
         logger.warning("Object tracking could not start on the seed of '%s': %s", seed.label, type(exc).__name__)
         result.anchor_errors = 1
         result.seed_refused = result.lost = True
+        result.lost_at = seed.seconds
         return result
     last_box: Sequence[float] = seed.box
     last_check = seed.seconds
@@ -437,6 +439,7 @@ def follow(
         tracked = _int_box(box) if ok and box is not None else None
         if tracked is None or misses >= settings.max_misses:
             result.lost = True
+            result.lost_at = second
             if tracked is not None:  # ended by misses: the tracker may have drifted since the last agreement
                 del result.samples[confirmed:]
             break
@@ -453,18 +456,27 @@ def track_item(
     settings: ObjectTrackingSettings,
     tracker_factory: TrackerFactory,
     deadline: float,
+    spans: tuple[float, float] | None = None,
 ) -> tuple[Track | None, dict[str, Any]]:
-    """Follow one item forwards and backwards from its seed: its track (None when it gained no sample) and telemetry."""
+    """Follow one item forwards and backwards from its seed: its track (None when it gained no sample) and telemetry.
+
+    ``spans`` is ``(back_seconds, forward_seconds)``; without it both directions use ``settings.span_seconds``.
+    """
     started = time.monotonic()
     seed_area = _area(seed.box) / 1_000_000.0
     if seed_area > settings.max_seed_area:
         return None, {"samples": 0, "skipped": f"seed box covers {seed_area:.1%} of the frame", "detector_calls": 0}
     passes: dict[str, _Pass] = {"forward": _Pass(), "backward": _Pass()}
     clip = ClipReader(video_ref, settings.max_edge)
+    readable = clip.readable
+    back_span, forward_span = spans or (settings.span_seconds, settings.span_seconds)
     try:
         for name, forward in (("forward", True), ("backward", False)):
             frames = clip.frames(
-                seed.seconds, forward=forward, sample_fps=settings.sample_fps, span_seconds=settings.span_seconds
+                seed.seconds,
+                forward=forward,
+                sample_fps=settings.sample_fps,
+                span_seconds=forward_span if forward else back_span,
             )
             passes[name] = follow(
                 frames, seed, detect=detect, settings=settings, tracker_factory=tracker_factory, deadline=deadline
@@ -489,6 +501,9 @@ def track_item(
         "anchor_errors": ahead.anchor_errors + behind.anchor_errors,
         "lost": int(ahead.lost) + int(behind.lost),
         "capped": capped,
+        "unreadable": not readable,
+        "lost_at_forward": ahead.lost_at,
+        "lost_at_backward": behind.lost_at,
         "elapsed_ms": round((time.monotonic() - started) * 1000.0, 1),
     }
     if len(samples) < 2:

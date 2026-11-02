@@ -60,6 +60,8 @@ The `videos` row must already exist (`report_revisions.video_id` references it);
 | 501 | `incident_report_gen` is not configured. The agent is on the wrong config: it must be the dev-profile-base config. |
 | 500 | Any other failure. Check `./.scripts/logs.sh vss-agent` on the VM. |
 
+Edit mode's tracker is a separate agent call, `POST /api/v1/incidents/<videos.id>/box/track` with `{"seconds", "box", "item_type", "name", "description"}` (no analysis, nothing stored; the agent finds the video through `videos.filepath`). It answers `{"track": {source, samples, span, partial, lost_at, reason}}` ([vm-api-contracts.md](../../.docs/vm-api-contracts.md#post-apiv1incidentsvideo_idboxtrack)).
+
 ## Revision lifecycle
 
 There is no verify step and no review status. A report is its list of revisions; the report page's versions graph (`GET /api/reports/<videoId>/revisions`) lists them newest first.
