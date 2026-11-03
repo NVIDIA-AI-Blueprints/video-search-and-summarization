@@ -76,6 +76,14 @@ def test_runtime_keeps_compose_interpolation_and_original_tree_unchanged(
     (docker / "developer-profiles/dev-profile-alerts").mkdir(parents=True)
     profile = docker / "developer-profiles/dev-profile-alerts/.env"
     profile.write_text('NGC_API_KEY="private-value"\nMODEL_NAME_2D="GDINO"\n')
+    nvstreamer = docker / "services/nvstreamer/.env"
+    nvstreamer.parent.mkdir(parents=True)
+    nvstreamer_text = 'NVSTREAMER_HTTP_PORT=31000\nNVSTREAMER_IMAGE_TAG="fixture-tag"\nexport NVIDIA_API_KEY="private-nv-value"\n'
+    nvstreamer.write_text(nvstreamer_text)
+    unrelated = docker / "services/unrelated"
+    unrelated.mkdir()
+    (unrelated / ".env").write_text("SECRET=local-only\n")
+    (unrelated / "generated.env").write_text("SECRET=stale-generated\n")
     compose = docker / "services/alert/compose.yml"
     original = "services:\n  alert:\n    image: ${VSS_ALERT_IMAGE:-registry/vss-alert-ms}:${VSS_ALERT_TAG:-latest}\n"
     compose.write_text(original)
@@ -87,6 +95,17 @@ def test_runtime_keeps_compose_interpolation_and_original_tree_unchanged(
         "private-value"
         not in (deployment / "developer-profiles/dev-profile-alerts/.env").read_text()
     )
+    staged_nvstreamer = deployment / "services/nvstreamer/.env"
+    assert "NVSTREAMER_HTTP_PORT=31000" in staged_nvstreamer.read_text()
+    assert 'NVSTREAMER_IMAGE_TAG="fixture-tag"' in staged_nvstreamer.read_text()
+    assert "private-nv-value" not in staged_nvstreamer.read_text()
+    assert 'NVIDIA_API_KEY="${NVIDIA_API_KEY:-}"' in staged_nvstreamer.read_text()
+    assert nvstreamer.read_text() == nvstreamer_text
+    assert "private-value" in profile.read_text()
+    for relative in runner.REQUIRED_DEPLOYMENT_ENV_TEMPLATES:
+        assert (deployment / relative).stat().st_mode & 0o777 == 0o600
+    assert not (deployment / "services/unrelated/.env").exists()
+    assert not (deployment / "services/unrelated/generated.env").exists()
     # Exercise the real native shell's path discovery and Python package imports
     # inside the relocated layout without deploying or contacting services.
     subprocess.run(
@@ -207,3 +226,62 @@ def test_docker_shim_preserves_image_variables_and_exact_arguments(tmp_path):
                             capture_output=True, text=True, check=True)
     assert json.loads(result.stdout) == ["-n", "--preserve-env=PERF_ALERT_IMAGE,PERF_KAFKA_IMAGE",
                                         "/path with spaces/docker", "compose", "--env-file", "a file.env", "config"]
+
+
+@pytest.mark.parametrize("missing", runner.REQUIRED_DEPLOYMENT_ENV_TEMPLATES)
+def test_required_environment_templates_fail_early_with_clear_path(tmp_path, monkeypatch, missing):
+    source = tmp_path / "source"
+    for relative in runner.REQUIRED_DEPLOYMENT_ENV_TEMPLATES:
+        if relative != missing:
+            file = source / "deploy/docker" / relative
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text("SETTING=preserve\n")
+    monkeypatch.setattr(runner, "REPO_ROOT", source)
+    with pytest.raises(ValueError) as error:
+        runner.prepare_runtime(tmp_path / "runtime")
+    assert missing in str(error.value)
+    assert "Required deployment environment template" in str(error.value)
+    assert not (tmp_path / "runtime").exists()
+
+
+def test_staged_blueprint_compose_keeps_required_environment_inputs(tmp_path, monkeypatch):
+    import io
+    import os
+    import shutil
+    import tarfile
+
+    if not shutil.which("docker") or not shutil.which("git"):
+        pytest.skip("Docker Compose CLI and git required for offline staging validation")
+    if subprocess.run(["docker", "compose", "version"], capture_output=True).returncode:
+        pytest.skip("Docker Compose CLI unavailable")
+    root = runner.REPO_ROOT
+    # Use only version-controlled deployment inputs, excluding local datasets,
+    # modified credentials, and other untracked workspace state.
+    archive = subprocess.run(["git", "archive", "HEAD", "deploy/docker"],
+                             cwd=root, check=True, capture_output=True)
+    source = tmp_path / "source"
+    source.mkdir()
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as stream:
+        stream.extractall(source, filter="data")
+    monkeypatch.setattr(runner, "REPO_ROOT", source)
+    deployment = runner.prepare_runtime(tmp_path / "runtime")
+    profile = deployment / "developer-profiles/dev-profile-alerts"
+    # Supply generated configuration as a fixture: never run deployment scripts,
+    # kernel tuning, image pulls, or containers during this test.
+    shutil.copyfile(profile / "overrides.env", profile / "generated.env")
+    env = {key: os.environ[key] for key in ("PATH", "HOME") if key in os.environ}
+    env.update(runner.image_environment(runner.load_images(PERF / "setup/configs/images.yaml"), {}))
+    env.update({"VSS_APPS_DIR": str(deployment), "VSS_DATA_DIR": str(tmp_path / "data"),
+                "HOST_IP": "127.0.0.1", "EXTERNAL_IP": "127.0.0.1",
+                "PERF_ALERT_IMAGE": "registry.example/alerts:staging-test"})
+    command = ["docker", "compose", "-f", str(deployment / "compose.yml"),
+               "--env-file", str(deployment / "containers.env"),
+               "--env-file", str(profile / ".env"),
+               "--env-file", str(profile / "generated.env"), "config", "--quiet"]
+    result = subprocess.run(command, cwd=deployment, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    # Reproduce #128 explicitly: this include is required even before containers start.
+    (deployment / "services/nvstreamer/.env").unlink()
+    missing = subprocess.run(command, cwd=deployment, env=env, capture_output=True, text=True)
+    assert missing.returncode != 0
+    assert "services/nvstreamer/.env" in missing.stderr
