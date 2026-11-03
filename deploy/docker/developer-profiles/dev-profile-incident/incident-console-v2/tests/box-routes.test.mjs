@@ -133,5 +133,5 @@ test("describe waits longer than the agent's two tries", async () => {
   } finally {
     AbortSignal.timeout = original;
   }
-  assert.deepEqual(timeouts, [120_000]);
+  assert.deepEqual(timeouts, [330_000]);
 });

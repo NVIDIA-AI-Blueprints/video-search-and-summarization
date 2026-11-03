@@ -123,8 +123,9 @@ ZOOM_MIN_SHORT_SIDE = 256
 ZOOM_CONFIDENCE_THRESHOLD = 0.7
 ZOOM_TIMEOUT_SECONDS = 60.0
 # Describing a reviewer-drawn box waits on a person, so it runs with reasoning off (about 2.5 s instead of 30 s on
-# the shared VLM) and tries a timed-out request once more; two tries stay under the console's 120 s wait.
-DESCRIBE_BOX_TIMEOUT_SECONDS = 40.0
+# the shared VLM) and tries a timed-out request once more; each try may take up to 150 s so a slow model can still
+# give its final answer, and two tries (300 s) stay under the console's 330 s wait.
+DESCRIBE_BOX_TIMEOUT_SECONDS = 150.0
 _FALSE_FLAG_VALUES = frozenset({"0", "false", "no", "off"})
 
 
@@ -854,7 +855,7 @@ class DefaultDetector:
         """Name and describe a reviewer-drawn box in one call: the frame with the box drawn, then the close-up.
 
         The same endpoint and model as the zoomed second look (``_chat_json``), with the ``zoom/describe-box``
-        prompt, reasoning off, a 40 s timeout and one more try after a timeout. Raises ``httpx.HTTPError`` on transport or status errors and ``ValueError`` on
+        prompt, reasoning off, a 150 s timeout and one more try after a timeout. Raises ``httpx.HTTPError`` on transport or status errors and ``ValueError`` on
         a reply that is not the strict JSON asked for.
         """
         return self._chat_json(

@@ -93,7 +93,7 @@ export function BoxTool({
   const [partialKept, setPartialKept] = useState(false);
   const [phase, setPhase] = useState<'describe' | 'track' | null>(null);
   const [busy, setBusy] = useState(false);
-  const [slow, setSlow] = useState(false);
+  const [waited, setWaited] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [previewSeconds, setPreviewSeconds] = useState(0);
   const [drawing, setDrawing] = useState(false);
@@ -101,13 +101,15 @@ export function BoxTool({
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  // After a few seconds of waiting on the AI, say it is still working rather than leave the same line on screen.
+  // Count the seconds waited on the AI; after a few, say it is still working rather than leave the same line on screen.
   useEffect(() => {
-    setSlow(false);
+    setWaited(0);
     if (stage !== 'working') return;
-    const timer = setTimeout(() => setSlow(true), SLOW_NOTICE_MS);
-    return () => clearTimeout(timer);
+    const started = Date.now();
+    const timer = setInterval(() => setWaited(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
   }, [stage]);
+  const slow = waited * 1000 >= SLOW_NOTICE_MS;
 
   const run = async <T,>(task: (signal: AbortSignal) => Promise<T>): Promise<T | undefined> => {
     abortRef.current?.abort();
@@ -327,14 +329,14 @@ export function BoxTool({
             <p className="text-sm font-semibold text-ink">
               {phase === 'describe'
                 ? slow
-                  ? 'The AI is still looking…'
+                  ? `The AI is still looking… ${waited} s`
                   : 'The AI is reading the box…'
                 : `Following ${card.name || 'it'} through the video…`}
             </p>
             <Progress value={phase === 'describe' ? 30 : 70} />
             <p className="text-[11px] text-muted-foreground">
-              {existing ? 'Tracking' : 'Reading the box, then tracking it'} {TRACK_WINDOW_SECONDS} s either side. This can take up to a
-              minute.
+              {existing ? 'Tracking' : 'Reading the box, then tracking it'} {TRACK_WINDOW_SECONDS} s either side. This can take a few
+              minutes if the model is slow.
             </p>
           </div>
         )}

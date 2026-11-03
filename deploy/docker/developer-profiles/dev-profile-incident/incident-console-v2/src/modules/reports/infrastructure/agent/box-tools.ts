@@ -24,8 +24,8 @@ export class BoxAgentError extends Error {
   }
 }
 
-/** The agent tries the model twice (40 s each, reasoning off, about 3 s when healthy); the console waits longer so a failure shows the agent's own message. */
-const DESCRIBE_TIMEOUT_MS = 120_000;
+/** The agent tries the model twice (up to 150 s each, reasoning off, about 3 s when healthy); the console waits longer so a failure shows the agent's own message. */
+const DESCRIBE_TIMEOUT_MS = 330_000;
 /** The agent answers within about 60 s; the extra margin is for the 15 s detector timeout it may spend re-anchoring. */
 const TRACK_TIMEOUT_MS = 90_000;
 
