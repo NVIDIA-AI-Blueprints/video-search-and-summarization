@@ -1,0 +1,54 @@
+{
+ "config_version": "evalv2-config-v1",
+ "experiment": "v2-c3-dashboard",
+ "split": {
+  "version": "split-v2",
+  "half": "test"
+ },
+ "freeze_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+ "purpose": "final",
+ "budget_mode": "hard_stop",
+ "seed": 20261101,
+ "retry_policy": "retry-v2",
+ "notes": "C3 dashboard (frozen, pre-registered): the 75 held-out requests of dashboard-references-test-v1 to Nemotron 3 Ultra (production chart model) on agent-route-v3 (agent route + chart-severity-words-v2). Caps 86 attempts / 129,000 tokens.",
+ "datasets": {
+  "dashboard_references": "dashboard-references-test-v1"
+ },
+ "subjects": [
+  {
+   "id": "ultra-chart",
+   "adapter": "openai_compat",
+   "endpoint": "switchyard",
+   "model": "nvidia/nemotron-3-ultra"
+  }
+ ],
+ "tasks": {
+  "dashboard": {
+   "subjects": "all",
+   "scorers": [
+    "dashboard.score_reply@1",
+    "dashboard.figure_outcome@1"
+   ],
+   "options": {
+    "request_shape": "agent-route-v3"
+   }
+  }
+ },
+ "repeats": 1,
+ "caps": [
+  {
+   "ledger": "inference",
+   "subject": "ultra-chart",
+   "task": "dashboard",
+   "max_attempts": 86,
+   "max_tokens": 129000
+  },
+  {
+   "ledger": "inference",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 86,
+   "max_tokens": 129000
+  }
+ ]
+}

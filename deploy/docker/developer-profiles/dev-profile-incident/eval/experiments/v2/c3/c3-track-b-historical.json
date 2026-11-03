@@ -1,0 +1,143 @@
+{
+ "config_version": "evalv2-config-v1",
+ "experiment": "v2-c3-track-b-historical",
+ "split": {
+  "version": "split-v2",
+  "half": "test"
+ },
+ "freeze_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+ "purpose": "final",
+ "budget_mode": "hard_stop",
+ "seed": 20261101,
+ "retry_policy": "retry-v2",
+ "notes": "C3 Track B, HISTORICAL C1b profile (owner D3, 2026-11-03): the experiment agent at acbf892ba from its own checkout (env -i, experiments on, tracking/object tracking/privacy blur/set-of-marks off), profile production-v4-captions, Nano and Super on the 55 test clips, 1 repeat. NOT the current production configuration. The run directory is pre-seeded with C1b's pinned agent identity, so the first reply from any other agent, commit or flag set stops the run (AgentDriftError). Caps: dev ledger usage x 2.2 x 1.3, or x 2.2 plus one worst-case run hold.",
+ "datasets": {
+  "incident_gt": "ground-truth-v1.0"
+ },
+ "subjects": [
+  {
+   "id": "nano-pipeline",
+   "adapter": "vss",
+   "endpoint": "experiment-agent",
+   "model": "nvidia/cosmos-3-nano-reasoner",
+   "profile": "production-v4-captions"
+  },
+  {
+   "id": "super-pipeline",
+   "adapter": "vss",
+   "endpoint": "experiment-agent",
+   "model": "nvidia/cosmos-3-super-reasoner",
+   "profile": "production-v4-captions"
+  }
+ ],
+ "tasks": {
+  "pipeline": {
+   "subjects": "all",
+   "scorers": [
+    "pipeline.score_stage@1",
+    "pipeline.paired_effect@1",
+    "pipeline.crops@1",
+    "pipeline.caption_effect@1"
+   ],
+   "options": {
+    "judges": {
+     "primary": "openrouter-gpt-oss-20b-c3-v1"
+    }
+   }
+  }
+ },
+ "repeats": 1,
+ "caps": [
+  {
+   "ledger": "caption",
+   "subject": "nano-pipeline",
+   "task": "pipeline",
+   "max_attempts": 255,
+   "max_tokens": 1032455
+  },
+  {
+   "ledger": "grounding",
+   "subject": "nano-pipeline",
+   "task": "pipeline",
+   "max_attempts": 753,
+   "max_tokens": 397461
+  },
+  {
+   "ledger": "inference",
+   "subject": "nano-pipeline",
+   "task": "pipeline",
+   "max_attempts": 78,
+   "max_tokens": 1100900
+  },
+  {
+   "ledger": "zoom",
+   "subject": "nano-pipeline",
+   "task": "pipeline",
+   "max_attempts": 1642,
+   "max_tokens": 747540
+  },
+  {
+   "ledger": "caption",
+   "subject": "super-pipeline",
+   "task": "pipeline",
+   "max_attempts": 301,
+   "max_tokens": 1717150
+  },
+  {
+   "ledger": "grounding",
+   "subject": "super-pipeline",
+   "task": "pipeline",
+   "max_attempts": 561,
+   "max_tokens": 902618
+  },
+  {
+   "ledger": "inference",
+   "subject": "super-pipeline",
+   "task": "pipeline",
+   "max_attempts": 75,
+   "max_tokens": 865594
+  },
+  {
+   "ledger": "zoom",
+   "subject": "super-pipeline",
+   "task": "pipeline",
+   "max_attempts": 1445,
+   "max_tokens": 1394831
+  },
+  {
+   "ledger": "caption",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 556,
+   "max_tokens": 2749605
+  },
+  {
+   "ledger": "grounding",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 1314,
+   "max_tokens": 1300079
+  },
+  {
+   "ledger": "inference",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 153,
+   "max_tokens": 1966494
+  },
+  {
+   "ledger": "zoom",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 3087,
+   "max_tokens": 2142371
+  },
+  {
+   "ledger": "judge",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 0,
+   "max_tokens": 0
+  }
+ ]
+}

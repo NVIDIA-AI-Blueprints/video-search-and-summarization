@@ -1,6 +1,10 @@
 # Evaluation V2: C2 freeze-readiness report (2026-11-03) — FOR AN INFORMED FREEZE DECISION
 
-**What this report is.** C2 is **ready for a freeze decision**: every technical blocker is resolved or turned into an explicit scope exclusion or limitation. Four decisions remain for the owner (§1, part D). The report does not freeze C2, run C3 or declare every evaluation task complete.
+**What this report is.**
+- C2 was **ready for a freeze decision**: every technical blocker was resolved or turned into an explicit scope exclusion or limitation.
+- **Owner decisions, 2026-11-03:** D1 pre-registration approved (finalised with eight methodological checks), D2 **option B**, D3 **historical Track B**, D4 freeze and C3 with a **$2.00** hard cap.
+- **The freeze manifest:** [`v2-c2-freeze-manifest.json`](v2-c2-freeze-manifest.json).
+- The report does not declare every evaluation task complete.
 
 **Constraints observed:**
 - No paid call was made for this report.
@@ -27,7 +31,7 @@ Pins: [pre-registration (proposed)](evaluation-v2-preregistration.md).
 
 | Exclusion | Effect |
 |---|---|
-| **Evidence-box localisation (dimension C)** is out of the C3 critical path | No bounding-box IoU or crop accuracy is claimed. RA1 continues separately from its checkpoint (detector proposals 37/80 clips, all 25 dev clips done). Its generator and validator passes are **not started** (unapproved). Proposal A waits on them |
+| **Evidence-box localisation (dimension C)** is out of the C3 critical path | No bounding-box IoU or crop accuracy is claimed. RA1's checkpoint is preserved at 37/80 clips' detector proposals (all 25 dev clips). It is **stopped**: no restart, no planner or extractor change, no generator or validator passes without separate approval. Proposal A waits on it. **Known defect:** RA1 stopped on 2026-11-03 at 12:32 because the extraction plan schedules a frame at 12.5 s for Assault018 (a test clip) that the clip does not contain (25 of 26 planned frames extracted), and the detector refuses a missing frame. The planner can schedule a frame past the last decodable one. It is not fixed (owner instruction) |
 | Chat holder identification | Excluded as not interpretable (an instrument artefact) |
 | Mistral sensitivity judge | Paused; none in C3 |
 | Adjudicator experiments (proposal C) | Not run |
@@ -49,14 +53,14 @@ Pins: [pre-registration (proposed)](evaluation-v2-preregistration.md).
 - Temperature-0 serving is not bit-deterministic.
 - The provider decides frame sampling.
 
-### D. Decisions still requiring owner approval
+### D. Owner decisions (all taken 2026-11-03)
 
-| # | Decision | Recommendation |
+| # | Decision | Recommendation (outcome in the last column) |
 |---|---|---|
-| D1 | Approve the pre-registration, including its amendments to methodology v2.0: dimension A primary metric (severity MAE and type accuracy, no composite), C excluded, D primary metric moved off judged fact recall, and the proposed R8 rule | Approve, or edit and approve |
-| D2 | **Test set: option A (fresh 20 clips) or option B (the 55 with the exposure statement)** (§4) | **B now**, with A as a pre-registered optional addendum if four labellers become available. A is the scientifically stronger design but is not feasible without human labelling time |
-| D3 | The Track B label: accept "historical C1b profile" for C3, or approve a VM-based current-production configuration (§3), which needs shared-infrastructure use and a new dev check | Accept historical for C3; treat current production as a separate, later version |
-| D4 | The C2 freeze, then the C3 budget: ≈ 3,300 calls, ≈ 12 M tokens, expected ≈ $0.70, proposed cap $2.00 (§5) | Freeze after D1–D3 |
+| D1 | Approve the pre-registration, including its amendments to methodology v2.0: dimension A primary metric (severity MAE and type accuracy, no composite), C excluded, D primary metric moved off judged fact recall, and the proposed R8 rule | Approve, or edit and approve. **Decided: approved, finalised with the owner's checks 1–8 (pre-registration §4)** |
+| D2 | **Test set: option A (fresh 20 clips) or option B (the 55 with the exposure statement)** (§4) | **B now**, with A as a pre-registered optional addendum if four labellers become available. **Decided: B.** C3 is a fixed-configuration evaluation on a previously exposed set, and a fresh set is a possible future study |
+| D3 | The Track B label: accept "historical C1b profile" for C3, or approve a VM-based current-production configuration (§3), which needs shared-infrastructure use and a new dev check | Accept historical for C3; treat current production as a separate, later version. **Decided: historical, reproduced exactly or stopped** |
+| D4 | The C2 freeze, then the C3 budget: ≈ 3,300 calls, ≈ 12 M tokens, expected ≈ $0.70, proposed cap $2.00 (§5) | Freeze after D1–D3. **Decided: approved, with a $2.00 hard cap** |
 
 ## 2. Held-out dashboard reference set (`dashboard-references-test-v1`)
 
@@ -93,9 +97,10 @@ Pins: [pre-registration (proposed)](evaluation-v2-preregistration.md).
 | Pipeline-relevant agent changes since `acbf892ba` | — | #452 (an on-screen person is not the entity; person tracks confirm boxes), #463 (evidence image is the first second a track sees it), #469 (track timing), #454 (object-tracking detector timeout). All of them act when tracking is on and change evidence crops, which the zoom pass reads |
 
 **Options:**
-- **(H) Historical, recommended for C3.** The experiment agent at `acbf892ba` with the C1b flags, labelled "Track B (C1b profile)".
+- **(H) Historical, chosen for C3 (D3).** The experiment agent at `acbf892ba` with the C1b flags, labelled "Track B (C1b profile)".
   - Verified offline: the launcher's dry run (`EXPERIMENT_AGENT_DRY_RUN=1`) starts the code at `acbf892ba` from `/home/hengz/vss-wt-pilot`, with `env -i`, experiments on and no tracking variables. That reproduces C1b's pinned flags.
-  - The adapter refuses any reply whose pinned agent SHA or flags differ.
+  - Pins: the commit, flags, `nat` environment (frozen package list `e8d1410e…`), launcher, config and ffmpeg hashes, all in the pre-registration §1 and the freeze manifest.
+  - The C3 run directory is pre-seeded with C1b's pinned identity, so the first reply from any differing agent stops the run (`AgentDriftError`). It is never replaced by the current configuration.
   - Dev and test then share one configuration.
 - **(P) Verified current production.** This needs the VM's person-tracking and object-tracking services, which is shared infrastructure and needs owner approval. It would also need a new dev pilot to verify the configuration and recalibrate caps before C3. It cannot be verified on the laptop.
 - **Not allowed:** current code with the historical flags, or historical dev results with current-production test results. Either would silently combine two configurations.
