@@ -194,7 +194,6 @@ load_compose_env() {
     # shellcheck disable=SC1091
     source "$INTEGRATION_DIR/docker_compose/infra/.env"
     set +a
-    export INFRA_DIR="${PERF_SUPPORT_INFRA:-$INFRA_DIR}"
     export BEHAVIOR_ANALYTICS_IMAGE="$(resolve_image)"
     export COMPOSE_PROJECT_NAME
 }

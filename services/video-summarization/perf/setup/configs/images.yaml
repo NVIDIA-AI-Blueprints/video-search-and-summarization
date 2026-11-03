@@ -1,195 +1,26 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# Support images only; ARTIFACT_REF controls the tested service.
-# Values preserve current defaults and do not attest OSRB approval.
+# Supporting images only; the tested service still uses ARTIFACT_REF.
+# Values preserve existing references and do not certify OSRB approval.
 schema_version: 1
 images:
-  prometheus:
-    ref: prom/prometheus:latest
-  grafana:
-    ref: grafana/grafana:latest
-  dcgm-exporter:
-    ref: nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04
-  node-exporter:
-    ref: prom/node-exporter:latest
-  curl:
-    ref: curlimages/curl:latest
-  rtvi-vlm-sbsa:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d-sbsa
-  vllm:
-    ref: nvcr.io/nvidia/vllm:25.12.post1-py3
-  elasticsearch:
-    ref: elasticsearch:9.1.2
-  rtvi-vlm:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d
-  nvidia-nemotron-nano-9b-v2-dgx-spark:
-    ref: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant
-  alpine:
-    ref: alpine:3.20
-  nginx:
-    ref: nginx:alpine
-  nemotron-3-nano:
-    ref: nvcr.io/nim/nvidia/nemotron-3-nano:2.0.3
-  cosmos-reason2-8b:
-    ref: nvcr.io/nim/nvidia/cosmos-reason2-8b:1.6.0
-  nvidia-nemotron-nano-9b-v2:
-    ref: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1
-  busybox:
-    ref: busybox:1.37
-  opentelemetry-collector-contrib:
-    ref: otel/opentelemetry-collector-contrib:0.96.0
-  jaeger:
-    ref: jaegertracing/all-in-one:1.54
-  phoenix:
-    ref: arizephoenix/phoenix:latest
-  cuda:
-    ref: nvcr.io/nvidia/cuda:12.6.3-base-ubuntu22.04
-scopes:
-  setup:
-    monitoring/compose.yaml:
-      services:
-        prometheus: prometheus
-        grafana: grafana
-        dcgm-exporter: dcgm-exporter
-        node-exporter: node-exporter
-    compose/spark-rtvi-cr-nemo3-nano.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm-sbsa
-        nemotron-3-nano: vllm
-        elasticsearch: elasticsearch
-    compose/thor-rtvi-cr-nemotron-9b.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        nemotron-nano-9b-v2-dgx-spark: nvidia-nemotron-nano-9b-v2-dgx-spark
-        elasticsearch: elasticsearch
-    compose/media-server.yaml:
-      services:
-        downloader: alpine
-        media-server: nginx
-    compose/x86-rtvi-cr-nemo3-nano_2gpu.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        nemotron-3-nano: nemotron-3-nano
-        elasticsearch: elasticsearch
-    compose/x86-rtvi-cr-nemo3-nano_8gpu.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        nemotron-3-nano: nemotron-3-nano
-        elasticsearch: elasticsearch
-    compose/x86-rtvi-cr-nemo3-nano_1gpu.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        nemotron-3-nano: nemotron-3-nano
-        elasticsearch: elasticsearch
-    compose/x86-rtvi-cr-nim-nemotron-9b_1gpu.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-cosmos-nim: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        cosmos-reason2-8b: cosmos-reason2-8b
-        nemotron-nano-9b-v2: nvidia-nemotron-nano-9b-v2
-        elasticsearch: elasticsearch
-    compose/sys-cache-cleaner.yaml:
-      services:
-        sys-cache-cleaner: busybox
-    compose/x86-rtvi-cr-nim-nemo3-nano_2gpu.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-cosmos-nim: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        cosmos-reason2-8b: cosmos-reason2-8b
-        nemotron-3-nano: nemotron-3-nano
-        elasticsearch: elasticsearch
-    compose/x86-rtvi-cr-remote-llm_1gpu.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        elasticsearch: elasticsearch
-    compose/x86-rtvi-cr-nemo3-nano_4gpu.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        nemotron-3-nano: nemotron-3-nano
-        elasticsearch: elasticsearch
-    compose/x86-rtvi-cr-nemotron-9b_1gpu.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        nemotron-nano-9b-v2: nvidia-nemotron-nano-9b-v2
-        elasticsearch: elasticsearch
-    compose/thor-rtvi-cr-nemo3-nano.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        nemotron-3-nano: vllm
-        elasticsearch: elasticsearch
-    compose/x86-rtvi-cr-nim-nemo3-nano_4gpu.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-cosmos-nim: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        cosmos-reason2-8b: cosmos-reason2-8b
-        nemotron-3-nano: nemotron-3-nano
-        elasticsearch: elasticsearch
-    compose/orin-nx-rtvi-cr-remote-llm.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        elasticsearch: elasticsearch
-    compose/x86-rtvi-cr-nim-nemo3-nano_8gpu.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-cosmos-nim: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm
-        cosmos-reason2-8b: cosmos-reason2-8b
-        nemotron-3-nano: nemotron-3-nano
-        elasticsearch: elasticsearch
-    compose/spark-rtvi-cr-nemotron-9b.yaml:
-      services:
-        wait-for-rtvi: curl
-        wait-for-llm: curl
-        wait-for-elasticsearch: curl
-        rtvi-vlm: rtvi-vlm-sbsa
-        nemotron-nano-9b-v2-dgx-spark: nvidia-nemotron-nano-9b-v2-dgx-spark
-        elasticsearch: elasticsearch
-    compose/otel-stack.yaml:
-      services:
-        otel-collector: opentelemetry-collector-contrib
-        jaeger: jaeger
-        phoenix: phoenix
-    compose/gpu-precheck.yaml:
-      services:
-        gpu-precheck: cuda
+  PERF_PROMETHEUS_IMAGE: prom/prometheus:latest
+  PERF_GRAFANA_IMAGE: grafana/grafana:latest
+  PERF_DCGM_EXPORTER_IMAGE: nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04
+  PERF_NODE_EXPORTER_IMAGE: prom/node-exporter:latest
+  PERF_CURL_IMAGE: curlimages/curl:latest
+  PERF_RTVI_VLM_SBSA_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d-sbsa
+  PERF_VLLM_IMAGE: nvcr.io/nvidia/vllm:25.12.post1-py3
+  PERF_ELASTICSEARCH_IMAGE: elasticsearch:9.1.2
+  PERF_RTVI_VLM_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d
+  PERF_NVIDIA_NEMOTRON_NANO_9B_V2_DGX_SPARK_IMAGE: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant
+  PERF_ALPINE_IMAGE: alpine:3.20
+  PERF_NGINX_IMAGE: nginx:alpine
+  PERF_NEMOTRON_3_NANO_IMAGE: nvcr.io/nim/nvidia/nemotron-3-nano:2.0.3
+  PERF_COSMOS_REASON2_8B_IMAGE: nvcr.io/nim/nvidia/cosmos-reason2-8b:1.6.0
+  PERF_NVIDIA_NEMOTRON_NANO_9B_V2_IMAGE: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1
+  PERF_BUSYBOX_IMAGE: busybox:1.37
+  PERF_OPENTELEMETRY_COLLECTOR_CONTRIB_IMAGE: otel/opentelemetry-collector-contrib:0.96.0
+  PERF_JAEGER_IMAGE: jaegertracing/all-in-one:1.54
+  PERF_PHOENIX_IMAGE: arizephoenix/phoenix:latest
+  PERF_CUDA_IMAGE: nvcr.io/nvidia/cuda:12.6.3-base-ubuntu22.04

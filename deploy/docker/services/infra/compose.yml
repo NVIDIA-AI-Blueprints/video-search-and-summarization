@@ -23,7 +23,7 @@ include:
 
 services:
   turnserver-init:
-    image: alpine:3.24.1
+    image: ${PERF_ALPINE_IMAGE:-alpine:3.24.1}
     profiles: ["turnserver-init"]
     container_name: vss-turnserver-init
     user: "0:0"
@@ -39,7 +39,7 @@ services:
     restart: "no"
 
   turnserver:
-    image: coturn/coturn:4.14.0
+    image: ${PERF_COTURN_IMAGE:-coturn/coturn:4.14.0}
     profiles: ["turnserver"]
     container_name: vss-turnserver
     user: "65534:65534"
@@ -72,7 +72,7 @@ services:
         condition: service_completed_successfully
 
   mosquitto:
-    image: eclipse-mosquitto:2
+    image: ${PERF_ECLIPSE_MOSQUITTO_IMAGE:-eclipse-mosquitto:2}
     profiles: ["mosquitto"]
     container_name: mosquitto
     ports:
@@ -91,7 +91,7 @@ services:
 
   phoenix:
     container_name: phoenix
-    image: 'arizephoenix/phoenix:19.8.0'
+    image: ${PERF_PHOENIX_IMAGE:-arizephoenix/phoenix:19.8.0}
     profiles: ["phoenix"]
     environment:
       PHOENIX_WORKING_DIR: '/.phoenix/'
@@ -113,8 +113,10 @@ services:
     build:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/elasticsearch.Dockerfile
+      args:
+        - PERF_ELASTICSEARCH_BASE_IMAGE
       network: "host"
-    image: elasticsearch
+    image: ${PERF_ELASTICSEARCH_IMAGE:-elasticsearch}
     environment:
       ES_JAVA_OPTS: "-Xmx1024m -Xms256m"
       discovery.type: single-node
@@ -138,6 +140,8 @@ services:
     build:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/elastic-init.Dockerfile
+      args:
+        - PERF_ALPINE_IMAGE
       network: "host"
     profiles: ["elasticsearch-init-container"]
     container_name: vss-elasticsearch-init
@@ -159,7 +163,7 @@ services:
     restart: "on-failure:5"
 
   kafka:
-    image: confluentinc/cp-kafka:8.3.0
+    image: ${PERF_KAFKA_IMAGE:-confluentinc/cp-kafka:8.3.0}
     volumes:
       - kafka-data:/tmp/kafka-data
       - $VSS_APPS_DIR/services/infra/kafka/scripts/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
@@ -203,8 +207,11 @@ services:
     build:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/kafka-health-check.Dockerfile
+      args:
+        - PERF_ALPINE_IMAGE
+        - PERF_KAFKA_IMAGE
       target: kafka-base
-    image: vss-kafka-topic-init
+    image: ${PERF_VSS_KAFKA_TOPIC_INIT_IMAGE:-vss-kafka-topic-init}
     container_name: vss-kafka-topics
     profiles: ["kafka-topic-init-container"]
     volumes:
@@ -244,7 +251,7 @@ services:
     command: "bash /usr/bin/create-kafka-topics.sh"  
 
   redis:
-    image: redis:8.10.0-alpine
+    image: ${PERF_REDIS_IMAGE:-redis:8.10.0-alpine}
     profiles: ["redis"]
     restart: always
     command: redis-server /config/redis.conf
@@ -257,7 +264,7 @@ services:
       - $VSS_DATA_DIR/data_log/redis/log:/log
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:9.4.4
+    image: ${PERF_KIBANA_IMAGE:-docker.elastic.co/kibana/kibana:9.4.4}
     profiles: ["kibana"]
     volumes:
       - $VSS_APPS_DIR/services/infra/elk/kibana/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
@@ -276,7 +283,7 @@ services:
       start_period: 60s
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:9.4.4
+    image: ${PERF_LOGSTASH_IMAGE:-docker.elastic.co/logstash/logstash:9.4.4}
     profiles: ["logstash"]
     volumes:
       - logstash-libs:/opt/logstash-data-libs
@@ -331,6 +338,9 @@ services:
     build:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
+      args:
+        - PERF_ALPINE_IMAGE
+        - PERF_KAFKA_IMAGE
       network: host
     profiles: ["broker-health-check"]
     environment:

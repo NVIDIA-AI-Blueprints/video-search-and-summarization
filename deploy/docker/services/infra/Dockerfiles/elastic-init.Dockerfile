@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM alpine:3.24.1
+ARG PERF_ALPINE_IMAGE=alpine:3.24.1
+
+FROM ${PERF_ALPINE_IMAGE}
 
 # Create a working directory
 WORKDIR /opt/mdx/

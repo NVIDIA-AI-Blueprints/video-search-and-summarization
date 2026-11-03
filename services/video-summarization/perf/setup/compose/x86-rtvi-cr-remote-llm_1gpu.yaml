@@ -43,7 +43,7 @@ services:
 
   # ── Health check sidecars ──────────────────────────────────
   wait-for-rtvi:
-    image: curlimages/curl:latest
+    image: ${PERF_CURL_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     command:
       - sh
       - -c
@@ -57,7 +57,7 @@ services:
   # Verifies the remote LLM endpoint is reachable + ready before LVS starts.
   # Uses ${REMOTE_LLM_BASE_URL}/health/ready (OpenAI-compatible NIM/vLLM convention).
   wait-for-llm:
-    image: curlimages/curl:latest
+    image: ${PERF_CURL_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     environment:
       REMOTE_LLM_BASE_URL: ${REMOTE_LLM_BASE_URL:?set REMOTE_LLM_BASE_URL to remote LLM /v1 endpoint}
       REMOTE_LLM_API_KEY: ${REMOTE_LLM_API_KEY:-${NVIDIA_API_KEY:-}}
@@ -76,7 +76,7 @@ services:
     restart: "no"
 
   wait-for-elasticsearch:
-    image: curlimages/curl:latest
+    image: ${PERF_CURL_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     command:
       - sh
       - -c
@@ -175,7 +175,7 @@ services:
   # No local LLM contending for GPU memory → bump VLLM_GPU_MEMORY_UTILIZATION
   # to ~0.75 so KV cache has room on a 24 GB RTX 4500 Ada.
   rtvi-vlm:
-    image: ${RTVI_VLM_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d}
+    image: ${PERF_RTVI_VLM_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     user: "1001:1001"
     environment:
       NGC_API_KEY: ${NGC_API_KEY:-}
@@ -247,7 +247,7 @@ services:
 
   # ── Elasticsearch ──────────────────────────────────────────
   elasticsearch:
-    image: elasticsearch:9.1.2
+    image: ${PERF_ELASTICSEARCH_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"

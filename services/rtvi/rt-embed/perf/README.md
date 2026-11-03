@@ -24,20 +24,33 @@ reports are kept below `perf-results/native/`. See
 
 ## Supporting container images
 
-Edit `setup/configs/images.yaml` to manage this benchmark's supporting images.
-`images` contains complete image references; `scopes` binds them to Compose
-services and Dockerfile build stages. Keep logical image IDs stable when changing
-versions. The service being tested continues to use the image selected for the run.
+Edit `setup/configs/images.yaml` to select this benchmark's supporting images.
+It contains a flat map of image variable names to complete references:
 
-Setup renders image choices into private runtime files. It does not modify the
-shared blueprint deployment definitions. The configured inventory is saved as
-`support-images.json` alongside the run output. These references preserve existing
-image versions; their presence here does not establish OSRB approval.
+```yaml
+schema_version: 1
+images:
+  PERF_PROMETHEUS_IMAGE: prom/prometheus:latest
+```
 
-The `environment` section maps VIOS/VST image settings to image IDs. Explicit
-existing environment overrides retain their previous precedence.
+Use the variable names already present in the service's file. The benchmark runner
+loads and validates them before deployment; no separate image setup command is
+needed. Explicit nonempty environment overrides take precedence. Clear an override
+to use the file's value.
 
-Embed still consumes its existing VST package. Only the four explicit VST image
-overrides and perf monitoring images are inventoried here. Any other image
-references inside that package remain package-managed until its contents can be
-verified; no additional tags are guessed by setup.
+Compose files refer directly to these variables. Shared Dockerfiles receive base
+images through build arguments and retain their existing defaults for ordinary
+blueprint deployments. Image selection does not copy or rewrite those templates.
+The service under test still uses the artifact selected for the run.
+
+`support-images.json` records the effective support image variables alongside the
+run output. Image values preserve existing references and do not certify OSRB
+approval or record the immutable digests pulled by Docker.
+
+The VST image settings retain the variable names expected by the native setup
+scripts. Native package staging, port configuration, and compatibility handling
+remain unchanged.
+
+Embed still consumes its existing VST package. Only its four explicit VST image
+overrides and perf monitoring images are inventoried here. Any other package
+references remain package-managed until the package contents are verified.

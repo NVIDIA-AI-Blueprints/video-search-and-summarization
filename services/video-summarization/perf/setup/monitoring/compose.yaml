@@ -16,7 +16,7 @@
 services:
   # Prometheus - Metrics collection and storage for monitoring
   prometheus:
-    image: prom/prometheus:latest
+    image: ${PERF_PROMETHEUS_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     ports:
       - "9090:9090"
     volumes:
@@ -35,7 +35,7 @@ services:
 
   # Grafana - Dashboard for visualization of metrics data
   grafana:
-    image: grafana/grafana:latest
+    image: ${PERF_GRAFANA_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     ports:
       - "3000:3000"
     volumes:
@@ -55,7 +55,7 @@ services:
 
   # DCGM Exporter - Collects and exports GPU metrics data
   dcgm-exporter:
-    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04
+    image: ${PERF_DCGM_EXPORTER_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     runtime: nvidia
     ports:
       - "9500:9400"
@@ -89,7 +89,7 @@ services:
 
   # Node Exporter - Collects and exports system metrics (CPU, RAM, disk, etc.)
   node-exporter:
-    image: prom/node-exporter:latest
+    image: ${PERF_NODE_EXPORTER_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     ports:
       - "9400:9100"
     volumes:

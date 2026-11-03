@@ -18,7 +18,7 @@ name: otel-stack
 services:
   # OpenTelemetry Collector - receives traces and forwards to backends
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.96.0
+    image: ${PERF_OPENTELEMETRY_COLLECTOR_CONTRIB_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
       - ./configmaps/otel-collector-config.yaml:/etc/otel/config.yaml:ro
@@ -32,7 +32,7 @@ services:
 
   # Jaeger - distributed tracing UI
   jaeger:
-    image: jaegertracing/all-in-one:1.54
+    image: ${PERF_JAEGER_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
@@ -44,7 +44,7 @@ services:
 
   # Arize Phoenix - LLM observability UI
   phoenix:
-    image: arizephoenix/phoenix:latest
+    image: ${PERF_PHOENIX_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     ports:
       - "6006:6006"    # Phoenix UI + OTLP HTTP
       - "4320:4317"    # Phoenix OTLP gRPC (remapped to avoid host conflict with collector)

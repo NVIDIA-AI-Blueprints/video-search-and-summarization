@@ -16,7 +16,9 @@
 # Dockerfile specifically for Redis health check
 # Uses lightweight Alpine image
 
-FROM alpine:3.24.1
+ARG PERF_ALPINE_IMAGE=alpine:3.24.1
+
+FROM ${PERF_ALPINE_IMAGE}
 
 # Install necessary tools for port checking
 RUN apk add --no-cache \

@@ -51,7 +51,7 @@
 
 services:
   gpu-precheck:
-    image: ${GPU_PRECHECK_IMAGE:-nvcr.io/nvidia/cuda:12.6.3-base-ubuntu22.04}
+    image: ${PERF_CUDA_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     runtime: nvidia
     pid: host
     environment:

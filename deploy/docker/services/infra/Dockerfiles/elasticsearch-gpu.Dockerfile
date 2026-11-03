@@ -19,7 +19,10 @@
 #   CUVS_VERSION  - NVIDIA cuVS tarball version (26.04.00.194111)
 #
 
-FROM nvidia/cuda:13.0.0-cudnn-runtime-ubuntu22.04 AS cuda13libs
+ARG PERF_CUDA_IMAGE=nvidia/cuda:13.0.0-cudnn-runtime-ubuntu22.04
+ARG PERF_ELASTICSEARCH_BASE_IMAGE=docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+
+FROM ${PERF_CUDA_IMAGE} AS cuda13libs
 ARG CUVS_VERSION=26.04.00.194111
 RUN apt-get update && apt-get install -y --no-install-recommends --allow-change-held-packages \
     libnccl2 curl tar xz-utils libgomp1 \
@@ -32,7 +35,7 @@ RUN mkdir -p /tmp/cuvs /out/cuvs && cd /tmp/cuvs \
     && rm -rf /tmp/cuvs \
     && cp -P /usr/lib/x86_64-linux-gnu/libgomp.so* /out/cuvs/
 
-FROM docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+FROM ${PERF_ELASTICSEARCH_BASE_IMAGE}
 
 ENV ES_HOME=/usr/share/elasticsearch
 ENV LIBCUVS_DIR=/opt/cuvs

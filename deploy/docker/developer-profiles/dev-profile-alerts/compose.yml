@@ -64,6 +64,8 @@ services:
     build:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts
       dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile
+      args:
+        - PERF_ALPINE_IMAGE
     profiles: ["kibana-init-container-alerts"]
     container_name: vss-kibana-init
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh

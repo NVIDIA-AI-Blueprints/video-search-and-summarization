@@ -67,7 +67,7 @@ def test_success_and_missing_data_have_distinct_results():
         to_test_cases({"status": "success"})
 
 
-def test_runtime_image_override_is_exact_and_original_tree_unchanged(
+def test_runtime_keeps_compose_interpolation_and_original_tree_unchanged(
     tmp_path, monkeypatch
 ):
     source = tmp_path / "source"
@@ -80,18 +80,8 @@ def test_runtime_image_override_is_exact_and_original_tree_unchanged(
     original = "services:\n  alert:\n    image: ${VSS_ALERT_IMAGE:-registry/vss-alert-ms}:${VSS_ALERT_TAG:-latest}\n"
     compose.write_text(original)
     monkeypatch.setattr(runner, "REPO_ROOT", source)
-    settings = yaml.safe_load((PERF / "setup/configs/images.yaml").read_text())
-    # This fixture supplies only the target service; the full support binding
-    # inventory is exercised independently against the real deployment files.
-    settings["scopes"]["deployment"] = {}
-    image = "registry/vss-alert-ms@sha256:" + "a" * 64
-    deployment = runner.prepare_runtime(tmp_path / "runtime", image, settings)
-    assert (
-        yaml.safe_load((deployment / "services/alert/compose.yml").read_text())[
-            "services"
-        ]["alert"]["image"]
-        == image
-    )
+    deployment = runner.prepare_runtime(tmp_path / "runtime")
+    assert (deployment / "services/alert/compose.yml").read_text() == original
     assert compose.read_text() == original
     assert (
         "private-value"
@@ -161,6 +151,8 @@ def test_pipeline_outcome_and_canonical_report(
 
     class NativeProcess:
         def __init__(self, argv, **kwargs):
+            assert kwargs["env"]["PERF_ALERT_IMAGE"] == "registry/vss-alert-ms:poc"
+            assert kwargs["env"]["PERF_KAFKA_IMAGE"] == "confluentinc/cp-kafka:8.3.0"
             self.returncode = native_exit
 
         def wait(self, **kwargs):
@@ -196,3 +188,22 @@ def test_pipeline_outcome_and_canonical_report(
     assert report["summary"]["overall_status"] == (
         "FAIL" if native_exit or verification_failures else "PASS"
     )
+
+
+def test_docker_shim_preserves_image_variables_and_exact_arguments(tmp_path):
+    import json
+    import os
+    import shlex
+
+    sudo = tmp_path / "sudo"
+    sudo.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) +
+                    " -c 'import json,sys; print(json.dumps(sys.argv[1:]))' \"$@\"\n")
+    sudo.chmod(0o700)
+    shim = tmp_path / "docker"
+    runner.write_docker_shim(shim, "/path with spaces/docker",
+                            ["PERF_KAFKA_IMAGE", "PERF_ALERT_IMAGE"])
+    result = subprocess.run([str(shim), "compose", "--env-file", "a file.env", "config"],
+                            env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
+                            capture_output=True, text=True, check=True)
+    assert json.loads(result.stdout) == ["-n", "--preserve-env=PERF_ALERT_IMAGE,PERF_KAFKA_IMAGE",
+                                        "/path with spaces/docker", "compose", "--env-file", "a file.env", "config"]

@@ -87,13 +87,9 @@ trap 'exit 143' TERM
 repo_root="$(cd "$PERF_ROOT/../../../.." && pwd)"
 image_tool="$repo_root/libs/vss-perf-tools/support_images.py"
 image_config="$PERF_ROOT/setup/configs/images.yaml"
-image_environment="$("$PERF_VENV_DIR/bin/python" "$image_tool" --config "$image_config" --shell)"
+image_environment="$("$PERF_VENV_DIR/bin/python" "$image_tool" --config "$image_config" --snapshot "$output/support-images.json" --shell)"
 eval "$image_environment"
-image_runtime="$(mktemp -d "$output/native/image-setup.XXXXXXXX")"
-"$PERF_VENV_DIR/bin/python" "$image_tool" --config "$image_config" \
-    --scope compose --source "$(dirname "$compose_file")" \
-    --destination "$image_runtime/compose" > "$output/support-images.json"
-export COMPOSE_PERF_YAML="$image_runtime/compose/$(basename "$compose_file")"
+
 
 "$PERF_ROOT/scripts/native_setup_perf_env.sh"
 

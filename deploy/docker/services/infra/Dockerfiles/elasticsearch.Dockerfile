@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+ARG PERF_ELASTICSEARCH_BASE_IMAGE=docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+
+FROM ${PERF_ELASTICSEARCH_BASE_IMAGE}
 
 ENV ES_HOME=/usr/share/elasticsearch
 USER 1000:1000
