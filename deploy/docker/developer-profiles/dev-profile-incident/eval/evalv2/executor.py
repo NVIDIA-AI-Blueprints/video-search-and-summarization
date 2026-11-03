@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The live executor: ``run --live`` for Track A (``incident_objects``) and Track B (``pipeline``) configs.
+"""The live executor: ``run --live`` for Track A (``incident_objects``), Track B (``pipeline``) and C1c
+(``dashboard``, "Ask for a chart": text only, no clips) configs.
 
 It wires the pieces that already exist, and decides nothing about content:
 
@@ -79,7 +80,8 @@ from evalv2.tasks.base import PredictionRecord, WorkItem
 
 EVAL_DIR = Path(__file__).resolve().parents[1]
 EXECUTOR_VERSION = "evalv2-executor-v1"
-TRACKS = {"incident_objects": "A", "pipeline": "B"}
+TRACKS = {"incident_objects": "A", "pipeline": "B", "dashboard": "C"}
+SINGLE_CALL = ("A", "C")  # one adapter call per item through an OpenAI-compatible endpoint, paced like Track A
 TRACK_B_GAP_S = 20.0  # V1's inter_call_delay_s between analyses (one at a time: an analysis fills 4 in flight itself)
 STOPPING = (AgentDriftError, AgentRefusedError, ProfileMismatchError, ProfileGatedError, AdapterConfigError, ClipError)
 
@@ -170,7 +172,8 @@ def _track(config: Any) -> str:
     if None in tracks:
         raise LiveRefused([f"no live track for tasks {sorted(n for n in config.tasks if n not in TRACKS)}"])
     if len(tracks) != 1:
-        raise LiveRefused(["a live run is one track: Track A (incident_objects) or Track B (pipeline)"])
+        raise LiveRefused([("a live run is one track: Track A (incident_objects), Track B (pipeline) or C1c "
+                            "(dashboard)")])
     return tracks.pop()
 
 
@@ -228,7 +231,7 @@ class LiveExecutor:
 
     def _credential_problems(self) -> list[str]:
         problems = []
-        if self.track == "A":
+        if self.track in SINGLE_CALL:
             for subject in self.config.subjects:
                 endpoint = ENDPOINTS.get(subject.endpoint or "")
                 if endpoint is None:
@@ -239,7 +242,7 @@ class LiveExecutor:
                         continue
                     if not self.environ.get(name):
                         problems.append(f"subject {subject.id}: set {name}")
-        missing = missing_r2_env(self.environ)
+        missing = missing_r2_env(self.environ) if self.track != "C" else []  # C1c sends no clip
         if missing:
             problems.append(f"R2 is not configured for signing clip URLs: set {missing}")
         return sorted(set(problems))
@@ -249,7 +252,7 @@ class LiveExecutor:
     def _manifest(self, datasets_inputs: Mapping[str, str]) -> dict[str, Any]:
         config = self.config
         code = git_info(self.code_dir)
-        extra = {
+        extra: dict[str, Any] = {
             "executor": EXECUTOR_VERSION, "track": self.track, "purpose": config.purpose, "half": config.split.half,
             "budget_mode": config.budget_mode, "hard_stop": self.hard_stop, "allow_dirty": self.allow_dirty,
             "dirty_at_start": code["dirty"],
@@ -265,9 +268,10 @@ class LiveExecutor:
             "pacing": self.pacer.settings(),
             "endpoints": self._endpoints(),
             "requests": self._request_provenance(),
-            "clip_urls": {"signer": "r2 presigned GET (read-only)", "ttl_s": self.resolver.ttl_s,
-                          "refresh_margin_s": self.resolver.margin_s},
         }
+        if self.track != "C":
+            extra["clip_urls"] = {"signer": "r2 presigned GET (read-only)", "ttl_s": self.resolver.ttl_s,
+                                  "refresh_margin_s": self.resolver.margin_s}
         return build_run_manifest(run_id=self.run_id, config=config.model_dump(mode="json"), inputs=datasets_inputs,
                                   code_dir=self.code_dir, extra=extra)
 
@@ -281,6 +285,10 @@ class LiveExecutor:
         if self.track == "A":
             prompt_id = self.config.tasks["incident_objects"].options.get("prompt_id")
             return {"p1": p1_provenance(prompt_id)}
+        if self.track == "C":
+            from evalv2.requests.chart import chart_provenance
+
+            return {"chart": chart_provenance()}
         return {s.id: profile_for(s.profile, s.request).to_dict() for s in self.config.subjects}
 
     def _start(self) -> None:
@@ -313,7 +321,7 @@ class LiveExecutor:
         adapters: dict[str, Any] = {}
         kwargs = self.adapter_kwargs
         for subject in self.config.subjects:
-            if self.track == "A":
+            if self.track in SINGLE_CALL:
                 adapters[subject.id] = build_adapter(subject, environ=self.environ, **kwargs)
             else:
                 adapter = build_pipeline_adapter(subject, environ=self.environ, **kwargs)
@@ -325,9 +333,12 @@ class LiveExecutor:
         return adapters
 
     def _task(self, name: str) -> Any:
+        from evalv2.tasks.dashboard.runner import DashboardTask
         from evalv2.tasks.incident_objects.runner import IncidentObjectsTask
         from evalv2.tasks.pipeline.runner import PipelineTask
 
+        if name == "dashboard":
+            return DashboardTask()
         if name == "incident_objects":
             return IncidentObjectsTask(video_url=self.resolver.url, video_duration=self.resolver.duration)
         return PipelineTask(video_url=self.resolver.url, video_duration=self.resolver.duration,
@@ -336,10 +347,13 @@ class LiveExecutor:
     def _precheck(self, item: WorkItem, ledger: BudgetLedger) -> str | None:
         """Why an item cannot be sent now within the caps (it is then recorded open, never paced or sent)."""
         try:
-            if self.track == "A":
-                from evalv2.tasks.incident_objects.runner import LEDGER, TOKENS_PER_ATTEMPT
+            if self.track in SINGLE_CALL:
+                from evalv2.tasks.dashboard import runner as dashboard_runner
+                from evalv2.tasks.incident_objects import runner as incident_runner
 
-                ledger.check(LEDGER, subject=item.subject, task=item.task, attempts=1, tokens=TOKENS_PER_ATTEMPT)
+                task = dashboard_runner if self.track == "C" else incident_runner
+                ledger.check(task.LEDGER, subject=item.subject, task=item.task, attempts=1,
+                             tokens=task.TOKENS_PER_ATTEMPT)
             else:
                 for name, (attempts, tokens) in profile_for(item.spec.get("profile"),
                                                             item.spec.get("overrides")).worst_case().items():
@@ -364,8 +378,9 @@ class LiveExecutor:
         base = {"work_key": item.key, "task": item.task, "subject": item.subject, "model": item.spec.get("model"),
                 "item_id": item.item_id, "repeat": item.repeat}
         rows = []
-        if self.track == "A":
-            prompt = ((record.provenance.get("stages") or {}).get("p1") or {}).get("prompt_sha256")
+        if self.track in SINGLE_CALL:
+            stages = record.provenance.get("stages") or {}
+            prompt = (stages.get("p1") or stages.get("chart") or {}).get("prompt_sha256")
             for result in results:
                 request_sha = result.request_ref.sha256
                 for attempt in result.attempts:
@@ -436,7 +451,7 @@ class LiveExecutor:
                 record = PredictionRecord(item.key, item.task, item.subject, item.item_id, item.repeat,
                                           outcome="budget_exceeded",
                                           failure={"kind": "budget_exceeded", "detail": str(exc)})
-            tokens = (record.usage or {}).get("total_tokens") if self.track == "A" else None
+            tokens = (record.usage or {}).get("total_tokens") if self.track in SINGLE_CALL else None
         finally:
             ticket.done(tokens)
             self._save_pin(adapters)

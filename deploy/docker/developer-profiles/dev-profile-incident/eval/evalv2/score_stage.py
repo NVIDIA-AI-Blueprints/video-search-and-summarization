@@ -36,6 +36,10 @@ scoring stage on this machine (``--judge-ledger-dir``, so the approved 2,000 cal
 and the run's judge cap and the marker's judge budget in the run's ``scoring/judge-budget.jsonl``. Verdicts go to the
 judge cache (``scoring/judge-cache/``).
 
+**C1c** (``dashboard``): :func:`run_dashboard_score` scores the stored chart replies against the dashboard references
+with code only (no judge, no embedding): spec outcomes, per-field accuracy, refusals and, from the reference set's
+frozen corpus snapshot, figures (the production SQL in the SQL harness, or the recount).
+
 **Offline** (``--offline``) uses the caches only, under the network guard: a verdict or vector that is not cached
 leaves its field unscored, never failed, and nothing is sent. ``--offline --embed-local`` also computes missing
 vectors with the local MiniLM (still under the network guard, from the local model cache, and cached as above), so
@@ -48,7 +52,7 @@ import dataclasses
 import json
 import os
 import threading
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -424,7 +428,8 @@ def run_score(config: Any, out: Path, *, datasets: Mapping[str, Any], sheets: Ma
     out = Path(out)
     tasks = [name for name in config.tasks if name in ("incident_objects", "pipeline")]
     if len(tasks) != 1:
-        raise ScoreRefused([f"score runs one Track A or Track B task; the config names {sorted(config.tasks)}"])
+        raise ScoreRefused([(f"score runs one Track A or Track B task (a dashboard config: run_dashboard_score); "
+                             f"the config names {sorted(config.tasks)}")])
     task = tasks[0]
     if not (out / "checkpoint.jsonl").exists():
         raise ScoreRefused([f"{out} holds no run (no checkpoint.jsonl)"])
@@ -501,3 +506,135 @@ def run_score(config: Any, out: Path, *, datasets: Mapping[str, Any], sheets: Ma
                                  "judge_budget": ledger.snapshot(), "approval": (marker or {}).get("sha256")}
     write_outputs(out, slot, result, "live")
     return result
+
+
+# --- C1c: dashboard "Ask for a chart" --------------------------------------------------------------------------------
+
+DASHBOARD_SCORE_VERSION = "evalv2-dashboard-score-v1"
+DASHBOARD_SCORER_FILES = ("evalv2/score_stage.py", "evalv2/tasks/dashboard/scoring.py",
+                          "evalv2/tasks/dashboard/report.py", "evalv2/references/dashboard.py",
+                          "evalv2/references/dashboard_figures.py", "evalv2/sql/harness.py")
+FIGURE_SOURCES = ("sql", "recount", "none")
+
+
+def dashboard_output_dir(out: Path, slot: str) -> Path:
+    return Path(out) / "scoring" / DASHBOARD_SCORE_VERSION / slot
+
+
+def _sql_figures(harness: Any, snapshot: Mapping[str, Any], now: Any, sources: dict[str, int]
+                 ) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
+    """Dashboard figures from the production SQL on the loaded snapshot.
+
+    An all-time call that counts nothing would read ``CURRENT_DATE`` (the harness refuses it); that call, and only
+    that call, takes the recount on the frozen clock, which the SQL agreement test pins to the SQL everywhere else.
+    """
+    from evalv2.references import dashboard_figures
+    from evalv2.sql.harness import SqlHarnessError
+
+    def fetch(query: Mapping[str, Any]) -> Mapping[str, Any]:
+        if query.get("p_period_start") is None:
+            try:
+                result = harness.dashboard_open_period(**query)
+            except SqlHarnessError:
+                sources["recount_clock_dependent"] += 1
+                return dashboard_figures.dashboard(snapshot, query, now=now)
+        else:
+            result = harness.dashboard(**query)
+        sources["sql"] += 1
+        return dict(result)
+
+    return fetch
+
+
+def run_dashboard_score(config: Any, out: Path, *, datasets: Mapping[str, Any], figures: str = "sql",
+                        slot: str = "primary", allowlist: Mapping[str, Any] | None = None,
+                        harness_start: Callable[[], Any] | None = None) -> dict[str, Any]:
+    """Score a C1c run's stored chart replies (no model call: spec scoring is code, figures come from the snapshot).
+
+    ``figures``: ``sql`` (the production ``get_incident_dashboard`` in the SQL harness; needs pgserver and psycopg),
+    ``recount`` (the Python recount, equal to the SQL by test) or ``none`` (spec scores only). Writes
+    ``scoring/<version>/<slot>/dashboard-summary.json`` and ``dashboard-items.jsonl`` (private).
+    """
+    from contextlib import ExitStack
+    from datetime import datetime
+
+    from evalv2.core.netguard import no_network
+    from evalv2.references import dashboard_figures
+    from evalv2.references.dashboard import load_allowlist
+    from evalv2.sql.harness import snapshot_sha256
+    from evalv2.tasks.dashboard import report
+    from evalv2.tasks.dashboard.runner import DATASET_ROLE, TASK
+
+    out = Path(out)
+    if TASK not in config.tasks:
+        raise ScoreRefused([f"the config runs no {TASK!r} task"])
+    if figures not in FIGURE_SOURCES:
+        raise ScoreRefused([f"--figures must be one of {FIGURE_SOURCES}"])
+    if not (out / "checkpoint.jsonl").exists():
+        raise ScoreRefused([f"{out} holds no run (no checkpoint.jsonl)"])
+    block = datasets.get(DATASET_ROLE) or {}
+    snapshot = block.get("snapshot")
+    if figures != "none" and snapshot is None:
+        raise ScoreRefused([(f"figures need the reference set's corpus snapshot ({block.get('dataset')} pins none); "
+                             "pass --figures none for spec scores only")])
+    ensure_private(out)
+    allowlist = dict(allowlist) if allowlist is not None else load_allowlist()
+    sources: dict[str, int] = defaultdict(int)
+    with ExitStack() as stack:
+        figures_of = None
+        if figures != "none":
+            now = datetime.fromisoformat(snapshot["taken_at"])
+            if figures == "sql":
+                from evalv2.sql.harness import SqlHarness
+
+                try:
+                    harness = stack.enter_context((harness_start or SqlHarness.start)())
+                except ImportError as exc:
+                    raise ScoreRefused([(f"--figures sql needs pgserver and psycopg ({exc}): run with uv run --with "
+                                         "pgserver==0.1.4 --with 'psycopg[binary]>=3.2,<4', or pass --figures "
+                                         "recount")]) from exc
+                harness.load(snapshot)
+                fetch = _sql_figures(harness, snapshot, now, sources)
+            else:
+                def fetch(query: Mapping[str, Any]) -> Mapping[str, Any]:
+                    sources["recount"] += 1
+                    return dashboard_figures.dashboard(snapshot, query, now=now)
+
+            def chart_of(spec: Mapping[str, Any] | None) -> Mapping[str, Any]:
+                return dashboard_figures.chart(spec, chart_type=report.CHART_TYPE, timezone=report.TIMEZONE, now=now,
+                                               allowlist=allowlist, fetch=fetch)
+
+            figures_of = report.cached_figures(chart_of)
+        with no_network():  # pgserver is a local socket started above; scoring itself never reaches a network
+            scored = report.score_rows(final_predictions(out), ArtifactStore(out / "store"), block["records"],
+                                       allowlist, figures_of=figures_of)
+    import hashlib
+
+    from evalv2.core.manifest import git_info
+    from evalv2.executor import EVAL_DIR
+
+    run = ArtifactStore(out / "store").run(config.experiment)
+    summary = {
+        "score_version": DASHBOARD_SCORE_VERSION, "report_version": report.REPORT_VERSION,
+        "experiment": config.experiment, "sealed": run.sealed,
+        "scorer": {**git_info(EVAL_DIR), "files_sha256": {name: hashlib.sha256((EVAL_DIR / name).read_bytes())
+                                                          .hexdigest() for name in DASHBOARD_SCORER_FILES}},
+        "references": {"dataset": block.get("dataset"), "records": len(block["records"]),
+                       "tiers": dict(sorted(Counter(r["tier"] for r in block["records"]).items()))},
+        "figures": {"source": figures, "chart_type": report.CHART_TYPE, "timezone": report.TIMEZONE,
+                    "clock": snapshot["taken_at"] if snapshot else None,
+                    "snapshot_sha256": snapshot_sha256(snapshot) if snapshot else None, "calls": dict(sources)},
+        "bootstrap": {"unit": "reference record (repeats kept together)", "resamples": report.RESAMPLES,
+                      "seed": report.SEED, "confidence": report.CONFIDENCE},
+        "final_items": sum(s["items"] for s in scored["subjects"].values()),
+        "subjects": scored["subjects"],
+    }
+    directory = dashboard_output_dir(out, slot)
+    ensure_private(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "dashboard-summary.json").write_text(json.dumps(summary, indent=1, sort_keys=True) + "\n",
+                                                      encoding="utf-8")
+    with (directory / "dashboard-items.jsonl").open("wb") as handle:
+        for item in scored["items"]:
+            handle.write(canonical_json(item) + b"\n")
+    return {"summary": summary, "items": scored["items"]}

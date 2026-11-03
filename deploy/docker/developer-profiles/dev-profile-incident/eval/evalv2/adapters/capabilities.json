@@ -67,6 +67,19 @@
         "switchyard"
       ]
     },
+    "nvidia/nemotron-3-super-120b-a12b": {
+      "video_input": false,
+      "image_input": false,
+      "text_input": true,
+      "json_schema": false,
+      "bbox": false,
+      "frame_policy": "n/a",
+      "verified": false,
+      "notes": "C1c (proposed) chart-spec comparison subject: the text Super of the chart model's family. RB1: listed by Switchyard; never called.",
+      "listed_on": [
+        "switchyard"
+      ]
+    },
     "nvidia/nemotron-3-ultra-550b-a55b": {
       "video_input": false,
       "image_input": false,
