@@ -44,12 +44,14 @@ Drawn for OpenShell 0.1.6, the release everything below was tested on.
 
 ### Inside the boundary
 
-The same deployment with each component's job shown, and the destinations drawn
-as `hermes/policy.yaml` and the provider profile grant them.
+The same deployment, one level down. The destinations are the only hosts the
+sandbox can reach: `hermes/policy.yaml` allows them, and the provider profile
+supplies the key added to inference calls.
 
 ![Inside the OpenShell sandbox boundary](docs/assets/vss-openshell-detailed-architecture.png)
 
-The split is what makes the agent's own compromise survivable: the workload
+Splitting the sandbox into a workload and a supervisor container is what makes
+the agent's own compromise survivable: the workload
 shares the boundary with the agent, so it holds nothing worth stealing — no
 signing key, no gateway JWT, no provider credential — and decides nothing. It
 reports what the agent attempted; the supervisor decides. A `vss` call is a
