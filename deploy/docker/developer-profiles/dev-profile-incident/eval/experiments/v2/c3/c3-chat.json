@@ -1,0 +1,81 @@
+{
+ "config_version": "evalv2-config-v1",
+ "experiment": "v2-c3-chat",
+ "split": {
+  "version": "split-v2",
+  "half": "test"
+ },
+ "freeze_manifest": "eb316f37c53a2405120eb06fe3c0ce886d286eca42e89e7bf8b9f894b1f62252",
+ "purpose": "final",
+ "budget_mode": "hard_stop",
+ "seed": 20261101,
+ "retry_policy": "retry-v2",
+ "notes": "C3 chat (frozen, pre-registered): the 119 test-half references x oracle and system corpora to Nemotron 3 Ultra (grounded). The system corpus is the C3 Track B (historical profile) Super final reports. Caps: dev usage (160 attempts, 177,096 tokens for 140 items) x 1.7 (238 items) x 1.3. Judged checks run afterwards under the C3 judge entry.",
+ "datasets": {
+  "incident_gt": "ground-truth-v1.0"
+ },
+ "subjects": [
+  {
+   "id": "nemotron-ultra-chat",
+   "adapter": "agent_chat",
+   "endpoint": "switchyard",
+   "model": "nvidia/nemotron-3-ultra"
+  }
+ ],
+ "tasks": {
+  "chat": {
+   "subjects": "all",
+   "scorers": [
+    "chat.retrieval@1",
+    "chat.answers@1",
+    "chat.citations@1"
+   ],
+   "options": {
+    "references": {
+     "path": "v2/references/chat-references-v1/records.jsonl",
+     "sha256": "08ab3909eb0075eba8fee1d5b09d879264106ddfd4c68118e86793df983a0fc5"
+    },
+    "corpora": [
+     "oracle",
+     "system"
+    ],
+    "system": {
+     "store": "v2/runs/c3-track-b-historical/store",
+     "run": "v2-c3-track-b-historical",
+     "subject": "super-pipeline",
+     "stage": "final",
+     "repeat": 1
+    },
+    "tokens_bound": {
+     "incident": 5000,
+     "library_plan": 2000,
+     "library_answer": 6000
+    }
+   }
+  }
+ },
+ "repeats": 1,
+ "caps": [
+  {
+   "ledger": "inference",
+   "subject": "nemotron-ultra-chat",
+   "task": "chat",
+   "max_attempts": 354,
+   "max_tokens": 400000
+  },
+  {
+   "ledger": "inference",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 354,
+   "max_tokens": 400000
+  },
+  {
+   "ledger": "judge",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 0,
+   "max_tokens": 0
+  }
+ ]
+}
