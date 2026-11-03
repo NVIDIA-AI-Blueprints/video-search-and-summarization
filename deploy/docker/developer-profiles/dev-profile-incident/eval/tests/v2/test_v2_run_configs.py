@@ -35,12 +35,13 @@ def _split_only(config):
     return load_for_config(config.model_copy(update={"datasets": {}}))
 
 
-# The chat pilot plans from private RA2 records, so it is checked in test_v2_chat_task.py, not with the split alone.
+# Configs of other tasks, each checked by its own test module (the chat pilot plans from private RA2 records).
+OTHER_TASKS = {"c1c-dashboard-pilot.json": "test_v2_dashboard_task.py", "c1c-chat-pilot.json": "test_v2_chat_task.py"}
 CHAT_CONFIGS = ("c1c-chat-pilot.json",)
 
 
 def test_every_committed_v2_config_is_expected():
-    assert sorted(p.name for p in CONFIGS.glob("*.json")) == sorted([*EXPECTED, *CHAT_CONFIGS])
+    assert sorted(p.name for p in CONFIGS.glob("*.json")) == sorted([*EXPECTED, *OTHER_TASKS])
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))

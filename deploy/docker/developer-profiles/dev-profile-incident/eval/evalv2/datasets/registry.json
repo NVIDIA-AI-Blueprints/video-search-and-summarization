@@ -36,6 +36,21 @@
       "verification": "human-labelled, AI-adjudicated corrections; not individually human-verified",
       "committed": false,
       "created": "2026-10-28"
+    },
+    {
+      "id": "dashboard-references-v2",
+      "kind": "dashboard_references",
+      "description": "RB2: 75 'Ask for a chart' requests (60 specs, 15 unsupported) and the 80-report corpus snapshot (clock 2026-11-01T12:00Z). The C1c development set; the held-out set is a fresh RB2 at the C2 clock.",
+      "location": {"root": "data", "path": "v2/references/dashboard-references-v2"},
+      "files": {
+        "records.jsonl": "103603a86b8dff4bf5d0bc4a150308e5595fabb7825b6dabeea4e9ad5e4d2d75",
+        "corpus-snapshot.json": "1c5b2927a21b8a0ee0a9e51f1116707bb8b40bc9dbdcf7eca81fe03c7ed0d5ef"
+      },
+      "counts": {"records": 75, "spec": 60, "unsupported": 15, "ai_validated": 75, "human_verified": 0},
+      "records_sha256": "103603a86b8dff4bf5d0bc4a150308e5595fabb7825b6dabeea4e9ad5e4d2d75",
+      "verification": "ai_validated: a generator and a blind validator (opaque item ids) agree exactly on every record; not human-verified (X6 pending)",
+      "committed": false,
+      "created": "2026-11-02"
     }
   ]
 }

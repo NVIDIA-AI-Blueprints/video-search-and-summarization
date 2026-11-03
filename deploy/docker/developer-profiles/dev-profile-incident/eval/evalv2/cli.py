@@ -26,7 +26,8 @@
   ``EVALV2_ALLOW_LIVE=1`` and the owner's approval marker (:mod:`evalv2.approval`); the same command resumes.
   ``approval draft --config C`` prints a marker skeleton for the owner (it approves nothing).
 - ``score --config C --out DIR [--offline]``: score a live run's stored predictions (:mod:`evalv2.score_stage`); a
-  live score calls the judge under the marker's judge budget, ``--offline`` uses the caches only.
+  live score calls the judge under the marker's judge budget, ``--offline`` uses the caches only. A dashboard (C1c)
+  config is scored by code alone (``--figures sql|recount|none``), with no judge and no network.
 - ``audit frozen-v1``: V1's frozen artifacts are unchanged. ``audit run --store S --run R``: a sealed run's
   index and artifacts are intact.
 - ``datasets list`` and ``datasets verify [--data-root D] [--id X ...]``: the registered datasets, and whether each
@@ -275,9 +276,10 @@ def _parser() -> argparse.ArgumentParser:
                                  help="credentials file (default: eval/.env.local, then the profile's .env.local)")
             command.add_argument("--allow-dirty", action="store_true",
                                  help="run from an eval tree with uncommitted changes (recorded in the manifest)")
-            command.add_argument("--rpm", type=int, help="Track A requests per minute (default: the gateway's 60)")
+            command.add_argument("--rpm", type=int,
+                                 help="Track A and C1c requests per minute (default: the gateway's 60)")
             command.add_argument("--parallel", type=int,
-                                 help="Track A calls in flight (default and maximum: the gateway's 4)")
+                                 help="Track A and C1c calls in flight (default and maximum: the gateway's 4)")
     audit = sub.add_parser("audit")
     audit_sub = audit.add_subparsers(dest="target", required=True)
     audit_sub.add_parser("frozen-v1")
@@ -304,6 +306,9 @@ def _parser() -> argparse.ArgumentParser:
     score.add_argument("--judge-ledger-dir", type=Path,
                        help="judge ledger shared by every scoring stage (default $EVALV2_DATA_ROOT/v2/judge-ledger)")
     score.add_argument("--env-file", type=Path, action="append")
+    score.add_argument("--figures", choices=("sql", "recount", "none"), default="sql",
+                       help="dashboard (C1c) configs only: chart figures from the production SQL in the SQL harness "
+                            "(needs pgserver and psycopg), the Python recount, or none")
     approval = sub.add_parser("approval", help="draft a live-run approval marker for the owner (approves nothing)")
     approval_sub = approval.add_subparsers(dest="action", required=True)
     drafted = approval_sub.add_parser("draft")
@@ -506,6 +511,8 @@ def _score(args: argparse.Namespace, load_datasets: DatasetLoader | None,
 
     config = load_config(args.config)
     loader = load_datasets or (lambda cfg: load_for_config(cfg, data_root=args.data_root))
+    if "dashboard" in config.tasks:
+        return _score_dashboard(args, config, loader)
     marker = None
     if not args.offline:
         if os.environ.get(LIVE_ENV) != "1":
@@ -514,7 +521,7 @@ def _score(args: argparse.Namespace, load_datasets: DatasetLoader | None,
             return 2
         if args.approval is not None:
             try:
-                marker = read_approval(args.approval)
+                marker = read_score_approval(args.approval)
             except ApprovalRefused as exc:
                 print(json.dumps({"ok": False, "refused": [str(exc)]}, indent=2))
                 return 2
@@ -540,6 +547,25 @@ def _score(args: argparse.Namespace, load_datasets: DatasetLoader | None,
     print(json.dumps({"ok": True, "experiment": summary["experiment"], "final_items": summary["final_items"],
                       "unscored": summary["unscored"], "mode": summary["mode"],
                       "outputs": str(output_dir(args.out, args.slot))}, indent=2))
+    return 0
+
+
+def _score_dashboard(args: argparse.Namespace, config: RunConfig, loader: DatasetLoader) -> int:
+    """C1c: code-only scoring (no judge, no embedding, no network), so it needs neither --offline nor a marker."""
+    from evalv2.score_stage import ScoreRefused, dashboard_output_dir, run_dashboard_score
+
+    try:
+        result = run_dashboard_score(config, args.out, datasets=loader(config), figures=args.figures, slot=args.slot)
+    except ScoreRefused as exc:
+        print(json.dumps({"ok": False, "refused": exc.problems}, indent=2))
+        return 2
+    except DatasetError as exc:
+        print(json.dumps({"ok": False, "problems": [str(exc)]}, indent=2))
+        return 1
+    summary = result["summary"]
+    print(json.dumps({"ok": True, "experiment": summary["experiment"], "final_items": summary["final_items"],
+                      "sealed": summary["sealed"], "figures": summary["figures"]["source"],
+                      "outputs": str(dashboard_output_dir(args.out, args.slot))}, indent=2))
     return 0
 
 
@@ -648,6 +674,25 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
               file=sys.stderr)
         return 2
     return _run_live(args, config, loader, items, problems, hard_stop)
+
+
+def read_score_approval(path: Path) -> dict[str, Any]:
+    """A live score's marker: the run's ``evalv2-live-approval-v1`` (its judge share) or a dedicated
+    ``evalv2-judge-approval-v1`` granted after the run (experiment, config hash, judge ids and a judge budget)."""
+    from evalv2.approval import ApprovalRefused, read_approval
+    from evalv2.score_stage import JUDGE_APPROVAL_VERSION
+
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ApprovalRefused(f"approval marker {path} is unreadable: {exc}") from exc
+    if isinstance(raw, dict) and raw.get("approval") == JUDGE_APPROVAL_VERSION:
+        judge = raw.get("judge") or {}
+        missing = [k for k in ("experiment", "config_sha256", "judges", "approved_by", "approved_at") if not raw.get(k)]
+        if missing or not all(isinstance(judge.get(k), int) and judge[k] > 0 for k in ("max_requests", "max_tokens")):
+            raise ApprovalRefused(f"judge approval {path} is incomplete: {missing or 'judge budget'}")
+        return {**raw, "path": str(path)}
+    return read_approval(path)
 
 
 def load_env_files(paths: Sequence[Path] | None = None) -> list[str]:

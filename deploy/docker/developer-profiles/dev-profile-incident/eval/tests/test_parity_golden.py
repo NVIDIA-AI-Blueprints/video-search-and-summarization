@@ -37,7 +37,7 @@ assert _spec is not None and _spec.loader is not None
 golden = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(golden)
 
-TESTED = ["p1/base", "rp1/report"]
+TESTED = ["p1/base", "rp1/report"]  # chart/request is the console's (since #459); eval checks its messages below
 
 
 def _cases(producer: str | None = None) -> list[tuple[str, str]]:
@@ -95,6 +95,17 @@ def test_rp1_sent_body_equals_the_golden(sent):
     )
     assert len(sent) == 1
     _assert_golden("rp1", "report", sent[0])
+
+
+def test_chart_messages_equal_the_consoles_golden():
+    """Since #459 the chart golden is the console's two messages to the agent (``console`` is its only producer); the
+    C1c chart request carries exactly those messages in both request shapes (``evalv2.requests.chart``)."""
+    from evalv2.requests.chart import REQUEST_SHAPES, build_chart_request
+
+    case = golden.case("chart", "request")
+    assert case["producers"] == ["console"]
+    for shape in REQUEST_SHAPES:
+        assert build_chart_request("m", case["inputs"]["request"], shape)["messages"] == case["body"]["messages"]
 
 
 @pytest.mark.parametrize(("name", "case"), _cases())
