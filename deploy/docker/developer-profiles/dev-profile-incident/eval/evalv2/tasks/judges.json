@@ -169,6 +169,45 @@
           }
         }
       }
+    },
+    {
+      "id": "openrouter-mistral-large-4-noreason-v1",
+      "role": "sensitivity",
+      "model": "mistralai/mistral-large-4-0",
+      "adapter": "openai_compat",
+      "endpoint": "openrouter",
+      "settings": {
+        "temperature": 0.0,
+        "max_tokens": 1500,
+        "reasoning": {
+          "enabled": false
+        }
+      },
+      "kinds": [
+        "incident",
+        "fact",
+        "unsupported",
+        "contradiction"
+      ],
+      "parse_retries": 0,
+      "max_prompt_bytes": 65536,
+      "caps": {
+        "max_requests": 130,
+        "max_tokens": 180000
+      },
+      "status": "APPROVED 2026-11-03 (owner): up to $0.40 more for the sensitivity judge; reasoning disabled after the v1 entry spent its 1,500-token output cap on reasoning in 117 of 206 calls",
+      "notes": "Same model, prompt, temperature and output cap as openrouter-mistral-large-4-v1, plus OpenRouter reasoning {enabled: false}. Verdicts are kept apart from v1 verdicts and reported as a separate judge configuration. Caps 130 calls / 180k tokens (worst case at the output price $0.378).",
+      "request": {
+        "extra_body": {
+          "provider": {
+            "order": [
+              "Mistral"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true
+          }
+        }
+      }
     }
   ],
   "proposed_budget": {
