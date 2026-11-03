@@ -117,7 +117,7 @@
    "inference.json": "d5b89f976d207e13e75633ed3d6d3684b83cbc156c1646edc5d793329caa31a4"
   },
   "contract_version": "incident-contract-v4",
-  "eval_tree": "208ced9939da1f583ae5ac3619ff9de78de0f178",
+  "eval_tree": "f6d4fd207c91349724ec2254d244370eb8a7cddc",
   "judges_json_sha256": "d0763b8188666a9208e3d24aa85ebe9233821b704e37c83192f6a72b6f4080c0",
   "prompt_registry_sha256": "a89c8adeb127dfaa4f853fe0a57e84d71ae54249628f17372c5cee0929695ec9",
   "prompts": {
@@ -142,7 +142,7 @@
    "zoom/merge-entity": "bac2a034cc9ebea474812bfacb7c431c1c5b1063caf4b0be8146e1f06a414309",
    "zoom/merge-object": "5c73a8dcebfd47367d785e9801b742e123246a15f2281f3a06563422ee0f3d83"
   },
-  "repo_head": "fd1757ed53294bdce144c7736a559517b5039cff",
+  "repo_head": "2888694ad8d83b6b36a6d827263f819f3fc1e4b6",
   "scorer_files_sha256": {
    "evalv2/adapters/vss.py": "2762d4987066ea2dd98edd534516ef09bddd76f1338f81b18ec960d805d40aca",
    "evalv2/cluster_bootstrap.py": "2823317d3fd7bfce3bcba142b2edf4725ddc63d2616654e529204e9a68b4dbae",
@@ -255,12 +255,26 @@
    "kind": "dashboard_references",
    "verified_on_disk": true
   },
+  "dataset-manifest-v1": {
+   "files": {
+    "dataset-manifest-v1.json": "aebb209b527de9bea24ca66a3e5f316fb78385ca62ef9957130341d24a225d8e"
+   },
+   "kind": "clips",
+   "verified_on_disk": true
+  },
   "ground-truth-v1.0": {
    "files": {
     "ground_truth.json": "b90654c3c16068ab22d7ba0389224770e66f507f0235d5eabf031d2f1db17f09",
     "split-v2.json": "1625d5753fde1fab3f3318f115f3a91f43760f1f03f34c4f8820d4703e0fa319"
    },
    "kind": "ground_truth",
+   "verified_on_disk": true
+  },
+  "split-v2": {
+   "files": {
+    "split-v2.json": "c03919fa8c9f2436a1efb4164d3cd5d9cfcbfb5102d9637a19a398f24d280579"
+   },
+   "kind": "split",
    "verified_on_disk": true
   }
  },

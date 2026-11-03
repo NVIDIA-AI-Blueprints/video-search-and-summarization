@@ -2,6 +2,19 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-03: Evaluation V2 C2 freeze (owner D1-D4)
+- **Decision (owner):**
+  - The pre-registration is approved (D1), with its amendments and the owner's eight checks.
+  - Option B, the 55 previously exposed clips, is the C3 set (D2).
+  - Track B uses the historical C1b profile at `acbf892ba`, reproduced exactly or stopped (D3).
+  - C2 is frozen, then C3 runs under a $2.00 hard cap (D4).
+- **Freeze manifest:** `eval/methodology/v2-c2-freeze-manifest.json`. It pins code, prompts, datasets, the pre-registration, the content of the five C3 configs, the judge, the historical agent and the budgets. The configs pin its SHA-256, and `scripts/v2_freeze_manifest.py verify` rebuilds and compares it.
+- **Why:** the primary metrics and the analysis are fixed before any C3 output exists.
+- **Rejected:**
+  - A fresh test set now (it needs human labelling time).
+  - A current-production Track B (it needs the VM tracking stack and a new dev check).
+- **Links:** [`v2-c2-freeze-manifest.json`](../eval/methodology/v2-c2-freeze-manifest.json), [`evaluation-v2-preregistration.md`](../eval/methodology/evaluation-v2-preregistration.md), [`v2-c2-freeze-readiness.md`](../eval/methodology/v2-c2-freeze-readiness.md)
+
 ### 2026-11-03: C3 scope: evidence boxes out of the critical path, Track B on the historical C1b profile, deterministic held-out dashboard set
 - **Decision (owner):** evidence-box localisation is removed from the C3 critical path. RA1 continues separately, and no IoU is claimed.
 - **Proposed for the owner's approval in the pre-registration:**

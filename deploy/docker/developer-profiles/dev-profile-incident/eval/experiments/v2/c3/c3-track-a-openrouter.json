@@ -5,7 +5,7 @@
   "version": "split-v2",
   "half": "test"
  },
- "freeze_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+ "freeze_manifest": "eb316f37c53a2405120eb06fe3c0ce886d286eca42e89e7bf8b9f894b1f62252",
  "purpose": "final",
  "budget_mode": "hard_stop",
  "seed": 20261101,
