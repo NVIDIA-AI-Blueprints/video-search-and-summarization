@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Exports the dashboard chart prompt and its allowlist from the TypeScript constants (their source) to
+// Exports the dashboard chart prompt, its allowlist and the severity-word table from the TypeScript constants (their source) to
 // contracts/prompts/chart/ and updates their entries in contracts/prompts/registry.json, so evaluation can read
 // the exact prompt without running the console. tests/prompt-registry.test.mjs fails until this is re-run after
 // a change. Run: npm run export:prompts (needs Node with TypeScript stripping; otherwise npx -y node@22).
@@ -14,11 +14,13 @@ register('../tests/support/alias-loader.mjs', import.meta.url);
 
 const { CHART_SYSTEM_PROMPT } = await import('../src/modules/dashboard/domain/chart-prompt.ts');
 const { chartAllowlist } = await import('../src/modules/dashboard/domain/chart-spec.ts');
+const { severityWordsExport } = await import('../src/modules/dashboard/domain/severity-words.ts');
 
 const promptsDir = fileURLToPath(new URL('../../contracts/prompts/', import.meta.url));
 const files = {
   'chart/system': { file: 'chart/system.txt', text: CHART_SYSTEM_PROMPT },
   'chart/allowlist': { file: 'chart/allowlist.json', text: `${JSON.stringify(chartAllowlist(), null, 2)}\n` },
+  'chart/severity-words': { file: 'chart/severity-words.json', text: `${JSON.stringify(severityWordsExport(), null, 2)}\n` },
 };
 mkdirSync(`${promptsDir}chart`, { recursive: true });
 const registryPath = `${promptsDir}registry.json`;

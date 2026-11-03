@@ -24,6 +24,7 @@ import type {
   GeneratedChart,
   ReportTotals,
 } from '@/modules/dashboard/domain/generated-chart';
+import { normalizeSeverityWords } from '@/modules/dashboard/domain/severity-words';
 import type { DashboardAnalytics, RankedValue } from '@/modules/dashboard/domain/types';
 
 const COUNT = 'count';
@@ -209,7 +210,8 @@ export async function generateChart(
   { interpreter, dashboard, renderer }: GenerateChartPorts,
   { request, chartType, timezone, now }: GenerateChartInput,
 ): Promise<ChartAnswer> {
-  const spec = parseChartSpec(await interpreter.interpret(request));
+  // Canonical severity words become their band in code (domain/severity-words.ts); the model reads the result.
+  const spec = parseChartSpec(await interpreter.interpret(normalizeSeverityWords(request)));
   if (!spec) return { kind: 'unsupported' };
   if (chartType === 'pie' && !CHART_DIMENSIONS[spec.dimension].pie) return { kind: 'needs_bar' };
 

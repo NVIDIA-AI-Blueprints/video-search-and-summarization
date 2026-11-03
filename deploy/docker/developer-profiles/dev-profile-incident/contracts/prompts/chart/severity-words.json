@@ -1,0 +1,32 @@
+{
+  "version": "chart-severity-words-v1",
+  "sources": [
+    "contracts/incident_extraction_prompt.txt (SEVERITY_LEVEL rubric level names)",
+    "incident-console-v2/src/modules/reports/domain/storage.ts (mapSeverity)",
+    "supabase finals get_incident_dashboard bands; dashboard/domain/charts.ts SEVERITY_LABELS"
+  ],
+  "word_levels": {
+    "minimal": 1,
+    "very low": 1,
+    "moderate": 3,
+    "severe": 5,
+    "critical": 5
+  },
+  "band_of_level": {
+    "1": "low",
+    "2": "low",
+    "3": "medium",
+    "4": "high",
+    "5": "high"
+  },
+  "unmapped": {
+    "minor": "not a level name; the rubric uses it only in the level 1 and 2 descriptions and examples",
+    "serious": "not a level name and not used by the rubric",
+    "mild": "not a level name and not used by the rubric",
+    "major": "not a level name; the rubric uses it in the level 4 description"
+  },
+  "pattern": "\\b(very[ \\t]+low|minimal|moderate|severe|critical)((?:[ \\t]*-[ \\t]*|[ \\t]+))(?:(severity)\\b|(?=(?:road[ \\t]+accidents?|animal[ \\t]+attacks?|burglar(?:y|ies)|explosions?|assaults?|accidents?|attacks?|incidents?|reports?|cases?|events?)\\b))",
+  "flags": "gi",
+  "replacement": "\"<band>-severity\" when group 3 matched, else \"<band>-severity \" (the separator becomes one space)",
+  "max_length": 300
+}

@@ -42,3 +42,10 @@ test('the exported chart prompt is the one the interpreter sends', () => {
 test('the exported chart allowlist equals the TypeScript allowlist', () => {
   assert.deepStrictEqual(JSON.parse(readFileSync(`${promptsDir}chart/allowlist.json`, 'utf8')), chartAllowlist(), EXPORT_HINT);
 });
+
+test('the exported severity-word table equals the TypeScript table', async () => {
+  const { severityWordsExport } = await import('../src/modules/dashboard/domain/severity-words.ts');
+  const text = readFileSync(`${promptsDir}chart/severity-words.json`, 'utf8');
+  assert.deepStrictEqual(JSON.parse(text), JSON.parse(JSON.stringify(severityWordsExport())), EXPORT_HINT);
+  assert.equal(sha256(text), entry('chart/severity-words').sha256, EXPORT_HINT);
+});
