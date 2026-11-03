@@ -5,5 +5,7 @@
 from .openai import OpenAIVLMAnalyzer
 from .openai import bound_rt_vlm_fps_sampling
 from .protocols import VLMAnalyzer
+from .second_look import SecondLookResult
+from .second_look import second_look
 
-__all__ = ["OpenAIVLMAnalyzer", "VLMAnalyzer", "bound_rt_vlm_fps_sampling"]
+__all__ = ["OpenAIVLMAnalyzer", "SecondLookResult", "VLMAnalyzer", "bound_rt_vlm_fps_sampling", "second_look"]

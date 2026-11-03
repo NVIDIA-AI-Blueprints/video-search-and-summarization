@@ -1128,23 +1128,6 @@ def test_run_request_without_sampling_leaves_it_to_the_server(
         assert field_name not in captured["json"]
 
 
-def test_use_base64_with_sensor_is_invalid(
-    configured: config_mod.Deployment,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """--use-base64 combined with --sensor must be rejected before VIOS resolution."""
-    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
-    config_mod.save(configured)
-
-    runner = CliRunner()
-    result = runner.invoke(
-        VLM.cli(),
-        ["run", "--prompt", "What?", "--sensor", "cam1", "--use-base64"],
-    )
-    assert result.exit_code == Exit.INVALID_INPUT
-
-
 def test_run_file_source_uses_base64(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
@@ -1517,30 +1500,48 @@ def test_run_file_source_does_not_persist_local_path(
     _assert_no_local_path_in_record(store2.service.list_jobs(), "--media-url+--use-base64")
 
 
-def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
+@pytest.mark.parametrize(
+    ("clip_url", "use_base64", "expected_type"),
+    [
+        ("http://localhost:30888/vst/api/v1/storage/file/abc/url", False, "video/mp4"),
+        ("http://10.176.222.209:17777/vst/storage/clip.mp4", True, "video/mp4"),
+        ("http://10.176.222.209:17777/vst/storage/clip.mkv", True, "video/x-matroska"),
+        ("http://10.176.222.209:17777/vst/storage/clip.ts", True, "video/mp4"),
+    ],
+)
+def test_sensor_inline_delivery_preserves_bytes_and_cleans_up_tempfile(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
+    clip_url: str,
+    use_base64: bool,
+    expected_type: str,
 ) -> None:
-    """When VIOS resolves --sensor to a loopback URL, the CLI must stream it to a temp
-    file (no double-materialisation of raw bytes) and send the clip inline as base64."""
+    """Explicit inline delivery shares the automatic loopback download and cleanup path."""
     import base64 as _b64
     import contextlib
+    import os
 
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm.group import VlmGroup
 
-    clip_bytes = b"\x00\x01\x02loopback-clip"
-    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/url"
+    clip_bytes = b"\x00\x01\x02sensor-clip"
 
     monkeypatch.setattr(
         vlm_group_mod,
         "_resolve_vios_clip",
-        lambda *_a, **_kw: (loopback_url, None, None),
+        lambda *_a, **_kw: (clip_url, None, None),
     )
 
     streamed_urls: list[str] = []
     vlm_captured: dict[str, Any] = {}
+    tempfiles: list[str] = []
+    mkstemp = vlm_group_mod.tempfile.mkstemp
+
+    def _capture_tempfile(**kwargs: Any) -> tuple[int, str]:
+        fd, path = mkstemp(**kwargs)
+        tempfiles.append(path)
+        return fd, path
 
     @contextlib.contextmanager
     def _fake_stream(method: str, url: str, *, timeout: Any = None, **_kw: Any):
@@ -1570,23 +1571,25 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
 
     monkeypatch.setattr(httpx, "stream", _fake_stream)
     monkeypatch.setattr(httpx, "post", _fake_vlm_post)
+    monkeypatch.setattr(vlm_group_mod.tempfile, "mkstemp", _capture_tempfile)
 
     store = _in_memory(configured)
-    ctx = Context(deployment=configured, memory=store)
+    ctx = Context(deployment=configured, memory=store, extra={"use_base64": use_base64})
     group = VlmGroup()
     result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
 
     assert result.exit == Exit.SUCCESS, f"expected SUCCESS, got {result.exit}: {result.body}"
     assert result.body.get("answer") == "loopback works"
-    assert streamed_urls == [loopback_url], "expected exactly one stream call for the loopback clip"
+    assert streamed_urls == [clip_url]
+    assert len(tempfiles) == 1 and not os.path.exists(tempfiles[0])
 
-    # The VLM request must carry a data: URI, not the loopback URL.
+    # The VLM request must carry the original bytes without the VIOS URL.
     video_part = vlm_captured["json"]["messages"][0]["content"][0]["video_url"]["url"]
-    assert video_part.startswith("data:video/mp4;base64,"), f"expected base64 data URI, got {video_part[:60]!r}"
+    assert video_part.startswith(f"data:{expected_type};base64,"), f"expected base64 data URI, got {video_part[:60]!r}"
     assert _b64.b64decode(video_part.split(",", 1)[1]) == clip_bytes
+    assert clip_url not in str(vlm_captured["json"])
 
-    # The loopback URL must not be stored in the memory record.
-    _assert_no_local_path_in_record(store.service.list_jobs(), "--sensor loopback fallback")
+    _assert_no_local_path_in_record(store.service.list_jobs(), "--sensor inline delivery")
 
 
 def test_sensor_loopback_clip_fetch_timeout_writes_terminal_record(
@@ -1630,36 +1633,40 @@ def test_sensor_loopback_clip_fetch_timeout_writes_terminal_record(
     assert jobs[-1].job.status == "timeout", f"terminal record status: {jobs[-1].job.status}"
 
 
-def test_sensor_loopback_clip_http_error_writes_terminal_record(
+@pytest.mark.parametrize("failure_kind", ["status", "transport"])
+def test_sensor_clip_download_error_is_persisted_without_signed_url(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failure_kind: str,
 ) -> None:
-    """When the loopback VIOS clip fetch returns HTTP 5xx, the CLI must write a terminal
-    record with status='failed' and return Exit.BACKEND_UNREACHABLE — NOT Exit.INVALID_INPUT."""
+    """Download failures preserve the status without exposing clip credentials."""
     import contextlib
 
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm.group import VlmGroup
 
-    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/clip"
+    clip_url = "http://10.176.222.209:17777/vst/storage/clip.mp4?token=SECRET-TOKEN"
 
     monkeypatch.setattr(
         vlm_group_mod,
         "_resolve_vios_clip",
-        lambda *_a, **_kw: (loopback_url, "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
+        lambda *_a, **_kw: (clip_url, "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
     )
 
     @contextlib.contextmanager
     def _error_stream(*_a: Any, **_kw: Any):
-        resp = httpx.Response(503, text="Service Unavailable", request=httpx.Request("GET", loopback_url))
+        if failure_kind == "transport":
+            raise httpx.ReadError(f"connection reset at {clip_url}")
+        resp = httpx.Response(503, text="Service Unavailable", request=httpx.Request("GET", clip_url))
         resp.raise_for_status()
         yield resp  # unreachable, but required to make this a generator
 
     monkeypatch.setattr(httpx, "stream", _error_stream)
 
     store = _in_memory(configured)
-    ctx = Context(deployment=configured, memory=store)
+    ctx = Context(deployment=configured, memory=store, extra={"use_base64": True})
     group = VlmGroup()
     result = group.run("", VlmInput(prompt="What?", sensor="cam1", timeout=5), ctx)
 
@@ -1669,6 +1676,9 @@ def test_sensor_loopback_clip_http_error_writes_terminal_record(
     jobs = store.service.list_jobs()
     assert jobs, "expected a terminal record written on loopback clip HTTP error"
     assert jobs[-1].job.status == "failed", f"terminal record status: {jobs[-1].job.status}"
+    visible = capsys.readouterr().err + json.dumps(result.body) + jobs[-1].model_dump_json()
+    assert "SECRET-TOKEN" not in visible and clip_url not in visible
+    assert ("HTTP 503" if failure_kind == "status" else "ReadError") in visible
 
 
 def test_is_loopback_url() -> None:
