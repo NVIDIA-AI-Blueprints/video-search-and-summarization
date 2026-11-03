@@ -2,6 +2,19 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-03: Evaluation V2 reference review is AI-only; no record is human-verified
+- **Decision (owner):** an AI-only independent review replaces the planned human reviews: the 80 judge-calibration pairs, RA2 chat (64), RB2 dashboard (30) and the RA1 boxes.
+  - Two blind reviewers from families outside the subjects, judges and generator (DeepSeek, Zhipu GLM), with a MiniMax adjudicator for disputed records.
+  - Fixed, versioned prompts; κ between reviewers.
+  - Statuses AI-consensus / AI-disputed; every record stays Human-unverified, and the human calibration threshold is not claimed.
+- **Why:** the owner has no time for human review, and AI review is the strongest independent check available without it.
+- **Rejected:**
+  - Claude as a reviewer (it generated the references).
+  - A subject or judge family as a reviewer.
+  - Reporting AI agreement as verification.
+  - Waiting for reviewers (no date).
+- **Links:** [`v2-ai-only-reference-review.md`](../eval/methodology/v2-ai-only-reference-review.md), [`evaluation-methodology-v2.0.md`](../eval/methodology/evaluation-methodology-v2.0.md)
+
 ### 2026-11-03: Box describe sends one enlarged close-up and asks the Nano model first
 - **Decision:** `describe_box` no longer sends the whole frame. `crop_evidence.describe_box_close_up` cuts the box plus a 20 % margin (at least 16 px), upscales it (Lanczos, short side at least 512 px, long side at most 1024 px) and outlines the box in red; that is the only image. The `zoom/describe-box` prompt names ONE object, says what the picture is, and forbids naming floor, tiles, walls, doors, handrails or a person only partly inside the box. `DefaultDetector.describe_box` asks `nvidia/cosmos-3-nano-reasoner` first (25 s, one try, reasoning off); on a failure or a "cannot tell" answer it asks the detector's own model (150 s, one retry on a timeout). Worst case 25 + 2 x 150 = 325 s, under the console's 330 s. The response contract is unchanged.
 - **Why:** a reviewer boxed a small white bottle held low and got "floor tile", "elevator floor" and "elevator door": beside the whole frame the model names the most prominent thing, not the boxed one. Measured on the shared VLM, the enlarged close-up with the new prompt names the object correctly on cars, vans, bins, bags and people; the motion-blurred bottle is named a bottle on some boxes and a bag or other hand-held item on others, so it is better but not reliable. The main model often took 60-125 s or returned a 524 on the shared VLM; Nano takes 1-3 s.

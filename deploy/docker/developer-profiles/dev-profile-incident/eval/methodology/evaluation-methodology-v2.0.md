@@ -75,6 +75,7 @@ F and G are instruments applied to every call in A–E, not separate runs.
     - Every countable chat or dashboard answer is computed by code from the ground truth.
   - **Human QA:** about 20% stratified, including a random sample of `ai_validated` records (the AI error estimate), plus every flagged record (ambiguous, or validators disagree).
   - **Primary metrics use `human_verified` records only.** AI-tier results are reported separately, labelled as AI references, together with their measured error.
+  - **Amended 2026-11-03 (owner):** no human review will take place, so no record becomes `human_verified`. Primary metrics use `ai_validated` records with an AI-only review annotation (AI-consensus / AI-disputed; all Human-unverified), labelled PROVISIONAL. See [v2-ai-only-reference-review.md](v2-ai-only-reference-review.md).
   - **Correlation is disclosed.** The generator, the validator and the `ground-truth-v1.0` adjudicator are the same model family. So `ai_validated` means "the passes agree", not "correct".
 - **Matching validation set** (proposed): about 300 predicted/ground-truth item pairs from saved V1 outputs, sampled across similarity bins (including below τ) and labelled by people. It measures the matcher's own precision and recall.
 
@@ -168,6 +169,7 @@ F and G are instruments applied to every call in A–E, not separate runs.
 ## 7. Judges and instruments
 - **Judge family.** The judge comes from a family distinct from every subject and from the reference generator. Cosmos and Nemotron are subjects (V1's pinned judge, Nemotron 3 Nano 30B, shares Omni's family), and Claude makes references. Availability of a third family is verified read-only before the freeze.
 - **Human calibration.** About 100 items labelled by people give judge–human κ. A judge-sensitivity check runs on the subject that shares the old judge's family.
+  - **Amended 2026-11-03:** not done. It is replaced by an explicitly labelled AI-consensus agreement analysis on the 80 calibration pairs. The human κ ≥ 0.60 threshold is **not** claimed as met ([v2-ai-only-reference-review.md](v2-ai-only-reference-review.md)).
 - **V1 instruments stay for continuity.** MiniLM at τ = 0.40 and `judge-prompt-v1` are reused unchanged for continuity rows, with τ curves and the matching validation set as sensitivity analyses.
 
 ## 8. Freeze and pre-registration
@@ -185,6 +187,7 @@ F and G are instruments applied to every call in A–E, not separate runs.
 
 ## 9. Limitations carried forward
 - `ground-truth-v1.0` and τ = 0.40 are AI-assisted, not human-validated. The human-verified subset and the matching validation set measure how much that matters, but do not remove it.
+- **No human-verified references or judge calibration (2026-11-03).** The AI-only review uses three non-subject, non-judge, non-Claude families. However, LLM reviewers share biases and cannot detect ground-truth errors, so every result stays PROVISIONAL and Human-unverified.
 - The test clips were used in V1 and the 2 Oct benchmark.
 - Claude-made references are correlated with each other and with the V1 adjudication.
 - The provider decides frame sampling. Cosmos 3 Super ignores `num_frames`; for Nano the docs conflict. Effective sampling is recorded per call, not assumed.

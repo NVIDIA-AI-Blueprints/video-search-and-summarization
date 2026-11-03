@@ -118,7 +118,7 @@ uv run --frozen python -m evalv2 score --config experiments/v2/c1a-track-a-pilot
   - **Marker:** a run whose config carried no judge share is scored live with a dedicated `evalv2-judge-approval-v1` marker. It names the experiment, the config hash, the allowed judge ids and a judge budget, and it replaces the config's judge caps.
   - **Global caps:** the shared judge ledger (`--judge-ledger-dir`) holds the registry caps across every run, retry and resume: primary `openrouter-gpt-oss-20b-v1` 999 calls / 2.299 M tokens; sensitivity `openrouter-mistral-large-4-v1` 299 calls / 0.695 M tokens. The compatibility probe uses 2 calls.
   - **Command:** `EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 score --config <run config> --out <run> --judge openrouter-gpt-oss-20b-v1 --approval <judge marker> --judge-ledger-dir <private>/v2/judge-ledger --env-file <.env.local>`.
-  - **Status of the scores:** judged scores are **provisional** until two human reviewers have labelled the 80 calibration pairs and the judge agrees with them at κ ≥ 0.60 ([proposal](v2-judge-proposal.md)).
+  - **Status of the scores:** judged scores are **provisional**. The planned human calibration (two reviewers, 80 pairs, κ ≥ 0.60) will not happen; an AI-consensus agreement analysis replaces it and does not meet that threshold ([AI-only review](v2-ai-only-reference-review.md), [proposal](v2-judge-proposal.md)).
 
 **Approval marker** (`evalv2-live-approval-v1`, JSON). `approval draft` fills everything except the approval itself:
 
