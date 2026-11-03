@@ -196,6 +196,17 @@
       "purpose": "The chart allowlist (metrics, dimensions, periods, severities, incident types; source: chart-spec.ts)."
     },
     {
+      "id": "chart/severity-words",
+      "file": "chart/severity-words.json",
+      "sha256": "b644908a05154374464f291060d0ec5d0e13cd4bb42221919ce965c32aa0b6e3",
+      "stage": "chart",
+      "placeholders": [],
+      "used_by": [
+        "console"
+      ],
+      "purpose": "Canonical severity words normalised to dashboard bands before the chart model reads a request (source: domain/severity-words.ts; not a prompt, exported beside it so eval reads the same table)."
+    },
+    {
       "id": "chat/incident-answer",
       "file": "chat/incident-answer.txt",
       "sha256": "84c8bc1a89ebc2da7c0cc6df0c37453557e5593332090043bd005aea091d675c",
