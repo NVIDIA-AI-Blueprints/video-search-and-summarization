@@ -29,6 +29,7 @@ gateway/chart-interpreter.ts``) and the trim and length rule of its route (``src
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +51,13 @@ SETTINGS: dict[str, Any] = {"stream": False, "temperature": 0, "max_tokens": 200
 # ``max_completion_tokens``. tests/v2/test_v2_dashboard_task.py checks both against their sources.
 AGENT_SETTINGS: dict[str, Any] = {"stream": False, "temperature": 0.0, "max_completion_tokens": 200,
                                   "chat_template_kwargs": {"enable_thinking": False}}
-REQUEST_SHAPES: dict[str, dict[str, Any]] = {"console-gateway-v1": SETTINGS, "agent-route-v2": AGENT_SETTINGS}
+# ``agent-route-v3`` is ``agent-route-v2`` after the console's severity-word normalisation
+# (``chart-severity-words-v1``, domain/severity-words.ts): the same upstream settings, but the user message is the
+# normalised request. The chart prompt bytes are unchanged.
+REQUEST_SHAPES: dict[str, dict[str, Any]] = {"console-gateway-v1": SETTINGS, "agent-route-v2": AGENT_SETTINGS,
+                                             "agent-route-v3": AGENT_SETTINGS}
+NORMALISING_SHAPES = frozenset({"agent-route-v3"})
+SEVERITY_WORDS_ID = "chart/severity-words"
 DEFAULT_SHAPE = "console-gateway-v1"  # the sealed C1c pilot's shape; new runs name ``agent-route-v2``
 # ECMAScript's String.prototype.trim: WhiteSpace and LineTerminator code points (zod's .trim() calls it).
 _JS_SPACE = frozenset("\t\n\v\f\r              "
@@ -100,23 +107,53 @@ def request_text(request: str) -> str:
     return text
 
 
-def chart_messages(request: str) -> list[dict[str, str]]:
-    """The two messages the console sends (to the agent since #459; to the gateway before): the golden's body."""
-    return [{"role": "system", "content": system_prompt()}, {"role": "user", "content": request_text(request)}]
+def severity_words() -> dict[str, Any]:
+    """The console's exported severity-word table (hash-checked against the registry)."""
+    return json.loads(_registered_bytes(SEVERITY_WORDS_ID).decode("utf-8"))
+
+
+def _utf16_len(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
+def normalize_severity_words(request: str) -> str:
+    """``normalizeSeverityWords``: each canonical severity word that qualifies severity or an incident noun becomes
+    ``<band>-severity``; the typed request comes back unchanged when the result would pass the length limit."""
+    table = severity_words()
+    flags = re.ASCII | (re.IGNORECASE if "i" in table["flags"] else 0)
+
+    def band(word: str) -> str:
+        return str(table["word_bands"][re.sub(r"[ \t]+", " ", word.lower())])
+
+    def replace(match: re.Match[str]) -> str:
+        return f"{band(match.group(1))}-severity" + ("" if match.group(3) else " ")
+
+    out = re.sub(table["pattern"], replace, request, flags=flags)
+    return request if _utf16_len(out) > table["max_length"] else out
+
+
+def chart_messages(request: str, *, normalize: bool = False) -> list[dict[str, str]]:
+    """The two messages the console sends (to the agent since #459; to the gateway before): the golden's body.
+    With ``normalize`` the user message is the request after the severity-word normalisation (agent-route-v3)."""
+    text = request_text(request)
+    return [{"role": "system", "content": system_prompt()},
+            {"role": "user", "content": normalize_severity_words(text) if normalize else text}]
 
 
 def build_chart_request(model: str, request: str, shape: str = DEFAULT_SHAPE) -> dict[str, Any]:
     """The upstream body for ``shape`` (``model``, ``messages``, then that shape's settings)."""
     if shape not in REQUEST_SHAPES:
         raise ChartRequestError(f"unknown chart request shape {shape!r}; known: {sorted(REQUEST_SHAPES)}")
-    return {"model": model, "messages": chart_messages(request), **json.loads(json.dumps(REQUEST_SHAPES[shape]))}
+    return {"model": model, "messages": chart_messages(request, normalize=shape in NORMALISING_SHAPES),
+            **json.loads(json.dumps(REQUEST_SHAPES[shape]))}
 
 
 def chart_provenance(shape: str = DEFAULT_SHAPE) -> dict[str, Any]:
     """What a chart record pins: the prompt and allowlist SHA-256s, the request shape and its settings, the golden."""
     return {"stage": "chart", "prompt_id": PROMPT_ID, "prompt_sha256": sha256_bytes(_registered_bytes(PROMPT_ID)),
             "allowlist_sha256": sha256_bytes(_registered_bytes(ALLOWLIST_ID)), "request_shape": shape,
-            "settings_sha256": sha256_json(REQUEST_SHAPES[shape]), "golden": GOLDEN}
+            "settings_sha256": sha256_json(REQUEST_SHAPES[shape]), "golden": GOLDEN,
+            **({"severity_words_sha256": sha256_bytes(_registered_bytes(SEVERITY_WORDS_ID))} if shape in NORMALISING_SHAPES else {})}
 
 
 def _no_constant(name: str) -> Any:

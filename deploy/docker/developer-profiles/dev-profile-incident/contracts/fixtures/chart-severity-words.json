@@ -1,0 +1,156 @@
+{
+  "version": "chart-severity-words-v2",
+  "note": "Shared cases: the console (tests/dashboard-severity-words.test.mjs) and eval (tests/v2/test_v2_chart_severity_words.py) must both map input to expected (null: unchanged).",
+  "cases": [
+    {
+      "input": "Show moderate-severity reports from the past 90 days.",
+      "expected": "Show medium-severity reports from the past 90 days.",
+      "why": "moderate (level 3) -> medium"
+    },
+    {
+      "input": "Show weekly counts of moderate severity reports.",
+      "expected": "Show weekly counts of medium-severity reports.",
+      "why": "space separator"
+    },
+    {
+      "input": "Day by day, how many moderate burglaries have come in?",
+      "expected": "Day by day, how many medium-severity burglaries have come in?",
+      "why": "before an incident type"
+    },
+    {
+      "input": "Week by week, how many moderate road accidents came in?",
+      "expected": "Week by week, how many medium-severity road accidents came in?",
+      "why": "two-word incident type"
+    },
+    {
+      "input": "Give me moderate incident reports by month.",
+      "expected": "Give me medium-severity incident reports by month.",
+      "why": "before 'incident'"
+    },
+    {
+      "input": "How many severe animal attacks involved people?",
+      "expected": "How many high-severity animal attacks involved people?",
+      "why": "severe (level 5) -> high"
+    },
+    {
+      "input": "How many severe-incident reports are AI-generated?",
+      "expected": "How many high-severity incident reports are AI-generated?",
+      "why": "hyphen before a noun becomes one space"
+    },
+    {
+      "input": "Show critical incidents by type this year.",
+      "expected": "Show high-severity incidents by type this year.",
+      "why": "critical (level 5) -> high"
+    },
+    {
+      "input": "Show minimal-severity explosion reports.",
+      "expected": "Show low-severity explosion reports.",
+      "why": "minimal (level 1) -> low"
+    },
+    {
+      "input": "Count very low severity burglaries per week.",
+      "expected": "Count low-severity burglaries per week.",
+      "why": "very low (level 1) -> low"
+    },
+    {
+      "input": "MODERATE-Severity reports by hour",
+      "expected": "medium-severity reports by hour",
+      "why": "case-insensitive"
+    },
+    {
+      "input": "Compare moderate incidents and severe incidents.",
+      "expected": "Compare medium-severity incidents and high-severity incidents.",
+      "why": "every occurrence"
+    },
+    {
+      "input": "How many incidents are minor, moderate and severe?",
+      "expected": null,
+      "why": "a severity breakdown, not a filter"
+    },
+    {
+      "input": "How severe were the explosion reports from last week?",
+      "expected": null,
+      "why": "a question about severity, not a filter"
+    },
+    {
+      "input": "Show minor incidents from the last 7 days.",
+      "expected": "Show low-severity incidents from the last 7 days.",
+      "why": "minor (rubric levels 1-2, both band low) -> low (v2)"
+    },
+    {
+      "input": "Show serious explosions in the past 30 days.",
+      "expected": null,
+      "why": "serious has no canonical level"
+    },
+    {
+      "input": "How many moderately serious burglaries were reported?",
+      "expected": null,
+      "why": "moderately is a different word"
+    },
+    {
+      "input": "A moderate number of incidents by type",
+      "expected": null,
+      "why": "not before an incident noun"
+    },
+    {
+      "input": "Show high-severity reports by day.",
+      "expected": null,
+      "why": "band words are already allowlist values"
+    },
+    {
+      "input": "Show low severity incidents.",
+      "expected": null,
+      "why": "band words are already allowlist values"
+    },
+    {
+      "input": "Show medium-severity road accidents.",
+      "expected": null,
+      "why": "band words are already allowlist values"
+    },
+    {
+      "input": "Show reports by severity.",
+      "expected": null,
+      "why": "no severity word"
+    },
+    {
+      "input": "severely damaged cars",
+      "expected": null,
+      "why": "severely is a different word"
+    },
+    {
+      "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx moderate ",
+      "expected": null,
+      "why": "no match (under the limit)"
+    },
+    {
+      "input": "Show moderate incidents and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more ",
+      "expected": null,
+      "why": "result would pass 300 characters: the typed request is sent"
+    },
+    {
+      "input": "At what hours were minor-severity burglary reports generated?",
+      "expected": "At what hours were low-severity burglary reports generated?",
+      "why": "minor-severity -> low (v2)"
+    },
+    {
+      "input": "How many minor explosions over the last 365 days?",
+      "expected": "How many low-severity explosions over the last 365 days?",
+      "why": "minor before an incident type (v2)"
+    },
+    {
+      "input": "Show major incidents this month.",
+      "expected": null,
+      "why": "major is not mapped (owner instruction)"
+    },
+    {
+      "input": "Show extreme road accidents.",
+      "expected": null,
+      "why": "extreme is not mapped (owner instruction)"
+    },
+    {
+      "input": "Show significant incidents by type.",
+      "expected": null,
+      "why": "significant spans bands"
+    }
+  ]
+}

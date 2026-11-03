@@ -72,9 +72,73 @@
 - The references map synonyms to bands (minor→low, and so on). That is an interpretation, and the AI-only reference review checks whether a refusal is also acceptable.
 - A prompt line mapping synonyms would likely remove most of these refusals. That would be a production prompt change, decided separately and not made here.
 
+## Severity-word change (#476): evaluation, 2026-11-03 (owner-approved)
+
+**Change.** The console now normalises severity words in code before Ultra reads a request (`chart-severity-words-v2`).
+- **Rule:** a word maps to a band only when every severity level the project's definitions tie it to lies in that one band. The definitions are:
+  - the severity rubric, shared by the P1 prompt and the ground-truth Severity Guide;
+  - the importer's `mapSeverity`;
+  - the dashboard bands (low 1–2, medium 3, high 4–5).
+- **Mapped:** minimal and very low → low; minor → low (the rubric uses "minor" only at levels 1–2); moderate → medium; severe and critical → high.
+- **Not mapped:**
+  - serious and significant, which span bands;
+  - mild, which the definitions don't use;
+  - major, extreme and catastrophic. They are one-band under the rule, but this change was limited to minor by instruction.
+- **Unchanged:** the chart prompt bytes. The table's sha256 is `b644908a05154374…`.
+
+**Runs.**
+- All three: Nemotron 3 Ultra via Switchyard, sequential, branch commit `804f85172`.
+- Usage: 123 of the 142 approved attempts and 114,022 of the 213,000 tokens. 0 retries, 0 invalid replies.
+
+| Experiment | Config sha256 | Requests | Shape |
+|---|---|---|---|
+| `v2-c1c-dashboard-severity-words-rb2` | `6f6472126b08c461…` | the 75 RB2 dev requests | `agent-route-v3` (normalised) |
+| `v2-c1c-dashboard-severity-supplement-v2` | `4c4d60c892a217f2…` | 24 rule-written dev requests (`dashboard-severity-supplement-v2`) | `agent-route-v2` (current) |
+| `v2-c1c-dashboard-severity-supplement-v3` | `cd07a0aba5035423…` | the same 24 | `agent-route-v3` |
+
+**Comparisons and records.**
+- The RB2 baseline is the earlier `agent-route-v2` regression run: same requests, same route, normaliser off.
+- The original pilot (`console-gateway-v1`) is kept unchanged and is not pooled.
+- The decision metric is spec/refusal correctness. Figures follow from the spec, and the RB2 corpus snapshot includes reports of held-out clips, so it was not used for development.
+- The normaliser was frozen before these runs.
+
+| Set | v2 (current) | v3 (normalised) | Paired difference, 95% CI | McNemar exact p |
+|---|---|---|---|---|
+| RB2, all 75 | 0.88 (66) | **0.92 (69)** | +0.04 [−0.03, +0.11] | 0.45 |
+| RB2, the 28 requests the normaliser changes | 0.75 (21) | **0.89 (25)** | +0.14 [0.00, +0.32] | 0.22 |
+| RB2, the 47 unchanged (stability) | 0.96 (45) | 0.94 (44) | −0.02 | 1.0 |
+| RB2, 15 that must be refused | 15/15 | 15/15 | 0 | — |
+| Supplement, 12 valid | 0.75 (9) | **1.00 (12)** | +0.25 [0.00, +0.50] | 0.25 |
+| Supplement, 12 that must be refused | 12/12 | 12/12 | 0 | — |
+
+- **Errors, RB2:**
+  - False refusals: 8 under v2, 6 under v3.
+  - Wrong specs: 1 under v2, 0 under v3.
+  - **False acceptances: 0 in both.**
+  - Invalid or unparseable replies: 0 in both.
+- **Errors, supplement:**
+  - False refusals: 3 under v2, 0 under v3.
+  - **False acceptances: 0 in both.** This includes "only critical (severity 5), excluding severity 4", which a band cannot express, and "minor incidents at the north gate".
+- **"Minor" (new in v2):** the 8 RB2 requests that use it went from 5 correct under v2 to 8 under v3.
+- **Regressions:**
+  - One changed request flipped from correct to refused: "how many severe animal attacks involved people, animals or unknown entities?" became "high-severity …".
+  - One unchanged request, sent byte-identically, also flipped in the same run.
+  - Temperature 0 is not bit-deterministic on Switchyard, so a single flip cannot be attributed to the normaliser. It is reported as unexplained.
+- **Refusals that remain (6, v3):**
+  - 2 degenerate groupings: "by incident type" within one type, and monthly counts over one week.
+  - 1 run-to-run flip on an identical request.
+  - 3 that Ultra refuses for reasons other than severity: "property" for assets, a threat-level chart with a severity filter, and the regression above.
+
+**Assessment.**
+- Development correctness improves, and every must-refuse request is still refused.
+- No schema failure and no new false acceptance appeared.
+- The gain is consistent in direction but **not statistically significant** at n = 75 (CI includes 0).
+- Results are PROVISIONAL: the references are AI-validated or rule-written, and Human-unverified.
+- The owner decides on merging.
+
 ## What stays open
 
 1. ~~Open items~~: done (recovery, above).
 2. ~~Regression check~~: done (above).
 3. **Provisional status:** RB2 is `ai_validated`. The human review is replaced by an AI-only review (owner decision, 2026-11-03), so the scores stay provisional and Human-unverified.
-4. **Decision for the owner:** whether to add a severity-synonym line to the chart prompt. It is a production change, and it must land before the C2 freeze if it is to be evaluated in C3.
+4. **Decision for the owner:** whether to merge #476 (deterministic severity-word normalisation; evaluated above). It is a production change, and it must land before the C2 freeze if it is to be evaluated in C3.

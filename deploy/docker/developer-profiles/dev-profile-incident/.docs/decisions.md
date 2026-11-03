@@ -2,6 +2,28 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-03: Dashboard chart requests normalise canonical severity words in code
+- **Decision:** `generateChart` rewrites severity words to their dashboard band before the chart model reads the request (`domain/severity-words.ts`, `chart-severity-words-v2`).
+- **Rule:** a word maps to a band only when every severity level the project's definitions tie it to lies in that one band. The definitions:
+  - the severity rubric, shared by the P1 prompt and the ground-truth Severity Guide;
+  - the importer's `mapSeverity`;
+  - the dashboard bands (low 1–2, medium 3, high 4–5).
+- **Mapped:**
+  - minimal and very low → low;
+  - minor → low (the rubric uses it only at levels 1–2);
+  - moderate → medium;
+  - severe and critical → high.
+- **Where it applies:** only where the word qualifies "severity" or an incident noun. Breakdowns and "how severe…" stay as typed.
+- **Limits:** the chart prompt bytes are unchanged, and the typed request is kept if the result would pass 300 characters.
+- **Why:** Ultra read the prompt's "exactly these values" rule literally and refused synonym requests. On development requests the change raised correctness from 0.88 to 0.92 (RB2) and from 0.75 to 1.00 (supplement, valid requests), with no new false acceptance. The gain is **not statistically significant** (RB2 paired difference +0.04, 95% CI −0.03 to +0.11; McNemar p = 0.45), and **one changed request regressed** (correct to refused); one byte-identical request also flipped in the same run, so the cause is not established ([evaluation](../eval/methodology/v2-dashboard-change-assessment.md)). Merged by owner approval on 2026-11-03.
+- **Rejected:**
+  - Mapping serious or significant (they span bands).
+  - Mapping major, extreme or catastrophic: one-band under the rule, but outside the owner-approved scope.
+  - Treating AI reviewers' agreement as justification for "minor".
+  - A prompt-only synonym list.
+  - Changing the scale or the bands.
+- **Links:** [`severity-words.ts`](../incident-console-v2/src/modules/dashboard/domain/severity-words.ts), [`chart-severity-words.json`](../contracts/fixtures/chart-severity-words.json), [`v2-dashboard-change-assessment.md`](../eval/methodology/v2-dashboard-change-assessment.md)
+
 ### 2026-11-03: Evaluation V2 reference review is AI-only; no record is human-verified
 - **Decision (owner):** an AI-only independent review replaces the planned human reviews: the 80 judge-calibration pairs, RA2 chat (64), RB2 dashboard (30) and the RA1 boxes.
   - Two blind reviewers from families outside the subjects, judges and generator (DeepSeek, Zhipu GLM), with a MiniMax adjudicator for disputed records.

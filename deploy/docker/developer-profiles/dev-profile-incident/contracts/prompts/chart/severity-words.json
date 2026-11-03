@@ -1,0 +1,76 @@
+{
+  "version": "chart-severity-words-v2",
+  "rule": "a word maps to a band only when every severity level the project definitions tie it to lies in that one band",
+  "sources": [
+    "contracts/incident_extraction_prompt.txt SEVERITY_LEVEL rubric (= the ground-truth Severity Guide)",
+    "incident-console-v2/src/modules/reports/domain/storage.ts (mapSeverity)",
+    "supabase finals get_incident_dashboard bands; dashboard/domain/charts.ts SEVERITY_LABELS"
+  ],
+  "word_levels": {
+    "minimal": {
+      "levels": [
+        1
+      ],
+      "evidence": "rubric level 1 name \"Minimal / Very Low\"; mapSeverity minimal -> 1"
+    },
+    "very low": {
+      "levels": [
+        1
+      ],
+      "evidence": "rubric level 1 name \"Minimal / Very Low\""
+    },
+    "minor": {
+      "levels": [
+        1,
+        2
+      ],
+      "evidence": "rubric level 2 definition \"Minor harm or limited danger ... minor injuries\" and examples; level 1 examples \"minor verbal disagreement\", \"minor incident with no injury\"; not used for levels 3-5 (added in v2)"
+    },
+    "moderate": {
+      "levels": [
+        3
+      ],
+      "evidence": "rubric level 3 name \"Moderate\"; mapSeverity moderate -> 3"
+    },
+    "severe": {
+      "levels": [
+        4,
+        5
+      ],
+      "evidence": "rubric level 4 definition \"Severe harm ... severe injuries\"; mapSeverity severe -> 5"
+    },
+    "critical": {
+      "levels": [
+        5
+      ],
+      "evidence": "rubric level 5 name \"Critical\"; mapSeverity critical -> 5"
+    }
+  },
+  "word_bands": {
+    "minimal": "low",
+    "very low": "low",
+    "minor": "low",
+    "moderate": "medium",
+    "severe": "high",
+    "critical": "high"
+  },
+  "band_of_level": {
+    "1": "low",
+    "2": "low",
+    "3": "medium",
+    "4": "high",
+    "5": "high"
+  },
+  "unmapped": {
+    "serious": "spans bands: rubric level 2 \"not seriously threatening\", level 3 \"serious harm\", level 4 example \"serious assault\"",
+    "significant": "spans bands: rubric level 3 \"Significant harm\", level 4 \"significant danger\"",
+    "mild": "not used by the severity definitions",
+    "major": "the rubric uses it only at levels 4 and 5 (one band), but it is not mapped: owner instruction of 2026-11-03 limits this change to minor",
+    "extreme": "the rubric uses it only at level 5 (\"Extreme or catastrophic harm\"), but it is not mapped (same instruction)",
+    "catastrophic": "the rubric uses it only at level 5, but it is not mapped (same instruction)"
+  },
+  "pattern": "\\b(very[ \\t]+low|minimal|minor|moderate|severe|critical)((?:[ \\t]*-[ \\t]*|[ \\t]+))(?:(severity)\\b|(?=(?:road[ \\t]+accidents?|animal[ \\t]+attacks?|burglar(?:y|ies)|explosions?|assaults?|accidents?|attacks?|incidents?|reports?|cases?|events?)\\b))",
+  "flags": "gi",
+  "replacement": "\"<band>-severity\" when group 3 matched, else \"<band>-severity \" (the separator becomes one space)",
+  "max_length": 300
+}

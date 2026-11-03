@@ -51,6 +51,30 @@
       "verification": "ai_validated: a generator and a blind validator (opaque item ids) agree exactly on every record; not human-verified (X6 pending)",
       "committed": false,
       "created": "2026-11-02"
+    },
+    {
+      "id": "dashboard-severity-supplement-v1",
+      "kind": "dashboard_references",
+      "description": "24 rule-written development requests for the severity-word change (chart-severity-words-v1): 12 valid requests with a canonical severity word (critical, minimal, very low, moderate, severe) and 12 that must still be refused (location, named month/year, camera, person or free-text filter, changing figures, occurrence time, not a chart, an exact level). No ground truth, no clip, no corpus snapshot (scored on spec/refusal only).",
+      "location": {"root": "data", "path": "v2/references/dashboard-severity-supplement-v1"},
+      "files": {"records.jsonl": "61ff990760affa1f8068edace665a5fa0d28a9ce416d72416fd40e7b8015c666"},
+      "counts": {"records": 24, "spec": 12, "unsupported": 12, "ai_proposed": 24, "human_verified": 0},
+      "records_sha256": "61ff990760affa1f8068edace665a5fa0d28a9ce416d72416fd40e7b8015c666",
+      "verification": "ai_proposed: written by rule in a Claude Code session; references follow from the severity-word table and the chart prompt rules; not AI-validated, not human-verified",
+      "committed": false,
+      "created": "2026-11-03"
+    },
+    {
+      "id": "dashboard-severity-supplement-v2",
+      "kind": "dashboard_references",
+      "description": "dashboard-severity-supplement-v1 with two requests swapped to use minor (one valid -> low, one location request that must still be refused), for chart-severity-words-v2. 24 rule-written development requests: 12 valid (minor, critical, minimal, very low, moderate, severe) and 12 that must still be refused. No ground truth, no clip, no corpus snapshot (scored on spec/refusal only).",
+      "location": {"root": "data", "path": "v2/references/dashboard-severity-supplement-v2"},
+      "files": {"records.jsonl": "5e6e3082a5147803c20ac9b51cfd21fa9fd66d7dbfea1476174209a64ad9477f"},
+      "counts": {"records": 24, "spec": 12, "unsupported": 12, "ai_proposed": 24, "human_verified": 0},
+      "records_sha256": "5e6e3082a5147803c20ac9b51cfd21fa9fd66d7dbfea1476174209a64ad9477f",
+      "verification": "ai_proposed: written by rule in a Claude Code session; references follow from the severity-word table (v2) and the chart prompt rules; not AI-validated, not human-verified",
+      "committed": false,
+      "created": "2026-11-03"
     }
   ]
 }

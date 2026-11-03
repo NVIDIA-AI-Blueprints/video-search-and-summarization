@@ -38,7 +38,10 @@ def _split_only(config):
 # Configs of other tasks, each checked by its own test module (the chat pilot plans from private RA2 records).
 OTHER_TASKS = {"c1c-dashboard-pilot.json": "test_v2_dashboard_task.py", "c1c-chat-pilot.json": "test_v2_chat_task.py",
                "c1c-dashboard-recovery.json": "test_v2_dashboard_task.py",
-               "c1c-dashboard-ultra-regression.json": "test_v2_dashboard_task.py"}
+               "c1c-dashboard-ultra-regression.json": "test_v2_dashboard_task.py",
+               "c1c-dashboard-severity-words-rb2.json": "test_v2_dashboard_task.py",
+               "c1c-dashboard-severity-supplement-v2.json": "test_v2_dashboard_task.py",
+               "c1c-dashboard-severity-supplement-v3.json": "test_v2_dashboard_task.py"}
 CHAT_CONFIGS = ("c1c-chat-pilot.json",)
 
 

@@ -1,0 +1,53 @@
+{
+ "config_version": "evalv2-config-v1",
+ "experiment": "v2-c1c-dashboard-severity-words-rb2",
+ "split": {
+  "version": "split-v2",
+  "half": "dev"
+ },
+ "datasets": {
+  "dashboard_references": "dashboard-references-v2"
+ },
+ "subjects": [
+  {
+   "id": "ultra-chart",
+   "adapter": "openai_compat",
+   "endpoint": "switchyard",
+   "model": "nvidia/nemotron-3-ultra"
+  }
+ ],
+ "tasks": {
+  "dashboard": {
+   "subjects": "all",
+   "scorers": [
+    "dashboard.score_reply@1",
+    "dashboard.figure_outcome@1"
+   ],
+   "options": {
+    "request_shape": "agent-route-v3"
+   }
+  }
+ },
+ "repeats": 1,
+ "seed": 20261101,
+ "retry_policy": "retry-v2",
+ "caps": [
+  {
+   "ledger": "inference",
+   "subject": "ultra-chart",
+   "task": "dashboard",
+   "max_attempts": 86,
+   "max_tokens": 129000
+  },
+  {
+   "ledger": "inference",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 86,
+   "max_tokens": 129000
+  }
+ ],
+ "notes": "Severity-word change (chart-severity-words-v2), APPROVED by the owner 2026-11-03 (with the other two severity-word runs: 123 planned calls, at most 142 attempts and 213,000 tokens in total, Ultra via Switchyard, run one after another): the 75 RB2 dev requests to Ultra on agent-route-v3 (agent-route-v2 plus the console's deterministic severity-word normalisation; chart prompt bytes unchanged). 20 requests change; the 55 unchanged are byte-identical to the regression run and double as a repeat-stability check. Compared item by item with c1c-dashboard-ultra-regression. Decision metric: spec/refusal outcome (figures are a function of the spec; the corpus snapshot includes held-out clips' reports, so it is not used to tune). Caps 86 attempts / 129,000 tokens (75 items + 15% for rate-limit retries), hard stop.",
+ "purpose": "pilot",
+ "budget_mode": "hard_stop"
+}

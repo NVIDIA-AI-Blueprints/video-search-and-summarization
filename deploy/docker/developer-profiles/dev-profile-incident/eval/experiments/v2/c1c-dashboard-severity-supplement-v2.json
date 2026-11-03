@@ -1,0 +1,52 @@
+{
+ "config_version": "evalv2-config-v1",
+ "experiment": "v2-c1c-dashboard-severity-supplement-v2",
+ "split": {
+  "version": "split-v2",
+  "half": "dev"
+ },
+ "datasets": {
+  "dashboard_references": "dashboard-severity-supplement-v2"
+ },
+ "subjects": [
+  {
+   "id": "ultra-chart",
+   "adapter": "openai_compat",
+   "endpoint": "switchyard",
+   "model": "nvidia/nemotron-3-ultra"
+  }
+ ],
+ "tasks": {
+  "dashboard": {
+   "subjects": "all",
+   "scorers": [
+    "dashboard.score_reply@1"
+   ],
+   "options": {
+    "request_shape": "agent-route-v2"
+   }
+  }
+ },
+ "repeats": 1,
+ "seed": 20261101,
+ "retry_policy": "retry-v2",
+ "caps": [
+  {
+   "ledger": "inference",
+   "subject": "ultra-chart",
+   "task": "dashboard",
+   "max_attempts": 28,
+   "max_tokens": 42000
+  },
+  {
+   "ledger": "inference",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 28,
+   "max_tokens": 42000
+  }
+ ],
+ "notes": "Severity-word change, APPROVED by the owner 2026-11-03 (with the other two severity-word runs: 123 planned calls, at most 142 attempts and 213,000 tokens in total, Ultra via Switchyard, run one after another): the 24 rule-written dev supplement requests (dashboard-severity-supplement-v2: 12 valid with minor/critical/minimal/very low/moderate/severe; 12 that must still be refused) to Ultra on agent-route-v2, scored on spec/refusal only (no corpus snapshot). v2 vs v3 shows the change's effect, including false acceptances. Caps 28 attempts / 42,000 tokens (24 items + 15% for rate-limit retries), hard stop.",
+ "purpose": "pilot",
+ "budget_mode": "hard_stop"
+}
