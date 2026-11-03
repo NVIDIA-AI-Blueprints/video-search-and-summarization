@@ -22,7 +22,7 @@ the gateway declared as a Compose service alongside VSS, deployed by
 
 Drawn for OpenShell 0.1.6, the release everything below was tested on.
 
-![VSS on OpenShell](docs/assets/vss-openshell-architecture.svg)
+![VSS on OpenShell](docs/assets/vss-openshell-high-level-architecture.png)
 
 - **Gateway** is the control plane, a Compose service behind the `harness`
   profile. It owns sandbox lifecycle and state,
@@ -47,7 +47,7 @@ Drawn for OpenShell 0.1.6, the release everything below was tested on.
 The same deployment with each component's job shown, and the destinations drawn
 as `hermes/policy.yaml` and the provider profile grant them.
 
-![Inside the OpenShell sandbox boundary](docs/assets/vss-openshell-boundary-detail.svg)
+![Inside the OpenShell sandbox boundary](docs/assets/vss-openshell-detailed-architecture.png)
 
 The split is what makes the agent's own compromise survivable: the workload
 shares the boundary with the agent, so it holds nothing worth stealing — no
