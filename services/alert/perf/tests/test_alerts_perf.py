@@ -135,10 +135,13 @@ def test_dataset_paths_cannot_escape_dataset_root(tmp_path):
 @pytest.mark.parametrize(
     "native_exit,verification_failures,expected_exit", [(0, 0, 0), (0, 5, 0), (1, 0, 1)]
 )
+@pytest.mark.parametrize("inherited_path", [None, "/path/to/stale-data", "/tmp/other-deployment"])
 def test_pipeline_outcome_and_canonical_report(
-    tmp_path, monkeypatch, native_exit, verification_failures, expected_exit
+    tmp_path, monkeypatch, native_exit, verification_failures, expected_exit,
+    inherited_path,
 ):
     import json
+    import os
     from types import SimpleNamespace
 
     output = tmp_path / "results"
@@ -147,6 +150,11 @@ def test_pipeline_outcome_and_canonical_report(
     (dataset / "warehouse_chunks/warehouse_1_540_7.mp4").touch()
     monkeypatch.setenv("IMAGE_TAG", "registry/vss-alert-ms:poc")
     monkeypatch.setenv("NGC_API_KEY", "test-value")
+    for key in ("VSS_APPS_DIR", "VSS_DATA_DIR"):
+        if inherited_path is None:
+            monkeypatch.delenv(key, raising=False)
+        else:
+            monkeypatch.setenv(key, inherited_path)
     monkeypatch.setattr(runner.shutil, "which", lambda _: "/usr/bin/tool")
     monkeypatch.setattr(runner, "hardware_profile", lambda: "H100")
     monkeypatch.setattr(runner, "prepare_dataset", lambda *_: dataset)
@@ -172,6 +180,8 @@ def test_pipeline_outcome_and_canonical_report(
         def __init__(self, argv, **kwargs):
             assert kwargs["env"]["PERF_ALERT_IMAGE"] == "registry/vss-alert-ms:poc"
             assert kwargs["env"]["PERF_KAFKA_IMAGE"] == "confluentinc/cp-kafka:8.3.0"
+            assert "VSS_APPS_DIR" not in kwargs["env"]
+            assert "VSS_DATA_DIR" not in kwargs["env"]
             self.returncode = native_exit
 
         def wait(self, **kwargs):
@@ -197,6 +207,8 @@ def test_pipeline_outcome_and_canonical_report(
 
     monkeypatch.setattr(runner.subprocess, "Popen", NativeProcess)
     assert runner.main(["--output-json", str(output)]) == expected_exit
+    for key in ("VSS_APPS_DIR", "VSS_DATA_DIR"):
+        assert os.environ.get(key) == inherited_path
     reports = list((output / "vss-perf-results").glob("*.json"))
     assert len(reports) == 1
     report = json.loads(reports[0].read_text())
@@ -246,6 +258,7 @@ def test_required_environment_templates_fail_early_with_clear_path(tmp_path, mon
 
 def test_staged_blueprint_compose_keeps_required_environment_inputs(tmp_path, monkeypatch):
     import io
+    import json
     import os
     import shutil
     import tarfile
@@ -269,17 +282,28 @@ def test_staged_blueprint_compose_keeps_required_environment_inputs(tmp_path, mo
     # Supply generated configuration as a fixture: never run deployment scripts,
     # kernel tuning, image pulls, or containers during this test.
     shutil.copyfile(profile / "overrides.env", profile / "generated.env")
+    data = deployment / "data-dir"
+    with (profile / "generated.env").open("a") as generated:
+        generated.write(
+            f'\nVSS_APPS_DIR="{deployment}"\nVSS_DATA_DIR="{data}"\n'
+            'HOST_IP="127.0.0.1"\nEXTERNAL_IP="127.0.0.1"\n'
+        )
     env = {key: os.environ[key] for key in ("PATH", "HOME") if key in os.environ}
     env.update(runner.image_environment(runner.load_images(PERF / "setup/configs/images.yaml"), {}))
-    env.update({"VSS_APPS_DIR": str(deployment), "VSS_DATA_DIR": str(tmp_path / "data"),
-                "HOST_IP": "127.0.0.1", "EXTERNAL_IP": "127.0.0.1",
-                "PERF_ALERT_IMAGE": "registry.example/alerts:staging-test"})
+    env["PERF_ALERT_IMAGE"] = "registry.example/alerts:staging-test"
     command = ["docker", "compose", "-f", str(deployment / "compose.yml"),
                "--env-file", str(deployment / "containers.env"),
                "--env-file", str(profile / ".env"),
-               "--env-file", str(profile / "generated.env"), "config", "--quiet"]
+               "--env-file", str(profile / "generated.env"), "config", "--format", "json"]
     result = subprocess.run(command, cwd=deployment, env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+    resolved = json.loads(result.stdout)
+    for volume, subpath in (
+        ("kafka-data", "data_log/kafka"),
+        ("elastic-data", "data_log/elastic/data"),
+        ("elastic-logs", "data_log/elastic/logs"),
+    ):
+        assert resolved["volumes"][volume]["driver_opts"]["device"] == str(data / subpath)
     # Reproduce #128 explicitly: this include is required even before containers start.
     (deployment / "services/nvstreamer/.env").unlink()
     missing = subprocess.run(command, cwd=deployment, env=env, capture_output=True, text=True)
