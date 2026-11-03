@@ -9,11 +9,12 @@ executable scripts, ready to run individually. Since the native split ([architec
 |---|---|---|---|
 | `../start.sh` | — (new) | **laptop** | Laptop entry point: checks and heals the VM backend, opens the tunnel, runs the console |
 | `.scripts/tunnel.sh` | `mdx-tunnel-incident` | **laptop** | Open the SSH tunnel in the foreground (Ctrl-C closes it) |
-| `.scripts/tunnel-check.sh` | `mdx-tunnel-incident-check` | **laptop** | Check the tunnel from the laptop (agent health, search route, proxy) |
+| `.scripts/tunnel-check.sh` | `mdx-tunnel-incident-check` | **laptop** | Check the tunnel from the laptop (agent health, search route) |
 | `.scripts/vm-preflight.sh` | — (new) | **laptop** | Sourced by `start.sh` and `tunnel.sh`: SSH target, SSH probe with the cause of a failure, VM address. Tests: `test-vm-preflight.sh` |
 | `.scripts/vm-ensure-docker.sh` | — (new) | VM (piped by `start.sh`) | Bounded Docker deploy on the VM (clone, env check, `HOST_IP` fix, pull, `compose up`). Tests: `test-vm-ensure-docker.sh` |
 | `.scripts/native-services.sh` | — (new) | VM | `start`/`stop`/`restart`/`status`/`logs` for the native services. Tests: `test-native-services.sh` |
 | `.scripts/media-tools.sh` | — (new) | VM (run by `native-services.sh` before it starts `vss-agent`) | `install`/`check` for `ffmpeg` and `ffprobe`: a SHA-256-checked static build in `<repo>/.tools/ffmpeg/bin` unless both are on `PATH`. Tests: `test-native-services.sh` |
+| `.scripts/tracker-models.sh` | — (new) | VM (run by `native-services.sh` before it starts `vss-agent`) | `install`/`check` for the NanoTrack `.onnx` files of object tracking: a SHA-256-pinned fetch into `<repo>/.tools/tracker-models`, exported as `INCIDENT_OBJECT_TRACKING_MODEL_DIR` |
 | `.scripts/tracking-stack.sh` | — (new) | VM (started by `start.sh` unless `ENABLE_TRACKING=false`) | `start`/`stop`/`status`/`restart-perception` for the person-tracking stack (stages the RT-DETR model, never removes containers) |
 | `.scripts/status.sh` | `mdx-ps` | VM | Containers, native services and `nvidia-smi` |
 | `.scripts/down.sh` | `mdx-down` | VM | Stop native services and containers without removing them (never `-v`, never `dev-profile.sh down`) |

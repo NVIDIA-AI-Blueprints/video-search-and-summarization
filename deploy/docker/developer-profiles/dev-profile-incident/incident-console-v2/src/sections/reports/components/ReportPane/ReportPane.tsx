@@ -2,7 +2,7 @@
 'use client';
 
 import Link from 'next/link';
-import { type CSSProperties, type MouseEvent, type ReactNode, useState } from 'react';
+import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { EvidenceBadges } from '@/sections/reports/components/EvidenceBadges';
@@ -21,7 +21,7 @@ import {
   instrumentDetail,
 } from '@/modules/reports/domain/evidence-detail';
 import { reportHeading, type ReportView } from '@/modules/reports/domain/report-view';
-import { type TrackedReportItem, trackedReportItems } from '@/modules/reports/domain/track';
+import { type StillBox, type TrackedReportItem, trackedReportItems } from '@/modules/reports/domain/track';
 import { EvidenceFrame } from '@/sections/evidence/components/EvidenceFrame';
 import { EvidenceDetailDialog } from '@/sections/reports/components/EvidenceDetailDialog';
 import { PresenceBar } from '@/sections/reports/components/PresenceBar';
@@ -53,7 +53,7 @@ export function ReportPane({
 }: {
   report: ReportView;
   playerDuration: number | null;
-  onSeek: (seconds: number) => void;
+  onSeek: (seconds: number, still?: StillBox | null) => void;
   /** True once the versions have loaded and none of them is official. */
   officialMissing?: boolean;
   /** Link to compare this version with another AI version, when there is one. */
@@ -81,7 +81,7 @@ export function ReportPane({
       selected: track !== null && selectedTrackId === track.id,
       onOpen: setDetail,
       onSeek,
-      // Opening the card selects it; a click on the selected card's text clears the selection.
+      // Opening the card also selects its box in the player.
       onSelect: track ? (toggle: boolean) => onSelectTrack(toggle && selectedTrackId === track.id ? null : track.id) : undefined,
       videoId: report.videoId,
     };
@@ -275,8 +275,9 @@ function IdBadge({ id }: { id: string }) {
 }
 
 /**
- * One evidence item: its whole video frame with the box drawn on it (never a cut-out crop), which opens the item in detail.
- * A tracked item's card also selects its box in the player when clicked anywhere, and shows its presence bar.
+ * One evidence item: its whole video frame with the box drawn on it (never a cut-out crop). The whole card is a button
+ * (click, Enter or Space) that opens the item in detail; a tracked item's card also selects its box in the player and shows
+ * its presence bar, whose own buttons seek without opening it.
  */
 function Card({
   item,
@@ -300,23 +301,35 @@ function Card({
   const { seconds } = item;
   const lines = evidenceDetailLines(item);
   const shown = evidenceDisplay(item.evidence, videoId);
+  // Opening the card also selects its box in the player (a tracked item); inner buttons and links keep their own action.
+  const open = () => {
+    onOpen(item);
+    onSelect?.(false);
+  };
   return (
-    // A pointer shortcut only: the frame button and the presence bar are the card's keyboard controls.
     <UICard
-      className={cn('w-64 max-w-full overflow-hidden text-xs', selected && 'ring-2 ring-ring')}
+      aria-label={`Show ${item.title} in detail`}
+      className={cn(
+        'w-64 max-w-full cursor-pointer overflow-hidden text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        selected && 'ring-2 ring-ring',
+      )}
       data-selected={selected ? 'true' : undefined}
       data-testid="evidence-card"
       data-track-item={track?.id}
-      onClick={onSelect && ((event: MouseEvent<HTMLDivElement>) => onSelect(!(event.target as HTMLElement).closest('button')))}
+      onClick={(event: MouseEvent<HTMLDivElement>) => {
+        if ((event.target as HTMLElement).closest('button, a')) return;
+        open();
+      }}
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        open();
+      }}
+      role="button"
       style={selected && track ? ({ '--tw-ring-color': track.colour } as CSSProperties) : undefined}
+      tabIndex={0}
     >
-      <button
-        aria-label={`Show ${item.title} in detail`}
-        className="block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        data-testid="evidence-open"
-        onClick={() => onOpen(item)}
-        type="button"
-      >
+      <div data-testid="evidence-open">
         <EvidenceFrame
           aspect={16 / 9}
           box={shown.box}
@@ -329,7 +342,7 @@ function Card({
           seconds={seconds}
           src={shown.src}
         />
-      </button>
+      </div>
       <CardContent className="space-y-1 p-3">
         <h4 className="flex items-center gap-2 text-sm font-semibold">
           <IdBadge id={item.id} />
@@ -349,6 +362,11 @@ function Card({
           </p>
         )}
         {lines.onScreen && <p className="text-muted-foreground">{lines.onScreen}</p>}
+        {lines.notTracked && (
+          <p className="text-xs text-muted-foreground" data-testid="evidence-not-tracked">
+            {lines.notTracked}
+          </p>
+        )}
         {lines.time && (
           <p className="text-muted-foreground">
             Most visible at <b className="font-mono">{lines.time}</b>

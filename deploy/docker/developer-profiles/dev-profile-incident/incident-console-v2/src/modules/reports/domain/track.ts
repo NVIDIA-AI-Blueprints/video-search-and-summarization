@@ -19,11 +19,15 @@ export const TRACK_TOLERANCE_SECONDS = 0.5;
 /** Two samples further apart than this are a gap (the tracker lost the person), not a move to interpolate across. */
 export const TRACK_MAX_GAP_SECONDS = 1;
 
-/** The samples of a stored track, sorted by time; a malformed sample is dropped, and anything but an array reads as null. */
+/**
+ * The samples of a stored track, sorted by time; a malformed sample is dropped. The agent writes a bare list; a reviewer's
+ * track file is an object whose `samples` is that list, so both read. Anything else reads as null.
+ */
 export function parseTrackSamples(value: unknown): TrackSample[] | null {
-  if (!Array.isArray(value)) return null;
+  const list = Array.isArray(value) ? value : value && typeof value === 'object' ? (value as { samples?: unknown }).samples : null;
+  if (!Array.isArray(list)) return null;
   const samples: TrackSample[] = [];
-  for (const raw of value) {
+  for (const raw of list) {
     if (!raw || typeof raw !== 'object') continue;
     const { t, box } = raw as { t?: unknown; box?: unknown };
     if (typeof t !== 'number' || !Number.isFinite(t) || t < 0) continue;
@@ -110,6 +114,41 @@ export function presenceSeekSeconds(fraction: number, durationSeconds: number, f
   const at = fraction * durationSeconds;
   return Number.isFinite(at) && at >= firstSeconds && at <= lastSeconds ? at : firstSeconds;
 }
+
+/**
+ * An untracked item's box held on the player: the stored box at the second it was found. An item with a track draws that
+ * track instead; one with no box, no second or a detector miss has nothing to hold.
+ */
+export interface StillBox {
+  id: string;
+  label: string;
+  /** [ymin, xmin, ymax, xmax] on 0-1000, as stored. */
+  box: number[];
+  seconds: number;
+}
+
+export function stillBoxFor(item: {
+  id: string;
+  title: string;
+  evidence: {
+    track: string | null;
+    located: boolean | null;
+    boxSeconds: number | null;
+    boundingBox: number[] | null;
+  } | null;
+}): StillBox | null {
+  const { evidence } = item;
+  if (!evidence || evidence.track || evidence.located === false) return null;
+  if (evidence.boxSeconds === null || !Number.isFinite(evidence.boxSeconds) || evidence.boxSeconds < 0) return null;
+  if (!boxRegion(evidence.boundingBox)) return null;
+  return { id: item.id, label: item.title, box: evidence.boundingBox as number[], seconds: evidence.boxSeconds };
+}
+
+/** How far the playhead may drift from a held still box before the player has moved on and the box goes. */
+export const STILL_BOX_TOLERANCE_SECONDS = 0.25;
+/** Whether a held still box still belongs to the frame on screen: the player is paused at its second, give or take. */
+export const stillBoxHolds = (still: StillBox, playheadSeconds: number): boolean =>
+  Math.abs(playheadSeconds - still.seconds) <= STILL_BOX_TOLERANCE_SECONDS;
 
 /** One stable colour per tracked item, by its position among the report's tracked items (sorted by id). */
 const TRACK_COLOURS = ['#22c55e', '#3b82f6', '#f97316', '#e11d48', '#a855f7', '#14b8a6', '#eab308', '#ec4899'] as const;

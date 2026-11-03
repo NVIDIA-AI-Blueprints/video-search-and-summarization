@@ -28,8 +28,11 @@ supabase/
                 20261023120000_report_revision_embeddings.sql — revision summary vectors, HNSW index, search RPC
                 20261024090000_save_human_revision_with_crops.sql — a human save that stores its crops in the same call
                 20261028090000_r2_rename.sql — apply_r2_rename: points rows at renamed R2 keys (evidence-only exception to append-only)
+                20261028090000_search_evidence_items_video_id.sql — search_evidence_items gains p_video_id (one incident's evidence)
+                20261031090000_dashboard_official_else_newest.sql — the dashboard counts official, else newest, with the split and p_scope
                 20261031120000_analysis_jobs.sql — the console's background analysis queue (table + claim/heartbeat/finish/retry/cancel)
                 20261101090000_video_blur_faces.sql — privacy blur columns and claim_queued_analysis_job (removed again by the next file)
+                20261101120000_dashboard_byte_order_ties.sql — get_incident_dashboard ties broken in byte order (not applied to finals)
                 20261102090000_drop_blur_faces.sql — drops the blur columns and claim_queued_analysis_job; cancels unfinished re-analysis jobs
   tests/        SQL harness (test_baseline.py, test_freeze.py), security_check.sql, supabase_stub.sql,
                 parity_check.py, rehearse.py, probe_api.sh
@@ -78,7 +81,7 @@ FINALS_URL=... FINALS_PUBLIC_KEY=... FINALS_SERVICE_KEY=... $W/supabase/tests/pr
 **Finals uses the new key types:** the server key is `sb_secret_...` and the public key
 `sb_publishable_...`, not JWTs. They go in the `apikey` header only (`probe_api.sh` does this).
 Before the switch, the VM's `supabase-py` must be proven to accept the `sb_secret_` key (the
-agent's version is not pinned and older 2.x releases reject non-JWT keys), and the console and
+agent's `uv.lock` locks 2.33.0, but the VM venv was built by hand, and older 2.x releases reject non-JWT keys), and the console and
 eval stop sending the key as `Authorization: Bearer` (merged in PR 149). The connection test and the
 table of every key sender are in the
 [`incident-manage-database`](../skills/incident-manage-database/SKILL.md#finals-keys-sb_secret_)

@@ -93,6 +93,8 @@ export interface EvidenceDetailLines {
   onScreen: string | null;
   /** Items with a track: the span the tracker followed them, "On screen 0:02–0:09 (tracked)", beside the report's own span. */
   trackedOnScreen: string | null;
+  /** A person the run did not track: "Not tracked: <why>", from the agent's reason; null when tracked or unrecorded. */
+  notTracked: string | null;
   /** The time the item is shown at, as a clock. */
   time: string | null;
   /** Badges for a reviewer's work: "Added by reviewer", then "Incomplete track" when the tracker lost the item. */
@@ -116,6 +118,8 @@ export function evidenceDetailLines(item: EvidenceDetailItem): EvidenceDetailLin
       item.evidence?.track && item.evidence.trackFirstSeenSeconds !== null && item.evidence.trackLastSeenSeconds !== null
         ? `On screen ${formatClock(item.evidence.trackFirstSeenSeconds)}–${formatClock(item.evidence.trackLastSeenSeconds)} (tracked)`
         : null,
+    notTracked:
+      item.kind === 'entity' && !item.evidence?.track && item.evidence?.trackGap ? `Not tracked: ${item.evidence.trackGap}` : null,
     time: item.seconds === null ? null : formatClock(item.seconds),
     badges: [
       ...(item.evidence?.addedByReviewer ? ['Added by reviewer'] : []),

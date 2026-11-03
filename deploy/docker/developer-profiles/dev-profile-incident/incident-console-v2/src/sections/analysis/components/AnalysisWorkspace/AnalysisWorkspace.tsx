@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Plus, Upload } from 'lucide-react';
 import { cn } from 'cn';
 
+import { MutedVideo } from '@/components/muted-video';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -405,9 +406,9 @@ export function AnalysisWorkspace({ initialStage, initialUploadProgress, initial
       ) : file && previewUrl ? (
         <div className="overflow-hidden rounded-[1.45rem] bg-ink text-white">
           <div className="relative aspect-video w-full min-w-0 min-h-0 overflow-hidden bg-black flex items-center justify-center">
-            <video className="max-h-full max-w-full object-contain" controls preload="metadata" src={previewUrl}>
+            <MutedVideo className="max-h-full max-w-full object-contain" controls preload="metadata" src={previewUrl}>
               <track kind="captions" />
-            </video>
+            </MutedVideo>
           </div>
           <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">

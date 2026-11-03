@@ -29,8 +29,6 @@ import type { UploadAnalysisDeps } from '@/modules/analysis/application/analyse-
 import { fetchEvidenceEmbeddings } from '@/modules/reports/infrastructure/agent/evidence-embeddings';
 import type { AnalysisJobRepository } from '@/modules/jobs/domain/AnalysisJobRepository';
 import { SupabaseAnalysisJobAdapter } from '@/modules/jobs/infrastructure/supabase/analysis-jobs';
-import type { ClipStore } from '@/modules/reports/application/get-evidence-clip';
-import { R2EvidenceClipStore } from '@/modules/reports/infrastructure/r2/evidence-clip-store';
 
 /** Outbound contract catalog port: provides shared prompts, schemas and model allowlists. */
 export function getContractCatalog(): ContractCatalog {
@@ -84,11 +82,6 @@ export function getUploadAnalysis(config: ServiceConfiguration): UploadAnalysisD
 /** The background analysis queue. Throws like getDbAdapters when the database is not configured. */
 export function getAnalysisJobs(config?: ServiceConfiguration): AnalysisJobRepository {
   return new SupabaseAnalysisJobAdapter(createPostgrestClient(config));
-}
-
-/** Evidence clips: the source video and cut clips in R2, cut with the host's ffmpeg. */
-export function getEvidenceClipStore(config: ServiceConfiguration): ClipStore {
-  return new R2EvidenceClipStore(config);
 }
 
 /** The chart request port, in either analysis mode: the agent reads the request with its own LLM; null when INCIDENT_AGENT_BASE_URL is not configured. */

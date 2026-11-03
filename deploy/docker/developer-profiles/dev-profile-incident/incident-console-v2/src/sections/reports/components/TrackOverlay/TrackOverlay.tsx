@@ -4,7 +4,14 @@
 import { type RefObject, useEffect, useRef, useState } from 'react';
 
 import { cn } from '@/lib/utils';
-import { containedBoxStyle, parseTrackSamples, type TrackSample, trackBoxAt } from '@/modules/reports/domain/track';
+import {
+  containedBoxStyle,
+  parseTrackSamples,
+  type StillBox,
+  stillBoxHolds,
+  type TrackSample,
+  trackBoxAt,
+} from '@/modules/reports/domain/track';
 
 /** One tracked item the overlay draws: its name (shown as the box label, never its id), colour and the console route its samples are read from. */
 export interface TrackedItem {
@@ -71,18 +78,23 @@ function usePlayhead(video: RefObject<HTMLVideoElement | null>): number {
  * A box over the report player that follows each tracked person: the box at the playhead (interpolated between samples,
  * hidden outside the track's span), one colour per person with its name, the selected one emphasised. It never takes a
  * pointer event, so the player's own controls work through it.
+ * An untracked item's `still` box is held at its second until the video plays or moves on, then `onStillDone` clears it.
  */
 export function TrackOverlay({
   video,
   items,
   frameAspect,
   selectedId,
+  still = null,
+  onStillDone = () => undefined,
 }: {
   video: RefObject<HTMLVideoElement | null>;
   items: TrackedItem[];
   /** The video's own width / height. */
   frameAspect: number;
   selectedId: string | null;
+  still?: StillBox | null;
+  onStillDone?: () => void;
 }) {
   const seconds = usePlayhead(video);
   const tileRef = useRef<HTMLDivElement>(null);
@@ -102,6 +114,21 @@ export function TrackOverlay({
   }, [items]);
 
   useEffect(() => {
+    const element = video.current;
+    if (!still || !element) return;
+    const release = () => onStillDone();
+    const moved = () => {
+      if (!stillBoxHolds(still, element.currentTime)) onStillDone();
+    };
+    element.addEventListener('play', release);
+    element.addEventListener('seeked', moved);
+    return () => {
+      element.removeEventListener('play', release);
+      element.removeEventListener('seeked', moved);
+    };
+  }, [still, video, onStillDone]);
+
+  useEffect(() => {
     const tile = tileRef.current;
     if (!tile) return;
     const measure = () => {
@@ -115,6 +142,7 @@ export function TrackOverlay({
 
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden" data-testid="track-overlay" ref={tileRef}>
+      {still && stillBoxHolds(still, seconds) && <StillBoxMark frameAspect={frameAspect} still={still} tileAspect={tileAspect} />}
       {items.map((item) => {
         const samples = tracks[item.trackUrl];
         const style = samples ? containedBoxStyle(trackBoxAt(samples, seconds), frameAspect, tileAspect) : null;
@@ -146,6 +174,24 @@ export function TrackOverlay({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** The held box of an untracked item: dashed, so it reads as a stored box and not a following one. */
+function StillBoxMark({ still, frameAspect, tileAspect }: { still: StillBox; frameAspect: number; tileAspect: number }) {
+  const style = containedBoxStyle(still.box, frameAspect, tileAspect);
+  if (!style) return null;
+  return (
+    <div
+      className="absolute rounded-sm border-[3px] border-dashed border-amber-400"
+      data-testid="still-box"
+      data-still-item={still.id}
+      style={{ ...style, boxShadow: '0 0 0 2px rgb(0 0 0 / 0.45)' }}
+    >
+      <span className="absolute -top-[1.35rem] -left-[3px] max-w-56 truncate rounded-sm bg-amber-400 px-1 py-px font-mono text-[11.5px] font-bold text-black">
+        {still.label}
+      </span>
     </div>
   );
 }

@@ -581,13 +581,19 @@ async def run_tracking(
                 try:
                     latest = await active_client.latest_frame_id(sensor_id)
                 except Exception as exc:  # the index lags the stream; a failed poll is retried
-                    logger.info("incident tracking: frame poll failed (%s)", type(exc).__name__)
+                    logger.warning("incident tracking: frame poll failed (%s)", type(exc).__name__)
                     latest = None
                 if latest is not None:
                     highest = latest if highest is None else max(highest, latest)
                 waited = clock() - added_at
-                if highest is None and waited > active.no_frames_timeout_seconds:
-                    logger.warning("incident tracking: no frames within %.0f s of the stream add", waited)
+                # Frames without a person are never published, so a quiet start is silent. Give up early only when the
+                # stream is gone from the stack; while it is registered, wait for the deadline like any other run.
+                if (
+                    highest is None
+                    and waited > active.no_frames_timeout_seconds
+                    and not await _stream_alive(active_client)
+                ):
+                    logger.warning("incident tracking: no frames within %.0f s and the stream is gone", waited)
                     return done(skipped="no frames from perception")
                 if (
                     latest is not None
@@ -623,6 +629,15 @@ async def run_tracking(
                     await active_client.delete_file(stream_id)
                 except Exception as exc:
                     logger.warning("incident tracking: NvStreamer file delete failed: %s", type(exc).__name__)
+
+
+async def _stream_alive(client: PerceptionClient) -> bool:
+    """Whether the stack still has a stream registered (get-stream-info); an unreadable count reads as gone."""
+    try:
+        return await client.stream_count() > 0
+    except Exception as exc:
+        logger.warning("incident tracking: stream count failed (%s)", type(exc).__name__)
+        return False
 
 
 @dataclass

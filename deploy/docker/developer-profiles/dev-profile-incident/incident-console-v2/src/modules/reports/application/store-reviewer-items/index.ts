@@ -17,8 +17,18 @@ import {
 import { StoreRejection } from '@/modules/shared/domain/common';
 import type { ReviewerEvidenceStore } from '@/modules/reports/application/types';
 
+// What a reviewer's new image, frame and track replace. The agent's `detected_box` and zoomed second look (`zoom_*`, and the
+// `name_before`/`description_before` it left when it corrected a name) describe the old crop, so they go with it.
 const REPLACED_FIELDS = [
   'image_gap',
+  'track_gap',
+  'detected_box',
+  'zoom_checked',
+  'zoom_confidence',
+  'zoom_seen',
+  'zoom_gap',
+  'name_before',
+  'description_before',
   'missing',
   'track',
   'track_first_seen_seconds',

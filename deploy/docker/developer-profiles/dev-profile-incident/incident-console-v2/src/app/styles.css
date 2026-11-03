@@ -235,3 +235,10 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
 }
+
+/* Videos never play sound (see components/muted-video.tsx): hide the native mute and volume controls. */
+video::-webkit-media-controls-mute-button,
+video::-webkit-media-controls-volume-slider,
+video::-webkit-media-controls-volume-slider-container {
+  display: none;
+}

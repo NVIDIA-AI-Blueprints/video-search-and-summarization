@@ -54,7 +54,7 @@ test('an object the agent did not locate shows its frame with no box and a note'
 
 test('an item analysed before frames were stored gets its frame cut from the stored video at the box second', () => {
   const shown = evidenceDisplay(evidence({ boundingBox: [100, 100, 300, 400], timestampSeconds: 4.2 }), '189');
-  assert.equal(shown.frameSrc, '/api/reports/189/frame?t=4');
+  assert.equal(shown.frameSrc, '/api/reports/189/frame?t=4.2');
   assert.deepEqual(shown.box, [100, 100, 300, 400]);
   assert.equal(shown.src, 'https://signed/crop');
   assert.equal(evidenceDisplay(evidence({ boundingBox: [100, 100, 300, 400], boxSeconds: 7 }), '1').frameSrc, '/api/reports/1/frame?t=7');
@@ -79,7 +79,9 @@ test('an item with no box, frame or time shows its stored image whole', () => {
 
 test('the frame route URL escapes the video id and clamps the second', () => {
   assert.equal(videoFrameUrl('a b', -3), '/api/reports/a%20b/frame?t=0');
-  assert.equal(videoFrameUrl('5', 7.6), '/api/reports/5/frame?t=8');
+  assert.equal(videoFrameUrl('5', 7.6), '/api/reports/5/frame?t=7.6', 'the exact second Save cuts, not a whole one');
+  assert.equal(videoFrameUrl('5', 7.123456), '/api/reports/5/frame?t=7.123');
+  assert.equal(videoFrameUrl('5', 7), '/api/reports/5/frame?t=7');
 });
 
 test('the payload view reads the frame, located flag, box second and gap from an evidence entry', () => {
