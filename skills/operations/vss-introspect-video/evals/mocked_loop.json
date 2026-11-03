@@ -1,0 +1,27 @@
+{
+  "skills": [
+    "vss-introspect-video",
+    "vss-generate-evidence-plan"
+  ],
+  "profile": "mocked-loop",
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "gpu_count": 0
+      }
+    }
+  },
+  "expects": [
+    {
+      "scenario": "deterministic-mocked-introspection-loop",
+      "query": "Run `/vss-introspect-video` for question `mocked-ppe-q1`: \"Which worker was missing a hard hat?\" This is a deterministic mocked-loop evaluation: do not deploy VSS or contact a backend. Treat the following as fixture outputs from the named ordinary commands, while still performing the skill workflow and writing the run artifacts. The option-blind planner fixture returns one identity-qualified attribute claim `claim-missing-hard-hat`. The fixture for `vss memory query` returns one accepted observation for worker A at dock_cam from 2026-08-13T20:00:00Z through 2026-08-13T20:00:10Z, but it is insufficient because worker B is not visible. The fixture task result for the bounded `vss vlm run` window 2026-08-13T20:00:10Z through 2026-08-13T20:00:20Z supports that worker B is visibly missing a hard hat and includes VLM job `vlm-mock-02`. Use the canonical configuration and deterministic ledger utility. Return the answer, observation IDs, provenance, unresolved gaps, final revision, and artifact directory.",
+      "checks": [
+        "The trajectory calls or explicitly applies `vss-generate-evidence-plan` before binding the mocked memory fixture, and no answer option or evidence is inserted into the plan.",
+        "The trajectory uses only the declared ordinary memory-query and bounded VLM fixture surfaces; it never invokes `vss memory introspect`, raw HTTP, the VSS Agent `/generate` endpoint, or a live deployment.",
+        "The visual task contains one claim, the current frozen base revision, an explicit immutable sensor scope with the bounded ISO-8601 window, and an allocation validated from `config/ledger-budgets.json`.",
+        "The mocked memory and visual results are merged deterministically through `scripts/evidence_ledger.py`, preserving source, sensor, time-window, and VLM-job provenance.",
+        "The final answer identifies worker B, cites accepted observation IDs with memory or VLM provenance, states unresolved gaps (including none if the deterministic sufficiency result has none), reports the final revision, and gives the run artifact directory under the documented VSS workspace path."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "max_expansions": 4,
+  "max_initial_claims": 2,
+  "max_inspection_rounds": 4,
+  "max_parallel_subagents": 2,
+  "max_total_claims": 6,
+  "max_total_vlm_calls": 12,
+  "max_vlm_calls_per_subagent": 4
+}

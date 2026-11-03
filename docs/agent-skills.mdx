@@ -160,7 +160,15 @@ the installed path or in the slash command.**
 </tr>
 <tr>
 <td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-ask-video</code></td>
-<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Answer a question about previously analyzed or freshly scoped video, routing through hot conversation context, agent Markdown memory, structured VSS memory, bounded memory introspection, or an exact-window <code>vss vlm run</code>. Not for retrieval or metadata-answerable questions.</td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Entry point for direct questions about previously analyzed or freshly scoped video. Preserves hot-context, exact stored-memory, and explicit one-scope VLM routes; delegates requested or enabled introspection, evidence-intensive questions, and answer-choice requests once to <code>vss-introspect-video</code>.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-introspect-video</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Run the delegated agent-owned evidence loop: option-blind planning before memory, ordinary VSS memory binding, bounded one-claim visual tasks against a frozen revision, deterministic reassessment, and a grounded answer or explicit unresolved gaps with provenance and artifacts.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-generate-evidence-plan</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Generate the minimal option-blind claim plan used before evidence retrieval. The planner never binds evidence or answers the question.</td>
 </tr>
 <tr>
 <td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-generate-video-report</code></td>
