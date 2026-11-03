@@ -4,7 +4,6 @@
 // Its input is the translated RevisionRecord (lib/ports/incidents.ts); the
 // Supabase rows are mapped by lib/adapters/supabase/mappers/report.ts.
 
-import { runBlurredFaces } from '@/modules/reports/domain/privacy-blur';
 import type { RevisionRecord } from '@/modules/reports/domain/IncidentRepository';
 import { canonicalIncidentType, parseTimestamp } from '@/modules/reports/domain/normalize';
 import type { ModelOutput, ReportView, RunDetails } from '@/modules/reports/domain/report-view';
@@ -158,10 +157,6 @@ export function toReportView(
     run,
     revision: record.revision,
     official: { officialRevisionId: record.video.officialRevisionId, isOfficial: record.revision.isOfficial },
-    privacy: {
-      blurFaces: record.video.blurFaces === true,
-      runBlurred: notes.kind === 'contract' && runBlurredFaces(notes.response),
-    },
     differences,
   };
 }

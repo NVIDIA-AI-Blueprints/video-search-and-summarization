@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { HistoryIcon, MoreHorizontalIcon, SearchIcon, StarIcon, TagIcon, Trash2Icon, VideoIcon, WrenchIcon } from 'lucide-react';
+import { HistoryIcon, MoreHorizontalIcon, SearchIcon, StarIcon, TagIcon, Trash2Icon, WrenchIcon } from 'lucide-react';
 
 import { Card } from '@/components/ui/card';
 import { ReportThumbnail } from '@/sections/library/components/ReportThumbnail';
@@ -191,27 +191,16 @@ export function IncidentCard({
               <TooltipTrigger asChild>
                 <h2 className="line-clamp-1 text-[15px] font-semibold leading-snug tracking-tight text-ink">{displayTitle}</h2>
               </TooltipTrigger>
-              <TooltipContent>{displayTitle}</TooltipContent>
+              <TooltipContent>
+                <p>{displayTitle}</p>
+                <p className="text-xs opacity-70" data-testid="video-name">
+                  {item.filename} · Added {formatTimestamp(item.uploadedAt)}
+                </p>
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
 
           <p className="truncate text-[13px] leading-5 text-ink/60">{item.description}</p>
-
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs font-medium text-ink/70" data-testid="video-name">
-                  <VideoIcon className="size-3.5 shrink-0 text-ink/45" />
-                  <span className="truncate">{item.filename}</span>
-                </p>
-              </TooltipTrigger>
-              <TooltipContent>{item.filename}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-
-          <p className="truncate text-xs text-ink/50">
-            {evidence} evidence · {versions} {versions === 1 ? 'version' : 'versions'} · Added {formatTimestamp(item.uploadedAt)}
-          </p>
         </div>
       </Card>
 

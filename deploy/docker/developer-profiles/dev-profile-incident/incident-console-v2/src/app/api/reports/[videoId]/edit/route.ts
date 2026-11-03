@@ -8,7 +8,8 @@ import { fetchEvidenceItemEmbeddings } from '@/modules/reports/infrastructure/ag
 import { saveHumanEdit, SearchableStepError } from '@/modules/reports/application/save-human-edit';
 import { StructuredEditError, validateStructuredEdit } from '@/modules/contract/domain/structured-edit';
 import type { StructuredEdit } from '@/modules/reports/domain/edit-draft';
-import { getServiceConfiguration } from '@/lib/env';
+import { getServiceConfiguration, isR2Configured } from '@/lib/env';
+import { R2ReviewerEvidenceStore } from '@/modules/reports/infrastructure/r2/reviewer-evidence-store';
 import { errorResponse, rejectionResponse } from '@/lib/http';
 
 // Save: structured (Class A) reviewer edits become a new human revision whose
@@ -51,6 +52,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ video
       getDbAdapters(config),
       { videoId, parentId: parsed.data.parentId, edit, createdBy: parsed.data.editedBy, note: parsed.data.note },
       (evidence) => fetchEvidenceItemEmbeddings(config, evidence),
+      isR2Configured(config) ? new R2ReviewerEvidenceStore(config) : undefined,
     );
     return NextResponse.json({ saved: true, revision });
   } catch (error) {

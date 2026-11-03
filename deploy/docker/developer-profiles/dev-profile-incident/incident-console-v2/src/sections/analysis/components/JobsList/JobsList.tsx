@@ -17,7 +17,7 @@ const jobId = (key: string): number => Number(key.replace(/^job-/, ''));
 
 /**
  * The background analysis jobs not shown as this page's own rows: running and
- * queued ones, then the latest finished. They come from the server, so they
+ * queued ones; a finished job leaves the list. They come from the server, so they
  * survive a closed tab or a reload.
  */
 export function JobsList({ jobs, error, onRetry, onCancel }: JobsListProps) {
@@ -33,8 +33,8 @@ export function JobsList({ jobs, error, onRetry, onCancel }: JobsListProps) {
           Analysis jobs
         </h2>
         <p className="text-xs text-muted-foreground">
-          Uploaded videos are analysed on the server, one at a time, and keep going when this tab is closed. Running and queued jobs, then
-          the latest finished ones.
+          Uploaded videos are analysed on the server, one at a time, and keep going when this tab is closed. Only running and queued jobs
+          are listed here.
         </p>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}

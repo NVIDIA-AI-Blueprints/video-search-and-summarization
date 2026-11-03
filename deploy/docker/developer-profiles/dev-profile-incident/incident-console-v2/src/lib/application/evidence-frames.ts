@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Frame and crop use cases for replacing or adding evidence: the frame of a
+// Frame and crop use cases for adding evidence: the frame of a
 // video at a second, and a crop of that frame as JPEG bytes. A crop is not
 // stored here: the browser holds it until the reviewer saves, and Save uploads
 // it. They depend on the video port and a frame source, so they never import

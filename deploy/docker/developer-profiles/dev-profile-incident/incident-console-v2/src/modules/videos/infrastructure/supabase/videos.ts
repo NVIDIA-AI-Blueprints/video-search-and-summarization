@@ -30,7 +30,6 @@ function videoRecord(videoId: string, row: Row): VideoRecord {
     uploadedAt: text(row.uploaded_datetime),
     source: text(row.source),
     officialRevisionId: numberOrNull(row.official_revision_id),
-    blurFaces: row.blur_faces === true,
   };
 }
 
@@ -181,11 +180,6 @@ export class SupabaseVideoAdapter implements VideoRepository {
       revisionId: numberOrNull(result.revisionId) ?? revisionId,
       crops: numberOrNull(result.crops) ?? 0,
     };
-  }
-
-  async setBlurFaces(videoId: string, blurFaces: boolean): Promise<boolean> {
-    const rows = await this.db.updateWhere('videos', { id: videoId }, { blur_faces: blurFaces });
-    return Array.isArray(rows) && rows.length > 0;
   }
 
   async deleteVideo(videoId: string): Promise<void> {

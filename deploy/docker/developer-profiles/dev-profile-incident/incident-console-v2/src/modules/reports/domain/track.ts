@@ -116,7 +116,7 @@ const TRACK_COLOURS = ['#22c55e', '#3b82f6', '#f97316', '#e11d48', '#a855f7', '#
 export const trackColour = (index: number): string =>
   TRACK_COLOURS[((index % TRACK_COLOURS.length) + TRACK_COLOURS.length) % TRACK_COLOURS.length];
 
-/** An item of the report that has a track, as the overlay and the cards draw it. */
+/** An item of the report that has a track, as the overlay and the cards draw it; `label` is its name (the id only when it has none). */
 export interface TrackedReportItem {
   kind: EvidenceItemType;
   id: string;
@@ -133,16 +133,21 @@ export function trackedReportItems(structured: ReportView['structured']): Tracke
     ...structured.entities.map((item) => ({
       kind: 'entity' as const,
       id: item.entityId,
-      label: item.label || item.type,
+      label: item.label || item.type || item.entityId,
       evidence: item.evidence,
     })),
     ...structured.instruments.map((item) => ({
       kind: 'instrument' as const,
       id: item.instrumentId,
-      label: item.name,
+      label: item.name || item.instrumentId,
       evidence: item.evidence,
     })),
-    ...structured.assets.map((item) => ({ kind: 'asset' as const, id: item.assetId, label: item.name, evidence: item.evidence })),
+    ...structured.assets.map((item) => ({
+      kind: 'asset' as const,
+      id: item.assetId,
+      label: item.name || item.assetId,
+      evidence: item.evidence,
+    })),
   ];
   return all
     .flatMap(({ kind, id, label, evidence }) => {

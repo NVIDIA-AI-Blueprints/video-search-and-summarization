@@ -272,7 +272,7 @@ function jobsDatabase(rows = []) {
     {
       identity: { analysis_jobs: 'id' },
       rpc: {
-        claim_queued_analysis_job: (args, store) => {
+        claim_analysis_job: (args, store) => {
           calls.push(['claim', args]);
           const next = domain.nextToClaim(store.analysis_jobs.map(jobFromRow));
           return next ? update(store, next.id, domain.claimed(next, NOW)) : [];
@@ -333,7 +333,7 @@ test('Supabase adapter: enqueues a row and drives the job functions with their p
   );
   assert.equal(queued.id, 1);
   const claimed = await repo.claim(180);
-  assert.deepEqual(db.calls.at(-1), ['claim', { p_stale_seconds: 180, p_uploads_only: false }]);
+  assert.deepEqual(db.calls.at(-1), ['claim', { p_stale_seconds: 180 }]);
   assert.deepEqual([claimed.status, claimed.attempts], ['running', 1]);
   assert.equal(await repo.claim(180), null, 'zero rows is no job');
   assert.equal(await repo.heartbeat(1, 1), true);

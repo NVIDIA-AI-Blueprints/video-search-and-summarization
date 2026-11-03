@@ -29,7 +29,8 @@ supabase/
                 20261024090000_save_human_revision_with_crops.sql — a human save that stores its crops in the same call
                 20261028090000_r2_rename.sql — apply_r2_rename: points rows at renamed R2 keys (evidence-only exception to append-only)
                 20261031120000_analysis_jobs.sql — the console's background analysis queue (table + claim/heartbeat/finish/retry/cancel)
-                20261101090000_video_blur_faces.sql — privacy blur: videos.blur_faces, re-analysis jobs, claim_queued_analysis_job
+                20261101090000_video_blur_faces.sql — privacy blur columns and claim_queued_analysis_job (removed again by the next file)
+                20261102090000_drop_blur_faces.sql — drops the blur columns and claim_queued_analysis_job; cancels unfinished re-analysis jobs
   tests/        SQL harness (test_baseline.py, test_freeze.py), security_check.sql, supabase_stub.sql,
                 parity_check.py, rehearse.py, probe_api.sh
   r2/           migrate_r2_names.py (+ test): copy every old R2 object to a readable key, verify, update the rows; never deletes

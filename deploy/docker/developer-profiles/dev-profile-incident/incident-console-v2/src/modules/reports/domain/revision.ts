@@ -113,11 +113,21 @@ export function evidenceFolder(videoKey: string): string {
 }
 
 /**
- * The R2 key of a reviewer's replacement image: `evidence/<video key>/edit-<n>/<itemId>.jpg`.
+ * The R2 key of a reviewer's evidence image: `evidence/<video key>/edit-<n>/<itemId>.jpg`.
  * The caller picks the first `n` whose key is free, so no object is ever overwritten.
  */
 export function uploadedEvidenceKey(videoKey: string, editNumber: number, itemId: string): string {
   return `${evidenceFolder(videoKey)}edit-${editNumber}/${itemId}.jpg`;
+}
+
+/** The R2 key of a reviewer item's whole frame: `evidence/<video key>/edit-<n>/<itemId>-frame.jpg`. */
+export function reviewerFrameKey(videoKey: string, editNumber: number, itemId: string): string {
+  return `${evidenceFolder(videoKey)}edit-${editNumber}/${itemId}-frame.jpg`;
+}
+
+/** The R2 key of a reviewer item's track file: `evidence/<video key>/edit-<n>/<itemId>-track.json`. */
+export function reviewerTrackKey(videoKey: string, editNumber: number, itemId: string): string {
+  return `${evidenceFolder(videoKey)}edit-${editNumber}/${itemId}-track.json`;
 }
 
 /** Whether an image key may appear in a revision of the video stored under `videoKey`. */
@@ -146,11 +156,15 @@ export function humanRevisionContent(
       ...edit.incident,
       duration: edit.incident.end_timestamp - edit.incident.start_timestamp,
     },
-    entities: edit.entities.map(({ source_id: _source, image: _image, image_timestamp_seconds: _at, image_box: _box, ...item }) => item),
-    instruments: edit.instruments.map(
-      ({ source_id: _source, image: _image, image_timestamp_seconds: _at, image_box: _box, ...item }) => item,
+    entities: edit.entities.map(
+      ({ source_id: _source, image: _image, image_timestamp_seconds: _at, image_box: _box, reviewer: _reviewer, ...item }) => item,
     ),
-    assets: edit.assets.map(({ source_id: _source, image: _image, image_timestamp_seconds: _at, image_box: _box, ...item }) => item),
+    instruments: edit.instruments.map(
+      ({ source_id: _source, image: _image, image_timestamp_seconds: _at, image_box: _box, reviewer: _reviewer, ...item }) => item,
+    ),
+    assets: edit.assets.map(
+      ({ source_id: _source, image: _image, image_timestamp_seconds: _at, image_box: _box, reviewer: _reviewer, ...item }) => item,
+    ),
   };
   const evidence: EvidenceEntry[] = [];
   const follow = (

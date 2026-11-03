@@ -18,11 +18,9 @@ import type {
 } from '@/modules/videos/domain/VideoRepository';
 import type { OfficialCrop } from '@/modules/reports/domain/revision';
 
-export interface InMemoryVideo extends Omit<VideoRecord, 'blurFaces'> {
+export interface InMemoryVideo extends VideoRecord {
   /** Ids of this video's report revisions. */
   revisionIds: number[];
-  /** The privacy toggle; absent means off. */
-  blurFaces?: boolean;
 }
 
 export class InMemoryVideoRepository implements VideoRepository {
@@ -34,7 +32,7 @@ export class InMemoryVideoRepository implements VideoRepository {
   readonly cropCalls: Array<{ videoId: string; revisionId: number; crops: OfficialCrop[] }> = [];
 
   constructor(videos: InMemoryVideo[] = []) {
-    for (const video of videos) this.videos.set(video.videoId, { blurFaces: false, ...video, revisionIds: [...video.revisionIds] });
+    for (const video of videos) this.videos.set(video.videoId, { ...video, revisionIds: [...video.revisionIds] });
   }
 
   async listVideos(filter: VideoListFilter, page: number, pageSize: number): Promise<Page<VideoListItem>> {
@@ -71,7 +69,7 @@ export class InMemoryVideoRepository implements VideoRepository {
     const video = this.videos.get(videoId);
     if (!video) return null;
     const { revisionIds: _ids, ...record } = video;
-    return { ...record, blurFaces: record.blurFaces === true };
+    return record;
   }
 
   /** Run records are not modelled in memory: the history has the video and no runs. */
@@ -99,13 +97,6 @@ export class InMemoryVideoRepository implements VideoRepository {
       throw new StoreRejection('invalid', `Revision ${revisionId} is not the searchable revision of video ${videoId}`);
     this.cropCalls.push({ videoId, revisionId, crops });
     return { videoId, revisionId, crops: crops.length };
-  }
-
-  async setBlurFaces(videoId: string, blurFaces: boolean): Promise<boolean> {
-    const video = this.videos.get(videoId);
-    if (!video) return false;
-    video.blurFaces = blurFaces;
-    return true;
   }
 
   async deleteVideo(videoId: string): Promise<void> {

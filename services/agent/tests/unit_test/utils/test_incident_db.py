@@ -217,6 +217,15 @@ async def test_get_video_returns_none_when_missing():
 
 
 @pytest.mark.asyncio
+async def test_get_video_returns_none_when_postgrest_returns_no_response():
+    """supabase-py's maybe_single().execute() returns None, not a response, when no row matches."""
+    mock_client = _make_mock_client()
+    mock_client.table().select().maybe_single().execute = AsyncMock(return_value=None)
+    db = IncidentDB(mock_client)
+    assert await db.get_video("missing") is None
+
+
+@pytest.mark.asyncio
 async def test_get_video_returns_dict_when_found():
     mock_client = _make_mock_client()
     mock_client.table().select().maybe_single().execute = AsyncMock(

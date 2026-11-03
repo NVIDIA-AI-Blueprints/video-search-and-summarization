@@ -161,11 +161,11 @@ cmd_start() {
   stage_model
   check_name_conflicts
   say "bringing up the tracking stack under compose project '${PROJECT}'..."
-  compose up -d "${BATCH_INFRA[@]}"
-  compose up -d "${BATCH_MEDIA[@]}"
+  compose up -d --yes "${BATCH_INFRA[@]}"
+  compose up -d --yes "${BATCH_MEDIA[@]}"
   wait_for "elasticsearch (:9200)" 180 curl -sf --max-time 5 http://localhost:9200
   wait_for "NvStreamer (:31000)" 180 curl -sf --max-time 5 http://localhost:31000/api/v1/sensor/streams
-  compose up -d "${BATCH_PERCEPTION[@]}"
+  compose up -d --yes "${BATCH_PERCEPTION[@]}"
   wait_for "DeepStream perception (:9000)" "$READY_TIMEOUT" ds_ready
   wait_for "video-analytics API (:8081)" 120 curl -sf --max-time 5 http://localhost:8081/livez
   say "tracking stack is up."
@@ -205,7 +205,7 @@ cmd_restart_perception() {
   set_host_ip
   say "restarting perception-2d-fusion only..."
   # up -d starts it when it is Exited (third crash) and recreates it only if its config changed.
-  compose up -d --no-deps perception-2d-fusion
+  compose up -d --yes --no-deps perception-2d-fusion
   compose restart perception-2d-fusion
   wait_for "DeepStream perception (:9000)" "$READY_TIMEOUT" ds_ready
 }

@@ -15,7 +15,7 @@
 #      check hang)
 #   3. docker usable
 #   4. images of the services (and their dependencies) present, else pulled
-#   5. `docker compose up -d <services>` under a timeout, with diagnostics on
+#   5. `docker compose up -d --yes <services>` under a timeout (--yes: recreate on config mismatch, never prompt), with diagnostics on
 #      timeout or failure
 # Exit codes: 0 ok, 10 repo, 11 env file, 12 docker, 13 image pull, 14 up failed, 124 up timed out.
 
@@ -105,7 +105,7 @@ fi
 
 # 5. up, bounded
 say "docker compose up -d ${SERVICES[*]} (timeout ${UP_TIMEOUT}s)..."
-timeout --kill-after=15 "$UP_TIMEOUT" "${COMPOSE[@]}" up -d "${SERVICES[@]}"
+timeout --kill-after=15 "$UP_TIMEOUT" "${COMPOSE[@]}" up -d --yes "${SERVICES[@]}"
 rc=$?
 if [ "$rc" -ne 0 ]; then
   if [ "$rc" -eq 124 ]; then

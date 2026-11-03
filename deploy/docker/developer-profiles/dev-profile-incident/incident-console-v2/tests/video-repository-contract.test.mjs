@@ -30,7 +30,6 @@ const VIDEO = {
   uploadedAt: '2026-10-01T08:00:00',
   source: 'sensor-1',
   officialRevisionId: null,
-  blurFaces: false,
 };
 const attempt = (id, videoId, status) => ({
   id,
@@ -131,16 +130,6 @@ for (const [name, make] of Object.entries(implementations)) {
         "another video's revision",
       );
       await assert.rejects(repo.setRevisionCrops('v1', 99, []), rejection('invalid', /not the searchable revision/));
-    });
-
-    test('the face-blur toggle is stored per video; an unknown video is reported, not created', async () => {
-      const { repo } = make();
-      assert.equal(await repo.setBlurFaces('v1', true), true);
-      assert.equal((await repo.getVideo('v1')).blurFaces, true);
-      assert.equal(await repo.setBlurFaces('v1', false), true);
-      assert.equal((await repo.getVideo('v1')).blurFaces, false);
-      assert.equal(await repo.setBlurFaces('v-none', true), false);
-      assert.equal(await repo.getVideo('v-none'), null);
     });
 
     test('a deleted video is gone', async () => {
