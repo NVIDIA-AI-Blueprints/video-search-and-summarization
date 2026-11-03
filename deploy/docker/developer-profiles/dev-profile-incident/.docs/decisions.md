@@ -2,6 +2,21 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-03: C3 scope: evidence boxes out of the critical path, Track B on the historical C1b profile, deterministic held-out dashboard set
+- **Decision (owner):** evidence-box localisation is removed from the C3 critical path. RA1 continues separately, and no IoU is claimed.
+- **Proposed for the owner's approval in the pre-registration:**
+  - C3 Track B runs the historical C1b profile (agent `acbf892ba`, tracking off), labelled as such and never combined with current production.
+  - The held-out dashboard set `dashboard-references-test-v1` is deterministic (code-planned specs, template wording, recount figures).
+- **Why:**
+  - The RA1 Claude passes (about 17,000 frame judgements for dev alone) are unscoped.
+  - A current-production Track B needs the VM tracking stack.
+  - Held-out reference answers must not reach external models, so they cannot be AI-reviewed and are made correct by construction instead.
+- **Rejected:**
+  - Mixing current agent code with historical flags.
+  - Claude-written held-out dashboard requests (they would need an external review to validate).
+  - Sampling RA1 seconds without a methodology version.
+- **Links:** [`v2-c2-freeze-readiness.md`](../eval/methodology/v2-c2-freeze-readiness.md), [`evaluation-v2-preregistration.md`](../eval/methodology/evaluation-v2-preregistration.md)
+
 ### 2026-11-03: Caption-pass provenance names the per-run outcome and the agent setting separately
 - **Decision:** `response.provenance.flags.chunking` keeps `enabled` as is (this run captioned) and gains `ran` (the same per-run value, named plainly), `setting_enabled` (`INCIDENT_CHUNKING_ENABLED` for the agent at the time of the run) and `skipped` (the pass's skip reason, `null` when it ran or was not attempted). Contract: [`vm-api-contracts.md`](vm-api-contracts.md).
 - **Why:** a 2 Nov report read `enabled: false` on a short clip as "the pass is off". `enabled` is per-run, so a clip under `INCIDENT_CHUNK_MIN_CLIP_SECONDS` reads false while the pass is on. The additive keys make both questions answerable without changing any consumer.
