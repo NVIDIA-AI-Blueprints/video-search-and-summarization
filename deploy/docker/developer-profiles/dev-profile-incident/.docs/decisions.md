@@ -2,6 +2,24 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-03: Dashboard chart requests normalise canonical severity words in code
+- **Decision:** `generateChart` rewrites a canonical severity word to its dashboard band before the chart model reads the request (`domain/severity-words.ts`, `chart-severity-words-v1`):
+  - moderate becomes `medium-severity`;
+  - severe and critical become `high-severity`;
+  - minimal and very low become `low-severity`.
+- **Where it applies:** only where the word qualifies "severity" or an incident noun. Breakdowns ("minor, moderate and severe"), "how severe…" and words with no canonical level (minor, serious, mild, major) stay as typed, for the model and the prompt's rules.
+- **Limits:** the chart prompt bytes are unchanged, and the typed request is kept if the result would pass 300 characters.
+- **Why:** in the C1c dashboard pilot, Nemotron 3 Ultra read the prompt's "exactly these values" rule literally and refused synonym requests: 7 false refusals on the 29 synonym requests, 2 on the other 31. A deterministic step fixes the canonical cases without relying on the model's interpretation.
+- **Sources:** the words and levels come only from the project's own definitions:
+  - the severity rubric's level names (1 Minimal/Very Low, 2 Low, 3 Moderate, 4 High, 5 Critical);
+  - the importer's `mapSeverity` (severe and critical are 5);
+  - the dashboard bands (low 1–2, medium 3, high 4–5).
+- **Rejected:**
+  - Mapping "minor" (it has no level name; the rubric uses it only in the level 1–2 descriptions), pending an owner decision.
+  - A prompt-only synonym list (it depends on the model's interpretation).
+  - Changing the severity scale or the bands.
+- **Links:** [`severity-words.ts`](../incident-console-v2/src/modules/dashboard/domain/severity-words.ts), [`chart-severity-words.json`](../contracts/fixtures/chart-severity-words.json), [`v2-dashboard-change-assessment.md`](../eval/methodology/v2-dashboard-change-assessment.md)
+
 ### 2026-11-03: Evaluation V2 reference review is AI-only; no record is human-verified
 - **Decision (owner):** an AI-only independent review replaces the planned human reviews: the 80 judge-calibration pairs, RA2 chat (64), RB2 dashboard (30) and the RA1 boxes.
   - Two blind reviewers from families outside the subjects, judges and generator (DeepSeek, Zhipu GLM), with a MiniMax adjudicator for disputed records.

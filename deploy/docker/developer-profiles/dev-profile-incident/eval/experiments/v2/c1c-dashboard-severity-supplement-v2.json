@@ -35,18 +35,18 @@
    "ledger": "inference",
    "subject": "ultra-chart",
    "task": "dashboard",
-   "max_attempts": 24,
-   "max_tokens": 36000
+   "max_attempts": 28,
+   "max_tokens": 42000
   },
   {
    "ledger": "inference",
    "subject": "*",
    "task": "*",
-   "max_attempts": 24,
-   "max_tokens": 36000
+   "max_attempts": 28,
+   "max_tokens": 42000
   }
  ],
- "notes": "Severity-word change, NOT YET APPROVED: the 24 rule-written dev supplement requests (12 valid with critical/minimal/very low/moderate/severe; 12 that must still be refused) to Ultra on agent-route-v2, scored on spec/refusal only (no corpus snapshot). v2 vs v3 shows the change's effect, including false acceptances. Caps 24 attempts / 36,000 tokens, hard stop.",
+ "notes": "Severity-word change, NOT YET APPROVED: the 24 rule-written dev supplement requests (12 valid with critical/minimal/very low/moderate/severe; 12 that must still be refused) to Ultra on agent-route-v2, scored on spec/refusal only (no corpus snapshot). v2 vs v3 shows the change's effect, including false acceptances. Caps 28 attempts / 42,000 tokens (24 items + 15% for rate-limit retries), hard stop.",
  "purpose": "pilot",
  "budget_mode": "hard_stop"
 }

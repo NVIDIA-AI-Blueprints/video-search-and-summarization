@@ -36,18 +36,18 @@
    "ledger": "inference",
    "subject": "ultra-chart",
    "task": "dashboard",
-   "max_attempts": 75,
-   "max_tokens": 112500
+   "max_attempts": 86,
+   "max_tokens": 129000
   },
   {
    "ledger": "inference",
    "subject": "*",
    "task": "*",
-   "max_attempts": 75,
-   "max_tokens": 112500
+   "max_attempts": 86,
+   "max_tokens": 129000
   }
  ],
- "notes": "Severity-word change (chart-severity-words-v1), NOT YET APPROVED: the 75 RB2 dev requests to Ultra on agent-route-v3 (agent-route-v2 plus the console's deterministic severity-word normalisation; chart prompt bytes unchanged). 20 requests change; the 55 unchanged are byte-identical to the regression run and double as a repeat-stability check. Compared item by item with c1c-dashboard-ultra-regression. Decision metric: spec/refusal outcome (figures are a function of the spec; the corpus snapshot includes held-out clips' reports, so it is not used to tune). Caps 75 attempts / 112,500 tokens, hard stop.",
+ "notes": "Severity-word change (chart-severity-words-v1), NOT YET APPROVED: the 75 RB2 dev requests to Ultra on agent-route-v3 (agent-route-v2 plus the console's deterministic severity-word normalisation; chart prompt bytes unchanged). 20 requests change; the 55 unchanged are byte-identical to the regression run and double as a repeat-stability check. Compared item by item with c1c-dashboard-ultra-regression. Decision metric: spec/refusal outcome (figures are a function of the spec; the corpus snapshot includes held-out clips' reports, so it is not used to tune). Caps 86 attempts / 129,000 tokens (75 items + 15% for rate-limit retries), hard stop.",
  "purpose": "pilot",
  "budget_mode": "hard_stop"
 }

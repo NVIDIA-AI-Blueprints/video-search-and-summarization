@@ -23,6 +23,7 @@ This registry holds every model prompt the profile sends besides the contract's 
 | [`zoom/describe-box`](zoom/describe-box.txt) | zoom | agent | - | Names and describes a reviewer-drawn box: one enlarged close-up with the box outlined (no whole frame); item type, name, description, holder, threat level. |
 | [`chart/system`](chart/system.txt) | chart | console | - | The dashboard chart interpreter's system prompt, built from the allowlist (source: domain/chart-prompt.ts). |
 | [`chart/allowlist`](chart/allowlist.json) | chart | console | - | The chart allowlist (metrics, dimensions, periods, severities, incident types; source: chart-spec.ts). |
+| [`chart/severity-words`](chart/severity-words.json) | chart | console | - | Not a prompt: the severity-word table the console applies to a chart request before the model reads it (source: severity-words.ts). Eval's `agent-route-v3` reads it. |
 | [`chat/incident-answer`](chat/incident-answer.txt) | chat | agent | - | The grounded chat's system prompt: answer one report version from its JSON, cite item ids, flag insufficient evidence. |
 | [`chat/library-plan`](chat/library-plan.txt) | chat | agent | - | The library chat's planner: filters, a breakdown, a count flag and the search phrase the filters leave. |
 | [`chat/library-answer`](chat/library-answer.txt) | chat | agent | - | The library chat's answer to a question that is not a count, from the matching reports and the code counts. |
@@ -34,7 +35,7 @@ This registry holds every model prompt the profile sends besides the contract's 
   - `prompt(id)` and `render_prompt(id, **fields)` check the file's hash;
   - `prompt_sha256(id)` is the version a run records.
 - **Console:** reads `p1/reviewer-preamble` at runtime through its contract catalog, with the hash checked. The agent uses the same file, so a reviewer instruction reads the same in both analysis modes.
-- **Chart files are exports:** `chart/system.txt` and `chart/allowlist.json` are written from the console's TypeScript, which builds the chart prompt from its allowlist. `npm run export:prompts` in `incident-console-v2/` rewrites them, and `tests/prompt-registry.test.mjs` fails until it is re-run.
+- **Chart files are exports:** `chart/system.txt`, `chart/allowlist.json` and `chart/severity-words.json` are written from the console's TypeScript, which builds the chart prompt from its allowlist. `npm run export:prompts` in `incident-console-v2/` rewrites them, and `tests/prompt-registry.test.mjs` fails until it is re-run.
 
 ## Changing a prompt
 
