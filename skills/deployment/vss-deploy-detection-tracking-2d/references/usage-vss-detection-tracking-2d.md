@@ -85,7 +85,7 @@ curl -s --max-time 5 "${BASE_URL}/api/v1/live"
 | User says... | Already known |
 |--------------|---------------|
 | "add stream", "add camera" | operation = add |
-| "add rtsp://X" or "add file:///Y" | operation = add, camera_url = X/Y |
+| "add `rtsp://X`" or "add `file:///Y`" | operation = add, camera_url = X/Y |
 | "remove stream", "remove cam_001" | operation = remove, maybe camera_id |
 | "list streams", "what's running" | operation = stream-info |
 | "is it alive", "health check" | operation = health |

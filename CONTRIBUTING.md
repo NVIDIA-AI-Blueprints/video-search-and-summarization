@@ -172,7 +172,7 @@ If you need to bypass a hook for a specific commit (rare, and not recommended), 
 
 The full GitHub Actions CI pipeline (`.github/workflows/ci.yml`) can be executed locally using [`act`](https://github.com/nektos/act), which runs the workflow in Docker containers that match GitHub's runners.
 
-Install `act` (see its [README](https://github.com/nektos/act#installation) for other platforms):
+Install `act` (see its [installation guide](https://nektosact.com/installation/index.html) for other platforms):
 
 ```bash
 # Linux / macOS (Homebrew)

@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# lychee link checker configuration (https://github.com/lycheeverse/lychee).
+# Used by .github/workflows/link-check.yml. Run it locally from the repo root:
+#
+#   docker run --rm -v "$PWD:/input:ro" -w /input lycheeverse/lychee:0.24.2 \
+#     --config lychee.toml 'docs/**/*.md' 'docs/**/*.mdx' 'skills/**/*.md' \
+#     AGENTS.md README.md CONTRIBUTING.md
+#
+# Add --offline to check only repo-local files and anchors.
+
+# Check #anchors in local Markdown files as well as the file itself.
+include_fragments = "anchor-only"
+
+# Links inside code blocks and inline code are examples, not references.
+include_verbatim = false
+
+# Endpoints of a deployment (localhost:7777, <HOST_IP>, 10.x) are examples.
+exclude_all_private = true
+
+# Root-relative links in docs/ are Fern site paths (/getting-started/quickstart),
+# derived from titles in docs/index.yml rather than from files on disk.
+# `fern docs broken-links --strict` in fern-docs-ci.yml checks them. Resolve
+# them under a directory that does not exist, then exclude that directory.
+root_dir = "/fern-site-path"
+
+exclude = [
+  '^file:///fern-site-path/',
+  # Placeholders and shell variables, not real hosts.
+  '<[^>]*>',
+  '%3C',
+  '\$%7B',
+  '\$\{',
+  '^https?://(example\.com|.*\.example)(/|$)',
+  '^https?://localhost-or-remote-ip[:/]',
+  '^https?://192\.168\.1\.xxx',
+  # Pages behind a login, or that reject non-browser clients, answer 401/403
+  # however the link is written.
+  '^https://(org\.)?ngc\.nvidia\.com/(setup|account)/',
+  '^https://platform\.openai\.com/',
+  '^https://(www|blogs)\.mathworks\.com/',
+  # Anchor is added by JavaScript after load, so it is not in the HTML.
+  '^https://developer\.nvidia\.com/brev#',
+]
+
+# Retry transient failures, but keep a slow host from stalling the job.
+max_retries = 3
+retry_wait_time = 5
+timeout = 30
+max_concurrency = 16
+
+# 429 means the link exists and the host is rate limiting us.
+accept = ["200..=299", "429"]
+
+user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"

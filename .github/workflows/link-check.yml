@@ -1,0 +1,111 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Link check for docs/, skills/ and the top-level guides, with lychee
+# (https://github.com/lycheeverse/lychee). Configuration is in lychee.toml.
+#
+# PRs (copy-pr-bot mirror branches, see fern-docs-ci.yml for why push and not
+# pull_request) run --offline: links between repo files and #anchors only.
+# That is deterministic, so it can block a merge.
+#
+# External links fail for reasons a PR author cannot fix (rate limits, outages,
+# bot walls), so they are checked on a weekly schedule and on manual dispatch
+# instead, against the whole tree.
+
+name: Link Check
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"   # copy-pr-bot mirror branches
+  schedule:
+    - cron: "0 6 * * 1"         # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: link-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LINK_CHECK_INPUTS: >-
+    'docs/**/*.md' 'docs/**/*.mdx' 'skills/**/*.md'
+    AGENTS.md README.md CONTRIBUTING.md
+
+jobs:
+  # Trigger-level `paths:` filters are unreliable on push, because GitHub
+  # evaluates them against the diff of the pushed commits rather than the
+  # cumulative PR. Gate on an explicit diff instead, same as fern-docs-ci.yml.
+  changed-files:
+    name: Detect link-check changes
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      links: ${{ steps.changes.outputs.links }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check for changes
+        id: changes
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # Default to running. Skipping on a bad diff would hide real changes.
+          LINKS=true
+          if [ -n "$BEFORE" ] && \
+             [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && \
+             git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            if git diff --name-only "$BEFORE" HEAD | grep -qE \
+              -e '^(docs|skills)/' \
+              -e '^(AGENTS|README|CONTRIBUTING)\.md$' \
+              -e '^lychee\.toml$' \
+              -e '^\.github/workflows/link-check\.yml$'; then
+              LINKS=true
+            else
+              LINKS=false
+            fi
+          fi
+          echo "links=$LINKS" >> "$GITHUB_OUTPUT"
+          echo "link-check inputs changed: $LINKS"
+
+  offline:
+    name: Link Check (local)
+    needs: changed-files
+    if: needs.changed-files.outputs.links == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check local links and anchors
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --config lychee.toml --offline --no-progress ${{ env.LINK_CHECK_INPUTS }}
+          fail: true
+
+  online:
+    name: Link Check (all)
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check all links
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --config lychee.toml --no-progress ${{ env.LINK_CHECK_INPUTS }}
+          fail: true

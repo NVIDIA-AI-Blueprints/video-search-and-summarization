@@ -2424,7 +2424,7 @@ lunr,2.3.9,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/packag
 luxon,3.3.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 lxml,6.1.1,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 lxml,6.1.1,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
-lycheeverse/lychee-action,8646ba30535128ac92d33dfc9133794bfdd9b411,Apache-2.0,.github,github-action,ci,.github/workflows/fern-docs-preflight.yml,ci,no,no,no,ci-tooling,None
+lycheeverse/lychee-action,e7477775783ea5526144ba13e8db5eec57747ce8,Apache-2.0,.github,github-action,ci,.github/workflows/link-check.yml,ci,no,no,no,ci-tooling,None
 lz-string,1.5.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 m4,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 magic-string,0.30.21,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
