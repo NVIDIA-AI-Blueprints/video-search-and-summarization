@@ -198,7 +198,7 @@
     {
       "id": "chart/severity-words",
       "file": "chart/severity-words.json",
-      "sha256": "31ec06215189ce889f6d7e5caf22ea8e61a2cf4dced73afd4045334e40ac4c1b",
+      "sha256": "b644908a05154374464f291060d0ec5d0e13cd4bb42221919ce965c32aa0b6e3",
       "stage": "chart",
       "placeholders": [],
       "used_by": [

@@ -19,10 +19,13 @@ def test_shared_cases(case: dict) -> None:
 
 def test_table_uses_only_canonical_levels_and_bands() -> None:
     table = chart.severity_words()
-    assert table["version"] == "chart-severity-words-v1"
+    assert table["version"] == "chart-severity-words-v2"
     assert table["band_of_level"] == {"1": "low", "2": "low", "3": "medium", "4": "high", "5": "high"}  # finals SQL bands
-    assert set(table["word_levels"]) == {"minimal", "very low", "moderate", "severe", "critical"}
+    assert set(table["word_levels"]) == {"minimal", "very low", "minor", "moderate", "severe", "critical"}
     assert not set(table["unmapped"]) & set(table["word_levels"])
+    for word, spec in table["word_levels"].items():  # the rule: all of a word's levels lie in one band
+        bands = {table["band_of_level"][str(level)] for level in spec["levels"]}
+        assert bands == {table["word_bands"][word]}, word
 
 
 def test_v3_differs_from_v2_only_in_the_user_message() -> None:

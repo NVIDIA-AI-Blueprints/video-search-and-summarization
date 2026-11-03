@@ -6,7 +6,7 @@
   "half": "dev"
  },
  "datasets": {
-  "dashboard_references": "dashboard-severity-supplement-v1"
+  "dashboard_references": "dashboard-severity-supplement-v2"
  },
  "subjects": [
   {
@@ -46,7 +46,7 @@
    "max_tokens": 42000
   }
  ],
- "notes": "Severity-word change, NOT YET APPROVED: the 24 rule-written dev supplement requests (12 valid with critical/minimal/very low/moderate/severe; 12 that must still be refused) to Ultra on agent-route-v3, scored on spec/refusal only (no corpus snapshot). v2 vs v3 shows the change's effect, including false acceptances. Caps 28 attempts / 42,000 tokens (24 items + 15% for rate-limit retries), hard stop.",
+ "notes": "Severity-word change, APPROVED by the owner 2026-11-03 (with the other two severity-word runs: 123 planned calls, at most 142 attempts and 213,000 tokens in total, Ultra via Switchyard, run one after another): the 24 rule-written dev supplement requests (dashboard-severity-supplement-v2: 12 valid with minor/critical/minimal/very low/moderate/severe; 12 that must still be refused) to Ultra on agent-route-v3, scored on spec/refusal only (no corpus snapshot). v2 vs v3 shows the change's effect, including false acceptances. Caps 28 attempts / 42,000 tokens (24 items + 15% for rate-limit retries), hard stop.",
  "purpose": "pilot",
  "budget_mode": "hard_stop"
 }

@@ -22,13 +22,15 @@ test('the shared cases map as the fixture says', () => {
   }
 });
 
-test('every mapped word lands in the band that holds its level, as the dashboard labels define them', () => {
-  for (const [word, level] of Object.entries(words.SEVERITY_WORD_LEVELS)) {
-    const band = words.SEVERITY_BAND_OF_LEVEL[level];
+test('every mapped word lands in one band that holds all its levels, as the dashboard labels define them', () => {
+  for (const [word, { levels, evidence }] of Object.entries(words.SEVERITY_WORD_LEVELS)) {
+    assert.ok(evidence.length > 0, `${word} has evidence`);
+    const band = words.SEVERITY_WORD_BANDS[word];
     const digits = SEVERITY_LABELS[band].match(/\d/g).map(Number); // 'High (4-5)', 'Medium (3)', 'Low (1-2)'
-    const [lo, hi] = [digits[0], digits.at(-1)];
-    assert.ok(level >= lo && level <= hi, `${word} (level ${level}) is in ${SEVERITY_LABELS[band]}`);
+    for (const level of levels)
+      assert.ok(level >= digits[0] && level <= digits.at(-1), `${word} (level ${level}) is in ${SEVERITY_LABELS[band]}`);
   }
+  assert.equal(words.SEVERITY_WORD_BANDS.minor, 'low');
 });
 
 test('no unmapped word is normalised', () => {

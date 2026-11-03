@@ -1,5 +1,5 @@
 {
-  "version": "chart-severity-words-v1",
+  "version": "chart-severity-words-v2",
   "note": "Shared cases: the console (tests/dashboard-severity-words.test.mjs) and eval (tests/v2/test_v2_chart_severity_words.py) must both map input to expected (null: unchanged).",
   "cases": [
     {
@@ -74,8 +74,8 @@
     },
     {
       "input": "Show minor incidents from the last 7 days.",
-      "expected": null,
-      "why": "minor has no canonical level"
+      "expected": "Show low-severity incidents from the last 7 days.",
+      "why": "minor (rubric levels 1-2, both band low) -> low (v2)"
     },
     {
       "input": "Show serious explosions in the past 30 days.",
@@ -126,6 +126,31 @@
       "input": "Show moderate incidents and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more and more ",
       "expected": null,
       "why": "result would pass 300 characters: the typed request is sent"
+    },
+    {
+      "input": "At what hours were minor-severity burglary reports generated?",
+      "expected": "At what hours were low-severity burglary reports generated?",
+      "why": "minor-severity -> low (v2)"
+    },
+    {
+      "input": "How many minor explosions over the last 365 days?",
+      "expected": "How many low-severity explosions over the last 365 days?",
+      "why": "minor before an incident type (v2)"
+    },
+    {
+      "input": "Show major incidents this month.",
+      "expected": null,
+      "why": "major is not mapped (owner instruction)"
+    },
+    {
+      "input": "Show extreme road accidents.",
+      "expected": null,
+      "why": "extreme is not mapped (owner instruction)"
+    },
+    {
+      "input": "Show significant incidents by type.",
+      "expected": null,
+      "why": "significant spans bands"
     }
   ]
 }

@@ -123,8 +123,7 @@ def normalize_severity_words(request: str) -> str:
     flags = re.ASCII | (re.IGNORECASE if "i" in table["flags"] else 0)
 
     def band(word: str) -> str:
-        level = table["word_levels"][re.sub(r"[ \t]+", " ", word.lower())]
-        return str(table["band_of_level"][str(level)])
+        return str(table["word_bands"][re.sub(r"[ \t]+", " ", word.lower())])
 
     def replace(match: re.Match[str]) -> str:
         return f"{band(match.group(1))}-severity" + ("" if match.group(3) else " ")
