@@ -106,7 +106,7 @@ The configuration file supports environment variable substitution using `${VAR_N
 
 Example:
 
-```bash
+```bash title="Run in the deployment host terminal"
 export HOST_IP=10.63.144.174
 export VSS_ES_PORT=9200
 ```
@@ -115,7 +115,7 @@ export VSS_ES_PORT=9200
 
 After setting up dependencies, configuration, and environment variables, start the server:
 
-```bash
+```bash title="Run in the deployment host terminal"
 nat mcp serve --config_file <path/to/config_file>
 ```
 
@@ -123,7 +123,7 @@ The server starts on `http://localhost:9901/mcp` by default.
 
 **Custom Host and Port**
 
-```bash
+```bash title="Run in the deployment host terminal"
 nat mcp serve --config_file <path/to/config_file> \
   --host 0.0.0.0 \
   --port 9901 \
@@ -132,7 +132,7 @@ nat mcp serve --config_file <path/to/config_file> \
 
 **Transport Type**
 
-```bash
+```bash title="Run in the deployment host terminal"
 nat mcp serve --config_file <path/to/config_file> --transport sse
 ```
 
@@ -330,25 +330,25 @@ Inspect available tools using NAT CLI:
 
 **List Tools**
 
-```bash
+```bash title="Run in the deployment host terminal"
 nat mcp client tool list --url <mcp-url>
 ```
 
 **Tool Details**
 
-```bash
+```bash title="Run in the deployment host terminal"
 nat mcp client tool list --tool <tool_name> --url <mcp-url>
 ```
 
 **Call a Tool**
 
-```bash
+```bash title="Run in the deployment host terminal"
 nat mcp client tool call --tool <tool_name> --url <mcp-url> --json-args '<json args>'
 ```
 
 **Help**
 
-```bash
+```bash title="Run in the deployment host terminal"
 nat mcp --help
 ```
 
