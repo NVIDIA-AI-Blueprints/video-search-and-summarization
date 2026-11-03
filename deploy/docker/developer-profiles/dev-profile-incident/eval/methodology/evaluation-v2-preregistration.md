@@ -67,7 +67,7 @@ The rule fixed now and applied after the test runs to recommend whether the cons
 - **Dependencies found (2 Nov):** no V2 code computes a composite incident score or applies a selection rule, and this rule has no weights yet, so nothing used severity accuracy. The only use was descriptive: pilot summaries quoted V1's field accuracy, now kept as a continuity metric.
 
 ## 9. Disclosures
-- The test clips are not unseen.
+- The test clips are not unseen: they are held out from all Evaluation V2 tuning, but they were exposed in V1 (statement and evidence: [v2-dataset-integrity.md](v2-dataset-integrity.md)).
 - `ground-truth-v1.0` and τ are AI-assisted.
 - Claude-made references are correlated.
 - The provider decides frame sampling.

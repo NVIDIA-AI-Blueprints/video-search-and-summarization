@@ -202,10 +202,10 @@ def test_describe_box_request_equals_the_golden(monkeypatch: pytest.MonkeyPatch)
         return _Reply(case["inputs"]["reply"])
 
     monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
-    _detector(case["inputs"]["model"]).describe_box(b"close-up", context_jpeg=b"frame")
+    _detector(case["inputs"]["model"]).describe_box(b"close-up")
     assert len(sent) == 1
     _assert_golden("zoom", "describe-box", sent[0])
-    assert _images(sent[0]) == [b"frame", b"close-up"]
+    assert _images(sent[0]) == [b"close-up"]
 
 
 def _images(body: dict[str, Any]) -> list[bytes]:

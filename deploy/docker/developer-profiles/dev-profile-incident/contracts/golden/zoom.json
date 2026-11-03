@@ -257,12 +257,12 @@
       }
     },
     "describe-box": {
-      "description": "Describe a reviewer-drawn box: the frame with the box drawn, then the close-up; one call.",
+      "description": "Describe a reviewer-drawn box: one enlarged close-up of it with the box outlined; one call, to the fast model (the detector asks its own model only when that fails).",
       "producers": [
         "agent"
       ],
       "inputs": {
-        "model": "<model>",
+        "model": "nvidia/cosmos-3-nano-reasoner",
         "reply": {
           "item_type": "instrument",
           "name": "crowbar",
@@ -273,7 +273,7 @@
         }
       },
       "body": {
-        "model": "<model>",
+        "model": "nvidia/cosmos-3-nano-reasoner",
         "messages": [
           {
             "role": "user",
@@ -285,14 +285,8 @@
                 }
               },
               {
-                "type": "image_url",
-                "image_url": {
-                  "url": "data:image/jpeg;base64,<jpeg>"
-                }
-              },
-              {
                 "type": "text",
-                "text": "The first image is a video frame with one thing marked by a red box; the second is a close-up of that box. Say what the marked thing is. Use item_type \"entity\" for a person or animal, \"instrument\" for a non-living object held in a hand, and \"asset\" for any other object or fixture (a vehicle, a door, a bag on the floor). Give a plain name (one to four words, lowercase for objects; \"person\" for a person) and a one-sentence objective description of what is visible. For an instrument, holder is a few plain words describing who holds it (for example \"man in the grey hoodie\"), or null if no one visibly does, and threat_level is its potential to cause harm from 1 (none) to 5 (lethal). For an entity or asset holder and threat_level are null. confidence is 0 to 1: how sure you are. If you cannot tell what the marked thing is, return item_type null and a short reason. Return JSON only, in the form {\"item_type\": \"entity\"|\"instrument\"|\"asset\"|null, \"name\": \"<name>\", \"description\": \"<one sentence>\", \"holder\": \"<text>\"|null, \"threat_level\": <1 to 5>|null, \"confidence\": <0 to 1>, \"reason\": \"<why not, only when item_type is null>\"|null}."
+                "text": "The image is an enlarged close-up of the area a reviewer boxed on a video frame; the red rectangle is the box. The reviewer drew it around ONE object, usually small and often held in a hand or lying on the ground, and often blurred by motion. Name that object: the thing that fills the box or sits in the middle of it. Look at its shape and material before you name it (a bottle has a neck and a cap, a bag has handles, a phone is flat and rectangular). Never name the floor, ground, tiles, wall, door, ceiling, handrail, other fixtures or the background, and never name a person whose arm, hand or clothing only partly enters the box; but when the box frames most of a person, the object is that person. Use item_type \"entity\" for a person or animal, \"instrument\" for a non-living object held in a hand, and \"asset\" for any other object or fixture (a vehicle, a door, a bag on the floor). Give a plain name (one to four words, lowercase for objects; \"person\" for a person) and a one-sentence objective description of the object itself. For an instrument, holder is a few plain words describing who holds it (for example \"man in the grey hoodie\"), or null if no one visibly does, and threat_level is its potential to cause harm from 1 (none) to 5 (lethal). For an entity or asset holder and threat_level are null. confidence is 0 to 1: how sure you are; lower it when the object is blurred or small. If you cannot tell what the object is, return item_type null and a short reason. Return JSON only, in the form {\"item_type\": \"entity\"|\"instrument\"|\"asset\"|null, \"name\": \"<name>\", \"description\": \"<one sentence>\", \"holder\": \"<text>\"|null, \"threat_level\": <1 to 5>|null, \"confidence\": <0 to 1>, \"reason\": \"<why not, only when item_type is null>\"|null}."
               }
             ]
           }
@@ -301,6 +295,9 @@
         "max_tokens": 384,
         "response_format": {
           "type": "json_object"
+        },
+        "chat_template_kwargs": {
+          "enable_thinking": false
         }
       }
     }
