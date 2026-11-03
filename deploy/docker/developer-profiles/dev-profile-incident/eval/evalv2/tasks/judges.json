@@ -195,7 +195,7 @@
         "max_requests": 130,
         "max_tokens": 180000
       },
-      "status": "APPROVED 2026-11-03 (owner): up to $0.40 more for the sensitivity judge; reasoning disabled after the v1 entry spent its 1,500-token output cap on reasoning in 117 of 206 calls",
+      "status": "APPROVED 2026-11-03 (owner): up to $0.40 more for the sensitivity judge; reasoning disabled after the v1 entry spent its 1,500-token output cap on reasoning in 117 of 206 calls. FAILED 2026-11-03: Mistral rejects reasoning_effort none (HTTP 400, code 3051; only low/medium/high); 3 test calls, no tokens billed; stopped per the approval, do not use",
       "notes": "Same model, prompt, temperature and output cap as openrouter-mistral-large-4-v1, plus OpenRouter reasoning {enabled: false}. Verdicts are kept apart from v1 verdicts and reported as a separate judge configuration. Caps 130 calls / 180k tokens (worst case at the output price $0.378).",
       "request": {
         "extra_body": {
