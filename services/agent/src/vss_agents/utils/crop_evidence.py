@@ -126,6 +126,15 @@ ZOOM_TIMEOUT_SECONDS = 60.0
 # the shared VLM) and tries a timed-out request once more; each try may take up to 150 s so a slow model can still
 # give its final answer, and two tries (300 s) stay under the console's 330 s wait.
 DESCRIBE_BOX_TIMEOUT_SECONDS = 150.0
+# The fast model is asked first, once and with a short wait (it answers in about 2 s), so that its worst case plus
+# the main model's two tries (25 + 300 s) still ends before the console gives up at 330 s. The picture sent is the
+# box, a margin of 20% of its size (at least 16 px), upscaled to a short side of at least 512 px (long side at most 1024).
+DESCRIBE_BOX_FAST_MODEL = "nvidia/cosmos-3-nano-reasoner"
+DESCRIBE_BOX_FAST_TIMEOUT_SECONDS = 25.0
+DESCRIBE_BOX_PADDING = 0.2
+DESCRIBE_BOX_MIN_MARGIN_PIXELS = 16
+DESCRIBE_BOX_MIN_SHORT_SIDE = 512
+DESCRIBE_BOX_MAX_LONG_SIDE = 1024
 _FALSE_FLAG_VALUES = frozenset({"0", "false", "no", "off"})
 
 
@@ -326,6 +335,37 @@ def zoom_crop(frame: np.ndarray, box: Sequence[int | float]) -> bytes | None:
         cut = np.asarray(Image.fromarray(cut[..., ::-1]).resize(size, Image.Resampling.BICUBIC))[..., ::-1]
         cut = np.ascontiguousarray(cut)
     return encode_jpeg(cut, quality=85)
+
+
+def describe_box_close_up(frame: np.ndarray, box: Sequence[int | float]) -> bytes | None:
+    """The one picture ``describe_box`` sends: the reviewer's box enlarged, with a little context and the box outlined.
+
+    The cut is the box plus a margin (``DESCRIBE_BOX_PADDING`` of its size, at least ``DESCRIBE_BOX_MIN_MARGIN_PIXELS``)
+    so the object stays the middle of the picture and a neighbour never fills it. It is upscaled (Lanczos) so its
+    short side is at least ``DESCRIBE_BOX_MIN_SHORT_SIDE`` pixels, and at most ``DESCRIBE_BOX_MAX_LONG_SIDE`` on the
+    long side, then the box is outlined in red. The whole frame is not sent: beside it the model names the most
+    prominent thing in the frame instead of the boxed object. Never stored.
+    """
+    frame_h, frame_w = frame.shape[:2]
+    y0, x0, y1, x1 = apply_box_padding(box, frame_w, frame_h, padding_fraction=0.0)
+    if y0 >= y1 or x0 >= x1:
+        return None
+    margin_y = max(DESCRIBE_BOX_MIN_MARGIN_PIXELS, round((y1 - y0) * DESCRIBE_BOX_PADDING))
+    margin_x = max(DESCRIBE_BOX_MIN_MARGIN_PIXELS, round((x1 - x0) * DESCRIBE_BOX_PADDING))
+    left, top = max(0, x0 - margin_x), max(0, y0 - margin_y)
+    right, bottom = min(frame_w, x1 + margin_x), min(frame_h, y1 + margin_y)
+    cut = Image.fromarray(np.ascontiguousarray(frame[top:bottom, left:right][..., ::-1]))
+    scale = max(1.0, DESCRIBE_BOX_MIN_SHORT_SIDE / min(cut.size))
+    scale = min(scale, DESCRIBE_BOX_MAX_LONG_SIDE / max(cut.size)) if scale > 1.0 else scale
+    size = (max(1, round(cut.width * scale)), max(1, round(cut.height * scale)))
+    if size != cut.size:
+        cut = cut.resize(size, Image.Resampling.LANCZOS)
+    ImageDraw.Draw(cut).rectangle(
+        ((x0 - left) * scale, (y0 - top) * scale, (x1 - left) * scale, (y1 - top) * scale),
+        outline=(255, 0, 0),
+        width=max(2, round(max(size) / 200)),
+    )
+    return encode_jpeg(np.ascontiguousarray(np.asarray(cut)[..., ::-1]), quality=90)
 
 
 def zoom_context_frame(frame: np.ndarray, box: Sequence[int | float]) -> bytes | None:
@@ -851,22 +891,50 @@ class DefaultDetector:
             seen=seen,
         )
 
-    def describe_box(self, jpeg: bytes, *, context_jpeg: bytes) -> BoxProposal:
-        """Name and describe a reviewer-drawn box in one call: the frame with the box drawn, then the close-up.
+    def describe_box(self, close_up: bytes) -> BoxProposal:
+        """Name and describe a reviewer-drawn box from its enlarged close-up (:func:`describe_box_close_up`).
 
-        The same endpoint and model as the zoomed second look (``_chat_json``), with the ``zoom/describe-box``
-        prompt, reasoning off, a 150 s timeout and one more try after a timeout. Raises ``httpx.HTTPError`` on transport or status errors and ``ValueError`` on
-        a reply that is not the strict JSON asked for.
+        One image and the ``zoom/describe-box`` prompt, reasoning off, on the same endpoint as the zoomed second look
+        (``_chat_json``). The fast model (``DESCRIBE_BOX_FAST_MODEL``) is asked first, once, with a 25 s wait; the
+        detector's own model is asked when it fails, answers something that is not the strict JSON asked for, or cannot
+        tell (a proposal with no type), with a 150 s timeout and one more try after a timeout. When both fail the
+        second's error is raised, unless the fast model had answered cannot-tell, and that answer is returned. Raises
+        ``httpx.HTTPError`` on transport or status errors and ``ValueError`` on a reply that is not the strict JSON
+        asked for.
         """
-        return self._chat_json(
-            [context_jpeg, jpeg],
-            incident_contract.prompt("zoom/describe-box"),
-            parse_box_proposal,
-            max_tokens=384,
-            timeout_seconds=DESCRIBE_BOX_TIMEOUT_SECONDS,
-            thinking=False,
-            retry_timeout=True,
-        )
+        prompt = incident_contract.prompt("zoom/describe-box")
+        fast_result: BoxProposal | None = None
+        if self.model_name != DESCRIBE_BOX_FAST_MODEL:
+            fast = copy.copy(self)
+            fast.model_name = DESCRIBE_BOX_FAST_MODEL
+            try:
+                fast_result = fast._chat_json(
+                    [close_up],
+                    prompt,
+                    parse_box_proposal,
+                    max_tokens=384,
+                    timeout_seconds=DESCRIBE_BOX_FAST_TIMEOUT_SECONDS,
+                    thinking=False,
+                )
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning("box describe: %s failed (%s); asking %s", DESCRIBE_BOX_FAST_MODEL, exc, self.model_name)
+            else:
+                if fast_result.item_type is not None:
+                    return fast_result
+        try:
+            return self._chat_json(
+                [close_up],
+                prompt,
+                parse_box_proposal,
+                max_tokens=384,
+                timeout_seconds=DESCRIBE_BOX_TIMEOUT_SECONDS,
+                thinking=False,
+                retry_timeout=True,
+            )
+        except (httpx.HTTPError, ValueError):
+            if fast_result is not None:
+                return fast_result
+            raise
 
     def detect(self, frame: np.ndarray, query: str) -> list[Detection]:
         if not self.is_available():
