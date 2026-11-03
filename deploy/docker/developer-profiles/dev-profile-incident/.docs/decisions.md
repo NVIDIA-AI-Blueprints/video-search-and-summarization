@@ -15,7 +15,7 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
   - severe and critical → high.
 - **Where it applies:** only where the word qualifies "severity" or an incident noun. Breakdowns and "how severe…" stay as typed.
 - **Limits:** the chart prompt bytes are unchanged, and the typed request is kept if the result would pass 300 characters.
-- **Why:** Ultra read the prompt's "exactly these values" rule literally and refused synonym requests. On development requests the change raised correctness from 0.88 to 0.92 (RB2) and from 0.75 to 1.00 (supplement, valid requests), with no new false acceptance ([evaluation](../eval/methodology/v2-dashboard-change-assessment.md)).
+- **Why:** Ultra read the prompt's "exactly these values" rule literally and refused synonym requests. On development requests the change raised correctness from 0.88 to 0.92 (RB2) and from 0.75 to 1.00 (supplement, valid requests), with no new false acceptance. The gain is **not statistically significant** (RB2 paired difference +0.04, 95% CI −0.03 to +0.11; McNemar p = 0.45), and **one changed request regressed** (correct to refused); one byte-identical request also flipped in the same run, so the cause is not established ([evaluation](../eval/methodology/v2-dashboard-change-assessment.md)). Merged by owner approval on 2026-11-03.
 - **Rejected:**
   - Mapping serious or significant (they span bands).
   - Mapping major, extreme or catastrophic: one-band under the rule, but outside the owner-approved scope.

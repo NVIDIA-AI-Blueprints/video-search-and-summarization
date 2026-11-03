@@ -55,3 +55,37 @@ def test_registry_hash_guards_the_table(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr(chart, "CONTRACTS_DIR", root)
     with pytest.raises(chart.ChartRequestError, match="registry sha256"):
         chart.normalize_severity_words("moderate incidents")
+
+
+def _rubric_levels() -> dict[int, str]:
+    """The SEVERITY_LEVEL rubric's text per level (heading, definition and examples), from the P1 prompt."""
+    import re
+    text = (chart.CONTRACTS_DIR / "incident_extraction_prompt.txt").read_text(encoding="utf-8")
+    block = text[text.index("SEVERITY_LEVEL"):]
+    block = block[:block.index("Do not infer injuries")]
+    parts = re.split(r"(?m)^([1-5]) — ", block)[1:]
+    return {int(parts[i]): parts[i + 1].lower() for i in range(0, len(parts), 2)}
+
+
+def test_mapped_words_match_the_documented_rubric() -> None:
+    """Every rubric level that uses a mapped word is one of the word's declared levels, and all lie in one band."""
+    import re
+    levels = _rubric_levels()
+    assert sorted(levels) == [1, 2, 3, 4, 5]
+    table = chart.severity_words()
+    for word, spec in table["word_levels"].items():
+        used = {lvl for lvl, txt in levels.items() if re.search(rf"\b{re.escape(word)}\b", txt)}
+        assert used, f"{word} does not appear in the rubric"
+        assert used <= set(spec["levels"]), (word, used, spec["levels"])
+        assert {table["band_of_level"][str(lvl)] for lvl in used} == {table["word_bands"][word]}, word
+    # minor: only the low band's levels use it
+    minor = {lvl for lvl, txt in levels.items() if re.search(r"\bminor\b", txt)}
+    assert minor == {1, 2}
+
+
+def test_unmapped_band_spanning_words_do_span_bands() -> None:
+    import re
+    levels = _rubric_levels(); table = chart.severity_words()
+    for word in ("serious", "significant"):
+        used = {lvl for lvl, txt in levels.items() if re.search(rf"\b{word}", txt)}
+        assert len({table["band_of_level"][str(lvl)] for lvl in used}) > 1, (word, used)
