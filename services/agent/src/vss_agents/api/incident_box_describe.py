@@ -16,8 +16,9 @@
 """``POST /api/v1/incidents/{video_id}/box/describe`` - what is the box a reviewer drew?
 
 ``incident-console-v2`` sends a second and a box (``[ymin, xmin, ymax, xmax]``, 0-1000). The agent reads that frame
-from the video's stored file (``videos.filepath`` is an R2 key), cuts the zoomed second look's close-up and its
-whole-frame-with-the-box-drawn, and makes one VLM call (``zoom/describe-box``). The answer is a proposal the
+from the video's stored file (``videos.filepath`` is an R2 key), cuts the box with a little margin, enlarges it and
+outlines the box, and asks the VLM what the boxed object is (``zoom/describe-box``: the fast model first, the
+analysis's own model when it fails or cannot tell). The whole frame is not sent. The answer is a proposal the
 reviewer edits: ``item_type``, ``name``, ``description``, ``holder`` (instruments), ``threat_level``
 (instruments) and ``confidence``; or ``proposal`` null with a plain ``reason`` when the model cannot tell.
 Nothing is stored.
@@ -111,11 +112,10 @@ def create_incident_box_describe_router(detector: Any | None = None) -> APIRoute
             frame = crop_evidence.extract_frame(video_ref, body.seconds)
             if frame is None or frame.size == 0:
                 raise LookupError(f"no frame at {body.seconds} s")
-            close_up = crop_evidence.zoom_crop(frame, body.box)
-            context = crop_evidence.zoom_context_frame(frame, body.box)
-            if close_up is None or context is None:
+            close_up = crop_evidence.describe_box_close_up(frame, body.box)
+            if close_up is None:
                 raise LookupError("the box is empty at that frame size")
-            return active.describe_box(close_up, context_jpeg=context)
+            return active.describe_box(close_up)
 
         try:
             result = await asyncio.to_thread(_look)

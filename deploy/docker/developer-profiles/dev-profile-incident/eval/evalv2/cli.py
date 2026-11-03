@@ -521,7 +521,7 @@ def _score(args: argparse.Namespace, load_datasets: DatasetLoader | None,
             return 2
         if args.approval is not None:
             try:
-                marker = read_approval(args.approval)
+                marker = read_score_approval(args.approval)
             except ApprovalRefused as exc:
                 print(json.dumps({"ok": False, "refused": [str(exc)]}, indent=2))
                 return 2
@@ -670,6 +670,25 @@ def main(argv: Sequence[str] | None = None, *, load_datasets: DatasetLoader | No
               file=sys.stderr)
         return 2
     return _run_live(args, config, loader, items, problems, hard_stop)
+
+
+def read_score_approval(path: Path) -> dict[str, Any]:
+    """A live score's marker: the run's ``evalv2-live-approval-v1`` (its judge share) or a dedicated
+    ``evalv2-judge-approval-v1`` granted after the run (experiment, config hash, judge ids and a judge budget)."""
+    from evalv2.approval import ApprovalRefused, read_approval
+    from evalv2.score_stage import JUDGE_APPROVAL_VERSION
+
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ApprovalRefused(f"approval marker {path} is unreadable: {exc}") from exc
+    if isinstance(raw, dict) and raw.get("approval") == JUDGE_APPROVAL_VERSION:
+        judge = raw.get("judge") or {}
+        missing = [k for k in ("experiment", "config_sha256", "judges", "approved_by", "approved_at") if not raw.get(k)]
+        if missing or not all(isinstance(judge.get(k), int) and judge[k] > 0 for k in ("max_requests", "max_tokens")):
+            raise ApprovalRefused(f"judge approval {path} is incomplete: {missing or 'judge budget'}")
+        return {**raw, "path": str(path)}
+    return read_approval(path)
 
 
 def load_env_files(paths: Sequence[Path] | None = None) -> list[str]:

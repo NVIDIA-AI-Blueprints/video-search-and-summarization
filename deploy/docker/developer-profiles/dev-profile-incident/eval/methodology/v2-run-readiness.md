@@ -113,6 +113,12 @@ uv run --frozen python -m evalv2 score --config experiments/v2/c1a-track-a-pilot
 
 - **C3 external add-on (proposed for the C2 package):** 55 test clips × 2 repeats per external model. Measured tokens per answered call: Gemma 6.7 k, Qwen 14.9 k (a runaway costs up to about 20 k). Expected about 0.8 M (Gemma) and 1.9 M (Qwen); proposed caps 1.2 M / 145 attempts and 2.6 M / 145 attempts. At the pinned providers' prices that is under $1.50 together, within the $10 key limit.
 
+- **Judge stage (approved 2026-11-02: at most 1,300 calls, 3.0 M tokens, $1.77).**
+  - **Marker:** a run whose config carried no judge share is scored live with a dedicated `evalv2-judge-approval-v1` marker. It names the experiment, the config hash, the allowed judge ids and a judge budget, and it replaces the config's judge caps.
+  - **Global caps:** the shared judge ledger (`--judge-ledger-dir`) holds the registry caps across every run, retry and resume: primary `openrouter-gpt-oss-20b-v1` 999 calls / 2.299 M tokens; sensitivity `openrouter-mistral-large-4-v1` 299 calls / 0.695 M tokens. The compatibility probe uses 2 calls.
+  - **Command:** `EVALV2_ALLOW_LIVE=1 uv run --frozen python -m evalv2 score --config <run config> --out <run> --judge openrouter-gpt-oss-20b-v1 --approval <judge marker> --judge-ledger-dir <private>/v2/judge-ledger --env-file <.env.local>`.
+  - **Status of the scores:** judged scores are **provisional** until two human reviewers have labelled the 80 calibration pairs and the judge agrees with them at κ ≥ 0.60 ([proposal](v2-judge-proposal.md)).
+
 **Approval marker** (`evalv2-live-approval-v1`, JSON). `approval draft` fills everything except the approval itself:
 
 ```json

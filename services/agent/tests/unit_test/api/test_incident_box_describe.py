@@ -49,13 +49,13 @@ class FakeModel:
     def __init__(self, reply: object = None, *, available: bool = True) -> None:
         self.reply = reply
         self.available = available
-        self.calls: list[tuple[bytes, bytes]] = []
+        self.calls: list[bytes] = []
 
     def is_available(self) -> bool:
         return self.available
 
-    def describe_box(self, jpeg: bytes, *, context_jpeg: bytes) -> crop_evidence.BoxProposal:
-        self.calls.append((jpeg, context_jpeg))
+    def describe_box(self, close_up: bytes) -> crop_evidence.BoxProposal:
+        self.calls.append(close_up)
         if isinstance(self.reply, Exception):
             raise self.reply
         assert isinstance(self.reply, dict)
@@ -76,7 +76,7 @@ def _post(model: FakeModel, *, video: object = {"filepath": "uploads/a.mp4"}, fr
     return response, read
 
 
-def test_returns_the_proposal_and_sends_the_close_up_and_marked_frame() -> None:
+def test_returns_the_proposal_and_sends_the_enlarged_close_up() -> None:
     model = FakeModel(GOOD)
     response, read = _post(model)
     assert response.status_code == 200
@@ -93,7 +93,7 @@ def test_returns_the_proposal_and_sends_the_close_up_and_marked_frame() -> None:
     }
     assert read.call_args.args[1] == 2.5
     assert len(model.calls) == 1
-    assert all(model.calls[0])  # both JPEGs were cut
+    assert model.calls[0]  # the enlarged close-up was cut
 
 
 def test_entity_and_asset_drop_holder_and_threat_level() -> None:
@@ -169,9 +169,7 @@ def test_parser_refuses_anything_but_the_strict_reply(reply: dict) -> None:
         crop_evidence.parse_box_proposal(reply)
 
 
-def test_detector_sends_describe_box_prompt_with_frame_then_close_up(monkeypatch: pytest.MonkeyPatch) -> None:
-    sent: list[dict] = []
-
+def _reply_class(payload: dict | None = None) -> type:
     class Reply:
         status_code = 200
         headers: ClassVar[dict] = {}
@@ -182,67 +180,103 @@ def test_detector_sends_describe_box_prompt_with_frame_then_close_up(monkeypatch
         def json(self) -> dict:
             import json
 
-            return {"choices": [{"message": {"content": json.dumps(GOOD)}}]}
-
-    def fake_post(url: str, *, json: dict, headers: dict, timeout: float) -> Reply:
-        sent.append(json)
-        return Reply()
-
-    monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
-    detector = crop_evidence.DefaultDetector(model_name="m", base_url="http://x.invalid", api_key="k")
-    assert detector.describe_box(b"close-up", context_jpeg=b"frame").name == "crowbar"
-    content = sent[0]["messages"][0]["content"]
-    assert [part["type"] for part in content] == ["image_url", "image_url", "text"]
-    assert content[2]["text"].startswith("The first image is a video frame with one thing marked")
-
-
-def _reply_class() -> type:
-    class Reply:
-        status_code = 200
-        headers: ClassVar[dict] = {}
-
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict:
-            import json
-
-            return {"choices": [{"message": {"content": json.dumps(GOOD)}}]}
+            return {"choices": [{"message": {"content": json.dumps(payload or GOOD)}}]}
 
     return Reply
 
 
-def test_detector_turns_reasoning_off_and_uses_the_shorter_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[tuple[dict, float]] = []
+def _detector(model: str = "main-model") -> crop_evidence.DefaultDetector:
+    return crop_evidence.DefaultDetector(model_name=model, base_url="http://x.invalid", api_key="k")
+
+
+def test_detector_asks_the_fast_model_first_with_the_close_up_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[tuple[dict, float]] = []
 
     def fake_post(url: str, *, json: dict, headers: dict, timeout: float):
-        seen.append((json, timeout))
+        sent.append((json, timeout))
         return _reply_class()()
 
     monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
-    detector = crop_evidence.DefaultDetector(model_name="m", base_url="http://x.invalid", api_key="k")
-    detector.describe_box(b"close-up", context_jpeg=b"frame")
-    body, timeout = seen[0]
+    assert _detector().describe_box(b"close-up").name == "crowbar"
+    assert len(sent) == 1  # a usable answer from the fast model ends it
+    body, timeout = sent[0]
+    assert body["model"] == crop_evidence.DESCRIBE_BOX_FAST_MODEL
     assert body["chat_template_kwargs"] == {"enable_thinking": False}
-    assert timeout == crop_evidence.DESCRIBE_BOX_TIMEOUT_SECONDS
+    assert timeout == crop_evidence.DESCRIBE_BOX_FAST_TIMEOUT_SECONDS
+    content = body["messages"][0]["content"]
+    assert [part["type"] for part in content] == ["image_url", "text"]
+    assert content[1]["text"].startswith("The image is an enlarged close-up of the area a reviewer boxed")
 
 
-def test_detector_tries_a_timed_out_describe_once_more(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[int] = []
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout(""), httpx.ConnectError("down")])
+def test_detector_falls_back_to_its_own_model_when_the_fast_one_fails(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    seen: list[tuple[str, float]] = []
 
     def fake_post(url: str, *, json: dict, headers: dict, timeout: float):
-        calls.append(1)
-        if len(calls) == 1:
+        seen.append((json["model"], timeout))
+        if len(seen) == 1:
+            raise failure
+        return _reply_class()()
+
+    monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
+    assert _detector().describe_box(b"close-up").name == "crowbar"
+    assert seen == [
+        (crop_evidence.DESCRIBE_BOX_FAST_MODEL, crop_evidence.DESCRIBE_BOX_FAST_TIMEOUT_SECONDS),
+        ("main-model", crop_evidence.DESCRIBE_BOX_TIMEOUT_SECONDS),
+    ]
+
+
+def test_detector_falls_back_when_the_fast_model_cannot_tell(monkeypatch: pytest.MonkeyPatch) -> None:
+    models: list[str] = []
+
+    def fake_post(url: str, *, json: dict, headers: dict, timeout: float):
+        models.append(json["model"])
+        return _reply_class({"item_type": None, "reason": "Too blurry."} if len(models) == 1 else None)()
+
+    monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
+    assert _detector().describe_box(b"close-up").name == "crowbar"
+    assert models == [crop_evidence.DESCRIBE_BOX_FAST_MODEL, "main-model"]
+
+
+def test_detector_returns_the_fast_cannot_tell_when_its_own_model_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(url: str, *, json: dict, headers: dict, timeout: float):
+        if json["model"] != crop_evidence.DESCRIBE_BOX_FAST_MODEL:
+            raise httpx.ConnectError("down")
+        return _reply_class({"item_type": None, "reason": "Too blurry."})()
+
+    monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
+    assert _detector().describe_box(b"close-up").reason == "Too blurry."
+
+
+def test_detector_skips_the_fast_step_when_its_own_model_is_the_fast_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[float] = []
+
+    def fake_post(url: str, *, json: dict, headers: dict, timeout: float):
+        calls.append(timeout)
+        return _reply_class()()
+
+    monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
+    _detector(crop_evidence.DESCRIBE_BOX_FAST_MODEL).describe_box(b"close-up")
+    assert calls == [crop_evidence.DESCRIBE_BOX_TIMEOUT_SECONDS]
+
+
+def test_detector_tries_a_timed_out_own_model_once_more(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def fake_post(url: str, *, json: dict, headers: dict, timeout: float):
+        calls.append(json["model"])
+        if len(calls) in (1, 2):
             raise httpx.ReadTimeout("")
         return _reply_class()()
 
     monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
-    detector = crop_evidence.DefaultDetector(model_name="m", base_url="http://x.invalid", api_key="k")
-    assert detector.describe_box(b"close-up", context_jpeg=b"frame").name == "crowbar"
-    assert len(calls) == 2
+    assert _detector().describe_box(b"close-up").name == "crowbar"
+    assert calls == [crop_evidence.DESCRIBE_BOX_FAST_MODEL, "main-model", "main-model"]
 
 
-def test_detector_gives_up_after_two_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_detector_gives_up_after_the_fast_try_and_two_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
 
     def fake_post(url: str, *, json: dict, headers: dict, timeout: float):
@@ -250,7 +284,19 @@ def test_detector_gives_up_after_two_timeouts(monkeypatch: pytest.MonkeyPatch) -
         raise httpx.ReadTimeout("")
 
     monkeypatch.setattr(crop_evidence.httpx, "post", fake_post)
-    detector = crop_evidence.DefaultDetector(model_name="m", base_url="http://x.invalid", api_key="k")
     with pytest.raises(httpx.ReadTimeout):
-        detector.describe_box(b"close-up", context_jpeg=b"frame")
-    assert len(calls) == 2
+        _detector().describe_box(b"close-up")
+    assert len(calls) == 3
+
+
+def test_close_up_is_the_box_enlarged_with_a_margin_and_outlined() -> None:
+    import cv2
+
+    frame = np.full((480, 854, 3), 90, dtype=np.uint8)
+    jpeg = crop_evidence.describe_box_close_up(frame, [640, 605, 730, 665])  # a 54 x 43 px box
+    decoded = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+    assert min(decoded.shape[:2]) >= crop_evidence.DESCRIBE_BOX_MIN_SHORT_SIDE
+    assert max(decoded.shape[:2]) <= crop_evidence.DESCRIBE_BOX_MAX_LONG_SIDE
+    red = (decoded[..., 2] > 200) & (decoded[..., 1] < 80)
+    assert red.any()  # the box outline
+    assert crop_evidence.describe_box_close_up(frame, [500, 500, 500, 600]) is None

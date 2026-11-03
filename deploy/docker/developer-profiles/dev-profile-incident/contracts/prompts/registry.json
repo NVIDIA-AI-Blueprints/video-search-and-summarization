@@ -165,13 +165,13 @@
     {
       "id": "zoom/describe-box",
       "file": "zoom/describe-box.txt",
-      "sha256": "2fe35295a5058d7e4ae8623aae54b975f121905cafc8c0bd987ea638b0ba8a83",
+      "sha256": "107e2862f3ded24ba890b398e648f1d8fe79706cf580d367f3f92f2eaef92be9",
       "stage": "zoom",
       "placeholders": [],
       "used_by": [
         "agent"
       ],
-      "purpose": "Names and describes a reviewer-drawn box: the frame with the box drawn, then the close-up; item type, name, description, holder, threat level."
+      "purpose": "Names and describes a reviewer-drawn box from one enlarged close-up of it with the box outlined (no whole frame); item type, name, description, holder, threat level."
     },
     {
       "id": "chart/system",
