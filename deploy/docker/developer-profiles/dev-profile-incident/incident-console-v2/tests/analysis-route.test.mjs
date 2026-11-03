@@ -74,9 +74,6 @@ const { POST } = await import('../src/app/api/analysis/route.ts');
 const { fakePostgrest } = await import('./support/fake-postgrest.mjs');
 const { getServiceConfiguration } = await import('../src/lib/env.ts');
 const { contractVersion } = await import('../src/modules/contract/infrastructure/loader.ts');
-const { analyseUpload } = await import('../src/modules/analysis/application/analyse-upload.ts');
-const { getUploadAnalysis } = await import('../src/lib/container.ts');
-const { requireAnalysisConfiguration } = await import('../src/lib/env.ts');
 
 // The in-memory PostgREST every test's Supabase calls land on; replaced before each test.
 let testDb;
@@ -271,7 +268,6 @@ test('agent mode: calls agent analyze endpoint with video_url and model_run_id, 
   assert.equal(agentBody.skip_rp1, true, 'agent mode runs P1 only, like gateway mode');
   assert.equal(agentBody.video_url, 'https://signed.r2.test/uploads/sensor-1/video.mp4');
   assert.equal(agentBody.video_duration_seconds, 30, 'the agent applies the video-bounds rules with the same length');
-  assert.equal('blur_faces' in agentBody, false, 'a new upload is analysed without face blur');
 
   // Database persistence verification: records via persistContractRun
   const supabaseWrites = recordedCalls
@@ -973,57 +969,4 @@ test('gateway mode: does not report success when persistence read-back is incomp
   const payload = await response.json();
   assert.match(payload.error, /verifying the persisted report/);
   assert.match(payload.error, /videos, model_runs, report_revisions/);
-});
-
-test('agent mode: a privacy re-analysis job asks for blur_faces, keeps the privacy summary in the notes and adds no video row', async () => {
-  process.env.ANALYSIS_MODE = 'agent';
-  delete process.env.VLM_GATEWAY_URL;
-  videoBytes = mp4Bytes(30);
-  testDb = fakePostgrest(
-    { videos: [{ id: 'v-existing', filepath: 'uploads/cam/clip.mp4', blur_faces: true }], report_revisions: [] },
-    { identity: { report_revisions: 'id' } },
-  );
-  const rawContract = validContractReport();
-  const calls = [];
-  const summary = {
-    blur_faces: true,
-    regions: 3,
-    frames: 2,
-    heads: { track: 1, detector: 0, box: 0, none: 0 },
-    head_queries: 0,
-    failed: 0,
-  };
-  globalThis.fetch = async (url, options = {}) => {
-    calls.push({ url: String(url), options });
-    if (String(url).includes('/api/v1/incidents/')) {
-      return Response.json({
-        report: rawContract,
-        model: 'agent/vlm-on-the-vm',
-        contract_version: contractVersion(),
-        raw_output: JSON.stringify(rawContract),
-        finish_reason: 'stop',
-        privacy: summary,
-      });
-    }
-    return testDb.fetch(url, options);
-  };
-
-  const run = await analyseUpload(
-    { r2Key: 'uploads/cam/clip.mp4', videoId: 'v-existing', existingVideo: true, blurFaces: true },
-    getUploadAnalysis(requireAnalysisConfiguration()),
-  );
-  assert.equal(run.videoId, 'v-existing');
-  const agentBody = JSON.parse(calls.find((c) => c.url.includes('/api/v1/incidents/v-existing/analyze')).options.body);
-  assert.equal(agentBody.blur_faces, true);
-  const writes = calls.filter((c) => c.url.includes('supabase.test') && c.options.method === 'POST').map((c) => new URL(c.url).pathname);
-  assert.equal(writes.includes('/rest/v1/videos'), false, 'the existing video row is not recorded again');
-  const modelRun = JSON.parse(calls.find((c) => c.url.includes('/rest/v1/model_runs') && c.options.method === 'POST').options.body);
-  const notes = JSON.parse(modelRun.notes).incidentConsoleV2;
-  assert.equal(notes.request.blurFaces, true);
-  assert.deepEqual(notes.response.privacy, summary);
-
-  await assert.rejects(
-    analyseUpload({ r2Key: 'uploads/cam/clip.mp4', existingVideo: true }, getUploadAnalysis(requireAnalysisConfiguration())),
-    /needs the video id/,
-  );
 });

@@ -30,6 +30,7 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.api_server import ChatRequest
 from nat.data_models.api_server import ChatResponse
+from nat.data_models.component_ref import LLMRef
 from nat.data_models.component_ref import ObjectStoreRef
 from nat.data_models.function import FunctionBaseConfig
 from nat.object_store.models import ObjectStoreItem
@@ -77,6 +78,14 @@ S3Url = Annotated[AnyUrl, UrlConstraints(allowed_schemes=["s3"])]
 class ChartGeneratorConfig(FunctionBaseConfig, name="chart_generator"):
     object_store_name: ObjectStoreRef | None = Field(
         default=None, description="The object store to store generated images."
+    )
+
+    llm_name: LLMRef | None = Field(
+        default=None,
+        description=(
+            "The text LLM that reads dashboard chart requests (POST /api/v1/incidents/chart-requests). "
+            "The tool itself only draws; unset, that route answers 501."
+        ),
     )
 
     object_store_base_url: HttpUrl | S3Url = Field(

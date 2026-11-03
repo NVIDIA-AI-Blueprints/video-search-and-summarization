@@ -6,8 +6,8 @@ import { z } from 'zod';
 import { getChartInterpreter, getChartRenderer, getDbAdapters } from '@/lib/container';
 import { errorResponse } from '@/lib/http';
 import { isValidTimeZone } from '@/lib/time';
-import { GatewayError } from '@/modules/analysis/domain/ModelGateway';
 import { generateChart } from '@/modules/dashboard/application/generate-chart';
+import { ChartInterpreterError } from '@/modules/dashboard/domain/ChartInterpreter';
 import { ChartRenderError } from '@/modules/dashboard/domain/ChartRenderer';
 import { CHART_REQUEST_MAX_LENGTH, CHART_TYPES } from '@/modules/dashboard/domain/generated-chart';
 
@@ -32,7 +32,9 @@ export async function POST(request: Request) {
     const timezone = input.data.timezone ?? 'UTC';
     if (!isValidTimeZone(timezone)) return NextResponse.json({ error: 'Invalid time zone' }, { status: 400 });
     const interpreter = getChartInterpreter();
-    if (!interpreter) return NextResponse.json({ error: 'Chart requests are not set up: VLM_GATEWAY_URL is missing' }, { status: 503 });
+    // Both ports are the agent: without its URL no chart can be read or drawn.
+    if (!interpreter)
+      return NextResponse.json({ error: 'Chart requests are not set up: INCIDENT_AGENT_BASE_URL is missing' }, { status: 503 });
     const renderer = getChartRenderer();
     if (!renderer) return NextResponse.json({ error: 'Chart drawing is not set up: INCIDENT_AGENT_BASE_URL is missing' }, { status: 503 });
     const { dashboard } = getDbAdapters();
@@ -41,7 +43,9 @@ export async function POST(request: Request) {
       await generateChart({ interpreter, dashboard, renderer }, { request: text, chartType, timezone, now: new Date() }),
     );
   } catch (error) {
-    if (error instanceof GatewayError) {
+    if (error instanceof ChartInterpreterError) {
+      // The agent answers 501 when this profile has no chart LLM: a setup problem, not a model failure to retry.
+      if (error.status === 501) return NextResponse.json({ error: 'Chart requests are not set up on this profile.' }, { status: 503 });
       return NextResponse.json({ error: 'The model that reads chart requests did not answer. Try again.' }, { status: 502 });
     }
     if (error instanceof ChartRenderError) {

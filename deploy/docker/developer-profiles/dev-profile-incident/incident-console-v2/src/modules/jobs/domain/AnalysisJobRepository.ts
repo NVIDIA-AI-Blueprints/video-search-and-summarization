@@ -10,10 +10,6 @@ export interface NewAnalysisJob {
   filePath: string;
   filename: string;
   model: string | null;
-  /** The existing video to analyse again; absent or null for a new upload. */
-  reanalyseVideoId?: string | null;
-  /** Ask the agent to blur the faces in the run's stored evidence; absent means false. */
-  blurFaces?: boolean;
 }
 
 export interface AnalysisJobRepository {

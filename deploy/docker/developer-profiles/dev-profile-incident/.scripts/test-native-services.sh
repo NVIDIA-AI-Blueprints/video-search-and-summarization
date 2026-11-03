@@ -302,6 +302,18 @@ tracking_off="$(unset INCIDENT_TRACKING_ENABLED; ENV_FILE="$tracking_env"; sourc
 assert_eq "false" "$tracking_off" "an env file INCIDENT_TRACKING_ENABLED=false wins"
 
 # -----------------------------------------------------------------------------
+# Object tracking: on for vss-agent by default, the env file can turn it off
+# -----------------------------------------------------------------------------
+# shellcheck disable=SC1090
+objtrack_default="$(unset INCIDENT_OBJECT_TRACKING_ENABLED; source "$SUT" status >/dev/null; echo "$INCIDENT_OBJECT_TRACKING_ENABLED")"
+assert_eq "1" "$objtrack_default" "INCIDENT_OBJECT_TRACKING_ENABLED defaults to 1"
+objtrack_env="$TMP/objtrack-off.env"
+echo "INCIDENT_OBJECT_TRACKING_ENABLED=0" >"$objtrack_env"
+# shellcheck disable=SC1090
+objtrack_off="$(unset INCIDENT_OBJECT_TRACKING_ENABLED; ENV_FILE="$objtrack_env"; source "$SUT" status >/dev/null; echo "$INCIDENT_OBJECT_TRACKING_ENABLED")"
+assert_eq "0" "$objtrack_off" "an env file INCIDENT_OBJECT_TRACKING_ENABLED=0 wins"
+
+# -----------------------------------------------------------------------------
 # Caption pass: on for vss-agent by default, the env file can turn it off
 # -----------------------------------------------------------------------------
 # shellcheck disable=SC1090
@@ -370,6 +382,48 @@ assert_eq "no" "$([ -e "$bad_tools/bin/ffmpeg" ] && echo yes || echo no)" "a mis
 platform_rc=0
 PATH="$BARE_PATH" VSS_MEDIA_TOOLS_DIR="$TMP/mac-tools" VSS_MEDIA_TOOLS_PLATFORM=Darwin-arm64 bash "$MEDIA" install >/dev/null 2>&1 || platform_rc=$?
 assert_eq "1" "$platform_rc" "install refuses a platform with no static build"
+
+# -----------------------------------------------------------------------------
+# Tracker model files: exported dir, env override, pinned fetch
+# -----------------------------------------------------------------------------
+echo "=== Tracker models ==="
+TRACKER="${SCRIPT_DIR}/tracker-models.sh"
+# shellcheck disable=SC1090
+models_default="$(unset INCIDENT_OBJECT_TRACKING_MODEL_DIR VSS_TRACKER_MODELS_DIR; source "$SUT" status >/dev/null; echo "$INCIDENT_OBJECT_TRACKING_MODEL_DIR")"
+assert_contains "$models_default" "/.tools/tracker-models$" "INCIDENT_OBJECT_TRACKING_MODEL_DIR defaults to the tools dir"
+models_env="$TMP/models-dir.env"
+echo "INCIDENT_OBJECT_TRACKING_MODEL_DIR=/custom/models" >"$models_env"
+# shellcheck disable=SC1090
+models_override="$(unset INCIDENT_OBJECT_TRACKING_MODEL_DIR; ENV_FILE="$models_env"; source "$SUT" status >/dev/null; echo "$INCIDENT_OBJECT_TRACKING_MODEL_DIR")"
+assert_eq "/custom/models" "$models_override" "an env file INCIDENT_OBJECT_TRACKING_MODEL_DIR wins"
+
+models_src="$TMP/models-src"
+mkdir -p "$models_src"
+printf 'backbone-bytes' >"$models_src/nanotrack_backbone_sim.onnx"
+printf 'head-bytes' >"$models_src/nanotrack_head_sim.onnx"
+backbone_sha="$(sha256sum "$models_src/nanotrack_backbone_sim.onnx" | awk '{print $1}')"
+head_sha="$(sha256sum "$models_src/nanotrack_head_sim.onnx" | awk '{print $1}')"
+models_dir="$TMP/models"
+run_models() {
+  VSS_TRACKER_MODELS_DIR="$1" VSS_TRACKER_MODELS_BASE_URL="$2" VSS_TRACKER_BACKBONE_SHA256="$backbone_sha" \
+    VSS_TRACKER_HEAD_SHA256="$head_sha" bash "$TRACKER" "$3" 2>&1
+}
+
+models_install="$(run_models "$models_dir" "file://$models_src" install)"
+assert_contains "$models_install" "Installed nanotrack_head_sim.onnx" "install fetches a verified file"
+assert_contains "$(run_models "$models_dir" "file://$models_src" check)" "nanotrack_backbone_sim.onnx $backbone_sha OK" "check reports both files OK"
+assert_eq "0" "$(find "$models_dir" -maxdepth 1 -name '.nanotrack*' | wc -l | tr -d ' ')" "install leaves no temp file"
+models_again="$(run_models "$models_dir" "file://$TMP/no-such-models" install)"
+assert_contains "$models_again" "nanotrack_head_sim.onnx already installed" "a second install downloads nothing"
+
+bad_models="$TMP/bad-models"
+bad_models_rc=0
+bad_models_out="$(VSS_TRACKER_MODELS_DIR="$bad_models" VSS_TRACKER_MODELS_BASE_URL="file://$models_src" \
+  VSS_TRACKER_BACKBONE_SHA256=0000 VSS_TRACKER_HEAD_SHA256="$head_sha" bash "$TRACKER" install 2>&1)" || bad_models_rc=$?
+assert_eq "1" "$bad_models_rc" "install fails on a checksum mismatch"
+assert_contains "$bad_models_out" "checksum mismatch for nanotrack_backbone_sim.onnx" "install names the mismatched file"
+assert_eq "no" "$([ -e "$bad_models/nanotrack_backbone_sim.onnx" ] && echo yes || echo no)" "a mismatched file is never installed"
+assert_eq "yes" "$([ -e "$bad_models/nanotrack_head_sim.onnx" ] && echo yes || echo no)" "a matching file is still installed"
 
 echo ""
 echo "=== Summary ==="

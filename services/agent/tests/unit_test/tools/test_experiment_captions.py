@@ -88,7 +88,6 @@ AGENT_SETTINGS = (
     "INCIDENT_OBJECT_TRACKING_ENABLED",
     "INCIDENT_SOM_ENABLED",
     "INCIDENT_ZOOM_NAMES_ENABLED",
-    "INCIDENT_BLUR_DETECTOR_CALL_CAP",
     EXPERIMENT_SCRATCH_PREFIX_ENV,
     *R2_ENV,
 )
@@ -355,10 +354,8 @@ class TestInlineCaptions:
             "object_tracking": False,
             "set_of_marks": False,
             "zoom_names": False,  # skip_crops: no crop, so no zoomed second look
-            "blur_detector_call_cap": 200,
             "experiments": True,
             "experiment": True,
-            "privacy_blur": False,
         }
         caption = provenance["stages"]["caption"]
         assert caption["model"] == MODEL
@@ -386,10 +383,8 @@ class TestInlineCaptions:
             "object_tracking": False,
             "set_of_marks": False,
             "zoom_names": True,
-            "blur_detector_call_cap": 200,
             "experiments": True,
             "experiment": True,
-            "privacy_blur": False,
         }
         assert {"caption", "p1", "grounding", "zoom"} <= set(result.provenance["stages"])
         assert len(gateway.p1[0]["messages"]) == 2 and result.experiment["caption"]["context_sent"] is True

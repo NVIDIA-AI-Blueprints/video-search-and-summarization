@@ -4,8 +4,6 @@
 // POST /api/analysis and the background job loop (lib/jobs/loop.ts) run the
 // same code. The video is new: it gets a fresh id unless the caller names one
 // (a job's id, see jobVideoId); the video row is created once and never reset.
-// A re-analysis job (existingVideo) runs the same analysis on a video that already
-// has its row, so no row is created.
 // The AI revision is stored, then its evidence crops so the video is searchable at once.
 
 import { compactId } from '@/lib/ids';
@@ -26,10 +24,6 @@ export interface UploadAnalysisInput {
   /** The model id; empty or missing runs the default model. */
   model?: string | null;
   additionalInstruction?: string;
-  /** The video already has its row (a re-analysis job): nothing is recorded for it. Needs videoId. */
-  existingVideo?: boolean;
-  /** Ask the agent to blur the faces in the run's stored evidence (the video's privacy toggle). */
-  blurFaces?: boolean;
 }
 
 export interface UploadAnalysisDeps {
@@ -56,15 +50,13 @@ export interface AnalysisRunSummary {
 }
 
 export async function analyseUpload(input: UploadAnalysisInput, deps: UploadAnalysisDeps): Promise<AnalysisRunSummary> {
-  if (input.existingVideo && !input.videoId) throw new Error('A re-analysis needs the video id');
   const { run, revisionId } = await runContractAnalysis(
     {
       videoId: input.videoId || compactId('v', deps.ports.randomUUID()),
       r2Key: input.r2Key,
       model: input.model || deps.defaultModel,
       additionalInstruction: input.additionalInstruction,
-      ...(input.existingVideo ? {} : { newVideo: { uploadedAt: deps.now().toISOString() } }),
-      blurFaces: input.blurFaces === true,
+      newVideo: { uploadedAt: deps.now().toISOString() },
     },
     deps.ports,
     deps.mode,

@@ -99,7 +99,7 @@ def test_detector_calls_are_counted_in_worker_threads_under_the_current_stage(mo
             _Reply(429),
             _Reply(200, {"choices": [{"message": {"content": "not json"}}]}),
             _Reply(200, _content({"bbox_2d": [1, 2, 300, 400]}), {"total_tokens": 900}),
-            _Reply(200, _content({"detections": []}), {"total_tokens": 50}),
+            _Reply(200, _content({"bbox_2d": None}), {"total_tokens": 50}),
         ]
     )
     monkeypatch.setattr(crop_evidence.httpx, "post", lambda *_a, **_k: next(replies))
@@ -109,14 +109,14 @@ def test_detector_calls_are_counted_in_worker_threads_under_the_current_stage(mo
     async def run() -> run_provenance.RunProvenance:
         with run_provenance.collecting() as provenance:
             await asyncio.to_thread(_detector().detect, frame, "stick")
-            with run_provenance.stage_scope("privacy_heads"):
-                await asyncio.to_thread(_detector().detect_all, frame, "every human head or face")
+            with run_provenance.stage_scope("object_tracking"):
+                await asyncio.to_thread(_detector().detect, frame, "stick")
         return provenance
 
     stages = asyncio.run(run()).to_dict(contract_version="v", flags={})["stages"]
     assert stages["grounding"]["calls"] == 3 and stages["grounding"]["failed"] == 2
     assert stages["grounding"]["model"] == "grounder" and stages["grounding"]["total_tokens"] == 900
-    assert stages["privacy_heads"]["calls"] == 1 and stages["privacy_heads"]["total_tokens"] == 50
+    assert stages["object_tracking"]["calls"] == 1 and stages["object_tracking"]["total_tokens"] == 50
 
 
 def test_zoom_calls_are_counted_as_zoom_and_a_refused_attempt_as_refused(monkeypatch):
@@ -230,7 +230,7 @@ def test_usage_of_tolerates_unreadable_bodies():
     assert run_provenance.usage_of(SimpleNamespace(json=lambda: 1 / 0)) is None
 
 
-# -- review fixes: what a stage counts as failed, malformed usage, refused blur calls, the embedding, the flags ------
+# -- review fixes: what a stage counts as failed, malformed usage, refused calls, the embedding, the flags ------
 
 
 @pytest.mark.parametrize(
@@ -377,5 +377,5 @@ async def test_an_experiment_reports_the_stages_it_ran_not_the_agents_settings(m
     assert flags["experiment"] is True and flags["experiments"] is True
     assert flags["tracking"] is False and flags["set_of_marks"] is False and flags["object_tracking"] is False
     assert flags["chunking"]["enabled"] is False, "the experiment ran no caption pass, whatever the agent's setting"
-    assert flags["zoom_names"] is False and flags["privacy_blur"] is False, "skip_crops: no crop, no zoom, no blur"
+    assert flags["zoom_names"] is False, "skip_crops: no crop, no zoom"
     assert "caption" not in result.provenance["stages"]

@@ -14,7 +14,7 @@ Like NVIDIA's skills, these are for **deploying and operating** the profile from
   LAPTOP                                    kwanz-ws (shared, GPU 0)
   ┌───────────────────────────┐ SSH tunnel  ┌──────────────────────────────┐
   │ incident-console-v2 :3200 │────8000────▶│ vss-agent :8000 (native)     │
-  │ vlm-gateway :8600 (charts)│             │ phoenix :6006 (Docker)       │
+  │ vlm-gateway :8600 (mock)  │             │ phoenix :6006 (Docker)       │
   │ mock mode only:           │             │ tracking stack (default)     │
   │   mock-backend  :7777     │             └──────────────┬───────────────┘
   │                           │                            │

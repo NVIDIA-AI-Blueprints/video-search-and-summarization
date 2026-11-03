@@ -2,8 +2,7 @@
 
 // An evidence clip: a few seconds of the video around an item's second, cut on its first play and kept in R2 beside the
 // item's evidence (<folder>/<itemId>-clip.mp4, where <folder> is the run-<n>/ or edit-<n>/ folder of its frame, image or
-// track; <itemId>-clip-blur.mp4 for a clip cut with the faces blurred, so an unblurred clip is never served in its
-// place). Pure functions, no I/O, browser-safe: the window, the cache key and the pop-up button's states.
+// track). Pure functions, no I/O, browser-safe: the window, the cache key and the pop-up button's states.
 
 import type { EvidenceItemType } from '@/modules/reports/domain/revision';
 import { isEvidenceKeyOfVideo } from '@/modules/reports/domain/revision';
@@ -38,22 +37,17 @@ export function clipCentreSeconds(evidence: { boxSeconds: number | null; timesta
 const ITEM_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
- * The R2 key the item's clip is cached under: `<folder>/<itemId>-clip.mp4` (`-clip-blur.mp4` when `blurred`), in the
+ * The R2 key the item's clip is cached under: `<folder>/<itemId>-clip.mp4` in the
  * folder of the item's first stored evidence object (frame, image, then track) under the video's evidence folder. null
  * when the item stores none, so it has nowhere to cache a clip.
  */
-export function evidenceClipKey(
-  storedKeys: ReadonlyArray<string | null | undefined>,
-  videoKey: string,
-  itemId: string,
-  blurred = false,
-): string | null {
+export function evidenceClipKey(storedKeys: ReadonlyArray<string | null | undefined>, videoKey: string, itemId: string): string | null {
   if (!ITEM_ID.test(itemId)) return null;
   for (const key of storedKeys) {
     if (typeof key !== 'string' || !isEvidenceKeyOfVideo(key, videoKey)) continue;
     const slash = key.lastIndexOf('/');
     if (slash <= 0) continue;
-    return `${key.slice(0, slash + 1)}${itemId}${blurred ? '-clip-blur' : '-clip'}.mp4`;
+    return `${key.slice(0, slash + 1)}${itemId}-clip.mp4`;
   }
   return null;
 }
