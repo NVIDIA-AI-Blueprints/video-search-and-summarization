@@ -1,0 +1,53 @@
+{
+  "config_version": "evalv2-config-v1",
+  "experiment": "v2-c1c-dashboard-ultra-regression",
+  "split": {
+    "version": "split-v2",
+    "half": "dev"
+  },
+  "datasets": {
+    "dashboard_references": "dashboard-references-v2"
+  },
+  "subjects": [
+    {
+      "id": "ultra-chart",
+      "adapter": "openai_compat",
+      "endpoint": "switchyard",
+      "model": "nvidia/nemotron-3-ultra"
+    }
+  ],
+  "tasks": {
+    "dashboard": {
+      "subjects": "all",
+      "scorers": [
+        "dashboard.score_reply@1",
+        "dashboard.figure_outcome@1"
+      ],
+      "options": {
+        "request_shape": "agent-route-v2"
+      }
+    }
+  },
+  "repeats": 1,
+  "seed": 20261101,
+  "retry_policy": "retry-v2",
+  "caps": [
+    {
+      "ledger": "inference",
+      "subject": "ultra-chart",
+      "task": "dashboard",
+      "max_attempts": 75,
+      "max_tokens": 112500
+    },
+    {
+      "ledger": "inference",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 75,
+      "max_tokens": 112500
+    }
+  ],
+  "notes": "C1c Ultra regression (approved 2026-11-03: 75 calls): the 75 RB2 requests to nvidia/nemotron-3-ultra in the agent route's upstream shape (agent-route-v2: what POST /api/v1/incidents/chart-requests sends since #459: max_completion_tokens 200, temperature 0, thinking off), sent directly to Switchyard (the agent's LLM endpoint), not through the shared VM agent. Compared item by item with the pilot's console-gateway-v1 Ultra replies. Caps 75 attempts / 112,500 tokens, hard stop.",
+  "purpose": "pilot",
+  "budget_mode": "hard_stop"
+}
