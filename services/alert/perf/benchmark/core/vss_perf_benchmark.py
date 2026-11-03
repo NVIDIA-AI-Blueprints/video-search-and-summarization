@@ -27,6 +27,10 @@ from vss_perf_reporting import build_and_save, discover_platform  # noqa: E402
 from alert_results_adapter import to_test_cases  # noqa: E402
 
 SERVICE = "Alerts-Verification"
+REQUIRED_DEPLOYMENT_ENV_TEMPLATES = (
+    "developer-profiles/dev-profile-alerts/.env",
+    "services/nvstreamer/.env",
+)
 
 
 def run(argv, **kwargs):
@@ -130,29 +134,36 @@ def prepare_dataset(dataset, env):
 
 def prepare_runtime(work, image, supporting):
     """Keep source code and deployment templates untouched in the checkout."""
+    source = REPO_ROOT / "deploy/docker"
+    environment_templates = {}
+    for relative in REQUIRED_DEPLOYMENT_ENV_TEMPLATES:
+        template = source / relative
+        if template.is_symlink() or not template.is_file():
+            raise ValueError(
+                "Required deployment environment template is missing or not a regular file: " + relative
+            )
+        environment_templates[relative] = re.sub(
+            r"(?m)^(?:export\s+)?([A-Z0-9_]*(?:KEY|TOKEN|PASSWORD|SECRET)[A-Z0-9_]*)=.*$",
+            lambda match: match[1] + '="${' + match[1] + ':-}"',
+            template.read_text(),
+        )
     native_root = PERF_ROOT / "benchmark/native"
     shutil.copytree(native_root / "eval", work / "eval")
     shutil.copytree(PERF_ROOT / "setup/native-eval", work / "eval", dirs_exist_ok=True)
     deployment = work / "video-search-and-summarization/deploy/docker"
     shutil.copytree(
-        REPO_ROOT / "deploy/docker",
+        source,
         deployment,
         ignore=shutil.ignore_patterns(
             ".env", "generated.env", "engines", "data", "__pycache__"
         ),
     )
-    # Native dev-profile.sh requires its checked-in profile template. Copy it
-    # privately but clear any configured credentials; runtime credentials come
-    # only from the process environment.
-    template = REPO_ROOT / "deploy/docker/developer-profiles/dev-profile-alerts/.env"
+    # Copy only required templates, with credentials supplied at runtime.
+    for relative, content in environment_templates.items():
+        destination = deployment / relative
+        destination.write_text(content)
+        destination.chmod(0o600)
     profile_env = deployment / "developer-profiles/dev-profile-alerts/.env"
-    profile_text = template.read_text()
-    profile_text = re.sub(
-        r"(?m)^(?:export\s+)?([A-Z0-9_]*(?:KEY|TOKEN|PASSWORD|SECRET)[A-Z0-9_]*)=.*$",
-        lambda match: match[1] + '="${' + match[1] + ':-}"',
-        profile_text,
-    )
-    profile_env.write_text(profile_text)
     with profile_env.open("a") as stream:
         stream.write("\nSTREAM_TYPE=kafka\n")
     profile_env.chmod(0o600)

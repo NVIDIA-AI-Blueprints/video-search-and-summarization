@@ -45,7 +45,13 @@ caches fail validation rather than silently being used. Dataset installation is
 isolated in a helper venv; the host adapter environment is locked with uv.
 
 The deployment uses a private runtime tree so latency-profile mutations never
-change checked-in deployment files. Native fixed container identities require
+change checked-in deployment files. Staging restores only the required Alerts
+profile and NVStreamer `.env` templates, sanitizes credential assignments, and
+writes the copies with `0600` permissions. Other `.env` files and stale
+`generated.env` files remain excluded. Missing required templates fail staging
+with the relative path in the error.
+
+Native fixed container identities require
 exclusive node access; an existing `vss` Compose project is rejected. Diagnostics
 are collected before project teardown on success or failure. Failed runtime
 trees are retained privately on the node for investigation and are not reports.
