@@ -10,6 +10,7 @@ perf_configs:
     llmModel: "unused"
     vision_input_tokens: "2k"
     checkoutPaths:
+      - libs/vss-perf-tools/
       - services/vios/deployment/stream-processing/docker-compose/
       - libs/vss-perf-reporting/
       - skills/benchmarking/vss-benchmark-video-summarization/

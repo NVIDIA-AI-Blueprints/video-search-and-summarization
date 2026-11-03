@@ -23,6 +23,9 @@ for path in (PERF_ROOT / "benchmark", SHARED_REPORTING_SRC):
 from latency import build_result as build_native_result  # noqa: E402
 from minio_upload import minio_settings  # noqa: E402
 from vss_perf_ba_adapter import failure_payload, to_test_cases  # noqa: E402
+sys.path.insert(0, str(REPO_ROOT / "libs/vss-perf-tools"))
+from support_images import prepare_infra  # noqa: E402
+
 from vss_perf_reporting import (  # noqa: E402
     build_and_save,
     discover_platform,
@@ -205,6 +208,11 @@ def main(argv: list[str] | None = None) -> int:
             should_upload=should_upload,
             args=args,
         )
+
+    env["PERF_SUPPORT_INFRA"] = str(prepare_infra(
+        PERF_ROOT / "setup/configs/images.yaml",
+        REPO_ROOT / "deploy/docker/services/infra", work_dir,
+    ))
 
     if env.get("PERF_PRE_FLIGHT"):
         cmd = ["bash", str(PERF_ROOT / "scripts" / "measure.sh")]

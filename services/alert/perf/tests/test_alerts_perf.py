@@ -81,6 +81,9 @@ def test_runtime_image_override_is_exact_and_original_tree_unchanged(
     compose.write_text(original)
     monkeypatch.setattr(runner, "REPO_ROOT", source)
     settings = yaml.safe_load((PERF / "setup/configs/images.yaml").read_text())
+    # This fixture supplies only the target service; the full support binding
+    # inventory is exercised independently against the real deployment files.
+    settings["scopes"]["deployment"] = {}
     image = "registry/vss-alert-ms@sha256:" + "a" * 64
     deployment = runner.prepare_runtime(tmp_path / "runtime", image, settings)
     assert (

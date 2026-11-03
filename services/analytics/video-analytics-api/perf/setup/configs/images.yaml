@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Support images only; ARTIFACT_REF controls the tested service.
+# Values preserve current defaults and do not attest OSRB approval.
+schema_version: 1
+images:
+  elasticsearch:
+    ref: elasticsearch
+  elasticsearch-base:
+    ref: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+  alpine:
+    ref: alpine:3.24.1
+scopes:
+  infra:
+    compose.yml:
+      services:
+        elasticsearch: elasticsearch
+    Dockerfiles/elasticsearch.Dockerfile:
+      build_bases:
+        '0': elasticsearch-base
+    Dockerfiles/elastic-init.Dockerfile:
+      build_bases:
+        '0': alpine

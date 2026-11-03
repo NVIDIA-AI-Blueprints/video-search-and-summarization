@@ -41,6 +41,7 @@ perf_configs:
     imageArch: "amd64"
     enabled: true
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
     description: "H100 1x1: CR3 Nano VLM (GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
     vlmModel: "cosmos-reason3-nano"
@@ -55,6 +56,7 @@ perf_configs:
     imageArch: "amd64"
     enabled: true
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
     description: "H100 2x2: CR3 Nano VLM (GPUs 0,1) + Nemotron-3-Nano LLM (GPUs 2,3)"
     vlmModel: "cosmos-reason3-nano"
@@ -70,6 +72,7 @@ perf_configs:
     imageArch: "amd64"
     enabled: true
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
     description: "L40S 1x1: CR3 Nano VLM (GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
     vlmModel: "cosmos-reason3-nano"
@@ -85,6 +88,7 @@ perf_configs:
     imageArch: "amd64"
     enabled: true
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
     description: "RTX PRO 6000 1x1: CR3 Nano VLM (GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
     vlmModel: "cosmos-reason3-nano"
@@ -99,6 +103,7 @@ perf_configs:
     imageArch: "amd64"
     enabled: true
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
     description: "RTX PRO 6000 1: CR3 Nano VLM + Nemotron-Nano-9B-v2 LLM (shared GPU 0)"
     vlmModel: "cosmos-reason3-nano"
@@ -114,6 +119,7 @@ perf_configs:
     imageArch: "arm64-sbsa"
     enabled: true
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
     description: "Spark 1: CR3 Nano VLM (RTVI) + Nemotron-Nano-9B-v2 LLM"
     vlmModel: "cosmos-reason3-nano"
@@ -129,6 +135,7 @@ perf_configs:
     imageArch: "arm64-igpu"
     enabled: true
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
     description: "Thor AGX 1: CR3 Nano VLM (RTVI) + Nemotron-Nano-9B-v2 LLM"
     vlmModel: "cosmos-reason3-nano"
@@ -144,6 +151,7 @@ perf_configs:
     imageArch: "amd64"
     enabled: false
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
     description: "GB200 1: CR3 Nano VLM (RTVI) + Nemotron-Nano-9B-v2 LLM"
     vlmModel: "cosmos-reason3-nano"
@@ -159,6 +167,7 @@ perf_configs:
     imageArch: "amd64"
     enabled: false
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
     description: "B200 1x1: CR3 Nano VLM (GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
     vlmModel: "cosmos-reason3-nano"
@@ -174,6 +183,7 @@ perf_configs:
     imageArch: "amd64"
     enabled: false
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
     description: "RTX PRO 4500 1: CR3 Nano VLM (RTVI) + Nemotron-Nano-9B-v2 LLM"
     vlmModel: "cosmos-reason3-nano"
