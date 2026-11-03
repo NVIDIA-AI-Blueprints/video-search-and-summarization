@@ -37,6 +37,7 @@ PERF_VENV_DIR="${PERF_VENV_DIR:-$PERF_ROOT/setup/.venv}"
 PERF_VENV_DIR="$PERF_VENV_DIR" "$PERF_ROOT/setup/setup_environment.sh"
 "$PERF_VENV_DIR/bin/python" "$PERF_ROOT/scripts/prepare_runtime_config.py" \
     --source "$config" --destination "$runtime_config" \
+    --config-id "$config_id" \
     --native-output "$output/native" --release "$release" --gpus "$gpus"
 
 export RTVI_IMAGE="${IMAGE_TAG:-${RTVI_IMAGE:-}}"

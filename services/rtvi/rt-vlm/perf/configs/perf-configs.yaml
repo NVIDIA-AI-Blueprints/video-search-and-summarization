@@ -13,3 +13,19 @@ perf_configs:
       - services/vios/deployment/stream-processing/docker-compose/
       - libs/vss-perf-reporting/
       - skills/benchmarking/vss-benchmark-video-summarization/
+
+  - id: rtvi-vlm-dgx-spark-1gpu
+    nodeLabel: DGX-SPARK
+    imageArch: arm64-sbsa
+    enabled: true
+    composePath: perf/setup/compose/compose.perf.yaml
+    benchmarkConfig: benchmark/rtvi_vlm_bcd_3_3_dgx_spark_config.yaml
+    vlmGpus: "0"
+    llmGpus: "unused"
+    vlmModel: "cr3-nano-reasoner-nvfp4"
+    llmModel: "unused"
+    vision_input_tokens: "2k"
+    checkoutPaths:
+      - services/vios/deployment/stream-processing/docker-compose/
+      - libs/vss-perf-reporting/
+      - skills/benchmarking/vss-benchmark-video-summarization/
