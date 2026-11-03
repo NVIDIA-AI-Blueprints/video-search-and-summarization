@@ -31,8 +31,50 @@
 
 **Decision: no rerun.** A regression run on the agent route would need new inference. All 225 approved dashboard calls are used, so it is proposed, not run: §3.
 
+## Follow-up runs (owner-approved 2026-11-03) and final development results
+
+**What ran:**
+- **Recovery:** `c1c-dashboard-recovery`, the 33 open items on the pilot's `console-gateway-v1` shape. 33 calls of the approved 45; 33/33 OK.
+- **Ultra regression:** `c1c-dashboard-ultra-regression`, all 75 requests on `agent-route-v2`. 75 calls of the approved 75; 75/75 OK.
+- **Scoring:** both are scored with `evalv2-dashboard-score-v1`, with figures from the SQL harness.
+- **Records kept:** the original pilot record is unchanged. The recovery and pilot share no item.
+
+**Final development results (pilot + recovery):**
+- Every model now has 75/75 assigned requests answered: 0 unanswered, 0 failed, 0 unattempted.
+- So accuracy over answered requests equals overall success over assigned requests.
+- "Correct" means the chart figures equal the reference chart, or a correct refusal.
+- 95% intervals: record bootstrap, 10,000 resamples, seed 20261027.
+
+| Model | Correct / assigned | 95% CI | Refused a valid request | Invalid spec (no chart) | False accepts | Wrong figures |
+|---|---|---|---|---|---|---|
+| Nemotron 3 Ultra (production) | **0.87** (65/75) | 0.79–0.93 | 9 | 0 | 0 | 1 |
+| Nemotron 3 Super 120B | **0.96** (72/75) | 0.91–1.00 | 1 | 2 | 0 | 0 |
+| Nemotron 3 Nano 30B | **0.84** (63/75) | 0.75–0.92 | 0 | 2 | 5 | 5 |
+
+**Paired differences** (same 75 requests):
+- Super − Ultra: +0.09 [0.01, 0.19]. Super alone was correct on 9 requests, Ultra alone on 2.
+- Super − Nano: +0.12 [0.03, 0.21].
+- Ultra − Nano: +0.03 [−0.08, 0.13].
+
+**Ultra regression on the current agent route:**
+- The agent route scored 0.88 (66/75), against 0.87 (65/75) for the pilot shape.
+- 74/75 items have the same outcome and the same spec or refusal.
+- The one change is a borderline request, which flipped from a false refusal to an exact match.
+- Conclusion: no material difference. The pilot + recovery result stands for the production route.
+- The runs are reported side by side, not pooled.
+
+**Why Ultra trails Super: severity synonyms.**
+- The chart prompt lists severity only as `low`/`medium`/`high`. It also says to reply `{"unsupported": true}` if any part of a request "cannot be expressed with exactly these values".
+- Ultra applies this literally to "minor", "moderate" and "severe":
+  - **with a severity synonym** (29 supported requests): Ultra 7 false refusals, Super 1, Nano 0;
+  - **without a synonym** (31 supported requests): Ultra 2 false refusals, Super 0, Nano 0.
+- Ultra's other two refusals are degenerate groupings: "by incident type" when already filtered to one type, and "monthly counts" over one week.
+- The references map synonyms to bands (minor→low, and so on). That is an interpretation, and the AI-only reference review checks whether a refusal is also acceptable.
+- A prompt line mapping synonyms would likely remove most of these refusals. That would be a production prompt change, decided separately and not made here.
+
 ## What stays open
 
-1. **Open items:** 33 of the 225 work items are open (Nano 10, Super 11, Ultra 12). Rate-limit retries during the concurrent first chat run consumed the approved 225-call cap. Per-model results cover 63–65 of 75 requests each, and the denominators are stated.
-2. **Optional regression check (needs approval):** the 75 requests to Ultra through the `agent-route-v2` shape. That is 75 calls, at most 112,500 tokens reserved, on Switchyard (no charge to the project). It would confirm empirically that `max_completion_tokens` and the agent path change nothing.
-3. **Provisional status:** RB2 is `ai_validated`, not human-verified, so dashboard scores stay provisional until its 30-record human review.
+1. ~~Open items~~: done (recovery, above).
+2. ~~Regression check~~: done (above).
+3. **Provisional status:** RB2 is `ai_validated`. The human review is replaced by an AI-only review (owner decision, 2026-11-03), so the scores stay provisional and Human-unverified.
+4. **Decision for the owner:** whether to add a severity-synonym line to the chart prompt. It is a production change, and it must land before the C2 freeze if it is to be evaluated in C3.

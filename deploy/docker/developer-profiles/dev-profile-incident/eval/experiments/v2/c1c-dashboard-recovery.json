@@ -1,0 +1,247 @@
+{
+  "config_version": "evalv2-config-v1",
+  "experiment": "v2-c1c-dashboard-recovery",
+  "split": {
+    "version": "split-v2",
+    "half": "dev"
+  },
+  "datasets": {
+    "dashboard_references": "dashboard-references-v2"
+  },
+  "subjects": [
+    {
+      "id": "ultra-chart",
+      "adapter": "openai_compat",
+      "endpoint": "switchyard",
+      "model": "nvidia/nemotron-3-ultra"
+    },
+    {
+      "id": "nano-chart",
+      "adapter": "openai_compat",
+      "endpoint": "switchyard",
+      "model": "nvidia/nemotron-3-nano-30b-a3b"
+    },
+    {
+      "id": "super-chart",
+      "adapter": "openai_compat",
+      "endpoint": "switchyard",
+      "model": "nvidia/nemotron-3-super-120b-a12b"
+    }
+  ],
+  "tasks": {
+    "dashboard": {
+      "subjects": "all",
+      "scorers": [
+        "dashboard.score_reply@1",
+        "dashboard.figure_outcome@1"
+      ]
+    }
+  },
+  "repeats": 1,
+  "seed": 20261101,
+  "retry_policy": "retry-v2",
+  "caps": [
+    {
+      "ledger": "inference",
+      "subject": "ultra-chart",
+      "task": "dashboard",
+      "max_attempts": 20,
+      "max_tokens": 30000
+    },
+    {
+      "ledger": "inference",
+      "subject": "nano-chart",
+      "task": "dashboard",
+      "max_attempts": 20,
+      "max_tokens": 30000
+    },
+    {
+      "ledger": "inference",
+      "subject": "super-chart",
+      "task": "dashboard",
+      "max_attempts": 20,
+      "max_tokens": 30000
+    },
+    {
+      "ledger": "inference",
+      "subject": "*",
+      "task": "*",
+      "max_attempts": 45,
+      "max_tokens": 67500
+    }
+  ],
+  "notes": "C1c dashboard recovery (approved 2026-11-03: at most 45 additional Switchyard calls): re-sends only the pilot's 33 open items with the pilot's own request shape (console-gateway-v1), so they combine with the 192 answered ones. Caps 45 attempts / 67,500 tokens run-wide, hard stop.",
+  "purpose": "pilot",
+  "budget_mode": "hard_stop",
+  "recovery": {
+    "of_experiment": "v2-c1c-dashboard-pilot",
+    "of_manifest": "manifest.start.json config abeca680d876916b",
+    "items": [
+      {
+        "subject": "nano-chart",
+        "item_id": "dash:spec:0f0acb9f88c7",
+        "repeat": 1
+      },
+      {
+        "subject": "nano-chart",
+        "item_id": "dash:spec:1f9ae02c6859",
+        "repeat": 1
+      },
+      {
+        "subject": "nano-chart",
+        "item_id": "dash:spec:31de51134c37",
+        "repeat": 1
+      },
+      {
+        "subject": "nano-chart",
+        "item_id": "dash:spec:5637ea2a5b71",
+        "repeat": 1
+      },
+      {
+        "subject": "nano-chart",
+        "item_id": "dash:spec:7f5aa532b5ed",
+        "repeat": 1
+      },
+      {
+        "subject": "nano-chart",
+        "item_id": "dash:spec:d2a5ea22006f",
+        "repeat": 1
+      },
+      {
+        "subject": "nano-chart",
+        "item_id": "dash:spec:e42d2739c09b",
+        "repeat": 1
+      },
+      {
+        "subject": "nano-chart",
+        "item_id": "dash:spec:eafa8dd5344f",
+        "repeat": 1
+      },
+      {
+        "subject": "nano-chart",
+        "item_id": "dash:spec:ffba11beb58c",
+        "repeat": 1
+      },
+      {
+        "subject": "nano-chart",
+        "item_id": "dash:unsupported:d3c72aa5accb",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:spec:0f0acb9f88c7",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:spec:1f9ae02c6859",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:spec:31de51134c37",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:spec:5637ea2a5b71",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:spec:7f5aa532b5ed",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:spec:91a76e076528",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:spec:d2a5ea22006f",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:spec:e42d2739c09b",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:spec:eafa8dd5344f",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:spec:ffba11beb58c",
+        "repeat": 1
+      },
+      {
+        "subject": "super-chart",
+        "item_id": "dash:unsupported:d3c72aa5accb",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:0a21a8a90572",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:0f0acb9f88c7",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:1f9ae02c6859",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:31de51134c37",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:55cad61eff08",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:5637ea2a5b71",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:7f5aa532b5ed",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:b85323a80f7c",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:d2a5ea22006f",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:e42d2739c09b",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:spec:eafa8dd5344f",
+        "repeat": 1
+      },
+      {
+        "subject": "ultra-chart",
+        "item_id": "dash:unsupported:d3c72aa5accb",
+        "repeat": 1
+      }
+    ]
+  }
+}
