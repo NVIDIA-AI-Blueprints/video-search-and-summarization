@@ -99,3 +99,19 @@ docker compose -f perf/setup/monitoring/compose.yaml up -d
 ```
 
 Use `docker network ls` to find the network created for your Compose project.
+
+## Supporting container images
+
+Edit `setup/configs/images.yaml` to manage this benchmark's supporting images.
+`images` contains complete image references; `scopes` binds them to Compose
+services and Dockerfile build stages. Keep logical image IDs stable when changing
+versions. The service being tested continues to use the image selected for the run.
+
+Setup renders image choices into private runtime files. It does not modify the
+shared blueprint deployment definitions. The configured inventory is saved as
+`support-images.json` alongside the run output. These references preserve existing
+image versions; their presence here does not establish OSRB approval.
+
+The rendered setup tree is retained under the temporary directory while a stack
+is running, because Compose bind-mounts files from it. A run without teardown must
+keep that tree until its containers have been stopped.

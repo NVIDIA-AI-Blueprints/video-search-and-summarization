@@ -21,3 +21,23 @@ export PERF_UV_BIN=uv
 Dashboard JSON is written below `perf-results/vss-perf-results/`; native
 reports are kept below `perf-results/native/`. See
 `benchmark/PERF_GUIDE.RTVI_EMBED.md` for scenario and tuning guidance.
+
+## Supporting container images
+
+Edit `setup/configs/images.yaml` to manage this benchmark's supporting images.
+`images` contains complete image references; `scopes` binds them to Compose
+services and Dockerfile build stages. Keep logical image IDs stable when changing
+versions. The service being tested continues to use the image selected for the run.
+
+Setup renders image choices into private runtime files. It does not modify the
+shared blueprint deployment definitions. The configured inventory is saved as
+`support-images.json` alongside the run output. These references preserve existing
+image versions; their presence here does not establish OSRB approval.
+
+The `environment` section maps VIOS/VST image settings to image IDs. Explicit
+existing environment overrides retain their previous precedence.
+
+Embed still consumes its existing VST package. Only the four explicit VST image
+overrides and perf monitoring images are inventoried here. Any other image
+references inside that package remain package-managed until its contents can be
+verified; no additional tags are guessed by setup.

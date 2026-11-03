@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Support images only; ARTIFACT_REF controls the tested service.
+# Values preserve current defaults and do not attest OSRB approval.
+schema_version: 1
+images:
+  elasticsearch:
+    ref: elasticsearch
+  cp-kafka:
+    ref: confluentinc/cp-kafka:8.3.0
+  vss-kafka-topic-init:
+    ref: vss-kafka-topic-init
+  kibana:
+    ref: docker.elastic.co/kibana/kibana:9.4.4
+  logstash:
+    ref: docker.elastic.co/logstash/logstash:9.4.4
+  elasticsearch-base:
+    ref: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+  alpine:
+    ref: alpine:3.24.1
+scopes:
+  infra:
+    compose.yml:
+      services:
+        elasticsearch: elasticsearch
+        kafka: cp-kafka
+        kafka-topic-init-container: vss-kafka-topic-init
+        kibana: kibana
+        logstash: logstash
+    Dockerfiles/elasticsearch.Dockerfile:
+      build_bases:
+        '0': elasticsearch-base
+    Dockerfiles/elastic-init.Dockerfile:
+      build_bases:
+        '0': alpine
+    Dockerfiles/kafka-health-check.Dockerfile:
+      build_bases:
+        '0': alpine
+        '1': cp-kafka
