@@ -926,9 +926,9 @@ videos:
     chunk_sizes: [5, 10, 15, 30, 60]  # Different chunk durations
 ```
 
-### EVS++ Configuration
+### Adaptive EVS Configuration
 
-EVS++ is configured on the service rather than per benchmark request, so it takes a service restart to apply. Exported values override `.env.perf`. `perf/setup_perf_env.sh` writes all of these keys into `.env.perf`, but EVS is **off** by default — both `VIA_EVS_SESSION=false` and an empty `VLM_VIDEO_PRUNING_RATE` — so a fresh setup run is a clean non-EVS baseline. The remaining values are pre-populated at their EVS++ settings (`VLLM_EVS_SIMILARITY_THRESHOLD=0.4`, `VIA_EVS_TOKEN_BUDGET=1`). Export `VIA_EVS_SESSION=true` and `VLM_VIDEO_PRUNING_RATE=0.5` before running setup to generate an EVS++-enabled `.env.perf`, or apply them to an already-running service:
+Adaptive EVS is configured on the service rather than per benchmark request, so it takes a service restart to apply. Exported values override `.env.perf`. `perf/setup_perf_env.sh` writes all of these keys into `.env.perf`, but EVS is **off** by default — both `VIA_EVS_SESSION=false` and an empty `VLM_VIDEO_PRUNING_RATE` — so a fresh setup run is a clean non-EVS baseline. The remaining values are pre-populated at their Adaptive EVS settings (`VLLM_EVS_SIMILARITY_THRESHOLD=0.4`, `VIA_EVS_TOKEN_BUDGET=1`). Export `VIA_EVS_SESSION=true` and `VLM_VIDEO_PRUNING_RATE=0.5` before running setup to generate an Adaptive EVS-enabled `.env.perf`, or apply them to an already-running service:
 
 ```bash
 # Run from docker/
@@ -942,9 +942,9 @@ docker compose -f compose.perf.yaml --env-file .env.perf down
 docker compose -f compose.perf.yaml --env-file .env.perf up -d
 ```
 
-`VIA_EVS_TOKEN_BUDGET=1` is the default; it forces generation on each clip instead of accumulating visual tokens across clips, which keeps caption counts aligned with the non-EVS baseline so latency and throughput compare directly instead of needing per-caption normalization. Confirm the caption counts actually match before comparing — if the EVS++ run emitted materially fewer captions, something is still gating or accumulating generation and the numbers are not comparable.
+`VIA_EVS_TOKEN_BUDGET=1` is the default; it forces generation on each clip instead of accumulating visual tokens across clips, which keeps caption counts aligned with the non-EVS baseline so latency and throughput compare directly instead of needing per-caption normalization. Confirm the caption counts actually match before comparing — if the Adaptive EVS run emitted materially fewer captions, something is still gating or accumulating generation and the numbers are not comparable.
 
-All benchmark modes exercise EVS++ when session mode is on. The routing decision is made on `VIA_EVS_SESSION` alone, so the file-based modes (single file, file burst) go through the session path just as the live-stream modes do, despite the "per-stream session" naming.
+All benchmark modes exercise Adaptive EVS when session mode is on. The routing decision is made on `VIA_EVS_SESSION` alone, so the file-based modes (single file, file burst) go through the session path just as the live-stream modes do, despite the "per-stream session" naming.
 
 ---
 
@@ -1370,15 +1370,15 @@ docker compose -f docker/compose.perf.yaml logs -f rtvi-server
 | `VLLM_NUM_SCHEDULER_STEPS` | 8 | Scheduler steps |
 | `VLLM_MAX_NUM_BATCHED_TOKENS` | (unset) | Maximum tokens per scheduler step; set to control memory vs throughput |
 
-### EVS / EVS++ Configuration
+### EVS / Adaptive EVS Configuration
 
-EVS (Efficient Video Sampling) prunes redundant video tokens before inference. There are two modes: fixed-rate pruning, set with `VLM_VIDEO_PRUNING_RATE` alone, and session mode ("EVS++"), enabled with `VIA_EVS_SESSION=true`. Every variable below is read by `rtvi_vlm` only and is already wired through `compose.yaml` and `compose.perf.yaml`, so exported shell values override `.env.perf`. See `claude/EVS_REFERENCE.md` for the full reference.
+EVS (Efficient Video Sampling) prunes redundant video tokens before inference. There are two modes: fixed-rate pruning, set with `VLM_VIDEO_PRUNING_RATE` alone, and session mode ("Adaptive EVS"), enabled with `VIA_EVS_SESSION=true`. Every variable below is read by `rtvi_vlm` only and is already wired through `compose.yaml` and `compose.perf.yaml`, so exported shell values override `.env.perf`. See *Efficient Video Sampling (EVS and Adaptive EVS)* in the Real-Time VLM documentation for the full reference.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VIA_EVS_SESSION` | unset (false) | Master switch for EVS++ session mode. Auto-enables absolute-timestamp metadata internally. Rejected on `NemotronH_Nano_Omni_Reasoning_V3`, where it raises `ValueError` at startup rather than falling back. |
-| `VLM_VIDEO_PRUNING_RATE` | unset; **set `0.5` when EVS++ is enabled** | Pruning fraction, valid range `0 < r < 1`. Required for EVS++, because passing `video_pruning_rate` at engine init is what activates pruning inside vLLM and this variable is its only source. With session mode on but this unset, sessions are created and the handler still carries its internal `0.5`, yet the engine never prunes — the run pays EVS++ overhead with no token reduction. |
-| `VLLM_EVS_SIMILARITY_THRESHOLD` | `0.4` | Cosine-dissimilarity threshold for pruning near-duplicate frames on the encode path (session mode). Server default only; the livestream caption APIs can override it per request or stream. |
+| `VIA_EVS_SESSION` | unset (false) | Master switch for Adaptive EVS session mode. Auto-enables absolute-timestamp metadata internally. Rejected on `NemotronH_Nano_Omni_Reasoning_V3`, where it raises `ValueError` at startup rather than falling back. |
+| `VLM_VIDEO_PRUNING_RATE` | unset; **set `0.5` when Adaptive EVS is enabled** | Pruning fraction, valid range `0 < r < 1`. Required for Adaptive EVS, because passing `video_pruning_rate` at engine init is what activates pruning inside vLLM and this variable is its only source. With session mode on but this unset, sessions are created and the handler still carries its internal `0.5`, yet the engine never prunes — the run pays Adaptive EVS overhead with no token reduction. |
+| `VLLM_EVS_SIMILARITY_THRESHOLD` | `0.4` | Cosine-dissimilarity threshold for pruning near-duplicate frames on the encode path (session mode). Higher values prune more. Read once at startup. |
 | `VLLM_NUM_PREPROCESS_WORKERS` | `16` | Fixed vLLM frontend executor ceiling. Changing it requires an engine restart. |
 | `RTVI_VLLM_ADAPTIVE_PREPROCESS` | `disabled` | GPU-memory-aware admission beneath the fixed vLLM executor ceiling. Supported presets are `disabled`, `shadow`, and `enforced`. Advanced tuning uses a JSON object in this same variable. |
 | `VIA_EVS_TOKEN_BUDGET` | `1` | Max visual-token budget accumulated across clips before generation is forced. |

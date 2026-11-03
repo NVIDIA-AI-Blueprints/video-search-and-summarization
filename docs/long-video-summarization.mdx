@@ -113,11 +113,11 @@ with Video Summarization 3.3.0.
 * `MESSAGE_BUS_TOPIC` replaces `KAFKA_TOPIC` for the raw VLM event topic and
   defaults to `mdx-vlm-captions`.
 
-The in-stack RTVI-VLM profile also forwards the new EVS++ settings
+The in-stack RTVI-VLM profile also forwards the new Adaptive EVS settings
 `VIA_EVS_SESSION`, `VLM_VIDEO_PRUNING_RATE`,
 `VLLM_EVS_SIMILARITY_THRESHOLD`, `VIA_EVS_TOKEN_BUDGET`, and
 `VIA_EVS_MAX_SESSIONS`. For supported models, defaults, and behavior, refer to
-*Efficient Video Sampling (EVS and EVS++)* in the
+*Efficient Video Sampling (EVS and Adaptive EVS)* in the
 [Real-Time VLM](/system-components/vision-microservices/real-time-vlm)
 documentation.
 
@@ -155,7 +155,7 @@ documentation.
   summary. A response that has no events but has a summary is not retried.
 * The service always forwards `scenario` and `events` to CA-RAG, including when
   `enable_vlm_structured_output` is enabled.
-* The 3.3.0 RTVI-VLM profile supports optional EVS++ video token pruning to
+* The 3.3.0 RTVI-VLM profile supports optional Adaptive EVS video token pruning to
   reduce redundant visual input and per-chunk inference time.
 * The Elasticsearch index retention default is unchanged. The Compose
   configuration retains per-asset indices by default, and the service drops
@@ -1207,7 +1207,7 @@ When running with `LVS_MCP_PORT` set, connect to:
 2. **RTVI-VLM Tuning**: Configure batch size, frame counts, and per-process GPU allocation on the RTVI-VLM service. See [Real-Time VLM](/system-components/vision-microservices/real-time-vlm) for guidance.
 3. **Live-Stream Sessions**: Set `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=true` to keep context-manager state intact across consecutive `/v1/stream_summarize` calls on the same stream.
 4. **Logstash Settle Window**: Tune `tools.elasticsearch_db.params.kafka_consumer_settle_secs` (default 5 seconds) to balance ingest latency against the file-path summarize wall time when using the streaming profile.
-5. **Video Token Pruning**: Enable EVS++ on the RTVI-VLM service to prune redundant video tokens and reduce per-chunk inference time on long videos. See *Efficient Video Sampling (EVS and EVS++)* in the [Real-Time VLM](/system-components/vision-microservices/real-time-vlm) documentation.
+5. **Video Token Pruning**: Enable Adaptive EVS on the RTVI-VLM service to prune redundant video tokens and reduce per-chunk inference time on long videos. See *Efficient Video Sampling (EVS and Adaptive EVS)* in the [Real-Time VLM](/system-components/vision-microservices/real-time-vlm) documentation.
 
 ### Error Handling
 
@@ -1353,12 +1353,12 @@ SDK when a request supplies an `s3://` URL.
 * `RTVI_HEALTH_RETRIES`: Attempts to make while waiting for RTVI-VLM to report healthy at startup (default: 30)
 * `RTVI_HEALTH_RETRY_INTERVAL`: Seconds between those attempts (default: 5)
 
-EVS++ video token pruning is a feature of RTVI-VLM, so it is configured on that
+Adaptive EVS video token pruning is a feature of RTVI-VLM, so it is configured on that
 service rather than on the Video Summarization MS server. Compose passes
 `VIA_EVS_SESSION`, `VLM_VIDEO_PRUNING_RATE`, `VLLM_EVS_SIMILARITY_THRESHOLD`,
 `VIA_EVS_TOKEN_BUDGET`, and `VIA_EVS_MAX_SESSIONS` from your `.env` file through
 to the in-stack `rtvi-vlm` service. For descriptions, defaults, and supported
-models, see *Efficient Video Sampling (EVS and EVS++)* in the
+models, see *Efficient Video Sampling (EVS and Adaptive EVS)* in the
 [Real-Time VLM](/system-components/vision-microservices/real-time-vlm)
 documentation.
 
