@@ -63,7 +63,7 @@ cd supabase/tests && uv run --no-project --python 3.12 --with pgserver --with 'p
 - **PostgREST only from `kwanz-ws`** (port 5432 is DPI-blocked). PostgREST has no client transactions, so `report_revisions` inserts retry on a `revision_no` clash (SQLSTATE 23505).
 - **Storage:** R2 holds videos (`videos.filepath` is an **R2 key**, never a VST URL); Supabase holds rows; VIOS disk is only a cache.
 - **Secrets are server-side only:** never `NEXT_PUBLIC_` for a credential or URL; `/api/health` returns booleans only; the gateway owns `VLM_GATEWAY_API_KEY`.
-- **Remote models use `_type: openai`,** never `_type: nim`, with bare base URLs (no `/v1`); why: [`.docs/architecture.md`](.docs/architecture.md#inference-rules--requirements).
+- **Remote models use `_type: openai`,** never `_type: nim`, with bare base URLs (no `/v1`); why: [`.docs/architecture.md`](.docs/architecture.md#model-inference).
 
 ## Boundaries
 
@@ -85,7 +85,7 @@ Stale docs are a defect. Update in the same PR:
 |---|---|
 | A command, port, script or API contract | The matching `skills/incident-*/SKILL.md` and [`.docs/incident-profile-operations.md`](.docs/incident-profile-operations.md) |
 | Schema, R2 layout or report fields | A new `supabase/migrations/` file after the baseline, `supabase/tests/test_baseline.py`, [`.docs/data.md`](.docs/data.md), [`.docs/analysis-schema.md`](.docs/analysis-schema.md) |
-| Topology, components, sequences | [`.docs/architecture.md`](.docs/architecture.md) |
+| Topology, components, sequences | [`.docs/architecture.md`](.docs/architecture.md); what a console page or route does: [`.docs/console-reference.md`](.docs/console-reference.md) |
 | Implementation state, known issues, live VM config | [`.docs/status.md`](.docs/status.md) (rewrite, don't append) |
 | An architectural or tooling decision | New entry at the top of [`.docs/decisions.md`](.docs/decisions.md): Decision / Why / Alternatives rejected / Links, and remove or amend any entry it supersedes |
 | A doc or skill added, moved or renamed | [`README.md`](README.md) doc index and [`skills/README.md`](skills/README.md) |
@@ -97,6 +97,7 @@ Stale docs are a defect. Update in the same PR:
 | [`.docs/status.md`](.docs/status.md) | Starting any task: what is done, known issues, live VM config |
 | [`.docs/action-plan.md`](.docs/action-plan.md) | Checking scope or goals |
 | [`.docs/architecture.md`](.docs/architecture.md) | Touching more than one component, or tracing a request |
+| [`.docs/console-reference.md`](.docs/console-reference.md) | Changing what a console page shows or does, a console route, or the console's configuration |
 | [`.docs/data.md`](.docs/data.md) | Touching tables, the RPCs, cascades, security or R2 keys |
 | [`.docs/analysis-schema.md`](.docs/analysis-schema.md) | Touching report fields, prompts, VLM calls or output parsing |
 | [`.docs/incident-profile-operations.md`](.docs/incident-profile-operations.md) | Anything on `kwanz-ws` |

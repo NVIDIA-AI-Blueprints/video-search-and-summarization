@@ -16,7 +16,8 @@ Human-facing overview for the incident search and reporting profile. Coding agen
 **Reference (`.docs/`)**
 - [Current status & known issues](.docs/status.md)
 - [Action plan & scope](.docs/action-plan.md)
-- [System architecture & sequence flows](.docs/architecture.md)
+- [System architecture: context, containers, runtime and deployment views, decisions, quality](.docs/architecture.md)
+- [Console reference: pages, routes, behaviour and configuration](.docs/console-reference.md)
 - [Database schema & R2 storage](.docs/data.md)
 - [Incident analysis schema & field mapping](.docs/analysis-schema.md)
 - [Profile operations & runbook](.docs/incident-profile-operations.md)

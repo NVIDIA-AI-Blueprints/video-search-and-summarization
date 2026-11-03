@@ -2,7 +2,7 @@
 
 The old `mdx-*` shell aliases / `ngc-env-on` from
 [`deploy/docker/developer-profiles/dev-profile-incident/.dotfiles/`](../.dotfiles/README.md) moved here as standalone,
-executable scripts, ready to run individually. Since the native split ([architecture](../.docs/architecture.md#native-vs-docker-service-split-policy)), the VM-side scripts cover both halves: native processes through
+executable scripts, ready to run individually. Since the native split ([architecture](../.docs/architecture.md#native-processes-and-containers)), the VM-side scripts cover both halves: native processes through
 `native-services.sh`, Docker appliance containers through `docker compose -p mdx`.
 
 | Script | Was | Runs on | What it does |

@@ -1,5 +1,7 @@
 # `incident-console-v2`: Hexagonal Layout
 
+> Part of the incident profile docs: the component view of the console container. Its place among the containers, the runtime views and the deployment view: [`../architecture.md`](../architecture.md#level-2-the-console); what each page does: [`../console-reference.md`](../console-reference.md).
+
 How `incident-console-v2` separates its UI and HTTP routes from Supabase, R2, the VLM gateway and the agent, and the import rules `npm test` enforces (`tests/import-boundaries.test.mjs`). Why it is built this way: [decision](../decisions.md#2026-10-23-incident-console-v2-uses-a-feature-module-layout-under-src).
 
 ## 1. Layout

@@ -1,437 +1,618 @@
-# Incident Search & Reporting Capstone — Architecture
+# Incident Search and Reporting Profile: Architecture
 
-This document describes the system architecture, component topology, deployment mechanics, and
-runtime interaction sequences for `dev-profile-incident`.
+The architecture of `dev-profile-incident`, the incident search and reporting profile the team built on NVIDIA's Video Search and Summarization (VSS) blueprint. The page follows the arc42 section order and the C4 model's levels (context, containers, components, deployment), drawn in Mermaid so GitHub renders them, and NVIDIA's blueprint conventions for naming components and describing data flow ([conventions](#conventions)). It describes roles and interactions, not deployment values: ports, hosts, addresses, paths and settings live in the runbook, the skills and the agent contract page.
 
----
+| If you need | Read |
+|---|---|
+| What is true today, known issues, live flags | [`status.md`](status.md) |
+| What a console page shows or does, a console route, the console's configuration | [`console-reference.md`](console-reference.md) |
+| An agent HTTP contract | [`vm-api-contracts.md`](vm-api-contracts.md) |
+| Tables, database functions, object keys | [`data.md`](data.md) |
+| The report contract, validation and storage of model output | [`analysis-schema.md`](analysis-schema.md) |
+| Why something is the way it is | [`decisions.md`](decisions.md) |
+| Natural-language search in depth | [`mvp2/README.md`](mvp2/README.md) |
+| How to launch, operate, analyse, migrate or evaluate | [`skills/README.md`](../skills/README.md), [`incident-profile-operations.md`](incident-profile-operations.md) |
 
-## 1. System Context Architecture
+## Introduction and Goals
 
-The system spans three runtime tiers:
-1. **Developer Laptop:** Hosts the modern frontend (`incident-console-v2`), local API proxies (`vlm-gateway`),
-   and base mocks (`mock-backend`).
-2. **Shared GPU Workstation (`kwanz-ws` VM):** Runs the AI agent (`vss-agent`) as a native process and
-   Phoenix (the trace viewer used for eval) in Docker. VIOS/VST, HAProxy and Redis are removed from the
-   deployment ([decision](decisions.md#2026-10-31-vst-is-dropped-from-the-consoles-upload-path-uploads-go-to-r2-only)); Kafka runs only inside the person-tracking stack.
-3. **Cloud & External Services:** Cloudflare R2 for durable video storage, Supabase for relational data via
-   HTTPS PostgREST, and hosted LLM/VLM inference endpoints (NGC and Brev).
+### Purpose
 
-### System Context Diagram
+A reviewer uploads a surveillance or anomaly clip. A vision-language model (VLM) extracts a structured incident report: type, severity, confidence, a summary, and the entities, instruments and assets involved, each with the second it is seen. The report is stored as an append-only revision with the clip in object storage. The reviewer edits it into new revisions, marks one revision per video official, searches the whole archive in natural language over evidence items, asks questions about a report, and reads a dashboard that counts each video once. Model quality is measured separately by an offline evaluation pipeline on the same contract. Goals and scope in full: [`action-plan.md`](action-plan.md).
+
+### Quality Goals
+
+The five qualities that shaped the design most, in priority order. Scenarios for each are in [Quality Requirements](#quality-requirements).
+
+| Priority | Quality | What it means here |
+|---|---|---|
+| 1 | Traceability | Every model attempt is recorded immutably with its request, raw response, validation outcome and per-stage provenance; every report revision is kept; nothing is inferred from "the latest run" |
+| 2 | Contract correctness | One prompt, schema and validation policy is shared by the console, the agent and the evaluation pipeline; model output is never repaired semantically |
+| 3 | Graceful degradation | Optional stages (captions, locating, zoom, tracking, embeddings) never fail an analysis; a failed attempt is a run record, never a report |
+| 4 | Confidentiality | Credentials exist only in server processes; the database answers only the service role; the agent is reachable only on its host's loopback and through an SSH tunnel |
+| 5 | Changeability | The console keeps a ports-and-adapters layout with import boundaries enforced by a test; the agent's detector, embedder, stores and perception client sit behind interfaces; a zero-GPU mock serves the mock's own tests |
+
+### Stakeholders
+
+| Role | Concern |
+|---|---|
+| Reviewer | Fast, accurate reports; edits that are never lost; search that finds the right evidence |
+| Developer | Where code lives, which component writes which row, how to change one part without breaking the others |
+| Operator of the shared GPU host | What runs natively, what runs in containers, what the launcher starts and stops, and what is shared with other users of the host |
+| Evaluation owner | A contract and request that are identical across the console, the agent and the benchmark, so scores measure models, not plumbing |
+| Sponsor and upstream maintainers | A build that stays recognisably the VSS blueprint, with the team's additions separable from stock code |
+
+## Constraints
+
+| Constraint | Background |
+|---|---|
+| Built on the stock VSS blueprint: the agent is NVIDIA's VSS Agent, run with the base developer profile's configuration plus the incident tool; the perception stack is the stock search profile's Compose services, started as shipped | Keeps the fork mergeable with upstream and the sponsor's blueprint recognisable; see [Stock VSS and What the Team Added](#stock-vss-and-what-the-team-added) |
+| Model inference is remote: VLM, LLM and embedding calls go to hosted OpenAI-compatible endpoints; no NVIDIA Inference Microservice (NIM) container runs locally | The profile is allotted one GPU on a shared host, and that GPU is reserved for the perception stack ([decision](decisions.md#2026-09-25-remote-brev-inference-no-local-gpu-nims)) |
+| One GPU on a shared host, other users on the same machine | Every container and native process that needs a GPU is pinned to that one device; shared services are started and restarted with care and on request ([decision](decisions.md#2026-10-19-pin-all-vss-docker-appliances-and-native-services-to-gpu-0-only), [decision](decisions.md#2026-10-22-concurrency-safe-native-service-startup-across-shared-vm-users)) |
+| The GPU host cannot open the Postgres wire protocol to the managed database | Services on it use PostgREST over HTTPS; PostgREST holds no client transaction, so operations that must be atomic are database functions, and revision inserts retry on a unique-key clash ([decision](decisions.md#2026-09-17-agent-database-access-through-postgrest)) |
+| The agent has no authentication and holds the database service key | It binds its host's loopback interface; the console reaches it through an SSH tunnel that forwards only that endpoint ([decision](decisions.md#2026-10-18-console-and-agent-bind-loopback)) |
+| Hosted video models sample a bounded number of frames per request and rate-limit callers | Long clips get a caption pass before extraction; each console analyses one job at a time; object tracking runs under a detector-call budget and a time cap; the search critic is off by default |
+| Secrets never reach the browser; database and storage keys live only in server processes | The console exposes no credential or private URL to the client and its health route returns booleans only |
+| Two database projects, one per project phase: the finals project is live, the midterm project is a frozen read-only record | The migration folder is the schema authority; the record is never written to ([decision](decisions.md#2026-10-20-one-supabase-project-per-phase-finals-built-from-one-baseline-midterm-frozen)) |
+| Evaluation is a separate hermetic pipeline owned by another team member; the console has no ground-truth screen | Model quality is measured outside the product on the same contract ([decision](decisions.md#2026-09-24-separate-eval-pipeline)) |
+| Conventions: Apache-2.0 SPDX headers on every file; each component's checks run after every change; the docs and skills change in the same pull request as the behaviour they describe | The profile [`AGENTS.md`](../AGENTS.md) and the root `AGENTS.md` |
+
+## Context and Scope
+
+### Business Context
+
+**Figure 1. System context diagram for the incident profile (C4 level 1).** People are rounded boxes, the system in scope is the square box, external services are cylinders or plain boxes. Solid arrows are requests the profile makes or receives; dashed arrows are reads through signed URLs that bypass the profile.
+
+```mermaid
+flowchart LR
+    Reviewer(["Reviewer<br/>[Person]<br/>Uploads clips, reviews and edits reports, searches evidence, asks questions"])
+    Operator(["Developer or operator<br/>[Person]<br/>Launches the profile, runs the GPU host, evaluates models"])
+    Profile["Incident search and reporting profile<br/>[Software system]<br/>Console, VSS Agent with incident tools, stock perception stack"]
+    R2[("Cloudflare R2<br/>[External: object storage]<br/>Videos, thumbnails, evidence images, track files")]
+    DB[("Supabase<br/>[External: managed Postgres with PostgREST]<br/>Videos, runs, report revisions, crops, queries, jobs")]
+    Models["Hosted model endpoints<br/>[External: OpenAI-compatible APIs]<br/>VLM, LLM and text-embedding models"]
+    Reviewer -->|"Uses in a browser"| Profile
+    Operator -->|"Launches and administers over SSH"| Profile
+    Profile -->|"Stores media and evidence objects, signs read URLs"| R2
+    Profile -->|"Reads and writes rows, calls database functions"| DB
+    Profile -->|"Sends prompts with video and image URLs, receives JSON and vectors"| Models
+    Reviewer -.->|"Plays video and loads images through signed URLs"| R2
+    Models -.->|"Fetch the video and images through signed URLs"| R2
+```
+
+| Communication partner | Input to the profile | Output from the profile |
+|---|---|---|
+| Reviewer | Clips, a model choice, an optional instruction for a re-run, edits, the official choice, search queries, questions, chart requests | Reports and their versions, evidence frames with boxes and tracks, search hits, answers with citations, the dashboard and its charts |
+| Developer or operator | The launch mode, feature flags, migrations, evaluation runs | Health, logs, traces, evaluation scores |
+| Cloudflare R2 (S3-compatible object storage) | Existence and size checks, signed read URLs | Uploaded videos, thumbnails, evidence crops and frames, track files, short-lived scratch windows |
+| Supabase (managed Postgres with PostgREST and pgvector) | Rows, function results, vector-search hits | Video rows, model runs, AI and human report revisions, evidence crops with embeddings, queries and their results, analysis jobs |
+| Hosted VLM and LLM endpoints | Schema-constrained reports, captions, bounding boxes, item names and descriptions, chat answers, chart specifications | Chat-completion requests carrying signed video or image URLs and the registered prompts |
+| Hosted text-embedding endpoint | Vectors for evidence passages, revision summaries and queries | Passage and query texts |
+
+### Technical Context
+
+| Channel | Between | Protocol and role |
+|---|---|---|
+| Browser to console | Reviewer's browser and `incident-console-v2` | HTTP: pages and JSON routes. Media never streams through the console: the browser plays video and loads images from object storage through signed URLs the console issues |
+| Console to agent | `incident-console-v2` and the VSS Agent | JSON over HTTP. In vm mode through the SSH tunnel to the agent's loopback endpoint; in mock mode the mock backend answers the same routes |
+| Console to gateway | `incident-console-v2` and `vlm-gateway` | OpenAI chat completions over HTTP, gateway mode only |
+| Services to database | Console, agent, mocks, evaluation pipeline and Supabase | PostgREST REST and RPC over HTTPS with the service role. Laptop tooling and the SQL harness use direct Postgres; the evaluation pipeline can use either |
+| Services to object storage | Console, agent and Cloudflare R2 | S3 API: conditional puts that never overwrite, head checks, presigned reads |
+| Gateway and agent to models | `vlm-gateway`, the VSS Agent and the hosted endpoints | OpenAI-compatible chat completions and embeddings over HTTPS with a server-side credential |
+| Agent to perception stack | The VSS Agent and the stock perception containers on the same host | Host-local HTTP: file upload to NvStreamer, stream provisioning on DeepStream, frame pages from the video-analytics API |
+| Agent to Phoenix | The VSS Agent and the trace viewer | Traces of model calls through the NeMo Agent Toolkit (NAT) telemetry |
+| Laptop to GPU host | The launcher and the host | SSH: preflight, bounded deploy and start commands, the tunnel |
+
+## Solution Strategy
+
+1. **Reuse the stock VSS Agent and extend it in place.** The incident routes and the one incident tool are registered through the stock worker and tool registry, so the agent is still NVIDIA's agent. It runs natively for second-level restarts; stock media and perception appliances stay in containers ([decision](decisions.md#2026-09-21-native-services-on-kwanz-ws)).
+2. **Infer remotely.** VLM, LLM and embedding calls go to hosted OpenAI-compatible endpoints; the one local GPU is left to the perception stack ([decision](decisions.md#2026-09-25-remote-brev-inference-no-local-gpu-nims)).
+3. **One incident contract, three consumers.** The extraction prompt, JSON Schema, request settings, prompt registry and request goldens in `contracts/` are used by the console, vendored into the agent and read by the evaluation pipeline, with a strict validation policy and ID-only repair ([decision](decisions.md#2026-09-27-unified-contract-decisions-eval-console-agent), [policy](decisions.md#2026-09-27-validation-policy-core-scored-v1), [single source](decisions.md#2026-10-21-single-source-incident-contract-with-sync-script-and-txt-prompts), [goldens](decisions.md#2026-11-01-request-goldens-pin-every-model-request-checked-by-each-producer)).
+4. **Reports are append-only revisions with an explicit official pointer.** An analysis appends an AI revision, an edit appends a human revision, a re-run starts a new AI branch, and failed attempts are run records only ([decision](decisions.md#2026-10-23-versioned-report-revisions-as-jsonb-snapshots)).
+5. **Two analysis modes behind one console code path.** In agent mode the console calls the native agent, which extracts, locates, tracks and persists; in gateway mode the console calls the credential-holding gateway and persists itself. Gateway mode exists for the mock backend's own tests ([decision](decisions.md#2026-10-23-the-agent-writes-jsonb-report-revisions)).
+6. **Object storage for media, the database for rows, local disks as caches.** Uploads go straight to object storage under readable keys that are never overwritten; the stock video storage service is not in the path ([decision](decisions.md#2026-10-31-vst-is-dropped-from-the-consoles-upload-path-uploads-go-to-r2-only), [naming](decisions.md#2026-10-28-r2-object-names-are-readable-and-deterministic-the-original-file-name-run-n-and-edit-n-never-a-hash-or-uuid)).
+7. **Search is embed-then-retrieve over per-item evidence crops**, with pgvector in the database, one search function for evidence and incident scoping, and a critic that is dormant by default ([decision](decisions.md#2026-10-18-remote-embeddings-and-remote-vlm-cropping-for-evidence-search), [decision](decisions.md#2026-10-28-incident-search-and-evidence-search-share-one-search-function-evidence-search-can-be-scoped-to-one-video-the-critic-is-off-by-default)).
+8. **Tracking reuses the stock perception stack per clip** for people, and a seeded tracker corrected by the detector for instruments and assets; both are soft stages ([decision](decisions.md#2026-10-31-person-tracking-runs-the-stock-perception-stack-from-its-own-script-behind-enable_tracking), [decision](decisions.md#2026-11-01-instruments-and-assets-are-followed-by-a-seeded-opencv-tracker-corrected-by-the-detector-flag-off-by-default)).
+9. **The console is hexagonal.** Routes get ports from one composition root; only adapters know tables, columns and function arguments; a test enforces the import boundaries ([decision](decisions.md#2026-10-23-incident-console-v2-uses-a-feature-module-layout-under-src), [decision](decisions.md#2026-10-24-npm-test-enforces-the-consoles-hexagonal-import-boundaries)).
+10. **Long-running work is a database queue** with one in-process worker per console, so an analysis survives a closed tab ([decision](decisions.md#2026-10-31-background-analysis-jobs-a-supabase-table-and-one-in-process-loop-per-console)).
+
+## Building Block View
+
+### Level 1: Containers
+
+**Figure 2. Container diagram for the incident profile (C4 level 2).** Square boxes are processes the profile runs, grouped by where they run; cylinders are managed services. Arrow labels name the interaction in the arrow's direction. The mock backend is drawn dashed because it stands in for the agent only in mock mode.
 
 ```mermaid
 flowchart TB
-    subgraph Laptop["Developer Laptop"]
-        UI["incident-console-v2<br/>(Next.js App Router, Port 3200)"]
-        Gateway["vlm-gateway<br/>(FastAPI Proxy, Port 8600)"]
-        Mock["mock-backend<br/>(FastAPI Base Mock, Port 7777)"]
+    subgraph Workstation["Reviewer workstation"]
+        Console["incident-console-v2<br/>[Container: Next.js, TypeScript]<br/>Reviewer UI, server routes, analysis orchestration, background job worker"]
+        Gateway["vlm-gateway<br/>[Container: FastAPI]<br/>Holds the inference credential, forwards chat completions unchanged (gateway mode)"]
+        Mock["mock-backend<br/>[Container: FastAPI, tests only]<br/>Mocks the agent, video storage and inference"]
     end
-
-    subgraph Tunnel["SSH Port Forwarding Tunnel"]
-        FwdAgent["localhost:8000 -> VM:8000"]
+    subgraph Host["GPU host"]
+        Agent["VSS Agent<br/>[Container: NAT nat serve, FastAPI worker]<br/>Stock agent plus the incident routes and tool"]
+        Perception["Perception stack<br/>[Containers: NvStreamer, DeepStream, Kafka, Logstash, Elasticsearch, video-analytics API]<br/>Per-frame person boxes with track ids"]
+        Phoenix["Phoenix<br/>[Container]<br/>Trace viewer for model calls"]
     end
-
-    subgraph VM["kwanz-ws Shared Workstation"]
-        subgraph VMNative["Native Processes (High Feasibility / Fast Restart)"]
-            Agent["vss-agent<br/>(NAT Framework, Port 8000)"]
-            VideoAnalytics["video-analytics-api<br/>(Optional, Port 8081)"]
-            BehaviorAnalytics["behavior-analytics<br/>(Optional, no HTTP port; Kafka consumer)"]
-        end
-
-        subgraph VMDocker["Docker Appliances"]
-            Phoenix["phoenix<br/>(Trace viewer for eval, Port 6006)"]
-            Elasticsearch["elasticsearch<br/>(Search Index, Optional)"]
-        end
-
-        subgraph VMRemoved["Removed from the deployment (not started by start.sh; being deleted from the VM)"]
-            Removed["VIOS/VST (vss-vios-*), vss-haproxy-ingress :7777,<br/>redis, sdr-controller"]
-        end
+    subgraph Cloud["Cloud services"]
+        R2[("Cloudflare R2<br/>[Object storage]")]
+        DB[("Supabase<br/>[Postgres, PostgREST, pgvector]")]
+        Models["Hosted model endpoints<br/>[VLM, LLM, embeddings]"]
     end
-
-    subgraph External["Cloud & Hosted Services"]
-        R2[("Cloudflare R2<br/>(Video & Evidence Store)")]
-        Supabase[("Supabase Postgres<br/>(HTTPS PostgREST & RPC)")]
-        Brev["Brev Lab Switchyard API<br/>(https://switchyard-13doh4lsz.brevlab.com)"]
-    end
-
-    %% Laptop connections
-    UI -->|Mock Mode Inference| Gateway
-    UI -->|Mock Mode Upload| Mock
-    UI -->|VM Mode HTTP /analyze, /chart-requests, /charts| FwdAgent
-    UI -->|Video upload /api/uploads/r2 & Presigned URLs| R2
-    UI -->|REST report_revisions insert| Supabase
-    UI -->|/rpc/save_human_revision_with_crops, /rpc/set_official_revision| Supabase
-
-    %% Gateway Upstream
-    Gateway -->|Bearer Token Auth| Brev
-
-    %% Tunnel Connections
-    FwdAgent --> Agent
-
-    %% VM Internal Routing
-    Agent -->|Traces| Phoenix
-    Agent -->|OpenAI Protocol Inference| Brev
-    Agent -->|HTTPS PostgREST & RPC| Supabase
+    Console -->|"Analyse, search, chat, embeddings, chart requests, box tools (JSON over HTTP)"| Agent
+    Console -->|"P1 chat completion, gateway mode"| Gateway
+    Gateway -->|"Forwards with the server-side credential"| Models
+    Console -->|"Uploads, thumbnails, reviewer evidence, signed read URLs"| R2
+    Console -->|"Rows and functions: videos, runs, revisions, crops, jobs"| DB
+    Agent -->|"Extraction, captions, grounding, zoom, chat, chart specs, embeddings"| Models
+    Agent -->|"Evidence crops, frames, track files, scratch windows"| R2
+    Agent -->|"AI revisions, placeholder runs, search, queries and results"| DB
+    Agent -->|"Upload the clip, provision the stream, read frame pages"| Perception
+    Agent -->|"Traces"| Phoenix
+    Console -.->|"Same routes as the agent, mock mode"| Mock
+    Mock -.->|"Mock analysis writes a revision marked mock"| DB
 ```
 
-### Component Reference Table
+| Container | Technology | Responsibility | Origin |
+|---|---|---|---|
+| `incident-console-v2` | Next.js App Router, React, TypeScript, Node runtime | The reviewer console and its server routes: upload with H.264 conversion, analysis orchestration in both modes, the background job worker, report versions (view, edit, history, official), the library's incident and evidence search, the dashboard and chart requests, the chat panels; signs object-storage URLs; validates model output under the shared policy | Team-built |
+| `vlm-gateway` | FastAPI | Holds the remote inference credential server-side and forwards chat-completion requests unchanged to the configured endpoint, with a timeout longer than the slowest model's; a health probe. Gateway mode only | Team-built |
+| VSS Agent | NeMo Agent Toolkit (NAT) `nat serve` with the stock custom FastAPI worker, LangChain, Pydantic | The stock agent (tools, agents, the video-analytics MCP server) plus the incident extension: analyse, evidence search, incident search, chat, evidence embeddings, chart requests and drawing, and the reviewer box tools. Runs natively | Stock VSS, extended |
+| Perception stack | Docker: NvStreamer, DeepStream perception (an RT-DETR detector with the NvDCF tracker), Kafka, Logstash, Elasticsearch, the video-analytics API | Turns an uploaded clip into per-frame person boxes with track ids, read back as frame pages. Started by the launcher when tracking is enabled and used per clip by the agent's tracking stage | Stock VSS (search profile), unchanged; pinned to the one GPU by the profile's Compose override |
+| Phoenix | Docker | Trace viewer for the agent's model calls, kept for evaluation. Always started in vm mode | Stock VSS infrastructure |
+| `mock-backend` | FastAPI, two projects | The base mock stands in for the agent, the stock video storage and inference in one process: its analysis writes a real AI revision marked as mock, its embeddings are deterministic, its search and chat answer from a snapshot. The search mock serves the stock search profile's routes plus incident search from the same snapshot. Used only for the mocks' own tests | Team-built |
+| `contracts/` | JSON Schema, prompt files, JSON settings, fixtures, goldens | The incident contract: extraction prompt, report schema, the model allowlist and request settings, the registry of every other prompt, request goldens and validator fixtures; vendored into the agent by a sync script | Team-built |
+| `supabase/` | SQL migrations, Python copy scripts, a SQL harness | The schema authority for the database: tables, functions, row-level security, tested on a throwaway local Postgres | Team-built |
+| `eval/` | Python | The standalone P1/RP1 benchmark and the Evaluation V2 package: scores model output against ground truth offline on the same contract, hermetic by default | Team-built, owned by the evaluation workstream |
+| Launcher and lifecycle scripts | Bash | One command from the laptop: preflight the host, heal missing services, start the native services and the tracking stack, open the tunnel, run the console; host-side start, stop, status and logs | Team-built |
+| Supabase Postgres | Managed Postgres, PostgREST, pgvector | Rows for videos, model runs, report revisions, evidence crops, queries and their results, and analysis jobs; database functions for human revisions, the official pointer, crops, search, the dashboard and job claims; row-level security that admits only the service role | External |
+| Cloudflare R2 | S3-compatible object storage | Uploaded videos, thumbnails, evidence crops, frames and track files, scratch windows; private, read through signed URLs | External |
+| Hosted model endpoints | OpenAI-compatible HTTPS APIs | A VLM for extraction, captions, grounding, zoomed looks, box descriptions and the optional critic; an LLM for chart requests and grounded chat; a text-embedding model for evidence, revision and query vectors | External |
 
-| Component | Host | Port | Runtime Type | Primary Source / Owner File | Responsibility |
-|---|---|---|---|---|---|
-| `incident-console-v2` | Laptop | 3200 | Node.js (Next.js 15 App Router) | `incident-console-v2/` | Primary user interface: video upload, report versions (View and Edit modes, History, official), `/library` search, report chat, report display |
-| `vlm-gateway` | Laptop | 8600 | Python (FastAPI / Uvicorn) | `vlm-gateway/app.py` | Holds the Brev credential (`VLM_GATEWAY_API_KEY`) server-side and forwards `POST /v1/chat/completions` unchanged to `VLM_GATEWAY_BASE_URL` (default `https://switchyard-13doh4lsz.brevlab.com/v1`), model-agnostic, no streaming, `VLM_GATEWAY_TIMEOUT_SECONDS` (default 330, longer than the slowest per-model timeout in `contracts/inference.json`); `GET /health` answers `{"status": "ok"}`. Used in mock mode only: in vm mode the VM agent reads dashboard chart requests with its own LLM. A VM compose service (`vss-vlm-gateway`, `vlm-gateway/compose.yml`) exists, but `start.sh` never starts it |
-| `base_profile_mock` | Laptop | 7777 | Python (FastAPI / Uvicorn) | `mock-backend/base_profile_mock/` | Zero-GPU mock of the agent, VST and inference, started by `--mode mock`. Uploads go to R2; analyze writes a real AI revision to finals (`mock: true` in the response); evidence embeddings are deterministic; incident search, revision search and chat answer from `finals_snapshot.json`; stock chat, WebSocket HITL, RTSP and VST routes are canned |
-| `search_profile_mock` | Laptop | 7778 | Python (FastAPI / Uvicorn) | `mock-backend/search_profile_mock/` | Standalone mock of the stock search profile (agent search, VST sensor list, video-analytics `/frames`, Kibana and Elasticsearch stubs), plus incident search and revision search from the same snapshot; no incident chat or analyze |
-| `vss-agent` | `kwanz-ws` | 8000 | Python (Native `nat serve`) | `services/agent/` | Core VSS agent: incident analysis, search, and chat workflows (`/api/v1/incidents/{id}/analyze`, `POST /api/v1/incidents/search`, `POST /api/v1/incidents/revisions/search`, `POST /api/v1/incidents/chat`, `POST /api/v1/incidents/evidence-embeddings`, `POST /api/v1/incidents/chart-requests`, `POST /api/v1/incidents/charts`), tool calling, report persistence; remote inference via Brev. `native-services.sh` starts it with tracking and the caption pass on (`INCIDENT_TRACKING_ENABLED`, `INCIDENT_CHUNKING_ENABLED`) and with `ffmpeg`/`ffprobe` from the checkout's `.tools/ffmpeg/bin` ([defaults](incident-profile-operations.md#default-analysis-stack-in-vm-mode)) |
-| `video-analytics-api` | `kwanz-ws` | 8081 | Node.js (Native) | `services/analytics/video-analytics-api/` | Optional MVP2 video analytics ingestion and query layer (`ENABLE_ANALYTICS=true`) |
-| `behavior-analytics` | `kwanz-ws` | none (8080 is a HAProxy/label placeholder) | Python (Native) | `services/analytics/behavior-analytics/` | Optional MVP2 behavior perception pipeline (`ENABLE_ANALYTICS=true`) |
-| `vss-vios-nvstreamer` (`nvstreamer-2d-fusion`) | `kwanz-ws` | 31000 (RTSP 31554+) | Docker container (GPU 0) | `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml` | **With `ENABLE_TRACKING` (default on):** file upload and RTSP replay for the tracker (loop playback off via `tracking/nvstreamer-vst-config.json`). Otherwise not started; not in the upload path or routed by ingress/HAProxy |
-| `perception-2d-fusion` (`vss-rtvi-cv`) | `kwanz-ws` | 9000 | Docker container (GPU 0) | `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml` | **With `ENABLE_TRACKING` (default on):** stock DeepStream perception: RT-DETR warehouse detector plus NvDCF/ReID tracker, streams provisioned over REST. Holds about 7.6 GB of GPU 0 while up. Otherwise not started |
-| `rtvi-embed` (`vss-rtvi-embed`) | `kwanz-ws` | 8017 (→8000) | Docker container (GPU 0, bridged) | `deploy/docker/services/rtvi/rtvi-embed/` | Stock Triton inference server for video embeddings (pinned to GPU 0 in `compose.override.yml`; not started by `start.sh`; RT-Embed indexing is dropped from MVP2, whose text embeddings and VLM are remote) |
-| `phoenix` | `kwanz-ws` | 6006 (int) | Docker container (bridged mdx_default) | Stock compose infra | LLM/VLM telemetry and trace viewer; kept for eval. Always started by `start.sh` in vm mode |
-| `kafka` | `kwanz-ws` | 9092 | Docker container | Stock compose infra | **With `ENABLE_TRACKING` (default on):** carries `mdx-raw` from perception to Logstash (advertises `HOST_IP`). Otherwise not started |
-| `elasticsearch` | `kwanz-ws` | 9200 | Docker container | Stock compose infra | **With `ENABLE_TRACKING` (default on):** holds the `mdx-raw-*` frames index behind `/frames`. Also optional with `ENABLE_ANALYTICS=true` |
-| `logstash` | `kwanz-ws` | internal | Docker container | `deploy/docker/services/infra/elk/logstash/` | **With `ENABLE_TRACKING` (default on):** the service that fills `mdx-raw-*` (Kafka protobuf to Elasticsearch); without it `/frames` is empty |
-| `vss-video-analytics-api-fusion` (`vss-video-analytics-api`) | `kwanz-ws` | 8081 | Docker container | `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml` | **With `ENABLE_TRACKING` (default on):** serves `/frames` (per-frame person boxes and tracker ids). Takes port 8081 from the native `video-analytics-api`, so do not run both |
-| `Supabase` | Cloud | 443 (HTTPS) | Managed PostgREST / Postgres | `supabase/migrations/` (finals, including the versioned-report schema and functions); `supabase/midterm/` (frozen record) | Store for videos, runs, versioned report revisions, evidence crops and search history. One project per phase: see [Two Supabase projects](#two-supabase-projects-one-per-phase) |
-| `Cloudflare R2` | Cloud | 443 (HTTPS) | S3-Compatible Object Store | `incident-console-v2/src/lib/r2/` | Canonical persistent object storage for video clips and screenshots |
-| `Brev Switchyard` | Cloud | 443 (HTTPS) | Remote Switchyard Proxy | Upstream endpoint | Hosted VLM/LLM inference used by both `vss-agent` (VM) and `vlm-gateway` (laptop) |
+Optional, outside the incident flow: the stock `video-analytics-api` and `behavior-analytics` services run natively, and Elasticsearch in a container, when the launcher is asked for analytics. Not started by the profile: Video IO & Storage (VIOS, also called VST), the HAProxy ingress, Redis, the SDR controller, the stock web UI and the NIM containers ([decision](decisions.md#2026-10-31-vst-is-dropped-from-the-consoles-upload-path-uploads-go-to-r2-only)).
 
-Removed from the deployment (not started by `start.sh`): VIOS/VST (`vss-vios-*`), `vss-haproxy-ingress`, `redis`, `sdr-controller`.
+### Level 2: The Console
 
-### Native vs. Docker Service Split Policy
+`incident-console-v2` is one Next.js process: pages and API routes on top of feature modules, each split into domain (types and port interfaces), application (use cases) and infrastructure (adapters). The composition root is the only file that chooses adapters, and it builds them per call so configuration is read at request time. Layout and import rules: [`mvp2/console-hexagonal-architecture.md`](mvp2/console-hexagonal-architecture.md). What each page does: [`console-reference.md`](console-reference.md).
 
-**Policy Rule:** Run a service natively whenever feasible.
-
-Services are split based on feasibility:
-- **Native Processes (High Feasibility):** `vss-agent` (Python/uv), `video-analytics-api` (Node.js), and `behavior-analytics` (Python). Running natively eliminates Docker image rebuilds on code changes (~2s process restart vs multi-minute container build).
-- **Docker Appliances (Infeasible Natively):** Media engines and storage appliances (`vss-vios-streamprocessing`, `vss-vios-nvstreamer`, `vss-vios-ingress`, `vss-vios-postgres`; all removed from the deployment). These depend on proprietary CUDA and GStreamer container toolchains; host installation is infeasible. Stock perception and embedding appliances (`perception-2d-fusion` / `vss-rtvi-cv`, `rtvi-embed` / `vss-rtvi-embed`, `sensor-ms` / `vss-vios-sensor`) are containerized and pinned to GPU 0 in `compose.override.yml`. `start.sh` starts the person-tracking subset (NvStreamer, perception, Kafka, Logstash, Elasticsearch, video-analytics API) only with `ENABLE_TRACKING=true`, through `.scripts/tracking-stack.sh` ([decision](decisions.md#2026-10-31-person-tracking-runs-the-stock-perception-stack-from-its-own-script-behind-enable_tracking)); `rtvi-embed` and `sensor-ms` are never started.
-- **Docker Appliances (No Benefit / JVM):** Infrastructure appliances (`phoenix`, and `elasticsearch` with `ENABLE_ANALYTICS=true`; `redis` and `vss-haproxy-ingress` are removed from the deployment). Standard prebuilt containers or heavy JVM runtimes where native execution provides no development benefit.
-- **Networking:** Nearly all containers use host networking (`network_mode: host`); exceptions are `phoenix` (bridge `mdx_default`, published 6006:6006) and `vss-rtvi-embed` (if started; published `${RTVI_EMBED_PORT}`=8017→8000). Native processes reach all of them on `localhost`.
-
----
-
-## 2. Deployment & Connectivity
-
-The one-command entry point for setting up and launching the system is `start.sh` (`./start.sh --mode mock` or `./start.sh --mode vm`; `--mode local` is a deprecated alias for `mock`), executed directly from developer laptops. It automates backend checks, self-healing service deployment, port tunneling, and UI initialization.
+**Figure 3. Component diagram for `incident-console-v2` (C4 level 3), by layer.**
 
 ```mermaid
-flowchart TD
-    Start["./start.sh --mode mock|vm"] --> CheckMode{Mode?}
-
-    %% Mock Mode Path
-    CheckMode -->|mock|  StartMock["Start mock-backend (127.0.0.1:7777)"]
-    StartMock --> StartGateway["Start vlm-gateway (127.0.0.1:8600)"]
-    StartGateway --> LocalInit["Export INCIDENT_AGENT_BASE_URL=http://127.0.0.1:7777,<br/>VLM_GATEWAY_URL=http://127.0.0.1:8600,<br/>ANALYSIS_MODE=gateway"]
-    LocalInit --> RunV2Local["Launch incident-console-v2 (Port 3200)"]
-
-    %% VM Mode Path
-    CheckMode -->|vm| Preflight["SSH Preflight & IP Detection<br/>(.scripts/vm-preflight.sh)"]
-    Preflight --> CheckSSH["Check VM State via SSH<br/>(docker compose ps & native-services.sh status)"]
-    CheckSSH --> StateDecision{Deploy State?}
-    
-    StateDecision -->|Nothing Running| FreshDeploy["Deploy Docker Appliances over SSH (.scripts/vm-ensure-docker.sh)<br/>Start Native Services via native-services.sh"]
-    StateDecision -->|Partial State| SelfHeal["Self-Heal: Start only missing Docker & Native services"]
-    StateDecision -->|All Running| Ready["Backend Ready"]
-    
-    FreshDeploy --> OpenTunnel
-    SelfHeal --> OpenTunnel
-    Ready --> OpenTunnel
-
-    OpenTunnel["Open backgrounded SSH tunnel (inline in start.sh)<br/>8000 only<br/>then wait for localhost:8000/health"] --> CheckConsole{--no-console?}
-    CheckConsole -->|yes| Hold["Hold tunnel open (wait)"]
-    CheckConsole -->|no| VMInit["Export INCIDENT_AGENT_BASE_URL=http://localhost:8000,<br/>ANALYSIS_MODE=agent"]
-    VMInit --> RunV2VM["Launch incident-console-v2 (Port 3200)"]
+flowchart LR
+    Routes["Pages and API routes<br/>[app/]<br/>HTTP parsing, validation, status codes"] --> UseCases["Use cases<br/>[modules/*/application]"]
+    UseCases --> Ports["Ports<br/>[modules/*/domain interfaces]"]
+    Root["Composition root<br/>[lib/container.ts]"] -.->|"chooses adapters per call"| Ports
+    Ports --> Supa["Supabase adapters<br/>[PostgREST tables and functions]"]
+    Ports --> R2A["R2 adapters<br/>[S3 API]"]
+    Ports --> AgentA["Agent adapters<br/>[JSON over HTTP]"]
+    Ports --> GatewayA["Gateway adapter<br/>[chat completions]"]
+    Ports --> Fakes["In-memory fakes<br/>[tests]"]
 ```
 
-### SSH Tunnel Port Forwards
+| Module | Responsibility | Ports it drives |
+|---|---|---|
+| `analysis` | The one analysis path for uploads and re-runs: verify the stored object, sign a read URL, build the P1 request that equals the evaluation pipeline's, call the gateway or the agent, validate under the shared policy, record the attempt, store or verify the AI revision | `AnalysisRunRepository`, `VideoObjectStore`, `ModelGateway`, `IncidentAgent`, `ContractCatalog` |
+| `jobs` and the job loop | The background analysis queue: queue, claim, heartbeat, finish, retry and cancel; one worker started once per process | `AnalysisJobRepository` |
+| `reports` | Read one revision and its run into a report view; validate and save human edits; cut reviewer items (crop, frame, track) on the server; mark or clear the official revision; store searchable crops; fetch evidence embeddings; proxy the box tools | `IncidentRepository`, `EvidenceObjectStore`, `ReviewerEvidenceStore`, the agent's embeddings and box-tool adapters |
+| `videos` | Video rows, run history, re-generation, delete | `VideoRepository` |
+| `search` | Evidence search and incident (revision) search | `EvidenceSearchRepository`, `RevisionSearchRepository` (agent adapters) |
+| `chat` | The report and library chat | The agent chat adapter |
+| `dashboard` | The dashboard query, the chart specification allowlist, the chart interpreter and renderer | `DashboardRepository`, `ChartInterpreter`, `ChartRenderer` |
+| `contract` | A strict port of the evaluation pipeline's validator, and the catalogue that loads prompts, schema and allowlist from `contracts/` | `ContractCatalog` |
+| `health` | Readiness as booleans only | `HealthRepository` |
+| `shared` | The kernel: run keys, pages, the store-rejection type that routes turn into a client error, the adapter bundle type | |
 
-VM mode forwards only `localhost:8000`, to the native `vss-agent`. The console no longer talks to `vss-haproxy-ingress` (:7777): uploads go from the console straight to R2, so no VST camera is created ([decision](decisions.md#2026-10-31-vst-is-dropped-from-the-consoles-upload-path-uploads-go-to-r2-only)). VIOS/VST, HAProxy and Redis are removed from the deployment too: `start.sh` no longer starts or checks them (Kafka runs only inside the tracking stack). The forwards and their checks are in [`vm-api-contracts.md`](vm-api-contracts.md#tunnel); the VM address detection and SSH troubleshooting are in [`incident-profile-operations.md`](incident-profile-operations.md#3-laptop-to-vm-connectivity--ssh-troubleshooting).
+### Level 2: The Agent's Incident Extension
 
-### Two Supabase projects (one per phase)
+The extension is a set of routes registered by the stock worker, one NAT tool, a vendored copy of the contract, and utilities behind small interfaces. Request and response shapes: [`vm-api-contracts.md`](vm-api-contracts.md).
 
-| Project | Role | Schema | Access |
+| Component | Kind | Responsibility |
+|---|---|---|
+| `analyze` route | Route | The console's trigger in agent mode: runs the incident tool on a signed video URL and returns the validated report, the raw output, the revision id, the run provenance and the tracking summaries; refuses experimental settings unless the agent is started for experiments |
+| `incident_report_gen` | NAT tool | The analysis pipeline below, registered in the base profile's agent configuration |
+| `incident_contract/` | Vendored package | The contract files and prompt registry the agent reads, kept equal to `contracts/` by the sync script |
+| `search` and `revisions/search` routes | Routes | Embed the query and retrieve by cosine distance through a database function: evidence crops (optionally judged by the critic, with the query and its ranked results recorded and the media URLs signed), or AI revisions by their summary embedding |
+| `evidence-embeddings` route | Route | Embeds a revision's evidence items as passage text with the same model search uses; returns vectors only, the console writes the rows |
+| `chat` route | Route | Template mode composes an answer from one report version without a model call; grounded mode (behind a flag) answers from one version with a chat model and checked citations, and answers library questions by a planned, counted search |
+| `chart-requests` and `charts` routes | Routes | The agent's own LLM turns a dashboard request into a chart specification; the stock chart generator draws the figures the console sends |
+| `box/describe` and `box/track` routes | Routes | Name and describe a reviewer-drawn box with the VLM; follow the box through the clip with the object tracker. Nothing is stored |
+| Detector, zoom namer, evidence store, scratch store, perception client, embedder | Interfaces with one production implementation each | The remote VLM as the open-vocabulary detector and namer, object storage as the evidence and scratch store, HTTP clients for the perception stack and the embedding endpoint; in-memory and fake variants for tests |
+
+The analysis pipeline, in order. "Soft" means a failure is recorded on the item or the run and the analysis continues.
+
+| Stage | What it does | Soft | Code |
 |---|---|---|---|
-| **Finals** (new project, same organisation and region as midterm) | The live database every service uses | [`supabase/migrations/`](../supabase/README.md): the finals baseline, then the versioned-report schema and its functions, then later finals migrations | `service_role` (PostgREST) and `postgres` (direct DSN) only; RLS on everything; the public key reaches nothing |
-| **Midterm** (`rfevukimyftzbxlehwel`) | Frozen record of the midterm phase | [`supabase/midterm/`](../supabase/midterm/README.md) (archive; never pushed) | Read-only after the freeze: `service_role` reads and runs the read RPCs, every write fails, direct-DSN sessions are read-only, `anon` is locked out |
+| Caption pass (flag) | Cuts a long clip into overlapping windows, captions each with the VLM, offsets the stamps and hands the captions to P1 as context; scratch objects are deleted whether or not the pass succeeds | Yes | `utils/chunk_captions.py` |
+| Set-of-marks (flag, needs tracking) | Runs tracking before P1, draws a numbered box on each person track on a scratch copy of the clip, asks P1 for the number in each person's label, then strips the numbers | Yes | `utils/set_of_marks.py` |
+| P1 extraction | Sends the signed video URL, the contract prompt and any reviewer prompt with the schema enforced through structured output and the contract's fixed settings; validates under `core-scored-v1` with `id-normalization-v1`; retries a runaway output once; applies the video-bounds rules with the caller's duration or the length read from the MP4 header | No: a violation is a client error and nothing is persisted | `tools/incident_report_gen.py`, `incident_contract/` |
+| RP1 prose report | A text report from the validated P1 JSON; the console asks for P1 only | Yes | `tools/incident_report_gen.py` |
+| Locate and crop | Finds each entity, instrument and asset at its second with the detector, retrying the neighbouring seconds (each try is one detector call); stores the whole frame and the crop; an unfound item keeps a recorded gap | Yes | `utils/crop_evidence.py` |
+| Zoomed second look | Two blind looks at a located item (the marked frame, then a native-resolution close-up) and a merge against the report's text; renames the item when the looks agree with enough confidence, keeping the previous name | Yes | `utils/crop_evidence.py` |
+| Person tracking (flag) | Pushes the clip through the perception stack, builds person tracks from the frame pages, matches each located person to a track by box overlap, re-cuts the person's evidence at the track's first sample, stores the track file | Yes | `utils/track_evidence.py`, `utils/perception_client.py` |
+| Object tracking (flag) | Follows each located instrument and asset with a seeded single-object tracker forwards and backwards, re-anchored by the detector at intervals under its own budget and time cap; stores a track in the same shape | Yes | `utils/object_tracking.py` |
+| Revision | Appends the AI revision (payload, evidence, facet columns, no parent) with a summary embedding of its title and description; retries on a revision-number clash; inserts a placeholder run row only when the caller did not create one | Best effort | `utils/incident_db.py`, `utils/embeddings.py` |
+| Response and provenance | Returns the report, raw output, every P1 attempt, the tracking summaries and the per-stage provenance (model, prompt hashes, calls, tokens, time) | | `utils/run_provenance.py` |
 
-Finals is built from the baseline and filled once from midterm by `supabase/copy/copy_midterm_to_finals.py` (one-way; [`../supabase/README.md`](../supabase/README.md)). The versioned-report schema and its functions (`save_human_revision`, `set_official_revision`, the rewritten search/library/dashboard functions) are applied on top through `supabase/migrations/`. **R2 is shared:** both projects name the same bucket and keys, so no object is copied and no R2 setting changes. A delete in finals removes R2 objects that the midterm record still names; that is accepted for a record.
+### Shared Contract
 
-What points at the database, and how it switches at the cutover:
+`contracts/` is the single source of the model interface ([`analysis-schema.md`](analysis-schema.md), [`contracts/README.md`](../contracts/README.md)): the extraction prompt, the JSON Schema (strict-mode compatible), the model allowlist and request settings, the registry of every other prompt (captions, grounding, zoom, chat, charts), request goldens that pin each producer's request bytes, and validator fixtures that both validators must agree on. The console reads it at request time through its contract catalogue; the agent reads its vendored copy; the evaluation pipeline reads it directly. A contract change bumps the version and updates all three together.
 
-| Where | Settings | Read by | How it switches |
+## Stock VSS and What the Team Added
+
+Derived from the git history since the profile's first commit. The rule: team code lives in the profile directory or in files named `incident_*`; stock files are touched only to register or configure.
+
+| Area | Stock VSS, unchanged | Stock VSS, modified by the team | Added by the team |
 |---|---|---|---|
-| `dev-profile-incident/.env.local` on each laptop (symlinked into `incident-console-v2/`, `vlm-gateway/`, `mock-backend/`) | `INCIDENT_SUPABASE_URL`, `INCIDENT_SUPABASE_SERVICE_ROLE_KEY`, `INCIDENT_DB_DSN` | Console, eval, mock backend in local mode, the copy and parity scripts | Each teammate sets the 3 finals values |
-| `.env.local` copies in other worktrees | same | Console or eval started from those worktrees | `.githooks/setup-worktree.sh` refreshes a copy that differs from the main worktree's file (never a symlink, never the main file); the freeze makes a stale one fail loudly |
-| `generated.env.remote` on `kwanz-ws` | `INCIDENT_SUPABASE_URL`, `INCIDENT_SUPABASE_SERVICE_ROLE_KEY` | Native `vss-agent` (search, chat, AI revision insert, evidence embeddings); `.scripts/native-services.sh` | Back up, set the two finals values, restart `vss-agent` ("ask first"; [`incident-operate-vm`](../skills/incident-operate-vm/SKILL.md)) |
-| `deploy/docker/services/agent/compose.yml` | `INCIDENT_SUPABASE_*` passthrough | The Docker `vss-agent` (not used; the native one owns :8000) | Nothing |
-| `eval/` | `INCIDENT_DB_DSN` or `INCIDENT_SUPABASE_*` from the same `.env.local` | P1/RP1 batch (outside this change) | Same `.env.local`; eval's storage is outside this change |
+| Agent process (`services/agent`) | The NAT agents and tools (top agent, report agents, video understanding, the video-storage tools, search, the chart generator's core), embeddings, evaluators, the video-analytics MCP server, the stock ingest routes | The custom FastAPI worker and the route and tool registries (register the incident routes and tool); `chart_generator` (serves the dashboard chart routes); `video_report_gen` (headless analysis and hosted-endpoint fixes); the package metadata, README and `AGENTS.md` | Eight `api/incident_*.py` route modules; `tools/incident_report_gen.py` and `tools/incident_experiments.py`; `incident_contract/`; the incident utilities under `utils/` (database client, crop evidence, track evidence, object tracking, set-of-marks, chunk captions, perception client, embeddings, object storage, grounded chat, report answers, run provenance, box track, video duration) and their unit tests |
+| Agent configuration | The base developer profile's workflow, LLM and telemetry blocks | The same configuration file registers `incident_report_gen` and names the LLM the chart routes use | The environment flags the incident code reads (tracking, object tracking, set-of-marks, caption pass, zoom names, chat mode, critic, experiments) |
+| Perception and infrastructure | NvStreamer, DeepStream perception, Kafka, Logstash, Elasticsearch, the video-analytics API, Phoenix, the stock Compose service definitions | A shared-GPU hardware variant of a NIM environment file and the HAProxy template (both historical: neither NIMs nor the ingress are started) | The profile's Compose override (GPU pinning) and tracking Compose file, the NvStreamer configuration, the tracking-stack script |
+| Deployment packaging | The `dev-profile.sh` helper and the stock profiles, never used for this profile | The developer-profiles Compose index includes the profile's Compose file; the agent's Compose service passes the incident database settings (the container itself is not used) | `start.sh`, `.scripts/`, `.dotfiles/`, the profile's `compose.yml` |
+| User interface | The stock web UI, not started | | `incident-console-v2`, `vlm-gateway`, `mock-backend`; the archived v1 console is read-only history |
+| Storage and data | VIOS/VST and the stock object store, not started | | `supabase/` (migrations, harness, copy scripts), `contracts/`, the object-storage key layout |
+| Evaluation | NAT evaluation and the stock evaluators, not used | | `eval/` |
+| Operations and documentation | The stock `skills/` catalogue | The repository `AGENTS.md` and the Docker README point at the profile | The profile's `skills/`, `.docs/`, `AGENTS.md` and `README.md` |
 
-The agent only **warns** when it cannot record a search query, so an agent still pointed at midterm keeps answering searches and silently loses the query logs: check that `queries` grows on finals after the switch. The cutover steps, checklist and rollback are in the [`incident-manage-database`](../skills/incident-manage-database/SKILL.md) skill.
+## Runtime View
 
----
+A representative selection; each step names the building block that performs it. Contracts for the agent calls: [`vm-api-contracts.md`](vm-api-contracts.md); who writes which row: [`analysis-schema.md`](analysis-schema.md#6-agent-mode) and [`data.md`](data.md).
 
-## 3. Remote LLM/VLM Deployment Facts (Brev Switchyard & Remote Inference)
+### Analysis Run in Agent Mode
 
-The VM deployment runs LLM, VLM, and evaluation judge inference against Brev Switchyard (`https://switchyard-13doh4lsz.brevlab.com`). There are no local NIM inference containers on `kwanz-ws`.
-
-Live values are in [`status.md`](status.md); the full procedure for editing `generated.env.remote` is in [`incident-profile-operations.md`](incident-profile-operations.md).
-
-### Inference Rules & Requirements
-
-1. **Client Type Rule:** Use `_type: openai` for remote inference models, **never** `_type: nim`. The `nim_langchain` client leaks proprietary parameters (such as `verify_ssl`) into the HTTP JSON request body, which triggers HTTP 400 Bad Request errors on standard OpenAI-compatible endpoints.
-2. **Model Selection Rules:**
-   - **LLM (`nvidia/nemotron-3-ultra`):** Must support OpenAI tool calling (`bind_tools`) for `top_agent` and `json_schema` structured output for incident reporting. Also serves as `eval_llm_judge`.
-   - **VLM (`nvidia/cosmos-3-super-reasoner`):** Must support base64 MP4 `video_url` inlining (`data:video/mp4;base64,...`) and frame-by-frame JPEG extraction.
-3. **URL Format Rule:** Set `*_BASE_URL` without a trailing `/v1` (`https://switchyard-13doh4lsz.brevlab.com`). Agent and LangChain client instantiations append `/v1` automatically.
-4. **Authentication Rule:** Set `OPENAI_API_KEY` to the Brev Switchyard key; it is shared across LLM, VLM, and `eval_llm_judge`.
-5. **GPU:** only GPU 0 is used; see the [GPU rule](incident-profile-operations.md#5-vm-deployment-configuration-principles-generatedenvremote) (item 10). No local LLM/VLM NIM runs on either GPU.
-
----
-
-## 4. Runtime Interaction Sequences
-
-### Console middle layer (ports and adapters)
-
-`incident-console-v2` reaches Supabase, R2, the gateway and the agent through ports and adapters; the layout and dependency rules are in [`mvp2/console-hexagonal-architecture.md`](mvp2/console-hexagonal-architecture.md).
-
-- A report is read from one `report_revisions` row (`?revision=<id>`, else the official one, else the newest). A refusal by a database write function becomes a `StoreRejection`, which the route returns as 422 with the database's reason.
-- `/library` Find evidence posts to `POST /api/search`, which calls the agent's `POST /api/v1/incidents/search` (body `{query, videoId?}`: with `videoId` the search covers that incident only, 50 hits, and the query may be empty, which lists the incident's evidence in video time order; without it, 20 hits across the library). The agent's incident search and evidence search share one embed-then-retrieve function (`semantic_search`), and the VLM critic is off by default (`INCIDENT_SEARCH_CRITIC`), so no hit carries a verdict in the console. The Find incidents text search calls the agent's `POST /api/v1/incidents/revisions/search`, then filters the result in the console. A hit's report link carries `?t=` and the report page seeks to that second.
-
-### Console configuration
-
-Server-only variables, read from `incident-console-v2/.env.local` (a symlink to the profile's shared `.env.local`); none may be exposed through `NEXT_PUBLIC_`:
-
-| Variable | Use |
-|---|---|
-| `ANALYSIS_MODE` | `gateway` (default) or `agent` |
-| `VLM_GATEWAY_URL` | the gateway, required in gateway mode; `start.sh` exports `http://127.0.0.1:8600` in mock mode only |
-| `INCIDENT_AGENT_BASE_URL` | the agent or the mock (chat, search, embeddings, and analysis in agent mode); uploads do not use it |
-| `VLM_MODEL` | default model in the picker, one of `contracts/inference.json` (default `nvidia/cosmos-3-nano-reasoner`) |
-| `CONTRACTS_DIR` | the shared `contracts/` directory (default `../contracts`) |
-| `INCIDENT_SUPABASE_URL`, `INCIDENT_SUPABASE_SERVICE_ROLE_KEY` | PostgREST |
-| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_BUCKET` | video and evidence storage |
-| `FFMPEG_PATH`, `FFPROBE_PATH` | override the npm-bundled `ffmpeg` / `ffprobe`; unset uses the bundled copy, then PATH |
-| `ANALYSIS_JOB_LOOP` | `off` keeps this console's [background analysis loop](#background-analysis-jobs) stopped (its queued jobs then wait for another console); unset runs it |
-
-`GET /api/health` answers `status` (`ready` or `degraded`) and per-service booleans only; the `gateway` row is omitted (and not probed) in agent mode and reported only in gateway and mock modes.
-
-### Console pages
-
-- **`/` (upload):** the model picker, a drop zone that takes one file or several, and the **Analysis jobs** list. The browser uploads and converts each file (`/api/uploads/r2`), then queues its analysis as a [background job](#background-analysis-jobs) (`POST /api/jobs`); the console's server analyses jobs one at a time, so once a file is queued, closing the tab no longer stops it (a file whose bytes are still being sent is lost with the tab, and the page says so). One file on an empty page runs as before for the person watching: the stored-name warning, a preview, the four stages (**Uploading videos**, which covers the upload and the H.264 conversion, then understanding, saving and report ready), and a redirect to its report when its job is done (or the job's failure reason, with **Retry analysis** retrying the job without re-sending the file). Several files, or any file added while a batch is on screen, form a **batch**: a row per file shows Queued, then Uploading (with percent, then elapsed time while the file converts; one **Uploading videos** step), then Queued again while its job waits, Analysing (elapsed time from the job's start, so a reopened page shows the real time), Done with an **Open report** link, Failed with the step and the reason, or Cancelled. Uploads run strictly one at a time, in the order added; a file waiting for or in analysis does not hold the next upload back. A failure never stops the next file. **Retry** on a failed row re-sends a file whose upload or conversion failed, or queues a failed job again; **Cancel** on a row whose job is queued cancels that job. A queued file can be removed; **Cancel batch** cancels every file not uploaded yet, aborts the running one only while its bytes upload, and cancels the batch's queued jobs (one already analysing finishes). The model is fixed per file when it is queued. The page reads `GET /api/jobs` every 3 s; the Analysis jobs list shows only the running and queued jobs (a finished job leaves it; its report is in the library), except those already shown as this page's own rows, so a reopened tab shows the same jobs and their progress. The queue is pure functions in `src/sections/analysis/batch-upload.ts` ([decision](decisions.md#2026-10-31-batch-upload-runs-files-strictly-one-at-a-time-each-as-a-single-upload)).
-- **`/library`** (the old `/reports` redirects here with its query string): Find incidents shows six cards per page, one per video (official revision, else newest), with severity, the title led by "Official vN" (when the shown version is official) or a "No official version" marker, summary, evidence and version counts, and the upload-time thumbnail (`thumbnails/<video key>.webp`) with the severity and AI/Human badges on it, and a skeleton when it is missing or fails to load; filters are text, type, report status (any, has an official version, not yet official), severity band, added date and sort, shown as chips and kept in the URL. The text search falls back to the library's ILIKE match, with a note, when the agent fails or finds nothing. Find evidence shows the agent's top 20 hits with crop, match percentage, time, kind, threat and holder (no verdict badge: the critic is off); kind, threat and type filters and "Group by incident" work on the returned hits. A hit opens a viewer with the full frame and every box at that second (or the enlarged crop) and a link to the report at that second. "See evidence" on a card scopes Find evidence to that incident and loads its evidence at once; a query typed while scoped searches only that incident (the agent filters by `video_id` in the database, not in the browser).
-- **`/videos/<id>`:** one video's re-generation card and full attempt history.
-- **`/reports/<videoId>`:** View mode has a fixed top band (the video and the versions graph, two panes with one separator; where each AI run is a branch and the star marks the official version; the star spins while a mark or clear saves and shows the answer at once, so a quick second mark still asks before it replaces), a scrolling pane (report fields, evidence cards by holder, where clicking a card opens a detail pop-up with the whole frame and box large, the id and title, the full description, "Held by" and threat for an instrument, "Holds" and the on-screen span for an entity, the time and a Play from here button that closes the pop-up and seeks the video (disabled with a note when the item has no time), read-only model output, run details, the version chat) and a bottom bar with "Edit from vN". Edit mode is described below.
-- **`/dashboard`:** see [Dashboard analytics](#dashboard-analytics-and-cross-filtering). The browser uploads a WebP thumbnail (the frame 25% into each new upload, at most 640×360, captured from the chosen file, which has the same frames as the stored copy) to `thumbnails/<video-key>.webp` under the stored `.mp4` key; a failure never blocks analysis.
-
-### Background analysis jobs
-
-An upload's analysis runs as a row in `analysis_jobs` ([`data.md`](data.md#analysis_jobs)), not inside the browser's request, so it survives a closed tab ([decision](decisions.md#2026-10-31-background-analysis-jobs-a-supabase-table-and-one-in-process-loop-per-console)).
-
-- **Routes:** `POST /api/jobs {filepath, filename, model?}` checks the model against the allowlist (400 for an unsupported one) and queues a job with the model stored (the default model when none is sent) -> 201 `{job}`; `GET /api/jobs` -> `{jobs}`: every running and queued job, then the latest 10 finished; `POST /api/jobs/<id>/retry` (failed or cancelled -> queued) and `POST /api/jobs/<id>/cancel` (queued -> cancelled) -> `{job}`, or 422 for a job in any other state. Code: `src/modules/jobs/` (domain rules in `domain/job.ts`, use cases in `application/`, PostgREST adapter in `infrastructure/supabase/`). `POST /api/analysis` still runs one analysis inside its request for scripts and tools; the upload page no longer calls it.
-- **The loop:** `src/instrumentation.ts` starts `src/lib/jobs/loop.ts` once per console process (Node.js runtime only; a `globalThis` flag stops the dev server starting a second one, and the atomic claim makes a second loop harmless anyway). Every 3 s it calls `claim_analysis_job(p_stale_seconds)`, which takes the oldest queued job (`FOR UPDATE SKIP LOCKED`), then runs `analyseUpload` (`src/modules/analysis/application/analyse-upload.ts`), the same code `POST /api/analysis` runs, heartbeats the job every 15 s (`touch_analysis_job`), and stores done with the new video and AI revision, or failed with the plain reason (`finish_analysis_job`). It takes the next job at once when one finished. One job at a time per console keeps it in line with the batch upload and the Switchyard rate limits. The loop is not a request, so the route's 360 s `maxDuration` does not bind it; each model's own timeout in `contracts/inference.json` still does.
-- **One video per job:** every attempt of a job analyses into the same video id, derived from the job (`jobVideoId`), so a run cut short and run again, or a retry, adds revisions to one video instead of leaving a second video row on the same R2 object.
-- **Recovery:** a running job with no heartbeat for 180 s lost its console (stopped or restarted). The next claim, by any console, sends it back to the queue after its first stale run and fails it ("The console stopped twice while analysing this video") after the second, so nothing hangs. A heartbeat or finish names its claim (`p_attempt`), so a runner whose job was recovered cannot overwrite the newer claim.
-- **Shared queue:** every console pointed at finals with the loop on claims from the same table, and a job runs against the agent or gateway of whichever console claims it. Set `ANALYSIS_JOB_LOOP=off` on a console that must not take other people's jobs.
-
-### Report library pagination and deferred report loading
+**Figure 4. Analysis of an uploaded clip in agent mode (the vm mode default).**
 
 ```mermaid
 sequenceDiagram
-    actor User as Reviewer
-    participant UI as /library
-    participant API as Next.js /api/reports
-    participant DB as Supabase RPC
+    autonumber
+    actor Reviewer
+    participant Console as incident-console-v2
+    participant R2 as Cloudflare R2
+    participant DB as Supabase
+    participant Agent as VSS Agent
+    participant Perception as Perception stack
+    participant Models as Hosted model endpoints
+
+    Reviewer->>Console: Choose a model, drop one or more clips
+    Console->>Console: Probe the file, convert to an H.264 MP4 unless it is one
+    Console->>R2: Conditional put of the video, head check of the stored size
+    Console->>DB: Queue an analysis job for the stored object
+    Console->>DB: The job loop claims the oldest queued job and heartbeats while it runs
+    Console->>R2: Verify the object, sign a read URL
+    Console->>DB: Create the video row once, with the job's video id
+    Console->>Agent: analyze (signed URL, object key, run id, model, reviewer prompt, duration)
+    opt Caption pass enabled and the clip is long
+        Agent->>R2: Cut and upload caption windows to scratch
+        Agent->>Models: One caption call per window
+        Agent->>R2: Delete the scratch windows
+    end
+    Agent->>Models: P1 extraction: video URL, contract prompt, schema-constrained output
+    Models->>R2: Fetch the video through the signed URL
+    Models-->>Agent: Report JSON
+    Agent->>Agent: Strict validation (core-scored-v1, id-normalization-v1) and video bounds
+    par Evidence for every entity, instrument and asset
+        Agent->>Models: Locate the item at its second (detector)
+        Agent->>R2: Store the whole frame and the crop
+        Agent->>Models: Zoomed second look, rename when confident
+    and Person tracking enabled
+        Agent->>Perception: Upload the clip, provision the stream, read frame pages
+        Agent->>Agent: Build tracks, match people by box overlap, re-cut at first seen
+        Agent->>R2: Store track files
+    and Object tracking enabled
+        Agent->>Models: Detector re-anchors a seeded tracker at intervals
+        Agent->>R2: Store object track files
+    end
+    Agent->>Models: Embed the report's title and description
+    Agent->>DB: Append the AI revision (payload, evidence, facets, summary embedding)
+    Agent-->>Console: Report, raw output, revision id, provenance, tracking summaries
+    Console->>Console: Validate the raw output again under the same policy
+    Console->>DB: Write the immutable attempt record on the run, verify the revision
+    Console->>Agent: Evidence embeddings for the new revision (video has no official revision)
+    Console->>DB: Store the searchable crops, finish the job
+    Console-->>Reviewer: The job's row links to the report
+```
+
+1. **Upload** (console): the browser sends the file to a console route, which probes it and converts it to an H.264 MP4 at the original size unless it already is one, puts it in object storage under a readable key that is never overwritten, and verifies the stored size. The browser also uploads a thumbnail frame.
+2. **Queue** (console, database): the page queues a job with the chosen model; the console's job loop claims the oldest queued job, heartbeats while it runs and takes the next one when it finishes. A reopened tab shows the same jobs ([Background Analysis Jobs](#background-analysis-jobs)).
+3. **Prepare** (console): the analysis use case verifies the object, signs a read URL, creates the video row once, and calls the agent with the signed URL, the object key, its own run id, the model and any reviewer prompt. The console owns the video row and the run row; the agent never writes the video row.
+4. **Extract** (agent): optional captions, then P1 with the shared prompt and schema; the agent validates under the same policy as the console and the evaluation pipeline. A contract violation is answered as a client error with the raw output, and nothing is persisted.
+5. **Evidence** (agent): locate, crop and store each item; the zoomed second look; person tracking through the perception stack; object tracking for instruments and assets. Every stage is soft.
+6. **Persist** (agent): the AI revision with its evidence and summary embedding. The agent inserts a placeholder run row only when the console's does not exist yet.
+7. **Record** (console): the console validates the raw output again, writes the immutable attempt record on its run row, verifies the agent's revision (and inserts one only when the agent returned none), embeds the new revision's evidence through the agent and stores the searchable crops when the video has no official revision yet, then finishes the job with the video and revision ids. A failed attempt finishes the job as failed with the reason and leaves a run record, never a report.
+
+### Analysis Run in Gateway Mode
+
+Gateway mode keeps the same console code path and swaps the model port: the console builds the identical P1 request, the gateway forwards it with the server-side credential, and the console persists the result itself. No detector runs, so the evidence entries have no images. It is started by the launcher's mock mode, where the mock backend answers the agent's routes, and is used only for the mocks' own tests.
+
+**Figure 5. Analysis in gateway mode.**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Console as incident-console-v2
+    participant Gateway as vlm-gateway
+    participant Models as Hosted model endpoints
+    participant R2 as Cloudflare R2
+    participant DB as Supabase
+    participant Agent as Agent or mock backend
+
+    Console->>R2: Verify the object, sign a read URL
+    Console->>Gateway: P1 chat completion, identical to the agent's and the evaluation pipeline's
+    Gateway->>Models: Forward unchanged, with the server-side credential
+    Models->>R2: Fetch the video through the signed URL
+    Models-->>Gateway: Report JSON
+    Gateway-->>Console: Report JSON
+    Console->>Console: Strict validation, ID-only repair when every violation is an id
+    alt Valid
+        Console->>DB: Attempt record on the run, then the AI revision
+        Console->>Agent: Evidence embeddings
+        Console->>DB: Store the searchable crops, finish the job
+    else Contract or request failure
+        Console->>DB: Attempt record only, job failed with the reason
+    end
+```
+
+### Background Analysis Jobs
+
+1. A queued job is a row with the stored object, the file name and the model ([`data.md`](data.md#analysis_jobs)).
+2. One loop per console process claims the oldest queued job through a database function that locks the row and skips locked ones, so several consoles never claim the same job; it heartbeats while the job runs and finishes it as done or failed through functions that check the claim.
+3. A running job whose heartbeat stops is treated as lost: the next claim by any console sends it back to the queue once and fails it after a second loss, so nothing hangs.
+4. Every attempt of a job analyses into the same video id, so a retry adds revisions to one video instead of a second video row on the same object.
+5. One job at a time per console keeps within the hosted endpoint's rate limits; the loop is not an HTTP request, so each model's own timeout from the contract settings bounds an analysis. Every console pointed at the same database shares the queue ([status](status.md#4-known-issues), [console reference](console-reference.md#background-analysis-jobs)).
+
+### Evidence Search and Incident Search
+
+**Figure 6. Natural-language evidence search.**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Reviewer
+    participant Console as incident-console-v2
+    participant Agent as VSS Agent
+    participant Models as Embedding endpoint
+    participant DB as Supabase
     participant R2 as Cloudflare R2
 
-    User->>UI: Open library or change metadata/evidence filter
-    UI->>API: GET summaries (page size 6; entity/instrument/asset terms)
-    API->>DB: list_incident_report_summaries(...) (IncidentRepository.listReports)
-    DB-->>API: 6 summaries + total count
-    API->>R2: Sign up to 6 derived thumbnail keys
-    API-->>UI: Metadata + small thumbnail URLs (no video URL)
-    UI-->>User: Lazy screenshot images or skeleton fallback
-    User->>UI: Open one report
-    UI->>API: GET /api/reports/videoId?revision=revisionId
-    API->>DB: Read one report_revisions row (IncidentRepository.getReport)
-    API->>R2: Create selected object's signed URL
-    API-->>UI: Full report + playback URL
+    Reviewer->>Console: Type a query in Find evidence, optionally scoped to one incident
+    Console->>Agent: search (query, filters, optional video id)
+    Agent->>Models: Embed the query
+    Agent->>DB: search_evidence_items: cosine distance over the searchable revisions' crops, filters applied before ranking
+    opt Critic enabled (off by default)
+        Agent->>Models: Judge each hit against the query with its crop
+    end
+    Agent->>DB: Record the query and its ranked results
+    Agent->>R2: Sign crop and playback URLs
+    Agent-->>Console: Ranked hits with item, incident and verdict
+    Console-->>Reviewer: Tiles, filters, grouping by incident, the frame viewer
 ```
 
-Date inputs are directly editable: entering either boundary activates the custom range automatically. Preset
-selection clears stale custom boundaries, and the date/time row has an explicit reset that clears both date and
-time constraints. The API forwards inclusive day boundaries, optional time-of-day bounds, and the viewer's detected timezone to the summary RPC.
+1. **What is searchable** (database): the evidence crops of each video's searchable revision, its official revision or else its newest, embedded as passage text; rows are written by the console when a revision is saved or marked official, with vectors from the agent's embeddings route ([`data.md`](data.md#evidence_crops)).
+2. **Evidence search** (agent): one embed-then-retrieve function serves both the library-wide search and a search scoped to one incident; an empty scoped query lists that incident's evidence in time order. The critic is dormant by default, so every hit is unverified and a search costs one embedding call and one vector query.
+3. **Incident search** (agent, console): the Find incidents text search embeds the query and retrieves the nearest AI revisions by their summary embedding through a second database function; the console filters the hits and falls back to a plain text match on the library when the agent fails or finds nothing.
+4. **Specification** in depth: [`mvp2/README.md`](mvp2/README.md).
 
-### Dashboard analytics and cross-filtering
+### Reviewer Edit, the Official Version, Chat and Charts
 
-`GET /api/dashboard` calls the service-role-only `get_incident_dashboard` RPC through `DashboardRepository.getDashboard`. It counts **one report per video: the official revision, else the newest**, the Library's rule, and reports how many are official and how many are not yet official. Nothing is marked official by being counted.
-- The page shows six fixed displays: Total reports (with official and not-yet-official counts), Incidents over time, Incidents by type, Severity breakdown, Top targeted assets, and Activity by day and hour. Every one shows the split. Each display takes the form its data suits: Total reports is a number with an official and not-yet-official bar; Incidents over time is a stacked area; Incidents by type and Top targeted assets are ranked bars; Severity breakdown is a donut with the exact split listed beside it (the list is the control that filters the page); Activity by day and hour is a heatmap ([decision](decisions.md#2026-11-01-dashboard-displays-take-the-form-their-data-suits)). The RPC still returns the other sections (entity types, instruments, threat levels, confidence, model coverage) for the port's other callers.
-- `DashboardQuery.scope` (`all`, `official`, `not_official`; `GET /api/dashboard?scope=`) narrows the statistics to one report status. The route defaults to `all` and always sends it to the RPC.
-- All-time video counts are shown as a static note on the Total card.
-- Evidence statistics are normalised asset names (and canonical entity types and instrument names in the RPC), counted per distinct incident.
-- The total, its official and not-yet-official counts, and the type and asset rows link to `/library?scope=all|official|not_official&...` with the same period and filters, using `match=exact` for asset names, so the Library total equals the clicked number. The URL is the reports page's filter state. Severity rows and heatmap cells filter the page instead.
-- Before the first load the panels show skeletons, and a failed first load shows an error with Try again: the page never shows a 0 it has not loaded. A failed refresh keeps the last figures under an error.
-- The period window is computed in the browser after mount and sent as zoneless UTC; the API reads it as UTC.
-- **Ask for a chart:** `POST /api/dashboard/chart {request, chartType, timezone}` takes one request and the user's bar or pie, and answers `{kind: 'chart', chart}`, `{kind: 'unsupported'}` or `{kind: 'needs_bar'}`. The model only picks a strict `ChartSpec` from the allowlist in `modules/dashboard/domain/chart-spec.ts`; `generateChart` runs `getDashboard` (plus one query per report status for report charts), builds the rows, title and labels itself, and sends the figures to VSS `chart_generator` on the agent through the `ChartRenderer` port. The image comes back inside the response as a data URL; no records means nothing is drawn. Before the model reads the request, `generateChart` normalises canonical severity words to their dashboard band in code (`domain/severity-words.ts`, `chart-severity-words-v2`: a word maps only when all the severity levels the project definitions tie it to share one band: minimal, very low and minor→low, moderate→medium, severe and critical→high; only where the word qualifies severity or an incident noun; serious, significant and other words stay as typed; [decision](decisions.md#2026-11-03-dashboard-chart-requests-normalise-canonical-severity-words-in-code)). The console posts its prompt and the (normalised) request to the agent's `POST /api/v1/incidents/chart-requests`, where the agent's own LLM (`chart_generator.llm_name`) answers with the JSON object it wrote; the console validates that object as above. Invalid input is 400, a missing `INCIDENT_AGENT_BASE_URL` 503, and a failed model or drawing call a plain 502 ([decision](decisions.md#2026-11-02-dashboard-chart-requests-are-read-by-the-vss-agents-own-llm-not-the-local-vlm-gateway), amending [2026-10-31](decisions.md#2026-10-31-dashboard-chart-requests-a-model-picks-an-allowlisted-spec-our-code-fetches-the-figures-and-vss-chart_generator-draws-them)).
-- The trend days, the heatmap and the weekday/hour cross-filters use the viewer's local time: `GET /api/dashboard` forwards the browser's detected `timezone` (e.g. `America/New_York`) to `p_timezone`, which groups and filters `generated_datetime` in that zone. `/library` detects the same zone itself, so drill-down links carry no timezone and the totals still match. The old `/reports` URL redirects to `/library` with its query string.
+1. **Save as new version** (console, database): the edit route accepts only the structured fields and each item's image, validates the edit against the contract's sub-schemas and cross-field rules, cuts a reviewer-drawn item's crop, frame and track on the server from the stored video, asks the agent for embeddings when the video has no official revision, and calls one database function that appends a human revision whose parent is the opened revision and stores its crops in the same call. Earlier revisions are never changed.
+2. **Mark official** (console, agent, database): the console fetches the revision's evidence embeddings from the agent and calls a database function that sets the video's official pointer and rebuilds that incident's searchable crops; clearing removes them. An unreachable agent fails the mark and changes nothing.
+3. **Re-generation** (console, agent): the same analysis path on the stored object with a chosen model and an optional reviewer prompt; always a new run and a new AI branch that copies no earlier edit, never a change to the video row or the official pointer.
+4. **Chat** (console, agent): the panel sends the version on screen, or the draft being edited; template mode composes the answer from that version's report with no model call; grounded mode, behind an agent flag, answers from the version with a chat model and checked citations and answers library questions by a planned, counted search over report summaries.
+5. **Dashboard charts** (console, agent): the dashboard reads one database function that counts each video once (official revision, else newest). For a chart request the console sends its prompt and the request to the agent, whose own LLM picks a chart specification; the console validates it against its allowlist, computes the figures from the database itself, and asks the agent to draw them with the stock chart generator. The model never sees a figure.
+6. **Reviewer box tools** (console, agent): in edit mode the console proxies two agent routes: describe names a drawn box with the VLM, track follows it with the object tracker; nothing is stored until Save.
 
-### Report versions: View, Edit and History
+## Deployment View
 
-The report page has two modes. **View** shows the version on screen (its versions graph, official star, evidence cards and run details); **Edit from vN** opens **Edit** mode, where the version being edited is the read-only A side and the unsaved draft is the editable B side, with one evidence row per entity and its held instruments as sub-rows. Deleting an entity deletes the instruments it holds; a row's Revert restores that item as in A. Draft-level **Undo** walks backward through changes and **Revert all** restores the opened version; neither writes a revision. In both modes on desktop, one vertical drag or arrow-key separator resizes the video and version-history panes, while the bottom horizontal separator resizes their shared height from 190 to 600 px. The chosen layout survives View/Edit switching for the current page session. The page's **History** lists every revision of the incident (kind, author, time, note), newest first.
+### Deployment Nodes
 
-**Person tracks.** When an entity's evidence entry carries a track (agent mode with `INCIDENT_TRACKING_ENABLED=1`, a person matched to a track), View mode draws a box that follows that person over the report video (`TrackOverlay`): one stable colour per tracked item in id order, labelled with its name (never its id: `E1`, `T-1`), the box at the playhead interpolated between samples up to 1 s apart, held for 0.5 s at the span ends and hidden outside them or inside a longer gap. It is drawn with `containFrame` so it stays on the picture, takes no pointer events (the player's controls work through it), follows the playhead every frame while playing, and is hidden in Edit mode and while the video is in picture-in-picture. Each tracked card shows a presence bar (`PresenceBar`): the track's span over the whole clip in the item's colour; a click on the span seeks to that second, anywhere else on the bar (or a key press) to the span's start. An item with no track keeps its stored box on the player instead: its pop-up's Play from here seeks to `box_seconds`, pauses and holds that box (dashed amber, `stillBoxFor`) until the user plays or moves the playhead off that second; the card then reads "Not tracked: <reason>" when the agent recorded `track_gap`. A click on a tracked card selects its box (thicker; the others dimmed); a click on the selected card's text clears it, and a new version starts unselected. The detail pop-up shows "On screen x-y (tracked)" beside the report's own on-screen span (contract v4: `first_seen`/`last_seen` are never rewritten) and the bar, whose click closes the pop-up and seeks. The browser reads the samples from `GET /api/reports/[videoId]/track?revision=&type=&item=` (`getEvidenceTrack`), which takes the key from the stored revision's evidence entry, reads the JSON from R2 on the server (R2 has no CORS rule for the console) and answers `{samples: [{t, box}]}`: 404 without a track, 502 when the file cannot be read, and an empty list for a malformed file; the overlay reads each track once per page load and draws nothing for one that fails. Items without a track look exactly as before ([decision](decisions.md#2026-10-31-the-report-player-draws-person-tracks-read-through-a-console-route)).
-- **Save as new version** always appends a `human` revision and needs a note. There is no Restore: copying an older version back is an Edit from that version.
-- **What a reviewer may edit:** the structured (Class A) fields and each item's image; model output and provenance are read-only ([field classes](analysis-schema.md#three-classes-of-report-fields)). IDs are renumbered by position, except an entity keeps its canonical `E<n>` id from View through Edit, Save and Compare (the draft's internal key is never saved as `entityId`, an added entity takes the next free `E<n>`, and Compare keeps canonical order; [decision](decisions.md#2026-10-28-entity-ids-and-their-order-are-canonical-across-report-view-edit-and-compare)); each item sends the item it came from as `source_id` (null for an added item) so its evidence follows it through a delete or reorder. A reviewer-drawn image keeps its `image_timestamp_seconds` and `image_box` (`[ymin, xmin, ymax, xmax]`, 0-1000) on its evidence entry.
-- **Unsaved edits** exist only in the form. A refresh reloads the stored revision. There is no draft.
-
-`PATCH /api/reports/[videoId]/edit {parentId, editedBy, edit, note?}` rejects Class B/C keys (400), validates the edit against the contract's own sub-schemas and ID/holder/window rules (422), builds the new payload and evidence (`humanRevisionContent`) and calls `save_human_revision_with_crops`, which appends a `human` revision whose parent is the revision that was opened. On a video with no official revision the route first asks the agent to embed the new evidence and the same call stores the crops; an embedding failure answers 502 and saves nothing ([`data.md`](data.md#save_human_revision_with_crops)). `GET /api/reports/[videoId]/revisions` is the History list. `POST /api/reports/[videoId]/evidence-image` stores an image under a new R2 key and returns the key for the edit to use (kept for scripts; the console has not called it since the frame picker was removed on 3 Nov 2026, because Save cuts a reviewer item's image on the server). No route changes a revision, `model_runs.notes` or an existing R2 object, and there is no verify step.
-
-The report shows "Reviewer-edited after generation", "Model assessed N/5; reviewer set M/5" beside the model severity rationale, and the model's original window beside a reviewer-set one.
-
-- **Upload (API):** `POST /api/uploads/r2` (multipart `file`, `filename`) writes the file to a temporary directory, probes it with `ffprobe` and stores it in R2 as `uploads/<name>.mp4`: an ISO MP4 whose video is already 8-bit yuv420p H.264 is stored byte for byte (`converted: false`); anything else (phone HEVC `.MOV`, 10-bit H.264, MKV, WebM) is converted with `ffmpeg -map 0:v:0 -an -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -movflags +faststart` into a temporary MP4 at the same width, height and frame rate, with no audio, which is streamed to R2 and deleted (`converted: true`). The temporary files are removed on every path, success or failure. The stored name always ends in `.mp4` (`inspectUploadName`), so `POST /api/uploads/check` reports `clip.MOV` as `clip.mp4`. A file `ffprobe` or `ffmpeg` rejects is 422 with their last lines; a missing binary is 503; a file over 5 GB is 413; the route's `maxDuration` is 1800 s and the conversion may take 25 minutes (limits documented in the profile `.env`). The upload page keeps its **Uploading videos** step active once the bytes are up and shows the conversion's elapsed time there, then "Converted ... in m:ss" or "Already an H.264 MP4: stored without conversion". The file picker is unchanged ([decision](decisions.md#2026-10-31-every-upload-is-stored-as-an-h264-mp4-at-the-original-resolution-converted-by-the-console-with-ffmpeg)).
-- **Track editor (console only):** `TrackEditor` (dialog), `TrackFrame` and `TrackTimeline` edit an `EditorTrack` (start, stop, keyframes) from `modules/reports/domain/track-editor.ts`; `trackEditorSource` picks the starting track (the draft's reviewer track, else the saved AI track from its track route, else a still box). No new route or schema: Done hands a dense reviewer track to `retrackDraftItem`.
-- **Frames and crops (API):** `GET /api/reports/[videoId]/frame?t=` returns one frame as a JPEG, and `POST /api/reports/[videoId]/evidence-crop {timestampSeconds, region}` cuts a rectangle (fractions 0-1 from the top-left) from that frame and returns it as a JPEG, writing nothing. A malformed `t` is 400, a `t` at or past the video's length or a region outside the frame or under 1% wide or high is 422, an unknown video is 404, and a missing `ffmpeg` is 503. The crop is cut on the server because R2 has no CORS rule for the console origin, so a browser canvas crop of the signed video would be tainted. Both use the console's `ffmpeg` (bundled by `npm install`; `FFMPEG_PATH`/`FFPROBE_PATH` override; PATH fallback). In Edit mode, **+ Add evidence** and each card's **Edit** open the box tool (`BoxTool`): pick a second, draw a box, **Analyse this box** (the describe route names it, the track route follows it), then check the AI-filled card beside the tracked preview (type, name, description, holder and threat for an instrument; scrub; **Extend 3 s** back or on; **Adjust box**; **Gone from here on**) and **Add to draft**. A lost track offers keep as incomplete, redraw or keep as still image; an AI miss leaves a blank card to fill in. **Edit** re-tracks an existing item from a new box and leaves its text alone. The calls live in one replaceable module (`lib/evidence/box-tool-client.ts`, over the typed `box-client.ts` and `POST /api/reports/[videoId]/box/describe|track`); the result is a `reviewer` object on the draft item (reviewer track, AI proposal, still second and box), which Save sends so the server cuts the evidence image from the first second the item is seen. `POST /api/reports/[videoId]/evidence-sweep` removes images a failed save left behind ([`data.md`](data.md#2-cloudflare-r2-storage-architecture)).
-- **Report chat:** `POST /api/chat` sends `version_id` (the version on screen in View, or the version an Edit draft came from) and, in Edit, `draft_report`. Each answer is tagged with the version it came from.
-  - **Template mode:** the agent composes the answer from that version's report (`utils/report_answers.py`): the timeline in time order for "what happened", otherwise the people, objects, what was taken, what could cause harm, times, severity or type. It names items by their descriptions, keeps ids in the citations, and says what the report doesn't mention ([`vm-api-contracts.md`](vm-api-contracts.md#post-apiv1incidentschat)). The panel's citation chips show each item's name from its evidence card (`citationTitles`), never its id.
-  - **Not searched:** the official version (decision 2026-10-24) and library questions get a "not searched in this chat mode" answer.
-- **Report chat, grounded answers (Gate M2 approved 2026-11-02 by the chatbot feature owner; shown only when the agent runs `INCIDENT_CHAT_MODE=grounded`, which stays off until Evaluation V2 validates it):**
-  - **Agent answers:** the agent's `chat-contract-v2` flag shows as a **Not in this report** badge, and `grounding` reaches the panel as `grounding`. A v1 answer has neither.
-  - **Errors:** an agent 4xx (a version of another incident, no official version) keeps its status; an agent 5xx becomes a 502.
-  - **Reset:** the panel is keyed by the version and draft state, so changing version starts a new conversation.
-  - **Library chat:** the library page's **Ask the library** button opens a side sheet (`LibraryChat`).
-    - Its questions go through the same `/api/chat` route without `incidentId` or a version, so the agent answers in library scope.
-    - Citations are grouped by incident under the incident's type and title (`grounding.incident_titles`; never the raw id). Each is labelled by the name the answer gave the item (`grounding.item_names`, else its kind; never its id) and opens that incident's report at the version the answer read and the cited second (`/reports/<id>?revision=<version>&t=`, from `grounding.versions`).
-    - A count or breakdown composed by code (`grounding.answered_by: "code"`) cites no item; it lists its matching reports (`grounding.candidates`) as links to the versions read. A refusal lists none.
-  - **Citation titles:** a report-chat citation shows the name its evidence card gives the item ("Person in light shirt", `citationTitles`), never its id; neither does the answer text.
-    - An insufficient-evidence answer shows **Not in the reports**.
-- **Evidence display:** the report cards and Edit's cards show each item's whole video frame with its box drawn on it (`EvidenceFrame` `fullFrame`, object-contain, `lib/evidence/evidence-view.ts`), never a cut-out crop; the evidence search tiles and viewer do the same. The frame is the stored `frame` key signed like `image`; for an item analysed before frames were stored, or a reviewer image saved without a frame, it is cut from the stored video by `GET /api/reports/[videoId]/frame?t=` at the entry's `box_seconds` or `timestamp_seconds`. `located: false`, or an old box covering the whole frame (`[0,0,1000,1000]`, the former fallback), shows the frame with no box and an "Object not located" note. The crop (`image`) is kept only for evidence search ([decision](decisions.md#2026-10-31-evidence-shows-the-whole-frame-with-a-box-not-a-crop)).
-- **Person tracking (flag `INCIDENT_TRACKING_ENABLED`, agent only; on for the VM agent by default since 31 Oct 2026, set by `native-services.sh`):** after the VLM report, `/analyze` starts the clip through NVIDIA's stock perception stack (NvStreamer upload, DeepStream stream add, frames from the video-analytics API) while the locate step runs. It builds person tracks, matches each located entity to the track whose box overlaps its locate box (IoU of at least 0.3 within 0.5 s), re-cuts the matched entity's frame and crop at the track's first sample (the second it is first seen), and stores the track JSON beside the evidence. The locate step waits for the tracks before it accepts a person's box: with solid person tracks, a box that no track sample within 0.5 s overlaps (IoU of at least 0.3) is unconfirmed, so the remaining locate seconds are tried and the first box a track confirms is kept, else the box becomes the nearest track sample inside the entity's first to last seen span, but only a sample within 0.5 s of the box's own second (otherwise the located box stays; frame ids are read as `id / fps` with no start loss) (no extra detector call when the first box is confirmed; persons only, and nothing changes without solid tracks) ([decision](decisions.md#2026-11-02-a-person-pictured-on-a-screen-is-not-the-entity-and-tracks-confirm-a-persons-box)). Unmatched entities, instruments and assets keep the locate step's result, and any perception failure leaves the analysis as it would be with the flag off ([decision](decisions.md#2026-10-31-person-tracks-give-matched-evidence-its-best-moment-and-a-track-file)). Tracking adds about the clip's length plus 10 s to an analysis (NvStreamer replays in real time); to turn it off, start with `ENABLE_TRACKING=false` (the agent then skips it) or set `INCIDENT_TRACKING_ENABLED=false` in `generated.env.remote` and restart the agent ([decision](decisions.md#2026-10-31-person-tracking-is-on-by-default-in-vm-mode)).
-- **Set-of-marks prompting (flag `INCIDENT_SOM_ENABLED`, agent only, off by default, needs tracking on):** tracking runs before P1 instead, P1 sees a scratch copy of the clip with a numbered box on each person track plus one context message asking for the number in each person entity's `label`, and entities are matched to tracks by that number first and by box overlap for the rest; the number is stripped from the stored labels and the evidence is cut from the original clip ([decision](decisions.md#2026-11-01-set-of-marks-prompting-draws-numbered-person-tracks-on-the-clip-p1-sees-flag-off-by-default)).
-- **Object tracking (flag `INCIDENT_OBJECT_TRACKING_ENABLED`, agent only, off in code but on for the VM agent by default since 2 Nov 2026 through `native-services.sh`, independent of person tracking):** the evidence step follows each located instrument and asset through the clip: an OpenCV single-object tracker (NanoTrack, then Vit, when their ONNX files are in `INCIDENT_OBJECT_TRACKING_MODEL_DIR`, otherwise the best built-in one, MIL on the VM) seeded with the item's own detector box runs forwards and backwards at about 4 fps, and every 2.5 s the existing open-vocabulary detector is asked for the item's label near the tracked box to re-anchor it or end the segment. It runs as a task beside person tracking. The result is a track in the shape of a person track (`<itemId>-track.json`, `track_source: "object-tracker"`), so the overlay, presence bar and scrubber read it unchanged. Detector calls count against object tracking's own budget (80, `INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS`), not the locate step's, and the run stops at 120 s. A seed box covering over half of the frame is skipped, and a tracker start the OpenCV build refuses keeps the previous tracker instead of losing the item ([decision](decisions.md#2026-11-01-instruments-and-assets-are-followed-by-a-seeded-opencv-tracker-corrected-by-the-detector-flag-off-by-default), [seed skip](decisions.md#2026-11-02-whole-frame-seeds-are-not-tracked-a-failed-anchor-keeps-the-previous-tracker)).
-- **Caption pass (flag `INCIDENT_CHUNKING_ENABLED`, agent only; off in code, on for the VM agent by default since 1 Nov 2026, set by `native-services.sh`):** a clip over 30 s is cut into 20 s windows with 2 s overlap and captioned before P1, and the captions are handed to P1 as context. `INCIDENT_CHUNKING_ENABLED=0` in `generated.env.remote` turns it off ([contract](vm-api-contracts.md#caption-pass-chunked-captioning-incident_chunking_enabled)).
-- **Zoomed second look (agent mode):** the whole-clip P1 pass names every item at thumbnail resolution, so a crumpled bag seen at 25 px can become "soccer ball". After an item is located, `CropEvidenceService` cuts it from the frame at native resolution with a 25% margin (upscaled to a 256 px short side for the model only; the stored crop is unchanged) and draws the box on a copy of the frame. The same VLM the grounding detector uses (`VLM_GATEWAY_BASE_URL`/`VLM_BASE_URL`, `VLM_NAME`) then takes two blind looks that never see the report's text (the marked frame alone; the marked frame plus the close-up), each answering `{name, description, confidence}`, and, only when the two looks agree (equal content words, or one name inside the other; decided in code), a text-only merge reconciles what they found with the report's current name and description, answering `{name, description, confidence, changed}`; disagreeing looks keep the report's text with no merge call and a `zoom_gap` naming both looks. The verdict's confidence is the lowest of the calls and the looks are kept on the entry as `zoom_seen` (names for objects, descriptions for people). When `changed` is true and `confidence` is at least 0.7 the agent rewrites `item_name` and `description` on the evidence entry **and** the matching item of the report payload (instrument and asset `name` and `description`; an entity's `description` only, its `type` is never changed), keeping `name_before`, `description_before` and `zoom_confidence` on the entry; the item id, `label`, timestamps and images are never touched. Every located entry gets `zoom_checked` and `zoom_seen` and, when not checked or ignored, a `zoom_gap`. Why three calls: on the 480p test clips a single vision prompt that carried the current name confirmed "soccer ball" for a 25-pixel smudge, and the close-up alone named the shoe beside the object; the marked frame named the bag. The flag `INCIDENT_ZOOM_NAMES_ENABLED` (default on) turns it off; a failed or slow call never fails the analysis; the calls are outside `max_crop_calls`; RP1's prose is generated before the second look, so a corrected name reaches the structured report and cards, not `report_text` ([decision](decisions.md#2026-10-31-zoomed-second-look-renames-a-located-item-from-its-close-up)).
-- **Searchable crops:** an analysis or re-run of a video with no official revision also writes the new revision's crops (`set_revision_crops`; a failure is logged, the run stands), and a Save writes them in the same call as the revision, so `/library` can find the video ([`data.md`](data.md#evidence_crops)).
-
-### Run history, re-generation and the official version
-
-- **Video history.** A video is the parent of its analyses. `GET /api/videos/[videoId]/runs` builds the history from two sources:
-  - runs with an AI revision for the video;
-  - revision-less attempt records whose notes explicitly name the video: failed attempts.
-
-  Each entry shows model, time, outcome, failure reasons or repair operations, the reviewer prompt, and whether its revision is the official one. Failed attempts are never reports.
-- **Re-generation.** `POST /api/videos/[videoId]/runs {model, additionalInstruction?}` re-analyses the stored R2 object (the console's "reviewer prompt" box is `additionalInstruction`):
-  - the same canonical request, strict validation and ID-only recovery as an upload;
-  - always a new run and a new AI revision, which starts from the model's output (earlier edits are not carried across);
-  - it never writes the `videos` row (the upload time is kept);
-  - it never changes the official version.
-- **Official version.** `PUT /api/videos/[videoId]/official {revisionId}` and `DELETE` call `setOfficialRevision`: for a mark, the console asks the agent for the revision's evidence embeddings (`POST /api/v1/incidents/evidence-embeddings`) and passes them to `set_official_revision`, which sets `videos.official_revision_id` and rebuilds the incident's `evidence_crops`; for a clear it passes none and the rows go. If the agent is unreachable the mark fails and nothing changes. Used from the report page and the video history.
-- **Model choice:** both modes send the chosen allowlisted model (gateway to `vlm-gateway`, agent as `model` on `/analyze`). The run records the model the agent reports, so in agent mode the recorded model is the agent's.
-- **Where it appears:** `ReanalysisCard` on `/videos/[id]`; `ReanalysisDialog` in the report page's top bar.
-
-### Sequence A: Upload, Analysis & Reporting in Gateway Mode (`ANALYSIS_MODE=gateway`)
-
-*Zero-GPU local development flow using `vlm-gateway` and Cloudflare R2, on `incident-contract-v4`.*
+**Figure 7. Deployment diagram for the vm mode of the profile.** Mock mode runs the console, the gateway and the mock backend on the workstation alone, with the same cloud services.
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor User as Reviewer (Browser)
-    participant UI as incident-console-v2 (Next.js)
-    participant R2 as Cloudflare R2 Bucket
-    participant Gateway as vlm-gateway (Port 8600)
-    participant Brev as Brev Switchyard API
-    participant DB as Supabase PostgREST & RPC
-
-    User->>UI: Choose a model (allowlist from contracts/inference.json), then a video
-    UI->>UI: /api/uploads/r2: ffprobe; ffmpeg to H.264 MP4 (video only, same size) unless it is one already
-    UI->>R2: PutObject (uploads/<name>.mp4, If-None-Match *) + HeadObject via /api/uploads/r2 (the only upload)
-    UI->>DB: POST /api/jobs {filepath, filename, model}: analysis_jobs row (queued); the page polls GET /api/jobs every 3 s
-    UI->>DB: Job loop in the console process: claim_queued_analysis_job (oldest queued); touch_analysis_job every 15 s while it runs
-    UI->>R2: HeadObject (object must exist and be nonempty)
-    UI->>DB: Insert videos row if absent (the job's video id; upload lifecycle; never updated later)
-    UI->>UI: Sign R2 GET URL; build P1 request = eval P1 (video, canonical prompt, strict response_format, 16384 tokens, 64 frames)
-    UI->>Gateway: POST /v1/chat/completions (per-model timeout)
-    Gateway->>Brev: Forward with Bearer auth (VLM_GATEWAY_TIMEOUT_SECONDS)
-    Brev->>R2: GET video via presigned URL
-    Brev-->>Gateway: Completion
-    Gateway-->>UI: Completion
-    UI->>UI: Strict parse + schema + cross-field rules; id-normalization-v1 only if every violation is ID-only, then re-validate
-    alt valid_first_pass / valid_after_structural_repair
-        UI->>DB: model_runs (immutable notes: request, raw response, validation, repair, report)
-        UI->>DB: report_revisions (kind ai: payload, evidence, facets)
-        UI->>DB: Read back and verify; finish_analysis_job done (video id, revision id)
-        UI-->>User: The polled row links to /reports/[videoId]?revision=[revisionId] (a single upload redirects there)
-    else contract_failed / request_failed
-        UI->>DB: model_runs attempt record only (no revision); finish_analysis_job failed with the reason
-        UI-->>User: The row shows Failed with the reason and Retry; the attempt appears in the video's history
+flowchart LR
+    subgraph Laptop["Reviewer workstation (laptop)"]
+        ConsoleI["incident-console-v2<br/>[Node process]"]
+        GatewayI["vlm-gateway<br/>[Python process, mock mode only]"]
+        MockI["mock-backend<br/>[Python process, mock mode only]"]
     end
+    subgraph GPUHost["Shared GPU host"]
+        AgentI["VSS Agent<br/>[native process, bound to loopback]"]
+        subgraph Containers["Docker containers"]
+            PhoenixI["Phoenix"]
+            PerceptionI["Perception stack<br/>[pinned to the one GPU, started when tracking is enabled]"]
+        end
+    end
+    subgraph CloudI["Managed cloud services"]
+        R2I[("Cloudflare R2")]
+        DBI[("Supabase")]
+        ModelsI["Hosted model endpoints"]
+    end
+    ConsoleI -->|"SSH tunnel forwarding only the agent's endpoint"| AgentI
+    ConsoleI -->|"HTTPS"| R2I
+    ConsoleI -->|"HTTPS"| DBI
+    ConsoleI -.->|"mock mode"| GatewayI
+    ConsoleI -.->|"mock mode"| MockI
+    GatewayI -->|"HTTPS"| ModelsI
+    AgentI -->|"HTTPS"| R2I
+    AgentI -->|"HTTPS"| DBI
+    AgentI -->|"HTTPS"| ModelsI
+    AgentI -->|"host-local HTTP"| PerceptionI
+    AgentI -->|"traces"| PhoenixI
 ```
 
----
+| Node | Runs | Notes |
+|---|---|---|
+| Reviewer workstation | `incident-console-v2`; in mock mode also `vlm-gateway` and `mock-backend`; the laptop side of the launcher | The console's own `ffmpeg` and `ffprobe` come with its dependencies; the browser reaches media in object storage directly through signed URLs |
+| Shared GPU host | The VSS Agent as a native process bound to loopback; Phoenix in a container; the perception stack in containers pinned to the one GPU; optionally the stock analytics services | The agent is installed editable from the repository checkout, so a code change needs a restart, not a rebuild; its start installs a static `ffmpeg` build and the tracker model files when the host lacks them |
+| Managed cloud services | Cloudflare R2, Supabase, the hosted model endpoints | Reached over HTTPS from both the workstation and the host; the database admits only the service role |
 
-### Sequence B: Upload, Analysis & Reporting in Agent Mode (`ANALYSIS_MODE=agent`)
+### Native Processes and Containers
 
-*Full blueprint integration connecting laptop UI to native `vss-agent` on `kwanz-ws`.*
+The policy is to run a service natively whenever that is feasible, and in a container when it is not ([decision](decisions.md#2026-09-21-native-services-on-kwanz-ws)):
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as Reviewer (Browser)
-    participant UI as incident-console-v2 (Next.js)
-    participant Tunnel as SSH Tunnel (:8000)
-    participant R2 as Cloudflare R2 Bucket
-    participant Agent as vss-agent (:8000)
-    participant Brev as Brev Switchyard API
-    participant DB as Supabase PostgREST & RPC
+- **Native:** the VSS Agent, and the optional analytics services. A native process restarts in seconds after a code change, against a multi-minute image build, and the agent's virtual environment is installed editable from the checkout.
+- **Containers:** the media and perception appliances (NvStreamer, DeepStream perception) depend on CUDA and GStreamer toolchains that are not installable on the host, and the infrastructure appliances (Kafka, Logstash, Elasticsearch, Phoenix) gain nothing from running natively. The profile's Compose override pins every GPU-bound container to the one allotted device. The stock Compose files use fixed container names, so one perception stack runs per host.
+- **Not started:** the stock video storage and ingress services, Redis and the SDR controller were removed from the deployment when uploads moved straight to object storage; the stock web UI and the NIM containers are never started.
 
-    User->>UI: Select and upload video clip
-    %% The only upload: straight to R2 through the console (no VST, no :7777)
-    UI->>UI: POST /api/uploads/r2: ffprobe; ffmpeg to H.264 MP4 (video only, same size, no audio) unless it is one already
-    UI->>R2: PutObject (uploads/<name>.mp4, If-None-Match *)
-    R2-->>UI: Durable R2 object key
-    UI->>R2: HeadObject (exact stored byte length required)
+### Launch Modes and Connectivity
 
-    UI->>DB: POST /api/jobs: analysis_jobs row (queued); the page polls GET /api/jobs every 3 s
-    UI->>DB: Job loop in the console process: claim_queued_analysis_job (oldest queued); touch_analysis_job every 15 s while it runs
-    UI->>R2: HeadObject (object must exist and be nonempty)
-    UI->>DB: Insert videos row if absent (the job's video id, filepath=R2 key; source stays null)
-    UI->>UI: Sign 1-hour R2 GET URL locally
+The launcher is the one daily entry point ([`incident-start`](../skills/incident-start/SKILL.md)); the procedures and troubleshooting are in the [runbook](incident-profile-operations.md#3-laptop-to-vm-connectivity--ssh-troubleshooting).
 
-    UI->>Tunnel: POST localhost:8000/api/v1/incidents/[id]/analyze {model_run_id, video_url, skip_rp1: true}
-    Tunnel->>Agent: Forward analyze request
+- **vm mode** (the default, used for all UI and backend work): the launcher probes SSH to the host and resolves its address, inspects which containers and native services are up, deploys or starts only what is missing within bounded timeouts, starts the perception stack unless tracking is disabled, opens a backgrounded SSH tunnel that forwards only the agent's loopback endpoint, waits for the agent's health through it, and starts the console in agent mode. Leaving the launcher stops only the laptop-side processes and the tunnel; the host keeps running ([decision](decisions.md#2026-11-02-closing-startsh-leaves-the-vm-backend-running)).
+- **mock mode** (the mock backend's tests only, never a fallback when the host is unreachable): the launcher starts the mock backend and the gateway on the workstation and the console in gateway mode; no SSH is used.
+- **Connectivity:** the console talks to the agent through the tunnel, and to object storage and the database directly; the agent talks to the perception stack on its own host, and to object storage, the database and the model endpoints directly. The agent itself listens only on its host's loopback interface, so the tunnel is the one way in.
 
-    opt INCIDENT_CHUNKING_ENABLED=1 on the agent (on by default on the VM; caption pass; skipped for clips of 30 s or less)
-        Agent->>R2: GET video once; ffmpeg cuts 20 s windows (2 s overlap); PutObject scratch/analyze/<key>/<run>/<i>.mp4
-        Agent->>Brev: One caption call per window (stock caption prompt, at most 4 in flight, 429 retried)
-        Brev-->>Agent: [Xs-Ys] captions, offset to whole-video seconds (context only, never returned)
-        Agent->>R2: DeleteObjects scratch/analyze/<key>/<run>/ (always, in finally)
-    end
-    Agent->>Brev: P1 (video URL first, contract prompt, strict response_format; plus one context message with the captions when the pass ran) - same call as gateway mode
-    Brev->>R2: GET video via presigned URL
-    Brev-->>Agent: Schema-constrained JSON
-    Agent->>Agent: Strict parse under core-scored-v1 (+ id-normalization-v1), derive duration; core violation -> 422 with raw_output
-    Note over Agent,Brev: skip_rp1 - no RP1 call, like gateway mode (standalone calls run RP1)
-    Note over Agent,DB: The agent inserts the AI revision and returns revision_id; the console records the run
+### Two Supabase Projects (One per Phase)
 
-    Agent-->>Tunnel: Return {report, report_text, model, contract_version, raw_output, finish_reason, revision_id}
-    Tunnel-->>UI: Forward agent response
+There is one database project per project phase ([decision](decisions.md#2026-10-20-one-supabase-project-per-phase-finals-built-from-one-baseline-midterm-frozen)). **Finals** is the live database: the console, the agent, the mocks and the evaluation pipeline all point at it. **Midterm** is the frozen record of the earlier phase: read-only, never pushed to, kept in the repository as an archive. Finals was built from one baseline migration and filled once from midterm by a one-way copy; the versioned-report schema and its functions were applied on top through the migration folder, which remains the schema authority ([`supabase/README.md`](../supabase/README.md)). Object storage is shared by both projects: the same keys, no copy. Which settings point each component at the live project, and the cutover checklist, are in the [`incident-manage-database`](../skills/incident-manage-database/SKILL.md) skill; the state of each migration is in [`status.md`](status.md#3-database-status).
 
-    UI->>UI: Strict parse + schema + cross-field rules under policy core-scored-v1; id-normalization-v1 only if needed
-    alt valid_first_pass / valid_after_structural_repair
-        UI->>DB: model_runs (immutable notes: request, raw response, validation, repair, report)
-        UI->>DB: Verify the agent's AI revision (insert it only when revision_id is missing)
-        UI->>DB: Read back and verify; finish_analysis_job done (video id, revision id)
-        UI-->>User: The polled row links to /reports/[videoId]?revision=[revisionId] (a single upload redirects there)
-    else contract_failed / request_failed
-        UI->>DB: model_runs attempt record only (no revision); finish_analysis_job failed with the reason
-        UI-->>User: The row shows Failed with the reason and Retry; the attempt appears in the video's history
-    end
-```
+## Crosscutting Concepts
 
----
+### Incident Contract and Validation
 
-### Sequence C: Natural Language Video Search & Conversational Chat (MVP2)
+The model's output is defined once, in `contracts/`, as a strict JSON Schema plus the prompt and the request settings. Every consumer sends the same request (pinned by goldens) and validates the response the same way: a strict parse with no fence stripping or defaults, the schema, the cross-field rules, and the video-bounds rules when the length is known. Only id renumbering may be repaired, and only when every violation is an id problem; the repaired output is re-validated. Unscored enrichment fields (the timeline) may fail without failing the report. Every violation carries a machine-readable code, and the shared fixtures are checked by both the Python and the TypeScript validator. Details: [`analysis-schema.md`](analysis-schema.md).
 
-*Authoritative specification, sequence, and data flow: [`mvp2/README.md`](mvp2/README.md) and [`../contracts/chat-contract-v1/`](../contracts/chat-contract-v1/).*
+### Versioned Reports and the Official Pointer
 
-> [!NOTE]
-> MVP2 shifted from real-time perception/Elasticsearch indexing to a hybrid pipeline combining VLM extraction (`incident-contract-v4`), object cropping through a detector port (today the remote VLM; local open-vocabulary detectors are evaluated in [`mvp2/eval.md`](mvp2/eval.md)), Supabase `pgvector` (`evidence_crops`), conversational Q&A (`chat-contract-v1`), and a VLM critic that is dormant by default (`query_results`). See [`mvp2/README.md`](mvp2/README.md) for the authoritative architecture and end-to-end data flow.
+A report is a JSONB snapshot: the whole contract report as the payload, the evidence list beside it, and only the facets statistics filter on copied into columns. An analysis appends an AI revision with no parent; a human edit appends a human revision whose parent is the revision the reviewer opened and which inherits its run; a re-run is a new AI branch. A trigger rejects updates and deletes. The official revision is an explicit pointer on the video, set and cleared only by a database function; "latest run wins" is never inferred. The searchable revision is the official one, or else the newest. Model: [`data.md`](data.md#the-report-model).
+
+### Storage and Naming
+
+Object storage holds the media; the database holds rows; local disks on the host are caches. Keys are readable and deterministic: the upload keeps its file name, each analysis gets the next run number, each reviewer save the next edit number; no key holds a hash and no object is ever overwritten, because every put is conditional. Each evidence item has a crop (what search embeds), the whole frame it was found in (what the console shows, with the box drawn), and, when tracked, a track file in one shape for people and objects. Scratch objects are deleted by the stage that wrote them. Layout and rules: [`data.md`](data.md#2-cloudflare-r2-storage-architecture).
+
+### Model Inference
+
+All model calls are remote and OpenAI-compatible ([decision](decisions.md#2026-09-25-remote-brev-inference-no-local-gpu-nims)). The rules, and why they hold:
+
+1. **Client type.** The agent's LLM and VLM clients are configured as OpenAI-type clients, never as NIM-type clients: the NIM LangChain client leaks client-only parameters (such as the SSL-verification flag) into the HTTP request body, which standard OpenAI-compatible endpoints reject with a bad-request error.
+2. **Base URLs carry no version path.** The agent and the LangChain clients append the API version segment themselves, so a configured base URL that already ends with it produces a wrong path.
+3. **One credential, many roles.** One server-side key serves the agent's LLM, VLM and evaluation judge; the gateway holds its own copy of the hosted key for the console's gateway mode, so the browser never sees it.
+4. **Capabilities the models must have.** The LLM must support tool calling for the stock top agent and schema-constrained output for incident reporting and chart specifications; the VLM must accept a video by URL with schema-constrained output (inline base64 video gave the same results in the contract pilot) and images for the grounding, zoom and box-description calls. The allowlisted VLMs, their request settings and per-model timeouts are in the contract settings; the console, the agent and the job loop take each model's own timeout.
+5. **Sparse frames.** Hosted video models sample a bounded number of frames per request, so a long clip is seen sparsely; the caption pass exists to recover short actions, and how sampling behaves per model is an open question recorded in [`status.md`](status.md#4-known-issues).
+6. **Embeddings** come from one text-embedding model on an OpenAI-compatible embeddings endpoint, used for evidence passages, revision summaries and queries alike, so cosine distance is meaningful; no local embedding model runs in the product.
+
+### Secrets and Access Control
+
+Credentials live only in server processes: the console's server routes, the gateway and the agent. Nothing credential-like is exposed to the browser, and the console's health route answers booleans. The database is locked down from its first migration: row-level security on every table with no policies, every grant revoked from the public roles, every function callable by the service role only and pinned to an empty search path, a self-check that fails the migration otherwise, and a security check to run after every applied migration. Services reach the database as the service role over PostgREST. Object storage is private and read through expiring signed URLs. The agent has no authentication, binds its host's loopback and is reached only through the SSH tunnel; its log redacts signed URLs to their object key. Security details: [`data.md`](data.md#row-level-security-rls--access-control).
+
+### Resilience and Recorded Failure
+
+Nothing optional fails an analysis: a caption, locate, zoom, tracking or embedding failure is recorded on the item or the run (a gap or a skip reason) and the pipeline continues; the console's thumbnail upload and searchable-crops step are best effort too. A contract or request failure is an attempt record on the run with the raw output, never a report, and the job fails with a plain reason that the page shows with a retry. Writes that cannot be atomic over PostgREST are database functions; the revision insert retries on a number clash; a lost console is detected by a missing heartbeat and its job re-queued once. Model calls are retried once on a runaway output and on rate limiting where a stage sends several calls; object tracking runs under a detector-call budget and a time cap, so an analysis stays bounded.
+
+### Observability and Provenance
+
+Every analysis returns its provenance: the agent's code identity, the flags that were in effect, and per stage the model, the prompt hashes from the registry, the HTTP attempts sent, failed and refused by a cap, the tokens and the time. The console keeps it in the run's immutable attempt record with the request, the raw response, the validation result and any repair ([decision](decisions.md#2026-11-01-every-analysis-returns-its-run-provenance-and-the-console-keeps-it-in-the-runs-notes)). Search records every query and its ranked results. The agent's model calls are traced to Phoenix. Health endpoints exist on the console, the agent and the gateway; the launcher waits on the agent's before it starts the console.
+
+### Configuration and Feature Flags
+
+Configuration describes roles here; the names and values are in the [runbook](incident-profile-operations.md), the skills and the live-configuration section of [`status.md`](status.md).
+
+- **Console:** the analysis mode (gateway or agent), the default model from the allowlist, where the agent or mock and the gateway are, the database and object-storage settings, the contract directory, and a switch that keeps the job loop stopped. A model port is built only when its location is configured; the analysis refuses the mode whose port is missing.
+- **Agent:** flags for person tracking, object tracking, set-of-marks prompting, the caption pass, the zoomed second look, the chat mode, the search critic and the experimental settings; the perception stack's locations; the embedding endpoint; the object-storage and database settings. The host-side start script applies the profile's defaults (tracking, object tracking and the caption pass on) unless the host's own settings turn them off.
+- **Launcher:** the mode, a switch for the perception stack, a switch for the analytics services, and a flag that brings the backend up without the console.
+
+### Testing Strategy
+
+Each container is checked on its own, hermetically. The console runs Biome and the TypeScript compiler, unit tests beside each module, the import-boundary test, and contract suites that run the same cases against the in-memory fakes and the Supabase adapters over a fake PostgREST. The agent runs Ruff, mypy and a pytest tree that mirrors the source, with every external service mocked. The contract package's fixtures and goldens are checked by the console, the agent and the evaluation pipeline. The schema is applied from scratch on a throwaway Postgres by the SQL harness, which also runs the security check. The mocks have their own pytest suites, and the evaluation pipeline's tests need no database, agent or GPU. Live verification happens only on the GPU host through the launcher's vm mode.
+
+## Architecture Decisions
+
+The decisions that still shape the profile, newest first within each theme, with their records in [`decisions.md`](decisions.md). The log keeps every decision with its alternatives; a reversed decision is removed from it, and this table changes with it.
+
+| Theme | Decision | Record |
+|---|---|---|
+| Platform | Remote inference on hosted endpoints; no local NIM containers | [2026-09-25](decisions.md#2026-09-25-remote-brev-inference-no-local-gpu-nims) |
+| Platform | The agent and the optional analytics services run natively; appliances stay in containers | [2026-09-21](decisions.md#2026-09-21-native-services-on-kwanz-ws) |
+| Platform | Every GPU-bound service is pinned to the one allotted GPU | [2026-10-19](decisions.md#2026-10-19-pin-all-vss-docker-appliances-and-native-services-to-gpu-0-only) |
+| Platform | The console and the agent bind loopback; the tunnel forwards only the agent | [2026-10-18](decisions.md#2026-10-18-console-and-agent-bind-loopback) |
+| Platform | Leaving the launcher leaves the host's backend running | [2026-11-02](decisions.md#2026-11-02-closing-startsh-leaves-the-vm-backend-running) |
+| Data | Agent database access through PostgREST | [2026-09-17](decisions.md#2026-09-17-agent-database-access-through-postgrest) |
+| Data | One database project per phase; finals from one baseline; midterm frozen | [2026-10-20](decisions.md#2026-10-20-one-supabase-project-per-phase-finals-built-from-one-baseline-midterm-frozen) |
+| Data | Report revisions are append-only JSONB snapshots with an explicit official pointer | [2026-10-23](decisions.md#2026-10-23-versioned-report-revisions-as-jsonb-snapshots) |
+| Data | The agent writes the AI revision in agent mode | [2026-10-23](decisions.md#2026-10-23-the-agent-writes-jsonb-report-revisions) |
+| Data | Uploads go straight to object storage; the stock video storage is dropped from the path | [2026-10-31](decisions.md#2026-10-31-vst-is-dropped-from-the-consoles-upload-path-uploads-go-to-r2-only) |
+| Data | Object keys are readable and deterministic, never hashes | [2026-10-28](decisions.md#2026-10-28-r2-object-names-are-readable-and-deterministic-the-original-file-name-run-n-and-edit-n-never-a-hash-or-uuid) |
+| Data | A video with no official revision is searchable through its newest revision | [2026-10-23](decisions.md#2026-10-23-a-video-with-no-official-revision-is-searchable-through-its-newest-revision) |
+| Contract | One contract for the evaluation pipeline, the console and the agent, with the `core-scored-v1` policy | [2026-09-27](decisions.md#2026-09-27-unified-contract-decisions-eval-console-agent), [2026-09-27](decisions.md#2026-09-27-validation-policy-core-scored-v1) |
+| Contract | Every other prompt lives in one registry; request goldens pin every producer's request | [2026-11-01](decisions.md#2026-11-01-every-model-prompt-besides-p1-and-rp1-lives-in-one-registry-contractsprompts), [2026-11-01](decisions.md#2026-11-01-request-goldens-pin-every-model-request-checked-by-each-producer) |
+| Contract | Every analysis returns its run provenance | [2026-11-01](decisions.md#2026-11-01-every-analysis-returns-its-run-provenance-and-the-console-keeps-it-in-the-runs-notes) |
+| Search | Remote embeddings and a remote-VLM detector for evidence crops | [2026-10-18](decisions.md#2026-10-18-remote-embeddings-and-remote-vlm-cropping-for-evidence-search) |
+| Search | One search function for evidence and incident scoping; the critic off by default | [2026-10-28](decisions.md#2026-10-28-incident-search-and-evidence-search-share-one-search-function-evidence-search-can-be-scoped-to-one-video-the-critic-is-off-by-default) |
+| Search | Multi-subagent routing and full real-time indexing dropped from MVP2 | [2026-10-24](decisions.md#2026-10-24-drop-multi-subagent-routing-and-full-rt-cv--rt-embed-indexing-from-mvp2) |
+| Evidence | The whole frame with a box is shown, the crop is kept for search | [2026-10-31](decisions.md#2026-10-31-evidence-shows-the-whole-frame-with-a-box-not-a-crop) |
+| Evidence | Person tracking runs the stock perception stack per clip, behind a launcher switch | [2026-10-31](decisions.md#2026-10-31-person-tracking-runs-the-stock-perception-stack-from-its-own-script-behind-enable_tracking) |
+| Evidence | Instruments and assets are followed by a seeded tracker corrected by the detector | [2026-11-01](decisions.md#2026-11-01-instruments-and-assets-are-followed-by-a-seeded-opencv-tracker-corrected-by-the-detector-flag-off-by-default) |
+| Evidence | The caption pass runs before P1 and is on by default in vm mode | [2026-10-31](decisions.md#2026-10-31-chunked-captioning-before-p1-the-gateways-fixed-2-fps-and-ignored-num_frames), [2026-11-01](decisions.md#2026-11-01-the-caption-pass-is-on-by-default-in-vm-mode-ffmpeg-comes-from-a-repo-local-static-build) |
+| Evidence | The zoomed second look renames a located item from its close-up | [2026-10-31](decisions.md#2026-10-31-zoomed-second-look-renames-a-located-item-from-its-close-up) |
+| Console | A feature-module (hexagonal) layout with import boundaries enforced by a test | [2026-10-23](decisions.md#2026-10-23-incident-console-v2-uses-a-feature-module-layout-under-src), [2026-10-24](decisions.md#2026-10-24-npm-test-enforces-the-consoles-hexagonal-import-boundaries) |
+| Console | Background analysis jobs: a database queue and one in-process loop per console | [2026-10-31](decisions.md#2026-10-31-background-analysis-jobs-a-supabase-table-and-one-in-process-loop-per-console) |
+| Console | Dashboard chart requests are read by the agent's own LLM and drawn by the stock chart generator | [2026-10-31](decisions.md#2026-10-31-dashboard-chart-requests-a-model-picks-an-allowlisted-spec-our-code-fetches-the-figures-and-vss-chart_generator-draws-them), [2026-11-02](decisions.md#2026-11-02-dashboard-chart-requests-are-read-by-the-vss-agents-own-llm-not-the-local-vlm-gateway) |
+| Chat | Grounded chat answers from one report version behind a mode switch; template mode stays the default | [2026-11-02](decisions.md#2026-11-02-grounded-chat-answers-from-one-report-version-with-a-chat-model-behind-a-mode-switch-gate-m2-approved-by-the-chatbot-feature-owner) |
+| Evaluation | A separate evaluation pipeline on the same contract | [2026-09-24](decisions.md#2026-09-24-separate-eval-pipeline) |
+| Documentation | This page follows C4 and arc42 views in NVIDIA's blueprint style and carries no deployment values | [2026-11-03](decisions.md#2026-11-03-architecture-documentation-follows-c4-and-arc42-views-in-nvidias-blueprint-style-and-carries-no-deployment-values) |
+
+## Quality Requirements
+
+Scenarios in the arc42 short form: a source and stimulus, the response, and how it is measured. ISO/IEC 25010 names the qualities.
+
+| Quality | Scenario | Measure | Realised in |
+|---|---|---|---|
+| Traceability (accountability) | A reviewer asks, weeks later, which model, prompt and settings produced a report, and what the model actually returned | The run's attempt record and provenance name the model, the prompt hashes, every call and its outcome; the versions graph shows every AI branch and human edit | Immutable run notes, run provenance, append-only revisions |
+| Functional correctness | A model returns JSON outside the contract | The attempt is recorded as a contract failure with the raw output; no report is written; only id renumbering is ever repaired | The shared validator and policy |
+| Reproducibility | The same clip is analysed by the console in gateway mode, by the agent, and by the evaluation pipeline | All three send byte-identical P1 requests, checked by the request goldens in each test suite | `contracts/golden` |
+| Fault tolerance | The perception stack is down, or a caption or zoom call fails, during an analysis | The analysis completes; the stage's skip or gap reason is recorded on the run or the item; the report text is unchanged | Soft stages in the agent |
+| Recoverability | The reviewer closes the tab, or the console process dies, during an analysis | The job continues in the console process; a lost console is detected by a missing heartbeat and the job is re-queued once, then failed with a reason | The analysis job queue |
+| Confidentiality | A browser user inspects the client bundle and the health route | No credential or private location appears; health returns booleans; media is read through expiring signed URLs | Server-only configuration, presigning |
+| Integrity (access control) | A request reaches the database with the public key | Nothing is readable or callable: row-level security with no policies and revoked grants; only the service role used by server processes reaches tables and functions | The baseline migration and the security check |
+| Time behaviour | A reviewer searches the library | One embedding call and one vector query; no critic call unless the critic is enabled | The search function and the HNSW index |
+| Capacity under rate limits | The hosted endpoint rate-limits callers | One analysis per console at a time; caption calls bounded in flight with retries; object-tracking detector calls budgeted; tracking time-capped | The job loop and the stage budgets |
+| Modifiability | A storage, model or detector provider changes | One adapter (console) or one interface implementation (agent) changes; domain and application code import no infrastructure, enforced by a test | The composition root, the import-boundary test, the agent's interfaces |
+| Testability | A change touches a database function | The SQL harness applies every migration on a throwaway Postgres and runs the security check without network | `supabase/tests` |
+| Operability | A developer starts the system for the day | One command preflights the host, heals missing services, opens the tunnel and runs the console; leaving it stops only the laptop side | The launcher and lifecycle scripts |
+| Co-existence with upstream | Upstream VSS changes | Team code is confined to the profile directory and `incident_*` modules; stock files are touched only to register or configure | The boundary table above |
+
+## Risks and Technical Debt
+
+Open items are tracked in [`status.md`](status.md#4-known-issues) with stable numbers; the architectural ones:
+
+- **The analysis queue is shared** by every console pointed at the same database, so a job may run on another person's console and code version; the opt-out is a per-console switch and jobs carry no owner yet.
+- **The contract still carries the timeline** the console no longer shows; removing it means a contract version bump across the agent, the console and the evaluation fixtures.
+- **Migration history is out of step with the folder:** two files share a version prefix and one was applied by hand, so a push could re-run them.
+- **A pending contract revision** on another branch adds an optional field that is not strict-mode compatible; merging it needs a schema decision and a separate evaluation run.
+- **Frame sampling by the hosted VLMs is described two ways** in the docs; it is model behaviour the code cannot settle.
+- **Several agent fixes await their live check** on the host (the tracking time base, the screen-person rule, set-of-marks prompting, the reviewer box tool against the shared agent).
+- **The agent has no authentication;** its safety rests on the loopback bind and the tunnel, and on the host staying inside a trusted network, as NVIDIA assumes for the blueprint.
+- **One GPU on a shared host** bounds throughput: a clip of several minutes can exceed a model's timeout, and the perception stack holds GPU memory while it is up.
+- **Hosted endpoints are outside the team's control:** rate limits, sparse sampling and endpoint changes reach the product directly.
+
+## Glossary
+
+| Term | Meaning here |
+|---|---|
+| Analysis mode | How the console gets a report: **agent** mode calls the VSS Agent, which also locates, tracks and persists; **gateway** mode calls `vlm-gateway` and the console persists. The launcher's vm mode is agent mode, its mock mode is gateway mode |
+| Attempt record | The immutable JSON the console writes on a model run after each analysis attempt: request, raw response, validation, repair, outcome and provenance |
+| Caption pass | An optional first pass that captions overlapping windows of a long clip and hands the captions to P1 as context |
+| Critic | An optional VLM judgement of each search hit against the query; dormant by default, so hits are "unverified" |
+| Developer profile | NVIDIA's term for a Compose deployment that assembles VSS microservices for one workflow; this profile reuses the search profile's Compose tag and adds its own services |
+| Evidence item, evidence entry | An entity, instrument or asset of a report; its entry holds the crop, the frame, the box, the track and any gap reasons |
+| Incident | In this profile, the event one uploaded clip documents (one video is one incident). In stock VSS analytics, a behaviour-analytics violation that persisted; the stock `incidents` tool refers to those |
+| Incident contract | The extraction prompt, the JSON Schema and the request settings a model must satisfy; versioned (`incident-contract-v4` today) |
+| Locate step, grounding | The detector call that finds an item's bounding box in the frame at its second |
+| NAT | NVIDIA's NeMo Agent Toolkit, the framework the VSS Agent runs on |
+| NIM | NVIDIA Inference Microservice, a model-serving container; none runs in this profile |
+| Object track, person track | A list of timed boxes for one item: people from the perception stack, instruments and assets from the object tracker, both stored in one shape |
+| Official revision, searchable revision | The revision a reviewer marked as the video's report; the official revision, or else the newest, is the one search indexes |
+| P1, RP1 | The extraction call that returns the structured report, and the prose-report call that follows it (skipped by the console) |
+| Perception stack | The stock VSS search-profile containers that turn a clip into per-frame person boxes with track ids |
+| Phoenix | The trace viewer the agent's model calls are sent to |
+| PostgREST, service role | Supabase's REST layer over Postgres, and the privileged role server processes use through it |
+| Revision, branch | One stored report version (AI or human); each AI revision starts a new branch that human edits hang off |
+| Set-of-marks | Numbered person boxes drawn on the clip P1 sees, so P1 can name which track each person is |
+| VIOS, VST | NVIDIA's Video IO & Storage service of the stock blueprint; not started by this profile |
+| VLM, LLM | A vision-language model (reads video and images) and a text-only language model |
+| VSS Agent | NVIDIA's agent service from the blueprint, extended here with the incident routes and tool |
+| Zoomed second look | Two blind VLM looks at a located item and a merge that may rename it with a recorded confidence |
+
+## Conventions
+
+- **Structure:** arc42's section order; C4's context, container, component and deployment views; a representative runtime view; decisions recorded in [`decisions.md`](decisions.md) and listed here.
+- **Diagrams:** Mermaid flowcharts and sequence diagrams, which GitHub renders; each has a caption with its type and scope, and a key when a shape or style means something; every arrow is labelled in its direction.
+- **Naming:** full names with the abbreviation in parentheses on first use; NVIDIA's names for stock components (VSS Agent, Video IO & Storage, developer profile, microservice).
+- **Scope:** explanation only. Page behaviour and routes are in [`console-reference.md`](console-reference.md), contracts in [`vm-api-contracts.md`](vm-api-contracts.md), schema in [`data.md`](data.md), procedures in the skills and the runbook. No ports, hosts, addresses, user or machine names, GPU indices, paths, bucket names, private URLs, secrets or environment-file references appear here; when one is needed, link to where it lives.
+- **Maintenance:** update this page in the same change as any topology, component or sequence change ([docs rule](../AGENTS.md#docs-rule)); record a new or reversed decision in [`decisions.md`](decisions.md) and adjust the decisions table.
