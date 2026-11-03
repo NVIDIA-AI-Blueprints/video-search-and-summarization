@@ -85,6 +85,9 @@ def build(data_root: Path, pilot: Path) -> dict:
             actual = sha_file(data_root / chat["path"])
             assert actual == chat["sha256"], f"chat references {chat['path']} changed"
             datasets["chat-references-v1"] = {"kind": "chat_references", "files": {"records.jsonl": actual}, "verified_on_disk": True}
+    for ds in ("split-v2", "dataset-manifest-v1"):  # every run's split and clips (the loader checks them too)
+        item = entry(ds)
+        datasets[ds] = {"kind": item["kind"], "files": item["files"], "verified_on_disk": resolve(ds, data_root_path=data_root) is not None}
     judge = load_judges().get("openrouter-gpt-oss-20b-c3-v1")
     contract = {f: sha_file(PROFILE / "contracts" / f) for f in ("VERSION", "incident_extraction_prompt.txt",
                                                                  "incident_report.schema.json", "inference.json")}
