@@ -1,0 +1,359 @@
+{
+ "attestation": {
+  "c3_run_dirs_existing": [],
+  "statement": "No test-half (C3) run exists and no held-out evaluation result has been produced or inspected at the time of this manifest.",
+  "test_half_runs_existing": []
+ },
+ "budgets": {
+  "expected": {
+   "calls": 3300,
+   "runtime_hours": "about 12 sequential; about 5 with Switchyard and OpenRouter queues in parallel",
+   "tokens": 12000000,
+   "usd": 0.7
+  },
+  "run_wide_caps": {
+   "c3-chat": [
+    {
+     "ledger": "inference",
+     "max_attempts": 354,
+     "max_tokens": 400000,
+     "subject": "*",
+     "task": "*"
+    },
+    {
+     "ledger": "judge",
+     "max_attempts": 0,
+     "max_tokens": 0,
+     "subject": "*",
+     "task": "*"
+    }
+   ],
+   "c3-dashboard": [
+    {
+     "ledger": "inference",
+     "max_attempts": 86,
+     "max_tokens": 129000,
+     "subject": "*",
+     "task": "*"
+    }
+   ],
+   "c3-track-a-openrouter": [
+    {
+     "ledger": "inference",
+     "max_attempts": 288,
+     "max_tokens": 3290472,
+     "subject": "*",
+     "task": "*"
+    },
+    {
+     "ledger": "judge",
+     "max_attempts": 0,
+     "max_tokens": 0,
+     "subject": "*",
+     "task": "*"
+    }
+   ],
+   "c3-track-a-switchyard": [
+    {
+     "ledger": "inference",
+     "max_attempts": 528,
+     "max_tokens": 9261956,
+     "subject": "*",
+     "task": "*"
+    },
+    {
+     "ledger": "judge",
+     "max_attempts": 0,
+     "max_tokens": 0,
+     "subject": "*",
+     "task": "*"
+    }
+   ],
+   "c3-track-b-historical": [
+    {
+     "ledger": "caption",
+     "max_attempts": 556,
+     "max_tokens": 2749605,
+     "subject": "*",
+     "task": "*"
+    },
+    {
+     "ledger": "grounding",
+     "max_attempts": 1314,
+     "max_tokens": 1300079,
+     "subject": "*",
+     "task": "*"
+    },
+    {
+     "ledger": "inference",
+     "max_attempts": 153,
+     "max_tokens": 1966494,
+     "subject": "*",
+     "task": "*"
+    },
+    {
+     "ledger": "zoom",
+     "max_attempts": 3087,
+     "max_tokens": 2142371,
+     "subject": "*",
+     "task": "*"
+    },
+    {
+     "ledger": "judge",
+     "max_attempts": 0,
+     "max_tokens": 0,
+     "subject": "*",
+     "task": "*"
+    }
+   ]
+  },
+  "usd_hard_cap": 2.0
+ },
+ "code": {
+  "contract_files_sha256": {
+   "VERSION": "5fbb84d93b94e821b6fbcb68f1f20f59607b25bce7162f8e3618528e85c8ef26",
+   "incident_extraction_prompt.txt": "409ed9b3187a56be082bb2542abb243cc13762fdcae7739206d11455064cc4a8",
+   "incident_report.schema.json": "a13062782013bd2686ad4430a667603c28a6e5141214de98bec7903c27e98e40",
+   "inference.json": "d5b89f976d207e13e75633ed3d6d3684b83cbc156c1646edc5d793329caa31a4"
+  },
+  "contract_version": "incident-contract-v4",
+  "eval_tree": "f6d4fd207c91349724ec2254d244370eb8a7cddc",
+  "judges_json_sha256": "d0763b8188666a9208e3d24aa85ebe9233821b704e37c83192f6a72b6f4080c0",
+  "prompt_registry_sha256": "a89c8adeb127dfaa4f853fe0a57e84d71ae54249628f17372c5cee0929695ec9",
+  "prompts": {
+   "caption/context-preamble": "89e4eea1c51fdae9a23d5f731594bef21f20ef336af3e93d7b39ec8ae2435cdf",
+   "caption/system": "1a793af76f470a262d4205004a678ad88a8a0197749cda563ef588d1bfbbce8d",
+   "caption/time-range": "5315668936f9ede74cff70ee186bf2764159591cce476e0f6d771de5ac7c1554",
+   "caption/window": "37aa7c8d0a2c2a3739091cde32bf79dc31a06db37e76b06884d3974d54fdd593",
+   "chart/allowlist": "cbf157bac2b7250c879469ad467a5bbf071d65c4aed4ef949ca73fc518e1a7a8",
+   "chart/severity-words": "b644908a05154374464f291060d0ec5d0e13cd4bb42221919ce965c32aa0b6e3",
+   "chart/system": "c6cf07800e90541b63650db8e2bd279e4fc2cf482207176cb749b6a361a27c70",
+   "chat/incident-answer": "84c8bc1a89ebc2da7c0cc6df0c37453557e5593332090043bd005aea091d675c",
+   "chat/library-answer": "2a7f1f0eaf63fe4da4faa8e64127c38c1658fab79c7132f138996074b68675a7",
+   "chat/library-plan": "7e01602192c74ad982bc56ba2c2d8991d7d6afe6171d8d026ca2f56b256dcb76",
+   "grounding/best-match": "9931f951e60f996c55ed17310297899e6cfdc8bb95e8edf53afe3df727213271",
+   "p1/marks-preamble": "9fc9c2dcd5998dd74ce5f5ba1134c5bb38303003a3bb3c30f37fe7f163f6310e",
+   "p1/reviewer-preamble": "bab5f1bc985dd51cb45401b7a2161d5f2eb087e34ce604b3f015e640a39e1b9e",
+   "zoom/describe-box": "107e2862f3ded24ba890b398e648f1d8fe79706cf580d367f3f92f2eaef92be9",
+   "zoom/look-entity-close-up": "ab44a0c974a33b2c2d51e99e87bf7038bc62614d9d9de1484d2d77f2425a9d19",
+   "zoom/look-entity-frame": "8917b6e889a0eb1cdc8bbbd3cccc4425cbe31e66784b38cf2fc9ec25ffa80ee3",
+   "zoom/look-object-close-up": "0c589b888f855cf82ea06bbc0ab354ababe9f3f64fab4d6065ddb74a7ac2cb3e",
+   "zoom/look-object-frame": "a525cc21da4155a119177b487b0693c2e31f4050d8986e90414245cff9dfb7a5",
+   "zoom/merge-entity": "bac2a034cc9ebea474812bfacb7c431c1c5b1063caf4b0be8146e1f06a414309",
+   "zoom/merge-object": "5c73a8dcebfd47367d785e9801b742e123246a15f2281f3a06563422ee0f3d83"
+  },
+  "repo_head": "2888694ad8d83b6b36a6d827263f819f3fc1e4b6",
+  "scorer_files_sha256": {
+   "evalv2/adapters/vss.py": "2762d4987066ea2dd98edd534516ef09bddd76f1338f81b18ec960d805d40aca",
+   "evalv2/cluster_bootstrap.py": "2823317d3fd7bfce3bcba142b2edf4725ddc63d2616654e529204e9a68b4dbae",
+   "evalv2/executor.py": "7516a4e44b19801ff8c06836e226370d530a49ea5b1f3ec83dcd8cacdd6420dd",
+   "evalv2/references/dashboard_figures.py": "6bd2057090028ed742b04c27f1beb03ac15a1c93993dccc2c157792b75c43db3",
+   "evalv2/requests/chart.py": "72ccd5fe9b86025a552dcd8634339cafcff6d9fad7167dd6d75bb6092da39356",
+   "evalv2/requests/judge.py": "fa251d9db1a6e050e049b64f35a60cf6f060f0b03153eb6b9690fdc7a3eca48b",
+   "evalv2/requests/vss.py": "3abce52f35581c244de135632681e7b9a1cbb58b1ecb8511d7b3c0be6d07796a",
+   "evalv2/score_stage.py": "86b1152f72c92de2db7180822130013724354272cc0bf0b017ad8f1051790396",
+   "evalv2/severity_report.py": "8a111885bf38e518008566b4dfacec37ad5d84740dcb6186338b27a284a3b830",
+   "evalv2/tasks/chat/evaluate.py": "6ab4c2bf0b0aa598c82a46b38104713a892d343844001d2538351bb9699c28f8",
+   "evalv2/tasks/chat/scoring.py": "ef2e6dbfbe3d4f335908d2b08caa07f1059d59de4f68b5728fa54b267fcfa490",
+   "evalv2/tasks/dashboard/report.py": "db0e95b461c7b5fc49f0862a8c440cd844a5710b8ef56cfe24a9f2a8d5b78aaa",
+   "evalv2/tasks/dashboard/scoring.py": "6e64b6d110825542d459eba80e60c755509676ffb619afd834cb39de7b780a3e",
+   "evalv2/tasks/incident_objects/aggregate.py": "4cb963a7d3e8118e59a3bbc3d63a34c9715bf2990e2de90d6b3bc93e095bab72",
+   "evalv2/tasks/incident_objects/v1.py": "b1c4e67e5d1d6d1dbf5aa604c1735f4fa1fd0caf89d63949f751d0c2d493c9c4",
+   "evalv2/tasks/judges.py": "78d8a7d94093734023e1f918aff5ea80438b13bbda8e9e5ffa91cf012e10243e",
+   "evalv2/tasks/judging.py": "f41befa125ff3cd4e3764350dc7d19da954dde23089a9ad244cfd1a1abd3b5de",
+   "evalv2/track_a_report.py": "d1bd328cf1b2e8b316f86da540be0c27a3fe68fe12c04714d5fafbc83d18a213"
+  }
+ },
+ "configs": {
+  "c3-chat": {
+   "content_sha256": "76d8a5e135046f486ce354a53aa6264177784cb2ae11317b8503aae385b4becd",
+   "experiment": "v2-c3-chat",
+   "half": "test",
+   "models": [
+    "nvidia/nemotron-3-ultra"
+   ],
+   "purpose": "final",
+   "repeats": 1,
+   "subjects": [
+    "nemotron-ultra-chat"
+   ]
+  },
+  "c3-dashboard": {
+   "content_sha256": "c5f9b93b12c80cc11f809652fc35a263f37b5925dfb27dbdd99c3b948813a044",
+   "experiment": "v2-c3-dashboard",
+   "half": "test",
+   "models": [
+    "nvidia/nemotron-3-ultra"
+   ],
+   "purpose": "final",
+   "repeats": 1,
+   "subjects": [
+    "ultra-chart"
+   ]
+  },
+  "c3-track-a-openrouter": {
+   "content_sha256": "4665a7c37fd8f02238030e2e525596eb90c36be8055e9d250a2c15d3b22f467a",
+   "experiment": "v2-c3-track-a-openrouter",
+   "half": "test",
+   "models": [
+    "google/gemma-4-31b-it",
+    "qwen/qwen3.5-9b"
+   ],
+   "purpose": "final",
+   "repeats": 2,
+   "subjects": [
+    "qwen35-9b-openrouter",
+    "gemma4-31b-openrouter"
+   ]
+  },
+  "c3-track-a-switchyard": {
+   "content_sha256": "8b0e4030ced13a5e0b8e494a624c991caeafc9c7fe507af5824b75e2db205f91",
+   "experiment": "v2-c3-track-a-switchyard",
+   "half": "test",
+   "models": [
+    "nvidia/cosmos-3-nano-reasoner",
+    "nvidia/cosmos-3-super-reasoner",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+   ],
+   "purpose": "final",
+   "repeats": 2,
+   "subjects": [
+    "nano-direct",
+    "super-direct",
+    "omni-direct"
+   ]
+  },
+  "c3-track-b-historical": {
+   "content_sha256": "e8710af3da70481fbbe5e422df0521d096ab5785c506abfc78e858fc0c45a3b8",
+   "experiment": "v2-c3-track-b-historical",
+   "half": "test",
+   "models": [
+    "nvidia/cosmos-3-nano-reasoner",
+    "nvidia/cosmos-3-super-reasoner"
+   ],
+   "purpose": "final",
+   "repeats": 1,
+   "subjects": [
+    "nano-pipeline",
+    "super-pipeline"
+   ]
+  }
+ },
+ "datasets": {
+  "chat-references-v1": {
+   "files": {
+    "records.jsonl": "08ab3909eb0075eba8fee1d5b09d879264106ddfd4c68118e86793df983a0fc5"
+   },
+   "kind": "chat_references",
+   "verified_on_disk": true
+  },
+  "dashboard-references-test-v1": {
+   "files": {
+    "corpus-snapshot.json": "1c5b2927a21b8a0ee0a9e51f1116707bb8b40bc9dbdcf7eca81fe03c7ed0d5ef",
+    "records.jsonl": "5378284418c727108bd0943eb1d539a40939afba6d3aecba5c3ba4cfc027a263"
+   },
+   "kind": "dashboard_references",
+   "verified_on_disk": true
+  },
+  "dataset-manifest-v1": {
+   "files": {
+    "dataset-manifest-v1.json": "aebb209b527de9bea24ca66a3e5f316fb78385ca62ef9957130341d24a225d8e"
+   },
+   "kind": "clips",
+   "verified_on_disk": true
+  },
+  "ground-truth-v1.0": {
+   "files": {
+    "ground_truth.json": "b90654c3c16068ab22d7ba0389224770e66f507f0235d5eabf031d2f1db17f09",
+    "split-v2.json": "1625d5753fde1fab3f3318f115f3a91f43760f1f03f34c4f8820d4703e0fa319"
+   },
+   "kind": "ground_truth",
+   "verified_on_disk": true
+  },
+  "split-v2": {
+   "files": {
+    "split-v2.json": "c03919fa8c9f2436a1efb4164d3cd5d9cfcbfb5102d9637a19a398f24d280579"
+   },
+   "kind": "split",
+   "verified_on_disk": true
+  }
+ },
+ "judge": {
+  "caps": {
+   "max_requests": 2900,
+   "max_tokens": 1660000
+  },
+  "endpoint": "openrouter",
+  "id": "openrouter-gpt-oss-20b-c3-v1",
+  "model": "openai/gpt-oss-20b",
+  "pass_threshold": 0.5,
+  "prompts_sha256": {
+   "contradiction": "81cec67bada6d0aa0113a11670420c9b6371f687e43b20d43469ffe926680210",
+   "fact": "7a9363c9d86516316d72c565b3162043c2e9f6a974fa791ed882dd4a4bd5aeb3",
+   "incident": "093ddcd5b42be719773ed88662ae8aef136b576aa22bb73f7629a7a5c29a54fd",
+   "unsupported": "10c7b1f350c1514678115defa190174cec54692d322feb799c511abc2e66abcf"
+  },
+  "routing": {
+   "allow_fallbacks": false,
+   "data_collection": "deny",
+   "order": [
+    "DeepInfra",
+    "DekaLLM"
+   ],
+   "require_parameters": true
+  },
+  "settings": {
+   "max_tokens": 1500,
+   "temperature": 0.0
+  },
+  "status": "PROVISIONAL AI-judged: not human-calibrated (AI-consensus kappa 0.63 on incident fields)"
+ },
+ "manifest_version": "evalv2-freeze-manifest-v1",
+ "preregistration_sha256": "bd517a5be61d27d0badf45b3beb42735441c5c456018fe4e88773b5ffc0ed436",
+ "study": "Evaluation V2, C2 freeze for C3 (test half, option B: the 55 previously exposed clips)",
+ "track_b_historical": {
+  "agent_contract_tree": "af4337b398c06bfdfc055de6ea91b449d585c825",
+  "agent_src_tree": "f0a4ca54bbe33da3323e19d16f5c0350e0657f40",
+  "c1b_pinned_identity": {
+   "agent": {
+    "dirty": false,
+    "git_sha": "acbf892ba98a609c76d168ccd70d1b327917ceef",
+    "package_version": "3.2.2.dev316+g8f5990db6",
+    "source": "git"
+   },
+   "contract_version": "incident-contract-v4",
+   "flags": {
+    "blur_detector_call_cap": 200,
+    "chunking": {
+     "concurrency": 4,
+     "min_clip_seconds": 30.0,
+     "num_frames": 32,
+     "overlap_seconds": 2.0,
+     "window_seconds": 20.0
+    },
+    "experiment": true,
+    "experiments": true,
+    "object_tracking": false,
+    "privacy_blur": false,
+    "set_of_marks": false,
+    "tracking": false,
+    "zoom_names": true
+   }
+  },
+  "checkout_clean": true,
+  "commit": "acbf892ba98a609c76d168ccd70d1b327917ceef",
+  "files_sha256": {
+   ".tools/ffmpeg/bin/ffmpeg": "63eb9897fb1c8f201a6c60a0074751801f928b847fa4596ed764c35d6b52280e",
+   ".tools/ffmpeg/bin/ffprobe": "64cc0a7b97fd67c6662905c44da6928e824a022684e8cbf3257ea138be29c911",
+   "deploy/docker/developer-profiles/dev-profile-incident/eval/experiments/agent/experiment-agent.yml": "c7f4c64a536acdb099cc6c10210f76a1b9f9719e0843c257191c7512b423bba6",
+   "deploy/docker/developer-profiles/dev-profile-incident/eval/experiments/agent/start-experiment-agent.sh": "2e793e7a5aee91179946f457673ed5de3975d9a9f8839cd5687eb19d4f6ee5f3"
+  },
+  "label": "Track B (historical C1b profile): NOT the current production configuration",
+  "nat_env": {
+   "freeze_sha256": "e8d1410e1755b18324b08f4a1b4a44dcb4617541bc3a7e31f8a1051d8aadd28e",
+   "packages": 289,
+   "path": "~/.cache/vss-agent-venv",
+   "python": "Python 3.13.15"
+  }
+ }
+}

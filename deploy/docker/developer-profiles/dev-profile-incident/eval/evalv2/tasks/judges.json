@@ -135,6 +135,44 @@
       }
     },
     {
+      "id": "openrouter-gpt-oss-20b-c3-v1",
+      "role": "primary",
+      "model": "openai/gpt-oss-20b",
+      "adapter": "openai_compat",
+      "endpoint": "openrouter",
+      "settings": {
+        "temperature": 0.0,
+        "max_tokens": 1500
+      },
+      "kinds": [
+        "incident",
+        "fact",
+        "unsupported",
+        "contradiction"
+      ],
+      "parse_retries": 0,
+      "max_prompt_bytes": 65536,
+      "caps": {
+        "max_requests": 2900,
+        "max_tokens": 1660000
+      },
+      "status": "APPROVED 2026-11-03 (owner): the C3 judge stage (incident fields and chat checks), under the C3 hard cap of $2.00 in total. Same model, endpoint, settings and prompts as openrouter-gpt-oss-20b-v1, so the same cache identity and the same verdicts; only the id, the caps and the budget log differ.",
+      "notes": "C3 primary judge: identical to openrouter-gpt-oss-20b-v1 (judge_identity excludes the id). Own caps (C3 incident judge about 1,800 calls plus chat judge about 380, with margin) and its own budget log, so the dev ledger is untouched. Worst case at $0.14 per M tokens: about $0.23.",
+      "request": {
+        "extra_body": {
+          "provider": {
+            "order": [
+              "DeepInfra",
+              "DekaLLM"
+            ],
+            "allow_fallbacks": false,
+            "data_collection": "deny",
+            "require_parameters": true
+          }
+        }
+      }
+    },
+    {
       "id": "openrouter-mistral-large-4-v1",
       "role": "sensitivity",
       "model": "mistralai/mistral-large-4-0",

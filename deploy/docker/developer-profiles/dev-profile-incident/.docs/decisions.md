@@ -39,6 +39,34 @@ Decisions that still shape `dev-profile-incident`, newest first. Each entry: dec
 - **Existing data:** clips already cached in R2 stay until the orphan sweep or the video's delete removes them; nothing reads them.
 - **Links:** [`muted-video.tsx`](../incident-console-v2/src/components/muted-video.tsx), [`sheet.tsx`](../incident-console-v2/src/components/ui/sheet.tsx), [`muted-video.test.mjs`](../incident-console-v2/tests/muted-video.test.mjs)
 
+### 2026-11-03: Evaluation V2 C2 freeze (owner D1-D4)
+- **Decision (owner):**
+  - The pre-registration is approved (D1), with its amendments and the owner's eight checks.
+  - Option B, the 55 previously exposed clips, is the C3 set (D2).
+  - Track B uses the historical C1b profile at `acbf892ba`, reproduced exactly or stopped (D3).
+  - C2 is frozen, then C3 runs under a $2.00 hard cap (D4).
+- **Freeze manifest:** `eval/methodology/v2-c2-freeze-manifest.json`. It pins code, prompts, datasets, the pre-registration, the content of the five C3 configs, the judge, the historical agent and the budgets. The configs pin its SHA-256, and `scripts/v2_freeze_manifest.py verify` rebuilds and compares it.
+- **Why:** the primary metrics and the analysis are fixed before any C3 output exists.
+- **Rejected:**
+  - A fresh test set now (it needs human labelling time).
+  - A current-production Track B (it needs the VM tracking stack and a new dev check).
+- **Links:** [`v2-c2-freeze-manifest.json`](../eval/methodology/v2-c2-freeze-manifest.json), [`evaluation-v2-preregistration.md`](../eval/methodology/evaluation-v2-preregistration.md), [`v2-c2-freeze-readiness.md`](../eval/methodology/v2-c2-freeze-readiness.md)
+
+### 2026-11-03: C3 scope: evidence boxes out of the critical path, Track B on the historical C1b profile, deterministic held-out dashboard set
+- **Decision (owner):** evidence-box localisation is removed from the C3 critical path. RA1 continues separately, and no IoU is claimed.
+- **Proposed for the owner's approval in the pre-registration:**
+  - C3 Track B runs the historical C1b profile (agent `acbf892ba`, tracking off), labelled as such and never combined with current production.
+  - The held-out dashboard set `dashboard-references-test-v1` is deterministic (code-planned specs, template wording, recount figures).
+- **Why:**
+  - The RA1 Claude passes (about 17,000 frame judgements for dev alone) are unscoped.
+  - A current-production Track B needs the VM tracking stack.
+  - Held-out reference answers must not reach external models, so they cannot be AI-reviewed and are made correct by construction instead.
+- **Rejected:**
+  - Mixing current agent code with historical flags.
+  - Claude-written held-out dashboard requests (they would need an external review to validate).
+  - Sampling RA1 seconds without a methodology version.
+- **Links:** [`v2-c2-freeze-readiness.md`](../eval/methodology/v2-c2-freeze-readiness.md), [`evaluation-v2-preregistration.md`](../eval/methodology/evaluation-v2-preregistration.md)
+
 ### 2026-11-03: Caption-pass provenance names the per-run outcome and the agent setting separately
 - **Decision:** `response.provenance.flags.chunking` keeps `enabled` as is (this run captioned) and gains `ran` (the same per-run value, named plainly), `setting_enabled` (`INCIDENT_CHUNKING_ENABLED` for the agent at the time of the run) and `skipped` (the pass's skip reason, `null` when it ran or was not attempted). Contract: [`vm-api-contracts.md`](vm-api-contracts.md).
 - **Why:** a 2 Nov report read `enabled: false` on a short clip as "the pass is off". `enabled` is per-run, so a clip under `INCIDENT_CHUNK_MIN_CLIP_SECONDS` reads false while the pass is on. The additive keys make both questions answerable without changing any consumer.
