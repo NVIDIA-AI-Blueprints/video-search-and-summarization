@@ -176,9 +176,10 @@ def test_dataset_paths_cannot_escape_dataset_root(tmp_path):
 )
 @pytest.mark.parametrize("inherited_path", [None, "/path/to/stale-data", "/tmp/other-deployment"])
 @pytest.mark.parametrize("scenario", ["quick_test", "full_alerts_latency"])
+@pytest.mark.parametrize("gpu_model", [None, "RTXPRO6000BW-SE"])
 def test_pipeline_outcome_and_canonical_report(
     tmp_path, monkeypatch, native_exit, verification_failures, expected_exit,
-    inherited_path, scenario,
+    inherited_path, scenario, gpu_model,
 ):
     import json
     import os
@@ -220,8 +221,18 @@ def test_pipeline_outcome_and_canonical_report(
     )
     monkeypatch.setattr(runner, "collect_diagnostics", lambda *_: None)
     monkeypatch.setattr(
-        runner, "discover_platform", lambda **_: {"gpu": {"model": "H100", "count": 1}}
+        runner, "discover_platform", lambda **_: {"gpu": {
+            "model": "H100", "full_name": "NVIDIA H100", "count": 1,
+            "memory_gb": 80.0, "driver_version": "595.58.03", "cuda_version": "13.2",
+        }}
     )
+    native_summary = {
+        "summary_status": "success",
+        "e2e_count": 5,
+        "e2e_avg_sec": 0.377736,
+        "e2e_p90_sec": 0.9109926445779066,
+        "verification_failed_events": verification_failures,
+    }
 
     class NativeProcess:
         def __init__(self, argv, **kwargs):
@@ -240,11 +251,7 @@ def test_pipeline_outcome_and_canonical_report(
                     json.dumps(
                         {
                             "status": "success",
-                            "summary": {
-                                "summary_status": "success",
-                                "e2e_count": 5,
-                                "verification_failed_events": verification_failures,
-                            },
+                            "summary": native_summary,
                         }
                     )
                 )
@@ -254,7 +261,12 @@ def test_pipeline_outcome_and_canonical_report(
             return native_exit
 
     monkeypatch.setattr(runner.subprocess, "Popen", NativeProcess)
-    assert runner.main(["--output-json", str(output), "--scenario", scenario]) == expected_exit
+    arguments = ["--output-json", str(output), "--scenario", scenario,
+                 "--release", "v3.4.0", "--pipeline-url", "https://ci.example/run/135",
+                 "--triggered-by", "manual"]
+    if gpu_model:
+        arguments += ["--gpu-model", gpu_model]
+    assert runner.main(arguments) == expected_exit
     assert checked_ports == [8001]
     assert os.environ["VSS_AGENT_HOST_PORT"] == "8000"
     for key in ("VSS_APPS_DIR", "VSS_DATA_DIR"):
@@ -262,13 +274,33 @@ def test_pipeline_outcome_and_canonical_report(
     reports = list((output / "vss-perf-results").glob("*.json"))
     assert len(reports) == 1
     report = json.loads(reports[0].read_text())
+    assert list(report) == ["schema_version", "metadata", "summary", "test_cases"]
+    assert report["schema_version"] == "0.1"
+    assert reports[0].name.startswith("alerts-verification_alerts-verification-compose_")
     assert report["metadata"]["service"] == "Alerts-Verification"
+    gpu = report["metadata"]["platform"]["gpu"]
+    assert gpu["model"] == (gpu_model or "H100")
+    assert gpu["full_name"] == "NVIDIA H100"
+    assert gpu["count"] == 1
+    assert gpu["memory_gb"] == 80.0
+    assert gpu["driver_version"] == "595.58.03"
+    assert gpu["cuda_version"] == "13.2"
+    run_info = report["metadata"]["run_info"]
+    assert run_info["release"] == "v3.4.0"
+    assert run_info["pipeline_url"] == "https://ci.example/run/135"
+    assert run_info["triggered_by"] == "manual"
+    assert report["metadata"]["config"]["artifact_ref"] == "registry/vss-alert-ms:poc"
     assert report["metadata"]["config"]["setup"] == (
         "synthetic_kafka" if scenario == "quick_test" else "e2e_kafka"
     )
     assert report["metadata"]["config"]["agent_host_port"] == 8001
     if native_exit:
         assert report["test_cases"][-1]["error"]["stage"] == "benchmark"
+    else:
+        case = report["test_cases"][0]
+        assert case["native_summary"] == native_summary
+        assert case["metrics"]["latency"]["e2e_seconds"] == native_summary["e2e_avg_sec"]
+        assert case["metrics"]["latency"]["e2e_p90_seconds"] == native_summary["e2e_p90_sec"]
     assert report["summary"]["overall_status"] == (
         "FAIL" if native_exit or verification_failures else "PASS"
     )
