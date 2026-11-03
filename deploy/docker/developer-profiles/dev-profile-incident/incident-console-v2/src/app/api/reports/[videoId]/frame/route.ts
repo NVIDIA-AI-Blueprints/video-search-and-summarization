@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 /**
- * The video's frame at ?t=<seconds> as a JPEG, for the frame picker. 400 for a
+ * The video's frame at ?t=<seconds> as a JPEG, for the evidence image and the box tool. 400 for a
  * missing or malformed t, 422 for a t past the end of the video, 404 for an
  * unknown video, 503 when ffmpeg is not installed on the console host.
  */

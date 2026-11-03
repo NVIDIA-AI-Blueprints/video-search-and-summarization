@@ -49,7 +49,7 @@
       "bbox": false,
       "frame_policy": "n/a",
       "verified": false,
-      "notes": "Chart-spec model (CHART_MODEL) and the VM's LLM_NAME; chatbot candidate. RB1: Switchyard id; the catalog names it nvidia/nemotron-3-ultra-550b-a55b.",
+      "notes": "Chart-spec model (the VM agent's LLM_NAME, read through chart_generator.llm_name); chatbot candidate. RB1: Switchyard id; the catalog names it nvidia/nemotron-3-ultra-550b-a55b.",
       "listed_on": [
         "switchyard"
       ]

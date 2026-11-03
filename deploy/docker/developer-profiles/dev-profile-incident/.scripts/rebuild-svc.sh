@@ -59,5 +59,5 @@ if [ "${#docker_svcs[@]}" -gt 0 ]; then
     exit 1
   fi
 
-  (cd "${compose_dir}" && docker compose -f compose.yml -f developer-profiles/dev-profile-incident/compose.override.yml --env-file "${generated_env}" -p mdx up -d --build --force-recreate "${docker_svcs[@]}")
+  (cd "${compose_dir}" && docker compose -f compose.yml -f developer-profiles/dev-profile-incident/compose.override.yml --env-file "${generated_env}" -p mdx up -d --yes --build --force-recreate "${docker_svcs[@]}")
 fi

@@ -181,7 +181,7 @@ class IncidentDB:
             # so a future caller fails loudly instead of racing.
             raise NotImplementedError("for_update is not supported over PostgREST")
         result = await self.client.table("videos").select("*").eq("id", video_id).maybe_single().execute()
-        return _row_to_dict(result.data)  # type: ignore[arg-type, union-attr]
+        return _row_to_dict(result.data if result is not None else None)  # type: ignore[arg-type]
 
     async def update_video(self, video_id: str, *, filepath: str | None) -> None:
         """Point an existing video row at its durable R2 object key."""

@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// One stateless model call: a system prompt built from the allowlist, and the
-// request. No history, no database content. The reply is returned unvalidated;
-// generateChart decides whether it counts.
+// The system prompt for a dashboard chart request, built from the allowlist in chart-spec.ts. The agent
+// sends it to its own LLM with the one request (see infrastructure/agent/chart-interpreter.ts). Its text is
+// exported to contracts/prompts/chart/ for evaluation, with a drift test (npm run export:prompts).
 
-import { GatewayError, type GatewayCompletionRequest, type ModelGateway } from '@/modules/analysis/domain/ModelGateway';
 import { INCIDENT_TYPES } from '@/modules/contract/domain/types';
-import type { ChartInterpreter } from '@/modules/dashboard/domain/ChartInterpreter';
 import { CHART_DIMENSIONS, CHART_METRICS, CHART_PERIODS, CHART_SEVERITIES } from '@/modules/dashboard/domain/chart-spec';
-
-const TIMEOUT_MS = 45_000;
 
 const dimensionLines = Object.entries(CHART_DIMENSIONS)
   .map(
@@ -45,43 +41,3 @@ Examples:
 "how many reports are official" -> {"metric":"incidents","dimension":"report_status","period":"all_time","incidentType":null,"severity":null}
 "incidents at the north gate" -> {"unsupported":true}
 "what is the capital of France" -> {"unsupported":true}`;
-
-/** The JSON object in a reply, tolerating a code fence or surrounding text; null when there is none. */
-function parseReply(content: string): unknown {
-  const start = content.indexOf('{');
-  const end = content.lastIndexOf('}');
-  if (start < 0 || end < start) return null;
-  try {
-    return JSON.parse(content.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-}
-
-export class GatewayChartInterpreter implements ChartInterpreter {
-  private readonly gateway: ModelGateway;
-  private readonly model: string;
-
-  constructor(gateway: ModelGateway, model: string) {
-    this.gateway = gateway;
-    this.model = model;
-  }
-
-  async interpret(request: string): Promise<unknown> {
-    const completion: GatewayCompletionRequest = {
-      model: this.model,
-      messages: [
-        { role: 'system', content: CHART_SYSTEM_PROMPT },
-        { role: 'user', content: request },
-      ],
-      stream: false,
-      temperature: 0,
-      max_tokens: 200,
-      chat_template_kwargs: { enable_thinking: false },
-    };
-    const response = await this.gateway.complete(completion, AbortSignal.timeout(TIMEOUT_MS));
-    const content = response.choices[0]?.message.content;
-    if (!content) throw new GatewayError('UPSTREAM_NO_COMPLETION', 'The model returned no text for a chart request');
-    return parseReply(content);
-  }
-}

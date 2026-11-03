@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 register('../tests/support/alias-loader.mjs', import.meta.url);
 
-const { CHART_SYSTEM_PROMPT } = await import('../src/modules/dashboard/infrastructure/gateway/chart-interpreter.ts');
+const { CHART_SYSTEM_PROMPT } = await import('../src/modules/dashboard/domain/chart-prompt.ts');
 const { chartAllowlist } = await import('../src/modules/dashboard/domain/chart-spec.ts');
 
 const promptsDir = fileURLToPath(new URL('../../contracts/prompts/', import.meta.url));

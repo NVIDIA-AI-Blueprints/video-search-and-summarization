@@ -9,10 +9,6 @@ import { createR2PlaybackUrl, putR2Video, r2ObjectExists, readR2VideoDurationSec
 import type { RunCommand } from '@/lib/video/command';
 import { cutClipMp4 } from '@/lib/video/ffmpeg-clip';
 import type { ClipStore } from '@/modules/reports/application/get-evidence-clip';
-import type { ClipBlurRegion } from '@/modules/reports/domain/privacy-blur';
-
-/** A track holds at most five samples a second; anything this large is not one. */
-const MAX_JSON_BYTES = 5 * 1024 * 1024;
 
 const isPreconditionFailed = (error: unknown) => (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 412;
 
@@ -34,20 +30,8 @@ export class R2EvidenceClipStore implements ClipStore {
     return readR2VideoDurationSeconds(this.config, videoKey, contentLength);
   }
 
-  async cut(
-    videoKey: string,
-    window: { startSeconds: number; lengthSeconds: number },
-    regions: readonly ClipBlurRegion[] = [],
-  ): Promise<Uint8Array> {
-    return cutClipMp4(await createR2PlaybackUrl(this.config, videoKey), window, { run: this.run, regions });
-  }
-
-  async readJson(key: string): Promise<unknown> {
-    const response = await fetch(await createR2PlaybackUrl(this.config, key), { cache: 'no-store' });
-    if (!response.ok) throw new Error(`The stored object returned HTTP ${response.status}`);
-    const body = await response.text();
-    if (body.length > MAX_JSON_BYTES) throw new Error('The stored object is too large');
-    return JSON.parse(body) as unknown;
+  async cut(videoKey: string, window: { startSeconds: number; lengthSeconds: number }): Promise<Uint8Array> {
+    return cutClipMp4(await createR2PlaybackUrl(this.config, videoKey), window, { run: this.run });
   }
 
   async put(key: string, bytes: Uint8Array): Promise<void> {

@@ -3,33 +3,33 @@
 export type StageKey = 'idle' | 'uploading' | 'converting' | 'analyzing' | 'saving' | 'complete' | 'error';
 
 export const stageLabels: Array<{ key: StageKey; label: string }> = [
-  { key: 'uploading', label: 'Uploading video' },
-  { key: 'converting', label: 'Converting to H.264' },
+  { key: 'uploading', label: 'Uploading videos' },
   { key: 'analyzing', label: 'Understanding the incident' },
   { key: 'saving', label: 'Structuring and saving report' },
   { key: 'complete', label: 'Report ready' },
 ];
 
+/** Position in `stageLabels`: converting is part of the first step, so it shares its position with uploading. */
 export const stageOrder: Record<StageKey, number> = {
   idle: -1,
   uploading: 0,
-  converting: 1,
-  analyzing: 2,
-  saving: 3,
-  complete: 4,
+  converting: 0,
+  analyzing: 1,
+  saving: 2,
+  complete: 3,
   error: -1,
 };
 
 export function getStageProgress(stage: StageKey, uploadProgress = 0, lastActiveStage?: StageKey): number {
   switch (stage) {
     case 'uploading':
-      return Math.max(2, Math.min(20, Math.round((uploadProgress / 100) * 20)));
+      return Math.max(2, Math.min(15, Math.round((uploadProgress / 100) * 15)));
     case 'converting':
-      return 40;
+      return 20;
     case 'analyzing':
-      return 60;
+      return 50;
     case 'saving':
-      return 80;
+      return 75;
     case 'complete':
       return 100;
     case 'error':
@@ -58,15 +58,15 @@ export function conversionNote(converted: boolean, seconds: number): string {
 export function getStageAnnouncement(stage: StageKey, uploadProgress = 0, error: string | null = null, convertingSeconds = 0): string {
   switch (stage) {
     case 'uploading':
-      return `Stage 1 of 5: Uploading video${uploadProgress > 0 ? ` (${uploadProgress}%)` : ''}.`;
+      return `Stage 1 of 4: Uploading videos${uploadProgress > 0 ? ` (${uploadProgress}%)` : ''}.`;
     case 'converting':
-      return `Stage 2 of 5: Converting to H.264 (${formatElapsed(convertingSeconds)}).`;
+      return `Stage 1 of 4: Uploading videos, converting to H.264 (${formatElapsed(convertingSeconds)}).`;
     case 'analyzing':
-      return 'Stage 3 of 5: Understanding the incident.';
+      return 'Stage 2 of 4: Understanding the incident.';
     case 'saving':
-      return 'Stage 4 of 5: Structuring and saving report.';
+      return 'Stage 3 of 4: Structuring and saving report.';
     case 'complete':
-      return 'Stage 5 of 5: Report ready. Analysis complete.';
+      return 'Stage 4 of 4: Report ready. Analysis complete.';
     case 'error':
       return `Analysis failed: ${error || 'An error occurred during analysis.'}`;
     default:

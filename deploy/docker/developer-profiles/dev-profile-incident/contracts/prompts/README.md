@@ -14,14 +14,14 @@ This registry holds every model prompt the profile sends besides the contract's 
 | [`p1/reviewer-preamble`](p1/reviewer-preamble.txt) | p1 | agent, console | - | Heads a reviewer's instruction in P1, in both analysis modes (console and agent). |
 | [`p1/marks-preamble`](p1/marks-preamble.txt) | p1 | agent | - | Heads the set-of-marks message P1 receives (flag, off by default). |
 | [`grounding/best-match`](grounding/best-match.txt) | grounding | agent | `query` | One box for a report item's label (grounding; object tracking's re-anchoring). |
-| [`grounding/every-match`](grounding/every-match.txt) | grounding | agent | `query` | Every match of a query (the privacy blur's whole-frame head search). |
 | [`zoom/look-entity-frame`](zoom/look-entity-frame.txt) | zoom | agent | - | Blind look at a person: the frame with the box drawn. |
 | [`zoom/look-entity-close-up`](zoom/look-entity-close-up.txt) | zoom | agent | - | Blind look at a person: the frame, then the close-up. |
 | [`zoom/look-object-frame`](zoom/look-object-frame.txt) | zoom | agent | - | Blind look at an instrument or asset: the frame with the box drawn. |
 | [`zoom/look-object-close-up`](zoom/look-object-close-up.txt) | zoom | agent | - | Blind look at an instrument or asset: the frame, then the close-up. |
 | [`zoom/merge-entity`](zoom/merge-entity.txt) | zoom | agent | `description`, `look_description`, `look_name`, `name` | Text-only merge of the agreeing looks with a person's report text. |
 | [`zoom/merge-object`](zoom/merge-object.txt) | zoom | agent | `description`, `item_type`, `look_description`, `look_name`, `name` | Text-only merge of the agreeing looks with an instrument's or asset's report text. |
-| [`chart/system`](chart/system.txt) | chart | console | - | The dashboard chart interpreter's system prompt, built from the allowlist (source: chart-interpreter.ts). |
+| [`zoom/describe-box`](zoom/describe-box.txt) | zoom | agent | - | Names and describes a reviewer-drawn box: the frame with the box drawn, then the close-up; item type, name, description, holder, threat level. |
+| [`chart/system`](chart/system.txt) | chart | console | - | The dashboard chart interpreter's system prompt, built from the allowlist (source: domain/chart-prompt.ts). |
 | [`chart/allowlist`](chart/allowlist.json) | chart | console | - | The chart allowlist (metrics, dimensions, periods, severities, incident types; source: chart-spec.ts). |
 | [`chat/incident-answer`](chat/incident-answer.txt) | chat | agent | - | The grounded chat's system prompt: answer one report version from its JSON, cite item ids, flag insufficient evidence. |
 | [`chat/library-plan`](chat/library-plan.txt) | chat | agent | - | The library chat's planner: filters, a breakdown, a count flag and the search phrase the filters leave. |

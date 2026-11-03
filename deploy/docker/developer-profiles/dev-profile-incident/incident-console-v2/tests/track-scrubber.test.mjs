@@ -4,7 +4,6 @@
 // that cannot be read leaving the ordinary picker, and the pick saved through the unchanged human revision path.
 
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { register } from 'node:module';
 import test from 'node:test';
 
@@ -16,7 +15,6 @@ const { boxRegion } = await import('../src/lib/evidence/frame-geometry.ts');
 const { parseRegion } = await import('../src/lib/evidence/frame-request.ts');
 const { editFromDraft } = await import('../src/modules/reports/domain/edit-draft.ts');
 const { humanRevisionContent } = await import('../src/modules/reports/domain/revision.ts');
-const components = new URL('../src/sections/', import.meta.url);
 
 // A track as the agent stores it: [{t, box, score}], box [top, left, bottom, right] on 0..1000.
 const TRACK = [
@@ -108,24 +106,4 @@ test('a second and box picked on the track are saved as a new human revision, as
       source: 'upload',
     },
   ]);
-});
-
-test('a track that cannot be read or has no samples leaves the ordinary picker', async () => {
-  assert.equal(parseTrackSamples(undefined), null, 'a failed load or a body without samples');
-  assert.equal(parseTrackSamples({ t: 1 }), null);
-  assert.deepEqual(parseTrackSamples([{ t: 'x', box: [1, 2, 3] }]), [], 'every sample malformed');
-  const picker = await readFile(new URL('evidence/components/EvidenceFramePicker/EvidenceFramePicker.tsx', components), 'utf8');
-  assert.match(picker, /return samples\?\.length \? samples : null;/, 'no samples is no track');
-  assert.match(picker, /\.catch\(\(\) => null\)/, 'a failed load is no track');
-});
-
-test('the picker loads the track once per item through its console URL and scrubs it in whole seconds', async () => {
-  const picker = await readFile(new URL('evidence/components/EvidenceFramePicker/EvidenceFramePicker.tsx', components), 'utf8');
-  assert.match(picker, /const trackFiles = new Map<string, Promise<TrackSample\[\] \| null>>\(\);/, 'one load per track');
-  assert.match(picker, /src=\{videoFrameUrl\(videoId, frameSeconds\)\}/, 'the frame comes from the frame route');
-  assert.match(picker, /aria-label="Track second"[\s\S]*?step=\{1\}/, 'the scrubber moves in whole seconds');
-  assert.match(picker, /const box = !drawn && trackBox \? \[\.\.\.trackBox\] : regionBox\(region\);/);
-  const pane = await readFile(new URL('reports/components/ReportEditPane/ReportEditPane.tsx', components), 'utf8');
-  assert.match(pane, /trackUrl=\{pickingTrack\}/);
-  assert.match(pane, /setPickingTrack\(row\.a\?\.evidence\?\.trackUrl \?\? null\)/, "the saved item's track");
 });

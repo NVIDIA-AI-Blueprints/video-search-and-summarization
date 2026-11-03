@@ -11,7 +11,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { evidenceDisplay, videoFrameUrl } from '@/lib/evidence/evidence-view';
-import type { FramePick } from '@/lib/evidence/frame-picker';
+import type { BoxToolClient } from '@/lib/evidence/box-tool-client';
+import { addBoxItem, holderChoices, retrackDraftItem } from '@/lib/evidence/box-tool';
 import {
   deleteDraftItem,
   draftItemName,
@@ -30,10 +31,12 @@ import {
 } from '@/lib/reports/compare';
 import { severityStyle } from '@/lib/ui/severity';
 import { cn } from '@/lib/utils';
+import type { ReviewerDraftItem as BoxToolItem } from '@/modules/reports/domain/reviewer-item';
+import type { EvidenceItemType as BoxItemType } from '@/modules/reports/domain/revision';
 import { EDITABLE_ENTITY_TYPES, EDITABLE_INCIDENT_TYPES, type EditDraft } from '@/modules/reports/domain/edit-draft';
 import { formatClock } from '@/modules/reports/domain/normalize';
 import { EvidenceFrame } from '@/sections/evidence/components/EvidenceFrame';
-import { EvidenceFramePicker } from '@/sections/evidence/components/EvidenceFramePicker';
+import { BoxTool, type ExistingItem } from '@/sections/evidence/components/BoxTool';
 
 const capitalize = (value: string | null) => (value ? value[0].toUpperCase() + value.slice(1) : 'Unclassified');
 const clock = (seconds: number | null) => (seconds === null ? '—' : formatClock(seconds));
@@ -44,9 +47,10 @@ const rowKey = (row: PairRow) => `${row.kind}-${row.b?.key ?? (row.a ? savedItem
  * editable draft (B) on the right, field by field and evidence row by row. A
  * is never editable. Delete removes a draft item (and the instruments an entity
  * holds); Revert puts an edited or deleted item back exactly as A has it.
- * Replace image picks a frame from the video and a rectangle on it; the crop
- * and its frame second go into the draft item. Add evidence is not part of
- * this pane yet.
+ * "+ Add evidence" and each card's Edit open the box tool: the reviewer draws a
+ * box, the AI names and tracks it, and the result goes into the draft item
+ * (add) or re-tracks it without touching its text (edit). An item's evidence
+ * image is always the first second it is seen.
  */
 export function ReportEditPane({
   a,
@@ -58,6 +62,7 @@ export function ReportEditPane({
   videoSrc,
   onChange,
   onSeek,
+  boxClient,
 }: {
   a: Structured | null;
   aRevisionNo: number;
@@ -68,10 +73,11 @@ export function ReportEditPane({
   videoSrc: string;
   onChange: (draft: EditDraft) => void;
   onSeek: (seconds: number) => void;
+  /** Replaces the box tool's calls to the console routes (tests). */
+  boxClient?: BoxToolClient;
 }) {
-  const [picking, setPicking] = useState<PairRow['b'] | null>(null);
-  // The track of the saved item the picked draft item came from: the picker scrubs it instead of the whole video.
-  const [pickingTrack, setPickingTrack] = useState<string | null>(null);
+  // The box tool: adding new evidence, or re-tracking a card's item from a new box.
+  const [boxTool, setBoxTool] = useState<{ row: PairRow['b'] } | null>(null);
   const pairing = pairReport(a, draft);
   const patchIncident = (patch: Partial<EditDraft['incident']>) => onChange({ ...draft, incident: { ...draft.incident, ...patch } });
   const patchEntity = (key: string, patch: Partial<EditDraft['entities'][number]>) =>
@@ -89,32 +95,25 @@ export function ReportEditPane({
   const revert = (row: PairRow) => {
     if (a) onChange(revertDraftItem(draft, a, row));
   };
-  const replace = (row: PairRow) => {
-    if (!row.b) return;
-    setPickingTrack(row.a?.evidence?.trackUrl ?? null);
-    setPicking(row.b);
+  const edit = (row: PairRow) => {
+    if (row.b) setBoxTool({ row: row.b });
   };
-  const applyPick = (item: NonNullable<PairRow['b']>, pick: FramePick) => {
-    if (item.pendingImage && item.imageUrl) URL.revokeObjectURL(item.imageUrl);
-    // A track can run past the report's first to last seen, which the edit must keep the item's own second inside;
-    // such a pick changes the image's second only.
-    const outsideSpan =
-      isDraftEntity(item) &&
-      item.firstSeenSeconds !== null &&
-      (pick.timestampSeconds < item.firstSeenSeconds || pick.timestampSeconds > (item.lastSeenSeconds ?? item.firstSeenSeconds));
-    const frame = {
-      timestampSeconds: outsideSpan ? item.timestampSeconds : pick.timestampSeconds,
-      image: null,
-      imageUrl: pick.previewUrl,
-      pendingImage: pick.blob,
-      imageTimestampSeconds: pick.timestampSeconds,
-      imageBox: pick.box,
-    };
-    if (isDraftEntity(item)) patchEntity(item.key, frame);
-    else if (isDraftInstrument(item)) patchInstrument(item.key, frame);
-    else patchAsset(item.key, frame);
-    setPicking(null);
+  const finishBoxTool = (item: BoxToolItem, holderKey: string | null) => {
+    const target = boxTool?.row ?? null;
+    if (target) {
+      const kind: BoxItemType = isDraftEntity(target) ? 'entity' : isDraftInstrument(target) ? 'instrument' : 'asset';
+      onChange(retrackDraftItem(draft, kind, target.key, item));
+    } else onChange(addBoxItem(draft, item, holderKey));
+    setBoxTool(null);
   };
+  const existingForTool = (item: NonNullable<PairRow['b']>): ExistingItem => ({
+    itemType: isDraftEntity(item) ? 'entity' : isDraftInstrument(item) ? 'instrument' : 'asset',
+    name: draftItemName(item),
+    description: item.description,
+    holder: isDraftInstrument(item) && item.holderKey ? draftHolder(item) : null,
+    threatLevel: isDraftInstrument(item) ? item.threat_level : null,
+    firstSeenSeconds: item.reviewer?.track?.samples[0].t ?? item.timestampSeconds ?? 0,
+  });
   const holderOptions = draft.entities.map((entity, index) => ({
     key: entity.key,
     label: `${entity.canonicalId || index + 1} · ${entity.label || entity.type}`,
@@ -296,7 +295,18 @@ export function ReportEditPane({
               {pairing.liveCount}
             </Badge>
           </div>
-          <span className="text-[11px] text-ink-caption">A is read-only · B is your draft</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] text-ink-caption">A is read-only · B is your draft</span>
+            <Button
+              className="rounded-full bg-ink px-3 text-xs font-semibold text-white hover:bg-ink/90"
+              data-testid="add-evidence"
+              onClick={() => setBoxTool({ row: null })}
+              size="sm"
+              type="button"
+            >
+              + Add evidence
+            </Button>
+          </div>
         </div>
         {pairing.rows.length === 0 ? (
           <p className="mt-3 rounded-xl border border-dashed border-ink/15 p-4 text-sm text-ink-caption" data-testid="edit-evidence-empty">
@@ -325,7 +335,7 @@ export function ReportEditPane({
                     holderOptions={holderOptions}
                     inherited={inherited(unit.entity)}
                     onRemove={remove}
-                    onReplace={replace}
+                    onEdit={edit}
                     onRevert={revert}
                     onSeek={onSeek}
                     patchAsset={patchAsset}
@@ -346,7 +356,7 @@ export function ReportEditPane({
                       holderOptions={holderOptions}
                       inherited=""
                       onRemove={remove}
-                      onReplace={replace}
+                      onEdit={edit}
                       onRevert={revert}
                       onSeek={onSeek}
                       patchAsset={patchAsset}
@@ -363,18 +373,14 @@ export function ReportEditPane({
         )}
       </section>
 
-      {picking && (
-        <EvidenceFramePicker
-          initialSeconds={picking.timestampSeconds ?? 0}
-          label={draftItemName(picking) || 'evidence'}
-          onClose={() => setPicking(null)}
-          onPick={(pick) => applyPick(picking, pick)}
-          trackUrl={pickingTrack}
-          range={
-            isDraftEntity(picking) && picking.firstSeenSeconds !== null
-              ? { first: picking.firstSeenSeconds, last: picking.lastSeenSeconds ?? picking.firstSeenSeconds }
-              : null
-          }
+      {boxTool && (
+        <BoxTool
+          client={boxClient}
+          existing={boxTool.row ? existingForTool(boxTool.row) : null}
+          holders={holderChoices(draft)}
+          initialSeconds={boxTool.row ? existingForTool(boxTool.row).firstSeenSeconds : (draft.incident.start_timestamp ?? 0)}
+          onClose={() => setBoxTool(null)}
+          onDone={finishBoxTool}
           videoId={videoId}
           videoSrc={videoSrc}
         />
@@ -407,7 +413,7 @@ function PairRowView({
   draftHolder,
   holderOptions,
   onRemove,
-  onReplace,
+  onEdit,
   onRevert,
   onSeek,
   patchEntity,
@@ -423,7 +429,7 @@ function PairRowView({
   draftHolder: (instrument: EditDraft['instruments'][number]) => string;
   holderOptions: Array<{ key: string; label: string }>;
   onRemove: (row: PairRow) => void;
-  onReplace: (row: PairRow) => void;
+  onEdit: (row: PairRow) => void;
   onRevert: (row: PairRow) => void;
   onSeek: (seconds: number) => void;
   patchEntity: PatchEntity;
@@ -461,7 +467,7 @@ function PairRowView({
             holderOptions={holderOptions}
             item={row.b}
             onRemove={() => onRemove(row)}
-            onReplace={() => onReplace(row)}
+            onEdit={() => onEdit(row)}
             onRevert={changed ? () => onRevert(row) : null}
             onSeek={onSeek}
             patchAsset={patchAsset}
@@ -552,7 +558,7 @@ function EditCard({
   holderOptions,
   draftHolder,
   onRemove,
-  onReplace,
+  onEdit,
   onRevert,
   onSeek,
   patchEntity,
@@ -566,7 +572,7 @@ function EditCard({
   holderOptions: Array<{ key: string; label: string }>;
   draftHolder: (instrument: EditDraft['instruments'][number]) => string;
   onRemove: () => void;
-  onReplace: () => void;
+  onEdit: () => void;
   onRevert: (() => void) | null;
   onSeek: (seconds: number) => void;
   patchEntity: PatchEntity;
@@ -677,18 +683,43 @@ function EditCard({
           Held by <b>{draftHolder(item)}</b>
         </p>
       )}
-      <p className="text-ink/50">
-        Most visible at <b className="font-mono">{clock(item.timestampSeconds)}</b>
-      </p>
+      {item.reviewer ? (
+        <>
+          <p className="text-ink/50">
+            First seen at <b className="font-mono">{clock(item.timestampSeconds)}</b> · this frame is the evidence image
+          </p>
+          <p className="flex flex-wrap items-center gap-1.5 text-ink/50" data-testid="reviewer-track-line">
+            <Badge className="text-[10px]" variant="outline">
+              Added by reviewer
+            </Badge>
+            {item.reviewer.track ? (
+              <span>
+                Your track · {draftItemName(item)} · {clock(item.reviewer.track.span[0])}–{clock(item.reviewer.track.span[1])}
+              </span>
+            ) : (
+              <span>Still image</span>
+            )}
+            {item.reviewer.track?.partial && (
+              <Badge className="border-clay/40 text-[10px] text-clay" variant="outline">
+                Incomplete track
+              </Badge>
+            )}
+          </p>
+        </>
+      ) : (
+        <p className="text-ink/50">
+          Most visible at <b className="font-mono">{clock(item.timestampSeconds)}</b>
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] font-semibold">
         <Button
           className="h-6 rounded-full px-2 text-[11px] text-ink hover:bg-ink/5"
-          onClick={onReplace}
+          onClick={onEdit}
           size="xs"
           type="button"
           variant="ghost"
         >
-          Replace image
+          Edit
         </Button>
         <Button
           className="h-6 rounded-full px-2 text-[11px] text-clay hover:bg-clay/10 hover:text-clay"

@@ -174,15 +174,31 @@ def _executor(tmp_path, config, *, upstream, datasets=None, marker_changes=None)
 # --- the request ---------------------------------------------------------------------------------------------------
 
 
-def test_the_request_is_the_consoles_golden_byte_for_byte():
+def test_the_messages_are_the_consoles_golden_and_the_pilot_shape_is_kept():
+    """Since #459 the golden is the console's two messages to the agent; both request shapes carry exactly them."""
     case = golden.case("chart", "request")
-    built = chart.build_chart_request(case["inputs"]["model"], case["inputs"]["request"])
-    assert golden.mismatch("chart", "request", built, "eval") is None
-    on_file = json.loads((GOLDEN_DIR / "chart.json").read_text())["cases"]["request"]["body"]
-    assert list(built) == list(on_file), "the console's key order (vlm-gateway re-posts it unchanged)"
-    url = "https://upstream.example/v1/chat/completions"
-    assert httpx.Request("POST", url, json=built).content == httpx.Request("POST", url, json=on_file).content
+    for shape in chart.REQUEST_SHAPES:
+        built = chart.build_chart_request(ULTRA, case["inputs"]["request"], shape)
+        assert built["messages"] == case["body"]["messages"], shape
     assert built["messages"][0]["content"] == (GOLDEN_DIR.parent / "prompts" / "chart" / "system.txt").read_text()
+    v1 = chart.build_chart_request(ULTRA, case["inputs"]["request"])
+    assert list(v1) == ["model", "messages", "stream", "temperature", "max_tokens", "chat_template_kwargs"]
+    assert v1["max_tokens"] == 200 and v1["temperature"] == 0, "the 2026-11-02 pilot's console-gateway body"
+
+
+def test_the_agent_route_shape_matches_the_agents_own_settings():
+    """agent-route-v2 = the agent's openai_llm entry (temperature 0, thinking off) bound to CHART_REPLY_MAX_TOKENS."""
+    root = Path(__file__).resolve().parents[7]
+    route = (root / "services/agent/src/vss_agents/api/incident_charts.py").read_text()
+    assert "CHART_REPLY_MAX_TOKENS = 200" in route and "llm.bind(max_tokens=CHART_REPLY_MAX_TOKENS)" in route
+    config = (root / "deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml").read_text()
+    entry = config[config.index("  openai_llm:"):config.index("  vllm_llm:")]
+    assert "temperature: 0.0" in entry and "enable_thinking: ${LLM_ENABLE_THINKING:-false}" in entry
+    body = chart.build_chart_request(ULTRA, "incident distribution", "agent-route-v2")
+    assert body["max_completion_tokens"] == 200 and body["temperature"] == 0.0
+    assert body["chat_template_kwargs"] == {"enable_thinking": False} and body["stream"] is False
+    with pytest.raises(chart.ChartRequestError, match="unknown chart request shape"):
+        chart.build_chart_request(ULTRA, "x", "nope")
 
 
 def test_the_request_is_trimmed_and_length_checked_as_the_route_does():
@@ -456,9 +472,13 @@ def test_the_proposed_pilot_is_a_capped_dev_pilot_of_the_consoles_chart_model():
     config = load_config(CONFIG_PATH)
     assert config.purpose == "pilot" and config.split.half == "dev" and config.repeats == 1
     assert "APPROVED BY THE OWNER 2026-11-02" in config.notes
-    assert config.subjects[0].model == "nvidia/nemotron-3-ultra", "the console's CHART_MODEL default (env.ts)"
-    env_ts = (Path(__file__).resolve().parents[3] / "incident-console-v2" / "src" / "lib" / "env.ts").read_text()
-    assert "optionalEnvironmentValue('CHART_MODEL') || 'nvidia/nemotron-3-ultra'" in env_ts
+    assert config.subjects[0].model == "nvidia/nemotron-3-ultra", "the production chart model (the agent's LLM_NAME)"
+    # Since #459 the agent's chart_generator.llm_name reads chart requests; the VM's LLM_NAME is Nemotron 3 Ultra.
+    root = Path(__file__).resolve().parents[7]
+    base = (root / "deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml").read_text()
+    assert "llm_name: ${LLM_MODEL_TYPE:-nim}_llm" in base
+    status = (Path(__file__).resolve().parents[3] / ".docs" / "status.md").read_text()
+    assert "`nvidia/nemotron-3-ultra`" in status
     assert {s.endpoint for s in config.subjects} == {"switchyard"}
     items = {"dashboard": [WorkItem("dashboard", s.id, f"r{i}", 1) for s in config.subjects for i in range(75)]}
     problems, hard_stop = cli.preflight_problems(config, items)

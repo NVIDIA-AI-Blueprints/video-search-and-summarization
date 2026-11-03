@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { register } from 'node:module';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 register('./support/alias-loader.mjs', import.meta.url);
@@ -10,7 +10,6 @@ register('./support/alias-loader.mjs', import.meta.url);
 const { boxRegion } = await import('../src/lib/evidence/frame-geometry.ts');
 const { dragRegion, pickSeconds, regionBox, usableRange } = await import('../src/lib/evidence/frame-picker.ts');
 const { parseRegion, ITEM_ID } = await import('../src/lib/evidence/frame-request.ts');
-const components = new URL('../src/sections/', import.meta.url);
 
 test('a drag in either direction becomes one rectangle clipped to the frame', () => {
   assert.deepEqual(dragRegion({ x: 0.25, y: 0.125 }, { x: 0.75, y: 0.375 }), { x: 0.25, y: 0.125, w: 0.5, h: 0.25 });
@@ -68,47 +67,7 @@ test('an entity range of 0 to 0 is no range: the picked second may use the whole
   assert.equal(pickSeconds(72, 60, { first: 0, last: 0 }), 60, 'the end of the video still caps it');
 });
 
-test('the frame slider reads the usable range, so a 0 to 0 range does not pin it to zero', async () => {
-  const picker = await readFile(new URL('evidence/components/EvidenceFramePicker/EvidenceFramePicker.tsx', components), 'utf8');
-  assert.match(picker, /const seen = usableRange\(range\);/);
-  assert.match(picker, /max=\{seen === null \? \(duration \?\? 0\)/);
-});
-
-test('the picker is a dialog that crops through the evidence-crop route and hands back the frame second and box', async () => {
-  const picker = await readFile(new URL('evidence/components/EvidenceFramePicker/EvidenceFramePicker.tsx', components), 'utf8');
-  assert.match(picker, /role="dialog"/);
-  assert.match(picker, /\/api\/reports\/\$\{encodeURIComponent\(videoId\)\}\/evidence-crop/);
-  assert.match(picker, /body: JSON\.stringify\(\{ timestampSeconds: seconds, region \}\)/);
-  assert.match(picker, /const blob = await response\.blob\(\);/, 'the crop is held as a blob in the browser');
-  assert.match(picker, /const box = !drawn && trackBox \? \[\.\.\.trackBox\] : regionBox\(region\);/, 'a drawn rectangle is the box');
-  assert.match(picker, /onPick\(\{ blob, previewUrl: URL\.createObjectURL\(blob\), timestampSeconds: seconds, box \}\)/);
-  assert.doesNotMatch(picker, /itemId/, 'the crop needs no item ID: Save uploads it under the item key');
-  assert.match(picker, /Escape/, 'Escape closes the picker unless a crop is running');
-  assert.match(
-    picker,
-    /const dragOriginRef = useRef<FramePoint \| null>\(null\)/,
-    'the active drag is not inferred from the visible rectangle',
-  );
-  assert.match(picker, /onPointerUp=\{finishDrag\}/, 'releasing the pointer finishes the drag');
-  assert.match(picker, /onPointerCancel=\{cancelDrag\}/, 'a cancelled pointer cannot leave the picker dragging');
-  assert.match(picker, /dragOriginRef\.current = null/, 'finishing or cancelling stops later pointer movement from changing the crop');
-});
-
-test('Edit mode offers Replace image on each draft card and applies the pick to the draft item', async () => {
-  const pane = await readFile(new URL('reports/components/ReportEditPane/ReportEditPane.tsx', components), 'utf8');
-  assert.match(pane, />\s*Replace image\s*</);
-  assert.match(pane, /<EvidenceFramePicker/);
-  assert.match(pane, /pendingImage: pick\.blob/, 'the crop waits in the draft item until Save uploads it');
-  assert.match(
-    pane,
-    /imageTimestampSeconds: pick\.timestampSeconds,\s*imageBox: pick\.box/,
-    'the frame second and box are stored for the save path',
-  );
-  assert.match(
-    pane,
-    /timestampSeconds: outsideSpan \? item\.timestampSeconds : pick\.timestampSeconds/,
-    "the picked frame becomes the item's most visible second unless it is outside the entity's first to last seen",
-  );
-  const page = await readFile(new URL('reports/components/ReportPage/ReportPage.tsx', components), 'utf8');
-  assert.match(page, /videoSrc=\{report\.run\.playbackUrl\}/);
+test('Edit mode has no Replace image and no frame picker', async () => {
+  const pane = await readFile(new URL('../src/sections/reports/components/ReportEditPane/ReportEditPane.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(pane, /Replace image|EvidenceFramePicker|onReplace/);
 });

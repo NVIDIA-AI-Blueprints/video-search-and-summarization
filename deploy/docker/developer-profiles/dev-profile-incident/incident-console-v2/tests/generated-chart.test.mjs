@@ -15,12 +15,11 @@ register('./support/alias-loader.mjs', import.meta.url);
 const { parseChartSpec, CHART_DIMENSIONS, CHART_PERIODS } = await import('../src/modules/dashboard/domain/chart-spec.ts');
 const { generateChart } = await import('../src/modules/dashboard/application/generate-chart/index.ts');
 const { InMemoryDashboardRepository } = await import('../src/modules/dashboard/infrastructure/memory/dashboard.ts');
-const { CHART_SYSTEM_PROMPT, GatewayChartInterpreter } = await import(
-  '../src/modules/dashboard/infrastructure/gateway/chart-interpreter.ts'
-);
+const { CHART_SYSTEM_PROMPT } = await import('../src/modules/dashboard/domain/chart-prompt.ts');
+const { AgentChartInterpreter } = await import('../src/modules/dashboard/infrastructure/agent/chart-interpreter.ts');
+const { ChartInterpreterError } = await import('../src/modules/dashboard/domain/ChartInterpreter.ts');
 const { AgentChartRenderer } = await import('../src/modules/dashboard/infrastructure/agent/chart-renderer.ts');
 const { ChartRenderError } = await import('../src/modules/dashboard/domain/ChartRenderer.ts');
-const { GatewayError } = await import('../src/modules/analysis/domain/ModelGateway.ts');
 const { dashboardFromRpc } = await import('../src/modules/dashboard/infrastructure/supabase/mappers/dashboard.ts');
 const { POST } = await import('../src/app/api/dashboard/chart/route.ts');
 const { requestChart } = await import('../src/sections/dashboard/hooks/use-chart-request.ts');
@@ -29,6 +28,18 @@ const NOW = new Date('2026-10-31T12:00:00.000Z');
 const IMAGE = 'data:image/png;base64,aW1hZ2U=';
 const rpc = JSON.parse(readFileSync(join(process.cwd(), 'tests', 'fixtures', 'dashboard-rpc.json'), 'utf8'));
 const analytics = dashboardFromRpc(rpc);
+
+/** The agent's extraction: the JSON object in the reply, or null. */
+const objectIn = (text) => {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end < start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+};
 
 const spec = (overrides = {}) => ({
   metric: 'incidents',
@@ -448,37 +459,50 @@ describe('drawing through chart_generator', () => {
 });
 
 describe('the model call', () => {
-  const completion = (content) => ({ choices: [{ message: { role: 'assistant', content } }] });
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
-  test('sends only the system prompt and the one request, deterministically', async () => {
+  test('sends the system prompt and the one request to the agent, and returns the object it wrote', async () => {
     let sent;
-    const gateway = {
-      complete: async (request) => {
-        sent = request;
-        return completion(JSON.stringify(spec()));
-      },
+    globalThis.fetch = async (url, init) => {
+      sent = { url: String(url), body: JSON.parse(String(init?.body)) };
+      return Response.json({ reply: spec() });
     };
-    const reply = await new GatewayChartInterpreter(gateway, 'test-model').interpret('incident distribution');
+    const reply = await new AgentChartInterpreter('http://agent.test/').interpret('incident distribution');
     assert.deepEqual(reply, spec());
-    assert.equal(sent.model, 'test-model');
-    assert.equal(sent.temperature, 0);
-    assert.deepEqual(
-      sent.messages.map((message) => message.role),
-      ['system', 'user'],
+    assert.equal(sent.url, 'http://agent.test/api/v1/incidents/chart-requests');
+    assert.deepEqual(sent.body, {
+      messages: [
+        { role: 'system', content: CHART_SYSTEM_PROMPT },
+        { role: 'user', content: 'incident distribution' },
+      ],
+    });
+  });
+
+  test('passes the reply on unvalidated: null when the agent found no object', async () => {
+    globalThis.fetch = async () => Response.json({ reply: null });
+    assert.equal(await new AgentChartInterpreter('http://agent.test').interpret('x'), null);
+    globalThis.fetch = async () => Response.json({ reply: { unsupported: true, extra: 1 } });
+    assert.deepEqual(await new AgentChartInterpreter('http://agent.test').interpret('x'), { unsupported: true, extra: 1 });
+  });
+
+  test('a failed call or a malformed answer throws ChartInterpreterError and never echoes the body', async () => {
+    const interpreter = new AgentChartInterpreter('http://agent.test');
+    globalThis.fetch = async () => new Response('upstream secret detail', { status: 502 });
+    await assert.rejects(
+      () => interpreter.interpret('x'),
+      (error) => error instanceof ChartInterpreterError && !error.message.includes('secret'),
     );
-    assert.equal(sent.messages[1].content, 'incident distribution');
-  });
-
-  test('reads JSON from a fence, and treats anything else as no spec', async () => {
-    const reply = async (content) => new GatewayChartInterpreter({ complete: async () => completion(content) }, 'm').interpret('x');
-    assert.deepEqual(await reply('```json\n{"unsupported": true}\n```'), { unsupported: true });
-    assert.equal(await reply('Sure! Assault had 999 incidents.'), null);
-    assert.equal(await reply('{not json}'), null);
-  });
-
-  test('an empty completion is a failed call, not a refusal', async () => {
-    const interpreter = new GatewayChartInterpreter({ complete: async () => completion(null) }, 'm');
-    await assert.rejects(() => interpreter.interpret('x'), GatewayError);
+    globalThis.fetch = async () => Response.json({ other: 1 });
+    await assert.rejects(() => interpreter.interpret('x'), ChartInterpreterError);
+    globalThis.fetch = async () => new Response('not json', { status: 200 });
+    await assert.rejects(() => interpreter.interpret('x'), ChartInterpreterError);
+    globalThis.fetch = async () => {
+      throw new TypeError('fetch failed');
+    };
+    await assert.rejects(() => interpreter.interpret('x'), ChartInterpreterError);
   });
 });
 
@@ -497,9 +521,7 @@ describe('POST /api/dashboard/chart', () => {
   beforeEach(() => {
     process.env.INCIDENT_SUPABASE_URL = 'https://supabase.test';
     process.env.INCIDENT_SUPABASE_SERVICE_ROLE_KEY = 'test-key';
-    process.env.VLM_GATEWAY_URL = 'http://gateway.test';
     process.env.INCIDENT_AGENT_BASE_URL = 'http://agent.test';
-    process.env.CHART_MODEL = 'test-model';
     process.env.LLM_NAME = '<your-model-id>';
     modelReply = JSON.stringify(spec({ dimension: 'severity' }));
     modelCalls = [];
@@ -507,9 +529,9 @@ describe('POST /api/dashboard/chart', () => {
     chartBodies = [];
     globalThis.fetch = async (url, init) => {
       const target = String(url);
-      if (target === 'http://gateway.test/v1/chat/completions') {
+      if (target === 'http://agent.test/api/v1/incidents/chart-requests') {
         modelCalls.push(JSON.parse(String(init?.body)));
-        return Response.json({ choices: [{ message: { role: 'assistant', content: modelReply } }] });
+        return Response.json({ reply: objectIn(modelReply) });
       }
       if (target === 'http://agent.test/api/v1/incidents/charts') {
         chartBodies.push(JSON.parse(String(init?.body)));
@@ -537,8 +559,11 @@ describe('POST /api/dashboard/chart', () => {
     assert.deepEqual(counts(chart), { Low: rpc.severity.low, Medium: rpc.severity.medium, High: rpc.severity.high });
     assert.equal(chart.image, IMAGE);
     assert.equal(rpcBodies[0].p_timezone, 'Asia/Singapore');
-    assert.equal(modelCalls[0].model, 'test-model');
-    assert.equal(modelCalls[0].messages.length, 2);
+    assert.deepEqual(
+      modelCalls[0].messages.map((message) => message.role),
+      ['system', 'user'],
+    );
+    assert.equal(modelCalls[0].messages[1].content, 'severity breakdown');
     assert.deepEqual(chartBodies[0].charts_data[0].sizes, [rpc.severity.low, rpc.severity.medium, rpc.severity.high].filter(Boolean));
   });
 
@@ -596,23 +621,26 @@ describe('POST /api/dashboard/chart', () => {
     });
   }
 
-  test('says so when the gateway or the agent is not configured', async () => {
-    delete process.env.VLM_GATEWAY_URL;
-    const noGateway = await post({ request: 'severity breakdown', chartType: 'bar' });
-    assert.equal(noGateway.status, 503);
-    assert.match((await noGateway.json()).error, /VLM_GATEWAY_URL/);
-    process.env.VLM_GATEWAY_URL = 'http://gateway.test';
+  test('says so when the agent is not configured', async () => {
     delete process.env.INCIDENT_AGENT_BASE_URL;
     const noAgent = await post({ request: 'severity breakdown', chartType: 'bar' });
     assert.equal(noAgent.status, 503);
     assert.match((await noAgent.json()).error, /INCIDENT_AGENT_BASE_URL/);
+    assert.equal(modelCalls.length, 0);
   });
 
-  test('a model failure is a plain 502 that does not echo the gateway', async () => {
+  test('a model failure is a plain 502 that does not echo the agent', async () => {
     globalThis.fetch = async () => new Response('upstream secret detail', { status: 500 });
     const response = await post({ request: 'severity breakdown', chartType: 'bar' });
     assert.equal(response.status, 502);
     assert.ok(!(await response.text()).includes('secret'));
+  });
+
+  test('a profile with no chart LLM says so instead of blaming the model', async () => {
+    globalThis.fetch = async () => new Response('chart LLM not configured', { status: 501 });
+    const response = await post({ request: 'severity breakdown', chartType: 'bar' });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'Chart requests are not set up on this profile.' });
   });
 
   test('a drawing failure is a plain 502 that does not echo the agent', async () => {

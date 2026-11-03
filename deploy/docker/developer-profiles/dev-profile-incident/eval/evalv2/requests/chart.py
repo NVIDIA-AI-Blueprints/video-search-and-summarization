@@ -43,6 +43,15 @@ CONSOLE_TIMEOUT_S = 45.0  # chart-interpreter.ts TIMEOUT_MS: the console gives u
 # chart-interpreter.ts, in its key order (the golden pins them).
 SETTINGS: dict[str, Any] = {"stream": False, "temperature": 0, "max_tokens": 200,
                             "chat_template_kwargs": {"enable_thinking": False}}
+# Request shapes. ``console-gateway-v1`` is the console's own upstream body before #459 (9b2d09925), the one the
+# 2026-11-02 C1c pilot sent. ``agent-route-v2`` is what the agent's POST /api/v1/incidents/chart-requests now sends
+# upstream for the same two messages: LangChain's ChatOpenAI with the profile's ``openai_llm`` entry (temperature 0,
+# ``enable_thinking`` false by default) bound to ``CHART_REPLY_MAX_TOKENS`` 200, which it posts as
+# ``max_completion_tokens``. tests/v2/test_v2_dashboard_task.py checks both against their sources.
+AGENT_SETTINGS: dict[str, Any] = {"stream": False, "temperature": 0.0, "max_completion_tokens": 200,
+                                  "chat_template_kwargs": {"enable_thinking": False}}
+REQUEST_SHAPES: dict[str, dict[str, Any]] = {"console-gateway-v1": SETTINGS, "agent-route-v2": AGENT_SETTINGS}
+DEFAULT_SHAPE = "console-gateway-v1"  # the sealed C1c pilot's shape; new runs name ``agent-route-v2``
 # ECMAScript's String.prototype.trim: WhiteSpace and LineTerminator code points (zod's .trim() calls it).
 _JS_SPACE = frozenset("\t\n\v\f\r              "
                       "    　﻿")
@@ -91,18 +100,23 @@ def request_text(request: str) -> str:
     return text
 
 
-def build_chart_request(model: str, request: str) -> dict[str, Any]:
-    """The body ``GatewayChartInterpreter.interpret`` sends (``model``, ``messages``, then the settings)."""
-    return {"model": model, "messages": [{"role": "system", "content": system_prompt()},
-                                         {"role": "user", "content": request_text(request)}],
-            **json.loads(json.dumps(SETTINGS))}
+def chart_messages(request: str) -> list[dict[str, str]]:
+    """The two messages the console sends (to the agent since #459; to the gateway before): the golden's body."""
+    return [{"role": "system", "content": system_prompt()}, {"role": "user", "content": request_text(request)}]
 
 
-def chart_provenance() -> dict[str, Any]:
-    """What a chart record pins: the prompt and allowlist SHA-256s, the settings and the golden it equals."""
+def build_chart_request(model: str, request: str, shape: str = DEFAULT_SHAPE) -> dict[str, Any]:
+    """The upstream body for ``shape`` (``model``, ``messages``, then that shape's settings)."""
+    if shape not in REQUEST_SHAPES:
+        raise ChartRequestError(f"unknown chart request shape {shape!r}; known: {sorted(REQUEST_SHAPES)}")
+    return {"model": model, "messages": chart_messages(request), **json.loads(json.dumps(REQUEST_SHAPES[shape]))}
+
+
+def chart_provenance(shape: str = DEFAULT_SHAPE) -> dict[str, Any]:
+    """What a chart record pins: the prompt and allowlist SHA-256s, the request shape and its settings, the golden."""
     return {"stage": "chart", "prompt_id": PROMPT_ID, "prompt_sha256": sha256_bytes(_registered_bytes(PROMPT_ID)),
-            "allowlist_sha256": sha256_bytes(_registered_bytes(ALLOWLIST_ID)), "settings_sha256": sha256_json(SETTINGS),
-            "golden": GOLDEN}
+            "allowlist_sha256": sha256_bytes(_registered_bytes(ALLOWLIST_ID)), "request_shape": shape,
+            "settings_sha256": sha256_json(REQUEST_SHAPES[shape]), "golden": GOLDEN}
 
 
 def _no_constant(name: str) -> Any:

@@ -42,8 +42,6 @@ export class InMemoryAnalysisJobRepository implements AnalysisJobRepository {
     return this.put({
       id: this.nextId++,
       ...job,
-      reanalyseVideoId: job.reanalyseVideoId ?? null,
-      blurFaces: job.blurFaces ?? false,
       status: 'queued',
       attempts: 0,
       error: null,

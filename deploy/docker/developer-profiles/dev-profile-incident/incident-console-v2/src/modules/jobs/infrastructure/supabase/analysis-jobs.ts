@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // AnalysisJobRepository over PostgREST: the analysis_jobs table and its
-// functions (supabase/migrations/20261031120000_analysis_jobs.sql, and
-// 20261101090000_video_blur_faces.sql for re-analysis jobs). Every state change
+// functions (supabase/migrations/20261031120000_analysis_jobs.sql). Every state change
 // is a function, so it runs on the database clock and is atomic.
 
 import type { PostgrestClient } from '@/lib/postgrest/client';
@@ -29,8 +28,6 @@ export function jobFromRow(row: Record<string, unknown>): AnalysisJob {
     heartbeatAt: text(row.heartbeat_at),
     videoId: text(row.video_id),
     revisionId: integer(row.revision_id),
-    reanalyseVideoId: text(row.reanalyse_video_id),
-    blurFaces: row.blur_faces === true,
   };
 }
 
@@ -53,8 +50,6 @@ export class SupabaseAnalysisJobAdapter implements AnalysisJobRepository {
         file_path: job.filePath,
         filename: job.filename,
         model: job.model,
-        ...(job.reanalyseVideoId ? { reanalyse_video_id: job.reanalyseVideoId } : {}),
-        ...(job.blurFaces ? { blur_faces: true } : {}),
       }),
     );
   }
@@ -73,8 +68,7 @@ export class SupabaseAnalysisJobAdapter implements AnalysisJobRepository {
   }
 
   async claim(staleSeconds: number): Promise<AnalysisJob | null> {
-    // Uploads and re-analyses alike; claim_analysis_job, which older consoles call, leaves re-analyses to this one.
-    return firstJob(await this.db.rpc('claim_queued_analysis_job', { p_stale_seconds: staleSeconds, p_uploads_only: false }));
+    return firstJob(await this.db.rpc('claim_analysis_job', { p_stale_seconds: staleSeconds }));
   }
 
   async heartbeat(id: number, attempt: number): Promise<boolean> {

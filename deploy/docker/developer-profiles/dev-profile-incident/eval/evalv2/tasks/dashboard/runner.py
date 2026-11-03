@@ -34,7 +34,15 @@ from typing import Any
 from evalv2.core.checkpoint import FINAL_OUTCOMES, OPEN_OUTCOMES
 from evalv2.datasets.records import effective_payload
 from evalv2.references.dashboard import is_refusal, load_allowlist, parse_spec
-from evalv2.requests.chart import CONSOLE_TIMEOUT_S, build_chart_request, chart_provenance, parse_reply, request_text
+from evalv2.requests.chart import (
+    CONSOLE_TIMEOUT_S,
+    DEFAULT_SHAPE,
+    REQUEST_SHAPES,
+    build_chart_request,
+    chart_provenance,
+    parse_reply,
+    request_text,
+)
 from evalv2.tasks.base import PredictionRecord, WorkItem
 
 TASK = "dashboard"
@@ -81,6 +89,10 @@ class DashboardTask:
 
     def plan(self, config: Any, datasets: Mapping[str, Any]) -> list[WorkItem]:
         prompt_sha = chart_provenance()["prompt_sha256"]
+        shape = config.tasks[TASK].options.get("request_shape", DEFAULT_SHAPE)
+        if shape not in REQUEST_SHAPES:
+            raise ValueError(f"tasks.{TASK}.options.request_shape {shape!r} is not one of {sorted(REQUEST_SHAPES)}")
+        extra = {} if shape == DEFAULT_SHAPE else {"request_shape": shape}  # the sealed pilot's plan keys stay as they were
         items = []
         for record in sorted(references(datasets), key=lambda r: r["record_id"]):
             payload = effective_payload(record)
@@ -91,7 +103,7 @@ class DashboardTask:
                 for repeat in range(1, config.repeats + 1):
                     items.append(WorkItem(TASK, subject.id, record["record_id"], repeat,
                                           {"model": subject.model, "prompt_sha256": prompt_sha,
-                                           "request": payload["request"]}))
+                                           "request": payload["request"], **extra}))
         return items
 
     def budget_estimate(self, config: Any, items: list[WorkItem]) -> dict[str, dict[str, int]]:
@@ -101,8 +113,9 @@ class DashboardTask:
     def execute(self, item: WorkItem, adapter: Any, ctx: Any) -> PredictionRecord:
         """``adapter`` is a ``ModelAdapter`` and ``ctx`` a ``CallContext`` (untyped here: this package imports no
         adapter module, so its scoring stays offline by construction, ``tests/v2/test_v2_guards.py``)."""
-        request = build_chart_request(adapter.model, str(item.spec["request"]))
-        provenance = {"stages": {"chart": {**chart_provenance(), "model": adapter.model, "adapter": adapter.id}}}
+        shape = str(item.spec.get("request_shape", DEFAULT_SHAPE))
+        request = build_chart_request(adapter.model, str(item.spec["request"]), shape)
+        provenance = {"stages": {"chart": {**chart_provenance(shape), "model": adapter.model, "adapter": adapter.id}}}
         # Every attempt reserves the bound preflight assumed, on the ledger it checked, whatever the caller's context.
         result = adapter.complete(request, dataclasses.replace(ctx, budget_ledger=LEDGER,
                                                                tokens_bound=TOKENS_PER_ATTEMPT))

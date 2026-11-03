@@ -3,11 +3,11 @@
 // The background analysis loop: runs inside the console's Node process,
 // started once by src/instrumentation.ts. Every POLL_MS it runs one tick
 // (modules/jobs/application runNextJob): claim the oldest queued job, analyse
-// it with the same code as POST /api/analysis (a re-analysis job, queued by the
-// privacy toggle, analyses its existing video again), store done or failed. One job at
+// it with the same code as POST /api/analysis, store done or failed. A job queued
+// One job at
 // a time per console, like the batch upload, which keeps within the model
 // provider's rate limits. It is not a request, so no route maxDuration applies;
-// each model's own timeout (contracts/inference.json) still bounds a run.
+// each model's own timeout (contracts/inference.json) still bounds an analysis.
 // ANALYSIS_JOB_LOOP=off leaves it stopped (jobs then wait for another console).
 
 import { getAnalysisJobs, getUploadAnalysis } from '@/lib/container';
@@ -31,17 +31,17 @@ export async function tick(): Promise<boolean> {
   if (!isSupabaseConfigured(config)) return false;
   const finished = await runNextJob({
     jobs: getAnalysisJobs(config),
-    analyse: (job) =>
-      analyseUpload(
+    analyse: (job) => {
+      const deps = getUploadAnalysis(requireAnalysisConfiguration(config));
+      return analyseUpload(
         {
           r2Key: job.filePath,
           model: job.model,
           videoId: jobVideoId(job),
-          existingVideo: job.reanalyseVideoId !== null,
-          blurFaces: job.blurFaces,
         },
-        getUploadAnalysis(requireAnalysisConfiguration(config)),
-      ),
+        deps,
+      );
+    },
     every: (ms, fn) => {
       const timer = setInterval(fn, ms);
       return () => clearInterval(timer);

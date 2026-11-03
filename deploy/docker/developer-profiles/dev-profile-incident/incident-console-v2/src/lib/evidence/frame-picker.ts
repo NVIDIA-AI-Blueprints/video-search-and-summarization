@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Pure rules for the frame picker in Edit mode: a reviewer scrubs the video to
-// a second and drags a rectangle on that frame. The rectangle becomes the
-// region sent to the crop route, and the same rectangle is stored on the item
-// as its image_box, so the save path carries it unchanged.
+// Pure rules for drawing a rectangle on a video frame: a drag becomes a crop
+// region for the crop route, and the same rectangle is stored as a bounding box.
 
 import { MIN_CROP_SIDE } from '@/lib/evidence/frame-request';
 import type { FrameRegion } from '@/lib/evidence/frame-geometry';
@@ -11,14 +9,6 @@ import type { FrameRegion } from '@/lib/evidence/frame-geometry';
 export interface FramePoint {
   x: number;
   y: number;
-}
-
-/** What the picker hands back once a crop exists: the cropped JPEG held in the browser, its object URL for the preview, the frame second and the box. */
-export interface FramePick {
-  blob: Blob;
-  previewUrl: string;
-  timestampSeconds: number;
-  box: number[];
 }
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));

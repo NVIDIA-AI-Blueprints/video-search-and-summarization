@@ -291,8 +291,8 @@ export function summariseBatch(items: readonly BatchItem[]): BatchSummary {
   };
 }
 
-/** The jobs list's jobs: every job the server listed except those already shown as this page's own rows. */
+/** The jobs list's jobs: the queued and running ones the server listed, except those already shown as this page's own rows. */
 export function otherJobs(jobs: readonly AnalysisJob[], shown: Iterable<number | null>): AnalysisJob[] {
   const own = new Set([...shown].filter((id): id is number => id !== null));
-  return jobs.filter((job) => !own.has(job.id));
+  return jobs.filter((job) => (job.status === 'queued' || job.status === 'running') && !own.has(job.id));
 }

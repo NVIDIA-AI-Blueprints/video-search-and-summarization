@@ -377,9 +377,17 @@ test("the jobs list shows a server job as a row, without the page's own rows", (
     [row.key, row.name, row.size, row.status, row.failedAt, row.error, row.jobId],
     ['job-4', 'other.mp4', null, 'failed', 'analysing', 'Unsupported model: x', 4],
   );
-  const jobs = [job(1, 'a.mp4'), job(2, 'b.mp4', 'running'), job(3, 'c.mp4', 'done')];
+  const jobs = [
+    job(1, 'a.mp4'),
+    job(2, 'b.mp4', 'running'),
+    job(3, 'c.mp4', 'done'),
+    job(5, 'd.mp4', 'running'),
+    job(6, 'e.mp4', 'failed'),
+    job(7, 'f.mp4', 'cancelled'),
+  ];
   assert.deepEqual(
     otherJobs(jobs, [2, null]).map((entry) => entry.id),
-    [1, 3],
+    [1, 5],
+    'only queued and running jobs are listed; finished ones leave the list',
   );
 });

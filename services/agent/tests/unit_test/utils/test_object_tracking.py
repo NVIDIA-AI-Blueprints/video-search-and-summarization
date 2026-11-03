@@ -21,18 +21,23 @@ square off the frame itself (an oracle), so a test decides what is found by deci
 
 from collections.abc import Generator
 import json
+import os
 from pathlib import Path
 import tempfile
+import time
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import cv2
+import httpx
 import numpy as np
 import pytest
 
 from vss_agents.utils import object_tracking
 from vss_agents.utils.crop_evidence import BudgetedDetector
 from vss_agents.utils.crop_evidence import CropCallBudget
+from vss_agents.utils.crop_evidence import DefaultDetector
 from vss_agents.utils.crop_evidence import Detection
 from vss_agents.utils.object_tracking import ObjectTrackingSettings
 from vss_agents.utils.object_tracking import TrackerUnavailableError
@@ -115,19 +120,54 @@ class StubbornTracker(OracleTracker):
         return True, self.rect
 
 
+class InitFailsOnLargeBox(OracleTracker):
+    """Like MIL on a whole-frame or edge-touching box: ``init`` raises when the rectangle covers 90% of the frame."""
+
+    def init(self, frame: np.ndarray, rect: tuple[int, int, int, int]) -> None:
+        height, width = frame.shape[:2]
+        if rect[2] * rect[3] >= 0.9 * width * height:
+            raise RuntimeError("init failed")
+
+
+def tracker_failing_nth_init(n: int) -> Any:
+    """A tracker factory whose ``n``-th tracker (1-based) cannot ``init``; the others follow the square."""
+    created = {"count": 0}
+
+    class Nth(OracleTracker):
+        def __init__(self) -> None:
+            created["count"] += 1
+            self.fails = created["count"] == n
+
+        def init(self, frame: np.ndarray, rect: tuple[int, int, int, int]) -> None:
+            if self.fails:
+                raise RuntimeError("init failed")
+
+    return Nth
+
+
 class OracleDetector:
     """Finds the square on the frame it is given (the whole frame, as the real detector is), and counts its calls."""
 
-    def __init__(self, shift: int = 0, blind: bool = False, error_at: int | None = None) -> None:
+    def __init__(
+        self,
+        shift: int = 0,
+        blind: bool = False,
+        error_at: int | None = None,
+        error: Exception | None = None,
+        delay: float = 0.0,
+    ) -> None:
         self.shift, self.blind, self.error_at = shift, blind, error_at
+        self.error = error or RuntimeError("detector down")
+        self.delay = delay
         self.calls = 0
         self.queries: list[str] = []
 
     def detect(self, frame: np.ndarray, query: str) -> list[Detection]:
         self.calls += 1
         self.queries.append(query)
+        time.sleep(self.delay)
         if self.error_at is not None and self.calls == self.error_at:
-            raise RuntimeError("detector down")
+            raise self.error
         box = None if self.blind else seen(frame)
         if box is None:
             return []
@@ -264,6 +304,98 @@ class TestReanchoring:
         item = outcome.items["I1"]
         assert item["detector_errors"] == 1 and item["lost"] == 0 and item["samples"] > 5
 
+    @pytest.mark.asyncio
+    async def test_a_detector_timeout_is_an_error_not_a_miss(self, clip: Path) -> None:
+        detector = OracleDetector(error_at=2, error=httpx.ReadTimeout("timed out"))
+        outcome = await run(clip, detector, seed_at(4.0))
+        item = outcome.items["I1"]
+        assert item["detector_errors"] == 1 and item["lost"] == 0 and item["samples"] > 5
+
+
+class TestDetectorLatency:
+    @pytest.mark.asyncio
+    async def test_the_slowest_and_total_detector_time_are_reported(self, clip: Path) -> None:
+        outcome = await run(clip, OracleDetector(delay=0.02), seed_at(4.0))
+        item = outcome.items["I1"]
+        assert item["detector_max_ms"] >= 20 and item["detector_ms"] >= item["detector_max_ms"]
+        assert item["detector_ms"] >= 20 * item["detector_calls"] * 0.9
+
+    @pytest.mark.asyncio
+    async def test_a_failed_call_is_timed_too(self, clip: Path) -> None:
+        detector = OracleDetector(error_at=1, error=httpx.ReadTimeout("timed out"), delay=0.02)
+        outcome = await run(clip, detector, seed_at(4.0))
+        assert outcome.items["I1"]["detector_max_ms"] >= 20
+
+    @pytest.mark.asyncio
+    async def test_a_default_detector_is_limited_to_the_tracking_timeout_and_one_attempt(self, clip: Path) -> None:
+        seen_limits: list[tuple[float, int]] = []
+
+        def fake_request(self: DefaultDetector, body: dict[str, Any]) -> dict[str, Any]:
+            seen_limits.append((self.timeout_seconds, self.max_attempts))
+            raise httpx.ReadTimeout("timed out")
+
+        detector = DefaultDetector(api_key="k")
+        config = settings(detector_timeout_seconds=7.0)
+        with patch.object(DefaultDetector, "_request_box", fake_request):
+            outcome = await run(clip, detector, seed_at(4.0), config=config)
+        assert seen_limits and set(seen_limits) == {(7.0, 1)}
+        assert outcome.items["I1"]["detector_errors"] == outcome.items["I1"]["detector_calls"]
+        assert (detector.timeout_seconds, detector.max_attempts) == (120.0, 4)  # the shared detector is untouched
+
+
+class TestAnchoring:
+    @pytest.mark.asyncio
+    async def test_a_whole_frame_seed_is_skipped_without_a_detector_call(self, clip: Path) -> None:
+        detector = OracleDetector()
+        whole = ObjectSeed(item_id="A1", label="elevator", box=(0, 0, 1000, 1000), seconds=4.0)
+        outcome = await run(clip, detector, whole, tracker=InitFailsOnLargeBox)
+        item = outcome.items["A1"]
+        assert item["samples"] == 0 and "100.0%" in item["skipped"] and item["detector_calls"] == 0
+        assert "error" not in item and outcome.tracks == {} and detector.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_a_seed_below_the_area_limit_is_tracked(self, clip: Path) -> None:
+        big = ObjectSeed(item_id="A2", label="doors", box=(0, 0, 1000, 450), seconds=4.0)  # 45% of the frame
+        outcome = await run(clip, OracleDetector(blind=True), big, tracker=InitFailsOnLargeBox)
+        assert "skipped" not in outcome.items["A2"] and "error" not in outcome.items["A2"]
+
+    @pytest.mark.asyncio
+    async def test_a_seed_the_tracker_cannot_start_on_is_not_an_error_and_is_tried_once(self, clip: Path) -> None:
+        detector = OracleDetector()
+        outcome = await run(clip, detector, seed_at(4.0), tracker=tracker_failing_nth_init(1))
+        item = outcome.items["I1"]
+        assert item["anchor_errors"] == 1 and item["samples"] == 0 and "error" not in item
+        assert outcome.tracks == {} and detector.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_a_failed_reanchor_keeps_the_previous_tracker_and_the_confirmed_sample(self, clip: Path) -> None:
+        # trackers 1 (seed) and 2 (first re-anchor) are built forwards; the second one cannot start
+        outcome = await run(clip, OracleDetector(), seed_at(4.0), tracker=tracker_failing_nth_init(2))
+        item = outcome.items["I1"]
+        assert item["anchor_errors"] == 1 and "error" not in item
+        assert item["reanchors"] == 5 and item["lost"] == 0  # 6 checks, one of them could not re-anchor
+        confirmed = [s for s in outcome.tracks["I1"].samples if s.score == 1.0]
+        assert len(confirmed) == 6 + 1  # the failed re-anchor's detector sample is kept
+        assert item["forward_samples"] > 0 and item["backward_samples"] > 0
+
+    @pytest.mark.asyncio
+    async def test_a_failed_init_does_not_replace_the_running_tracker(self) -> None:
+        frame = draw(0)
+        tracker = object_tracking._Tracker(tracker_failing_nth_init(2))
+        tracker.anchor(frame, (400, 50, 600, 150))
+        before = tracker._tracker
+        with pytest.raises(RuntimeError):
+            tracker.anchor(frame, (0, 0, 1000, 1000))
+        assert tracker._tracker is before and tracker.anchor_area == 200 * 100
+
+    @pytest.mark.asyncio
+    async def test_the_real_tracker_on_an_edge_touching_seed_never_raises(self, clip: Path) -> None:
+        edge = ObjectSeed(item_id="A3", label="doors", box=(0, 0, 1000, 480), seconds=4.0)
+        outcome = await run_object_tracking(
+            clip, [edge], detector=OracleDetector(blind=True), settings=settings(span_seconds=2.0)
+        )
+        assert "error" not in outcome.items["A3"]
+
 
 class TestLoss:
     @pytest.mark.asyncio
@@ -385,9 +517,94 @@ class TestTrackerSelection:
             with pytest.raises(TrackerUnavailableError):
                 select_tracker()
 
-    def test_the_installed_opencv_has_a_tracker(self) -> None:
+    def test_the_installed_opencv_has_a_tracker(self, tmp_path: Path) -> None:
         name, factory = select_tracker()
         assert name in {"CSRT", "KCF", "MIL"} and callable(factory)
+        # an empty model directory changes nothing
+        assert select_tracker(tmp_path)[0] == name
+
+    @staticmethod
+    def _model_cv2(tmp_path: Path, *, nano: tuple[str, ...] = (), vit: bool = False, nano_raises: bool = False) -> Any:
+        """A fake ``cv2`` with Nano and Vit factories, and the model files named in ``nano`` / ``vit`` written."""
+        made: list[Any] = []
+
+        class Params(SimpleNamespace):
+            pass
+
+        def create_nano(params: Any) -> str:
+            if nano_raises:
+                raise RuntimeError("bad model")
+            made.append(params)
+            return "nano"
+
+        def create_vit(params: Any) -> str:
+            made.append(params)
+            return "vit"
+
+        for filename in nano:
+            (tmp_path / filename).write_bytes(b"x")
+        if vit:
+            (tmp_path / object_tracking.VIT_MODEL).write_bytes(b"x")
+        fake = SimpleNamespace(
+            TrackerNano_create=create_nano,
+            TrackerNano_Params=Params,
+            TrackerVit_create=create_vit,
+            TrackerVit_Params=Params,
+            TrackerMIL_create=lambda: "mil",
+        )
+        fake.made = made
+        return fake
+
+    def test_nano_is_preferred_when_both_model_files_are_present(self, tmp_path: Path) -> None:
+        both = (object_tracking.NANO_BACKBONE, object_tracking.NANO_HEAD)
+        fake = self._model_cv2(tmp_path, nano=both, vit=True)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            name, factory = select_tracker(tmp_path)
+            assert (name, factory()) == ("Nano", "nano")
+        params = fake.made[-1]
+        assert params.backbone == str((tmp_path / object_tracking.NANO_BACKBONE).resolve())
+        assert params.neckhead == str((tmp_path / object_tracking.NANO_HEAD).resolve())
+
+    def test_every_tracker_gets_its_own_params(self, tmp_path: Path) -> None:
+        both = (object_tracking.NANO_BACKBONE, object_tracking.NANO_HEAD)
+        fake = self._model_cv2(tmp_path, nano=both)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            _, factory = select_tracker(tmp_path)
+            factory()
+            factory()
+        assert fake.made[-1] is not fake.made[-2]
+
+    def test_one_missing_nano_file_falls_back_to_mil(self, tmp_path: Path) -> None:
+        fake = self._model_cv2(tmp_path, nano=(object_tracking.NANO_BACKBONE,))
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            assert select_tracker(tmp_path)[0] == "MIL"
+
+    def test_an_unloadable_model_falls_back_to_mil(self, tmp_path: Path) -> None:
+        both = (object_tracking.NANO_BACKBONE, object_tracking.NANO_HEAD)
+        fake = self._model_cv2(tmp_path, nano=both, nano_raises=True)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            assert select_tracker(tmp_path)[0] == "MIL"
+
+    def test_vit_is_used_when_only_its_file_is_present(self, tmp_path: Path) -> None:
+        fake = self._model_cv2(tmp_path, vit=True)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            name, factory = select_tracker(tmp_path)
+            assert (name, factory()) == ("Vit", "vit")
+        assert fake.made[-1].net == str((tmp_path / object_tracking.VIT_MODEL).resolve())
+
+    def test_no_model_dir_keeps_the_built_in_order(self, tmp_path: Path) -> None:
+        both = (object_tracking.NANO_BACKBONE, object_tracking.NANO_HEAD)
+        fake = self._model_cv2(tmp_path, nano=both)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(object_tracking, "cv2", fake)
+            assert select_tracker()[0] == "MIL"
+            assert select_tracker("")[0] == "MIL"
+            assert select_tracker(tmp_path / "missing")[0] == "MIL"
 
 
 class TestFlagAndSettings:
@@ -407,7 +624,16 @@ class TestFlagAndSettings:
         config = ObjectTrackingSettings.from_env()
         assert config.sample_fps == 5.0 and config.reanchor_iou == object_tracking.DEFAULT_MIN_IOU
         assert config.max_detector_calls == 12
+        assert config.detector_timeout_seconds == object_tracking.DEFAULT_DETECTOR_TIMEOUT_SECONDS == 15.0
+        monkeypatch.setenv(object_tracking.DETECTOR_TIMEOUT_ENV_VAR, "9")
+        assert ObjectTrackingSettings.from_env().detector_timeout_seconds == 9.0
         assert config.detect_interval_seconds == object_tracking.DEFAULT_DETECT_INTERVAL_SECONDS
+
+    def test_the_model_directory_comes_from_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(object_tracking.MODEL_DIR_ENV_VAR, raising=False)
+        assert ObjectTrackingSettings.from_env().model_dir == ""
+        monkeypatch.setenv(object_tracking.MODEL_DIR_ENV_VAR, "  /models/trackers ")
+        assert ObjectTrackingSettings.from_env().model_dir == "/models/trackers"
 
 
 class TestRealTracker:
@@ -444,3 +670,47 @@ class TestRealTracker:
         # MIL samples its updates at random, so a single frame can stray: the median is what must hold
         assert sorted(overlaps)[len(overlaps) // 2] > 0.3
         assert track.samples[-1].box[1] > track.samples[0].box[1] + 100
+
+
+class TestRealModelTracker:
+    """NanoTrack from its real ONNX files (set ``INCIDENT_OBJECT_TRACKING_MODEL_DIR`` to a directory holding them)."""
+
+    @pytest.mark.skipif(
+        not all(
+            (Path(os.getenv(object_tracking.MODEL_DIR_ENV_VAR) or "/nonexistent") / name).is_file()
+            for name in (object_tracking.NANO_BACKBONE, object_tracking.NANO_HEAD)
+        ),
+        reason="the NanoTrack model files are not in INCIDENT_OBJECT_TRACKING_MODEL_DIR",
+    )
+    @pytest.mark.asyncio
+    async def test_nano_follows_a_moving_textured_square(self) -> None:
+        rng = np.random.default_rng(0)
+        background = rng.integers(0, 60, (HEIGHT, WIDTH, 3), dtype=np.uint8)
+        patch = rng.integers(150, 256, (SIDE, SIDE, 3), dtype=np.uint8)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "textured.mp4"
+            writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), float(FPS), (WIDTH, HEIGHT))
+            for index in range(FPS * SECONDS):
+                frame = background.copy()
+                ymin, xmin, ymax, xmax = square_box(index)
+                frame[ymin:ymax, xmin:xmax] = patch
+                writer.write(frame)
+            writer.release()
+            detector = OracleDetector(blind=True)
+            config = settings(
+                sample_fps=10.0,
+                detect_interval_seconds=60.0,
+                span_seconds=2.0,
+                model_dir=os.environ[object_tracking.MODEL_DIR_ENV_VAR],
+            )
+            outcome = await run_object_tracking(path, [seed_at(3.0)], detector=detector, settings=config)
+        assert outcome.tracker == "Nano" and detector.calls == 0
+        track = outcome.tracks["I1"]
+        moved = [s for s in track.samples if s.score == -0.1]
+        assert len(moved) >= 6
+        overlaps = [
+            box_iou(s.box, (b[0] * 10, b[1] * 5, b[2] * 10, b[3] * 5))
+            for s in moved
+            for b in [square_box(round(s.t * FPS))]
+        ]
+        assert sorted(overlaps)[len(overlaps) // 2] > 0.5

@@ -49,11 +49,13 @@ object_stores:
 
 
 functions:
-  # Reached through POST /api/v1/incidents/charts: the incident dashboard sends the figures to draw.
+  # Dashboard charts. POST /api/v1/incidents/chart-requests reads the request with llm_name (the same
+  # text LLM as the workflow below); POST /api/v1/incidents/charts draws the figures the console sends.
   chart_generator:
     _type: chart_generator
     object_store_name: ${VSS_AGENT_OBJECT_STORE_TYPE}
     object_store_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    llm_name: ${LLM_MODEL_TYPE:-nim}_llm
 
   video_understanding:
     _type: video_understanding

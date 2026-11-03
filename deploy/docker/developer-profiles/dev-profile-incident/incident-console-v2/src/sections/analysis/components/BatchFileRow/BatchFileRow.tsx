@@ -11,14 +11,21 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { BATCH_STAGES, type BatchItem, type BatchStatus, batchStageLabels, itemProgress } from '@/sections/analysis/batch-upload';
+import { type BatchItem, type BatchStage, type BatchStatus, batchStageLabels, itemProgress } from '@/sections/analysis/batch-upload';
 import { formatElapsed } from '@/sections/analysis/stage-progress';
+
+/** The steps a row shows: converting is part of the first, as in the analysis strip. */
+const ROW_STEPS: Array<{ key: 'uploading' | 'analysing'; label: string }> = [
+  { key: 'uploading', label: 'Uploading videos' },
+  { key: 'analysing', label: 'Analysing' },
+];
+const rowStep = (stage: BatchStage): 'uploading' | 'analysing' => (stage === 'analysing' ? 'analysing' : 'uploading');
 
 const statusLabel: Record<BatchStatus, string> = {
   queued: 'Queued',
   waiting: 'Queued',
   uploading: 'Uploading',
-  converting: 'Converting',
+  converting: 'Uploading',
   analysing: 'Analysing',
   done: 'Done',
   failed: 'Failed',
@@ -28,7 +35,7 @@ const statusLabel: Record<BatchStatus, string> = {
 function announcement(item: BatchItem): string {
   switch (item.status) {
     case 'failed':
-      return `${item.name} stopped at ${batchStageLabels[item.failedAt ?? 'uploading']}: ${item.error ?? 'the step failed'}.`;
+      return `${item.name} stopped at ${stepLabel(item.failedAt)}: ${item.error ?? 'the step failed'}.`;
     case 'done':
       return `${item.name}: report ready.`;
     case 'queued':
@@ -39,10 +46,14 @@ function announcement(item: BatchItem): string {
       return item.jobId !== null ? `${item.name}: cancelled before its analysis started.` : `${item.name}: cancelled before it was stored.`;
     case 'uploading':
       return `${item.name}: uploading${item.uploadProgress > 0 ? ` (${item.uploadProgress}%)` : ''}.`;
+    case 'converting':
+      return `${item.name}: uploading, converting to H.264.`;
     default:
-      return `${item.name}: ${batchStageLabels[item.status]}.`;
+      return `${item.name}: ${batchStageLabels[item.status as BatchStage]}.`;
   }
 }
+
+const stepLabel = (stage: BatchStage | null): string => ROW_STEPS.find((step) => step.key === rowStep(stage ?? 'uploading'))?.label ?? '';
 
 /** The message as a sentence, so what follows it reads on. */
 const sentence = (text: string | null): string => (text && !/[.!?]$/.test(text) ? `${text}.` : (text ?? ''));
@@ -80,7 +91,7 @@ export function BatchFileRow({ item, onRemove, onRetry, onCancel }: BatchFileRow
   const progress = itemProgress(item);
   // A waiting row has uploaded and converted; its analysis has not started.
   const reached = item.status === 'failed' ? (item.failedAt ?? 'uploading') : item.status === 'waiting' ? 'analysing' : item.status;
-  const stageIndex = BATCH_STAGES.indexOf(reached as (typeof BATCH_STAGES)[number]);
+  const stageIndex = ROW_STEPS.findIndex((step) => step.key === (reached === 'converting' ? 'uploading' : reached));
   const stepSeconds = useStepSeconds(item.status, item.status === 'analysing' ? (item.analysingSince ?? null) : null);
   return (
     <li className="rounded-2xl border border-border bg-card p-3.5 sm:p-4" data-file={item.name} data-status={item.status}>
@@ -145,11 +156,11 @@ export function BatchFileRow({ item, onRemove, onRetry, onCancel }: BatchFileRow
         <span className="font-mono text-xs font-semibold">{progress}%</span>
       </div>
 
-      <ol className="mt-3 grid grid-cols-3 gap-1.5" aria-label={`Stages for ${item.name}`}>
-        {BATCH_STAGES.map((stage, index) => {
+      <ol className="mt-3 grid grid-cols-2 gap-1.5" aria-label={`Stages for ${item.name}`}>
+        {ROW_STEPS.map(({ key: stage, label }, index) => {
           const done = item.status === 'done' || (stageIndex !== -1 && index < stageIndex);
           const failed = item.status === 'failed' && index === stageIndex;
-          const active = item.status === stage;
+          const active = item.status === stage || (stage === 'uploading' && item.status === 'converting');
           return (
             <li
               aria-current={active ? 'step' : undefined}
@@ -170,12 +181,14 @@ export function BatchFileRow({ item, onRemove, onRetry, onCancel }: BatchFileRow
                 {done && <span className="sr-only">(completed)</span>}
                 {active && <span className="sr-only">(current step)</span>}
                 {failed && <span className="sr-only">(failed)</span>}
-                {active && stage === 'uploading' && item.uploadProgress > 0 && (
+                {active && item.status === 'uploading' && item.uploadProgress > 0 && (
                   <span className="ml-auto text-primary/80">{item.uploadProgress}%</span>
                 )}
-                {active && stage !== 'uploading' && <span className="ml-auto text-primary/80">{formatElapsed(stepSeconds)}</span>}
+                {active && (stage === 'analysing' || item.status === 'converting') && (
+                  <span className="ml-auto text-primary/80">{formatElapsed(stepSeconds)}</span>
+                )}
               </span>
-              <span className="leading-snug">{batchStageLabels[stage]}</span>
+              <span className="leading-snug">{label}</span>
             </li>
           );
         })}
@@ -184,7 +197,7 @@ export function BatchFileRow({ item, onRemove, onRetry, onCancel }: BatchFileRow
       {item.status === 'failed' && (
         <Alert className="mt-3" variant="destructive">
           <AlertDescription>
-            <strong className="font-semibold">Stopped at {batchStageLabels[item.failedAt ?? 'uploading']}.</strong> {sentence(item.error)}{' '}
+            <strong className="font-semibold">Stopped at {stepLabel(item.failedAt)}.</strong> {sentence(item.error)}{' '}
             {onRetry ? 'Retry runs it again; the' : 'The'} other videos carry on.
           </AlertDescription>
         </Alert>

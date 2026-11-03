@@ -343,6 +343,8 @@ Each re-imports with 0 decisions. Box review sheets (`v2_box_frames.py sheet`) a
 ## 9. Dashboard evaluation (C1c)
 
 > **Status (2026-11-02): approved by the owner (225 calls, 1.01 M tokens); run from this branch.**
+>
+> **After #459 (2026-11-03):** chart requests go through the agent's `/chart-requests`. The prompt, model (Ultra) and settings are unchanged, so the pilot stands ([assessment](v2-dashboard-change-assessment.md)). New runs set `tasks.dashboard.options.request_shape` to `agent-route-v2`, the agent's upstream body. The sealed pilot keeps `console-gateway-v1`.
 
 **What it measures.** The AI dashboard ("Ask for a chart", methodology v2.0 §4 E). For each RB2 reference request, the `dashboard` task (`evalv2/tasks/dashboard/runner.py`) sends the console's chart request to a subject and stores the reply. Scoring then compares the reply with the reference's spec or refusal and draws both charts from the frozen corpus snapshot.
 
