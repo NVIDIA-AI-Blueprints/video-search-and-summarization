@@ -36,6 +36,37 @@ def test_scenarios_use_only_agreed_modes_and_dataset():
         assert "--eval-type" in args and "accuracy" not in args
 
 
+@pytest.mark.parametrize("port", [0, 65536, True, 8001.0, "8001"])
+def test_agent_host_port_rejects_invalid_values(tmp_path, port):
+    config = yaml.safe_load((PERF / "configs/config.yaml").read_text())
+    config["global"]["deployment"]["agent_host_port"] = port
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(config))
+    with pytest.raises(ValueError, match="deployment.agent_host_port"):
+        runner.scenario_settings(path, "quick_test")
+
+
+def test_agent_port_preflight_detects_docker_nat_publication(monkeypatch):
+    monkeypatch.setattr(
+        runner.subprocess, "check_output",
+        lambda *_, **__: "another-service\t0.0.0.0:8001->8000/tcp\n",
+    )
+    with pytest.raises(ValueError, match="8001 is already published by another-service"):
+        runner.ensure_agent_port_available(8001, {})
+
+
+def test_agent_port_preflight_detects_host_listener(monkeypatch):
+    import socket
+
+    monkeypatch.setattr(runner.subprocess, "check_output", lambda *_, **__: "")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("0.0.0.0", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        with pytest.raises(ValueError, match=f"Cannot bind Alerts agent host port {port}"):
+            runner.ensure_agent_port_available(port, {})
+
+
 def test_native_latency_values_and_reliability_are_preserved():
     summary = {
         "summary_status": "success",
@@ -67,8 +98,9 @@ def test_success_and_missing_data_have_distinct_results():
         to_test_cases({"status": "success"})
 
 
+@pytest.mark.parametrize("agent_port", [8001, 18001])
 def test_runtime_keeps_compose_interpolation_and_original_tree_unchanged(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, agent_port
 ):
     source = tmp_path / "source"
     docker = source / "deploy/docker"
@@ -76,6 +108,8 @@ def test_runtime_keeps_compose_interpolation_and_original_tree_unchanged(
     (docker / "developer-profiles/dev-profile-alerts").mkdir(parents=True)
     profile = docker / "developer-profiles/dev-profile-alerts/.env"
     profile.write_text('NGC_API_KEY="private-value"\nMODEL_NAME_2D="GDINO"\n')
+    overrides = profile.with_name("overrides.env")
+    overrides.write_text("VSS_AGENT_HOST_PORT=8000\nVSS_AGENT_PORT=8000\n")
     nvstreamer = docker / "services/nvstreamer/.env"
     nvstreamer.parent.mkdir(parents=True)
     nvstreamer_text = 'NVSTREAMER_HTTP_PORT=31000\nNVSTREAMER_IMAGE_TAG="fixture-tag"\nexport NVIDIA_API_KEY="private-nv-value"\n'
@@ -88,7 +122,12 @@ def test_runtime_keeps_compose_interpolation_and_original_tree_unchanged(
     original = "services:\n  alert:\n    image: ${VSS_ALERT_IMAGE:-registry/vss-alert-ms}:${VSS_ALERT_TAG:-latest}\n"
     compose.write_text(original)
     monkeypatch.setattr(runner, "REPO_ROOT", source)
-    deployment = runner.prepare_runtime(tmp_path / "runtime")
+    deployment = runner.prepare_runtime(tmp_path / "runtime", agent_port)
+    staged_overrides = deployment / "developer-profiles/dev-profile-alerts/overrides.env"
+    assert staged_overrides.read_text() == (
+        f"VSS_AGENT_HOST_PORT={agent_port}\nVSS_AGENT_PORT=8000\n"
+    )
+    assert overrides.read_text() == "VSS_AGENT_HOST_PORT=8000\nVSS_AGENT_PORT=8000\n"
     assert (deployment / "services/alert/compose.yml").read_text() == original
     assert compose.read_text() == original
     assert (
@@ -136,9 +175,10 @@ def test_dataset_paths_cannot_escape_dataset_root(tmp_path):
     "native_exit,verification_failures,expected_exit", [(0, 0, 0), (0, 5, 0), (1, 0, 1)]
 )
 @pytest.mark.parametrize("inherited_path", [None, "/path/to/stale-data", "/tmp/other-deployment"])
+@pytest.mark.parametrize("scenario", ["quick_test", "full_alerts_latency"])
 def test_pipeline_outcome_and_canonical_report(
     tmp_path, monkeypatch, native_exit, verification_failures, expected_exit,
-    inherited_path,
+    inherited_path, scenario,
 ):
     import json
     import os
@@ -150,6 +190,12 @@ def test_pipeline_outcome_and_canonical_report(
     (dataset / "warehouse_chunks/warehouse_1_540_7.mp4").touch()
     monkeypatch.setenv("IMAGE_TAG", "registry/vss-alert-ms:poc")
     monkeypatch.setenv("NGC_API_KEY", "test-value")
+    monkeypatch.setenv("VSS_AGENT_HOST_PORT", "8000")
+    checked_ports = []
+    monkeypatch.setattr(
+        runner, "ensure_agent_port_available",
+        lambda port, env: checked_ports.append(port),
+    )
     for key in ("VSS_APPS_DIR", "VSS_DATA_DIR"):
         if inherited_path is None:
             monkeypatch.delenv(key, raising=False)
@@ -159,7 +205,8 @@ def test_pipeline_outcome_and_canonical_report(
     monkeypatch.setattr(runner, "hardware_profile", lambda: "H100")
     monkeypatch.setattr(runner, "prepare_dataset", lambda *_: dataset)
 
-    def fake_runtime(work, *_):
+    def fake_runtime(work, agent_port):
+        assert agent_port == 8001
         (work / "eval").mkdir()
 
     monkeypatch.setattr(runner, "prepare_runtime", fake_runtime)
@@ -182,6 +229,7 @@ def test_pipeline_outcome_and_canonical_report(
             assert kwargs["env"]["PERF_KAFKA_IMAGE"] == "confluentinc/cp-kafka:8.3.0"
             assert "VSS_APPS_DIR" not in kwargs["env"]
             assert "VSS_DATA_DIR" not in kwargs["env"]
+            assert "VSS_AGENT_HOST_PORT" not in kwargs["env"]
             self.returncode = native_exit
 
         def wait(self, **kwargs):
@@ -206,14 +254,19 @@ def test_pipeline_outcome_and_canonical_report(
             return native_exit
 
     monkeypatch.setattr(runner.subprocess, "Popen", NativeProcess)
-    assert runner.main(["--output-json", str(output)]) == expected_exit
+    assert runner.main(["--output-json", str(output), "--scenario", scenario]) == expected_exit
+    assert checked_ports == [8001]
+    assert os.environ["VSS_AGENT_HOST_PORT"] == "8000"
     for key in ("VSS_APPS_DIR", "VSS_DATA_DIR"):
         assert os.environ.get(key) == inherited_path
     reports = list((output / "vss-perf-results").glob("*.json"))
     assert len(reports) == 1
     report = json.loads(reports[0].read_text())
     assert report["metadata"]["service"] == "Alerts-Verification"
-    assert report["metadata"]["config"]["setup"] == "synthetic_kafka"
+    assert report["metadata"]["config"]["setup"] == (
+        "synthetic_kafka" if scenario == "quick_test" else "e2e_kafka"
+    )
+    assert report["metadata"]["config"]["agent_host_port"] == 8001
     if native_exit:
         assert report["test_cases"][-1]["error"]["stage"] == "benchmark"
     assert report["summary"]["overall_status"] == (
@@ -298,6 +351,13 @@ def test_staged_blueprint_compose_keeps_required_environment_inputs(tmp_path, mo
     result = subprocess.run(command, cwd=deployment, env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     resolved = json.loads(result.stdout)
+    agent = resolved["services"]["vss-agent"]
+    assert any(
+        str(port["published"]) == "8001" and port["target"] == 8000
+        for port in agent["ports"]
+    )
+    assert str(agent["environment"]["VSS_AGENT_PORT"]) == "8000"
+    assert ":8000/health" in str(agent["healthcheck"]["test"])
     for volume, subpath in (
         ("kafka-data", "data_log/kafka"),
         ("elastic-data", "data_log/elastic/data"),

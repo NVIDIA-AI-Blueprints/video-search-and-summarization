@@ -12,6 +12,7 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -70,6 +71,29 @@ def hardware_profile():
     raise ValueError(f"No native alerts hardware profile for detected GPU: {name}")
 
 
+def agent_host_port(config):
+    port = config.get("deployment", {}).get("agent_host_port", 8001)
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("deployment.agent_host_port must be an integer from 1 to 65535")
+    return port
+
+
+def ensure_agent_port_available(port, env):
+    # Docker can publish ports through NAT without a listening host process.
+    published = subprocess.check_output(
+        ["docker", "ps", "--format", "{{.Names}}\t{{.Ports}}"], text=True, env=env
+    )
+    for line in published.splitlines():
+        if re.search(rf":{port}->", line):
+            owner = line.split("\t", 1)[0]
+            raise ValueError(f"Alerts agent host port {port} is already published by {owner}")
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("0.0.0.0", port))
+    except OSError as error:
+        raise ValueError(f"Cannot bind Alerts agent host port {port}: {error}") from error
+
+
 def scenario_settings(config_path, scenario):
     config = yaml.safe_load(config_path.read_text())
     selected = config["test_scenarios"][scenario]
@@ -78,6 +102,7 @@ def scenario_settings(config_path, scenario):
             "Only synthetic_kafka and e2e_kafka latency modes are supported"
         )
     global_config = config["global"]
+    agent_host_port(global_config)
     dataset = selected.get("dataset", global_config["dataset"])
     workload = {**global_config.get("workload", {}), **selected.get("workload", {})}
     for key in (
@@ -145,7 +170,7 @@ def prepare_dataset(dataset, env):
     return destination
 
 
-def prepare_runtime(work):
+def prepare_runtime(work, agent_port=8001):
     """Keep source code and deployment templates untouched in the checkout."""
     source = REPO_ROOT / "deploy/docker"
     environment_templates = {}
@@ -179,6 +204,17 @@ def prepare_runtime(work):
     profile_env = deployment / "developer-profiles/dev-profile-alerts/.env"
     with profile_env.open("a") as stream:
         stream.write("\nSTREAM_TYPE=kafka\n")
+    # dev-profile.sh copies overrides.env into generated.env, which has higher
+    # Compose precedence than the profile .env. Change only this private copy.
+    overrides = deployment / "developer-profiles/dev-profile-alerts/overrides.env"
+    content = overrides.read_text()
+    assignment = f"VSS_AGENT_HOST_PORT={agent_port}"
+    pattern = r"(?m)^(?:export\s+)?VSS_AGENT_HOST_PORT=.*$"
+    if re.search(pattern, content):
+        content = re.sub(pattern, assignment, content)
+    else:
+        content += "\n" + assignment + "\n"
+    overrides.write_text(content)
     # The native profile configurator still needs a private deployment copy.
     # Images are selected by Compose environment interpolation, not file rewriting.
     (work / "eval/.env").touch(mode=0o600)
@@ -316,6 +352,7 @@ def main(argv=None):
     # exports would override that file when Compose resolves bind mounts.
     env.pop("VSS_APPS_DIR", None)
     env.pop("VSS_DATA_DIR", None)
+    env.pop("VSS_AGENT_HOST_PORT", None)
     env["NGC_CLI_API_KEY"] = env.get("NGC_CLI_API_KEY") or env.get("NGC_API_KEY", "")
     env["NGC_API_KEY"] = env["NGC_CLI_API_KEY"]
     stage = "pre_flight"
@@ -332,6 +369,7 @@ def main(argv=None):
         global_config, scenario, dataset, workload = scenario_settings(
             args.config, args.scenario
         )
+        agent_port = agent_host_port(global_config)
         for value in (args.vlm_gpus, args.llm_gpus):
             if value and not re.fullmatch(r"[0-9]+", value):
                 raise ValueError(
@@ -342,6 +380,7 @@ def main(argv=None):
                 "setup": scenario["benchmark_mode"],
                 "workload": workload,
                 "dataset": dataset,
+                "agent_host_port": agent_port,
             }
         )
         image = metadata_config["artifact_ref"]
@@ -376,6 +415,7 @@ def main(argv=None):
             write_docker_shim(shim, docker, [*support_values, "PERF_ALERT_IMAGE"])
             env["PATH"] = str(tools) + os.pathsep + env["PATH"]
         run(["docker", "compose", "version"], env=env)
+        ensure_agent_port_available(agent_port, env)
         existing = subprocess.check_output(
             ["docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=vss"],
             text=True,
@@ -391,7 +431,7 @@ def main(argv=None):
             dataset_root / dataset["videos_subpath"] / workload["latency_source_video"]
         ).is_file():
             raise ValueError("Configured latency source video is missing")
-        prepare_runtime(work)
+        prepare_runtime(work, agent_port)
         # The native stack uses fixed container names as well as project=vss.
         # Reject a conflicting name even when it belongs to a different project.
         reserved_names = set()
