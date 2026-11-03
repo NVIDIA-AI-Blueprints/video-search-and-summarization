@@ -315,11 +315,11 @@ export function draftToStructured(draft: EditDraft): Structured {
     uploaded: false,
     track: null,
     trackUrl: null,
-    clipUrl: null,
     trackFirstSeenSeconds: null,
     trackLastSeenSeconds: null,
     trackSource: null,
     trackPartial: false,
+    trackGap: null,
     addedByReviewer: false,
   });
   const entityIdByKey = new Map(draft.entities.map((entity) => [entity.key, entity.canonicalId]));

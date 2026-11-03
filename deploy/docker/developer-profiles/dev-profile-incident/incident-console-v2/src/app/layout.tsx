@@ -3,6 +3,8 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
+import { Toaster } from '@/components/ui/sonner';
+
 import './styles.css';
 
 export const metadata: Metadata = {
@@ -13,7 +15,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-background text-foreground antialiased">{children}</body>
+      <body className="bg-background text-foreground antialiased">
+        {children}
+        <Toaster position="top-center" />
+      </body>
     </html>
   );
 }

@@ -16,6 +16,8 @@ const {
   parseTrackSamples,
   presenceRegion,
   presenceSeekSeconds,
+  stillBoxFor,
+  stillBoxHolds,
   trackBoxAt,
   trackColour,
   trackedReportItems,
@@ -142,6 +144,40 @@ test('the view carries a track when the entry has its key and both span ends, an
   assert.equal(lines[1].trackedOnScreen, null);
 });
 
+test('an untracked item holds its stored box at the second it was found; a tracked or box-less one holds nothing', () => {
+  const item = (evidence) => ({ id: 'E2', title: 'man in blue', evidence });
+  const found = { track: null, located: true, boxSeconds: 12.5, boundingBox: [100, 200, 600, 700] };
+  assert.deepEqual(stillBoxFor(item(found)), { id: 'E2', label: 'man in blue', box: [100, 200, 600, 700], seconds: 12.5 });
+  assert.equal(stillBoxFor(item({ ...found, located: null }))?.seconds, 12.5, 'an entry that predates the flag still holds');
+  assert.equal(stillBoxFor(item({ ...found, track: TRACK_KEY })), null, 'a tracked item draws its track');
+  assert.equal(stillBoxFor(item({ ...found, located: false })), null, 'the detector found nothing');
+  assert.equal(stillBoxFor(item({ ...found, boxSeconds: null })), null);
+  assert.equal(stillBoxFor(item({ ...found, boundingBox: null })), null);
+  assert.equal(stillBoxFor(item({ ...found, boundingBox: [0, 0, 0, 0] })), null, 'an empty box');
+  assert.equal(stillBoxFor(item(null)), null);
+});
+
+test('a held still box stays while the player rests at its second and goes when the playhead moves on', () => {
+  const still = { id: 'E2', label: 'man in blue', box: [100, 200, 600, 700], seconds: 12.5 };
+  assert.equal(stillBoxHolds(still, 12.5), true);
+  assert.equal(stillBoxHolds(still, 12.7), true, 'a frame either side');
+  assert.equal(stillBoxHolds(still, 13), false);
+  assert.equal(stillBoxHolds(still, 3), false);
+});
+
+test('a person the run did not track says why, on the card and the pop-up lines, and a tracked one does not', () => {
+  const { entities } = structuredFromPayload(payload, [
+    entry('E1', { track: TRACK_KEY, track_first_seen_seconds: 78.2, track_last_seen_seconds: 95.6, track_gap: 'stale' }),
+    entry('E2', { track_gap: 'no frames from perception' }),
+    entry('E3'),
+  ]);
+  const lines = entities.map((entity) => evidenceDetailLines(entityDetail(entity, [])));
+  assert.equal(entities[1].evidence.trackGap, 'no frames from perception');
+  assert.equal(lines[1].notTracked, 'Not tracked: no frames from perception');
+  assert.equal(lines[0].notTracked, null, 'a track wins over a stale reason');
+  assert.equal(lines[2].notTracked, null, 'an entry without a reason shows nothing');
+});
+
 test('only tracked items are drawn, each with its own colour in id order', () => {
   const structured = structuredFromPayload(payload, [
     entry('E1', { track: TRACK_KEY, track_first_seen_seconds: 78, track_last_seen_seconds: 95 }),
@@ -206,8 +242,18 @@ test('the track use case reads only the key the revision names, and a malformed 
   ]);
   assert.deepEqual(read, [TRACK_KEY]);
   assert.deepEqual(await getEvidenceTrack(incidents, store({ not: 'a list' }), request), []);
+  // A reviewer's track file is an object ({source, samples, span, ...}); it used to read back as empty.
+  assert.deepEqual(
+    await getEvidenceTrack(
+      incidents,
+      store({ source: 'reviewer', samples: [{ t: 2, box: [1, 2, 30, 40], conf: 0.8 }], span: [2, 2] }),
+      request,
+    ),
+    [{ t: 2, box: [1, 2, 30, 40] }],
+  );
+  assert.deepEqual(await getEvidenceTrack(incidents, store({ source: 'reviewer', samples: 'x' }), request), []);
   assert.equal(await getEvidenceTrack(incidents, store([]), { ...request, itemId: 'E2' }), null, 'not a track key');
   assert.equal(await getEvidenceTrack(incidents, store([]), { ...request, itemId: 'E9' }), null);
   assert.equal(await getEvidenceTrack(incidents, store([]), { ...request, revisionId: revisionId + 50 }), null);
-  assert.deepEqual(read, [TRACK_KEY, TRACK_KEY]);
+  assert.deepEqual(read, [TRACK_KEY, TRACK_KEY, TRACK_KEY, TRACK_KEY]);
 });

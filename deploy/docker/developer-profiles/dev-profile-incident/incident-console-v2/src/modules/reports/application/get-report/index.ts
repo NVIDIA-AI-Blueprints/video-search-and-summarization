@@ -2,14 +2,13 @@
 
 // Get report: one revision's view for the report page, with its video and
 // evidence images (the whole frame and the crop) signed for the browser, and
-// each person's track and each item's clip pointed at the console's own routes.
+// each person's track pointed at the console's own routes.
 
 import type { IncidentRepository, RevisionRecord } from '@/modules/reports/domain/IncidentRepository';
 import type { ReportView } from '@/modules/reports/domain/report-view';
 import { toReportView } from '@/modules/reports/application/report-view';
 import type { SignStorageKey } from '@/modules/reports/application/types';
 import type { EvidenceItemType, ReportPayload } from '@/modules/reports/domain/revision';
-import { clipCentreSeconds, evidenceClipKey, evidenceClipUrl } from '@/modules/reports/domain/evidence-clip';
 
 /** The console route the browser reads one item's track samples from (R2 has no CORS rule for the console origin). */
 export function evidenceTrackUrl(videoId: string, revisionId: number, itemType: EvidenceItemType, itemId: string): string {
@@ -18,7 +17,7 @@ export function evidenceTrackUrl(videoId: string, revisionId: number, itemType: 
 }
 
 /** Signs each item's frame and image so the browser can show them; one that cannot be signed is shown as missing. */
-async function withImageUrls(view: ReportView, videoKey: string, sign: SignStorageKey): Promise<ReportView> {
+async function withImageUrls(view: ReportView, sign: SignStorageKey): Promise<ReportView> {
   const signed = new Map<string, string | null>();
   const urlOf = async (image: string | null) => {
     if (!image) return null;
@@ -36,12 +35,7 @@ async function withImageUrls(view: ReportView, videoKey: string, sign: SignStora
       if (item.evidence) {
         const [imageUrl, frameUrl] = await Promise.all([urlOf(item.evidence.image), urlOf(item.evidence.frame)]);
         const trackUrl = item.evidence.track ? evidenceTrackUrl(view.videoId, view.revisionId, type, id) : null;
-        const { frame, image, track } = item.evidence;
-        const clipUrl =
-          clipCentreSeconds(item.evidence) !== null && evidenceClipKey([frame, image, track], videoKey, id)
-            ? evidenceClipUrl(view.videoId, view.revisionId, type, id)
-            : null;
-        item.evidence = { ...item.evidence, imageUrl, frameUrl, trackUrl, clipUrl };
+        item.evidence = { ...item.evidence, imageUrl, frameUrl, trackUrl };
       }
     }),
   );
@@ -72,5 +66,5 @@ export async function getReport(
   if (!record) return null;
   if (!record.video.storageKey) throw new Error('The report has no linked R2 video');
   const baseline = await aiBaseline(incidents, record);
-  return withImageUrls(toReportView(record, await sign(record.video.storageKey), baseline), record.video.storageKey, sign);
+  return withImageUrls(toReportView(record, await sign(record.video.storageKey), baseline), sign);
 }

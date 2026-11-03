@@ -25,9 +25,12 @@ export function coversWholeFrame(box: readonly number[] | null | undefined): boo
   return !!region && region.w >= WHOLE_FRAME && region.h >= WHOLE_FRAME;
 }
 
-/** The frame the console cuts from the video's stored file at a second (the route reads the video from R2). */
+/**
+ * The frame the console cuts from the video's stored file at a second (the route reads the video from R2). The second keeps
+ * up to three decimals, because Save cuts the stored frame at exactly the item's second and the preview must show that frame.
+ */
 export function videoFrameUrl(videoId: string, seconds: number): string {
-  return `/api/reports/${encodeURIComponent(videoId)}/frame?t=${Math.max(0, Math.round(seconds))}`;
+  return `/api/reports/${encodeURIComponent(videoId)}/frame?t=${+Math.max(0, seconds).toFixed(3)}`;
 }
 
 /**

@@ -64,7 +64,7 @@ ln -sfn ../.env.local mock-backend/.env.local
 Run `start.sh` with your chosen mode:
 
 ```bash
-./start.sh --mode mock   # zero GPU: local mock backend and VLM gateway, no SSH
+./start.sh --mode mock   # zero GPU: local mock backend and VLM gateway, no SSH (mock-backend tests only, never for UI or backend work)
 ./start.sh --mode vm     # kwanz-ws over an SSH tunnel (VSS uses GPU 0 only there)
 ```
 

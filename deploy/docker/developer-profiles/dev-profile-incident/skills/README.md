@@ -43,7 +43,7 @@ Two ways to run it, both through [`start.sh`](../start.sh):
 | Change or inspect the Supabase schema, test or apply a migration, query incident data, or find a video in R2 | [`incident-manage-database`](incident-manage-database/SKILL.md) |
 | Ingest ground truth, run the P1/RP1 VLM benchmark, aggregate results | [`incident-run-eval`](incident-run-eval/SKILL.md) |
 | Build, style or migrate UI components with shadcn/ui and Tailwind | [`shadcn`](shadcn/SKILL.md) (UI work in `incident-console-v2` should read this first) |
-| Natural-language video search & chat (MVP2) | Use [`incident-search`](incident-search/SKILL.md). Background facts and contracts are in [`.docs/mvp2/README.md`](../.docs/mvp2/README.md), [`.docs/status.md`](../.docs/status.md), `search-contract-v1`, and `chat-contract-v1`. Upstream reference: [`vss-search-archive`](../../../../../skills/vss-search-archive/SKILL.md) |
+| Natural-language video search & chat (MVP2) | Use [`incident-search`](incident-search/SKILL.md). Background facts and contracts are in [`.docs/mvp2/README.md`](../.docs/mvp2/README.md), [`.docs/status.md`](../.docs/status.md), `search-contract-v1`, `chat-contract-v1` and `chat-contract-v2`. Upstream reference: [`vss-search-archive`](../../../../../skills/vss-search-archive/SKILL.md) |
 
 **Easy to confuse:**
 

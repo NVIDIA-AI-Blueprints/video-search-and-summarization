@@ -40,7 +40,7 @@ Details of each path: [`.docs/architecture.md` §2](../../.docs/architecture.md#
      grep -q "^${v}=." .env.local && echo "ok      $v" || echo "MISSING $v"
    done
    ```
-3. **Symlinks:** every service reads its own `.env.local`; local mode passes `mock-backend/.env.local` to the mock backend and `vlm-gateway/.env.local` to the gateway, and stops with the fix command if either is missing. All three links are required:
+3. **Symlinks:** every service reads its own `.env.local`; mock mode passes `mock-backend/.env.local` to the mock backend and `vlm-gateway/.env.local` to the gateway, and stops with the fix command if either is missing. All three links are required:
    ```bash
    for d in incident-console-v2 vlm-gateway mock-backend; do ln -sfn ../.env.local "$d/.env.local"; done
    ```
@@ -65,7 +65,7 @@ Environment overrides such as `ENABLE_ANALYTICS`, `VSS_REPO_ROOT`, `INCIDENT_DOC
 
 ## Verify
 
-| Check | local | vm |
+| Check | mock | vm |
 |---|---|---|
 | Console readiness: `curl -s localhost:3200/api/health` returns only booleans | yes | yes |
 | Mock backend: `curl -s 127.0.0.1:7777/health` | yes | - |
@@ -83,7 +83,6 @@ Then run one upload to report with [`incident-analyze-video`](../incident-analyz
 | Symptom | Fix |
 |---|---|
 | `start.sh` aborts at the SSH preflight | Read the `Cause:` / `Fix:` lines it prints (Tailscale logged out or stopped, VM offline in the tailnet, DNS, SSH timeout or refused, login rejected, host key changed). Table: [`.docs/incident-profile-operations.md` §3](../../.docs/incident-profile-operations.md#3-laptop-to-vm-connectivity--ssh-troubleshooting). |
-| `start.sh` aborts with "could not register active run lock" | The backend may currently be stopping from another session's exit. Retry once the stop completes. |
 | `start.sh` stops with `[vm] ERROR` or "timed out" | The Docker step on the VM failed: exit 10 repo, 11 `generated.env.remote` missing, 12 docker unusable, 13 image pull (NGC login), 14/124 `compose up` failed or stuck (its output shows container states and logs). Tunables: `VSS_PULL_TIMEOUT`, `VSS_COMPOSE_UP_TIMEOUT`, `VSS_NATIVE_START_TIMEOUT`. |
 | Tunnel step fails | `start.sh` says whether a laptop port is taken, the SSH forward is blocked (or `VSS_AGENT_HOST` on the VM is bound to a LAN address instead of `127.0.0.1`), the VM address is wrong (set `VSS_VM_IP`), or the agent is down on the VM. |
 | Logged in as the wrong VM user | Set `User` under `Host kwanz-ws`, or `export VSS_SSH_USER=<name>`. |

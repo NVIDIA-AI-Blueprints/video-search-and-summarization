@@ -448,6 +448,54 @@ class TestRunLifecycle:
         assert len(client.removed) == 1 and client.deleted == ["incident-abc-run1"]
 
     @pytest.mark.asyncio
+    async def test_no_frames_with_the_stream_gone_skips_at_the_timeout_not_the_deadline(self):
+        client = FakePerceptionClient([])
+        client.fail["stream_count"] = PerceptionError("down")  # an unreadable count reads as gone
+        time, _, run = self._run(client)
+        outcome = await run
+        assert outcome.skipped == "no frames from perception"
+        assert time.now < CLIP_8206.duration_seconds  # did not wait for the deadline
+
+    @pytest.mark.asyncio
+    async def test_a_quiet_start_keeps_waiting_while_the_stream_is_alive_then_reads_the_frames(self):
+        pass_one = _pass_one()
+
+        class QuietStart(FakePerceptionClient):
+            appear_at = 60.0  # past the 40 s no-frames timeout
+
+            def __init__(self, time, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.time = time
+
+            async def latest_frame_id(self, sensor_id: str) -> int | None:
+                if self.time.now < self.appear_at:
+                    return None
+                return await super().latest_frame_id(sensor_id)
+
+        time = FakeTime()
+        client = QuietStart(time, [pass_one])
+
+        async def probe(path: Path) -> ClipInfo:
+            return CLIP_8206
+
+        async def transcode(source: Path, target: Path) -> Path:
+            return target
+
+        outcome = await run_tracking(
+            self.video,
+            sensor_id="incident-abc-run1",
+            client=client,
+            settings=TrackingSettings(),
+            probe=probe,
+            transcode=transcode,
+            sleep=time.sleep,
+            clock=time.clock,
+        )
+        assert outcome.skipped is None and outcome.tracks
+        assert time.now >= QuietStart.appear_at
+        assert len(client.removed) == 1 and client.deleted == ["incident-abc-run1"]
+
+    @pytest.mark.asyncio
     async def test_services_down_is_soft_and_nothing_is_left_to_remove(self):
         client = FakePerceptionClient(fail={"upload": PerceptionError("POST /api/v1/storage/file: ConnectError")})
         _, _, run = self._run(client)

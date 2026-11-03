@@ -697,6 +697,8 @@ class TestTrackingEvidence:
             video_ref=tiny_video_path, video_id="v", report=REPORT, batch_id="b", tracking=request
         )
         assert all("track" not in r for r in results)
+        assert results[0]["track_gap"] == "no person track overlapped this person's box"
+        assert all("track_gap" not in r for r in results[1:]), "only a person carries the gap"
         assert results[0]["bounding_box"] == pytest.approx([200, 200, 600, 600], abs=60)
         assert results[0]["detected_box"] == pytest.approx([200, 200, 600, 600], abs=1), "the unpadded detector box"
         assert results[0]["box_seconds"] == 0
@@ -713,6 +715,8 @@ class TestTrackingEvidence:
         ).process_incident_report(
             video_ref=tiny_video_path, video_id="v", report=REPORT, batch_id="b", tracking=request
         )
+        person = tracked[0]
+        assert person.pop("track_gap") == "no frames from perception"  # the run's skip reason, on the person only
         assert tracked == plain
         assert request.summary.skipped == "no frames from perception" and request.summary.matched == 0
 

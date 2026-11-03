@@ -51,8 +51,6 @@ export interface ItemEvidence {
   track: string | null;
   /** Same-origin URL the browser reads the track's samples from (R2 has no CORS rule for the console); null without a track. */
   trackUrl: string | null;
-  /** Console route that cuts (on first play) and signs the item's clip; null when it has no second or no stored evidence to keep a clip beside. */
-  clipUrl: string | null;
   /** The track's span on screen in video seconds, beside the report's own first_seen/last_seen (never rewritten). */
   trackFirstSeenSeconds: number | null;
   trackLastSeenSeconds: number | null;
@@ -60,6 +58,8 @@ export interface ItemEvidence {
   trackSource: 'reviewer' | null;
   /** True when the tracker lost the item before the window ended: the View badge reads "Incomplete track". */
   trackPartial: boolean;
+  /** Why a person has no track when the run tracked people (the agent's `track_gap`); null when tracked or not recorded. */
+  trackGap: string | null;
   /** True for an item the reviewer boxed (its entry's source is 'reviewer'): the View badge reads "Added by reviewer". */
   addedByReviewer: boolean;
 }

@@ -58,7 +58,7 @@ function evidenceOf(entries: EvidenceEntry[], type: EvidenceItemType, itemId: st
     boundingBox: entry.bounding_box,
     timestampSeconds: entry.timestamp_seconds,
     uploaded: entry.source === 'upload',
-    clipUrl: null,
+    trackGap: text(entry.track_gap),
     ...trackOf(entry),
     addedByReviewer: entry.source === 'reviewer',
   };

@@ -1466,6 +1466,9 @@ class CropEvidenceService:
         correcting, beside the person tracking run. The resulting track is stored like a person track
         (``track``, ``track_first_seen_seconds``, ``track_last_seen_seconds``) with ``track_source`` set to
         ``object-tracker``, and the item's frame is re-cut at the track's first sample (the second it is first seen).
+
+        When person tracking was requested, a person left without a track keeps ``track_gap``, the reason (the run's
+        skip reason, else that no track overlapped the box or that the person was not located).
         """
         active_detector = detector if detector is not None else self.detector
         zoom_on = zoom_names_enabled() if zoom_names is None else zoom_names
@@ -1882,6 +1885,16 @@ class CropEvidenceService:
                 if crop is not None and moment.t != crop.box_seconds:
                     await _recut(by_id[item_id], track)  # a failed re-cut keeps the located frame and the track
                 matched_tracks[item_id] = track
+
+        if tracking is not None:
+            # A person left without a track says why, so the console can show it (``track_gap``, like ``image_gap``).
+            for entry in entries:
+                if entry["item_type"] == "entity" and entry["item_id"] not in matched_tracks:
+                    entry["track_gap"] = tracking.summary.skipped or (
+                        "no person track overlapped this person's box"
+                        if (crop := crops.get(entry["item_id"])) is not None and crop.located
+                        else "this person was not located, so no track could be matched"
+                    )
 
         await asyncio.gather(*(_upload(entry, matched_tracks.get(entry["item_id"])) for entry in entries))
 

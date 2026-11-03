@@ -12,7 +12,7 @@ const TRACK_KEY = /^evidence\/.+-track\.json$/;
 
 /**
  * The samples of the track the revision's evidence entry names; null when the revision, the entry or its track is missing.
- * A stored file that is not a list of samples answers an empty list (the overlay draws nothing for it).
+ * A stored file that is neither a list of samples nor a reviewer object with `samples` answers an empty list (the overlay draws nothing for it).
  */
 export async function getEvidenceTrack(
   incidents: IncidentRepository,

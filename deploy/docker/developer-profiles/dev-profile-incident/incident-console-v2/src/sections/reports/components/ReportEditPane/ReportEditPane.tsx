@@ -31,12 +31,14 @@ import {
 } from '@/lib/reports/compare';
 import { severityStyle } from '@/lib/ui/severity';
 import { cn } from '@/lib/utils';
-import type { ReviewerDraftItem as BoxToolItem } from '@/modules/reports/domain/reviewer-item';
+import type { ReviewerDraftItem as BoxToolItem, ReviewerTrack } from '@/modules/reports/domain/reviewer-item';
 import type { EvidenceItemType as BoxItemType } from '@/modules/reports/domain/revision';
 import { EDITABLE_ENTITY_TYPES, EDITABLE_INCIDENT_TYPES, type EditDraft } from '@/modules/reports/domain/edit-draft';
 import { formatClock } from '@/modules/reports/domain/normalize';
 import { EvidenceFrame } from '@/sections/evidence/components/EvidenceFrame';
 import { BoxTool, type ExistingItem } from '@/sections/evidence/components/BoxTool';
+import { TrackEditor } from '@/sections/evidence/components/TrackEditor';
+import { trackEditorSource } from '@/lib/evidence/track-editor-source';
 
 const capitalize = (value: string | null) => (value ? value[0].toUpperCase() + value.slice(1) : 'Unclassified');
 const clock = (seconds: number | null) => (seconds === null ? '—' : formatClock(seconds));
@@ -78,6 +80,11 @@ export function ReportEditPane({
 }) {
   // The box tool: adding new evidence, or re-tracking a card's item from a new box.
   const [boxTool, setBoxTool] = useState<{ row: PairRow['b'] } | null>(null);
+  // The track editor: fix a card's track with keyframes. `saved` is the opened version's item, whose track it starts from.
+  const [trackEditor, setTrackEditor] = useState<{
+    row: NonNullable<PairRow['b']>;
+    saved: NonNullable<PairRow['a']>['evidence'] | null;
+  } | null>(null);
   const pairing = pairReport(a, draft);
   const patchIncident = (patch: Partial<EditDraft['incident']>) => onChange({ ...draft, incident: { ...draft.incident, ...patch } });
   const patchEntity = (key: string, patch: Partial<EditDraft['entities'][number]>) =>
@@ -97,6 +104,26 @@ export function ReportEditPane({
   };
   const edit = (row: PairRow) => {
     if (row.b) setBoxTool({ row: row.b });
+  };
+  const editTrack = (row: PairRow) => {
+    if (row.b) setTrackEditor({ row: row.b, saved: row.a?.evidence ?? null });
+  };
+  const finishTrackEditor = (track: ReviewerTrack) => {
+    const target = trackEditor?.row;
+    if (!target) return;
+    const kind: BoxItemType = isDraftEntity(target) ? 'entity' : isDraftInstrument(target) ? 'instrument' : 'asset';
+    const text = existingForTool(target);
+    onChange(
+      retrackDraftItem(draft, kind, target.key, {
+        itemType: kind,
+        name: text.name,
+        description: text.description,
+        ...(text.threatLevel !== null ? { threatLevel: text.threatLevel } : {}),
+        aiProposal: null,
+        track,
+      }),
+    );
+    setTrackEditor(null);
   };
   const finishBoxTool = (item: BoxToolItem, holderKey: string | null) => {
     const target = boxTool?.row ?? null;
@@ -336,6 +363,7 @@ export function ReportEditPane({
                     inherited={inherited(unit.entity)}
                     onRemove={remove}
                     onEdit={edit}
+                    onEditTrack={editTrack}
                     onRevert={revert}
                     onSeek={onSeek}
                     patchAsset={patchAsset}
@@ -357,6 +385,7 @@ export function ReportEditPane({
                       inherited=""
                       onRemove={remove}
                       onEdit={edit}
+                      onEditTrack={editTrack}
                       onRevert={revert}
                       onSeek={onSeek}
                       patchAsset={patchAsset}
@@ -373,6 +402,17 @@ export function ReportEditPane({
         )}
       </section>
 
+      {trackEditor && (
+        <TrackEditor
+          itemId={trackEditor.row.sourceId}
+          kind={isDraftEntity(trackEditor.row) ? 'entity' : isDraftInstrument(trackEditor.row) ? 'instrument' : 'asset'}
+          name={draftItemName(trackEditor.row)}
+          onClose={() => setTrackEditor(null)}
+          onDone={finishTrackEditor}
+          videoSrc={videoSrc}
+          {...trackEditorProps(trackEditor.row, trackEditor.saved)}
+        />
+      )}
       {boxTool && (
         <BoxTool
           client={boxClient}
@@ -387,6 +427,18 @@ export function ReportEditPane({
       )}
     </div>
   );
+}
+
+/** What the track editor opens with: the item's track (the reviewer's or the saved one), else a still box, else nothing. */
+function trackEditorProps(item: NonNullable<PairRow['b']>, saved: NonNullable<PairRow['a']>['evidence'] | null) {
+  const source = trackEditorSource(item, saved);
+  return {
+    badge: source.badge,
+    samples: source.samples,
+    trackUrl: source.trackUrl,
+    still: source.still,
+    initialSeconds: item.timestampSeconds ?? 0,
+  };
 }
 
 function PairField({ label, left, right }: { label: string; left: React.ReactNode; right: React.ReactNode }) {
@@ -414,6 +466,7 @@ function PairRowView({
   holderOptions,
   onRemove,
   onEdit,
+  onEditTrack,
   onRevert,
   onSeek,
   patchEntity,
@@ -430,6 +483,7 @@ function PairRowView({
   holderOptions: Array<{ key: string; label: string }>;
   onRemove: (row: PairRow) => void;
   onEdit: (row: PairRow) => void;
+  onEditTrack: (row: PairRow) => void;
   onRevert: (row: PairRow) => void;
   onSeek: (seconds: number) => void;
   patchEntity: PatchEntity;
@@ -468,6 +522,7 @@ function PairRowView({
             item={row.b}
             onRemove={() => onRemove(row)}
             onEdit={() => onEdit(row)}
+            onEditTrack={() => onEditTrack(row)}
             onRevert={changed ? () => onRevert(row) : null}
             onSeek={onSeek}
             patchAsset={patchAsset}
@@ -559,6 +614,7 @@ function EditCard({
   draftHolder,
   onRemove,
   onEdit,
+  onEditTrack,
   onRevert,
   onSeek,
   patchEntity,
@@ -573,6 +629,7 @@ function EditCard({
   draftHolder: (instrument: EditDraft['instruments'][number]) => string;
   onRemove: () => void;
   onEdit: () => void;
+  onEditTrack: () => void;
   onRevert: (() => void) | null;
   onSeek: (seconds: number) => void;
   patchEntity: PatchEntity;
@@ -720,6 +777,16 @@ function EditCard({
           variant="ghost"
         >
           Edit
+        </Button>
+        <Button
+          className="h-6 rounded-full px-2 text-[11px] text-ink hover:bg-ink/5"
+          data-testid="edit-track"
+          onClick={onEditTrack}
+          size="xs"
+          type="button"
+          variant="ghost"
+        >
+          Edit track
         </Button>
         <Button
           className="h-6 rounded-full px-2 text-[11px] text-clay hover:bg-clay/10 hover:text-clay"

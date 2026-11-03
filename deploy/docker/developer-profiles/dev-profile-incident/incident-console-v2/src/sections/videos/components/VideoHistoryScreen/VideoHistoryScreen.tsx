@@ -2,6 +2,7 @@
 
 'use client';
 
+import { MutedVideo } from '@/components/muted-video';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -51,9 +52,9 @@ export function VideoHistoryScreen({ videoId }: { videoId: string }) {
             <div className="border-b border-border p-6 lg:border-b-0 lg:border-r">
               {video.playbackUrl ? (
                 <div className="relative aspect-video w-full min-w-0 min-h-0 overflow-hidden rounded-2xl bg-black flex items-center justify-center">
-                  <video className="max-h-full max-w-full object-contain" controls src={video.playbackUrl}>
+                  <MutedVideo className="max-h-full max-w-full object-contain" controls src={video.playbackUrl}>
                     <track kind="captions" />
-                  </video>
+                  </MutedVideo>
                 </div>
               ) : (
                 <Alert className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">

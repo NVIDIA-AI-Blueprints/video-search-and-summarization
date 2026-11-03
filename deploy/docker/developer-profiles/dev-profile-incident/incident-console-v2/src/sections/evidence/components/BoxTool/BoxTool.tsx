@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { MutedVideo } from '@/components/muted-video';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -288,9 +289,8 @@ export function BoxTool({
         {stage === 'box' && (
           <>
             <BoxCanvas box={seed?.box ?? null} drawable onDraw={(box) => setSeed({ seconds, box })} testId="box-tool-frame">
-              <video
+              <MutedVideo
                 className="h-full w-full object-fill"
-                muted
                 onLoadedMetadata={(event) => {
                   const length = event.currentTarget.duration;
                   setDuration(Number.isFinite(length) && length > 0 ? length : null);
