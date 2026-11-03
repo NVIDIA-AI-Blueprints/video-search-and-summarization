@@ -632,12 +632,15 @@ def main(argv=None):
             }
         )
     passed = sum(case["status"] == "PASS" for case in cases)
+    platform = discover_platform(config_id=args.config_id)
+    if args.gpu_model:
+        platform.setdefault("gpu", {})["model"] = args.gpu_model
     path = build_and_save(
         output / "vss-perf-results",
         SERVICE,
         cases,
         config_id=args.config_id,
-        platform=discover_platform(config_id=args.config_id),
+        platform=platform,
         config=metadata_config,
         benchmark_name=args.scenario,
         benchmark_mode=metadata_config.get("setup", "latency"),

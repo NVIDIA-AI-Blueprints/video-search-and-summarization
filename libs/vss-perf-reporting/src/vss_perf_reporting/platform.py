@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import csv
 import re
 import subprocess
 from pathlib import Path
@@ -53,6 +54,40 @@ def get_cuda_version() -> str:
         return ""
 
 
+def _get_gpu_info_from_smi() -> dict[str, Any]:
+    """Discover the same metadata when the optional NVML Python binding is absent."""
+    try:
+        output = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,driver_version",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
+        rows = [row for row in csv.reader(output.splitlines(), skipinitialspace=True) if row]
+        if not rows or any(len(row) != 3 for row in rows):
+            raise ValueError("No valid GPU metadata returned")
+        full_name, memory, driver = (value.strip() for value in rows[0])
+        words = full_name.split()
+        memory_gb = (
+            None
+            if memory in ("N/A", "[N/A]", "Not Supported", "[Not Supported]")
+            else round(float(memory) / 1024, 2)
+        )
+        return {
+            "model": (words[1] if len(words) > 1 else full_name).upper(),
+            "full_name": full_name,
+            "count": len(rows),
+            "memory_gb": memory_gb,
+            "driver_version": driver,
+        }
+    except Exception:
+        return {"model": "", "full_name": "", "count": 0, "memory_gb": 0, "driver_version": ""}
+
+
 def get_gpu_info() -> dict[str, Any]:
     try:
         import pynvml
@@ -80,7 +115,7 @@ def get_gpu_info() -> dict[str, Any]:
             "driver_version": driver,
         }
     except Exception:
-        return {"model": "", "full_name": "", "count": 0, "memory_gb": 0, "driver_version": ""}
+        return _get_gpu_info_from_smi()
 
 
 def discover_platform(config_id: str | None = None) -> dict[str, Any]:
