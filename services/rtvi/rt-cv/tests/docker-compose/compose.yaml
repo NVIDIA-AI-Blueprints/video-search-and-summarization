@@ -84,10 +84,11 @@ services:
     working_dir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
     volumes:
       - ../configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/tests/configs:ro
+      - ${VSS_FRAME_BROKER_DIR:-/tmp/vss-frame-broker}:/run/vss/frame-broker:ro
     ports:
       - "9000:9000"
     command:
-      - ./metropolis_perception_app
+      - /opt/nvidia/deepstream/deepstream/bin/start_rtvi_cv_shared.sh
       - -c
       - tests/configs/source_nvmultiurisrcbin_kafka.compose.txt
     networks:

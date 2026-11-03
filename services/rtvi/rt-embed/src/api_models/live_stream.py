@@ -19,9 +19,9 @@ and CV-compatible models (/v1/stream/*) for cross-service interoperability.
 """
 
 from datetime import datetime
-from typing import Annotated, Any, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from .captions import (
     ABSOLUTE_PROMPT_MAX_LENGTH,
@@ -614,6 +614,44 @@ class StreamMetadata(CommonBaseModel):
         return self.has_vlm_inference_params or self.has_embed_inference_params
 
 
+class SharedDecodeFrameSource(CommonBaseModel):
+    """Connection details for a VSS-owned shared-decode frame stream."""
+
+    type: Literal["shared_decode"] = Field(
+        description="Select the VSS shared-decode input adapter.",
+    )
+    protocol_version: Literal["1.0"] = Field(
+        description="Frame broker protocol version.",
+    )
+    control_socket: str = Field(
+        description="Absolute path to the local frame broker Unix socket.",
+        min_length=1,
+        max_length=1024,
+        pattern=r"^/",
+        examples=["/run/vss/frame-broker/job-123.sock"],
+    )
+    session_token: str = Field(
+        description="Ephemeral token used to authenticate with the frame broker.",
+        min_length=1,
+        max_length=4096,
+    )
+    consumer_id: str = Field(
+        description="Consumer identifier registered for this backend.",
+        min_length=1,
+        max_length=256,
+        pattern=ANY_CHAR_PATTERN,
+        examples=["rtvi-embed"],
+    )
+    transport: Literal["cuda_ipc"] = Field(
+        description="Shared-frame transport negotiated with the broker.",
+    )
+    device_id: int = Field(
+        description="Physical GPU device containing the shared surfaces.",
+        ge=0,
+        le=1024,
+    )
+
+
 class StreamAddValue(CommonBaseModel):
     """Value payload for POST /v1/stream/add."""
 
@@ -629,7 +667,8 @@ class StreamAddValue(CommonBaseModel):
         pattern=ANY_CHAR_PATTERN,
         description="Human-readable camera name.",
     )
-    camera_url: str = Field(
+    camera_url: Optional[str] = Field(
+        default=None,
         description="Stream URL (rtsp://, file://, http://, https://).",
         max_length=1024,
         pattern=CV_STREAM_URL_PATTERN,
@@ -654,6 +693,10 @@ class StreamAddValue(CommonBaseModel):
         pattern=ANY_CHAR_PATTERN,
         description="Optional VIOS tags string.",
     )
+    frame_source: Optional[SharedDecodeFrameSource] = Field(
+        default=None,
+        description="External frame source. Mutually exclusive with camera_url.",
+    )
     change: str = Field(
         description="Operation type (e.g. 'camera_add').",
         max_length=32,
@@ -671,6 +714,13 @@ class StreamAddValue(CommonBaseModel):
         default=None,
         description="Optional metadata and VLM inference parameters.",
     )
+
+    @model_validator(mode="after")
+    def validate_frame_input(self):
+        """Require exactly one decoder-owned or externally supplied frame source."""
+        if (self.camera_url is None) == (self.frame_source is None):
+            raise ValueError("exactly one of camera_url and frame_source must be provided")
+        return self
 
 
 class StreamAddHeaders(CommonBaseModel):

@@ -21,7 +21,7 @@ from typing import Annotated, Dict, List, Optional
 from urllib.parse import urlparse
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from common.logger import logger
 
@@ -428,6 +428,65 @@ class VideoEmbeddingsQuery(CommonBaseModel):
             " Not applicable for live-streaming."
         ),
     )
+    frame_times: Optional[List[float]] = Field(
+        default=None,
+        min_length=1,
+        max_length=50,
+        description=(
+            "Presentation timestamps in seconds for an ordered list of image IDs. "
+            "Used when externally decoded video frames are submitted as images."
+        ),
+    )
+    frame_chunk_start: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Source-video start time in seconds for an external frame batch.",
+    )
+    frame_chunk_end: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Source-video end time in seconds for an external frame batch.",
+    )
+
+    @model_validator(mode="after")
+    def validate_external_frame_timing(self):
+        timing_values = (
+            self.frame_times,
+            self.frame_chunk_start,
+            self.frame_chunk_end,
+        )
+        if not any(value is not None for value in timing_values):
+            return self
+        if not all(value is not None for value in timing_values):
+            raise ValueError(
+                "frame_times, frame_chunk_start, and frame_chunk_end "
+                "must be provided together"
+            )
+        if not isinstance(self.id, list):
+            raise ValueError("external frame timing requires a list of image IDs")
+        if self.media_type != "image":
+            raise ValueError("external frame timing requires media_type='image'")
+        assert self.frame_times is not None
+        assert self.frame_chunk_start is not None
+        assert self.frame_chunk_end is not None
+        if len(self.frame_times) != len(self.id):
+            raise ValueError("frame_times must contain one timestamp per image ID")
+        if self.frame_chunk_end < self.frame_chunk_start:
+            raise ValueError("frame_chunk_end must not precede frame_chunk_start")
+        if any(
+            current < previous
+            for previous, current in zip(
+                self.frame_times, self.frame_times[1:], strict=False
+            )
+        ):
+            raise ValueError("frame_times must be ordered")
+        if any(
+            timestamp < self.frame_chunk_start
+            or timestamp > self.frame_chunk_end
+            for timestamp in self.frame_times
+        ):
+            raise ValueError("frame_times must fall within the frame chunk")
+        return self
     # TODO: Check if this can be supported
     # num_frames_per_second_or_fixed_frames_chunk: int = Field(
     #     default=0,
