@@ -1,8 +1,14 @@
 # Evaluation V2: AI-only independent reference review (owner decision 2026-11-03)
 
-**Status:**
-- The workflow is prepared. No review call has been made yet.
-- The paid calls need the owner's approval of the estimate in §6.
+**Status (2026-11-03):**
+- **Approved by the owner**, for **development-split records only**, with hard caps of 440 calls, 3.4 M tokens and **$1.55**.
+- **Six-call probe passed 6/6.** It checked strict JSON, the pinned provider and model actually served, the cost reported by OpenRouter, and reasoning text kept where the provider returns it.
+- **Review run:**
+  - judge-calibration: 80 records;
+  - dashboard: 30 records (they carry no ground truth);
+  - chat: the 23 dev records.
+- **Deferred until after C3:** the 41 chat records that quote held-out ground truth.
+- Results: [`v2-ai-review-results.md`](v2-ai-review-results.md).
 - The tooling and outputs are private under `evalv2-data/v2/ai-review/`, because the packets quote ground-truth text.
 - This document states the method and its limits.
 
@@ -85,9 +91,10 @@ An AI-only review replaces them. It is **weaker evidence** than human review, an
 - **Proposed hard caps:** 440 calls, 3.4 M tokens, **$1.60**.
 - **Box review:** priced separately when RA1 finishes.
 
-**Disclosure decision for the owner:**
-- 41 of the 64 chat records quote ground truth of **held-out test-half** clips. This would be its first exposure outside the machine in V2; the subjects are not affected.
-- **Alternative:** review only the 23 dev records now, and the rest after C3.
+**Disclosure decision (owner, 2026-11-03):** development records only.
+- Every record's source clips are audited before sending (a private `split-audit.jsonl`).
+- No held-out ground truth is sent.
+- The 41 held-out chat records are deferred until after C3.
 
 ## 7. What the result can claim
 
