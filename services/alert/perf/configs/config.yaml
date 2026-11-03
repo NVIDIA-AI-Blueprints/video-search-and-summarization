@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 global:
   supporting_images: setup/configs/images.yaml
+  deployment:
+    agent_host_port: 8001
   dataset:
     name: Metropolis-Short-Video-Event-Verification
     tenant_id: "0573334707593577"

@@ -29,6 +29,15 @@ Each invocation runs one scenario. `quick_test` is synthetic Kafka alert
 injection; `full_alerts_latency` keeps upstream alert generation enabled. Both
 use the verification workflow and Prometheus latency measurements.
 
+Both scenarios publish the agent on host port `8001`, forwarding to its internal
+port `8000`. Set `global.deployment.agent_host_port` in `configs/config.yaml` to
+use another available host port. The runner checks availability before dataset
+preparation and deployment; this check does not reserve the port. It applies the
+setting only to the private runtime profile's `overrides.env`, which the native
+deployment copies into `generated.env`. An inherited `VSS_AGENT_HOST_PORT` does
+not override this benchmark setting. Internal routing, health checks, and model
+server ports remain unchanged.
+
 Configure sensors, duration, source video, alert category, worker count,
 synthetic event rate and coverage settings in `configs/config.yaml`. The initial
 workload uses one sensor and five minutes. Five synthetic submissions provide a
