@@ -1074,6 +1074,7 @@ async def incident_report_gen(config: IncidentReportGenConfig, builder: Builder)
             provenance.ran(
                 experiment=experiment is not None,
                 chunking=captions is not None and not captions.telemetry.get("skipped"),
+                chunking_skipped=captions.telemetry.get("skipped") if captions is not None else None,
                 tracking=tracking is not None,
                 set_of_marks=marked is not None and bool(marked_url),
                 object_tracking=objects is not None,

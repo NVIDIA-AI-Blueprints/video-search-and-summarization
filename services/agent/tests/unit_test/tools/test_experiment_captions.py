@@ -349,7 +349,7 @@ class TestInlineCaptions:
         result, _ = await _analyze(Gateway(), **INLINE)
         provenance = result.provenance
         assert provenance["flags"] == {
-            "chunking": {"enabled": True, **CHUNKING_DEFAULTS},
+            "chunking": {"enabled": True, "ran": True, "setting_enabled": False, "skipped": None, **CHUNKING_DEFAULTS},
             "tracking": False,
             "object_tracking": False,
             "set_of_marks": False,
@@ -378,7 +378,7 @@ class TestInlineCaptions:
             gateway, experiment_captions="inline", max_caption_calls=9, max_crop_calls=40, max_zoom_calls=80
         )
         assert result.provenance["flags"] == {
-            "chunking": {"enabled": True, **CHUNKING_DEFAULTS},
+            "chunking": {"enabled": True, "ran": True, "setting_enabled": False, "skipped": None, **CHUNKING_DEFAULTS},
             "tracking": False,
             "object_tracking": False,
             "set_of_marks": False,
@@ -498,7 +498,11 @@ class TestProductionUnchanged:
         assert result.experiment is None and result.revision_id == 7
         persist.assert_awaited_once()
         flags = result.provenance["flags"]
-        assert flags["chunking"] == {"enabled": True, **CHUNKING_DEFAULTS} and flags["experiment"] is False
+        assert (
+            flags["chunking"]
+            == {"enabled": True, "ran": True, "setting_enabled": True, "skipped": None, **CHUNKING_DEFAULTS}
+            and flags["experiment"] is False
+        )
         assert result.provenance["stages"]["caption"]["prompts"] == {
             prompt_id: incident_contract.prompt_sha256(prompt_id) for prompt_id in CAPTION_PROMPT_IDS
         }

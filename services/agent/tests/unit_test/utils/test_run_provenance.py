@@ -338,12 +338,41 @@ def test_the_flags_say_what_the_analysis_ran_over_the_agents_settings():
         provenance.ran(experiment=True, chunking=False, tracking=False, object_tracking=True)
     flags = provenance.to_dict(contract_version="v", flags=settings)["flags"]
     assert flags == {
-        "chunking": {"enabled": False, "window_seconds": 20},
+        "chunking": {
+            "enabled": False,
+            "ran": False,
+            "setting_enabled": True,
+            "skipped": None,
+            "window_seconds": 20,
+        },
         "tracking": False,
         "experiments": True,
         "experiment": True,
         "object_tracking": True,
     }
+
+
+@pytest.mark.parametrize(
+    ("setting", "ran", "skipped", "expected"),
+    [
+        (True, True, None, {"enabled": True, "ran": True, "setting_enabled": True, "skipped": None}),
+        (
+            True,
+            False,
+            "clip shorter than 30s",
+            {"enabled": False, "ran": False, "setting_enabled": True, "skipped": "clip shorter than 30s"},
+        ),
+        (False, False, None, {"enabled": False, "ran": False, "setting_enabled": False, "skipped": None}),
+    ],
+    ids=["ran on a long clip", "skipped on a short clip, setting on", "setting off"],
+)
+def test_chunking_flag_separates_the_run_from_the_agents_setting(setting, ran, skipped, expected):
+    with run_provenance.collecting() as provenance:
+        provenance.ran(chunking=ran, chunking_skipped=skipped)
+    flags = provenance.to_dict(contract_version="v", flags={"chunking": {"enabled": setting, "window_seconds": 20}})[
+        "flags"
+    ]
+    assert flags == {"chunking": {**expected, "window_seconds": 20}}
 
 
 @pytest.mark.asyncio

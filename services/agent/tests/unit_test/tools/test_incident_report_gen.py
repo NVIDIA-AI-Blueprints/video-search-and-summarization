@@ -1043,6 +1043,13 @@ class TestChunkedCaptions(TestEndToEnd):
         caption_video.assert_not_awaited()
         assert len(requests) == 1 and len(requests[0]["messages"]) == 1
         assert not {"chunk_timeline", "chunking"} & set(result.model_dump())  # captions are never returned
+        chunking = result.provenance["flags"]["chunking"]
+        assert (chunking["enabled"], chunking["ran"], chunking["setting_enabled"], chunking["skipped"]) == (
+            False,
+            False,
+            False,
+            None,
+        )
 
     @pytest.mark.asyncio
     async def test_flag_on_appends_the_context_and_returns_no_captions(self, monkeypatch):
@@ -1062,6 +1069,13 @@ class TestChunkedCaptions(TestEndToEnd):
         assert messages[0]["content"][1]["text"] == incident_contract.extraction_prompt()  # prompt file untouched
         assert requests[0]["response_format"] == incident_contract.response_format()
         assert not {"chunk_timeline", "chunking"} & set(result.model_dump())  # context for P1 only
+        chunking = result.provenance["flags"]["chunking"]
+        assert (chunking["enabled"], chunking["ran"], chunking["setting_enabled"], chunking["skipped"]) == (
+            True,
+            True,
+            True,
+            None,
+        )
         assert persist.await_args.kwargs["report"] == result.report  # the revision is written as before
 
     @pytest.mark.asyncio
@@ -1117,6 +1131,13 @@ class TestChunkedCaptions(TestEndToEnd):
             )
         caption_video.assert_not_awaited()
         assert _logged(caplog, "caption pass skipped for v1: video length unknown")
+        chunking = result.provenance["flags"]["chunking"]
+        assert {k: chunking[k] for k in ("enabled", "ran", "setting_enabled", "skipped")} == {
+            "enabled": False,
+            "ran": False,
+            "setting_enabled": True,
+            "skipped": "video length unknown",
+        }
         assert result.video_bounds_checked is False
         assert len(requests) == 1
 

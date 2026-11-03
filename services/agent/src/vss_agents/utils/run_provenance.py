@@ -29,8 +29,9 @@ The record (:meth:`RunProvenance.to_dict`) also names the agent's code (:func:`a
 flags and each stage's prompt SHA-256 from the shared registry. The flags are the agent's settings
 (:func:`analysis_flags`) overlaid with what this analysis actually ran (:meth:`RunProvenance.ran`): an experiment
 never runs person tracking or set-of-marks whatever the agent's settings say, and it runs the caption pass
-(``experiment_captions``) and object tracking only when it asks for them. ``chunking.enabled`` says whether the
-caption pass ran (a skipped pass reads false). The console writes the record once into ``model_runs.notes``
+(``experiment_captions``) and object tracking only when it asks for them. ``chunking.enabled`` and ``chunking.ran`` both say whether
+this analysis ran the caption pass (a skipped pass reads false; ``enabled`` is kept for the evaluation package),
+``chunking.setting_enabled`` is the agent's ``INCIDENT_CHUNKING_ENABLED`` and ``chunking.skipped`` why the pass was skipped. The console writes the record once into ``model_runs.notes``
 (``response.provenance``).
 """
 
@@ -142,7 +143,8 @@ class RunProvenance:
 
     def ran(self, **flags: Any) -> None:
         """Record what this analysis actually ran (``tracking=False`` for an experiment, say); these replace the
-        agent's settings of the same name in the record's flags (``chunking`` replaces ``chunking.enabled``)."""
+        agent's settings of the same name in the record's flags (``chunking`` replaces ``chunking.enabled``, and
+        ``chunking_skipped`` is the reason a skipped caption pass gives, if any)."""
         with self._lock:
             self._ran.update(flags)
 
@@ -169,7 +171,18 @@ class RunProvenance:
         settings = dict(flags if flags is not None else analysis_flags())
         if "chunking" in ran:
             chunking = settings.get("chunking")
-            settings["chunking"] = {**(chunking if isinstance(chunking, dict) else {}), "enabled": ran.pop("chunking")}
+            chunking = chunking if isinstance(chunking, dict) else {}
+            did_run = ran.pop("chunking")
+            # ``enabled`` keeps its per-run meaning (the evaluation package reads it); ``ran`` names it plainly and
+            # ``setting_enabled`` is the agent's setting, which the per-run ``enabled`` overwrites.
+            settings["chunking"] = {
+                **chunking,
+                "enabled": did_run,
+                "ran": did_run,
+                "setting_enabled": bool(chunking.get("enabled")),
+                "skipped": ran.get("chunking_skipped"),
+            }
+        ran.pop("chunking_skipped", None)
         return {
             "schema": SCHEMA,
             "agent": agent_identity(),

@@ -2,6 +2,12 @@
 
 Decisions that still shape `dev-profile-incident`, newest first. Each entry: decision, why, alternatives rejected, links. Superseded and purely historical decisions are removed; git history has them.
 
+### 2026-11-03: Caption-pass provenance names the per-run outcome and the agent setting separately
+- **Decision:** `response.provenance.flags.chunking` keeps `enabled` as is (this run captioned) and gains `ran` (the same per-run value, named plainly), `setting_enabled` (`INCIDENT_CHUNKING_ENABLED` for the agent at the time of the run) and `skipped` (the pass's skip reason, `null` when it ran or was not attempted). Contract: [`vm-api-contracts.md`](vm-api-contracts.md).
+- **Why:** a 2 Nov report read `enabled: false` on a short clip as "the pass is off". `enabled` is per-run, so a clip under `INCIDENT_CHUNK_MIN_CLIP_SECONDS` reads false while the pass is on. The additive keys make both questions answerable without changing any consumer.
+- **Rejected:** renaming `enabled` or making it the agent setting, because the evaluation package pins it as the per-run outcome (`eval/evalv2/adapters/base.py`, `PER_RUN_FLAGS`).
+- **Links:** [`run_provenance.py`](../../../../../services/agent/src/vss_agents/utils/run_provenance.py), [`incident_report_gen.py`](../../../../../services/agent/src/vss_agents/tools/incident_report_gen.py)
+
 ### 2026-11-03: Dashboard chart requests normalise canonical severity words in code
 - **Decision:** `generateChart` rewrites severity words to their dashboard band before the chart model reads the request (`domain/severity-words.ts`, `chart-severity-words-v2`).
 - **Rule:** a word maps to a band only when every severity level the project's definitions tie it to lies in that one band. The definitions:
