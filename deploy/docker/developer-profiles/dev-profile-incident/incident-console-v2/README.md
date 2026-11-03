@@ -17,7 +17,7 @@ Either way the console opens on `http://127.0.0.1:3200`; `GET /api/health` shoul
 
 Settings come from `.env.local`, a symlink to the profile's shared `../.env.local`; edit that file, not the symlink.
 
-Analyses run as background jobs: the page uploads and converts each file, then queues its analysis in the `analysis_jobs` table, and a loop inside this console's server process (started by `src/instrumentation.ts`) analyses the queued jobs one at a time. Closing the tab after a file shows Queued loses nothing, and the upload page lists running and queued jobs (a finished job leaves the list). Every console pointed at finals with the loop on takes jobs from the same queue; set `ANALYSIS_JOB_LOOP=off` to keep this one out. Details: [`../.docs/architecture.md`](../.docs/architecture.md#background-analysis-jobs).
+Analyses run as background jobs: the page uploads and converts each file, then queues its analysis in the `analysis_jobs` table, and a loop inside this console's server process (started by `src/instrumentation.ts`) analyses the queued jobs one at a time. Closing the tab after a file shows Queued loses nothing, and the upload page lists running and queued jobs (a finished job leaves the list). Every console pointed at finals with the loop on takes jobs from the same queue; set `ANALYSIS_JOB_LOOP=off` to keep this one out. Details: [`../.docs/architecture.md`](../.docs/console-reference.md#background-analysis-jobs).
 
 ## Check it
 
@@ -49,7 +49,7 @@ npx shadcn@latest docs <component>    # usage and examples
 
 ## Learn more
 
-- Pages, configuration, routes and report versions: [`../.docs/architecture.md`](../.docs/architecture.md#4-runtime-interaction-sequences)
+- Pages, configuration, routes and report versions: [`../.docs/console-reference.md`](../.docs/console-reference.md); containers, runtime and deployment views: [`../.docs/architecture.md`](../.docs/architecture.md)
 - Code layout and import rules: [`../.docs/mvp2/console-hexagonal-architecture.md`](../.docs/mvp2/console-hexagonal-architecture.md)
 - Analysis contract, validation and stored attempts: [`../.docs/analysis-schema.md`](../.docs/analysis-schema.md)
 - Tables and R2 keys: [`../.docs/data.md`](../.docs/data.md)

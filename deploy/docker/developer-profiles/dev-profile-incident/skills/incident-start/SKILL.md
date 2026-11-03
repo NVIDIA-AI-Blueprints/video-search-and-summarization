@@ -20,7 +20,7 @@ metadata:
 | "run the mock backend", "offline from the VM" (mock-backend tests only; never for UI or backend work, and never as a fallback when the VM is unreachable - stop and report) | `--mode mock` | Mock VST/agent on `:7777` and the credential-holding gateway on `:8600`. SSH is never touched. `--mode local` still works as a deprecated alias. |
 | "run it", "run against the VM", "real agent", "full stack", "demo", "frontend work", any UI or backend work, no preference | `--mode vm` (default) | Real native `vss-agent` and Phoenix on `kwanz-ws`. `start.sh` self-heals missing services: it starts stopped ones, pulls missing images, clones a missing checkout, and fails with a reason instead of hanging. |
 
-Details of each path: [`.docs/architecture.md` §2](../../.docs/architecture.md#2-deployment--connectivity).
+Details of each path: [launch modes and connectivity](../../.docs/architecture.md#launch-modes-and-connectivity) in `.docs/architecture.md`.
 
 ## Prerequisites
 

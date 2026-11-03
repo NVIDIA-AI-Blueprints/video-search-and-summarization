@@ -35,4 +35,4 @@ NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB=true
 NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON='{"params":[{"name":"search_source_type","label":"Search media source type","type":"select","default-value":"video_file","options":["video_file","rtsp"],"changeable":true,"tooltip-info":"Media Source type for Search Agent Query"},{"name":"use_critic","label":"Enable Critic","type":"boolean","default-value":true,"changeable":true,"tooltip-info":"Verify results with Critic Agent"}]}'
 ```
 
-What the mock serves: [`../../.docs/architecture.md`](../../.docs/architecture.md#component-reference-table). The snapshot is refreshed in [`base_profile_mock`](../base_profile_mock/README.md#refresh-the-finals-snapshot). Tests: `uv run pytest`.
+What the mock serves: [`../../.docs/architecture.md`](../../.docs/architecture.md#level-1-containers). The snapshot is refreshed in [`base_profile_mock`](../base_profile_mock/README.md#refresh-the-finals-snapshot). Tests: `uv run pytest`.

@@ -46,4 +46,4 @@ Search, revision search and chat answer from `src/base_profile_mock/finals_snaps
 
 Update `source` with the capture date. A refresh changes no other field of the surviving rows, so the diff shows only added and removed revisions. `search_profile_mock` reads the same file; both mocks' `tests/test_incident_search.py` check that no video deleted from finals is served.
 
-What the mock serves: [`../../.docs/architecture.md`](../../.docs/architecture.md#component-reference-table). Tests: `uv run pytest`.
+What the mock serves: [`../../.docs/architecture.md`](../../.docs/architecture.md#level-1-containers). Tests: `uv run pytest`.

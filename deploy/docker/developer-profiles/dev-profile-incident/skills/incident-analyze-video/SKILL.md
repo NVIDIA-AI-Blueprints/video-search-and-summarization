@@ -12,7 +12,7 @@ metadata:
 **Identity rule: a report is a revision.** Every analysis creates a new `model_run_id` and appends a `report_revisions` row (`kind='ai'`) for the video; earlier revisions are kept, and re-generation never carries edits across.
 
 Canonical facts:
-- Flows: [`.docs/architecture.md` §4](../../.docs/architecture.md#4-runtime-interaction-sequences), sequences A (gateway) and B (agent)
+- Flows: the [runtime view](../../.docs/architecture.md#runtime-view) of `.docs/architecture.md`: the analysis run in agent mode and in gateway mode
 - Report fields and translation: [`.docs/analysis-schema.md`](../../.docs/analysis-schema.md)
 - Tables: [`.docs/data.md`](../../.docs/data.md)
 
@@ -33,7 +33,7 @@ The stack is running via [`incident-start`](../incident-start/SKILL.md), and `cu
 
 Open `http://localhost:3200`, choose the model, then select the clip (MP4, MKV, MOV or WebM; a phone HEVC `.MOV` is fine). Upload, conversion, analysis and persistence run in one go: after the bytes are up the **Uploading videos** step stays active and shows its elapsed time while the console converts the file to an H.264 MP4 at its original resolution (an H.264 MP4 is stored as it is, and the step says so). The analysis then runs as a background job on the console's server (one at a time across all uploads), so the tab may be closed once the file is uploaded; the job stays in the page's **Analysis jobs** list until it finishes (finished jobs leave it). When the job is done the UI redirects to `/reports/<video-id>?revision=<revision-id>`; a failed job shows its reason, and **Retry analysis** queues it again without re-sending the file. To analyse an already-uploaded video again (any model, optional reviewer prompt), open `/videos/<video-id>` or the report page's re-analysis button in the top bar. Every attempt is a new run and a new AI revision, failed attempts appear in the history only, and choosing the official revision is a separate explicit action.
 
-To analyse several clips, select or drop them together (or press **Add videos**). The tab uploads and converts them one at a time; each then becomes its own background job with its own report, and one failure never stops the rest. Per-row states, **Retry**, **Cancel** and **Cancel batch**: [architecture.md](../../.docs/architecture.md#console-pages).
+To analyse several clips, select or drop them together (or press **Add videos**). The tab uploads and converts them one at a time; each then becomes its own background job with its own report, and one failure never stops the rest. Per-row states, **Retry**, **Cancel** and **Cancel batch**: [architecture.md](../../.docs/console-reference.md#console-pages).
 
 ### Scripted: console API (same path the UI uses)
 
