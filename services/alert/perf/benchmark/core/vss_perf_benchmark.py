@@ -312,6 +312,10 @@ def main(argv=None):
     native_output.mkdir(exist_ok=True)
     started = time.monotonic()
     env = os.environ.copy()
+    # Native dev-profile.sh owns these paths through generated.env. Inherited
+    # exports would override that file when Compose resolves bind mounts.
+    env.pop("VSS_APPS_DIR", None)
+    env.pop("VSS_DATA_DIR", None)
     env["NGC_CLI_API_KEY"] = env.get("NGC_CLI_API_KEY") or env.get("NGC_API_KEY", "")
     env["NGC_API_KEY"] = env["NGC_CLI_API_KEY"]
     stage = "pre_flight"
@@ -430,7 +434,6 @@ def main(argv=None):
                 "EVAL_GROUND_TRUTH_PATH": str(
                     dataset_root / dataset["ground_truth_subpath"]
                 ),
-                "VSS_DATA_DIR": str(work / "blueprint-data"),
                 "PROFILE_CONFIG_PYTHON": sys.executable,
                 "ALERT_BRIDGE_SYNTHETIC_SUBMISSION_MODE": "message_bus",
                 "ALERT_BRIDGE_EVALUATOR_PROMETHEUS_SUMMARY_BUFFER_SECONDS": str(
