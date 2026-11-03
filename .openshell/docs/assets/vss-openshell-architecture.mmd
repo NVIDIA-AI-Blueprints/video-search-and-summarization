@@ -1,37 +1,42 @@
-%%{init: {"fontFamily": "Arial, Liberation Sans, Helvetica, sans-serif", "flowchart": {"nodeSpacing": 24, "rankSpacing": 50, "padding": 18, "wrappingWidth": 340}, "themeVariables": {"fontSize": "24px"}}}%%
+%%{init: {"fontFamily": "Arial, Liberation Sans, Helvetica, sans-serif", "flowchart": {"nodeSpacing": 45, "rankSpacing": 60, "padding": 18}, "themeVariables": {"fontSize": "22px"}}}%%
 flowchart TB
-    subgraph ops["Operators"]
-        direction LR
-        NB["Notebooks · CI<br/>openshell CLI / SDK"] ~~~ BVAI["vss-build-vision-ai<br/>host coding agent"] ~~~ BUILD["Image build<br/>+ prover check"]
+    OP(["Operator"])
+    IMG[/"Harness image"/]
+
+    GW["<b>Gateway</b><br/><i>compose service</i>"]
+
+    subgraph sb["Sandbox — created by the gateway"]
+        direction TB
+        WL["<b>Workload</b><br/><i>container</i>"]
+        SUP["<b>Supervisor</b><br/><i>container</i>"]
+        WL -->|"every connection"| SUP
     end
 
-    subgraph os["OpenShell"]
+    subgraph vss["VSS — compose services"]
         direction LR
-        GW["Gateway :8080 · Compose service<br/>lifecycle · JWTs<br/>policy · prover"]
-        subgraph box["Sandbox = two containers"]
-            direction TB
-            SUP["Supervisor container<br/>trusted · policy · keys"]
-            WL["Workload container<br/>no network · OpenClaw"]
-            SUP <-->|"only way out"| WL
-        end
-        GW <-->|"policy · logs"| box
+        UI["vss-ui"]
+        HAP["HAProxy<br/>:7777"]
+        SVC["Services<br/>and NIMs"]
     end
 
-    subgraph vss["VSS · Compose"]
-        direction LR
-        HAP["HAProxy :7777"] ~~~ MCP["MCP :9988"] ~~~ SVC["Services · NIMs"]
-    end
+    EXT(["Inference"])
 
-    EXT["Inference<br/>chat · NGC"]
-
-    ops -->|"create · exec"| os
-    ops -->|"compose up"| vss
-    os -->|"vss CLI · MCP"| vss
-    os -->|"keys at egress"| EXT
+    OP -->|"compose up"| GW
+    OP -->|"compose up"| vss
+    OP -->|"sandbox create, exec"| GW
+    OP -->|"docker build"| IMG
+    IMG -->|"sandbox create<br/>--from"| WL
+    GW <-->|"policy, provider<br/>credentials"| SUP
+    SUP -->|"allowed"| HAP
+    SUP -->|"credential added"| EXT
+    UI -.->|"chat, optional"| GW
 
     classDef osc fill:#e8f1fb,stroke:#4a7fc1,color:#0b2e59
     classDef vssc fill:#eef7e6,stroke:#76b900,color:#1f3d00
-    classDef wl fill:#fff4e5,stroke:#e08a00,color:#4a2c00
+    classDef wlc fill:#fff4e5,stroke:#e08a00,color:#4a2c00
+    classDef extc fill:#f3f3f3,stroke:#888,color:#333
     class GW,SUP osc
-    class HAP,MCP,SVC,BUILD,BVAI vssc
-    class WL wl
+    class HAP,UI,SVC vssc
+    class WL wlc
+    class OP,IMG,EXT extc
+    style sb fill:#fbfbfb,stroke:#999,stroke-dasharray:6 4

@@ -2,11 +2,12 @@
 
 Runs the VSS agent harness (Hermes today; OpenClaw on the same pattern) inside
 an [OpenShell](https://docs.nvidia.com/openshell/latest/) 0.1.6 sandbox, with
-the gateway declared as a Compose service alongside VSS and driven directly by
-the `openshell` CLI or Python SDK.
+the gateway declared as a Compose service alongside VSS, deployed by
+`vss-build-vision-ai` or directly with the `openshell` CLI.
 
-For why VSS drives OpenShell directly rather than through NemoClaw V1, see
-[`docs/nemoclaw-v1-vs-openshell.md`](docs/nemoclaw-v1-vs-openshell.md).
+> **Note:** For why VSS drives OpenShell directly rather than through NemoClaw
+> V1, see
+> [`docs/nemoclaw-v1-vs-openshell.md`](docs/nemoclaw-v1-vs-openshell.md).
 
 | File | Role |
 |---|---|
@@ -17,13 +18,82 @@ For why VSS drives OpenShell directly rather than through NemoClaw V1, see
 
 ---
 
-## Quickstart
+## 1. Architecture
+
+Drawn for OpenShell 0.1.6, the release everything below was tested on.
+
+![VSS on OpenShell](docs/assets/vss-openshell-architecture.svg)
+
+- **Gateway** is the control plane, a Compose service behind the `harness`
+  profile. It owns sandbox lifecycle and state,
+  signs the only credentials in the system, delivers policy and provider
+  credentials, and runs the policy prover. Its **compute driver** provisions
+  each sandbox as two containers and builds the isolation boundary.
+- **Workload** runs the harness image (Hermes, skills, `vss` CLI, baked policy)
+  with networking turned off. Its only path out is the
+  supervisor; if the supervisor exits, the agent is stopped rather than running
+  unchecked.
+- **Supervisor** is the trusted half and the only decision point. It checks every
+  connection against the policy, then opens it: to HAProxy `:7777` for VSS, and
+  to the inference endpoint with the real credential added at egress. The agent
+  never holds a key.
+- **Gateway link** delivers policy and credentials to the supervisor and
+  carries logs, exec sessions and the exposed harness API, whose `:8642` is the
+  loopback target inside the sandbox; the URL itself is served on the gateway's
+  own port under a per-sandbox hostname.
+
+### Inside the boundary
+
+The same deployment with each component's job shown, and the destinations drawn
+as `hermes/policy.yaml` and the provider profile grant them.
+
+![Inside the OpenShell sandbox boundary](docs/assets/vss-openshell-boundary-detail.svg)
+
+The split is what makes the agent's own compromise survivable: the workload
+shares the boundary with the agent, so it holds nothing worth stealing — no
+signing key, no gateway JWT, no provider credential — and decides nothing. It
+reports what the agent attempted; the supervisor decides. A `vss` call is a
+`connect()` the kernel traps, which travels to the supervisor as a request
+naming `/usr/bin/python3.13` as the caller, is matched against the
+`vss-backend` grant, and is dialed by the supervisor on the agent's behalf. An
+inference call takes the same path and additionally gets the provider key added
+at egress, which is why VSS ships the model's `api_key` as a placeholder.
+
+Each connection is a separate stream on one mutually authenticated HTTP/2
+channel, so a slow download cannot block exec or process control, and the
+workload freezes if that channel drops. The two JWTs are issued per sandbox and
+per *generation*: restarting a sandbox mints fresh tokens and certificates and
+invalidates the old ones.
+
+### A chat turn end to end
+
+The gateway hops were measured on 0.1.5 with a probe server; the Hermes end was
+measured against the harness image.
+
+![Request path from the VSS UI to the harness](docs/assets/vss-openshell-request-path.svg)
+
+**Deployed from the host.** VSS and the harness are both deployed from the
+host — by the `vss-build-vision-ai` coding agent or directly with the
+`openshell` CLI. Either deploys VSS first, then installs the harness against
+the running build. The
+agent inside the sandbox drives VSS but never deploys or tears it down.
+
+Drawn for the Compose deployment, where the gateway, the sandbox and the VSS
+services share one Docker host. On Kubernetes the shape is the same with the
+Kubernetes compute driver: the supervisor runs in its own pod, reaches the
+workload over mutual TLS on a private Service, and a NetworkPolicy replaces
+Docker's networking-off as the outer fence.
+
+
+---
+
+## 2. Quickstart
 
 Brings up a Hermes sandbox against a VSS deployment that is already running.
 Every file in the table above is pre-created and needs no editing: the Compose
 services and the `OPENSHELL_TAG` they read, the version-2 gateway config, the
 policy and the boundary it is proven against, the harness Dockerfile, and the
-provider profiles. Section 3 is the same five steps with the reasoning; §4 is
+provider profiles. Section 4 is the same five steps with the reasoning; §5 is
 how to check the result.
 
 The harness installs against a VSS deployment that is already up.
@@ -96,7 +166,7 @@ service they wanted. From here the agent is reachable two ways — a shell turn
 with `openshell sandbox exec -n vss-harness-hermes -- hermes chat -q '…'`, or
 the API server at
 `http://default--vss-harness-hermes.openshell.localhost:8080/v1/chat/completions`
-with the `API_SERVER_KEY` as the bearer. [Section 4](#4-verification) checks
+with the `API_SERVER_KEY` as the bearer. [Section 5](#5-verification) checks
 both, plus the policy proof and the VSS grant.
 
 To use a different model, change the two `VSS_HERMES_*` values in `.env`,
@@ -191,7 +261,7 @@ in-stack `vss-agent`, which a harness build does not run.
 
 ---
 
-## 1. How OpenShell works
+## 3. How OpenShell works
 
 ### What the gateway is
 
@@ -237,7 +307,7 @@ README states "No workload launch depends on a host bind mount".
 ### What OpenShell deploys
 
 The first three rows are declared once per deployment in VSS's Compose file
-(§3 step 1). The rest are made by the gateway's compute driver — Docker here,
+(§4 step 1). The rest are made by the gateway's compute driver — Docker here,
 selected by `compute_driver = "docker"` — through the host's Docker socket on
 each `sandbox create`. The driver builds the boundary but never makes a policy
 decision.
@@ -284,50 +354,7 @@ domain, so a compromised agent cannot switch it off:
 
 ---
 
-## 2. Architecture
-
-Drawn for the 0.1.x target, not the deployed 0.0.116.
-
-![VSS on OpenShell](docs/assets/vss-openshell-architecture.svg)
-
-- **Gateway** is the control plane, a Compose service behind the `harness`
-  profile. It owns sandbox lifecycle and state,
-  signs the only credentials in the system, delivers policy and provider
-  credentials, and runs the policy prover. Its **compute driver** provisions
-  each sandbox as two containers and builds the isolation boundary.
-- **Workload** runs the harness image (OpenClaw, VSS plugin, skills, `vss` CLI,
-  baked policy) with networking turned off. Its only path out is the
-  supervisor; if the supervisor exits, the agent is stopped rather than running
-  unchecked.
-- **Supervisor** is the trusted half and the only decision point. It checks every
-  connection against the policy, then opens it: to HAProxy `:7777` and the
-  orchestrator MCP `:9988` for VSS, and to external inference and chat services
-  with the real credential added at egress. The agent never holds a key.
-- **Gateway link** delivers policy and credentials to the supervisor and
-  carries logs, exec sessions and the exposed harness API, whose `:8642` is the
-  loopback target inside the sandbox; the URL itself is served on the gateway's
-  own port under a per-sandbox hostname.
-
-A chat turn from the VSS UI to Hermes. The gateway hops were measured on 0.1.5
-with a probe server; the Hermes end was measured against the harness image.
-
-![Request path from the VSS UI to the harness](docs/assets/vss-openshell-request-path.svg)
-
-**Deployed from the host.** VSS and the harness are both deployed from the
-host — by notebooks, CI, or the `vss-build-vision-ai` coding agent. Each
-deploys VSS first, then installs the harness against the running build. The
-agent inside the sandbox drives VSS but never deploys or tears it down.
-
-Drawn for the Compose deployment, where the gateway, the sandbox and the VSS
-services share one Docker host. On Kubernetes the shape is the same with the
-Kubernetes compute driver: the supervisor runs in its own pod, reaches the
-workload over mutual TLS on a private Service, and a NetworkPolicy replaces
-Docker's networking-off as the outer fence.
-
-
----
-
-## 3. Steps
+## 4. Steps
 
 **1 — Gateway becomes a Compose service.** Decided: the gateway is a container
 VSS declares. OpenShell publishes a reference
@@ -623,10 +650,10 @@ custom profile needs: `--from-existing` has no stored credentials to read. The
 CLI has to be the gateway's own release, since the two speak Protobuf.
 
 The profile is per endpoint family, because it is what authorizes the host.
-One file each covers the notebook's three choices, and step 5 names the one it
+One file each covers the three endpoint choices, and step 5 names the one it
 imported:
 
-| `deploy_nemoclaw.ipynb` | Profile | Credential |
+| Endpoint | Profile | Credential |
 |---|---|---|
 | (a) OpenAI-compatible endpoint | `providers/vss-inference-profile.yaml` | `COMPATIBLE_API_KEY` |
 | (b) model served on this host | `providers/vss-inference-local-profile.yaml` | optional |
@@ -799,21 +826,6 @@ returns the SSE event names the connector parses. Run end to end, a browser
 turn through the deployment's ingress reaches Hermes, calls the `vss` CLI and
 streams the reply back as `message.delta` events.
 
-**6 — Or drive it from Python**, which fits the notebooks and the orchestrator
-MCP helper better than shelling out to two CLIs. OpenShell publishes SDKs for
-Python, TypeScript, Go and Rust against the same gRPC control plane the CLI
-uses, and asks only that the SDK and gateway come from one release:
-
-```python
-from openshell import SandboxClient
-
-with SandboxClient.from_active_cluster() as client:
-    sb = client.create(workspace="default", name="vss-harness-hermes")
-    client.wait_ready(sb.name, workspace="default", timeout_seconds=300)
-    print(client.exec(sb.name, ["vss", "configure", "check"],
-                      workspace="default").stdout)
-```
-
 
 ### Adding a second harness later
 
@@ -839,7 +851,7 @@ and format, package binary — is data.
 
 ---
 
-## 4. Verification
+## 5. Verification
 
 Five checks that cover the prover, the gateway, the exposed route, the
 inference provider and the VSS backend grant:

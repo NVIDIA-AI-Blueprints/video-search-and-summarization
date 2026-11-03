@@ -1,0 +1,66 @@
+%%{init: {"fontFamily": "Arial, Liberation Sans, Helvetica, sans-serif", "flowchart": {"nodeSpacing": 40, "rankSpacing": 55, "padding": 14, "wrappingWidth": 320}, "themeVariables": {"fontSize": "18px", "edgeLabelBackground": "#ffffff"}}}%%
+flowchart TB
+    subgraph host["HOST CLIENTS"]
+        direction LR
+        CLI["<b>openshell CLI</b>"]
+        VUI["<b>vss-ui</b><br/>chat adapter"]
+    end
+
+    subgraph gw["GATEWAY · CONTROL PLANE · compose service"]
+        direction TB
+        API["<b>API server</b><br/>127.0.0.1:8080"]
+        PRV["<b>Policy prover</b>"]
+        DB[("<b>State</b><br/>sandboxes, policies,<br/>providers")]
+        DRV["<b>Docker driver</b><br/>places and fences sandboxes"]
+        API --> PRV
+        API --> DB
+        DB --> DRV
+    end
+
+    subgraph rt["SANDBOX · DATA PLANE · two containers"]
+        direction TB
+        subgraph wl["WORKLOAD · no network"]
+            direction TB
+            SBX["<b>Sandbox runtime</b><br/>PID 1, syscall boundary"]
+            AG["<b>Hermes agent</b><br/>vss CLI, skills"]
+            SBX --> AG
+        end
+        SUP["<b>Supervisor</b><br/>policy, credentials, DNS"]
+        SBX -->|"mediated channel"| SUP
+    end
+
+    subgraph ext["DESTINATIONS"]
+        direction LR
+        VSS["<b>VSS HAProxy</b><br/>:7777"]
+        INF["<b>Inference API</b>"]
+        PKG["<b>PyPI, GitHub, NGC</b>"]
+    end
+
+    CLI -->|"gRPC"| API
+    VUI -.->|"chat"| API
+    DRV -->|"creates"| SBX
+    DRV -->|"creates"| SUP
+    SUP -->|"gateway session"| API
+    SUP -->|"allowed"| VSS
+    SUP -->|"+ provider key"| INF
+    SUP -->|"read only"| PKG
+    AG -.-x|"direct egress"| INF
+
+    classDef osc fill:#e8f1fb,stroke:#4a7fc1,color:#0b2e59
+    classDef drvc fill:#eef7e6,stroke:#76b900,color:#1f3d00
+    classDef agc fill:#1f2937,stroke:#1f2937,color:#ffffff
+    classDef wlc fill:#fff4e5,stroke:#e08a00,color:#4a2c00
+    classDef plain fill:#ffffff,stroke:#c8cdd3,color:#111
+    class API,SUP osc
+    class DRV drvc
+    class AG agc
+    class SBX wlc
+    class CLI,VUI,PRV,DB,VSS,INF,PKG plain
+    style host fill:#f6f7f9,stroke:#d5d9de
+    style gw fill:#f6f7f9,stroke:#d5d9de
+    style ext fill:#f6f7f9,stroke:#d5d9de
+    style rt fill:#ffffff,stroke:#9aa3ad,stroke-dasharray:6 4
+    style wl fill:#ffffff,stroke:#76b900,stroke-width:2px,stroke-dasharray:6 4
+    linkStyle 4 stroke:#76b900,stroke-width:2px
+    linkStyle 10,11,12 stroke:#76b900,stroke-width:2px
+    linkStyle 13 stroke:#c00,stroke-dasharray:5 5,color:#c00

@@ -631,7 +631,7 @@ The `vss` CLI needs one symlink. It installs into its own venv at
 `FileNotFoundError` while the CLI works in a shell.
 
 Run under the unmodified policy against a live deployment, it passes the
-same checks as the current sandbox ([README §4](../README.md#4-verification)).
+same checks as the current sandbox ([README §5](../README.md#5-verification)).
 
 What it costs: VSS owns a Hermes build it did not own before, so `HERMES_REF`
 joins `VSS_REF` as a pin to move, and upstream's weekly tags are the cadence to
