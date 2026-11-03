@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
+import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "libs/vss-perf-tools"))
-from support_images import apply_bindings, environment, load, prepare_infra, render  # noqa: E402
+from support_images import environment, load, save_snapshot  # noqa: E402
 
 SERVICES = [
     "video-summarization",
@@ -28,121 +29,64 @@ def config_path(service):
     return ROOT / "services" / service / "perf/setup/configs/images.yaml"
 
 
-def source_root(service, scope):
-    if scope == "deployment":
-        return ROOT / "deploy/docker"
-    if scope == "infra":
-        return ROOT / "deploy/docker/services/infra"
-    if scope == "vios":
-        return ROOT / "services/vios/deployment/stream-processing/docker-compose"
-    root = config_path(service).parents[1]
-    return root / "compose" if scope == "compose" else root
-
-
 @pytest.mark.parametrize("service", SERVICES)
-def test_all_declared_bindings_render_and_leave_originals_untouched(service, tmp_path):
+def test_service_configs_are_flat_and_do_not_configure_target_image(service):
     config = load(config_path(service))
-    for scope, files in config["scopes"].items():
-        source = source_root(service, scope)
-        fixture = tmp_path / scope / "source"
-        originals = {}
-        # Copy only bound source files: no runtime state or unrelated datasets.
-        for relative in files:
-            path = fixture / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            originals[relative] = (source / relative).read_text()
-            path.write_text(originals[relative])
-        destination = tmp_path / scope / "rendered"
-        render(config, scope, fixture, destination)
-        for relative, fields in files.items():
-            assert (source / relative).read_text() == originals[relative]
-            text = (destination / relative).read_text()
-            for image_id in fields.get("services", {}).values():
-                assert config["images"][image_id]["ref"] in text
-            bases = re.findall(r"(?m)^FROM\s+(\S+)", text)
-            for index, image_id in fields.get("build_bases", {}).items():
-                assert bases[int(index)] == config["images"][image_id]["ref"]
-
-
-def test_image_edit_changes_deployment_but_preserves_tested_image_and_mounts(tmp_path):
-    config = load(config_path("rtvi/rt-vlm"))
-    key = config["scopes"]["compose"]["compose.perf.yaml"]["services"]["prometheus"]
-    config["images"][key]["ref"] = "registry.example/prometheus@sha256:" + "a" * 64
-    source = source_root("rtvi/rt-vlm", "compose")
-    destination = tmp_path / "rendered"
-    render(config, "compose", source, destination)
-    text = (destination / "compose.perf.yaml").read_text()
-    assert config["images"][key]["ref"] in text
-    assert "${RTVI_IMAGE:-" in text
-    original = (source / "compose.perf.yaml").read_text()
-    assert re.findall(r"(?m)^      - .*", text) == re.findall(
-        r"(?m)^      - .*", original
-    )
-
-
-def test_private_dockerfiles_are_used_and_credentials_not_copied(tmp_path):
-    source = tmp_path / "source"
-    shutil.copytree(ROOT / "deploy/docker/services/infra", source)
-    (source / ".env").write_text("SECRET=do-not-copy")
-    output = tmp_path / "output"
-    output.mkdir()
-    destination = prepare_infra(
-        config_path("analytics/behavior-analytics"), source, output
-    )
-    assert not (destination / ".env").exists()
-    assert f"context: {destination}" in (destination / "compose.yml").read_text()
-    assert "support-images.json" in [p.name for p in output.iterdir()]
-
-
-def test_missing_bindings_and_symlinks_fail(tmp_path):
-    config = {
-        "images": {"helper": {"ref": "alpine:3.24.1"}},
-        "scopes": {"compose": {"compose.yml": {"services": {"helper": "helper"}}}},
-    }
-    source = tmp_path / "source"
-    source.mkdir()
-    file = source / "compose.yml"
-    file.write_text("services:\n  unexpected:\n    image: alpine:old\n")
-    with pytest.raises(ValueError, match="Expected one image"):
-        apply_bindings(config, "compose", source)
-    file.unlink()
-    outside = tmp_path / "outside"
-    outside.write_text("preserve")
-    file.symlink_to(outside)
-    with pytest.raises(ValueError, match="symlink"):
-        apply_bindings(config, "compose", source)
-    assert outside.read_text() == "preserve"
-
-
-def test_environment_and_invalid_references(tmp_path):
-    config = load(config_path("rtvi/rt-vlm"))
+    assert environment(config, {}) == config["images"]
     assert (
-        environment(config)["VST_SENSOR_IMAGE"]
-        == "nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.0"
+        not {"ARTIFACT_REF", "IMAGE_TAG", "LVS_IMAGE", "RTVI_IMAGE", "PERF_ALERT_IMAGE"}
+        & config["images"].keys()
     )
-    for value in [
-        " image:bad",
-        "repo/image:tag\nexport SECRET=bad",
-        "$(touch /tmp/bad)",
-    ]:
-        config["images"]["bad"] = {"ref": value}
-        path = tmp_path / "images.yaml"
-        path.write_text(yaml.safe_dump(config))
-        with pytest.raises(ValueError, match="Invalid image reference"):
-            load(path)
+    assert set(config) <= {"schema_version", "images", "package_managed_images"}
 
 
-def test_shell_interface_preserves_explicit_legacy_override():
-    import os
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("PATH", "alpine:3.24.1"),
+        ("PERF_ALERT_IMAGE", "example/target:tag"),
+        ("PERF_HELPER_IMAGE", {"ref": "alpine:3.24.1"}),
+        ("PERF_HELPER_IMAGE", " image:bad"),
+        ("PERF_HELPER_IMAGE", "repo/image:tag\nexport SECRET=bad"),
+        ("PERF_HELPER_IMAGE", "$(touch /tmp/bad)"),
+    ],
+)
+def test_invalid_names_references_and_old_nested_format_fail(tmp_path, name, value):
+    path = tmp_path / "images.yaml"
+    path.write_text(yaml.safe_dump({"schema_version": 1, "images": {name: value}}))
+    with pytest.raises(ValueError):
+        load(path)
 
+
+def test_overrides_are_validated_and_snapshot_records_only_effective_images(tmp_path):
+    config = load(config_path("rtvi/rt-vlm"))
+    effective = environment(
+        config,
+        {"VST_SENSOR_IMAGE": "example/sensor@sha256:" + "a" * 64, "TOKEN": "secret"},
+    )
+    assert effective["VST_SENSOR_IMAGE"].startswith("example/sensor@sha256:")
+    path = tmp_path / "support-images.json"
+    save_snapshot(path, effective)
+    assert json.loads(path.read_text())["images"] == effective
+    assert "secret" not in path.read_text()
+    with pytest.raises(ValueError):
+        environment(config, {"VST_SENSOR_IMAGE": "malformed image"})
+
+
+def test_shell_loader_exports_variables_without_changing_setup_files(tmp_path):
+    config = config_path("rtvi/rt-vlm")
+    before = config.read_bytes()
+    snapshot = tmp_path / "snapshot.json"
     env = dict(os.environ, VST_SENSOR_IMAGE="registry.example/custom-sensor:tag")
     result = subprocess.run(
         [
             sys.executable,
             str(ROOT / "libs/vss-perf-tools/support_images.py"),
             "--config",
-            str(config_path("rtvi/rt-vlm")),
+            str(config),
             "--shell",
+            "--snapshot",
+            str(snapshot),
         ],
         env=env,
         check=True,
@@ -150,6 +94,11 @@ def test_shell_interface_preserves_explicit_legacy_override():
         text=True,
     )
     assert "export VST_SENSOR_IMAGE=registry.example/custom-sensor:tag" in result.stdout
+    assert config.read_bytes() == before
+    assert (
+        json.loads(snapshot.read_text())["images"]["VST_SENSOR_IMAGE"]
+        == env["VST_SENSOR_IMAGE"]
+    )
 
 
 def test_shared_tools_are_available_in_every_sparse_checkout():
@@ -159,9 +108,242 @@ def test_shared_tools_are_available_in_every_sparse_checkout():
             assert "libs/vss-perf-tools/" in row["checkoutPaths"]
 
 
-def test_renderer_rejects_source_or_nested_destination(tmp_path):
-    config = load(config_path("rtvi/rt-vlm"))
-    for destination in (tmp_path, tmp_path / "nested"):
-        with pytest.raises(ValueError, match="private destination"):
-            render(config, "compose", tmp_path, destination)
-    assert list(tmp_path.iterdir()) == []
+def compose(files, extra):
+    if not shutil.which("docker"):
+        pytest.skip("Docker Compose CLI required for offline interpolation checks")
+    version = subprocess.run(["docker", "compose", "version"], capture_output=True)
+    if version.returncode:
+        pytest.skip("Docker Compose CLI is unavailable")
+    command = ["docker", "compose"]
+    for file in files:
+        command += ["-f", str(file)]
+    env = {k: os.environ[k] for k in ("PATH", "HOME") if k in os.environ}
+    env.update(extra)
+    result = subprocess.run(
+        command + ["config", "--format", "json"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        pytest.fail("Compose configuration failed: " + result.stderr)
+    return json.loads(result.stdout)["services"]
+
+
+def infra_environment(tmp_path):
+    return {
+        "VSS_APPS_DIR": str(ROOT / "deploy/docker"),
+        "VSS_DATA_DIR": str(tmp_path),
+        "HOST_IP": "localhost",
+        "STREAM_TYPE": "kafka",
+        "COMPOSE_PROFILES": "elasticsearch,elasticsearch-init-container,kibana,logstash,broker-health-check,kafka,kafka-topic-init-container",
+    }
+
+
+def test_shared_blueprint_defaults_work_without_perf_variables(tmp_path):
+    services = compose(
+        [ROOT / "deploy/docker/services/infra/compose.yml"], infra_environment(tmp_path)
+    )
+    assert services["kafka"]["image"] == "confluentinc/cp-kafka:8.3.0"
+    assert services["elasticsearch"]["image"] == "elasticsearch"
+    assert services["logstash"]["image"] == "docker.elastic.co/logstash/logstash:9.4.4"
+    assert (
+        services["elasticsearch"]["build"]
+        .get("args", {})
+        .get("PERF_ELASTICSEARCH_BASE_IMAGE")
+        is None
+    )
+
+
+def test_image_edit_propagates_to_compose_and_build_arguments(tmp_path):
+    config = load(config_path("analytics/behavior-analytics"))
+    config["images"]["PERF_KAFKA_IMAGE"] = "registry.example/kafka:custom"
+    config["images"]["PERF_ELASTICSEARCH_BASE_IMAGE"] = (
+        "registry.example/es@sha256:" + "b" * 64
+    )
+    env = {**infra_environment(tmp_path), **environment(config, {})}
+    services = compose([ROOT / "deploy/docker/services/infra/compose.yml"], env)
+    assert services["kafka"]["image"] == config["images"]["PERF_KAFKA_IMAGE"]
+    assert (
+        services["elasticsearch"]["build"]["args"]["PERF_ELASTICSEARCH_BASE_IMAGE"]
+        == config["images"]["PERF_ELASTICSEARCH_BASE_IMAGE"]
+    )
+    assert (
+        services["broker-health-check"]["build"]["args"]["PERF_KAFKA_IMAGE"]
+        == config["images"]["PERF_KAFKA_IMAGE"]
+    )
+
+
+@pytest.mark.parametrize("service", ["rt-vlm", "rt-embed"])
+def test_rtvi_compose_uses_config_and_preserves_target_artifact(service):
+    perf = ROOT / "services/rtvi" / service / "perf"
+    config = load(perf / "setup/configs/images.yaml")
+    config["images"]["PERF_PROMETHEUS_IMAGE"] = "registry.example/prometheus:custom"
+    target = "registry.example/target@sha256:" + "c" * 64
+    services = compose(
+        [perf / "setup/compose/compose.perf.yaml"],
+        {**environment(config, {}), "RTVI_IMAGE": target, "BACKEND_PORT": "8010"},
+    )
+    assert services["rtvi-server"]["image"] == target
+    assert services["prometheus"]["image"] == "registry.example/prometheus:custom"
+
+
+@pytest.mark.parametrize(
+    "file",
+    sorted(
+        p
+        for p in (ROOT / "services/video-summarization/perf/setup/compose").glob(
+            "*.yaml"
+        )
+        if p.name.startswith(("x86-", "spark-", "thor-", "orin-"))
+    ),
+)
+def test_lvs_configs_resolve_from_original_files(file):
+    config = load(config_path("video-summarization"))
+    target = "registry.example/lvs:target"
+    env = {
+        **environment(config, {}),
+        "LVS_IMAGE": target,
+        "COMPOSE_PROFILES": "media",
+        "REMOTE_LLM_BASE_URL": "http://example.invalid:8000/v1",
+        "REMOTE_LLM_MODEL": "example",
+    }
+    services = compose([file], env)
+    assert services["lvs"]["image"] == target
+    assert services["media-server"]["image"] == config["images"]["PERF_NGINX_IMAGE"]
+
+
+def test_shared_vss_registry_and_tag_selection_still_works(tmp_path):
+    file = ROOT / "deploy/docker/services/analytics/behavior-analytics/compose.yml"
+    env = {
+        **infra_environment(tmp_path),
+        "VSS_CONTAINER_REGISTRY": "registry.example/vss",
+        "VSS_BEHAVIOR_ANALYTICS_TAG": "release-test",
+    }
+    services = compose([file], env)
+    assert (
+        services["vss-behavior-analytics-base"]["image"]
+        == "registry.example/vss/vss-behavior-analytics:release-test"
+    )
+    env["PERF_VSS_BEHAVIOR_ANALYTICS_IMAGE"] = (
+        "registry.example/override@sha256:" + "d" * 64
+    )
+    services = compose([file], env)
+    assert (
+        services["vss-behavior-analytics-base"]["image"]
+        == env["PERF_VSS_BEHAVIOR_ANALYTICS_IMAGE"]
+    )
+
+
+def test_alerts_target_artifact_and_eval_images_interpolate_without_rewriting(tmp_path):
+    config = load(config_path("alert"))
+    env = {
+        **infra_environment(tmp_path),
+        **environment(config, {}),
+        "COMPOSE_PROFILES": "alert-bridge,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container",
+        "PERF_ALERT_IMAGE": "registry.example/alerts@sha256:" + "e" * 64,
+    }
+    # This fragment's optional dependencies normally come from other blueprint
+    # includes. Define inactive placeholders to validate the real alert image
+    # interpolation without starting or configuring those unrelated services.
+    optional = tmp_path / "optional.yml"
+    optional.write_text(
+        yaml.safe_dump(
+            {
+                "services": {
+                    name: {
+                        "image": "example/inactive:test",
+                        "profiles": ["inactive-test"],
+                    }
+                    for name in (
+                        "nvstreamer-alerts",
+                        "cosmos3-reasoner",
+                        "cosmos3-reasoner-shared-gpu",
+                        "rtvi-vlm",
+                    )
+                }
+            }
+        )
+    )
+    services = compose(
+        [
+            ROOT / "deploy/docker/services/infra/compose.yml",
+            ROOT / "deploy/docker/services/alert/compose.yml",
+            optional,
+        ],
+        env,
+    )
+    assert services["alert-bridge"]["image"] == env["PERF_ALERT_IMAGE"]
+    env.update(
+        {
+            "COMPOSE_PROFILES": "alerts,alerts-verification-latency-prometheus",
+            "CI_VSS_OSS_DIR": str(tmp_path),
+            "EVAL_VIDEOS_PATH": str(tmp_path / "videos"),
+            "EVAL_RESULT_DIR_PATH": str(tmp_path / "results"),
+            "BLUEPRINTS_DIR": str(ROOT),
+            "EVAL_TYPE": "latency",
+            "BLUEPRINT": "alerts",
+            "DOCKER_UID": "1000",
+            "DOCKER_GID": "1000",
+        }
+    )
+    services = compose(
+        [ROOT / "services/alert/perf/setup/native-eval/compose.yml"], env
+    )
+    assert (
+        services["alert-bridge-evaluator"]["image"]
+        == config["images"]["PERF_ALERT_BRIDGE_EVALUATOR_IMAGE"]
+    )
+    assert services["prometheus"]["image"] == config["images"]["PERF_PROMETHEUS_IMAGE"]
+
+
+@pytest.mark.parametrize("service", ["behavior-analytics", "video-analytics-api"])
+def test_analytics_original_compose_stacks_use_configured_dependencies(
+    service, tmp_path
+):
+    root = ROOT / "services/analytics" / service
+    config = load(config_path("analytics/" + service))
+    env = {
+        **infra_environment(tmp_path),
+        **environment(config, {}),
+        "INFRA_DIR": str(ROOT / "deploy/docker/services/infra"),
+        "BEHAVIOR_ANALYTICS_IMAGE": "registry.example/ba:target",
+        "VIDEO_ANALYTICS_API_IMAGE": "registry.example/api:target",
+    }
+    if service == "behavior-analytics":
+        integration = root / "tests/integration/docker_compose"
+        env.update(
+            {
+                "MDX_SAMPLE_APPS_DIR": str(integration),
+                "MDX_DATA_DIR": str(integration / "apps_data"),
+                "APP_NAME": "warehouse",
+                "APP_MODE": "_2d",
+                "STREAMING_SERVICE": "kafka",
+            }
+        )
+        files = [integration / "infra/compose.yml", integration / "apps/mdx-apps.yml"]
+        target, image = "analytics-stream", env["BEHAVIOR_ANALYTICS_IMAGE"]
+    else:
+        integration = root / "test/integration-test/docker_compose"
+        env.update(
+            {
+                "COMPOSE_PROFILES": "elasticsearch,elasticsearch-init-container",
+                "ES_CONTAINER": "test-es",
+                "ES_INIT_CONTAINER": "test-es-init",
+                "APP_CONTAINER": "test-api",
+            }
+        )
+        files = [
+            ROOT / "deploy/docker/services/infra/compose.yml",
+            integration / "infra/video-analytics-api-infra.yml",
+            integration / "apps/video-analytics-api-app.yml",
+            root / "perf/setup/compose-names.yml",
+            root / "perf/setup/compose-es.yml",
+        ]
+        target, image = "video-analytics-api", env["VIDEO_ANALYTICS_API_IMAGE"]
+    services = compose(files, env)
+    assert services[target]["image"] == image
+    assert (
+        services["elasticsearch"]["build"]["args"]["PERF_ELASTICSEARCH_BASE_IMAGE"]
+        == config["images"]["PERF_ELASTICSEARCH_BASE_IMAGE"]
+    )

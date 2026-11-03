@@ -321,19 +321,11 @@ if [ -f "$COMPOSE_DIR/.env" ]; then
     set +a
 fi
 
-# Render image choices into a private setup tree; leave checked-in Compose files intact.
+# Load supporting image variables before Compose resolves its service definitions.
 PERF_VENV_DIR="$VENV_DIR" "$SETUP_ENVIRONMENT"
 image_tool="$PERF_ROOT/../../../libs/vss-perf-tools/support_images.py"
-image_runtime="$(mktemp -d "${TMPDIR:-/tmp}/vss-lvs-images.XXXXXXXX")"
-"$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" \
-    --scope setup --source "$PERF_ROOT/setup" --destination "$image_runtime/setup" \
-    > "$image_runtime/support-images.json"
-# The tree contains bind-mounted configuration and must remain while the stack runs.
-COMPOSE_FILE_PATH="$image_runtime/setup/compose/$(basename "$COMPOSE_FILE_PATH")"
-COMPOSE_FILE_ARGS=(-f "$COMPOSE_FILE_PATH")
-if [ -n "$OVERLAY_FILE_PATH" ]; then
-    COMPOSE_FILE_ARGS+=(-f "$OVERLAY_FILE_PATH")
-fi
+image_environment="$("$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" --shell)"
+eval "$image_environment"
 
 export_gpu_assignments() {
     local prefix="$1"
@@ -466,7 +458,6 @@ cleanup() {
         step "Tearing down compose stack..."
         if ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" down; then
             info "Stack torn down"
-            rm -rf -- "$image_runtime"
         else
             error "Compose teardown failed"
             [ "$exit_code" -ne 0 ] || exit_code=1
@@ -588,7 +579,7 @@ else
 fi
 step "Output directory: $VIA_OUTPUT_DIR"
 mkdir -p "$VIA_OUTPUT_DIR"
-cp "$image_runtime/support-images.json" "$VIA_OUTPUT_DIR/support-images.json"
+"$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" --snapshot "$VIA_OUTPUT_DIR/support-images.json"
 
 BENCHMARK_CMD=(python3 vss_perf_benchmark.py --config "$BENCHMARK_CONFIG_PATH")
 if [ "${#SCENARIO_ARGS[@]}" -gt 0 ]; then

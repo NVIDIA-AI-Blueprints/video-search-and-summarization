@@ -24,7 +24,7 @@ PERF_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = PERF_ROOT.parents[2]
 sys.path.insert(0, str(REPO_ROOT / "libs/vss-perf-reporting/src"))
 sys.path.insert(0, str(REPO_ROOT / "libs/vss-perf-tools"))
-from support_images import reference, apply_bindings, load as load_images  # noqa: E402
+from support_images import load as load_images, environment as image_environment, save_snapshot  # noqa: E402
 
 from vss_perf_reporting import build_and_save, discover_platform  # noqa: E402
 from alert_results_adapter import to_test_cases  # noqa: E402
@@ -34,6 +34,16 @@ SERVICE = "Alerts-Verification"
 
 def run(argv, **kwargs):
     return subprocess.run([str(arg) for arg in argv], check=True, **kwargs)
+
+
+def write_docker_shim(path, docker, image_variables):
+    """Forward only the selected image variables through passwordless sudo."""
+    names = ",".join(sorted(image_variables))
+    path.write_text(
+        "#!/usr/bin/env bash\nexec sudo -n --preserve-env=" + names + " "
+        + shlex.quote(docker) + ' "$@"\n'
+    )
+    path.chmod(0o700)
 
 
 def hardware_profile():
@@ -131,7 +141,7 @@ def prepare_dataset(dataset, env):
     return destination
 
 
-def prepare_runtime(work, image, supporting):
+def prepare_runtime(work):
     """Keep source code and deployment templates untouched in the checkout."""
     native_root = PERF_ROOT / "benchmark/native"
     shutil.copytree(native_root / "eval", work / "eval")
@@ -159,29 +169,8 @@ def prepare_runtime(work, image, supporting):
     with profile_env.open("a") as stream:
         stream.write("\nSTREAM_TYPE=kafka\n")
     profile_env.chmod(0o600)
-    # Existing Compose appends a tag to VSS_ALERT_IMAGE. Replace that one image
-    # expression with the exact artifact (including a digest when supplied).
-    matched = 0
-    for path in deployment.rglob("*"):
-        if path.suffix not in (".yml", ".yaml") or not path.is_file():
-            continue
-        text = path.read_text()
-        updated, count = re.subn(
-            r"(?m)^(\s*image:)\s*[^\n]*\$\{VSS_ALERT_IMAGE[^\n]*$",
-            lambda match: match[1] + " " + image,
-            text,
-        )
-        if count:
-            path.write_text(updated)
-            matched += count
-    if not matched:
-        raise ValueError("Could not locate the alerts Compose image override")
-    apply_bindings(supporting, "deployment", deployment)
-    compose_path = work / "eval/compose.yml"
-    compose = yaml.safe_load(compose_path.read_text())
-    for name, reference_id in supporting["eval_images"].items():
-        compose["services"][name]["image"] = reference(supporting, reference_id)
-    compose_path.write_text(yaml.safe_dump(compose, sort_keys=False))
+    # The native profile configurator still needs a private deployment copy.
+    # Images are selected by Compose environment interpolation, not file rewriting.
     (work / "eval/.env").touch(mode=0o600)
     return deployment
 
@@ -350,6 +339,12 @@ def main(argv=None):
             raise ValueError(
                 "IMAGE_TAG/ARTIFACT_REF must be an explicit full alerts image reference"
             )
+        supporting = load_images(PERF_ROOT / global_config["supporting_images"])
+        support_values = image_environment(supporting, env)
+        env.update(support_values)
+        env["PERF_ALERT_IMAGE"] = image
+        save_snapshot(output / "support-images.json", support_values)
+        metadata_config["supporting_images"] = supporting
         if not env["NGC_CLI_API_KEY"]:
             raise ValueError("NGC_API_KEY/NGC_CLI_API_KEY is required")
         for binary in ("docker", "curl", "jq", "ip", "bash", "nvidia-smi"):
@@ -364,10 +359,7 @@ def main(argv=None):
             tools = work / "bin"
             tools.mkdir()
             shim = tools / "docker"
-            shim.write_text(
-                "#!/usr/bin/env bash\nexec sudo -n " + shlex.quote(docker) + ' "$@"\n'
-            )
-            shim.chmod(0o700)
+            write_docker_shim(shim, docker, [*support_values, "PERF_ALERT_IMAGE"])
             env["PATH"] = str(tools) + os.pathsep + env["PATH"]
         run(["docker", "compose", "version"], env=env)
         existing = subprocess.check_output(
@@ -380,15 +372,12 @@ def main(argv=None):
                 "Native alerts evaluation requires exclusive access: existing vss Compose containers detected"
             )
         profile = hardware_profile()
-        supporting = load_images(PERF_ROOT / global_config["supporting_images"])
-        (output / "support-images.json").write_text(json.dumps(supporting, indent=2))
-        metadata_config["supporting_images"] = supporting
         dataset_root = prepare_dataset(dataset, env)
         if not (
             dataset_root / dataset["videos_subpath"] / workload["latency_source_video"]
         ).is_file():
             raise ValueError("Configured latency source video is missing")
-        prepare_runtime(work, image, supporting)
+        prepare_runtime(work)
         # The native stack uses fixed container names as well as project=vss.
         # Reject a conflicting name even when it belongs to a different project.
         reserved_names = set()
@@ -414,12 +403,6 @@ def main(argv=None):
                 "Native container names already exist: "
                 + ", ".join(sorted(reserved_names & existing_names))
             )
-        env.update(
-            {
-                str(key): str(value)
-                for key, value in supporting["blueprint_environment"].items()
-            }
-        )
         env.update(
             {
                 "CI_VSS_OSS_DIR": str(work),

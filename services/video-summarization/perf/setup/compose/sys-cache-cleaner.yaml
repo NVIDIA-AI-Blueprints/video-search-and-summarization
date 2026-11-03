@@ -15,7 +15,7 @@
 
 services:
   sys-cache-cleaner:
-    image: busybox:1.37
+    image: ${PERF_BUSYBOX_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     privileged: true
     restart: unless-stopped
     command:

@@ -1,41 +1,60 @@
 # Performance setup tools
 
-`support_images.py` reads a service-owned `perf/setup/configs/images.yaml`.
-It is a source-only setup helper, not an application dependency or an installed
-Python package. It uses PyYAML from the existing isolated perf environment.
+`support_images.py` loads a service-owned `perf/setup/configs/images.yaml`.
+It validates and exports image variables; it does not copy or rewrite Compose
+files or Dockerfiles. This source-only helper uses PyYAML from the existing
+isolated perf environment and adds no application dependency.
 
-Each image has a stable logical ID and a complete `ref`. Multiple Compose services
-can bind to the same ID. Architecture/model variants use separate IDs. The
-`scopes` section binds files relative to a setup tree to Compose service images
-or zero-based Dockerfile `FROM` stages. Internal Dockerfile stages stay unchanged.
-Missing files, missing service images, malformed references, and symlink bindings
-fail before deployment. No container commands are executed by this helper.
-
-Service runners render private files and retain production deployment templates.
-The benchmark's target image is deliberately absent from the support bindings;
-the selected artifact remains authoritative. The `environment` section supports
-existing VIOS/VST setup settings; explicit nonempty environment overrides win.
-
-For example, from the repository root:
-
-```bash
-services/analytics/video-analytics-api/perf/setup/.venv/bin/python \
-  libs/vss-perf-tools/support_images.py \
-  --config services/analytics/video-analytics-api/perf/setup/configs/images.yaml \
-  --scope infra --source deploy/docker/services/infra \
-  --destination /tmp/my-api-perf-images/infra
+```yaml
+schema_version: 1
+images:
+  PERF_KAFKA_IMAGE: confluentinc/cp-kafka:8.3.0
+  PERF_ELASTICSEARCH_BASE_IMAGE: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
 ```
 
-`support-images.json` is a snapshot of configured references, not proof of image
-approval or the immutable digests used by Docker. OSRB verification and switching
-registries/versions are separate work. Existing mutable tags are preserved here.
+Perf-owned Compose files refer directly to required image variables:
 
-RTVI Embed still reads an existing VST deployment package. Its known explicit
-image overrides are configurable, but other package-defined references cannot be
-inventoried until that package is inspected. This limitation is recorded in its
-image configuration and README.
+```yaml
+services:
+  kafka:
+    image: ${PERF_KAFKA_IMAGE:?Load the performance image configuration}
+```
 
-When blueprint dependencies change, review the corresponding service image file
-and bindings together. Do not silently synchronize versions during a benchmark.
-Run `pytest libs/vss-perf-tools/tests` in a perf test environment to verify all
-configured source bindings before deployment.
+Shared blueprint Compose files retain their existing deployment default:
+
+```yaml
+image: ${PERF_KAFKA_IMAGE:-confluentinc/cp-kafka:8.3.0}
+```
+
+For locally built services, Compose forwards named base-image build arguments.
+Shared Dockerfiles retain their original base as the ARG default, so a deployment
+without perf variables uses the same base image as before:
+
+```dockerfile
+ARG PERF_ELASTICSEARCH_BASE_IMAGE=docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+FROM ${PERF_ELASTICSEARCH_BASE_IMAGE}
+```
+
+The normal service benchmark entrypoint loads its file automatically. For manual
+Compose use, load it from the repository root using that service's perf Python:
+
+```bash
+image_environment="$(services/analytics/video-analytics-api/perf/setup/.venv/bin/python \
+  libs/vss-perf-tools/support_images.py \
+  --config services/analytics/video-analytics-api/perf/setup/configs/images.yaml \
+  --shell)" && eval "$image_environment"
+```
+
+Explicit nonempty environment overrides win and are validated. The optional
+`--snapshot <path>` writes the effective image variables to JSON. Neither config
+nor snapshot contains credentials. The target artifact is deliberately excluded
+from the supporting image file and stays controlled by the benchmark runner.
+
+Image approval, registry migration, and tag upgrades are separate work. Existing
+mutable tags remain unchanged. Snapshots record references, not Docker's resolved
+image digests. RTVI Embed's downloaded VST package remains a separate unverified
+inventory; its four explicit image overrides are configured in the same flat map.
+
+Run `pytest libs/vss-perf-tools/tests` in a perf test environment to validate the
+loader, deployment defaults, build-argument forwarding, and Compose interpolation.
+Compose tests need the Docker Compose CLI but do not start containers or pull images.

@@ -21,7 +21,7 @@ for path in (PERF_ROOT / "benchmark", SHARED_REPORTING_SRC):
         sys.path.insert(0, str(path))
 
 sys.path.insert(0, str(REPO_ROOT / "libs/vss-perf-tools"))
-from support_images import prepare_infra  # noqa: E402
+from support_images import load as load_images, environment as image_environment, save_snapshot  # noqa: E402
 
 from vss_perf_reporting import build_and_save, discover_platform  # noqa: E402
 from vss_perf_va_api_adapter import failure_payload, to_test_cases  # noqa: E402
@@ -184,10 +184,9 @@ def main(argv: list[str] | None = None) -> int:
         success = bool(payload.get("success"))
         return _finish(_write_canonical_result(payload, args), success)
 
-    env["PERF_SUPPORT_INFRA"] = str(prepare_infra(
-        PERF_ROOT / "setup/configs/images.yaml",
-        REPO_ROOT / "deploy/docker/services/infra", work_dir,
-    ))
+    supporting = image_environment(load_images(PERF_ROOT / "setup/configs/images.yaml"), env)
+    env.update(supporting)
+    save_snapshot(work_dir / "support-images.json", supporting)
 
     env["PERF_NATIVE_ONLY"] = "true"
     completed = subprocess.run(

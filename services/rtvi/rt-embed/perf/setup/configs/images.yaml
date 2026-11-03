@@ -1,33 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# Support images only; ARTIFACT_REF controls the tested service.
-# Values preserve current defaults and do not attest OSRB approval.
+# Supporting images only; the tested service still uses ARTIFACT_REF.
+# Values preserve existing references and do not certify OSRB approval.
 schema_version: 1
 images:
-  prometheus:
-    ref: prom/prometheus:latest
-  dcgm-exporter:
-    ref: nvcr.io/nvidia/k8s/dcgm-exporter:4.2.0-4.1.0-ubuntu22.04
-  node-exporter:
-    ref: prom/node-exporter:latest
-  vst-streamprocessing:
-    ref: nvcr.io/rxczgrvsg8nx/vst-dev/vst-streamprocessing:2.1.0-26.04.1
-  vst-sensor:
-    ref: nvcr.io/rxczgrvsg8nx/vst-dev/vst-sensor:2.1.0-26.04.1
-  vst-ingress:
-    ref: nvcr.io/rxczgrvsg8nx/vst-dev/vst-ingress:2.1.0-26.04.1
-  nvstreamer:
-    ref: nvcr.io/rxczgrvsg8nx/vst-dev/nvstreamer:2.1.0-26.04.1
-scopes:
-  compose:
-    compose.perf.yaml:
-      services:
-        prometheus: prometheus
-        dcgm-exporter: dcgm-exporter
-        node-exporter: node-exporter
-environment:
-  VST_STREAMPROCESSING_IMAGE: vst-streamprocessing
-  VST_SENSOR_IMAGE: vst-sensor
-  VST_INGRESS_IMAGE: vst-ingress
-  VST_NVSTREAMER_IMAGE: nvstreamer
-package_managed_images: Additional image tags are supplied by vst_package.tar.gz; package inventory pending.
+  PERF_PROMETHEUS_IMAGE: prom/prometheus:latest
+  PERF_DCGM_EXPORTER_IMAGE: nvcr.io/nvidia/k8s/dcgm-exporter:4.2.0-4.1.0-ubuntu22.04
+  PERF_NODE_EXPORTER_IMAGE: prom/node-exporter:latest
+  VST_STREAMPROCESSING_IMAGE: nvcr.io/rxczgrvsg8nx/vst-dev/vst-streamprocessing:2.1.0-26.04.1
+  VST_SENSOR_IMAGE: nvcr.io/rxczgrvsg8nx/vst-dev/vst-sensor:2.1.0-26.04.1
+  VST_INGRESS_IMAGE: nvcr.io/rxczgrvsg8nx/vst-dev/vst-ingress:2.1.0-26.04.1
+  VST_NVSTREAMER_IMAGE: nvcr.io/rxczgrvsg8nx/vst-dev/nvstreamer:2.1.0-26.04.1
+package_managed_images: The downloaded VST package inventory is unverified; its four explicit image overrides are listed above.

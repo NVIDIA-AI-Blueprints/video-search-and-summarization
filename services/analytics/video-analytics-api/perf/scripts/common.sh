@@ -273,7 +273,6 @@ load_compose_env() {
 compose() {
     COMPOSE_ENV_FILE="$ENV_FILE"
     export COMPOSE_ENV_FILE COMPOSE_EXTRA_FILES COMPOSE_PROJECT_NAME INFRA_DIR INTEGRATION_TEST_DIR
-    export INFRA_DIR="${PERF_SUPPORT_INFRA:-$INFRA_DIR}"
     va_api_compose "$@"
 }
 

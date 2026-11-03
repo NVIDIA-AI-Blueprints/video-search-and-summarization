@@ -1,190 +1,42 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# Support images only; ARTIFACT_REF controls the tested service.
-# Values preserve current defaults and do not attest OSRB approval.
+# Supporting images only; the tested service still uses ARTIFACT_REF.
+# Values preserve existing references and do not certify OSRB approval.
 schema_version: 1
 images:
-  alpine:
-    ref: alpine:3.24.1
-  coturn:
-    ref: coturn/coturn:4.14.0
-  eclipse-mosquitto:
-    ref: eclipse-mosquitto:2
-  phoenix:
-    ref: arizephoenix/phoenix:19.8.0
-  elasticsearch:
-    ref: elasticsearch
-  cp-kafka:
-    ref: confluentinc/cp-kafka:8.3.0
-  vss-kafka-topic-init:
-    ref: vss-kafka-topic-init
-  redis:
-    ref: redis:8.10.0-alpine
-  kibana:
-    ref: docker.elastic.co/kibana/kibana:9.4.4
-  logstash:
-    ref: docker.elastic.co/logstash/logstash:9.4.4
-  haproxy:
-    ref: docker.io/library/haproxy:3.4.2-alpine
-  sdr-mw-l:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/sdr-mw-l:develop-latest
-  vss-rt-vlm:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
-  vss-rt-cv:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv:develop-latest
-  vss-behavior-analytics:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics:develop-latest
-  vss-video-analytics-api:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-video-analytics-api:develop-latest
-  vss-agent:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
-  vss-agent-ui:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:develop-latest
-  postgres:
-    ref: postgres:17.10-alpine
-  vss-vios-ingress:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-ingress:develop-latest
-  busybox:
-    ref: busybox:1.37.0
-  vss-vios-sensor:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-sensor:develop-latest
-  vss-vios-streamprocessing:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
-  curl:
-    ref: docker.io/alpine/curl:8.21.0
-  vllm:
-    ref: nvcr.io/nvidia/vllm:26.07-py3
-  cosmos3-reasoner:
-    ref: nvcr.io/nim/nvidia/cosmos3-reasoner:1.7
-  elasticsearch-base:
-    ref: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
-  cuda:
-    ref: nvidia/cuda:13.0.0-cudnn-runtime-ubuntu22.04
-  vss-configurator:
-    ref: nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-configurator:nightly-20260906
-  eval-curl:
-    ref: curlimages/curl:latest
-  eval-busybox:
-    ref: busybox:latest
-  alert-bridge-evaluator:
-    ref: nvcr.io/nv-metropolis-dev/metropolis-analytic/alert-bridge-evaluator:2026.09.22
-  vss-surf-trigger-eval-svc:
-    ref: nvcr.io/nvstaging/vss-core/vss-surf-trigger-eval-svc:3.2-2026.05.06
-  prometheus:
-    ref: quay.io/prometheus/prometheus:v3.11.3
-  nemotron-3.5-lightning-30b-a3b:
-    ref: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
-  vss-vios-nvstreamer:
-    ref: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-nvstreamer:develop-latest
-scopes:
-  deployment:
-    services/infra/compose.yml:
-      services:
-        turnserver-init: alpine
-        turnserver: coturn
-        mosquitto: eclipse-mosquitto
-        phoenix: phoenix
-        elasticsearch: elasticsearch
-        kafka: cp-kafka
-        kafka-topic-init-container: vss-kafka-topic-init
-        redis: redis
-        kibana: kibana
-        logstash: logstash
-    services/infra/haproxy/compose.yml:
-      services:
-        vss-haproxy-ingress: haproxy
-    services/infra/sdrc/docker-compose.yaml:
-      services:
-        init-dirs: alpine
-        render-config: alpine
-        wdm-env-from-config: alpine
-        wait-for-redis: redis
-        sdr-controller: sdr-mw-l
-    services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml:
-      services:
-        rtvi-vlm: vss-rt-vlm
-    services/rtvi/rtvi-cv/compose.yaml:
-      services:
-        perception: vss-rt-cv
-    services/analytics/behavior-analytics/compose.yml:
-      services:
-        vss-behavior-analytics-base: vss-behavior-analytics
-    services/analytics/video-analytics-api/compose.yml:
-      services:
-        vss-video-analytics-api: vss-video-analytics-api
-    services/agent/compose.yml:
-      services:
-        vss-va-mcp: vss-agent
-        vss-agent: vss-agent
-    services/ui/compose.yml:
-      services:
-        vss-ui: vss-agent-ui
-    services/vios/foundational/docker-compose.yaml:
-      services:
-        centralizedb: postgres
-        vst-ingress: vss-vios-ingress
-    services/vios/initiator/docker-compose.yaml:
-      services:
-        sensor-bp-wait-bp-configurator: busybox
-        sensor-ms: vss-vios-sensor
-        sensor-ms-2d: vss-vios-sensor
-        sensor-ms-3d: vss-vios-sensor
-        sensor-ms-mv3dt: vss-vios-sensor
-    services/vios/streamprocessing/docker-compose.yaml:
-      services:
-        vios-apt-cache-init: vss-vios-streamprocessing
-        streamprocessing-ms: vss-vios-streamprocessing
-        streamprocessing-ms-2d: vss-vios-streamprocessing
-        streamprocessing-ms-3d: vss-vios-streamprocessing
-        streamprocessing-ms-mv3dt: vss-vios-streamprocessing
-    services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml:
-      services:
-        nvidia-nemotron-nano-9b-v2-fp8-toolcall-init: curl
-        nvidia-nemotron-nano-9b-v2-fp8: vllm
-        nvidia-nemotron-nano-9b-v2-fp8-shared-gpu: vllm
-    services/nim/cosmos3-reasoner/compose.yml:
-      services:
-        cosmos3-reasoner: cosmos3-reasoner
-        cosmos3-reasoner-shared-gpu: cosmos3-reasoner
-    services/infra/Dockerfiles/elastic-init.Dockerfile:
-      build_bases:
-        '0': alpine
-    services/infra/Dockerfiles/elasticsearch.Dockerfile:
-      build_bases:
-        '0': elasticsearch-base
-    services/infra/Dockerfiles/kafka-health-check.Dockerfile:
-      build_bases:
-        '0': alpine
-        '1': cp-kafka
-    services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile:
-      build_bases:
-        '0': cuda
-        '1': elasticsearch-base
-    services/infra/Dockerfiles/redis-health-check.Dockerfile:
-      build_bases:
-        '0': alpine
-    developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile:
-      build_bases:
-        '0': alpine
-    services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml:
-      services:
-        nemotron-3.5-lightning-30b-a3b-init: alpine
-        nemotron-3.5-lightning-30b-a3b: nemotron-3.5-lightning-30b-a3b
-        nemotron-3.5-lightning-30b-a3b-shared-gpu: nemotron-3.5-lightning-30b-a3b
-    services/nvstreamer/base.yml:
-      services:
-        nvstreamer-base: vss-vios-nvstreamer
-blueprint_environment:
-  VSS_CONTAINER_TAG: develop-latest
-  VSS_RT_CV_TAG: develop-latest
-  VSS_RT_VLM_TAG: develop-latest
-  VSS_BEHAVIOR_ANALYTICS_TAG: develop-latest
-eval_images:
-  init-config-manager: vss-configurator
-  bp-configurator: vss-configurator
-  bp-configurator-init: eval-curl
-  eval-orchestrator-init: eval-curl
-  alert-bridge-evaluator-init: eval-busybox
-  alert-bridge-evaluator: alert-bridge-evaluator
-  eval-orchestrator: vss-surf-trigger-eval-svc
-  prometheus: prometheus
+  PERF_ALPINE_IMAGE: alpine:3.24.1
+  PERF_COTURN_IMAGE: coturn/coturn:4.14.0
+  PERF_ECLIPSE_MOSQUITTO_IMAGE: eclipse-mosquitto:2
+  PERF_PHOENIX_IMAGE: arizephoenix/phoenix:19.8.0
+  PERF_ELASTICSEARCH_IMAGE: elasticsearch
+  PERF_KAFKA_IMAGE: confluentinc/cp-kafka:8.3.0
+  PERF_VSS_KAFKA_TOPIC_INIT_IMAGE: vss-kafka-topic-init
+  PERF_REDIS_IMAGE: redis:8.10.0-alpine
+  PERF_KIBANA_IMAGE: docker.elastic.co/kibana/kibana:9.4.4
+  PERF_LOGSTASH_IMAGE: docker.elastic.co/logstash/logstash:9.4.4
+  PERF_HAPROXY_IMAGE: docker.io/library/haproxy:3.4.2-alpine
+  PERF_SDR_MW_L_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/sdr-mw-l:develop-latest
+  PERF_VSS_RT_VLM_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
+  PERF_VSS_RT_CV_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv:develop-latest
+  PERF_VSS_BEHAVIOR_ANALYTICS_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics:develop-latest
+  PERF_VSS_VIDEO_ANALYTICS_API_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-video-analytics-api:develop-latest
+  PERF_VSS_AGENT_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
+  PERF_VSS_AGENT_UI_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:develop-latest
+  PERF_POSTGRES_IMAGE: postgres:17.10-alpine
+  PERF_VSS_VIOS_INGRESS_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-ingress:develop-latest
+  PERF_BUSYBOX_IMAGE: busybox:1.37.0
+  PERF_VSS_VIOS_SENSOR_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-sensor:develop-latest
+  PERF_VSS_VIOS_STREAMPROCESSING_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
+  PERF_CURL_IMAGE: docker.io/alpine/curl:8.21.0
+  PERF_VLLM_IMAGE: nvcr.io/nvidia/vllm:26.07-py3
+  PERF_COSMOS3_REASONER_IMAGE: nvcr.io/nim/nvidia/cosmos3-reasoner:1.7
+  PERF_ELASTICSEARCH_BASE_IMAGE: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+  PERF_CUDA_IMAGE: nvidia/cuda:13.0.0-cudnn-runtime-ubuntu22.04
+  PERF_VSS_CONFIGURATOR_IMAGE: nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-configurator:nightly-20260906
+  PERF_EVAL_CURL_IMAGE: curlimages/curl:latest
+  PERF_EVAL_BUSYBOX_IMAGE: busybox:latest
+  PERF_ALERT_BRIDGE_EVALUATOR_IMAGE: nvcr.io/nv-metropolis-dev/metropolis-analytic/alert-bridge-evaluator:2026.09.22
+  PERF_VSS_SURF_TRIGGER_EVAL_SVC_IMAGE: nvcr.io/nvstaging/vss-core/vss-surf-trigger-eval-svc:3.2-2026.05.06
+  PERF_PROMETHEUS_IMAGE: quay.io/prometheus/prometheus:v3.11.3
+  PERF_NEMOTRON_3_5_LIGHTNING_30B_A3B_IMAGE: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+  PERF_VSS_VIOS_NVSTREAMER_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-nvstreamer:develop-latest
