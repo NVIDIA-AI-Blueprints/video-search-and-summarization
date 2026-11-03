@@ -23,6 +23,7 @@ import {
 import type { EvidenceSearchHit } from '@/modules/search/domain/search';
 import type { LibrarySearchResponse } from '@/lib/library/search';
 import type { ReportLibraryItem } from '@/modules/reports/domain/storage';
+import { LIBRARY_STATE_KEY } from '@/lib/library/remembered-state';
 import { getViewerTimeZone } from '@/lib/time';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,7 +32,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
 
 type Tab = 'incidents' | 'evidence';
-const STATE_KEY = 'report-library-state';
+const STATE_KEY = LIBRARY_STATE_KEY;
 const PAGE_SIZE = 6;
 
 export function Library() {

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from '@/components/ui/navigation-menu';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from 'cn';
+import { forgetLibraryState } from '@/lib/library/remembered-state';
 import { HealthStrip } from '@/sections/shell/components/HealthStrip';
 
 const NAV_ITEMS = [
@@ -52,7 +53,11 @@ export function AppHeader({
                     : 'text-ink/70 hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground',
                 )}
               >
-                <Link aria-current={active === item.key ? 'page' : undefined} href={item.href}>
+                <Link
+                  aria-current={active === item.key ? 'page' : undefined}
+                  href={item.href}
+                  onClick={item.key === 'library' ? () => forgetLibraryState() : undefined}
+                >
                   {item.label}
                 </Link>
               </NavigationMenuLink>
@@ -76,6 +81,7 @@ export function AppHeader({
                   active === item.key && 'bg-primary font-bold text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground',
                 )}
                 href={item.href}
+                onClick={item.key === 'library' ? () => forgetLibraryState() : undefined}
               >
                 {item.label}
                 {active === item.key && <CheckIcon aria-hidden="true" className="size-4" />}
