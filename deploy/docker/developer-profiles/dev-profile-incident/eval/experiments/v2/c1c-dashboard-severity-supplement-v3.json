@@ -1,0 +1,52 @@
+{
+ "config_version": "evalv2-config-v1",
+ "experiment": "v2-c1c-dashboard-severity-supplement-v3",
+ "split": {
+  "version": "split-v2",
+  "half": "dev"
+ },
+ "datasets": {
+  "dashboard_references": "dashboard-severity-supplement-v1"
+ },
+ "subjects": [
+  {
+   "id": "ultra-chart",
+   "adapter": "openai_compat",
+   "endpoint": "switchyard",
+   "model": "nvidia/nemotron-3-ultra"
+  }
+ ],
+ "tasks": {
+  "dashboard": {
+   "subjects": "all",
+   "scorers": [
+    "dashboard.score_reply@1"
+   ],
+   "options": {
+    "request_shape": "agent-route-v3"
+   }
+  }
+ },
+ "repeats": 1,
+ "seed": 20261101,
+ "retry_policy": "retry-v2",
+ "caps": [
+  {
+   "ledger": "inference",
+   "subject": "ultra-chart",
+   "task": "dashboard",
+   "max_attempts": 24,
+   "max_tokens": 36000
+  },
+  {
+   "ledger": "inference",
+   "subject": "*",
+   "task": "*",
+   "max_attempts": 24,
+   "max_tokens": 36000
+  }
+ ],
+ "notes": "Severity-word change, NOT YET APPROVED: the 24 rule-written dev supplement requests (12 valid with critical/minimal/very low/moderate/severe; 12 that must still be refused) to Ultra on agent-route-v3, scored on spec/refusal only (no corpus snapshot). v2 vs v3 shows the change's effect, including false acceptances. Caps 24 attempts / 36,000 tokens, hard stop.",
+ "purpose": "pilot",
+ "budget_mode": "hard_stop"
+}
