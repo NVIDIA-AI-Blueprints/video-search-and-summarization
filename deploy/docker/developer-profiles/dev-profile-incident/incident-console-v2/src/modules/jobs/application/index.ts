@@ -48,10 +48,9 @@ export async function enqueueAnalysisJob(
  * The video every attempt of a job analyses into: fixed by the job, so a run
  * cut short by a restart, and a retry, reuse one video row instead of leaving
  * another on the same R2 object (the row is created once; later runs add revisions).
- * A re-analysis job analyses its existing video.
  */
-export const jobVideoId = (job: Pick<AnalysisJob, 'id' | 'createdAt' | 'filePath' | 'reanalyseVideoId'>): string =>
-  job.reanalyseVideoId ?? compactId('v', `analysis-job:${job.id}:${job.createdAt}:${job.filePath}`);
+export const jobVideoId = (job: Pick<AnalysisJob, 'id' | 'createdAt' | 'filePath'>): string =>
+  compactId('v', `analysis-job:${job.id}:${job.createdAt}:${job.filePath}`);
 
 export const listAnalysisJobs = (jobs: AnalysisJobRepository): Promise<AnalysisJob[]> => jobs.list(RECENT_FINISHED);
 

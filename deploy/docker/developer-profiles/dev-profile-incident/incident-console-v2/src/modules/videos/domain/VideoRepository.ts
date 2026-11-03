@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // VideoRepository: the video registry (1 video = 1 incident), its one official
-// revision, its privacy toggle, and whole-video deletion. R2 objects are never touched here.
+// revision, and whole-video deletion. R2 objects are never touched here.
 
 import type { Page } from '@/modules/shared/domain/common';
 import type { OfficialCrop } from '@/modules/reports/domain/revision';
@@ -26,8 +26,6 @@ export interface VideoRecord {
   uploadedAt: string | null;
   source: string | null;
   officialRevisionId: number | null;
-  /** The privacy toggle (videos.blur_faces): every analysis of the video blurs the faces in its stored evidence. */
-  blurFaces: boolean;
 }
 
 export interface OfficialChange {
@@ -93,8 +91,6 @@ export interface VideoRepository {
    * revision that is not the searchable one.
    */
   setRevisionCrops(videoId: string, revisionId: number, crops: OfficialCrop[]): Promise<RevisionCropsChange>;
-  /** Sets the video's privacy toggle; false when the video does not exist. */
-  setBlurFaces(videoId: string, blurFaces: boolean): Promise<boolean>;
   /** Deletes the video row (its revisions, evidence crops and query results cascade), then the run records that name only this video. */
   deleteVideo(videoId: string): Promise<void>;
 }

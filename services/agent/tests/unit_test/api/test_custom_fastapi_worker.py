@@ -28,6 +28,7 @@ per-profile capability flags:
   * ``register_incident_chat_routes``       — POST /api/v1/incidents/chat
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -90,6 +91,26 @@ def patched_register_fns():
 
 class TestRegisterStreamingRoutesDispatcher:
     """``CustomFastApiFrontEndWorker._register_streaming_routes``."""
+
+    def test_chart_generator_llm_name_reaches_the_chart_route(self, patched_register_fns):
+        """The chart-request route gets the ``llm_name`` of the configured chart_generator function."""
+        worker = _make_worker(MagicMock())
+        worker._config.functions = {"chart_generator": SimpleNamespace(llm_name="nim_llm")}
+
+        with patch("vss_agents.api.custom_fastapi_worker.register_incident_charts_routes") as charts:
+            worker._register_streaming_routes(MagicMock(), MagicMock())
+
+        charts.assert_called_once()
+        assert charts.call_args.args[2] == "nim_llm"
+
+    def test_no_chart_generator_passes_no_llm_name(self, patched_register_fns):
+        worker = _make_worker(MagicMock())
+        worker._config.functions = {}
+
+        with patch("vss_agents.api.custom_fastapi_worker.register_incident_charts_routes") as charts:
+            worker._register_streaming_routes(MagicMock(), MagicMock())
+
+        assert charts.call_args.args[2] is None
 
     def test_universal_routes_register_unconditionally(self, patched_register_fns):
         """All register fns fire on every profile, with no per-profile

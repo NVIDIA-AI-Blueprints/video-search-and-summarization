@@ -47,6 +47,43 @@ const IMAGE_SCHEMA = { type: ['string', 'null'], minLength: 1, maxLength: 1024 }
 const IMAGE_TIMESTAMP_SCHEMA = { type: ['integer', 'null'], minimum: 0 };
 const IMAGE_BOX_SCHEMA = { type: ['array', 'null'], items: { type: 'number', minimum: 0, maximum: 1000 }, minItems: 4, maxItems: 4 };
 
+// A reviewer item from the box tool: the AI proposal kept for audit, the track (null for a still image) and, for a still image,
+// its second and box. The server cuts the evidence image from the first-seen second and stores the track; none of it is trusted as a key.
+const BOX_SCHEMA = { type: 'array', items: { type: 'number', minimum: 0, maximum: 1000 }, minItems: 4, maxItems: 4 };
+const REVIEWER_SCHEMA = {
+  type: ['object', 'null'],
+  additionalProperties: false,
+  required: ['ai_proposal', 'track', 'still_seconds', 'still_box'],
+  properties: {
+    ai_proposal: { type: ['object', 'null'] },
+    track: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      required: ['source', 'samples', 'span', 'partial', 'lost_at'],
+      properties: {
+        source: { const: 'reviewer' },
+        samples: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 2000,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['t', 'box'],
+            properties: { t: { type: 'number', minimum: 0 }, box: BOX_SCHEMA, conf: { type: 'number' } },
+          },
+        },
+        span: { type: 'array', items: { type: 'number', minimum: 0 }, minItems: 2, maxItems: 2 },
+        partial: { type: 'boolean' },
+        lost_at: { type: ['number', 'null'] },
+        reason: { type: ['string', 'null'] },
+      },
+    },
+    still_seconds: { type: ['number', 'null'], minimum: 0 },
+    still_box: { type: ['array', 'null'], items: { type: 'number', minimum: 0, maximum: 1000 }, minItems: 4, maxItems: 4 },
+  },
+};
+
 export class StructuredEditError extends Error {
   status: 400 | 422;
   violations: ContractViolation[];
@@ -89,6 +126,7 @@ function editValidator(catalog?: ContractCatalog): ValidateFunction {
         image: IMAGE_SCHEMA,
         image_timestamp_seconds: IMAGE_TIMESTAMP_SCHEMA,
         image_box: IMAGE_BOX_SCHEMA,
+        reviewer: REVIEWER_SCHEMA,
       },
     },
   });

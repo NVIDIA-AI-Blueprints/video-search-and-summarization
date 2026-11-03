@@ -6,7 +6,7 @@ import { type RefObject, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { containedBoxStyle, parseTrackSamples, type TrackSample, trackBoxAt } from '@/modules/reports/domain/track';
 
-/** One tracked item the overlay draws: its id label, colour and the console route its samples are read from. */
+/** One tracked item the overlay draws: its name (shown as the box label, never its id), colour and the console route its samples are read from. */
 export interface TrackedItem {
   id: string;
   label: string;
@@ -69,7 +69,7 @@ function usePlayhead(video: RefObject<HTMLVideoElement | null>): number {
 
 /**
  * A box over the report player that follows each tracked person: the box at the playhead (interpolated between samples,
- * hidden outside the track's span), one colour per person with its id, the selected one emphasised. It never takes a
+ * hidden outside the track's span), one colour per person with its name, the selected one emphasised. It never takes a
  * pointer event, so the player's own controls work through it.
  */
 export function TrackOverlay({
@@ -141,8 +141,7 @@ export function TrackOverlay({
               )}
               style={{ backgroundColor: item.colour }}
             >
-              {item.id}
-              {selected && item.label ? ` · ${item.label}` : ''}
+              {item.label}
             </span>
           </div>
         );

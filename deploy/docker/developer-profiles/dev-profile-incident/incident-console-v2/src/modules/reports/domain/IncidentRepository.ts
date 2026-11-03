@@ -67,8 +67,6 @@ export interface RevisionRecord {
     storageKey: string | null;
     filename: string;
     officialRevisionId: number | null;
-    /** The video's privacy toggle (videos.blur_faces). */
-    blurFaces: boolean;
   };
   /** Null when the revision names no run or its run is not recorded. */
   modelRun: { modelName: string | null; promptVersion: string | null; runAt: string | null; notes: RunNotes } | null;

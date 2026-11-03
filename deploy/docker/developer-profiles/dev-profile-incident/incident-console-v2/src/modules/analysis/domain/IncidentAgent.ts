@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // IncidentAgent: the native vss-agent's incident analysis (agent mode), P1 only
-// (skip_rp1). The port returns the raw HTTP outcome; the analysis decides what a
-// success, a contract refusal (422 with the raw output) or a failure means.
+// (skip_rp1). The port returns the raw
+// HTTP outcome; the caller decides what a success, a contract refusal (422 with the raw
+// output) or a failure means.
 
 export interface AgentAnalyzeRequest {
   videoId: string;
@@ -20,8 +21,6 @@ export interface AgentAnalyzeRequest {
    * the header itself).
    */
   videoDurationSeconds: number | null;
-  /** Ask the agent to blur the faces in the stored evidence (sent as blur_faces only when true). */
-  blurFaces?: boolean;
 }
 
 export interface AgentHttpResponse {

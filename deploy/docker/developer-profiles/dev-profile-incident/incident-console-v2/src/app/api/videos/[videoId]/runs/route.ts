@@ -71,8 +71,7 @@ export async function GET(_request: Request, context: { params: Promise<{ videoI
  * request, strict validation and ID-only recovery as a new upload, always a
  * new run and a new AI revision, never touching the video row (so its upload
  * time is kept) or any earlier run or revision. additionalInstruction is the
- * reviewer prompt typed in the console. A video with its face-blur toggle on
- * is re-analysed with blur_faces, like every analysis of it.
+ * reviewer prompt typed in the console.
  */
 export async function POST(request: Request, context: { params: Promise<{ videoId: string }> }) {
   try {
@@ -96,7 +95,6 @@ export async function POST(request: Request, context: { params: Promise<{ videoI
         r2Key: video.storageKey,
         model: body.model ?? config.vlmModel,
         additionalInstruction: body.additionalInstruction,
-        blurFaces: video.blurFaces,
       },
       getAnalysisPorts(config),
       config.analysisMode,

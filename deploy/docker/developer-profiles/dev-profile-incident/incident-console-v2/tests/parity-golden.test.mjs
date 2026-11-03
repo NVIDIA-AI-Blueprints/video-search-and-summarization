@@ -14,7 +14,7 @@ register('./support/alias-loader.mjs', import.meta.url);
 await import('../src/modules/contract/infrastructure/loader.ts');
 
 const { buildP1Request, normalizeAdditionalInstruction } = await import('../src/modules/analysis/application/build-request.ts');
-const { GatewayChartInterpreter } = await import('../src/modules/dashboard/infrastructure/gateway/chart-interpreter.ts');
+const { AgentChartInterpreter } = await import('../src/modules/dashboard/infrastructure/agent/chart-interpreter.ts');
 
 const TESTED = ['chart/request', 'p1/base', 'p1/reviewer'];
 
@@ -36,13 +36,16 @@ test('P1 with a reviewer instruction equals the golden shared with the agent', (
 
 test('a chart request equals the golden', async () => {
   const { inputs } = goldenCase('chart', 'request');
+  const originalFetch = globalThis.fetch;
   let sent;
-  const gateway = {
-    complete: async (request) => {
-      sent = request;
-      return { choices: [{ message: { content: '{"unsupported": true}' } }] };
-    },
+  globalThis.fetch = async (_url, init) => {
+    sent = JSON.parse(String(init?.body));
+    return Response.json({ reply: { unsupported: true } });
   };
-  await new GatewayChartInterpreter(gateway, inputs.model).interpret(inputs.request);
+  try {
+    await new AgentChartInterpreter('http://agent.test').interpret(inputs.request);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
   assertMatchesGolden('chart', 'request', sent, 'console');
 });

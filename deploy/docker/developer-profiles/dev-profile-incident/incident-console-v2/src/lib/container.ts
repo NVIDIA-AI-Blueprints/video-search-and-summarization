@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import type { ChartInterpreter } from '@/modules/dashboard/domain/ChartInterpreter';
 import type { ChartRenderer } from '@/modules/dashboard/domain/ChartRenderer';
 import { AgentChartRenderer } from '@/modules/dashboard/infrastructure/agent/chart-renderer';
-import { GatewayChartInterpreter } from '@/modules/dashboard/infrastructure/gateway/chart-interpreter';
+import { AgentChartInterpreter } from '@/modules/dashboard/infrastructure/agent/chart-interpreter';
 import { SupabaseDashboardAdapter } from '@/modules/dashboard/infrastructure/supabase/dashboard';
 import { SupabaseHealthAdapter } from '@/modules/health/infrastructure/supabase/health';
 import { SupabaseVideoAdapter } from '@/modules/videos/infrastructure/supabase/videos';
@@ -91,9 +91,9 @@ export function getEvidenceClipStore(config: ServiceConfiguration): ClipStore {
   return new R2EvidenceClipStore(config);
 }
 
-/** The chart request port, in either analysis mode; null when VLM_GATEWAY_URL is not configured. */
+/** The chart request port, in either analysis mode: the agent reads the request with its own LLM; null when INCIDENT_AGENT_BASE_URL is not configured. */
 export function getChartInterpreter(config: ServiceConfiguration = getServiceConfiguration()): ChartInterpreter | null {
-  return config.gatewayUrl ? new GatewayChartInterpreter(new GatewayClient(config.gatewayUrl), config.chartModel) : null;
+  return config.agentUrl ? new AgentChartInterpreter(config.agentUrl) : null;
 }
 
 /** The chart drawing port: VSS chart_generator on the agent; null when the agent URL is not configured. */

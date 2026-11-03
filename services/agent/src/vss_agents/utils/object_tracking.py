@@ -30,7 +30,8 @@ detector (the one that located the item) is asked for the item's label on the cu
 
 Which trackers exist depends on the OpenCV build. CSRT and KCF need ``opencv-contrib``; ``opencv-python-headless``
 (the dependency) ships only MIL (plus the model-based Vit, Nano, DaSiamRPN and GOTURN trackers, which need model
-files). :func:`select_tracker` takes the best one present. MIL never reports failure, it keeps returning a drifting
+files). :func:`select_tracker` takes the best one present: NanoTrack, then Vit, when their ONNX files are in the
+directory named by ``INCIDENT_OBJECT_TRACKING_MODEL_DIR``, otherwise CSRT, KCF or MIL. MIL never reports failure, it keeps returning a drifting
 box, so a tracker is also treated as failed when its box leaves the frame (less than a quarter of it visible),
 collapses or changes area by more than a factor of :data:`MAX_AREA_CHANGE`; otherwise the detector's misses alone
 end a segment.
@@ -50,6 +51,7 @@ from dataclasses import field
 import logging
 import math
 import os
+from pathlib import Path
 import time
 from typing import Any
 
@@ -60,6 +62,7 @@ except ImportError:  # pragma: no cover
 import numpy as np
 
 from vss_agents.utils.crop_evidence import CropCallCapReachedError
+from vss_agents.utils.crop_evidence import DefaultDetector
 from vss_agents.utils.crop_evidence import parse_detections
 from vss_agents.utils.optional_cv2 import ensure_codecs
 from vss_agents.utils.track_evidence import OBJECT_TRACK_SOURCE
@@ -78,6 +81,11 @@ MIN_IOU_ENV_VAR = "INCIDENT_OBJECT_TRACKING_MIN_IOU"
 SPAN_ENV_VAR = "INCIDENT_OBJECT_TRACKING_SPAN_SECONDS"
 TIME_CAP_ENV_VAR = "INCIDENT_OBJECT_TRACKING_MAX_SECONDS"
 DETECTOR_CALLS_ENV_VAR = "INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS"
+MODEL_DIR_ENV_VAR = "INCIDENT_OBJECT_TRACKING_MODEL_DIR"
+NANO_BACKBONE = "nanotrack_backbone_sim.onnx"
+NANO_HEAD = "nanotrack_head_sim.onnx"
+VIT_MODEL = "object_tracking_vittrack_2023sep.onnx"
+DETECTOR_TIMEOUT_ENV_VAR = "INCIDENT_OBJECT_TRACKING_DETECTOR_TIMEOUT_SECONDS"
 
 DEFAULT_SAMPLE_FPS = 4.0
 DEFAULT_DETECT_INTERVAL_SECONDS = 2.5
@@ -85,6 +93,7 @@ DEFAULT_MIN_IOU = 0.3
 DEFAULT_SPAN_SECONDS = 12.0
 DEFAULT_TIME_CAP_SECONDS = 120.0
 DEFAULT_MAX_DETECTOR_CALLS = 80
+DEFAULT_DETECTOR_TIMEOUT_SECONDS = 15.0  # per detector request; one attempt, so a stall or a 429 costs at most this
 
 # Frames are scaled down to this longest edge for the tracker (the detector resizes on its own).
 MAX_FRAME_EDGE = 960
@@ -126,8 +135,11 @@ class ObjectTrackingSettings:
     time_cap_seconds: float = DEFAULT_TIME_CAP_SECONDS  # for the whole request
     max_detector_calls: int = DEFAULT_MAX_DETECTOR_CALLS  # for the whole request
     max_misses: int = 2  # detector checks in a row without agreement before a segment ends
+    max_seed_area: float = 0.5  # a seed box covering more of the frame than this is not tracked (a track says nothing)
     concurrency: int = 3  # items followed at once
     max_edge: int = MAX_FRAME_EDGE
+    model_dir: str = ""  # holds the NanoTrack or Vit ONNX files; empty means the OpenCV built-in trackers only
+    detector_timeout_seconds: float = DEFAULT_DETECTOR_TIMEOUT_SECONDS
 
     @classmethod
     def from_env(cls) -> "ObjectTrackingSettings":
@@ -138,6 +150,8 @@ class ObjectTrackingSettings:
             span_seconds=_env_float(SPAN_ENV_VAR, DEFAULT_SPAN_SECONDS),
             time_cap_seconds=_env_float(TIME_CAP_ENV_VAR, DEFAULT_TIME_CAP_SECONDS),
             max_detector_calls=int(_env_float(DETECTOR_CALLS_ENV_VAR, DEFAULT_MAX_DETECTOR_CALLS, minimum=0.5)),
+            model_dir=(os.getenv(MODEL_DIR_ENV_VAR) or "").strip(),
+            detector_timeout_seconds=_env_float(DETECTOR_TIMEOUT_ENV_VAR, DEFAULT_DETECTOR_TIMEOUT_SECONDS),
         )
 
 
@@ -148,10 +162,46 @@ class TrackerUnavailableError(RuntimeError):
     """The installed OpenCV has no usable single-object tracker (``str(exc)`` is the ``skipped`` reason)."""
 
 
-def select_tracker() -> tuple[str, TrackerFactory]:
-    """The best single-object tracker the installed OpenCV has: CSRT, then KCF (both contrib), then MIL."""
+def _model_tracker(model_dir: str | os.PathLike[str] | None) -> tuple[str, TrackerFactory] | None:
+    """NanoTrack, else Vit, built from the ONNX files in ``model_dir``; None when absent, unsupported or unloadable."""
+    if cv2 is None or not model_dir:
+        return None
+    directory = Path(model_dir).expanduser().resolve()
+    candidates = (
+        ("Nano", "TrackerNano_create", "TrackerNano_Params", {"backbone": NANO_BACKBONE, "neckhead": NANO_HEAD}),
+        ("Vit", "TrackerVit_create", "TrackerVit_Params", {"net": VIT_MODEL}),
+    )
+    for name, create_name, params_name, files in candidates:
+        paths = {attr: directory / filename for attr, filename in files.items()}
+        create, params_type = getattr(cv2, create_name, None), getattr(cv2, params_name, None)
+        if create is None or params_type is None or not all(path.is_file() for path in paths.values()):
+            continue
+
+        def factory(create: Any = create, params_type: Any = params_type, paths: dict[str, Path] = paths) -> Any:
+            params = params_type()  # fresh per tracker: items are followed on several threads at once
+            for attr, path in paths.items():
+                setattr(params, attr, str(path))
+            return create(params)
+
+        try:
+            factory()  # a corrupt or unsupported model file fails here, not in the middle of an item
+        except Exception as exc:
+            logger.warning(
+                "Object tracking: the %s model in %s could not be loaded: %s", name, directory, type(exc).__name__
+            )
+            continue
+        return name, factory
+    return None
+
+
+def select_tracker(model_dir: str | os.PathLike[str] | None = None) -> tuple[str, TrackerFactory]:
+    """The best single-object tracker available: NanoTrack, then Vit (both need ONNX files in ``model_dir``), then
+    CSRT and KCF (both contrib), then MIL."""
     if cv2 is None:
         raise TrackerUnavailableError("OpenCV is not installed")
+    chosen = _model_tracker(model_dir)
+    if chosen is not None:
+        return chosen
     legacy = getattr(cv2, "legacy", None)
     for name in ("CSRT", "KCF", "MIL"):
         for owner in (legacy, cv2):
@@ -193,8 +243,9 @@ class _Tracker:
     def anchor(self, frame: np.ndarray, box: Sequence[float]) -> None:
         """(Re)start the tracker on ``box`` of ``frame`` (a new tracker each time, OpenCV trackers do not re-init well)."""
         height, width = frame.shape[:2]
-        self._tracker = self._factory()
-        self._tracker.init(frame, _pixel_rect(box, width, height))
+        tracker = self._factory()
+        tracker.init(frame, _pixel_rect(box, width, height))  # may raise: the previous tracker stays in place
+        self._tracker = tracker
         self.anchor_area = _area(box)
 
     def update(self, frame: np.ndarray) -> tuple[list[float] | None, bool]:
@@ -290,8 +341,13 @@ class _Pass:
     detector_calls: int = 0
     detector_errors: int = 0
     reanchors: int = 0
+    anchor_errors: int = 0  # (re-)anchors the tracker refused; a refused re-anchor keeps the previous tracker
+    seed_refused: bool = False  # the tracker could not start on the seed box, so there is nothing to follow
     lost: bool = False  # the segment ended because the item was lost, not because the clip or the span did
+    lost_at: float | None = None  # the video second of the frame the item was lost on
     capped: str | None = None  # "time" or "detector-budget" when a cap stopped the pass
+    detector_ms: float = 0.0  # time spent in detector calls, failed ones included
+    detector_max_ms: float = 0.0  # the slowest single detector call
 
 
 def _agreeing(raw: Any, reference: Sequence[float], label: str, min_iou: float) -> tuple[tuple[int, ...], float] | None:
@@ -323,7 +379,14 @@ def follow(
     if first is None or abs(first[0] - seed.seconds) > SEED_FRAME_TOLERANCE_SECONDS:
         return result
     tracker = _Tracker(tracker_factory)
-    tracker.anchor(first[1], seed.box)
+    try:
+        tracker.anchor(first[1], seed.box)
+    except Exception as exc:  # cv2.error subclasses Exception; cv2 may be None, so it is not named
+        logger.warning("Object tracking could not start on the seed of '%s': %s", seed.label, type(exc).__name__)
+        result.anchor_errors = 1
+        result.seed_refused = result.lost = True
+        result.lost_at = seed.seconds
+        return result
     last_box: Sequence[float] = seed.box
     last_check = seed.seconds
     confirmed = 0  # how many samples are known good: up to the last one the detector agreed with
@@ -338,6 +401,7 @@ def follow(
         checked = False
         if due or not ok:
             last_check = second
+            call_started = time.monotonic()
             try:
                 raw = detect(frame, seed.label)
                 result.detector_calls += 1
@@ -350,13 +414,20 @@ def follow(
                 logger.warning("Object tracking detector call failed for '%s': %s", seed.label, type(exc).__name__)
                 result.detector_calls += 1
                 result.detector_errors += 1
+            call_ms = (time.monotonic() - call_started) * 1000.0
+            result.detector_ms += call_ms
+            result.detector_max_ms = max(result.detector_max_ms, call_ms)
         if agreed is not None:
             agreed_box = agreed[0]
             result.samples.append(
                 Sample(second, (agreed_box[0], agreed_box[1], agreed_box[2], agreed_box[3]), agreed[1])
             )
-            tracker.anchor(frame, agreed_box)
-            result.reanchors += 1
+            try:
+                tracker.anchor(frame, agreed_box)
+                result.reanchors += 1
+            except Exception as exc:  # the detector-confirmed sample stands; the previous tracker keeps running
+                logger.warning("Object tracking re-anchor failed for '%s': %s", seed.label, type(exc).__name__)
+                result.anchor_errors += 1
             last_box = agreed_box
             confirmed = len(result.samples)
             misses = 0
@@ -368,6 +439,7 @@ def follow(
         tracked = _int_box(box) if ok and box is not None else None
         if tracked is None or misses >= settings.max_misses:
             result.lost = True
+            result.lost_at = second
             if tracked is not None:  # ended by misses: the tracker may have drifted since the last agreement
                 del result.samples[confirmed:]
             break
@@ -384,19 +456,33 @@ def track_item(
     settings: ObjectTrackingSettings,
     tracker_factory: TrackerFactory,
     deadline: float,
+    spans: tuple[float, float] | None = None,
 ) -> tuple[Track | None, dict[str, Any]]:
-    """Follow one item forwards and backwards from its seed: its track (None when it gained no sample) and telemetry."""
+    """Follow one item forwards and backwards from its seed: its track (None when it gained no sample) and telemetry.
+
+    ``spans`` is ``(back_seconds, forward_seconds)``; without it both directions use ``settings.span_seconds``.
+    """
     started = time.monotonic()
-    passes: dict[str, _Pass] = {}
+    seed_area = _area(seed.box) / 1_000_000.0
+    if seed_area > settings.max_seed_area:
+        return None, {"samples": 0, "skipped": f"seed box covers {seed_area:.1%} of the frame", "detector_calls": 0}
+    passes: dict[str, _Pass] = {"forward": _Pass(), "backward": _Pass()}
     clip = ClipReader(video_ref, settings.max_edge)
+    readable = clip.readable
+    back_span, forward_span = spans or (settings.span_seconds, settings.span_seconds)
     try:
         for name, forward in (("forward", True), ("backward", False)):
             frames = clip.frames(
-                seed.seconds, forward=forward, sample_fps=settings.sample_fps, span_seconds=settings.span_seconds
+                seed.seconds,
+                forward=forward,
+                sample_fps=settings.sample_fps,
+                span_seconds=forward_span if forward else back_span,
             )
             passes[name] = follow(
                 frames, seed, detect=detect, settings=settings, tracker_factory=tracker_factory, deadline=deadline
             )
+            if passes[name].seed_refused:  # the other direction would start on the same seed box
+                break
     finally:
         clip.close()
     ahead, behind = passes["forward"], passes["backward"]
@@ -409,9 +495,15 @@ def track_item(
         "backward_samples": len(behind.samples),
         "detector_calls": ahead.detector_calls + behind.detector_calls,
         "detector_errors": ahead.detector_errors + behind.detector_errors,
+        "detector_ms": round(ahead.detector_ms + behind.detector_ms, 1),
+        "detector_max_ms": round(max(ahead.detector_max_ms, behind.detector_max_ms), 1),
         "reanchors": ahead.reanchors + behind.reanchors,
+        "anchor_errors": ahead.anchor_errors + behind.anchor_errors,
         "lost": int(ahead.lost) + int(behind.lost),
         "capped": capped,
+        "unreadable": not readable,
+        "lost_at_forward": ahead.lost_at,
+        "lost_at_backward": behind.lost_at,
         "elapsed_ms": round((time.monotonic() - started) * 1000.0, 1),
     }
     if len(samples) < 2:
@@ -448,10 +540,12 @@ async def run_object_tracking(
         if tracker_factory is not None:
             outcome.tracker, factory = "custom", tracker_factory
         else:
-            outcome.tracker, factory = select_tracker()
+            outcome.tracker, factory = select_tracker(active.model_dir)
     except TrackerUnavailableError as exc:
         outcome.skipped = str(exc)
         return outcome
+    if isinstance(detector, DefaultDetector):  # a stalled or rate-limited call must not hold an item for minutes
+        detector = detector.with_request_limits(active.detector_timeout_seconds, 1)
     detect: Detect = detector.detect if hasattr(detector, "detect") else detector
     deadline = started + active.time_cap_seconds
     semaphore = asyncio.Semaphore(max(1, active.concurrency))

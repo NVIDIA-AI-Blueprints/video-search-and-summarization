@@ -8,7 +8,8 @@
 import type { DbAdapters } from '@/modules/shared/domain/adapters';
 import type { RevisionRecord } from '@/modules/reports/domain/IncidentRepository';
 import type { StructuredEdit } from '@/modules/reports/domain/edit-draft';
-import type { EmbedEvidence } from '@/modules/reports/application/types';
+import type { EmbedEvidence, ReviewerEvidenceStore } from '@/modules/reports/application/types';
+import { storeReviewerItems } from '@/modules/reports/application/store-reviewer-items';
 import { StoreRejection } from '@/modules/shared/domain/common';
 import { missingItemFields } from '@/modules/contract/domain/validate';
 import {
@@ -27,6 +28,10 @@ export class SearchableStepError extends Error {
     super(`The new version was not saved: its evidence could not be made searchable (${reason}). Try Save again.`);
     this.name = 'SearchableStepError';
   }
+}
+
+function hasReviewerItems(edit: StructuredEdit): boolean {
+  return [...edit.entities, ...edit.instruments, ...edit.assets].some((item) => item.reviewer);
 }
 
 /** An edit's item images must be ones the opened revision already used or new uploads for this video. */
@@ -61,13 +66,25 @@ export async function saveHumanEdit(
   { incidents, videos }: Pick<DbAdapters, 'incidents' | 'videos'>,
   input: { videoId: string; parentId: number; edit: StructuredEdit; createdBy: string; note?: string | null },
   embed: EmbedEvidence,
+  reviewerStore?: ReviewerEvidenceStore,
 ): Promise<RevisionSummary> {
   const parent = await incidents.getRevision(input.videoId, input.parentId);
   if (!parent) throw new StoreRejection('not-found', `Revision not found for this video: ${input.parentId}`);
   const video = await videos.getVideo(input.videoId);
   if (!video) throw new StoreRejection('not-found', `Video not found: ${input.videoId}`);
   checkImages(parent, input.edit, video.storageKey);
-  const { payload, evidence } = humanRevisionContent(parent, input.edit);
+  if (!reviewerStore && hasReviewerItems(input.edit))
+    throw new StoreRejection('invalid', 'Reviewer items cannot be stored: frame storage is not configured');
+  const content = humanRevisionContent(parent, input.edit);
+  const { payload } = content;
+  let { evidence } = content;
+  // Items from the box tool (or re-tracked): the crop, frame and track are stored now, and their entries replace the ones
+  // the generic content built (which has no image for them).
+  const reviewerEntries =
+    reviewerStore && video.storageKey ? await storeReviewerItems(reviewerStore, video.storageKey, input.edit, parent.evidence) : new Map();
+  if (reviewerEntries.size) {
+    evidence = [...evidence.filter((entry) => !reviewerEntries.has(`${entry.item_type}:${entry.item_id}`)), ...reviewerEntries.values()];
+  }
   const missing = missingItemFields(payload);
   if (missing.length)
     throw new StoreRejection(

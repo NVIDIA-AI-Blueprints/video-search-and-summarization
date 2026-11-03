@@ -205,6 +205,7 @@ function entityFromSaved(item: StructuredEntity, key: string): DraftEntity {
     pendingImage: null,
     imageTimestampSeconds: null,
     imageBox: null,
+    reviewer: null,
     type: editableEntityType(item.type),
     description: item.description,
     firstSeenSeconds: item.firstSeenSeconds ?? item.timestampSeconds,
@@ -223,6 +224,7 @@ function instrumentFromSaved(item: StructuredInstrument, key: string, holderKey:
     pendingImage: null,
     imageTimestampSeconds: null,
     imageBox: null,
+    reviewer: null,
     holderKey,
     name: item.name,
     description: item.description,
@@ -241,6 +243,7 @@ function assetFromSaved(item: StructuredAsset, key: string): DraftAsset {
     pendingImage: null,
     imageTimestampSeconds: null,
     imageBox: null,
+    reviewer: null,
     name: item.name,
     description: item.description,
   };
@@ -315,6 +318,9 @@ export function draftToStructured(draft: EditDraft): Structured {
     clipUrl: null,
     trackFirstSeenSeconds: null,
     trackLastSeenSeconds: null,
+    trackSource: null,
+    trackPartial: false,
+    addedByReviewer: false,
   });
   const entityIdByKey = new Map(draft.entities.map((entity) => [entity.key, entity.canonicalId]));
   return {

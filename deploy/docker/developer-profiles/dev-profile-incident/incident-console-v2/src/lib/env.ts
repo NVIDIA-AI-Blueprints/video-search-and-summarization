@@ -5,8 +5,6 @@ export interface ServiceConfiguration {
   agentUrl?: string;
   gatewayUrl?: string;
   vlmModel: string;
-  /** The text model that reads dashboard chart requests. */
-  chartModel: string;
   supabaseUrl?: string;
   supabaseServiceRoleKey?: string;
   r2AccountId?: string;
@@ -29,7 +27,6 @@ export function getServiceConfiguration(): ServiceConfiguration {
     agentUrl: optionalEnvironmentValue('INCIDENT_AGENT_BASE_URL'),
     gatewayUrl: optionalEnvironmentValue('VLM_GATEWAY_URL'),
     vlmModel: optionalEnvironmentValue('VLM_MODEL') || 'nvidia/cosmos-3-nano-reasoner',
-    chartModel: optionalEnvironmentValue('CHART_MODEL') || 'nvidia/nemotron-3-ultra',
     supabaseUrl: optionalEnvironmentValue('INCIDENT_SUPABASE_URL'),
     supabaseServiceRoleKey: optionalEnvironmentValue('INCIDENT_SUPABASE_SERVICE_ROLE_KEY'),
     r2AccountId: optionalEnvironmentValue('R2_ACCOUNT_ID'),
