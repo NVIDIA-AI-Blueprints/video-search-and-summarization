@@ -126,6 +126,13 @@ uv run python -m evalv2 verify-v1 --record <results.json> [--record ...] [--repo
 
 - **Box references** (R2) are made by `evalv2.references` with the prompts `gen-box-select-v1` and `gen-box-validate-v1`. `scripts/v2_box_frames.py` runs in a throwaway environment (`uv run --no-project --script ... extract|draw`). Making references, the detector's weights and the frame extraction belong to the approved run **RA1**.
 - **Chat references** (R3) are made by `evalv2.references.chat`. Every countable answer is computed from the ground truth, and the prompts are `gen-chat-wording-v1` and `gen-chat-rederive-v1`. Generating them is the approved run **RA2**.
+- **Chat evaluation** (task `chat`, pilot **C1c-chat**): the agent's real chat router (grounded mode) runs in-process over frozen corpus snapshots (oracle = ground truth, system = a sealed Track B run), never the finals DB. `prepare`, `score` and `readiness` run with the eval Python; `estimate` and `run` with the agent's (`services/agent/.venv`, built with `uv sync --frozen --group dev --no-install-package pycairo`). Without `--live` the chat model is a fake and the network is blocked; `--live` needs `EVALV2_ALLOW_LIVE=1`, the owner's marker, and the agent client's `INCIDENT_CHAT_BASE_URL` (or `LLM_BASE_URL`) and `INCIDENT_CHAT_API_KEY`. The generic `run` refuses a chat config. Commands, budgets and the review list: [`v2-run-readiness.md` §10](../../eval/methodology/v2-run-readiness.md#10-chat-evaluation-c1c-chat).
+  ```bash
+  uv run python -m evalv2.tasks.chat prepare --config <c1c.json> --out <run dir>           # plan.json + corpora/
+  <agent python> -m evalv2.tasks.chat estimate|run --config <c1c.json> --out <run dir>     # run: fake model unless --live --approval
+  uv run python -m evalv2.tasks.chat score --config <c1c.json> --out <run dir>             # retrieval, answers, citations apart
+  uv run python -m evalv2.tasks.chat readiness --config <c1c.json>                         # RA2 recount + review list (private)
+  ```
 - **Track B** (task `pipeline`) runs subjects with `adapter: vss`, endpoint `experiment-agent` and a `profile` (`production-v4`, `production-v4-object-tracking`), with `request` overriding only caps and token bounds.
   - It runs only against the local experiment agent (`experiments/agent/start-experiment-agent.sh`, `EVALV2_VSS_AGENT_URL` on loopback). Never the shared VM agent.
   - Set caps for the `inference`, `grounding` and `zoom` ledgers, and `object_tracking` for the tracking profile. For the tracking profile the experiment agent's `INCIDENT_OBJECT_TRACKING_MAX_DETECTOR_CALLS` must be at most 80 (its default): a reply reporting a higher cap stops the run.

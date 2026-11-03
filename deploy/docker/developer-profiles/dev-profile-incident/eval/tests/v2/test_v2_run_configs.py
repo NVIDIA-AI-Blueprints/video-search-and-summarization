@@ -35,8 +35,9 @@ def _split_only(config):
     return load_for_config(config.model_copy(update={"datasets": {}}))
 
 
-# Configs of other tasks, each checked by its own test module.
-OTHER_TASKS = {"c1c-dashboard-pilot.json": "test_v2_dashboard_task.py"}
+# Configs of other tasks, each checked by its own test module (the chat pilot plans from private RA2 records).
+OTHER_TASKS = {"c1c-dashboard-pilot.json": "test_v2_dashboard_task.py", "c1c-chat-pilot.json": "test_v2_chat_task.py"}
+CHAT_CONFIGS = ("c1c-chat-pilot.json",)
 
 
 def test_every_committed_v2_config_is_expected():
