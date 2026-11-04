@@ -30,7 +30,7 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api,vss-va-mc
 
 Stock modes keep `vss-va-mcp` because `vss-agent` still calls
 `video_analytics_mcp` from `incident_report_agent` and `rtvi_vlm_alert`. A
-NemoClaw or host-CLI delta removes both keys; SOP-report deltas that need MCP
+harness or host-CLI delta removes both keys; SOP-report deltas that need MCP
 without the agent add `vss-va-mcp` explicitly (`services/sop.md`).
 
 ## Capability owners present
@@ -126,7 +126,7 @@ if grep -qx vss-ui <<<"$services"; then
 fi
 ```
 
-A NemoClaw or host-CLI delta omits both `vss-agent` and `vss-va-mcp`, so neither
+A harness or host-CLI delta omits both `vss-agent` and `vss-va-mcp`, so neither
 `:8000` nor `:9901` is probed. The API and Alert Bridge probes still apply.
 
 For `2d_cv`, also require `vss-rtvi-cv`, `vss-behavior-analytics`, and the

@@ -105,21 +105,12 @@ succeeds.
 | `search` | **7777**, **5601**, **31000** (nvstreamer) | 6006 |
 | `alerts` | **7777**, **5601**, **31000** (nvstreamer) | 6006 |
 
-On a NemoClaw build, add the harness dashboard **relay** port
-(`NEMOCLAW_DASHBOARD_RELAY_PORT`, default **18790**) to whichever row applies:
-it is the Agent UI's own origin and is not behind HAProxy, so it needs its own
-link. Resolve it the same way as 7777 — the answer decides whether the summary
-reports a secure-link URL or a loopback one behind an SSH tunnel.
-
-Publish it **before** the notebook's section 3.1. That is the step that reads the
-link and exports `CHAT_UI_URL`, which onboard bakes into the image's
-`gateway.controlUi` to turn device auth off for the remote UI (any origin is
-allowed). A sandbox built without it cannot sign in over the link and needs
-recreating once the link exists, since `gateway.*` cannot be edited afterwards.
-
-`NEMOCLAW_DASHBOARD_PORT` (default 18789) gets no link of its own. NemoClaw
-keeps that forward on loopback and the relay in front of it is the published
-path.
+On a harness build, the sandbox's chat reaches the user through `vss-ui` on
+**7777**, which the rows above already cover. The OpenShell gateway's own
+listener is loopback-bound by design and gets no link; the harness API server
+is reached either through the gateway's managed route or, for the UI, through
+the forward on the Docker bridge-gateway address — neither is a host origin a
+browser outside the host dials.
 
 Ports that should NOT get their own secure link (they're behind HAProxy):
 3000 (UI), 8000 (Agent), 30888 (VST).
@@ -204,7 +195,7 @@ Stop on an empty `host`; never substitute a constructed one. These values also
 fill HAProxy's `known_host` allowlist, so a wrong hostname `404`s every browser
 request while `curl localhost:7777` still succeeds.
 
-On a NemoClaw build other than `alerts`, drop the `EXTERNAL_IP` line above and
+On a harness build other than `alerts`, drop the `EXTERNAL_IP` line above and
 leave that variable to the sandbox ([`agent-harness.md`](agent-harness.md)). The
 rest is unchanged: `VSS_PUBLIC_HOST` already carries the secure link, and the
 `known_host` ACL admits it in its own right.

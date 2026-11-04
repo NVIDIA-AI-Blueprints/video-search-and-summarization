@@ -76,8 +76,8 @@ does not mean the NAT-serve process is listening — it can be up while `:8000`
 never bound (config error, unreachable model endpoint), and Step 1 would still
 pass.
 
-**Analytics gates — derive each one from the resolved graph.** Alerts,
-NemoClaw, LVS, and host-side CLI selection do not imply VA-MCP. Probe only the
+**Analytics gates — derive each one from the resolved graph.** Alerts, the
+harness sandbox, LVS, and host-side CLI selection do not imply VA-MCP. Probe only the
 service keys serialized into `resolved.yml`:
 
 ```bash

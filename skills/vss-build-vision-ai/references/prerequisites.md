@@ -375,7 +375,7 @@ If `nvidia-smi` fails, rule out [confinement](#confinement) first — inside a s
 |---|---|---|
 | x86 dGPU — RTX PRO 4500, RTX PRO 6000 SE | **`595.58.03`** | https://www.nvidia.com/en-us/drivers/ |
 | x86 dGPU — H100 (SXM / PCIe), H200 | **`595.58.03`** | same x86_64 baseline; the SXM parts also need Fabric Manager below |
-| x86 Brev Cloud — NemoClaw, RTX 6000 launchables | **`595.91.07`** | the instance image |
+| x86 Brev Cloud — RTX 6000 launchables | **`595.91.07`** | the instance image |
 | Kubernetes — RTX 6000, H200 | **`595.58.03`** | the GPU Operator's driver setting |
 | ARM SBSA — DGX Station GB300 | **`595.58.03`** | the DGX OS 7.6.0 driver; a newer bundled driver passes |
 | ARM SBSA — GH200 / GB200 | **`580.159.03`** | bundled in the container, not installed on the host |
@@ -426,9 +426,7 @@ host rather than only one that failed the check above; it is idempotent.
 change restarts `dockerd`, which costs nothing before Step 9 and costs every
 container in the deployed build after it. The Step 9 image pulls are also what
 trigger the `Incorrect Repository Format` failure, so a pin that lands after
-them prevents nothing. `deploy_nemoclaw.ipynb` section 2.1 runs the same script
-at Step 10, so a host pinned here only re-applies the holds and finds the driver
-already set when the harness comes up.
+them prevents nothing.
 
 Needs `sudo` and `apt` — Ubuntu/Debian only. It sudoes internally, so an agent
 that may not run `sudo` should **offer to run this script under an approval**
@@ -563,14 +561,10 @@ Re-run the `docker run` check to confirm before continuing.
 Required minimum: **`4.10.0+`**. Follow [`ngc.md`](ngc.md) to check NGC CLI
 and API-key access.
 
-**A NemoClaw build needs no host install.** Both harness images —
-[`.openclaw/Dockerfile`](../../../.openclaw/Dockerfile) and
-[`.hermes/Dockerfile`](../../../.hermes/Dockerfile) — ship the CLI
-unconditionally, and the sandbox is where the operation skills run. Verify it
-there if anything looks off (`ngc --version` in the sandbox), not here.
-
-**On every other harness, install it on this host**, since the `vss` CLI and the
-operation skills' sample-data and fixture bootstraps run here:
+**Install it on this host on every build**, since the `vss` CLI and the
+operation skills' sample-data and fixture bootstraps run here. A harness build
+needs it here too: the sandbox image ships no NGC CLI, so an operation skill
+that resolves a sample video by name fails inside the sandbox.
 
 ```bash
 command -v ngc >/dev/null 2>&1 && ngc --version \

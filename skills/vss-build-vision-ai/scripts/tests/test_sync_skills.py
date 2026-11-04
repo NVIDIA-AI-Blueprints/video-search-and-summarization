@@ -258,7 +258,7 @@ def test_cli_error_exits_one(tmp_path, monkeypatch, capsys):
 # --- pin lockstep ---------------------------------------------------------------
 
 def test_vss_ref_defaults_are_in_lockstep_and_readable():
-    """Both harness images must stage skills, docs, and this tool from the SAME
+    """Every harness image must stage skills, docs, and this tool from the SAME
     ref — two defaults drifting apart means the harnesses ship different skill
     snapshots (the defect this check exists to prevent). The default is a ref a
     person can read: the `develop` branch, or a `v*` release tag; a bare commit
@@ -266,20 +266,21 @@ def test_vss_ref_defaults_are_in_lockstep_and_readable():
     import re as _re
     repo = Path(__file__).resolve().parents[4]
     refs = {}
-    for df in (repo / ".openclaw" / "Dockerfile", repo / ".hermes" / "Dockerfile"):
+    for rel in (".openshell/hermes", ".openclaw", ".hermes"):
+        df = repo / rel / "Dockerfile"
         m = _re.search(r"^ARG VSS_REF=(\S+)$", df.read_text(), _re.M)
         assert m, f"{df} has no VSS_REF default"
-        refs[df.parent.name] = m.group(1)
-    assert refs[".openclaw"] == refs[".hermes"], f"VSS_REF defaults drifted: {refs}"
-    ref = refs[".openclaw"]
+        refs[rel] = m.group(1)
+    assert len(set(refs.values())) == 1, f"VSS_REF defaults drifted: {refs}"
+    ref = refs[".openshell/hermes"]
     assert ref == "develop" or _re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", ref), (
         f"VSS_REF default {ref!r} is neither `develop` nor a v* release tag")
 
 
 
 def _hermes_sync_wrapper() -> str:
-    """The vss-hermes-sync script exactly as .hermes/Dockerfile writes it (via printf)."""
-    dockerfile = (Path(__file__).resolve().parents[4] / ".hermes" / "Dockerfile").read_text()
+    """The vss-hermes-sync script exactly as the harness Dockerfile writes it (via printf)."""
+    dockerfile = (Path(__file__).resolve().parents[4] / ".openshell/hermes/Dockerfile").read_text()
     body = re.search(r"printf '(#!/bin/sh\\n.*?)' > /usr/local/bin/vss-hermes-sync", dockerfile).group(1)
     return body.replace("\\n", "\n")
 
@@ -288,14 +289,16 @@ def _hermes_sync_wrapper() -> str:
 def test_hermes_sync_targets_hermes_home_skills(tmp_path, hermes_home):
     """Hermes reads $HERMES_HOME/skills only, so the wrapper follows HERMES_HOME
     (unset means /sandbox/.hermes) and owns just its vss/ category there."""
-    wrapper = tmp_path / "vss-hermes-sync"
-    wrapper.write_text(_hermes_sync_wrapper())
-    wrapper.chmod(0o755)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "argv"
-    (bin_dir / "python3").write_text(f'#!/bin/sh\necho "$@" > {log}\n')
-    (bin_dir / "python3").chmod(0o755)
+    stub = bin_dir / "python3.13"
+    stub.write_text(f'#!/bin/sh\necho "$@" > {log}\n')
+    stub.chmod(0o755)
+    wrapper = tmp_path / "vss-hermes-sync"
+    # The image names the interpreter by absolute path, which PATH cannot reach.
+    wrapper.write_text(_hermes_sync_wrapper().replace("/usr/bin/python3.13", str(stub)))
+    wrapper.chmod(0o755)
     (bin_dir / "mkdir").write_text("#!/bin/sh\nexit 0\n")  # /sandbox is not writable here
     (bin_dir / "mkdir").chmod(0o755)
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin"}

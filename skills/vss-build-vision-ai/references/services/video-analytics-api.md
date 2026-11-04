@@ -13,7 +13,7 @@ same profile key and the same `vss-video-analytics-api` container. Include it
 once when the requested capability needs its REST surface; never create a
 Foundation-specific alias or a second API instance.
 
-Read-only analytics requested through NemoClaw is owned here. Its skill declares
+Read-only analytics requested through the harness sandbox is owned here. Its skill declares
 `vss-requires: "analytics"`; `vss configure` maps that command capability to
 the `/video-analytics-api` route. The forward closure includes this API and its
 Elasticsearch peers, and excludes `vss-va-mcp` and `vss-agent` unless the user

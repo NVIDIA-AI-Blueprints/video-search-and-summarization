@@ -173,7 +173,7 @@ def test_llm_peer_stays_while_a_consumer_is_enabled() -> None:
 
 
 def test_explicitly_requested_llm_peer_is_kept() -> None:
-    # A harness pointed at the build's own NIM (route (a)) names the key.
+    # A harness pointed at the build's own NIM names the key.
     foundation = _base_profiles()
     llm_key = next(p for p in foundation if p.startswith("llm_"))
     profiles = resolve_service_profiles(
@@ -357,7 +357,7 @@ def test_stock_alerts_compose_includes_agent_mcp_tools(tmp_path: Path) -> None:
 
 
 @requires_docker_compose
-def test_nemoclaw_alerts_lvs_resolves_without_agent_or_va_mcp(
+def test_harness_alerts_lvs_resolves_without_agent_or_va_mcp(
     tmp_path: Path,
 ) -> None:
     profiles = resolve_service_profiles(
@@ -429,7 +429,7 @@ def test_query_skill_uses_cli_without_legacy_endpoint_commands() -> None:
         assert forbidden not in skill
 
 
-def test_nemoclaw_workspace_and_eval_adapter_route_to_cli() -> None:
+def test_harness_workspace_and_eval_adapter_route_to_cli() -> None:
     paths = [
         REPOSITORY / ".openclaw/workspace/AGENTS.md",
         REPOSITORY / ".openclaw/workspace/_nemoclaw/AGENTS.md",
