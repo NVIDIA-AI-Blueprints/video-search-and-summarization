@@ -51,15 +51,17 @@ supplies the key added to inference calls.
 ![Inside the OpenShell sandbox boundary](docs/assets/vss-openshell-detailed-architecture.png)
 
 Splitting the sandbox into a workload and a supervisor container is what makes
-the agent's own compromise survivable: the workload
-shares the boundary with the agent, so it holds nothing worth stealing — no
-signing key, no gateway JWT, no provider credential — and decides nothing. It
-reports what the agent attempted; the supervisor decides. A `vss` call is a
-`connect()` the kernel traps, which travels to the supervisor as a request
-naming `/usr/bin/python3.13` as the caller, is matched against the
-`vss-backend` grant, and is dialed by the supervisor on the agent's behalf. An
-inference call takes the same path and additionally gets the provider key added
-at egress, which is why VSS ships the model's `api_key` as a placeholder.
+the agent's own compromise survivable: the workload shares the boundary with
+the agent, so it holds nothing worth stealing — no signing key, no gateway
+JWT, no provider credential — and decides nothing. It reports what the agent
+attempted; the supervisor decides. When `vss` opens a connection, the kernel
+stops the call and the runtime forwards it to the supervisor as
+"`/usr/bin/python3.13` wants `host.openshell.internal:7777`". The supervisor
+checks it against the `vss-backend` grant and, if allowed, opens the
+connection itself on the agent's behalf. An inference call takes the same path
+and additionally gets the provider key added at egress, which is why VSS ships
+the model's `api_key` as a placeholder. The runtime band of the [deploy
+sequence](#what-openshell-deploys) draws both.
 
 Each connection is a separate stream on one mutually authenticated HTTP/2
 channel, so a slow download cannot block exec or process control, and the
