@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { PictureInPicture2Icon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { MutedVideo } from '@/components/muted-video';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -28,15 +28,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { chatTarget, citationTitles } from '@/lib/chat/report-chat';
 import { uploadEvidenceImage } from '@/lib/evidence/evidence-image-upload';
-import { draftChangeCount } from '@/lib/reports/compare';
-import {
-  DEFAULT_REPORT_BAND_HEIGHT,
-  DEFAULT_TWO_PANE_BAND_WIDTHS,
-  MAX_REPORT_BAND_HEIGHT,
-  MIN_REPORT_BAND_HEIGHT,
-  nudgeReportBandHeight,
-  resizeReportBandHeight,
-} from '@/lib/reports/report-band-layout';
+import { draftChangeCount, draftToStructured } from '@/lib/reports/compare';
 import {
   draftFromView,
   draftProblems,
@@ -52,6 +44,7 @@ import { ReanalysisDialog } from '@/sections/analysis/components/ReanalysisCard'
 import { ReportChat } from '@/sections/reports/components/ReportChat';
 import { ReportEditPane } from '@/sections/reports/components/ReportEditPane';
 import { ReportPane } from '@/sections/reports/components/ReportPane';
+import { ReportTimeline } from '@/sections/reports/components/ReportTimeline';
 import { ReportVersions } from '@/sections/reports/components/ReportVersions';
 import { TrackOverlay } from '@/sections/reports/components/TrackOverlay';
 import type { StillBox } from '@/modules/reports/domain/track';
@@ -86,7 +79,7 @@ export function ReportPage({
   const [revisions, setRevisions] = useState<RevisionSummary[] | null>(null);
   const [revisionsError, setRevisionsError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('view');
-  const [_currentTime, setCurrentTime] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   // The player's own length, a second guard (besides the recorded length) before jumping to a time.
   const [playerDuration, setPlayerDuration] = useState<number | null>(null);
   // The stage is sized to the clip's own shape so a 4:3 clip is not letterboxed inside a 16:9 box.
@@ -100,17 +93,13 @@ export function ReportPage({
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [undoStack, setUndoStack] = useState<EditDraft[]>([]);
   const [editBase, setEditBase] = useState<EditBase | null>(null);
-  const [compareRevisionId, setCompareRevisionId] = useState<number | null>(null);
   const [compareReport, setCompareReport] = useState<ReportView | null>(null);
-  const [compareError, setCompareError] = useState<string | null>(null);
+  const [editVersionError, setEditVersionError] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveProblems, setSaveProblems] = useState<string[]>([]);
-  const [bandHeight, setBandHeight] = useState(DEFAULT_REPORT_BAND_HEIGHT);
-  const reportBandRef = useRef<HTMLDivElement>(null);
-  const resizingHeightRef = useRef(false);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is an explicit refetch trigger
   useEffect(() => {
@@ -148,30 +137,6 @@ export function ReportPage({
       });
     return () => controller.abort();
   }, [videoId, attempt]);
-
-  // A is any saved version; the draft's own version is already loaded, so it needs no request.
-  useEffect(() => {
-    if (mode !== 'edit' || !editBase || compareRevisionId === null) return;
-    if (compareRevisionId === editBase.revisionId) {
-      setCompareReport(editBase.report);
-      setCompareError(null);
-      return;
-    }
-    const controller = new AbortController();
-    setCompareError(null);
-    fetch(`/api/reports/${encodeURIComponent(videoId)}?revision=${compareRevisionId}`, { cache: 'no-store', signal: controller.signal })
-      .then(async (response) => {
-        const payload = (await response.json()) as { report?: ReportView; error?: string };
-        if (!response.ok || !payload.report) throw new Error(payload.error || `Version request failed with HTTP ${response.status}`);
-        setCompareReport(payload.report);
-      })
-      .catch((cause: unknown) => {
-        if (cause instanceof DOMException && cause.name === 'AbortError') return;
-        setCompareError(cause instanceof Error ? cause.message : 'Could not load the comparison version');
-        setCompareReport(null);
-      });
-    return () => controller.abort();
-  }, [compareRevisionId, editBase, mode, videoId]);
 
   // The browser's own Picture-in-Picture window floats over other tabs and apps, like YouTube's miniplayer.
   const ready = state.status === 'ready';
@@ -235,14 +200,26 @@ export function ReportPage({
     setDraft(draftFromView(base));
     setUndoStack([]);
     setEditBase({ revisionId: base.revisionId, revisionNo: base.revision.revisionNo, report: base });
-    setCompareRevisionId(base.revisionId);
     setCompareReport(base);
-    setCompareError(null);
+    setEditVersionError(null);
     setMode('edit');
     setSaveOpen(false);
     setSaveProblems([]);
     setNote('');
   }, []);
+
+  const editVersion = async (id: number) => {
+    if (editBase?.revisionId === id) return;
+    setEditVersionError(null);
+    try {
+      const response = await fetch(`/api/reports/${encodeURIComponent(videoId)}?revision=${id}`, { cache: 'no-store' });
+      const payload = (await response.json()) as { report?: ReportView; error?: string };
+      if (!response.ok || !payload.report) throw new Error(payload.error || `Version request failed with HTTP ${response.status}`);
+      startEdit(payload.report);
+    } catch (cause) {
+      setEditVersionError(cause instanceof Error ? cause.message : 'Could not open that version for editing');
+    }
+  };
 
   const openVersion = (id: number) => {
     setMode('view');
@@ -299,8 +276,6 @@ export function ReportPage({
 
   const { report } = state;
   const officialRevision = (revisions ?? []).find((revision) => revision.isOfficial);
-  const heading = reportHeading(mode === 'edit' && editBase ? editBase.report : report);
-  const filename = (mode === 'edit' && editBase ? editBase.report : report).run.filename;
   const changes = draft && editBase ? draftChangeCount(editBase.report.structured, draft) : 0;
   const problems = draft ? draftProblems(draft) : [];
   const otherAiRevision = (revisions ?? []).find((revision) => revision.kind === 'ai' && revision.revisionId !== report.revisionId);
@@ -308,6 +283,7 @@ export function ReportPage({
     ? `/reports/${encodeURIComponent(videoId)}/compare?left=${report.revisionId}&right=${otherAiRevision.revisionId}`
     : null;
   const officialLabel = officialRevision ? `v${officialRevision.revisionNo}` : 'none';
+  const draftStructured = draft ? draftToStructured(draft) : null;
 
   const changeDraft = (next: EditDraft) => {
     if (draft) setUndoStack((stack) => [...stack.slice(-49), draft]);
@@ -327,27 +303,6 @@ export function ReportPage({
     setDraft(draftFromView(editBase.report));
     setUndoStack([]);
     setSaveProblems([]);
-  };
-
-  const resizeHeightAt = (clientY: number) => {
-    const band = reportBandRef.current?.getBoundingClientRect();
-    if (!band) return;
-    setBandHeight(resizeReportBandHeight(clientY - band.top));
-  };
-
-  const startHeightResize = (event: React.PointerEvent<HTMLHRElement>) => {
-    resizingHeightRef.current = true;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    resizeHeightAt(event.clientY);
-  };
-
-  const moveHeightResize = (event: React.PointerEvent<HTMLHRElement>) => {
-    if (resizingHeightRef.current) resizeHeightAt(event.clientY);
-  };
-
-  const finishHeightResize = (event: React.PointerEvent<HTMLHRElement>) => {
-    resizingHeightRef.current = false;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
   function switchMode(next: Mode) {
@@ -403,7 +358,6 @@ export function ReportPage({
       setUndoStack([]);
       setEditBase(null);
       setCompareReport(null);
-      setCompareRevisionId(null);
       setMode('view');
       setSaveOpen(false);
       setNote('');
@@ -417,65 +371,49 @@ export function ReportPage({
   }
 
   return (
-    <div className="pb-16">
-      <article className="report-sheet overflow-clip border-y border-border bg-card shadow-panel" data-testid="report-page">
-        {/* One sticky unit from lg: the back bar, the video and the versions stay together. Below lg only the back bar sticks (`contents` lets it stick to the article), because the stacked band is too tall to pin. */}
-        <div className="contents lg:sticky lg:top-0 lg:z-20 lg:block" data-testid="report-sticky">
-          <div className="z-30 flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-card px-5 py-3 text-sm max-lg:sticky max-lg:top-0 sm:px-8">
-            <Link className="font-semibold text-primary hover:underline" href="/library" id="back-to-library">
-              ← Library
-            </Link>
-            <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" title={filename}>
-              {heading}
-              <span className="ml-2 font-normal text-muted-foreground">{filename}</span>
-            </h1>
-            <ReanalysisDialog onAttempted={() => setAttempt((value) => value + 1)} videoId={videoId} />
-            <Button
-              aria-expanded={chatOpen}
-              className="text-xs font-semibold"
-              data-testid="chat-toggle"
-              onClick={() => setChatOpen((open) => !open)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Ask about this incident
-            </Button>
-            <Tabs onValueChange={(value) => switchMode(value as Mode)} value={mode}>
-              <TabsList aria-label="Report mode" className="h-8">
-                <TabsTrigger className="text-xs font-semibold" value="view">
-                  View
-                </TabsTrigger>
-                <TabsTrigger className="text-xs font-semibold" value="edit">
-                  Edit
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-
-          <div
-            className="relative border-b border-border bg-card lg:h-(--report-band-height)"
-            data-testid="report-band"
-            ref={reportBandRef}
-            style={
-              {
-                '--report-band-height': `${bandHeight}px`,
-                '--video-aspect': String(videoAspect),
-              } as CSSProperties
-            }
+    <div className="h-[calc(100dvh-4rem)] min-h-[36rem] overflow-hidden">
+      <article
+        className="report-sheet flex h-full min-h-0 flex-col overflow-hidden border-y border-border bg-card shadow-panel"
+        data-testid="report-page"
+      >
+        <div
+          className="z-30 flex flex-none flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-card px-5 py-3 text-sm sm:px-8"
+          data-testid="report-sticky"
+        >
+          <Link className="font-semibold text-primary hover:underline" href="/library" id="back-to-library">
+            ← Library
+          </Link>
+          <span className="min-w-0 flex-1" />
+          <ReanalysisDialog onAttempted={() => setAttempt((value) => value + 1)} videoId={videoId} />
+          <Button
+            aria-expanded={chatOpen}
+            className="text-xs font-semibold"
+            data-testid="chat-toggle"
+            onClick={() => setChatOpen((open) => !open)}
+            size="sm"
+            type="button"
+            variant="outline"
           >
-            <ResizablePanelGroup
-              className="max-lg:!flex-col max-lg:!h-auto max-lg:!overflow-visible [&>[data-panel]]:max-lg:!basis-auto [&>[data-panel]]:max-lg:!w-full [&>[data-panel]]:max-lg:!max-w-full [&>[data-panel]]:max-lg:!h-auto"
-              orientation="horizontal"
-            >
-              <ResizablePanel
-                className="overflow-hidden lg:h-full"
-                defaultSize={`${DEFAULT_TWO_PANE_BAND_WIDTHS.video * 100}%`}
-                maxSize="85%"
-                minSize="15%"
-              >
+            Ask about this incident
+          </Button>
+          <Tabs onValueChange={(value) => switchMode(value as Mode)} value={mode}>
+            <TabsList aria-label="Report mode" className="h-8">
+              <TabsTrigger className="text-xs font-semibold" value="view">
+                View
+              </TabsTrigger>
+              <TabsTrigger className="text-xs font-semibold" value="edit">
+                Edit
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        <ResizablePanelGroup className="min-h-0 flex-1" orientation="horizontal">
+          <ResizablePanel className="hidden min-h-0 overflow-hidden lg:block" defaultSize="38%" maxSize="65%" minSize="25%">
+            <ResizablePanelGroup className="h-full" orientation="vertical">
+              <ResizablePanel className="min-h-0 overflow-hidden" defaultSize="45%" minSize="20%">
                 <div
-                  className="video-cell relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-muted [container-type:size] max-lg:aspect-(--video-aspect) lg:h-full"
+                  className="video-cell relative flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden bg-muted [container-type:size]"
                   data-testid="video-cell"
                 >
                   <div
@@ -541,19 +479,22 @@ export function ReportPage({
                   </div>
                 </div>
               </ResizablePanel>
-              <ResizableHandle aria-label="Resize video and version history" className="hidden lg:flex" withHandle />
-              <ResizablePanel
-                className="min-h-0 overflow-hidden border-t border-border lg:border-t-0 max-lg:max-h-72 lg:h-full"
-                defaultSize={`${DEFAULT_TWO_PANE_BAND_WIDTHS.versions * 100}%`}
-                maxSize="85%"
-                minSize="15%"
-              >
+              <ResizableHandle aria-label="Resize video and timeline" withHandle />
+              <ResizablePanel className="min-h-0 overflow-hidden" defaultSize="27.5%" minSize="15%">
+                <ReportTimeline
+                  currentTime={currentTime}
+                  onSeek={seek}
+                  structured={draftStructured ?? report.structured}
+                  videoSeconds={playerDuration}
+                />
+              </ResizablePanel>
+              <ResizableHandle aria-label="Resize timeline and analysis history" withHandle />
+              <ResizablePanel className="min-h-0 overflow-hidden" defaultSize="27.5%" minSize="15%">
                 <ReportVersions
-                  compareRevisionId={mode === 'edit' ? compareRevisionId : null}
-                  currentRevisionId={report.revisionId}
+                  currentRevisionId={mode === 'edit' && editBase ? editBase.revisionId : report.revisionId}
                   error={revisionsError}
                   mode={mode}
-                  onCompare={(id) => setCompareRevisionId(id)}
+                  onEditRevision={(id) => void editVersion(id)}
                   onOfficialChanged={() => setAttempt((value) => value + 1)}
                   onOpen={openVersion}
                   revisions={revisions}
@@ -561,108 +502,118 @@ export function ReportPage({
                 />
               </ResizablePanel>
             </ResizablePanelGroup>
-            <ReportBandHeightHandle
-              height={bandHeight}
-              onFinish={finishHeightResize}
-              onMove={moveHeightResize}
-              onNudge={(direction) => setBandHeight((height) => nudgeReportBandHeight(height, direction))}
-              onStart={startHeightResize}
-            />
-          </div>
-        </div>
+          </ResizablePanel>
+          <ResizableHandle aria-label="Resize media workspace and report details" className="hidden lg:flex" withHandle />
+          <ResizablePanel className="min-h-0" defaultSize="62%" minSize="35%">
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto" data-testid="report-details-pane">
+                <div className="video-cell relative aspect-video w-full overflow-hidden bg-black lg:hidden">
+                  <MutedVideo
+                    className="size-full object-contain"
+                    controls
+                    onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+                    src={report.run.playbackUrl}
+                  />
+                </div>
 
-        {mode === 'edit' && !officialRevision && revisions && (
-          <Alert
-            className="rounded-none border-x-0 border-t-0 border-b border-amber-300 bg-amber-50/80 px-5 py-2 text-xs text-amber-950"
-            data-testid="official-status"
-          >
-            <AlertDescription>No official version has been selected for this video. Star a version to make it official.</AlertDescription>
-          </Alert>
-        )}
+                {mode === 'edit' && !officialRevision && revisions && (
+                  <Alert
+                    className="rounded-none border-x-0 border-t-0 border-b border-amber-300 bg-amber-50/80 px-5 py-2 text-xs text-amber-950"
+                    data-testid="official-status"
+                  >
+                    <AlertDescription>
+                      No official version has been selected for this video. Star a version to make it official.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
-        {mode === 'edit' && compareError && (
-          <Alert
-            className="rounded-none border-x-0 border-t-0 border-b border-destructive/20 bg-destructive/10 px-5 py-2 text-xs text-destructive"
-            data-testid="compare-error"
-            variant="destructive"
-          >
-            <AlertDescription>Could not load the A version: {compareError}</AlertDescription>
-          </Alert>
-        )}
+                {mode === 'edit' && editVersionError && (
+                  <Alert
+                    className="rounded-none border-x-0 border-t-0 border-b border-destructive/20 bg-destructive/10 px-5 py-2 text-xs text-destructive"
+                    data-testid="compare-error"
+                    variant="destructive"
+                  >
+                    <AlertDescription>Could not open that version for editing: {editVersionError}</AlertDescription>
+                  </Alert>
+                )}
 
-        {mode === 'view' ? (
-          <ReportPane
-            compareHref={compareHref}
-            officialMissing={!officialRevision && revisions !== null}
-            onSeek={seek}
-            onSelectTrack={selectTrack}
-            playerDuration={playerDuration}
-            report={report}
-            selectedTrackId={selectedTrackId}
-          />
-        ) : draft && editBase ? (
-          <ReportEditPane
-            a={compareReport?.structured ?? null}
-            aRevisionNo={compareReport?.revision.revisionNo ?? editBase.revisionNo}
-            baseRevisionNo={editBase.revisionNo}
-            draft={draft}
-            onChange={changeDraft}
-            onSeek={seek}
-            title={reportHeading(editBase.report)}
-            videoId={videoId}
-            videoSrc={report.run.playbackUrl}
-          />
-        ) : null}
+                {mode === 'view' ? (
+                  <ReportPane
+                    compareHref={compareHref}
+                    officialMissing={!officialRevision && revisions !== null}
+                    onSeek={seek}
+                    onSelectTrack={selectTrack}
+                    playerDuration={playerDuration}
+                    report={report}
+                    selectedTrackId={selectedTrackId}
+                  />
+                ) : draft && editBase ? (
+                  <ReportEditPane
+                    a={compareReport?.structured ?? null}
+                    aRevisionNo={compareReport?.revision.revisionNo ?? editBase.revisionNo}
+                    baseRevisionNo={editBase.revisionNo}
+                    draft={draft}
+                    onChange={changeDraft}
+                    onSeek={seek}
+                    title={reportHeading(editBase.report)}
+                    videoId={videoId}
+                    videoSrc={report.run.playbackUrl}
+                  />
+                ) : null}
+              </div>
 
-        <div className="sticky bottom-0 z-20 flex flex-col gap-2 border-t border-border bg-card/95 px-5 py-3 text-sm backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-8">
-          {mode === 'view' ? (
-            <>
-              <span className="text-muted-foreground">
-                <b>v{report.revision.revisionNo}</b>{' '}
-                {report.official.isOfficial ? 'is the official version' : 'is not the official version'}
-              </span>
-              <Button onClick={() => startEdit(report)} type="button">
-                Edit from v{report.revision.revisionNo}
-              </Button>
-            </>
-          ) : (
-            <>
-              <span className="min-w-0 text-muted-foreground sm:flex-1">
-                {editBase && (
+              <div className="z-20 flex flex-none flex-col gap-2 border-t border-border bg-card/95 px-5 py-3 text-sm backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-8">
+                {mode === 'view' ? (
                   <>
-                    <b>Draft</b> from v{editBase.revisionNo} ·{' '}
-                    {changes ? (
-                      <>
-                        <b>{changes}</b> unsaved change{changes === 1 ? '' : 's'}
-                      </>
-                    ) : (
-                      'no changes yet'
-                    )}{' '}
-                    · official is <b>{officialLabel}</b>
+                    <span className="text-muted-foreground">
+                      <b>v{report.revision.revisionNo}</b>{' '}
+                      {report.official.isOfficial ? 'is the official version' : 'is not the official version'}
+                    </span>
+                    <Button onClick={() => startEdit(report)} type="button">
+                      Edit from v{report.revision.revisionNo}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="min-w-0 text-muted-foreground sm:flex-1">
+                      {editBase && (
+                        <>
+                          <b>Draft</b> from v{editBase.revisionNo} ·{' '}
+                          {changes ? (
+                            <>
+                              <b>{changes}</b> unsaved change{changes === 1 ? '' : 's'}
+                            </>
+                          ) : (
+                            'no changes yet'
+                          )}{' '}
+                          · official is <b>{officialLabel}</b>
+                        </>
+                      )}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button disabled={undoStack.length === 0 || saving} onClick={undoDraft} size="sm" type="button" variant="outline">
+                        Undo
+                      </Button>
+                      <Button
+                        aria-label="Revert all draft changes"
+                        disabled={changes === 0 || saving}
+                        onClick={() => setRevertConfirmOpen(true)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        Revert
+                      </Button>
+                      <Button disabled={changes === 0 || saving} onClick={() => setSaveOpen(true)} type="button">
+                        Save as new version
+                      </Button>
+                    </div>
                   </>
                 )}
-              </span>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button disabled={undoStack.length === 0 || saving} onClick={undoDraft} size="sm" type="button" variant="outline">
-                  Undo
-                </Button>
-                <Button
-                  aria-label="Revert all draft changes"
-                  disabled={changes === 0 || saving}
-                  onClick={() => setRevertConfirmOpen(true)}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Revert
-                </Button>
-                <Button disabled={changes === 0 || saving} onClick={() => setSaveOpen(true)} type="button">
-                  Save as new version
-                </Button>
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </article>
 
       <AlertDialog onOpenChange={setRevertConfirmOpen} open={revertConfirmOpen}>
@@ -764,40 +715,5 @@ export function ReportPage({
         </SheetContent>
       </Sheet>
     </div>
-  );
-}
-
-function ReportBandHeightHandle({
-  height,
-  onStart,
-  onMove,
-  onFinish,
-  onNudge,
-}: {
-  height: number;
-  onStart: (event: React.PointerEvent<HTMLHRElement>) => void;
-  onMove: (event: React.PointerEvent<HTMLHRElement>) => void;
-  onFinish: (event: React.PointerEvent<HTMLHRElement>) => void;
-  onNudge: (direction: -1 | 1) => void;
-}) {
-  return (
-    <hr
-      aria-label="Resize video and version history height"
-      aria-orientation="horizontal"
-      aria-valuemax={MAX_REPORT_BAND_HEIGHT}
-      aria-valuemin={MIN_REPORT_BAND_HEIGHT}
-      aria-valuenow={height}
-      className="absolute inset-x-0 bottom-0 z-40 hidden h-4 translate-y-1/2 cursor-row-resize touch-none border-0 after:absolute after:inset-x-0 after:top-1/2 after:h-px after:bg-border hover:after:bg-primary focus:after:bg-primary lg:block"
-      onKeyDown={(event) => {
-        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-        event.preventDefault();
-        onNudge(event.key === 'ArrowUp' ? -1 : 1);
-      }}
-      onPointerCancel={onFinish}
-      onPointerDown={onStart}
-      onPointerMove={onMove}
-      onPointerUp={onFinish}
-      tabIndex={0}
-    />
   );
 }

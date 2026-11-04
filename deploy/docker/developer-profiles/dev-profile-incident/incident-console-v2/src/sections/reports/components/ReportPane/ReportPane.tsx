@@ -2,7 +2,7 @@
 'use client';
 
 import Link from 'next/link';
-import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, useState } from 'react';
+import { Fragment, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { EvidenceBadges } from '@/sections/reports/components/EvidenceBadges';
@@ -23,6 +23,7 @@ import {
 import { reportHeading, type ReportView } from '@/modules/reports/domain/report-view';
 import { type StillBox, type TrackedReportItem, trackedReportItems } from '@/modules/reports/domain/track';
 import { EvidenceFrame } from '@/sections/evidence/components/EvidenceFrame';
+import { EvidenceCarousel } from '@/sections/evidence/components/EvidenceCarousel';
 import { EvidenceDetailDialog } from '@/sections/reports/components/EvidenceDetailDialog';
 import { PresenceBar } from '@/sections/reports/components/PresenceBar';
 import { RunDetailsPanel } from '@/sections/reports/components/ReportRunDetails';
@@ -214,38 +215,23 @@ export function ReportPane({
           This version has no evidence items.
         </p>
       ) : (
-        <div className="mt-2 space-y-4" data-testid="evidence-grid">
-          {structured.entities.map((entity) => (
-            <div className="grid gap-3 sm:grid-cols-[6rem_1fr]" data-holder={entity.entityId} key={entity.entityId}>
-              <span className="font-mono text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Entity</span>
-              <div className="flex flex-wrap gap-3">
+        <div className="mt-2" data-testid="evidence-grid">
+          <EvidenceCarousel label="Report evidence items">
+            {structured.entities.map((entity) => (
+              <Fragment key={entity.entityId}>
                 <Card {...cardProps(entityDetail(entity, structured.instruments))} />
                 {heldBy(entity.entityId).map((instrument) => (
                   <Card key={instrument.instrumentId} {...cardProps(instrumentDetail(instrument, structured.entities))} />
                 ))}
-              </div>
-            </div>
-          ))}
-          {unheld.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-[6rem_1fr]" data-holder="unknown">
-              <span className="font-mono text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Holder unknown</span>
-              <div className="flex flex-wrap gap-3">
-                {unheld.map((instrument) => (
-                  <Card key={instrument.instrumentId} {...cardProps(instrumentDetail(instrument, structured.entities))} />
-                ))}
-              </div>
-            </div>
-          )}
-          {structured.assets.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-[6rem_1fr]" data-holder="assets">
-              <span className="font-mono text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Assets</span>
-              <div className="flex flex-wrap gap-3">
-                {structured.assets.map((asset) => (
-                  <Card key={asset.assetId} {...cardProps(assetDetail(asset))} />
-                ))}
-              </div>
-            </div>
-          )}
+              </Fragment>
+            ))}
+            {unheld.map((instrument) => (
+              <Card key={instrument.instrumentId} {...cardProps(instrumentDetail(instrument, structured.entities))} />
+            ))}
+            {structured.assets.map((asset) => (
+              <Card key={asset.assetId} {...cardProps(assetDetail(asset))} />
+            ))}
+          </EvidenceCarousel>
         </div>
       )}
 
@@ -310,7 +296,7 @@ function Card({
     <UICard
       aria-label={`Show ${item.title} in detail`}
       className={cn(
-        'w-64 max-w-full cursor-pointer overflow-hidden text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'w-64 max-w-full shrink-0 snap-start cursor-pointer overflow-hidden text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         selected && 'ring-2 ring-ring',
       )}
       data-selected={selected ? 'true' : undefined}

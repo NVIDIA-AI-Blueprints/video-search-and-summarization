@@ -6,7 +6,7 @@ import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
@@ -36,6 +36,7 @@ import type { EvidenceItemType as BoxItemType } from '@/modules/reports/domain/r
 import { EDITABLE_ENTITY_TYPES, EDITABLE_INCIDENT_TYPES, type EditDraft } from '@/modules/reports/domain/edit-draft';
 import { formatClock } from '@/modules/reports/domain/normalize';
 import { EvidenceFrame } from '@/sections/evidence/components/EvidenceFrame';
+import { EvidenceCarousel } from '@/sections/evidence/components/EvidenceCarousel';
 import { BoxTool, type ExistingItem } from '@/sections/evidence/components/BoxTool';
 import { TrackEditor } from '@/sections/evidence/components/TrackEditor';
 import { trackEditorSource } from '@/lib/evidence/track-editor-source';
@@ -43,6 +44,8 @@ import { trackEditorSource } from '@/lib/evidence/track-editor-source';
 const capitalize = (value: string | null) => (value ? value[0].toUpperCase() + value.slice(1) : 'Unclassified');
 const clock = (seconds: number | null) => (seconds === null ? '—' : formatClock(seconds));
 const rowKey = (row: PairRow) => `${row.kind}-${row.b?.key ?? (row.a ? savedItemId(row.a) : '')}`;
+const draftDisplayId = (item: NonNullable<PairRow['b']>) =>
+  isDraftEntity(item) ? item.canonicalId : (item.sourceId ?? (isDraftInstrument(item) ? 'New instrument' : 'New asset'));
 
 /**
  * Edit mode's pane: the version the draft started from (A) on the left and the
@@ -164,6 +167,18 @@ export function ReportEditPane({
 
   return (
     <div className="px-5 pb-6 sm:px-8" data-testid="report-edit-pane">
+      <Card className="mt-4" data-testid="version-summary">
+        <CardHeader className="flex flex-row items-center gap-4">
+          <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-muted font-mono text-sm font-bold">V{baseRevisionNo}</div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-base">Now Editing: Version {baseRevisionNo}</CardTitle>
+              <Badge variant="secondary">Editable draft</Badge>
+            </div>
+            <CardDescription>Changes will be saved as a new version.</CardDescription>
+          </div>
+        </CardHeader>
+      </Card>
       <div
         className="mt-4 grid gap-2 rounded-2xl border border-ink/10 bg-white/95 px-3 py-2 text-xs sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)] sm:gap-4"
         data-testid="compare-header"
@@ -340,64 +355,30 @@ export function ReportEditPane({
             This version has no evidence items.
           </p>
         ) : (
-          <div className="mt-3 space-y-5">
-            {pairing.units.map((unit) => (
-              <div data-unit={unit.kind} key={unit.kind === 'entity' && unit.entity ? rowKey(unit.entity) : unit.kind}>
-                {unit.kind !== 'entity' && (
-                  <div className="mb-2">
-                    <b className="font-mono text-[10.5px] uppercase tracking-wider text-ink-caption">
-                      {unit.kind === 'loose' ? 'Holder unknown' : 'Assets'}
-                    </b>
-                    <span className="ml-2 text-[11px] text-ink-caption">
-                      {unit.kind === 'loose' ? 'instruments no entity visibly holds' : 'no holder, no threat level'}
-                    </span>
-                  </div>
-                )}
-                {unit.entity && (
-                  <PairRowView
-                    aRevisionNo={aRevisionNo}
-                    videoId={videoId}
-                    draft={draft}
-                    draftHolder={draftHolder}
-                    holderOptions={holderOptions}
-                    inherited={inherited(unit.entity)}
-                    onRemove={remove}
-                    onEdit={edit}
-                    onEditTrack={editTrack}
-                    onRevert={revert}
-                    onSeek={onSeek}
-                    patchAsset={patchAsset}
-                    patchEntity={patchEntity}
-                    patchInstrument={patchInstrument}
-                    row={unit.entity}
-                    savedHolder={savedHolder}
-                  />
-                )}
-                {unit.rows.map((row) => (
-                  <div className="sm:pl-14" key={rowKey(row)}>
-                    <div className="mb-1 hidden font-mono text-[10px] uppercase tracking-wider text-ink/35 sm:block">holds ↳</div>
-                    <PairRowView
-                      aRevisionNo={aRevisionNo}
-                      videoId={videoId}
-                      draft={draft}
-                      draftHolder={draftHolder}
-                      holderOptions={holderOptions}
-                      inherited=""
-                      onRemove={remove}
-                      onEdit={edit}
-                      onEditTrack={editTrack}
-                      onRevert={revert}
-                      onSeek={onSeek}
-                      patchAsset={patchAsset}
-                      patchEntity={patchEntity}
-                      patchInstrument={patchInstrument}
-                      row={row}
-                      savedHolder={savedHolder}
-                    />
-                  </div>
-                ))}
-              </div>
-            ))}
+          <div className="mt-3">
+            <EvidenceCarousel label="Read-only and editable evidence pairs">
+              {pairing.rows.map((row) => (
+                <PairRowView
+                  aRevisionNo={aRevisionNo}
+                  videoId={videoId}
+                  draft={draft}
+                  draftHolder={draftHolder}
+                  holderOptions={holderOptions}
+                  inherited={row.kind === 'entity' ? inherited(row) : ''}
+                  key={rowKey(row)}
+                  onRemove={remove}
+                  onEdit={edit}
+                  onEditTrack={editTrack}
+                  onRevert={revert}
+                  onSeek={onSeek}
+                  patchAsset={patchAsset}
+                  patchEntity={patchEntity}
+                  patchInstrument={patchInstrument}
+                  row={row}
+                  savedHolder={savedHolder}
+                />
+              ))}
+            </EvidenceCarousel>
           </div>
         )}
       </section>
@@ -494,10 +475,12 @@ function PairRowView({
   const blocked = revertBlocked(row, draft);
   return (
     <div
-      className="grid gap-2 border-b border-ink/10 py-3 last:border-0 sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)] sm:gap-4"
+      className="grid w-[min(42rem,calc(100vw-4rem))] shrink-0 snap-start gap-2 rounded-2xl border border-border bg-card p-3"
       data-row-kind={row.kind}
     >
-      <span className="font-mono text-[10.5px] font-bold uppercase tracking-wider text-ink-caption">{row.kind}</span>
+      <Badge className="w-fit font-mono text-[10.5px] font-bold uppercase tracking-wider" variant="outline">
+        {row.kind}
+      </Badge>
       <div className="min-w-0" data-side="A">
         {row.a ? (
           <ReadCard inherited={inherited} item={row.a} onSeek={onSeek} savedHolder={savedHolder} videoId={videoId} />
@@ -575,12 +558,14 @@ function ReadCard({
       box={shown.box}
       frameSrc={shown.frameSrc}
       imageUrl={shown.src}
-      name={savedItemName(item)}
+      name={`${savedItemId(item)} · ${savedItemName(item)}`}
       notLocated={shown.notLocated}
       onSeek={onSeek}
       seconds={item.timestampSeconds}
     >
-      <p className="text-sm font-semibold">{savedItemName(item)}</p>
+      <p className="text-sm font-semibold">
+        {savedItemId(item)} · {savedItemName(item)}
+      </p>
       <p className="text-ink/60">{item.description}</p>
       {isSavedInstrument(item) && (
         <p className="text-ink/50">
@@ -645,7 +630,7 @@ function EditCard({
       box={picked ? item.imageBox : (inherited?.box ?? null)}
       frameSrc={picked ? videoFrameUrl(videoId, item.imageTimestampSeconds ?? 0) : (inherited?.frameSrc ?? null)}
       imageUrl={item.imageUrl}
-      name={draftItemName(item)}
+      name={`${draftDisplayId(item)} · ${draftItemName(item)}`}
       notLocated={inherited?.notLocated ?? false}
       onSeek={onSeek}
       seconds={item.timestampSeconds}

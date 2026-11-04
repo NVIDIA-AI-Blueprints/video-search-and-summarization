@@ -123,10 +123,10 @@ test('edit mode pairs every evidence row with A and saves the whole draft as a n
   assert.match(page, /Save as new version/);
   assert.match(page, />\s*Undo\s*</, 'the editor can undo the latest draft change');
   assert.match(page, />\s*Revert\s*</, 'the editor can restore the opened version');
-  assert.match(page, /<hr/, 'the report page has semantic resize handles in both modes');
-  assert.doesNotMatch(page, /mode === 'edit'[\s\S]{0,120}<ReportBandResizeHandle/, 'View mode does not hide the width handles');
-  assert.match(page, /Resize video and version history/);
-  assert.match(page, /Resize video and version history height/);
+  assert.match(page, /<ResizablePanelGroup/, 'the report page uses the shared resizable layout in both modes');
+  assert.match(page, /Resize media workspace and report details/);
+  assert.match(page, /Resize video and timeline/);
+  assert.match(page, /Resize timeline and analysis history/);
   for (const classB of ['severity_reason', 'uncertainties', 'timeline']) {
     assert.ok(!new RegExp(`${classB}:`).test(editor), `${classB} must not be editable`);
   }
