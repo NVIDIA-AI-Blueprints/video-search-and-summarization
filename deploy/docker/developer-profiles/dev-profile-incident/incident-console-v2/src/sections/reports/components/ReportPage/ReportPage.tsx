@@ -79,6 +79,7 @@ export function ReportPage({
   const [revisions, setRevisions] = useState<RevisionSummary[] | null>(null);
   const [revisionsError, setRevisionsError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('view');
+  const [openAddEvidenceOnEdit, setOpenAddEvidenceOnEdit] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   // The player's own length, a second guard (besides the recorded length) before jumping to a time.
   const [playerDuration, setPlayerDuration] = useState<number | null>(null);
@@ -196,7 +197,8 @@ export function ReportPage({
     [shownReport],
   );
 
-  const startEdit = useCallback((base: ReportView) => {
+  const startEdit = useCallback((base: ReportView, addEvidence = false) => {
+    setOpenAddEvidenceOnEdit(addEvidence);
     setDraft(draftFromView(base));
     setUndoStack([]);
     setEditBase({ revisionId: base.revisionId, revisionNo: base.revision.revisionNo, report: base });
@@ -371,7 +373,7 @@ export function ReportPage({
   }
 
   return (
-    <div className="h-[calc(100dvh-4rem)] min-h-[36rem] overflow-hidden">
+    <div className="h-full min-h-0 overflow-hidden">
       <article
         className="report-sheet flex h-full min-h-0 flex-col overflow-hidden border-y border-border bg-card shadow-panel"
         data-testid="report-page"
@@ -516,17 +518,6 @@ export function ReportPage({
                   />
                 </div>
 
-                {mode === 'edit' && !officialRevision && revisions && (
-                  <Alert
-                    className="rounded-none border-x-0 border-t-0 border-b border-amber-300 bg-amber-50/80 px-5 py-2 text-xs text-amber-950"
-                    data-testid="official-status"
-                  >
-                    <AlertDescription>
-                      No official version has been selected for this video. Star a version to make it official.
-                    </AlertDescription>
-                  </Alert>
-                )}
-
                 {mode === 'edit' && editVersionError && (
                   <Alert
                     className="rounded-none border-x-0 border-t-0 border-b border-destructive/20 bg-destructive/10 px-5 py-2 text-xs text-destructive"
@@ -541,6 +532,7 @@ export function ReportPage({
                   <ReportPane
                     compareHref={compareHref}
                     officialMissing={!officialRevision && revisions !== null}
+                    onAddEvidence={() => startEdit(report, true)}
                     onSeek={seek}
                     onSelectTrack={selectTrack}
                     playerDuration={playerDuration}
@@ -553,6 +545,8 @@ export function ReportPage({
                     aRevisionNo={compareReport?.revision.revisionNo ?? editBase.revisionNo}
                     baseRevisionNo={editBase.revisionNo}
                     draft={draft}
+                    initiallyAddEvidence={openAddEvidenceOnEdit}
+                    officialMissing={!officialRevision && revisions !== null}
                     onChange={changeDraft}
                     onSeek={seek}
                     title={reportHeading(editBase.report)}

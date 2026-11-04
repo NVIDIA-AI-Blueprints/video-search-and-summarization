@@ -18,9 +18,13 @@ export default async function ReportPage({
   const startSeconds = parseStartSeconds(t);
 
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <AppHeader active="library" subtitle="Report workspace" />
-      <ReportView revisionId={revisionId} startSeconds={startSeconds} videoId={videoId} />
+    <main className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
+      <div className="shrink-0">
+        <AppHeader active="library" subtitle="Report workspace" />
+      </div>
+      <div className="min-h-0 flex-1">
+        <ReportView revisionId={revisionId} startSeconds={startSeconds} videoId={videoId} />
+      </div>
     </main>
   );
 }

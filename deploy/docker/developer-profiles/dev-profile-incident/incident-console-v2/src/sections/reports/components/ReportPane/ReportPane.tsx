@@ -3,11 +3,12 @@
 
 import Link from 'next/link';
 import { Fragment, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, useState } from 'react';
+import { PlusIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { EvidenceBadges } from '@/sections/reports/components/EvidenceBadges';
 import { Button } from '@/components/ui/button';
-import { Card as UICard, CardContent } from '@/components/ui/card';
+import { Card as UICard, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { evidenceDisplay } from '@/lib/evidence/evidence-view';
 import { formatTimestamp } from '@/lib/time';
 import { severityStyle } from '@/lib/ui/severity';
@@ -32,9 +33,9 @@ const capitalize = (value: string | null) => (value ? value[0].toUpperCase() + v
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-1 border-b border-border py-3 sm:grid-cols-[8rem_1fr] sm:gap-6">
-      <dt className="pt-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</dt>
-      <dd className="m-0 text-sm leading-6 text-foreground/80">{children}</dd>
+    <div className="grid gap-1.5 border-b border-border/70 py-3.5 last:border-b-0 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-6">
+      <dt className="pt-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</dt>
+      <dd className="m-0 min-w-0 text-sm leading-6 text-foreground">{children}</dd>
     </div>
   );
 }
@@ -47,6 +48,7 @@ export function ReportPane({
   report,
   playerDuration,
   onSeek,
+  onAddEvidence,
   officialMissing = false,
   compareHref = null,
   selectedTrackId = null,
@@ -55,6 +57,7 @@ export function ReportPane({
   report: ReportView;
   playerDuration: number | null;
   onSeek: (seconds: number, still?: StillBox | null) => void;
+  onAddEvidence: () => void;
   /** True once the versions have loaded and none of them is official. */
   officialMissing?: boolean;
   /** Link to compare this version with another AI version, when there is one. */
@@ -90,15 +93,14 @@ export function ReportPane({
 
   return (
     <div className="px-5 pb-16 sm:px-8">
-      <UICard className="mt-5 gap-0 border-border bg-muted/40 py-0 text-sm" data-testid="version-summary">
-        <CardContent className="divide-y divide-border p-0">
-          <div className="px-4 py-3">
-            <p className="flex flex-wrap items-center gap-2" data-testid="revision-label">
-              <b>v{revision.revisionNo}</b>
-              <Badge className="px-2 py-0.5 text-[11px] font-semibold" variant="secondary">
-                {revision.kind === 'human' ? 'Human' : 'AI'}
-              </Badge>
-              {revision.kind === 'ai' && <span className="text-muted-foreground">{run.model}</span>}
+      <UICard className="mt-5 gap-0 border-border/80 bg-card py-0 text-sm" data-testid="version-summary">
+        <CardHeader className="flex flex-row items-center gap-4 border-b border-border/70 bg-muted/25 px-4 py-4">
+          <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-background font-mono text-sm font-bold text-foreground shadow-xs ring-1 ring-border">
+            V{revision.revisionNo}
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-base font-semibold">Now Viewing: Version {revision.revisionNo}</CardTitle>
               {report.official.isOfficial && (
                 <Badge
                   className="border-amber-400 bg-amber-50 text-[11px] font-bold text-amber-800"
@@ -108,12 +110,18 @@ export function ReportPane({
                   ★ Official
                 </Badge>
               )}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {formatTimestamp(revision.createdAt, 'time unknown')}
-              {revision.note ? ` · ${revision.note}` : ''}
-            </p>
+            </div>
+            <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-testid="revision-label">
+              <Badge className="px-2 py-0.5 text-[11px] font-semibold" variant="secondary">
+                {revision.kind === 'human' ? 'Human' : 'AI'}
+              </Badge>
+              {revision.kind === 'ai' && <span>{run.model}</span>}
+              <span>{formatTimestamp(revision.createdAt, 'time unknown')}</span>
+              {revision.note && <span>· {revision.note}</span>}
+            </CardDescription>
           </div>
+        </CardHeader>
+        <CardContent className="divide-y divide-border p-0">
           {run.status === 'valid_after_structural_repair' && (
             <p className="px-4 py-2 text-xs text-amber-800" data-testid="contract-repair-applied">
               Contract repair applied (IDs only)
@@ -139,101 +147,127 @@ export function ReportPane({
         </CardContent>
       </UICard>
 
-      <h3 className="mt-6 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Report fields</h3>
-      <dl className="m-0">
-        <Row label="Title">
-          {reportHeading(report)}
-          {modelOutput?.title && (
-            <span className="mt-0.5 block text-xs text-muted-foreground/80">
-              Title generated by the model{differences.fields.length ? ' (before reviewer edits)' : ''}
-            </span>
+      <UICard className="mt-5 gap-0 border-border/80 py-0" data-testid="report-fields-section">
+        <CardHeader className="gap-1 border-b border-border/70 px-4 py-3.5">
+          <CardTitle className="text-base font-semibold">Report fields</CardTitle>
+          <CardDescription className="text-xs">Incident overview and model assessment</CardDescription>
+        </CardHeader>
+        <CardContent className="px-4 pb-3 pt-1">
+          <dl className="m-0">
+            <Row label="Title">
+              {reportHeading(report)}
+              {modelOutput?.title && (
+                <span className="mt-0.5 block text-xs text-muted-foreground/80">
+                  Title generated by the model{differences.fields.length ? ' (before reviewer edits)' : ''}
+                </span>
+              )}
+            </Row>
+            <Row label="Incident type">
+              {capitalize(incident.type)}
+              {modelOutput?.location ? ` · ${modelOutput.location}` : ''}
+              {differences.type && (
+                <span className="mt-0.5 block text-xs font-semibold text-destructive" data-testid="type-edited">
+                  Model classified this as {differences.type.model}; reviewer set {differences.type.current}.
+                </span>
+              )}
+            </Row>
+            <Row label="Severity">
+              <Badge className={`px-3 py-0.5 text-xs font-bold ${severityStyle(incident.severityLevel)}`} variant="outline">
+                {incident.severityLevel ?? '—'}/5
+              </Badge>
+              {differences.severity && (
+                <span className="mt-1 block text-xs font-semibold text-destructive" data-testid="severity-edited">
+                  Model assessed severity {differences.severity.model}/5; reviewer set {differences.severity.current}/5. The rationale below
+                  explains the model&apos;s assessment, not the reviewer&apos;s.
+                </span>
+              )}
+            </Row>
+            {incident.confidenceScore !== null && <Row label="Confidence">{Math.round(incident.confidenceScore * 100)}%</Row>}
+            <Row label="Time range">
+              {incident.startSeconds !== null ? (
+                <Button
+                  className="h-6 font-mono text-xs font-bold"
+                  onClick={() => onSeek(incident.startSeconds ?? 0)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {formatClock(incident.startSeconds)}
+                  {incident.endSeconds !== null ? `–${formatClock(incident.endSeconds)}` : ''}
+                </Button>
+              ) : (
+                'Not recorded'
+              )}
+              {windowEdited && original && original.startSeconds !== null && original.endSeconds !== null && (
+                <span className="ml-3 text-xs font-semibold text-destructive" data-testid="window-edited">
+                  reviewer-set; model window {formatClock(original.startSeconds)}–{formatClock(original.endSeconds)}
+                </span>
+              )}
+            </Row>
+            <Row label="Summary">
+              <span className="whitespace-pre-wrap">{incident.description ?? 'No summary was recorded.'}</span>
+            </Row>
+            <Row label="Severity rationale">
+              <span className="text-foreground/75">{modelOutput?.severityReason ?? 'No model rationale was retained for this run.'}</span>
+              {differences.severity && (
+                <span className="mt-0.5 block text-xs text-muted-foreground">For model severity {differences.severity.model}/5</span>
+              )}
+            </Row>
+          </dl>
+          {differences.fields.length > 0 && (
+            <Badge className="mt-3 text-xs font-semibold text-destructive" data-testid="reviewer-edited" variant="secondary">
+              Reviewer-edited after generation: {differences.fields.join(', ')}
+            </Badge>
           )}
-        </Row>
-        <Row label="Incident type">
-          {capitalize(incident.type)}
-          {modelOutput?.location ? ` · ${modelOutput.location}` : ''}
-          {differences.type && (
-            <span className="mt-0.5 block text-xs font-semibold text-destructive" data-testid="type-edited">
-              Model classified this as {differences.type.model}; reviewer set {differences.type.current}.
-            </span>
-          )}
-        </Row>
-        <Row label="Severity">
-          <Badge className={`px-3 py-0.5 text-xs font-bold ${severityStyle(incident.severityLevel)}`} variant="outline">
-            {incident.severityLevel ?? '—'}/5
-          </Badge>
-          {differences.severity && (
-            <span className="mt-1 block text-xs font-semibold text-destructive" data-testid="severity-edited">
-              Model assessed severity {differences.severity.model}/5; reviewer set {differences.severity.current}/5. The rationale below
-              explains the model&apos;s assessment, not the reviewer&apos;s.
-            </span>
-          )}
-        </Row>
-        {incident.confidenceScore !== null && <Row label="Confidence">{Math.round(incident.confidenceScore * 100)}%</Row>}
-        <Row label="Time range">
-          {incident.startSeconds !== null ? (
-            <Button
-              className="h-6 font-mono text-xs font-bold"
-              onClick={() => onSeek(incident.startSeconds ?? 0)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              {formatClock(incident.startSeconds)}
-              {incident.endSeconds !== null ? `–${formatClock(incident.endSeconds)}` : ''}
-            </Button>
-          ) : (
-            'Not recorded'
-          )}
-          {windowEdited && original && original.startSeconds !== null && original.endSeconds !== null && (
-            <span className="ml-3 text-xs font-semibold text-destructive" data-testid="window-edited">
-              reviewer-set; model window {formatClock(original.startSeconds)}–{formatClock(original.endSeconds)}
-            </span>
-          )}
-        </Row>
-        <Row label="Summary">
-          <span className="whitespace-pre-wrap">{incident.description ?? 'No summary was recorded.'}</span>
-        </Row>
-        <Row label="Severity rationale">
-          <span className="text-foreground/75">{modelOutput?.severityReason ?? 'No model rationale was retained for this run.'}</span>
-          {differences.severity && (
-            <span className="mt-0.5 block text-xs text-muted-foreground">For model severity {differences.severity.model}/5</span>
-          )}
-        </Row>
-      </dl>
-      {differences.fields.length > 0 && (
-        <Badge className="mt-3 text-xs font-semibold text-destructive" data-testid="reviewer-edited" variant="secondary">
-          Reviewer-edited after generation: {differences.fields.join(', ')}
-        </Badge>
-      )}
+        </CardContent>
+      </UICard>
 
-      <h3 className="mt-7 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-        Evidence items · {itemCount}
-      </h3>
-      {itemCount === 0 ? (
-        <p className="mt-2 text-sm italic text-muted-foreground" data-testid="evidence-empty">
-          This version has no evidence items.
-        </p>
-      ) : (
-        <div className="mt-2" data-testid="evidence-grid">
-          <EvidenceCarousel label="Report evidence items">
-            {structured.entities.map((entity) => (
-              <Fragment key={entity.entityId}>
-                <Card {...cardProps(entityDetail(entity, structured.instruments))} />
-                {heldBy(entity.entityId).map((instrument) => (
-                  <Card key={instrument.instrumentId} {...cardProps(instrumentDetail(instrument, structured.entities))} />
-                ))}
-              </Fragment>
-            ))}
-            {unheld.map((instrument) => (
-              <Card key={instrument.instrumentId} {...cardProps(instrumentDetail(instrument, structured.entities))} />
-            ))}
-            {structured.assets.map((asset) => (
-              <Card key={asset.assetId} {...cardProps(assetDetail(asset))} />
-            ))}
-          </EvidenceCarousel>
-        </div>
-      )}
+      <UICard className="mt-5 gap-0 overflow-hidden border-border/80 py-0" data-testid="evidence-section">
+        <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-border/70 bg-muted/20 px-4 py-3.5">
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-base font-semibold">Evidence items</CardTitle>
+              <Badge className="font-mono text-[10px]" variant="secondary">
+                {itemCount}
+              </Badge>
+            </div>
+            <CardDescription className="text-xs">People, instruments and assets linked to this incident</CardDescription>
+          </div>
+          <Button className="shrink-0" data-testid="add-evidence" onClick={onAddEvidence} size="sm" type="button">
+            <PlusIcon aria-hidden="true" />
+            Add evidence
+          </Button>
+        </CardHeader>
+        {itemCount === 0 ? (
+          <CardContent className="px-4 py-5">
+            <p
+              className="m-0 rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground"
+              data-testid="evidence-empty"
+            >
+              No evidence items yet. Add evidence to start documenting people, instruments or assets in this incident.
+            </p>
+          </CardContent>
+        ) : (
+          <div className="px-4 pt-3 pb-1" data-testid="evidence-grid">
+            <EvidenceCarousel label="Report evidence items">
+              {structured.entities.map((entity) => (
+                <Fragment key={entity.entityId}>
+                  <Card {...cardProps(entityDetail(entity, structured.instruments))} />
+                  {heldBy(entity.entityId).map((instrument) => (
+                    <Card key={instrument.instrumentId} {...cardProps(instrumentDetail(instrument, structured.entities))} />
+                  ))}
+                </Fragment>
+              ))}
+              {unheld.map((instrument) => (
+                <Card key={instrument.instrumentId} {...cardProps(instrumentDetail(instrument, structured.entities))} />
+              ))}
+              {structured.assets.map((asset) => (
+                <Card key={asset.assetId} {...cardProps(assetDetail(asset))} />
+              ))}
+            </EvidenceCarousel>
+          </div>
+        )}
+      </UICard>
 
       <EvidenceDetailDialog
         item={detail}

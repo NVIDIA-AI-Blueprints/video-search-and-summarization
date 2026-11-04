@@ -126,10 +126,14 @@ test('the report page has a mark-official star, no Restore, and keeps the layout
   const components = new URL('../src/sections/', import.meta.url);
   const versions = await readFile(new URL('reports/components/ReportVersions/ReportVersions.tsx', components), 'utf8');
   const page = await readFile(new URL('reports/components/ReportPage/ReportPage.tsx', components), 'utf8');
+  const viewPane = await readFile(new URL('reports/components/ReportPane/ReportPane.tsx', components), 'utf8');
+  const editPane = await readFile(new URL('reports/components/ReportEditPane/ReportEditPane.tsx', components), 'utf8');
   assert.match(versions, /Mark v\$\{revision\.revisionNo\} official/);
   assert.doesNotMatch(versions + page, /restore/i);
   assert.match(page, /Try again/);
-  assert.match(page, /No official version has been selected/);
+  assert.match(viewPane + editPane, /No official version has been selected/);
+  assert.match(editPane, /officialMissing &&/);
+  assert.doesNotMatch(page, /mode === 'edit' && !officialRevision && revisions/);
 });
 
 test('a search hit links to its report at the hit second, and the page reads that second back', async () => {
@@ -152,4 +156,13 @@ test('the report page seeks to ?t once, when the player has loaded its metadata'
     /if \(startSeconds !== null && !startedAt\.current\) \{\s*startedAt\.current = true;\s*event\.currentTarget\.currentTime = startSeconds;\s*\}/,
   );
   assert.match(page, /id="back-to-library"[^>]*>\s*← Library\s*</);
+});
+
+test('the report workspace fits the viewport and keeps its action bar outside the details scroller', async () => {
+  const route = await readFile(new URL('../src/app/reports/[videoId]/page.tsx', import.meta.url), 'utf8');
+  const page = await readFile(new URL('../src/sections/reports/components/ReportPage/ReportPage.tsx', import.meta.url), 'utf8');
+  assert.match(route, /flex h-dvh flex-col overflow-hidden/);
+  assert.match(page, /h-full min-h-0 overflow-hidden/);
+  assert.match(page, /min-h-0 flex-1 overflow-y-auto" data-testid="report-details-pane"/);
+  assert.match(page, /data-testid="report-details-pane"[\s\S]*?Edit from v\{report\.revision\.revisionNo\}/);
 });
