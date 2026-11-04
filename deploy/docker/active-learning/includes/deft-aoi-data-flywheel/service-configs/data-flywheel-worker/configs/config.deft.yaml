@@ -1,0 +1,101 @@
+backend:
+  kind: deft
+
+logging_config:
+  level: INFO
+
+mlflow_config:
+  enabled: true
+  tracking_uri: "${DFW_MLFLOW_URL}"
+  experiment_name_prefix: data-flywheel-aoi
+  # Send artifacts through the tracking server so clients do not need to share
+  # the server's local filesystem.
+  artifact_location: "mlflow-artifacts:/"
+
+deft_config:
+  deft_base_url: "${DFW_DEFT_BASE_URL}"
+  storage_backend_url: "${DFW_STORAGE_BACKEND_URL}"
+  object_store_uri: "${DFW_OBJECT_STORE_URI}"
+  api_key_env: DEFT_API_KEY
+  storage_api_key_env: STORAGE_BACKEND_API_KEY
+
+model_manager:
+  base_url: "${DFW_MODEL_MANAGER_URL}"
+  timeout: 30.0
+  pull_timeout: 900.0
+
+aoi_job_config:
+  use_case: aoi
+  model_name: "${DFW_MODEL_NAME}"
+  selection:
+    mode: query
+    filters:
+      created_after: "1970-01-01T00:00:00Z"
+      tag: "${AOI_SELECTION_TAG}"
+  kpi:
+    pull_from_storage: true
+    uri: "${DFW_KPI_SET_URI|nullable-string}"
+  eval:
+    kpi_target:
+      - {metric: FAR_pct, op: "<", threshold: 200.0}
+  deft:
+    config:
+      # data_pool:
+      #   path: "${DEFT_RUNTIME_WORKSPACE}"
+      model:
+        checkpoint: ${DFW_BASELINE_MODEL_CHECKPOINT}
+      pipeline:
+        kpi_target: "FAR 10% at recall=100%"
+        iterations: 5
+      training:
+        epochs: 10
+        batch_size: 16
+        num_gpus: 1
+      mining:
+        min_similarity: 0.9
+        topn: 5
+  promotion_policy:
+    hitl:
+      pull: false
+      deploy: false
+      canary: "${DFW_HITL_CANARY|bool}"
+      full: "${DFW_HITL_FULL|bool}"
+    # Optional serving stages. Set canary: false for a backend without canary
+    # routing (e.g. RTVI-CV) so the ladder is shadow -> full.
+    deployment_stages:
+      shadow: "${DFW_STAGE_SHADOW|bool}"
+      canary: "${DFW_STAGE_CANARY|bool}"
+    canary_steps:
+      steps: [5, 25, 50]
+    eval_harness:
+      # ONLINE gate: FAR only (the metric the DEFT loop validates), same
+      # metric/op/threshold form as kpi_target. Empty is fail-closed.
+      #
+      # enabled: false skips the online gate entirely and promotes on the
+      # offline KPI gate alone — for use cases with no live labelled feedback.
+      # It must be stated explicitly; it is never inferred from an absent target.
+      enabled: false
+      online_target:
+        - {metric: FAR_pct, op: "<", threshold: 0.1}
+      # Minimum GOOD units (the FAR denominator) before a non-hold verdict.
+      min_sample_size: 100
+      # How long one shadow/canary phase may run without a decisive verdict
+      # before on_timeout applies. null = no deadline (a starved promotion then
+      # holds indefinitely). The clock restarts on each serving-role transition.
+      max_observation_window_s: null
+      # escalate -> hand it to a human (pending_approval) | rollback | advance
+      on_timeout: escalate
+    poll_interval_s: 10.0
+    # 10.0 * 90 = 900s (15 min). This poller does NOT have to absorb the engine
+    # build: a cold candidate compiles its TensorRT engine during pull, which has
+    # its own budget (model_manager.pull_timeout above), because the serving stack
+    # refuses to route traffic to a version that is not READY yet. What this
+    # budget covers is the swap settling after the routing change.
+    #
+    # It is generous anyway because the Model Manager's inline post-apply
+    # readiness check is only ~30s and deliberately non-terminal: a swap it has
+    # not seen converge is left `progressing` for this poller to reconcile, so
+    # this budget — not the Model Manager's — is what decides a swap's fate. A
+    # poller that gave up sooner would just re-drive the gate and reload the model.
+    poll_max_attempts: 90
+    auto_rollback_on_regression: true

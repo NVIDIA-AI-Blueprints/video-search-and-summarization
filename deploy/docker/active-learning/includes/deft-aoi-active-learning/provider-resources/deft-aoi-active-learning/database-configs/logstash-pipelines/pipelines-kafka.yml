@@ -1,0 +1,5 @@
+# Minimal Logstash pipelines (Kafka → Elasticsearch).
+# The active-learning stack uses one AOI metadata ingest pipeline.
+
+- pipeline.id: aoi-ingest
+  path.config: "/usr/share/logstash/pipelines/aoi-ingest.conf"
