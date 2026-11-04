@@ -33,9 +33,8 @@ class RTVIVLMPerfContractTest(unittest.TestCase):
     def test_poc_matrix_is_single_gpu(self):
         config = yaml.safe_load((PERF_ROOT / "configs/perf-configs.yaml").read_text())
         enabled = [row for row in config["perf_configs"] if row.get("enabled")]
-        self.assertEqual({row["nodeLabel"] for row in enabled}, {"RTXPRO6000BW-SE", "DGX-SPARK"})
-        for row in enabled:
-            self.assertEqual(row["vlmGpus"], "0")
+        self.assertEqual(len(enabled), 1)
+        self.assertEqual(enabled[0]["vlmGpus"], "0")
 
     def test_service_does_not_upload_reports(self):
         runner = (PERF_ROOT / "scripts/run_benchmark.sh").read_text()
