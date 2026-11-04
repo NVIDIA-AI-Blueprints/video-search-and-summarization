@@ -611,9 +611,18 @@ case "$(basename "$COMPOSE_FILE_PATH")" in
         if [ "${#SCENARIO_ARGS[@]}" -eq 0 ] || [ "${SCENARIO_ARGS[0]}" = "quick_test" ]; then
             info "Warmup skipped: quick_test is the first scenario"
         else
-            step "Warmup: quick_test (results in ${VIA_OUTPUT_DIR}-warmup, not part of the report)"
+            # Each invocation needs an empty directory. Keep CI warmups with
+            # diagnostics so they are archived without entering the final report.
+            if [ -n "${PERF_OUTPUT_DIR:-}" ]; then
+                warmup_parent="${PERF_DIAGNOSTICS_DIR:-${PERF_OUTPUT_DIR}/diagnostics}/warmup"
+                mkdir -p "$warmup_parent"
+                warmup_output_dir="$(mktemp -d "$warmup_parent/run.XXXXXXXX")"
+            else
+                warmup_output_dir="$(mktemp -d "${VIA_OUTPUT_DIR}-warmup.XXXXXXXX")"
+            fi
+            step "Warmup: quick_test (results in $warmup_output_dir, not part of the report)"
             if ! python3 vss_perf_benchmark.py --config "$BENCHMARK_CONFIG_PATH" --scenario quick_test \
-                --output-dir "${VIA_OUTPUT_DIR}-warmup"; then
+                --output-dir "$warmup_output_dir"; then
                 error "Warmup run failed; check the stack logs, then rerun this script."
                 exit 1
             fi
