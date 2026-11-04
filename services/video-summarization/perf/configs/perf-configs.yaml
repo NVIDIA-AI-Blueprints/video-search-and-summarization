@@ -170,7 +170,7 @@ perf_configs:
   # --- RTX PRO 4500 (EngSQA; enable when node is in pool) ---
   - id: "rtxpro4500-1-1-cr3-nano-rtvi-nemonano9b-9k"
     composePath: "compose/x86-rtvi-cr-nemotron-9b_1gpu.yaml"
-    nodeLabel: "RTXPRO4500"
+    nodeLabel: "RTXPRO4500BW"
     imageArch: "amd64"
     enabled: false
     checkoutPaths:
