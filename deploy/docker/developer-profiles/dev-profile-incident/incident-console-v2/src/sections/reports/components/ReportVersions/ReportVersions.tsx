@@ -38,8 +38,7 @@ export function ReportVersions({
   onOpen,
   onOfficialChanged,
   mode = 'view',
-  compareRevisionId = null,
-  onCompare,
+  onEditRevision,
 }: {
   videoId: string;
   revisions: RevisionSummary[] | null;
@@ -49,8 +48,7 @@ export function ReportVersions({
   onOfficialChanged: () => void;
   /** Edit mode compares the draft with an A version instead of opening one to read. */
   mode?: 'view' | 'edit';
-  compareRevisionId?: number | null;
-  onCompare?: (revisionId: number) => void;
+  onEditRevision?: (revisionId: number) => void;
 }) {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -119,7 +117,6 @@ export function ReportVersions({
             <ol>
               {layout.rows.map(({ revision, lane, segments }) => {
                 const current = revision.revisionId === currentRevisionId;
-                const comparing = revision.revisionId === compareRevisionId;
                 const official = revision.revisionId === officialId;
                 const busy = revision.revisionId === busyId;
                 const starLabel = official
@@ -129,7 +126,7 @@ export function ReportVersions({
 
                 return (
                   <li
-                    className={`flex items-stretch gap-2 rounded-xl px-1 py-1.5 text-xs ${current || comparing ? 'bg-primary/10' : ''}`}
+                    className={`flex items-stretch gap-2 rounded-xl px-1 py-1.5 text-xs ${current ? 'bg-primary/10' : ''}`}
                     data-testid="revision-row"
                     key={revision.revisionId}
                   >
@@ -188,17 +185,20 @@ export function ReportVersions({
                       </TooltipTrigger>
                       <TooltipContent>{starTitle}</TooltipContent>
                     </Tooltip>
-                    {mode === 'edit' ? (
+                    {mode === 'edit' && current ? (
+                      <Badge className="self-center px-2 py-0.5 text-[10.5px] font-bold" variant="default">
+                        Editing
+                      </Badge>
+                    ) : mode === 'edit' ? (
                       <Button
-                        aria-label={`Compare v${revision.revisionNo} as A`}
-                        aria-pressed={comparing}
+                        aria-label={`Edit from v${revision.revisionNo}`}
                         className="h-6 self-center px-2 text-[10.5px] font-bold"
-                        onClick={() => onCompare?.(revision.revisionId)}
+                        onClick={() => onEditRevision?.(revision.revisionId)}
                         size="sm"
                         type="button"
-                        variant={comparing ? 'default' : 'outline'}
+                        variant="outline"
                       >
-                        A
+                        Edit
                       </Button>
                     ) : current ? (
                       <Badge className="self-center px-2 py-0.5 text-[10.5px] font-bold" variant="default">
