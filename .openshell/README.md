@@ -114,15 +114,14 @@ boundary it is proven against, the harness Dockerfile, and the provider
 profiles. Section 4 is the same ground with the reasoning; §5 is how to check
 the result.
 
-First set the agent's own model, either by editing [`.env`](.env) or by
-exporting the same variables in the shell. An exported value wins over the
-file's:
+First set the agent's own model in [`.env`](.env). The commands source it, so
+its values replace any of the same name exported in the shell:
 
 | Variable | Set it to |
 |---|---|
 | `HARNESS_BASE_URL` | The endpoint's OpenAI-compatible base URL. The default is the host `providers/agent-inference-profile.yaml` authorizes |
 | `HARNESS_MODEL` | A model id that endpoint serves |
-| `HARNESS_API_KEY` | The endpoint's key, unquoted. If you put it in `.env`, never commit it |
+| `HARNESS_API_KEY` | The endpoint's key, unquoted. Never commit it |
 
 A base URL on another host needs that host's profile; the recreate steps after
 the Quickstart cover build.nvidia.com and a server on this host.
@@ -144,6 +143,7 @@ openshell --version && openshell-prover --version     # both 0.1.6
 
 cd .openshell
 set -a; . ./.env; set +a          # OPENSHELL_TAG, HERMES_REF, HARNESS_*
+case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; esac
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --env-file .env -f gateway/docker-compose.yml --profile harness up -d
@@ -154,7 +154,6 @@ docker build -t "openshell-hermes:$HERMES_REF" hermes
 
 # 3. Inference provider. The profile authorizes the host; the provider seals the
 #    key, which the proxy injects at egress so the agent never holds it.
-case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; esac
 openshell profile import -f providers/agent-inference-profile.yaml
 openshell provider create --name agent-inference --type agent-inference \
   --credential HARNESS_API_KEY
@@ -207,33 +206,28 @@ all survive the recreate:
 ```bash
 PROVIDER=agent-inference          # the Quickstart's provider
 
-# 1. Make one change. Skip this step to just start over.
+# 1. Make one change in .env. Skip this step to just start over.
+#  a) A different model on the same endpoint: HARNESS_MODEL.
+#  b) A different endpoint family, here build.nvidia.com: HARNESS_BASE_URL to
+#     https://integrate.api.nvidia.com/v1, HARNESS_MODEL to a model id it
+#     serves, HARNESS_API_KEY to its nvapi- key. The provider authorizes only
+#     its profile's host, so the sandbox refuses any other base URL.
+#  c) A new key for the current provider: HARNESS_API_KEY.
 
-#  a) A different model on the same endpoint:
-export HARNESS_MODEL=...          # a model id the endpoint serves
-
-#  b) A different endpoint family: import the family's profile, create a
-#     provider from it, and point HARNESS_* at that family's host. The provider
-#     authorizes only its profile's host, so the sandbox refuses any other
-#     base URL. Set the same three lines in .env to keep them past this shell.
-export HARNESS_API_KEY=...        # build.nvidia.com's nvapi- key, unquoted
-export HARNESS_BASE_URL=https://integrate.api.nvidia.com/v1
-export HARNESS_MODEL=...          # a model id build.nvidia.com serves
+# 2. Re-read .env, then register the change with the gateway.
+set -a; . ./.env; set +a
+#  b) A provider for the new family. For a server on this host, use
+#     agent-inference-local-profile.yaml instead; its key is optional.
 openshell profile import -f providers/agent-inference-build-profile.yaml
 openshell provider create --name agent-inference-build \
   --type agent-inference-build --credential HARNESS_API_KEY
 PROVIDER=agent-inference-build
-#     For a server on this host, use agent-inference-local-profile.yaml; its
-#     key is optional.
-
-#  c) A new key for the current provider:
-export HARNESS_API_KEY=...        # unquoted
+#  c) The new key on the current provider.
 openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
 
-# 2. Delete the sandbox.
+# 3. Delete the sandbox and create it again: the Quickstart's step 4 with
+#    $PROVIDER.
 openshell sandbox delete hermes
-
-# 3. Create it again: the Quickstart's step 4 with $PROVIDER.
 openshell sandbox create \
   --name hermes \
   --from "openshell-hermes:$HERMES_REF" \
@@ -269,8 +263,8 @@ Gives the agent the `vss` CLI, the operation skills and the `vss_cli` tool
 plugin, and the one grant that lets it reach a VSS deployment. Take it only
 against a deployment that is already up.
 
-First set the VSS layer's two values, either by editing [`.env`](.env) or by
-exporting them in the shell. An exported value wins over the file's:
+First set the VSS layer's two values in [`.env`](.env), which likewise
+replaces any shell export of them:
 
 | Variable | Set it to |
 |---|---|
@@ -922,7 +916,7 @@ is a decision about who may create sandboxes, not a data-path constraint.
 is what the UI adapter talks to and where Hermes serves `/health`. It binds the
 sandbox's own loopback at its documented default, because the image ships no
 `API_SERVER_PORT`; note that `gateway.api_server.port` in `config.yaml` does
-not move it, so overriding the port means the `.env`. OpenShell exposes a
+not move it, so overriding the port means `/sandbox/.hermes/.env`. OpenShell exposes a
 loopback port from the inside, so `--expose 8642` reaches the API server
 directly, with no forwarder in between.
 
