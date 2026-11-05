@@ -216,8 +216,9 @@ its values replace any of the same name exported in the shell:
 | `HARNESS_MODEL` | A model id that endpoint serves |
 | `HARNESS_API_KEY` | The endpoint's key, unquoted. Never commit it |
 
-A base URL on another host needs that host's profile; the recreate steps after
-the Quickstart cover build.nvidia.com and a server on this host.
+A base URL on another host needs that host's profile;
+[Change the model, endpoint or key](#change-the-model-endpoint-or-key) covers
+build.nvidia.com and a server on this host.
 
 Then run from the repository root.
 
@@ -290,6 +291,8 @@ curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
 ```
 
 [Section 5](#5-verification) checks both, plus the policy proof.
+
+### Change the model, endpoint or key
 
 To change the model, the endpoint or the key, or to start over, make the change
 and then recreate the sandbox. The model and endpoint are fixed at create, and a
