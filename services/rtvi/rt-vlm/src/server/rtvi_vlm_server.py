@@ -36,6 +36,7 @@ from uuid import UUID, uuid4
 
 import aiofiles
 import aiofiles.os
+import anyio
 import gi
 import uvicorn
 from fastapi import FastAPI, File, Form, Path, Query, Request, Response, UploadFile
@@ -1065,6 +1066,32 @@ class RTVIServer:
         )
         return asset_id, file_path
 
+    async def _abort_request(self, request_id):
+        # SSE disconnects cancel an AnyIO scope; cleanup must outlive that scope.
+        with anyio.CancelScope(shield=True):
+            await asyncio.to_thread(self._stream_handler.abort_request, request_id)
+
+    async def _wait_for_request_done(self, request_id, request):
+        try:
+            while not self._stream_handler.is_request_done(request_id):
+                if await request.is_disconnected():
+                    raise asyncio.CancelledError()
+                await asyncio.sleep(CHAT_COMPLETION_STREAM_POLL_INTERVAL_SEC)
+        except asyncio.CancelledError:
+            await self._abort_request(request_id)
+            raise
+
+    async def _submit_vlm_request(self, generate, *args):
+        future = asyncio.get_running_loop().run_in_executor(self._async_executor, generate, *args)
+        try:
+            return await asyncio.shield(future)
+        except asyncio.CancelledError:
+            # Executor work cannot be cancelled; recover its ID before aborting.
+            with anyio.CancelScope(shield=True):
+                request_id = await future
+                await self._abort_request(request_id)
+            raise
+
     async def _cleanup_temporary_chat_assets(self, temp_asset_ids: list[str]) -> None:
         if not temp_asset_ids:
             return
@@ -1451,8 +1478,6 @@ class RTVIServer:
                 "Only streaming output is supported for live-streams", "BadParameters", 400
             )
 
-        loop = asyncio.get_event_loop()
-
         # Generate request ID
         if asset.is_live:
             # Each live generate request is an independent query, even when it
@@ -1464,8 +1489,7 @@ class RTVIServer:
                         generate_captions,
                         is_chat_completion=True,
                     )
-                request_id = await loop.run_in_executor(
-                    self._async_executor,
+                request_id = await self._submit_vlm_request(
                     generate_captions,
                     [asset],  # Pass as list for consistency
                     vlm_query,
@@ -1490,8 +1514,7 @@ class RTVIServer:
                         generate_captions,
                         is_chat_completion=True,
                     )
-                request_id = await loop.run_in_executor(
-                    self._async_executor,
+                request_id = await self._submit_vlm_request(
                     generate_captions,
                     asset_list,
                     vlm_query,
@@ -2820,7 +2843,6 @@ class RTVIServer:
 
             videoId = videoIdList[0]
             sse_client_key = request_id
-            loop = asyncio.get_event_loop()
 
             if query.stream:
                 # Allow only one SSE reader for this request. Multiple requests
@@ -2961,6 +2983,8 @@ class RTVIServer:
                     finally:
                         self._sse_active_clients.pop(sse_client_key, None)
 
+                        await self._abort_request(request_id)
+
                     # Generate usage data and send as server-sent event if requested
                     if (
                         query.stream_options
@@ -3009,9 +3033,7 @@ class RTVIServer:
             else:
                 # Non-streaming output. Wait for request to be completed.
                 try:
-                    await loop.run_in_executor(
-                        self._async_executor, self._stream_handler.wait_for_request_done, request_id
-                    )
+                    await self._wait_for_request_done(request_id, request)
                     req_info, resp_list = self._stream_handler.get_response(request_id)
                     if req_info.status == RequestInfo.Status.FAILED:
                         raise ServiceException(
@@ -3434,6 +3456,10 @@ class RTVIServer:
                     log_prefix="NIM chat completion",
                     is_chat_completion=True,
                 )
+            except asyncio.CancelledError:
+                with anyio.CancelScope(shield=True):
+                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                raise
             except ServiceException:
                 await self._cleanup_temporary_chat_assets(temp_asset_ids)
                 # Re-raise ServiceException to be handled by FastAPI exception handler
@@ -3451,9 +3477,6 @@ class RTVIServer:
 
             # Get model info for response
             model_info = self._stream_handler.get_models_info()
-
-            # Get event loop for non-streaming path
-            loop = asyncio.get_event_loop()
 
             if vlm_query.stream:
                 # Allow only one SSE reader for this request. Multiple requests
@@ -3632,6 +3655,7 @@ class RTVIServer:
                         yield "[DONE]"
                     finally:
                         self._sse_active_clients.pop(sse_client_key, None)
+                        await self._abort_request(request_id)
                         await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
 
                 try:
@@ -3652,9 +3676,7 @@ class RTVIServer:
             else:
                 # Non-streaming output. Wait for request to be completed.
                 try:
-                    await loop.run_in_executor(
-                        self._async_executor, self._stream_handler.wait_for_request_done, request_id
-                    )
+                    await self._wait_for_request_done(request_id, request)
                     req_info, resp_list = self._stream_handler.get_response(request_id)
                     if req_info.status == RequestInfo.Status.FAILED:
                         raise ServiceException(
