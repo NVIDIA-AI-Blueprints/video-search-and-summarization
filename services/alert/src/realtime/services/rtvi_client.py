@@ -25,7 +25,7 @@ calls (one TCP connection pool per :class:`RTVIVLMClient` instance).
 import copy
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
@@ -61,6 +61,7 @@ class RTVIVLMClient:
     - DELETE /streams/delete/{stream_id}        — Remove a live stream
     - POST   /generate_captions                 — Start caption generation
     - DELETE /generate_captions/{stream_id}     — Stop caption generation
+      (``?request_id=`` stops one caption request instead of all of them)
     - GET    /ready                             — Health check
     """
 
@@ -201,12 +202,21 @@ class RTVIVLMClient:
         media_info: Optional[Dict[str, Any]] = None,
         enable_audio: Optional[bool] = None,
         mm_processor_kwargs: Optional[Dict[str, Any]] = None,
+        on_request_id: Optional[Callable[[Optional[str]], None]] = None,
     ) -> Dict[str, Any]:
         """POST to /generate_captions with stream=true to trigger VLM analysis.
 
         Required fields are always sent. Optional fields (those that default
         to ``None``) are included in the payload only when explicitly set so
         RTVI can apply its own server-side defaults for omitted keys.
+
+        For a live stream RTVI answers with a server-sent-event body that
+        stays open while the caption request runs, so the body is streamed
+        and discarded: the coroutine returns (or raises) only when RTVI ends
+        the request. RTVI sends the caption request id in the
+        ``X-Request-ID`` response header; ``on_request_id`` is called with
+        it as soon as the headers arrive (``None`` when RTVI does not send
+        one) so the caller can later stop just this request.
         """
         url = f"{self.base_url}/generate_captions"
         payload: Dict[str, Any] = {
@@ -239,23 +249,41 @@ class RTVIVLMClient:
 
         logger.info("Calling RTVI VLM generate_captions: %s (stream_id=%s)", url, stream_id)
         logger.debug("generate_captions payload: %s", payload)
-        resp = await self._client.post(
-            url, json=payload, timeout=max(self.timeout, 120),
-        )
-        if not resp.is_success:
-            logger.error(
-                "RTVI generate_captions returned %s: %s",
-                resp.status_code,
-                resp.text,
-            )
-        resp.raise_for_status()
+        async with self._client.stream(
+            "POST", url, json=payload, timeout=max(self.timeout, 120),
+        ) as resp:
+            if not resp.is_success:
+                await resp.aread()
+                logger.error(
+                    "RTVI generate_captions returned %s: %s",
+                    resp.status_code,
+                    resp.text,
+                )
+            resp.raise_for_status()
+            if on_request_id is not None:
+                on_request_id(resp.headers.get("X-Request-ID"))
+            async for _ in resp.aiter_raw():
+                pass
         return {"status": "started", "stream_id": stream_id}
 
-    async def stop_captions(self, stream_id: str) -> Dict[str, Any]:
-        """DELETE /generate_captions/{stream_id} to stop caption generation."""
+    async def stop_captions(
+        self, stream_id: str, request_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """DELETE /generate_captions/{stream_id} to stop caption generation.
+
+        Without ``request_id`` RTVI stops every caption request on the
+        stream. With it RTVI stops only that request and keeps the others
+        on the same stream running.
+        """
         url = f"{self.base_url}/generate_captions/{stream_id}"
-        logger.info("Calling RTVI VLM stop generate_captions: %s", url)
-        resp = await self._client.delete(url)
+        logger.info(
+            "Calling RTVI VLM stop generate_captions: %s (request_id=%s)",
+            url, request_id,
+        )
+        if request_id:
+            resp = await self._client.delete(url, params={"request_id": request_id})
+        else:
+            resp = await self._client.delete(url)
         resp.raise_for_status()
         if resp.text.strip():
             return resp.json()

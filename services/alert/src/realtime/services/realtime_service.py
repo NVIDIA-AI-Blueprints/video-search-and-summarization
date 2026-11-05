@@ -85,6 +85,7 @@ except ImportError:
 
 _INTERNAL_FIELDS = frozenset({
     "rtvi_stream_id", "previous_rtvi_stream_id", "owns_rtvi_stream",
+    "rtvi_request_id",
     "_id", "_index", "_seq_no", "_primary_term",
 })
 
@@ -165,6 +166,19 @@ def _inc_replay_outcome(counter, outcome: str) -> None:
         counter.labels(outcome=outcome).inc()
 
 
+def _caption_request_gone(exc: httpx.HTTPError, request_id: Optional[str]) -> bool:
+    """True when a request-scoped caption stop failed only because RTVI no
+    longer runs that request (400 "No active caption request" / no such
+    live stream), e.g. after an RT-VLM restart. Stream-wide stops keep
+    reporting these as failures.
+    """
+    return (
+        request_id is not None
+        and isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code in (400, 404)
+    )
+
+
 class RealtimeAlertService:
     """
     Manages the lifecycle of real-time VLM alert rules.
@@ -197,16 +211,18 @@ class RealtimeAlertService:
        Reused streams skip the probe entirely.
        Ack-phase ``httpx.HTTPError`` → ``RTVI_VLM_UNAVAILABLE`` 502;
        readiness-phase failure → ``RTVI_STREAM_NOT_READABLE`` 502.
-    4. Update the ES record with ``rtvi_stream_id``, ``status=active``,
-       and the resolved ``owns_rtvi_stream`` flag.
+    4. Update the ES record with ``rtvi_stream_id``, ``rtvi_request_id``
+       (the caption request id RTVI returns in ``X-Request-ID``),
+       ``status=active``, and the resolved ``owns_rtvi_stream`` flag.
     5. Commit the rule to the in-memory registry and return 201.
 
     Lifecycle of ``stop_alert`` uses live ref-count semantics: after
     deleting the rule from ES / the in-memory registry, count *other*
     rules referencing the same ``rtvi_stream_id``. If the count is
     zero the deleted rule was the last reader, so both
-    ``stop_captions`` and ``stop_stream`` fire. Otherwise only
-    ``stop_captions`` runs so siblings keep streaming. The same logic
+    ``stop_captions`` and ``stop_stream`` fire. Otherwise only this
+    rule's caption request is stopped (by ``rtvi_request_id``) so
+    siblings keep streaming. The same logic
     applies to background ``_cleanup_failed_rule`` calls; ``start_alert``
     rollbacks additionally include ``PENDING`` rules in the count so a
     concurrent in-flight create isn't accidentally torn down.
@@ -238,6 +254,12 @@ class RealtimeAlertService:
         )
         self._stream_readiness_max_wait = rtvi_cfg.get(
             "stream_readiness_max_wait", 2.0,
+        )
+        # Upper bound on waiting for the caption request id (``X-Request-ID``)
+        # after the readiness window. RTVI sends it as soon as it accepts
+        # ``generate_captions``, so this only matters when that is slow.
+        self._captions_request_id_timeout = rtvi_cfg.get(
+            "captions_request_id_timeout", 10.0,
         )
         # ``stream_readiness_timeout`` is deprecated — kept only so existing
         # configs don't fail to load. The polling helper ignores it.
@@ -290,6 +312,7 @@ class RealtimeAlertService:
                 "default_model": self._default_model,
                 "persistent": rule_store is not None,
                 "captions_ack_timeout": self._captions_ack_timeout,
+                "captions_request_id_timeout": self._captions_request_id_timeout,
                 "stream_readiness_poll_interval": self._stream_readiness_poll_interval,
                 "stream_readiness_max_wait": self._stream_readiness_max_wait,
             },
@@ -426,6 +449,7 @@ class RealtimeAlertService:
         # ``generate_captions`` so a sibling rolling back can see us.
         self._register_pending_stream_ref(rtvi_stream_id, rule_id)
         try:
+            request_id_future, on_request_id = self._request_id_receiver()
             captions_task = asyncio.create_task(
                 self._client.generate_captions(
                     stream_id=rtvi_stream_id,
@@ -452,6 +476,7 @@ class RealtimeAlertService:
                     media_info=config.media_info,
                     enable_audio=config.enable_audio,
                     mm_processor_kwargs=config.mm_processor_kwargs,
+                    on_request_id=on_request_id,
                 )
             )
             try:
@@ -475,11 +500,17 @@ class RealtimeAlertService:
                     lambda t, sid=rtvi_stream_id, rid=rule_id, svc=self: svc._log_caption_task_result(t, sid, rid)
                 )
 
+            rtvi_request_id = await self._await_caption_request_id(
+                request_id_future, captions_task, replay_ctx,
+            )
+            replay_ctx["rtvi_request_id"] = rtvi_request_id
+
             now_iso = datetime.now(timezone.utc).isoformat()
             try:
                 await asyncio.to_thread(
                     self._rule_store.update, rule_id, {
                         "rtvi_stream_id": rtvi_stream_id,
+                        "rtvi_request_id": rtvi_request_id,
                         "last_replay_at": now_iso,
                         "status": RuleStatus.ACTIVE,
                         "owns_rtvi_stream": owns_stream,
@@ -510,6 +541,7 @@ class RealtimeAlertService:
             rule = {
                 "id": rule_id,
                 "rtvi_stream_id": rtvi_stream_id,
+                "rtvi_request_id": rtvi_request_id,
                 "owns_rtvi_stream": owns_stream,
                 "live_stream_url": config.live_stream_url,
                 "alert_type": config.alert_type,
@@ -965,6 +997,7 @@ class RealtimeAlertService:
         self._register_pending_stream_ref(rtvi_stream_id, alert_rule_id)
         try:
             # ── Step 2: trigger caption generation ────────────────────
+            request_id_future, on_request_id = self._request_id_receiver()
             captions_task = asyncio.create_task(
                 self._client.generate_captions(
                     stream_id=rtvi_stream_id,
@@ -991,6 +1024,7 @@ class RealtimeAlertService:
                     media_info=config.media_info,
                     enable_audio=config.enable_audio,
                     mm_processor_kwargs=config.mm_processor_kwargs,
+                    on_request_id=on_request_id,
                 )
             )
 
@@ -1041,6 +1075,11 @@ class RealtimeAlertService:
                     lambda t, sid=rtvi_stream_id, rid=alert_rule_id, svc=self: svc._log_caption_task_result(t, sid, rid)
                 )
 
+            rtvi_request_id = await self._await_caption_request_id(
+                request_id_future, captions_task, ctx,
+            )
+            ctx["rtvi_request_id"] = rtvi_request_id
+
             # ── Step 4: update ES with rtvi_stream_id ─────────────────
             if self._rule_store is not None:
                 try:
@@ -1049,6 +1088,7 @@ class RealtimeAlertService:
                         alert_rule_id,
                         {
                             "rtvi_stream_id": rtvi_stream_id,
+                            "rtvi_request_id": rtvi_request_id,
                             "status": RuleStatus.ACTIVE,
                             "owns_rtvi_stream": owns_stream,
                         },
@@ -1124,6 +1164,7 @@ class RealtimeAlertService:
             rule = {
                 "id": alert_rule_id,
                 "rtvi_stream_id": rtvi_stream_id,
+                "rtvi_request_id": rtvi_request_id,
                 "owns_rtvi_stream": owns_stream,
                 "sensor_id": config.sensor_id,
                 "sensor_name": config.sensor_name,
@@ -1274,8 +1315,10 @@ class RealtimeAlertService:
         # below uses the live ref-count so a reuse rule that turns out to
         # be the *last* reader still cleans the stream up.
         owns_stream = rule.get("owns_rtvi_stream", True)
+        rtvi_request_id = rule.get("rtvi_request_id")
         ctx["rtvi_stream_id"] = rtvi_stream_id
         ctx["owns_stream"] = owns_stream
+        ctx["rtvi_request_id"] = rtvi_request_id
 
         # Step 1: delete the durable record so the rule is gone from the
         # user's perspective regardless of what happens with RTVI.
@@ -1329,8 +1372,8 @@ class RealtimeAlertService:
         # Count *other* rules that still reference the same stream id; if
         # this is the last reader, also call ``/streams/delete`` so the
         # RTVI stream is removed too. Otherwise leave it running for the
-        # remaining sharers and only stop captions for this rule's
-        # session.  Track outcome so the summary log line distinguishes
+        # remaining sharers and only stop this rule's caption request.
+        # Track outcome so the summary log line distinguishes
         # "full" delete (ES + RTVI both clean) from "partial" (ES gone,
         # RTVI orphaned).
         rtvi_outcome = "n/a"
@@ -1341,6 +1384,7 @@ class RealtimeAlertService:
             ctx["other_active_rules"] = other_count
             rtvi_outcome = await self._safe_teardown_rtvi_with_outcome(
                 rtvi_stream_id, ctx, stop_stream=(other_count == 0),
+                rtvi_request_id=rtvi_request_id,
             )
 
         delete_outcome = "success" if rtvi_outcome in ("success", "n/a") else "partial"
@@ -1447,10 +1491,12 @@ class RealtimeAlertService:
 
         rtvi_stream_id = rule.get("rtvi_stream_id")
         owns_stream = rule.get("owns_rtvi_stream", True)
+        rtvi_request_id = rule.get("rtvi_request_id")
         ctx = {
             "alert_rule_id": alert_rule_id,
             "rtvi_stream_id": rtvi_stream_id,
             "owns_stream": owns_stream,
+            "rtvi_request_id": rtvi_request_id,
         }
 
         # Pop the rule first so the ref-count below excludes it.
@@ -1464,6 +1510,7 @@ class RealtimeAlertService:
             ctx["other_active_rules"] = other_count
             await self._safe_teardown_rtvi(
                 rtvi_stream_id, ctx, stop_stream=(other_count == 0),
+                rtvi_request_id=rtvi_request_id,
             )
 
         if REALTIME_RULES_DELETED is not None:
@@ -1977,6 +2024,59 @@ class RealtimeAlertService:
                 RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0,
             )
 
+    @staticmethod
+    def _request_id_receiver() -> Tuple[
+        "asyncio.Future[Optional[str]]", Callable[[Optional[str]], None],
+    ]:
+        """Return a future and the ``on_request_id`` callback that resolves it.
+
+        Passed to :meth:`RTVIVLMClient.generate_captions`, which calls the
+        callback with the ``X-Request-ID`` header once RTVI accepts the
+        caption request.
+        """
+        future: "asyncio.Future[Optional[str]]" = (
+            asyncio.get_running_loop().create_future()
+        )
+
+        def _on_request_id(request_id: Optional[str]) -> None:
+            if not future.done():
+                future.set_result(request_id)
+
+        return future, _on_request_id
+
+    async def _await_caption_request_id(
+        self,
+        request_id_future: "asyncio.Future[Optional[str]]",
+        captions_task: asyncio.Task,
+        ctx: Dict[str, Any],
+    ) -> Optional[str]:
+        """Return the RTVI caption request id of a just-started captions task.
+
+        The id lets :meth:`stop_alert` stop only this rule's captions on a
+        stream that other rules still share. RTVI sends it as soon as it
+        accepts ``generate_captions`` — normally inside the ack / readiness
+        window — so this only waits (up to ``captions_request_id_timeout``)
+        when RTVI is slow to accept. Returns ``None`` when RTVI sent no id
+        (RT-VLM without ``X-Request-ID``), the captions task ended first, or
+        the wait timed out; deleting the rule then falls back to stopping
+        captions for the whole stream.
+        """
+        if not request_id_future.done() and not captions_task.done():
+            await asyncio.wait(
+                {request_id_future, captions_task},
+                timeout=self._captions_request_id_timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        request_id = request_id_future.result() if request_id_future.done() else None
+        request_id = request_id or None  # an empty header carries no id
+        if request_id is None:
+            logger.warning(
+                "No RTVI caption request id for this rule — deleting it while "
+                "other rules share the stream will stop their captions too",
+                extra=ctx,
+            )
+        return request_id
+
     async def _maybe_stop_stream_on_rollback(
         self,
         rtvi_stream_id: str,
@@ -2232,11 +2332,38 @@ class RealtimeAlertService:
                 extra={"rtvi_stream_id": rtvi_stream_id, "error": str(exc)},
             )
 
+    @staticmethod
+    def _caption_request_to_stop(
+        stop_stream: bool,
+        rtvi_request_id: Optional[str],
+        ctx: Dict[str, Any],
+    ) -> Optional[str]:
+        """Pick the caption request id the teardown should stop.
+
+        The last reader (``stop_stream=True``) stops every caption request
+        on the stream along with the stream itself, so no id is used.
+        Otherwise only the deleted rule's own request is stopped so the
+        other rules sharing the stream keep their captions. A rule without
+        a recorded id (created before RTVI returned one) can only be
+        stopped stream-wide, which also stops the other rules' captions.
+        """
+        if stop_stream:
+            return None
+        if not rtvi_request_id:
+            logger.warning(
+                "No caption request id recorded for this rule — stopping "
+                "captions for every rule on the stream; replay to restore "
+                "the other rules",
+                extra=ctx,
+            )
+        return rtvi_request_id
+
     async def _safe_teardown_rtvi(
         self,
         rtvi_stream_id: str,
         ctx: Dict[str, Any],
         stop_stream: bool = True,
+        rtvi_request_id: Optional[str] = None,
     ) -> None:
         """Stop captions and (when ``stop_stream``) the stream concurrently.
 
@@ -2244,12 +2371,14 @@ class RealtimeAlertService:
         nor aborts the other. ``stop_stream=False`` skips the
         ``/streams/delete`` call entirely so the underlying RTVI
         stream is left running for any other alert rules that are
-        still reusing it. The caller is expected to compute that flag
-        from the live refcount rather than just the deleted rule's
-        ``owns_rtvi_stream`` attribute (see
+        still reusing it, and stops only ``rtvi_request_id`` (see
+        :meth:`_caption_request_to_stop`). The caller is expected to
+        compute that flag from the live refcount rather than just the
+        deleted rule's ``owns_rtvi_stream`` attribute (see
         :meth:`_count_other_rules_for_stream`).
         """
-        coros = [self._safe_stop_captions(rtvi_stream_id, ctx)]
+        request_id = self._caption_request_to_stop(stop_stream, rtvi_request_id, ctx)
+        coros = [self._safe_stop_captions(rtvi_stream_id, ctx, request_id=request_id)]
         if stop_stream:
             coros.append(self._safe_stop_stream_with_ctx(rtvi_stream_id, ctx))
         else:
@@ -2264,6 +2393,7 @@ class RealtimeAlertService:
         rtvi_stream_id: str,
         ctx: Dict[str, Any],
         stop_stream: bool = True,
+        rtvi_request_id: Optional[str] = None,
     ) -> str:
         """Variant of :meth:`_safe_teardown_rtvi` that reports the outcome.
 
@@ -2275,8 +2405,10 @@ class RealtimeAlertService:
 
         ``stop_stream=False`` (other rules still use this stream)
         suppresses the ``/streams/delete`` call entirely — the rule
-        being deleted is *not* the last reader of this stream. The
-        outcome then reflects the captions teardown only.
+        being deleted is *not* the last reader of this stream — and
+        stops only ``rtvi_request_id``. The outcome then reflects the
+        captions teardown only; a request RTVI no longer knows counts
+        as stopped.
 
         The work is duplicated from :meth:`_safe_stop_captions` and
         :meth:`_safe_stop_stream_with_ctx` rather than wrapping them
@@ -2284,15 +2416,23 @@ class RealtimeAlertService:
         — there is no way to observe failure from the outside without
         re-implementing the inline try/except here.
         """
+        request_id = self._caption_request_to_stop(stop_stream, rtvi_request_id, ctx)
+
         async def _stop_captions() -> bool:
             t0 = time.monotonic()
             try:
-                await self._client.stop_captions(rtvi_stream_id)
+                await self._client.stop_captions(rtvi_stream_id, request_id=request_id)
                 _observe(RTVI_CALL_DURATION, "stop_captions", time.monotonic() - t0)
                 logger.info("Stopped caption generation", extra=ctx)
                 return True
             except httpx.HTTPError as exc:
                 _observe(RTVI_CALL_DURATION, "stop_captions", time.monotonic() - t0)
+                if _caption_request_gone(exc, request_id):
+                    logger.info(
+                        "Caption request already stopped on RTVI",
+                        extra={**ctx, "error": str(exc)},
+                    )
+                    return True
                 _inc_failure(RTVI_CALL_FAILURES, "stop_captions")
                 logger.warning(
                     "stop_captions failed — continuing with stream delete",
@@ -2412,16 +2552,29 @@ class RealtimeAlertService:
             return False
 
     async def _safe_stop_captions(
-        self, rtvi_stream_id: str, ctx: Dict[str, Any],
+        self,
+        rtvi_stream_id: str,
+        ctx: Dict[str, Any],
+        request_id: Optional[str] = None,
     ) -> None:
-        """Best-effort caption stop.  Logs but never raises."""
+        """Best-effort caption stop.  Logs but never raises.
+
+        ``request_id`` stops only that caption request; without it every
+        caption request on the stream is stopped.
+        """
         t0 = time.monotonic()
         try:
-            await self._client.stop_captions(rtvi_stream_id)
+            await self._client.stop_captions(rtvi_stream_id, request_id=request_id)
             _observe(RTVI_CALL_DURATION, "stop_captions", time.monotonic() - t0)
             logger.info("Stopped caption generation", extra=ctx)
         except httpx.HTTPError as exc:
             _observe(RTVI_CALL_DURATION, "stop_captions", time.monotonic() - t0)
+            if _caption_request_gone(exc, request_id):
+                logger.info(
+                    "Caption request already stopped on RTVI",
+                    extra={**ctx, "error": str(exc)},
+                )
+                return
             _inc_failure(RTVI_CALL_FAILURES, "stop_captions")
             logger.warning(
                 "stop_captions failed — continuing with stream delete",
