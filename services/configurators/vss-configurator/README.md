@@ -475,7 +475,7 @@ services:
 | `ENABLE_VMS_VIDEO_UPLOAD` | `false` | Upload videos to VMS storage API (PUT binary to `/vst/api/v1/storage/file/{file_name}/{timestamp}`) |
 | `VIDEO_SOURCE_DIR` | `` | Directory containing .mp4/.mkv files to upload (all videos in the dir are uploaded) |
 | `VIDEO_UPLOAD_TIMEOUT` | `300` | Request timeout in seconds for each upload |
-| `VIDEO_UPLOAD_DELAY` | `0` | Delay in seconds between subsequent video uploads (0 = no delay) |
+| `VIDEO_UPLOAD_DELAY` | `0` | Delay in seconds between subsequent video uploads and between subsequent VST/VMS sensor-add calls (0 = no delay) |
 | `NVSTREAMER_UPLOAD_BASE_URL` | `http://localhost:30000` | NVStreamer base URL (path `/api/v1/storage/file` is appended for uploads) |
 | `VMS_UPLOAD_BASE_URL` | `http://localhost:30888` | VMS base URL (e.g. `http://<VMS_HOST>:<PORT>`) for storage uploads |
 | **VMS Integration** | | |
