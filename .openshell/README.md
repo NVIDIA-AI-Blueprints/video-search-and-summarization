@@ -108,13 +108,26 @@ Docker's networking-off as the outer fence.
 ## 2. Quickstart
 
 Brings up a Hermes sandbox against its own model; no VSS deployment needed.
-Every file in the table above is pre-created and needs no editing: the Compose
-services and the `OPENSHELL_TAG` they read, the version-2 gateway config, the
-policy and the boundary it is proven against, the harness Dockerfile, and the
-provider profiles. Section 4 is the same ground with the reasoning; §5 is how
-to check the result.
+Every file in the table above is pre-created: the Compose services and the
+`OPENSHELL_TAG` they read, the version-2 gateway config, the policy and the
+boundary it is proven against, the harness Dockerfile, and the provider
+profiles. Section 4 is the same ground with the reasoning; §5 is how to check
+the result.
 
-Run from the repository root.
+First set the agent's own model, either by editing [`.env`](.env) or by
+exporting the same variables in the shell. An exported value wins over the
+file's:
+
+| Variable | Set it to |
+|---|---|
+| `HARNESS_BASE_URL` | The endpoint's OpenAI-compatible base URL. The default is the host `providers/agent-inference-profile.yaml` authorizes |
+| `HARNESS_MODEL` | A model id that endpoint serves |
+| `HARNESS_API_KEY` | The endpoint's key, unquoted. If you put it in `.env`, never commit it |
+
+A base URL on another host needs that host's profile; the recreate steps after
+the Quickstart cover build.nvidia.com and a server on this host.
+
+Then run from the repository root.
 
 ```bash
 # 0. Install the openshell CLI and openshell-prover 0.1.6, the gateway's
@@ -130,7 +143,7 @@ mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
 openshell --version && openshell-prover --version     # both 0.1.6
 
 cd .openshell
-set -a; . ./.env; set +a          # OPENSHELL_TAG, HERMES_REF, HARNESS_*; fill HARNESS_API_KEY first
+set -a; . ./.env; set +a          # OPENSHELL_TAG, HERMES_REF, HARNESS_*
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --env-file .env -f gateway/docker-compose.yml --profile harness up -d
@@ -196,9 +209,8 @@ PROVIDER=agent-inference          # the Quickstart's provider
 
 # 1. Make one change. Skip this step to just start over.
 
-#  a) A different model on the same endpoint: edit HARNESS_MODEL in .env, then
-#     re-read it.
-set -a; . ./.env; set +a
+#  a) A different model on the same endpoint:
+export HARNESS_MODEL=...          # a model id the endpoint serves
 
 #  b) A different endpoint family: import the family's profile, create a
 #     provider from it, and point HARNESS_* at that family's host. The provider
@@ -255,8 +267,15 @@ curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
 
 Gives the agent the `vss` CLI, the operation skills and the `vss_cli` tool
 plugin, and the one grant that lets it reach a VSS deployment. Take it only
-against a deployment that is already up; `VSS_PUBLIC_URL` in `.env` is how the
-sandbox addresses it.
+against a deployment that is already up.
+
+First set the VSS layer's two values, either by editing [`.env`](.env) or by
+exporting them in the shell. An exported value wins over the file's:
+
+| Variable | Set it to |
+|---|---|
+| `VSS_REF` | A ref on `VSS_REPO` that the skills and the `vss` CLI are built from, at one reproducible version. The build fetches it rather than reading the working tree, so a local commit reaches the image only once it is pushed |
+| `VSS_PUBLIC_URL` | The deployment's origin as the sandbox reaches it. The default, `http://host.openshell.internal:7777`, is a deployment on this host |
 
 Both halves are needed. The image alone leaves a `vss` CLI the policy refuses
 to let out; the policy alone grants reach to a sandbox with no CLI to use it.
@@ -307,11 +326,6 @@ Step c prints which command groups the deployment can serve and which skills
 went active; a partial deployment is normal, and the inactive skills name the
 service they wanted. [Section 5](#5-verification) has the two extra checks
 this layer adds.
-
-`VSS_REF` has to name a ref on `VSS_REPO`: the build fetches the VSS checkout
-rather than reading the working tree, so a local commit reaches the image only
-once it is pushed. That is what keeps the skills and the `vss` CLI in the image
-at one reproducible version.
 
 ### Optional — answer from the VSS UI
 
