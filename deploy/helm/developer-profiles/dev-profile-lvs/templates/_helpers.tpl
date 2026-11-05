@@ -39,16 +39,13 @@
 
 {{/*
   Resolves the Kubernetes name for a dependency subchart (same rules as each subchart's .fullname helper).
-  Pass: dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent"
+  Pass: dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui"
   Optional: "subchartValues" (dict) — when set, used instead of index .Values .depKey.
 */}}
 {{- define "vss.subchartFullname" -}}
 {{- $vios := index .Values "vios" | default dict }}
-{{- $agent := index .Values "agent" | default dict }}
-{{- $agentVss := index $agent "vss-agent" | default (index .Values "vss-agent") | default dict }}
 {{- $topDep := index .Values .depKey | default (index $vios .depKey) | default dict }}
-{{- $fromDep := ternary $agentVss $topDep (eq .depKey "vss-agent") }}
-{{- $vals := .subchartValues | default $fromDep | default dict }}
+{{- $vals := .subchartValues | default $topDep | default dict }}
 {{- if $vals.fullnameOverride }}
 {{- $vals.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}

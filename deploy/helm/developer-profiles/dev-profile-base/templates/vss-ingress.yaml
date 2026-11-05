@@ -22,9 +22,6 @@
 {{- $fes := index $infra "elasticsearch" | default dict }}
 {{- $vios := .Values.vios | default dict }}
 {{- $viosIngress := index $vios "vss-vios-ingress" | default dict }}
-{{- $agentRoot := .Values.agent | default dict }}
-{{- $agent := index $agentRoot "vss-agent" | default dict }}
-{{- $vaMcp := index $agentRoot "vss-va-mcp" | default dict }}
 {{- $ui := index .Values "vss-agent-ui" | default dict }}
 {{- $rtvi := .Values.rtvi | default dict }}
 {{- $vlm := index $rtvi "vss-rtvi-vlm" | default dict }}
@@ -33,7 +30,6 @@
        mounting a route at a Service that was never created. */}}
 {{- $en := "vss.ingress.enabled" }}
 {{- $infraOn := include $en (dict "vals" $infra "default" true) }}
-{{- $agentUmbrellaOn := include $en (dict "vals" $agentRoot "default" true) }}
 {{- $rtviOn := include $en (dict "vals" $rtvi "default" true) }}
 {{- /* Base serves the VLM via rtvi.vss-rtvi-vlm (vlmNameSlug=none). Do not use
        vlmNameSlug as a Service name -- with vlmNameSlug=none it resolves to a
@@ -41,7 +37,7 @@
        these keys and still wins where set. */}}
 {{- $vlmLegacy := $vi.vlm | default dict }}
 {{- $vlmOn := and $rtviOn (include $en (dict "vals" $vlm "default" false)) (include $en (dict "vals" $vlmLegacy "default" true)) }}
-{{- $vlmChartName := coalesce ($vlmLegacy.serviceName | default "" | trim) ($vi.rtviVlmServiceName | default "" | trim) ((index $agent "rtviVlmServiceName") | default "" | trim) "vss-rtvi-vlm" }}
+{{- $vlmChartName := coalesce ($vlmLegacy.serviceName | default "" | trim) ($vi.rtviVlmServiceName | default "" | trim) "vss-rtvi-vlm" }}
 {{- /* Which of the canonical routes this profile can serve. The mounts
        themselves live in the shared table (services/common); this only says
        which backends are here and on what port. */}}
@@ -49,14 +45,8 @@
 {{- if include $en (dict "vals" $ui "default" true) }}
 {{- $_ := set $b "ui" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui")) "port" $vi.vssUiPort) }}
 {{- end }}
-{{- if and $agentUmbrellaOn (include $en (dict "vals" $agent "default" true)) }}
-{{- $_ := set $b "agent" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent")) "port" $vi.vssAgentPort) }}
-{{- end }}
 {{- if and (include $en (dict "vals" $vios "default" true)) (include $en (dict "vals" $viosIngress "default" true)) }}
 {{- $_ := set $b "vst" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-vios-ingress" "chartName" "vss-vios-ingress")) "port" $vi.vstIngressPort) }}
-{{- end }}
-{{- if and $agentUmbrellaOn (include $en (dict "vals" $vaMcp "default" false)) }}
-{{- $_ := set $b "va-mcp" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-va-mcp" "chartName" "vss-va-mcp" "subchartValues" $vaMcp)) "port" $vi.vaMcpPort) }}
 {{- end }}
 {{- if $vlmOn }}
 {{- $_ := set $b "rtvi-vlm" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-rtvi-vlm" "chartName" $vlmChartName "subchartValues" $vlm)) "port" (coalesce $vlmLegacy.servicePort $vi.rtviVlmPort)) }}

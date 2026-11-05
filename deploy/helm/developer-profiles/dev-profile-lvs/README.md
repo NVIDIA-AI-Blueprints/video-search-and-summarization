@@ -119,8 +119,6 @@ Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` 
 | `rtvi.vss-rtvi-vlm.env` | full list | Replaces the subchart default `env`. Override individual values (e.g. edge `VLM_INPUT_*`) by editing the list in your overlay. |
 | `vss-summarization.extraEnv` | 2 RTVI vars | `RTVI_VLM_URL`, `RTVI_VLM_URL_PASSTHROUGH`. `RTVI_VLM_URL` is rendered with `tpl`, so it picks up `{{ .Release.Name }}` when `global.useReleaseNamePrefix` is true. |
 | `global.vios.notificationConfig` | LVS webhook JSON | Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. Empty on those subcharts uses the chart file default (webhooks off); this profile override registers VST cameras with RT-VLM. |
-| `agent.vss-agent.rtviVlmEnabled` / `rtviVlmServiceName` | `true` / `vss-rtvi-vlm` | Parity flags; `RTVI_VLM_BASE_URL` in the `env` list reads `rtviVlmServiceName`. |
-| `agent.vss-agent.env` → `VLM_MODEL_TYPE` | `rtvi` | Flip to `nim` only to bypass RTVI for the agent (video_understanding will then hit the VLM NIM directly). |
 
 Remote VLM + RTVI: RTVI-VLM also supports remote VLM endpoints when `global.vlmBaseUrl` is set, `nims.enabled=false`, and `rtvi.vss-rtvi-vlm.useSharedNim=true`; see `deploy/helm/services/rtvi/charts/rtvi-vlm/templates/deployment.yaml` for the selection logic.
 
@@ -327,7 +325,6 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vssIngress.ingressClassName`** | **`haproxy`** | **`spec.ingressClassName`** on the **`Ingress`**. Must match an **`IngressClass`** on the cluster (e.g. from **HAProxy Kubernetes Ingress**). |
 | **`vssIngress.host`** | **`""`** | Ingress hostname for the main rules; if empty, **`global.externalHost`** is used. |
 | **`vssIngress.vssUiPort`** | **`3000`** | Backend port for **vss-agent-ui** paths. |
-| **`vssIngress.vssAgentPort`** | **`8000`** | Backend port for **vss-agent** paths. |
 | **`vssIngress.vstIngressPort`** | **`30888`** | Backend port for **vss-vios-ingress** (**`/vst`**). |
 | **`vssIngress.lvsBackendPort`** | **`38111`** | Backend port for **vss-summarization** on **`/lvs`**. The prefix is stripped, so **`/lvs/v1/summarize`** reaches the backend as **`/v1/summarize`**. |
 | **`vssIngress.rtviVlmPort`** | **`8000`** | Kubernetes Service port for **vss-rtvi-vlm** on **`/rtvi-vlm`**. The OpenAI-compatible root is **`<host>/rtvi-vlm/v1`**. |
@@ -360,25 +357,6 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`infra.kibana.init.enabled`** | **`true`** | Set **`false`** to skip the **Job** that applies Kibana saved objects / dashboards for LVS. |
 | **`infra.kibana.init.kibanaUrl`** | **`""`** | **Kibana** URL the init **Job** calls. When empty, defaults to **`http://kibana:5601`** (release-prefixed only when **`global.useReleaseNamePrefix`** is **`true`**). |
 | **`infra.kibana.init.elasticsearchUrl`** | **`""`** | **Elasticsearch** URL the init **Job** uses. When empty, defaults to **`http://elasticsearch:9200`** (release-prefixed only when **`global.useReleaseNamePrefix`** is **`true`**). |
-| **`agent.enabled`** | **`true`** | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**). |
-| **`agent.vss-agent.enabled`** | **`true`** | Set **`false`** to disable the **vss-agent** deployment only. |
-| **`agent.vss-agent.profile`** | **`lvs`** | Passed to the **vss-agent** subchart for LVS-specific deployment/env behavior. ConfigMap data is **`configs/vss-agent/config.yml`** (flat path under this chart). |
-| **`agent.vss-agent.lvsBackendService`** | **`vss-summarization`** | Kubernetes **Service** name for the **LVS** backend (must match release + subchart naming). |
-| **`agent.vss-agent.vstInternalUrl`** | **`""`** | In-cluster **VST** URL for the agent when the default wiring is insufficient. |
-| **`agent.vss-agent.vstInternalIp`** | **`""`** | In-cluster **VST** host/IP override when defaults are insufficient. |
-| **`agent.vss-agent.vssAgentExternalUrl`** | **`""`** | External **vss-agent** URL override for browser / callbacks when **`global.external*`** is not enough. |
-| **`agent.vss-agent.vssAgentVersion`** | **`3.3.0-65576357eb80`** | Optional version label / env; adjust per release. |
-| **`agent.vss-agent.llmName`** | **`""`** | Optional **vss-agent-only** override of **`global.llmName`** (**`LLM_NAME`**). |
-| **`agent.vss-agent.vlmName`** | **`""`** | Optional **vss-agent-only** override of **`global.vlmName`** (**`VLM_NAME`**). |
-| **`agent.vss-agent.llmBaseUrl`** | **`""`** | Optional **vss-agent-only** override of **`global.llmBaseUrl`**. |
-| **`agent.vss-agent.vlmBaseUrl`** | **`""`** | Optional **vss-agent-only** override of **`global.vlmBaseUrl`**. |
-| **`agent.vss-agent.evalLlmJudgeName`** | **`""`** | Optional eval judge model ID. When empty, the **vss-agent** subchart defaults to **`llmName`**. |
-| **`agent.vss-agent.evalLlmJudgeBaseUrl`** | **`""`** | Optional base URL for the eval judge endpoint. When empty, the subchart defaults alongside **`llmBaseUrl`**. |
-| **`agent.vss-agent.reportsBaseUrl`** | **`""`** | Base URL for report links. When empty, templates derive a value from **`global.external*`** and in-cluster defaults. |
-| **`agent.vss-agent.vstExternalUrl`** | **`""`** | External **VST** URL passed to the agent. When empty, derived from **`global.external*`** and in-cluster defaults. |
-| **`agent.vss-agent.externalIp`** | **`""`** | Hostname or IP override for agent-facing external access when **`global.external*`** is not sufficient. |
-| **`agent.vss-agent.env`** | *(see **`values.yaml`**)* | Full **`env`** list (Option B). **`LVS_BACKEND_URL`** is set via **`tpl`** from **`lvsBackendService`** and **`global.useReleaseNamePrefix`** so it points to the in-cluster LVS backend service. |
-| **`agent.vss-agent.extraEnv`** | *(omit)* | Optional **`{ name, value }`** appended last. |
 | **`vss-agent-ui.enabled`** | **`true`** | Set **`false`** to disable the **vss-agent-ui** deployment. |
 | **`vss-agent-ui.envOverrides`** | (see **`values.yaml`**) | Full **`NEXT_PUBLIC_*`** defaults aligned with **dev-profile-base**; LVS sets subtitle (**`Vision (LVS)`**) and **`NEXT_PUBLIC_ENABLE_DASHBOARD_TAB`**. |
 | **`vss-agent-ui.agentApiUrlBase`** | **`""`** | Base URL for the **vss-agent** HTTP API (browser **`NEXT_PUBLIC_AGENT_API_URL_BASE`**, typically ends with **`/api/v1`**). If unset and **`global.externalHost`** is set, built as **`<global>/api/v1`**. If both are empty, the in-cluster default is **`http://vss-agent:8000/api/v1`** (**`http://<RELEASE_NAME>-vss-agent:8000/api/v1`** only when **`global.useReleaseNamePrefix`** is **`true`**). |

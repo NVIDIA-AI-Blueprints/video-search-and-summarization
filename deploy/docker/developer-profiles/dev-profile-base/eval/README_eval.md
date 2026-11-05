@@ -2,9 +2,9 @@
 
 This directory contains evaluation resources for the Developer Workflow - Dev Profile Base.
 
-**Video Q&A (recommended).** QA accuracy and latency are measured by calling
-**`vss vlm run`** against the deployed Cosmos Reason 3 RT-VLM, with no dependency on
-vss-agent or NAT. That path does **not** score tool-calling or trajectories.
+**Video Q&A.** QA accuracy and latency are measured by calling
+**`vss vlm run`** against the deployed Cosmos Reason 3 RT-VLM. This profile does not
+deploy vss-agent, so tool-calling, report and trajectory scoring are not covered.
 
 ```bash
 # Prerequisites: vss configure already run; rt_vlm ok; a DSS credential
@@ -33,10 +33,6 @@ Outputs: `results/vlm_qa/summary.json` (mean accuracy + latency percentiles),
 `qa_evaluator_output.json`, `latency_summary.json`, `summary.csv`.
 See `benchmark_vlm_qa.py --help` and
 [`skills/benchmarking/vss-benchmark-vlm-qa/SKILL.md`](../../../../../skills/benchmarking/vss-benchmark-vlm-qa/SKILL.md).
-
-Report and trajectory evaluation still run through `nat eval` inside the `vss-agent`
-container — section 4. That container is being deprecated and there is no replacement
-for those two yet, so it stays documented.
 
 ### 1. Deploy Blueprint
 
@@ -143,81 +139,3 @@ Use the command at the top of this file — the script sits in
 `skills/benchmarking/vss-benchmark-vlm-qa/scripts/`, not here. `benchmark_vlm_qa.py --help`
 lists the flags; `--dry-run` resolves items without calling the VLM, `--limit N` runs a
 smoke subset, and `--skip-judge` collects latency only.
-
-### 4. Report and trajectory eval (`nat eval`, inside vss-agent)
-
-Still the only path for **report** and **trajectory** scoring — the `vss vlm`
-benchmark above covers QA only. It runs inside the `vss-agent` container, which is
-being deprecated, so treat this as the legacy path and prefer section 3 for QA.
-
-#### 4a. Upload the videos to VST
-
-The eval videos are included in the `vss-devx-base` dataset downloaded above. Upload them to VST using the VSS Agent UI at http://<your-ip-address>:3000/ or via the blueprint configurator.
-
-
-#### 4b. Run `nat eval`
-
-On the deployment machine:
-
-```bash
-# `cd` into the `<bp_dir>/deploy/docker` directory
-
-docker exec vss-agent nat eval \
-    --config_file deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml \
-    --override functions.video_report_gen.hitl_enabled false \
-    --override workflow.postprocessing.enabled false
-```
-
-**Results**
-
-- Accuracy Results: The detailed accuracy report is generated in JSON format and can be found at:
-
-    * Workflow Output - `data-dir/agent_eval/results/workflow_output.json`
-    * Report Eval - `data-dir/agent_eval/results/report_evaluator_output.json`
-    * Trajectory Eval - `data-dir/agent_eval/results/trajectory_evaluator_output.json`
-    * QA Eval - `data-dir/agent_eval/results/qa_evaluator_output.json`
-
-- Run the following script to create a summary report in CSV format:
-
-```bash
-# `cd` into the `<bp_dir>/deploy/docker` directory
-
-developer-profiles/dev-profile-base/eval/eval_output_json_to_csv.sh \
-    data-dir/agent_eval/results/workflow_output.json \
-    data-dir/agent_eval/results/summary.csv \
-    data-dir/agent_eval/results/report_evaluator_output.json \
-    data-dir/agent_eval/results/trajectory_evaluator_output.json \
-    data-dir/agent_eval/results/qa_evaluator_output.json
-```
-
-Summarized results location: `data-dir/agent_eval/results/summary.csv`
-
-- Latency Results: The detailed latency report is generated in JSON format at `data-dir/agent_eval/results/inference_optimization.json`.
-
-The workflow latency is captured under `workflow_run_time_confidence_intervals`, a sample of which can be seen here:
-```json
-{
-  "confidence_intervals": {
-    "workflow_run_time_confidence_intervals": {
-      "n": 2,
-      "mean": 6.268884539604187,
-      "ninetieth_interval": [
-        5.858083780523035,
-        6.679685298685339
-      ],
-      "ninety_fifth_interval": [
-        5.779419805379836,
-        6.7583492738285385
-      ],
-      "ninety_ninth_interval": [
-        5.625588031766468,
-        6.912181047441906
-      ],
-      "p90": 6.551418280601501,
-      "p95": 6.586734998226166,
-      "p99": 6.6149883723258975
-    },
-    ..
-  }
-}
-```

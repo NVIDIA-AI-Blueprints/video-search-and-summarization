@@ -8,9 +8,6 @@ dependencies:
 - name: vios
   repository: file://../../services/vios
   version: 3.4.0
-- name: agent
-  repository: file://../../services/agent
-  version: 3.4.0
 - name: vss-agent-ui
   repository: file://../../services/ui
   version: 3.4.0
@@ -26,5 +23,5 @@ dependencies:
 - name: nims
   repository: file://../../services/nims
   version: 3.4.0
-digest: sha256:d4ae13d0d5918b14d5002562d99772c6667993269590ea28e6e850853b5502af
-generated: "2026-10-13T09:48:55.758838+05:30"
+digest: sha256:a72db20e0827743dd7fc3089f192c54db3d87d2bdfc716fb32b7d3e07316f89c
+generated: "2026-11-04T11:36:16.078437591-08:00"
