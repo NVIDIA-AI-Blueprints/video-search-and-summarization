@@ -56,17 +56,27 @@ Notes on choosing a row:
 - Within a family, quantization is a memory/placement decision, not a capability
   one: BF16 is heaviest, FP8 fits alongside another GPU service, NVFP4 is the
   lightest and requires FP4-capable (Blackwell-class) hardware.
-- Super is supported only on H100 and RTX PRO 6000, and needs one GPU dedicated
-  to the VLM — do not co-locate another GPU service on it. Treat both as hard
-  constraints when you are the one choosing the variant.
+- Super is supported only on H100 and RTX PRO 6000. Treat that hardware gate as a
+  hard constraint for every Super row.
+- **Use Super FP8.** It is validated co-resident with RT-CV on the `search`
+  profile's GPU 0 at `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.55`, and works
+  unchanged when RT-VLM has the GPU to itself. Super BF16 is **not**
+  co-residency-capable — at 62.14 GB of weights it leaves a shared GPU with too
+  little headroom and RT-CV's TensorRT execution-context allocation OOMs, even
+  though RT-VLM itself reaches ready. Super NVFP4 co-residency is untested:
+  treat it as dedicated-only until validated, and keep its Blackwell-class
+  hardware requirement, which the H100/RTX PRO 6000 gate above does not
+  satisfy.
 - **Surface an unsupported-hardware Super request before acting on it.** If Super
-  is requested and the detected GPUs are neither H100 nor RTX PRO 6000, or no GPU
-  can be dedicated to RT-VLM, stop and tell the user which constraint their system
-  fails and what the detected hardware and placement actually are. Then ask
-  (`AskUserQuestion`) whether to fall back to the equivalent Nano variant or
-  override the constraint anyway. Only proceed with Super after the user overrides
-  it knowingly — never assume the request itself is the override, and never
-  silently downgrade to Nano either.
+  is requested and the detected GPUs are neither H100 nor RTX PRO 6000, or the
+  requested variant is BF16/NVFP4 and no GPU can be dedicated to RT-VLM, stop and
+  tell the user which constraint their system fails and what the detected hardware
+  and placement actually are. Then ask (`AskUserQuestion`) whether to switch to the
+  variant that does fit that placement (Super FP8 when the GPU must be shared, or
+  the equivalent Nano variant) or override the constraint anyway. Only proceed
+  after the user chooses knowingly — never assume the request itself is the
+  override, and never silently downgrade to Nano either. A Super FP8 request on a
+  shared GPU is *not* an unsupported request and needs no escalation.
 - The BF16 tag is `bf16-final` for both Nano and Super. Copy tags verbatim from
   the table rather than deriving them.
 - `RTVI_VLM_MODEL_TO_USE=cosmos-reason3` for all six rows, and the served
@@ -76,11 +86,15 @@ Notes on choosing a row:
 
 RT-VLM is a singleton owner: one instance, one checkpoint, and one
 variant/placement knob-set per build. When capabilities bring different
-integrated Cosmos3 Nano variants, resolve the placement first, then converge on
-one variant:
+integrated Cosmos3 variants, resolve the placement first, then converge on
+one variant. For Nano, the rule is quantization-driven:
 
 - a dedicated GPU selects the heavier BF16 variant;
 - co-residence with another GPU service selects the lighter FP8 variant.
+
+Super always resolves to FP8 (see
+[Available integrated model variants](#available-integrated-model-variants)),
+regardless of placement.
 
 Resolve the variant/placement knobs as one set:
 `RTVI_VLM_MODEL_PATH`, `VLM_NAME`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION`,
