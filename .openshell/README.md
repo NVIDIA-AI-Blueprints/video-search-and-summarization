@@ -299,7 +299,7 @@ openshell sandbox create \
   --name hermes \
   --from "openshell-hermes-vss:$TAG" \
   --policy vss/policy.yaml \
-  --provider agent-inference \
+  --provider "$PROVIDER" \
   --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
   --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
@@ -322,7 +322,7 @@ openshell sandbox exec -n hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
 openshell sandbox exec -n hermes -- vss-hermes-sync
 ```
 
-Step c prints which command groups the deployment can serve and which skills
+Step 3 prints which command groups the deployment can serve and which skills
 went active; a partial deployment is normal, and the inactive skills name the
 service they wanted. [Section 5](#5-verification) has the two extra checks
 this layer adds.
@@ -338,10 +338,12 @@ Deploying VSS itself is
 
 Nothing moves on the browser's side: it still enters through the deployment's
 ingress, and `vss-ui` stays on its Compose network, which HAProxy resolves it
-by. Only the UI's own outbound hop is new, and it cannot be the gateway-managed
-URL — step 1 binds the gateway to the host's loopback, which a bridged
-container has no route to. Publish the sandbox's API server on the address
-`host.docker.internal` already resolves to inside the UI container instead:
+by. Only the UI container's own outbound hop to the agent is new, and it cannot
+use the gateway-managed URL: the Quickstart's step 1 binds the gateway to the
+host's loopback, which a bridged container has no route to. The command below
+publishes the sandbox's API server on the Docker bridge gateway address
+instead — what `host.docker.internal` resolves to inside the UI container, and
+what `AGENT_BACKEND_URL` names further down:
 
 ```bash
 HG=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
@@ -355,16 +357,18 @@ restarts it after a reboot, and a recreated sandbox invalidates both the
 forward and the key below, so redo this step and the next one together.
 
 Then give the adapter the endpoint and the key. `AGENT_BACKEND_PATH` keeps its
-`/v1/responses` default:
+`/v1/responses` default. First print the sandbox's key:
 
 ```bash
 openshell sandbox exec -n hermes --no-tty -- \
-  sh -c '. /sandbox/.hermes/.env; printf %s "$API_SERVER_KEY"'   # the token below
+  sh -c '. /sandbox/.hermes/.env; printf "AGENT_BACKEND_TOKEN: \"%s\"\n" "$API_SERVER_KEY"'
 ```
 
 A build that is already up carries its resolved values in `resolved.yml`, so
 recreate the one service against an overlay rather than editing what the
-resolver wrote:
+resolver wrote. Create the overlay below in the build's directory, then
+replace `<API_SERVER_KEY>` on the `AGENT_BACKEND_TOKEN` line with the key just
+printed.
 
 ```yaml
 # _builds/<build>/ui-hermes.override.yml
@@ -390,20 +394,37 @@ docker compose -p "$(docker inspect vss-agent-ui \
 ```
 
 A build that is not up yet takes the same settings in
-`_builds/<build>/override.env`: the adapter keys under a `VSS_` prefix
-(`VSS_AGENT_ADAPTER_ENABLED` and so on), from which the resolver derives the
-two `NEXT_PUBLIC_` adapter flags, plus `NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR` and
-`NEXT_PUBLIC_ENABLE_CHAT_TAB`, which a harness build leaves `false` for lack
-of an in-stack agent.
-
-Verify through the ingress, not the container, so the check covers the path the
-browser takes — `<origin>` is the deployment's own origin:
+`_builds/<build>/override.env` instead, and needs no overlay. Add the adapter
+keys under a `VSS_` prefix, from which the resolver derives the two
+`NEXT_PUBLIC_` adapter flags, and set the two chat flags a harness build leaves
+`false` for lack of an in-stack agent:
 
 ```bash
-curl -s <origin>/api/agent/connection          # -> {"state":"connected"}
-curl -s -X POST <origin>/api/agent/runs -H 'Content-Type: application/json' \
-  -d '{"thread_id":"t1","input":[{"role":"user","content":"List the VIOS sensors."}]}'
-curl -s <origin>/api/agent/runs/<run_id>/events
+VSS_AGENT_ADAPTER_ENABLED=true
+VSS_AGENT_BACKEND_PROTOCOL=responses
+VSS_AGENT_BACKEND_URL=http://host.docker.internal:8642
+VSS_AGENT_BACKEND_MODEL=hermes-agent
+VSS_AGENT_BACKEND_TOKEN=<API_SERVER_KEY>
+NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR=true
+NEXT_PUBLIC_ENABLE_CHAT_TAB=true
+```
+
+Verify through the ingress, not the container, so the check covers the path the
+browser takes. The origin is the host port the deployment's HAProxy ingress
+publishes, `7777` unless the build set `HAPROXY_HOST_PORT`:
+
+```bash
+ORIGIN="http://localhost:$(docker port vss-haproxy-ingress | head -n1 | sed 's/.*://')"
+# Whether the UI's adapter reaches the agent.
+curl -s "$ORIGIN/api/agent/connection"          # -> {"state":"connected"}
+
+# Start a run on thread t1. It returns at once with the run's id.
+RUN_ID=$(curl -s -X POST "$ORIGIN/api/agent/runs" -H 'Content-Type: application/json' \
+  -d '{"thread_id":"t1","input":[{"role":"user","content":"List the VIOS sensors."}]}' |
+  jq -r .run_id)
+
+# Stream the run's events until run.completed.
+curl -s "$ORIGIN/api/agent/runs/$RUN_ID/events"
 ```
 
 The reply streams back as `message.delta` events, with each `vss` call shown as
