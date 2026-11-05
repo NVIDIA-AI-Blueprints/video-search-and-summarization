@@ -113,7 +113,7 @@ RUN su sandbox -s /bin/sh -c 'set -e; cd /sandbox; H=/opt/hermes/.venv/bin/herme
       $H config set model.default "\${env:HARNESS_MODEL}"; \
       $H config set model.provider custom; \
       $H config set model.base_url "\${env:HARNESS_BASE_URL}"; \
-      $H config set model.api_key "\${env:COMPATIBLE_API_KEY}"; \
+      $H config set model.api_key "\${env:HARNESS_API_KEY}"; \
       $H config set agent.max_turns 60; \
       $H config set approvals.mode manual; \
       $H config set browser.restrict_evaluate true' \

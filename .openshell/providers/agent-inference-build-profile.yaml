@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Step 4, option (c): build.nvidia.com, deploy_nemoclaw.ipynb's
-# NEMOCLAW_PROVIDER="build" — NVIDIA_API_KEY and nothing else.
+# build.nvidia.com. The credential is an nvapi- key, declared as
+# HARNESS_API_KEY like every other profile here.
 
 id: agent-inference-build
 display_name: Agent inference (build.nvidia.com)
@@ -10,7 +10,7 @@ category: inference
 inference_capable: true
 credentials:
   - name: api_key
-    env_vars: [NVIDIA_API_KEY]
+    env_vars: [HARNESS_API_KEY]
     required: true
     auth_style: bearer
     header_name: authorization

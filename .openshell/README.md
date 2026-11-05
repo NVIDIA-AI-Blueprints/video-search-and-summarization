@@ -131,8 +131,7 @@ mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
 openshell --version && openshell-prover --version     # both 0.1.6
 
 cd .openshell
-set -a; . ./.env; set +a          # OPENSHELL_TAG, HERMES_REF, HARNESS_*
-export COMPATIBLE_API_KEY=...     # bare value: quotes would be sealed into the credential
+set -a; . ./.env; set +a          # OPENSHELL_TAG, HERMES_REF, HARNESS_*; fill HARNESS_API_KEY first
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --env-file .env -f gateway/docker-compose.yml --profile harness up -d
@@ -143,10 +142,10 @@ docker build -t "openshell-hermes:$HERMES_REF" hermes
 
 # 3. Inference provider. The profile authorizes the host; the provider seals the
 #    key, which the proxy injects at egress so the agent never holds it.
-case "$COMPATIBLE_API_KEY" in ''|\"*|\'*) echo "COMPATIBLE_API_KEY must be set, without quotes" >&2; false;; esac
+case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; esac
 openshell profile import -f providers/agent-inference-profile.yaml
 openshell provider create --name agent-inference --type agent-inference \
-  --credential COMPATIBLE_API_KEY
+  --credential HARNESS_API_KEY
 
 # 4. Sandbox. The trailing command is the harness itself.
 openshell sandbox create \
@@ -183,7 +182,7 @@ KEY=$(openshell sandbox exec -n hermes --no-tty -- \
   sh -c '. /sandbox/.hermes/.env; printf %s "$API_SERVER_KEY"')
 curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   http://default--hermes.openshell.localhost:8080/v1/chat/completions \
-  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Reply with: pong"}]}'
+  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"What model are you running"}]}'
 ```
 
 [Section 5](#5-verification) checks both, plus the policy proof.
@@ -198,26 +197,29 @@ PROVIDER=agent-inference          # the Quickstart's provider
 
 # 1. Make one change. Skip this step to just start over.
 
-#  a) A different model on the same endpoint: edit HARNESS_MODEL in .env.
+#  a) A different model on the same endpoint: edit HARNESS_MODEL in .env, then
+#     re-read it.
+set -a; . ./.env; set +a
 
-#  b) A different endpoint family. The profile is what authorizes the host, so
-#     import the family's profile and create a provider from it. Then set
-#     HARNESS_BASE_URL=https://integrate.api.nvidia.com/v1 and a HARNESS_MODEL
-#     it serves in .env.
-export NVIDIA_API_KEY=...         # build.nvidia.com's credential, unquoted
+#  b) A different endpoint family: import the family's profile, create a
+#     provider from it, and point HARNESS_* at that family's host. The provider
+#     authorizes only its profile's host, so the sandbox refuses any other
+#     base URL. Set the same three lines in .env to keep them past this shell.
+export HARNESS_API_KEY=...        # build.nvidia.com's nvapi- key, unquoted
+export HARNESS_BASE_URL=https://integrate.api.nvidia.com/v1
+export HARNESS_MODEL=...          # a model id build.nvidia.com serves
 openshell profile import -f providers/agent-inference-build-profile.yaml
 openshell provider create --name agent-inference-build \
-  --type agent-inference-build --credential NVIDIA_API_KEY
+  --type agent-inference-build --credential HARNESS_API_KEY
 PROVIDER=agent-inference-build
 #     For a server on this host, use agent-inference-local-profile.yaml; its
 #     key is optional.
 
 #  c) A new key for the current provider:
-export COMPATIBLE_API_KEY=...     # unquoted
-openshell provider update "$PROVIDER" --credential COMPATIBLE_API_KEY
+export HARNESS_API_KEY=...        # unquoted
+openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
 
-# 2. Re-read .env and delete the sandbox.
-set -a; . ./.env; set +a
+# 2. Delete the sandbox.
 openshell sandbox delete hermes
 
 # 3. Create it again: the Quickstart's step 4 with $PROVIDER.
@@ -242,8 +244,12 @@ openshell sandbox create \
             chmod 640 "$E"
             exec hermes gateway run'
 
-# 4. Test it with the two calls above. The new sandbox minted a new
-#    API_SERVER_KEY, so re-run the KEY= line before the curl.
+# 4. Test it. The new sandbox minted a new API_SERVER_KEY, so fetch it again.
+KEY=$(openshell sandbox exec -n hermes --no-tty -- \
+  sh -c '. /sandbox/.hermes/.env; printf %s "$API_SERVER_KEY"')
+curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  http://default--hermes.openshell.localhost:8080/v1/chat/completions \
+  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Which model are you?"}]}'
 ```
 
 ### Optional — add VSS capabilities
@@ -741,9 +747,9 @@ what 0.1.6 changed:
   the workload's to set, so `config.yaml` carries them as
   `${env:HARNESS_BASE_URL}` and `${env:HARNESS_MODEL}`.
 
-The model `api_key` is `${env:COMPATIBLE_API_KEY}` and stays a placeholder: the
-proxy strips whatever bearer the agent sends and injects the provider's real
-key, so only its presence matters.
+The model `api_key` is `${env:HARNESS_API_KEY}`, the name every provider
+profile declares, so whichever provider is attached fills it with the proxy's
+placeholder, which the proxy swaps for the real key at egress.
 
 The NGC CLI is in neither image, so under the VSS layer an operation skill
 that resolves a sample video by name fails and the `ngc` entry in
@@ -755,8 +761,7 @@ default. Keep the runtime-discovered parts — `allowed_ips` from
 placeholder — on `--policy` at create, or accept the documented fallback CIDRs
 for Compose.
 
-**4 — Register the inference provider** (replaces `NEMOCLAW_PROVIDER`/`_MODEL`/
-`COMPATIBLE_API_KEY` at onboard):
+**4 — Register the inference provider:**
 
 ```yaml
 # .openshell/providers/agent-inference-profile.yaml
@@ -766,7 +771,7 @@ category: inference
 inference_capable: true
 credentials:
   - name: api_key
-    env_vars: [COMPATIBLE_API_KEY]
+    env_vars: [HARNESS_API_KEY]
     required: true
     auth_style: bearer
     header_name: authorization
@@ -784,8 +789,8 @@ binaries:
 ```bash
 openshell profile lint   -f .openshell/providers/agent-inference-profile.yaml
 openshell profile import -f .openshell/providers/agent-inference-profile.yaml
-COMPATIBLE_API_KEY=... openshell provider create \
-  --name agent-inference --type agent-inference --credential COMPATIBLE_API_KEY
+HARNESS_API_KEY=... openshell provider create \
+  --name agent-inference --type agent-inference --credential HARNESS_API_KEY
 ```
 
 `--credential KEY` reads the value from the environment, which is the form a
@@ -796,11 +801,11 @@ The profile is per endpoint family, because it is what authorizes the host.
 One file each covers the three endpoint choices, and step 5 names the one it
 imported:
 
-| Endpoint | Profile | Credential |
+| Endpoint | Profile | `HARNESS_API_KEY` |
 |---|---|---|
-| (a) OpenAI-compatible endpoint | `providers/agent-inference-profile.yaml` | `COMPATIBLE_API_KEY` |
+| (a) OpenAI-compatible endpoint | `providers/agent-inference-profile.yaml` | the endpoint's key |
 | (b) model served on this host | `providers/agent-inference-local-profile.yaml` | optional |
-| (c) build.nvidia.com | `providers/agent-inference-build-profile.yaml` | `NVIDIA_API_KEY` |
+| (c) build.nvidia.com | `providers/agent-inference-build-profile.yaml` | an `nvapi-` key |
 
 A server on a port (b) does not declare is unreachable until the profile
 declares it. Within a family the model id is free, and step 5 sets it.

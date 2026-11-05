@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Step 4: the provider profile replacing NEMOCLAW_PROVIDER / NEMOCLAW_MODEL /
-# COMPATIBLE_API_KEY at onboard. Gateway 0.1.6 ships no built-in profiles, so
-# this has to be imported before `provider create` has a type to name.
-# Host matches what deploy_nemoclaw.ipynb uses for NEMOCLAW_PROVIDER="build".
+# The Quickstart's provider profile: an OpenAI-compatible endpoint. Gateway
+# 0.1.6 ships no built-in profiles, so this has to be imported before
+# `provider create` has a type to name. Every profile here declares the key as
+# HARNESS_API_KEY, the name the harness config reads.
 
 id: agent-inference
 display_name: Agent inference
@@ -12,7 +12,7 @@ category: inference
 inference_capable: true
 credentials:
   - name: api_key
-    env_vars: [COMPATIBLE_API_KEY]
+    env_vars: [HARNESS_API_KEY]
     required: true
     auth_style: bearer
     header_name: authorization

@@ -11,7 +11,7 @@ category: inference
 inference_capable: true
 credentials:
   - name: api_key
-    env_vars: [COMPATIBLE_API_KEY]
+    env_vars: [HARNESS_API_KEY]
     required: false
     auth_style: bearer
     header_name: authorization
