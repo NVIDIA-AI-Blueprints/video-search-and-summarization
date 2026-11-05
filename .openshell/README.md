@@ -117,9 +117,8 @@ to check the result.
 Run from the repository root.
 
 ```bash
-# 0. CLI and prover at the gateway's release: an older CLI fails to decode the
-#    gateway's replies rather than reporting a version skew. Release tarballs,
-#    not install.sh, which also starts a systemd gateway beside step 1's.
+# 0. Install the openshell CLI and openshell-prover 0.1.6, the gateway's
+#    release, into ~/.local/bin from the checksum-verified release tarballs.
 mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
 ( cd "$(mktemp -d)" && V=0.1.6 A=$(uname -m) &&
   for p in openshell openshell-prover; do
