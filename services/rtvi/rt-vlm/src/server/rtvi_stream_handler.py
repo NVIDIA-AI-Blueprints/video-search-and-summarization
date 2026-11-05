@@ -3365,7 +3365,7 @@ class RTVIStreamHandler:
         if req_info.end_timestamp is None:
             req_info.end_timestamp = req_info.file_duration / 1e9
 
-        enable_dense_caption = bool(os.environ.get("ENABLE_DENSE_CAPTION", False))
+        enable_dense_caption = _get_bool_env("ENABLE_DENSE_CAPTION", False)
         saved_responses = {}
 
         if enable_dense_caption:
