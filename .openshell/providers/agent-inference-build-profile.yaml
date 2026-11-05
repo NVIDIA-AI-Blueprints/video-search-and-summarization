@@ -4,8 +4,8 @@
 # Step 4, option (c): build.nvidia.com, deploy_nemoclaw.ipynb's
 # NEMOCLAW_PROVIDER="build" — NVIDIA_API_KEY and nothing else.
 
-id: vss-inference-build
-display_name: VSS agent inference (build.nvidia.com)
+id: agent-inference-build
+display_name: Agent inference (build.nvidia.com)
 category: inference
 inference_capable: true
 credentials:

@@ -603,7 +603,7 @@ plugin and baked boundary added as before.
 Three properties make this cheaper than its line count suggests:
 
 - **No security configuration changes.** `hermes/policy.yaml`,
-  `hermes/boundary.yaml` and `providers/vss-inference-profile.yaml` apply unedited,
+  `hermes/boundary.yaml` and `providers/agent-inference-profile.yaml` apply unedited,
   because the interpreter keeps the `/usr/bin/python3.13` path they name and
   the process keeps its 998:999 identity. Staging uv's whole prefix under
   `usr/` is what puts it there; the base ships no `python3` to collide with,

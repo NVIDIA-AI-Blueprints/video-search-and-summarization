@@ -6,8 +6,8 @@
 # this has to be imported before `provider create` has a type to name.
 # Host matches what deploy_nemoclaw.ipynb uses for NEMOCLAW_PROVIDER="build".
 
-id: vss-inference
-display_name: VSS agent inference
+id: agent-inference
+display_name: Agent inference
 category: inference
 inference_capable: true
 credentials:
