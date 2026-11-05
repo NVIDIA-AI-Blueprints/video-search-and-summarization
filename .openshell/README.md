@@ -119,7 +119,7 @@ its values replace any of the same name exported in the shell:
 
 | Variable | Set it to |
 |---|---|
-| `HARNESS_BASE_URL` | The endpoint's OpenAI-compatible base URL. The default is the host `providers/agent-inference-profile.yaml` authorizes |
+| `HARNESS_BASE_URL` | The endpoint's OpenAI-compatible base URL, including its `/v1`. The default is the host `providers/agent-inference-profile.yaml` authorizes |
 | `HARNESS_MODEL` | A model id that endpoint serves |
 | `HARNESS_API_KEY` | The endpoint's key, unquoted. Never commit it |
 
@@ -143,7 +143,7 @@ openshell --version && openshell-prover --version     # both 0.1.6
 
 cd .openshell
 set -a; . ./.env; set +a          # OPENSHELL_TAG, HERMES_REF, HARNESS_*
-case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; esac
+case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; *) echo "HARNESS_API_KEY ok";; esac
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --env-file .env -f gateway/docker-compose.yml --profile harness up -d
@@ -201,31 +201,37 @@ curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
 To change the model, the endpoint or the key, or to start over, make the change
 and then recreate the sandbox. The model and endpoint are fixed at create, and a
 running API server never sees a new credential. The gateway, image and provider
-all survive the recreate:
+all survive the recreate.
+
+First make one edit in [`.env`](.env); starting over needs none. Each option then
+has a matching lettered step in the block below:
+
+| Change | Edit in `.env` |
+|---|---|
+| a) A different model on the same endpoint | `HARNESS_MODEL` to a model id it serves |
+| b) A different endpoint, on another host | `HARNESS_BASE_URL` to its base URL, including its `/v1`, `HARNESS_MODEL` to a model id it serves, `HARNESS_API_KEY` to its key |
+| c) A new key for the current provider | `HARNESS_API_KEY` |
+
+A provider authorizes only its profile's host, so the sandbox refuses a base URL
+on any other host. To start over, follow a).
 
 ```bash
 PROVIDER=agent-inference          # the Quickstart's provider
 
-# 1. Make one change in .env. Skip this step to just start over.
-#  a) A different model on the same endpoint: HARNESS_MODEL.
-#  b) A different endpoint family, here build.nvidia.com: HARNESS_BASE_URL to
-#     https://integrate.api.nvidia.com/v1, HARNESS_MODEL to a model id it
-#     serves, HARNESS_API_KEY to its nvapi- key. The provider authorizes only
-#     its profile's host, so the sandbox refuses any other base URL.
-#  c) A new key for the current provider: HARNESS_API_KEY.
-
-# 2. Re-read .env, then register the change with the gateway.
+# 1. Re-read the edited .env, then register the change with the gateway.
 set -a; . ./.env; set +a
-#  b) A provider for the new family. For a server on this host, use
-#     agent-inference-local-profile.yaml instead; its key is optional.
-openshell profile import -f providers/agent-inference-build-profile.yaml
-openshell provider create --name agent-inference-build \
-  --type agent-inference-build --credential HARNESS_API_KEY
+#  a) Nothing to register; go to step 2.
+#  b) A provider from the profile in providers/ that authorizes the new host:
+#     agent-inference-build for build.nvidia.com, as here, or
+#     agent-inference-local for a server on this host, whose key is optional.
 PROVIDER=agent-inference-build
+openshell profile import -f "providers/$PROVIDER-profile.yaml"
+openshell provider create --name "$PROVIDER" \
+  --type "$PROVIDER" --credential HARNESS_API_KEY
 #  c) The new key on the current provider.
 openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
 
-# 3. Delete the sandbox and create it again: the Quickstart's step 4 with
+# 2. Delete the sandbox and create it again: the Quickstart's step 4 with
 #    $PROVIDER.
 openshell sandbox delete hermes
 openshell sandbox create \
@@ -249,12 +255,12 @@ openshell sandbox create \
             chmod 640 "$E"
             exec hermes gateway run'
 
-# 4. Test it. The new sandbox minted a new API_SERVER_KEY, so fetch it again.
+# 3. Test it. The new sandbox minted a new API_SERVER_KEY, so fetch it again.
 KEY=$(openshell sandbox exec -n hermes --no-tty -- \
   sh -c '. /sandbox/.hermes/.env; printf %s "$API_SERVER_KEY"')
 curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   http://default--hermes.openshell.localhost:8080/v1/chat/completions \
-  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Which model are you?"}]}'
+  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Which model are you running?"}]}'
 ```
 
 ### Optional — add VSS capabilities
@@ -281,12 +287,12 @@ cd .openshell
 set -a; . ./.env; set +a
 TAG="${VSS_REF//\//-}-from-source"  # VSS_REF may be a branch; a Docker tag cannot hold "/"
 
-# a. The VSS layer, built on the harness image from the Quickstart's step 2
+# 1. The VSS layer, built on the harness image from the Quickstart's step 2
 #    (openshell-hermes:$HERMES_REF).
 docker build --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
   --build-arg VSS_REF="$VSS_REF" -t "openshell-hermes-vss:$TAG" vss
 
-# b. Replace the sandbox with one on the VSS image and the VSS policy. Same
+# 2. Replace the sandbox with one on the VSS image and the VSS policy. Same
 #    create command as the Quickstart's step 4 otherwise, plus VSS_PUBLIC_URL.
 openshell sandbox delete hermes
 openshell sandbox create \
@@ -311,7 +317,7 @@ openshell sandbox create \
             chmod 640 "$E"
             exec hermes gateway run'
 
-# c. Point the CLI at VSS, then re-select the skills those services can serve.
+# 3. Point the CLI at VSS, then re-select the skills those services can serve.
 openshell sandbox exec -n hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
 openshell sandbox exec -n hermes -- vss-hermes-sync
 ```
@@ -342,7 +348,6 @@ HG=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
 openshell forward start -d "$HG:8642" hermes   # do not pipe: -d holds the pipe open
 ```
 
-`-d` reparents the forward to init, so it outlives the terminal;
 `openshell forward list` names it and `openshell forward stop 8642 hermes` ends
 it. Only the agent's port crosses; the gateway's own listener, whose user API
 is unauthenticated, stays on loopback. Nothing
