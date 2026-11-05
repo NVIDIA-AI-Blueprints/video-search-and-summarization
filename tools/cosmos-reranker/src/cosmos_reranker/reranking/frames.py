@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -68,8 +69,7 @@ def controlled_frame_indices(
         end = max(0.0, min(float(seg.end), max_duration))
         start_frame = max(0, int(math.ceil(start * video_fps)))
         end_frame = min(total_frames - 1, int(math.floor(end * video_fps)))
-        if end_frame < start_frame:
-            end_frame = start_frame
+        end_frame = max(end_frame, start_frame)
 
     segment_frames = end_frame - start_frame + 1
     if segment_frames <= 1:
@@ -83,8 +83,29 @@ def controlled_frame_indices(
     return np.linspace(start_frame, end_frame, nframes).round().astype(int).tolist()
 
 
+def sample_metadata(indices: list[int], video_fps: float, fallback_fps: float) -> tuple[float, float]:
+    """(sample_fps, duration) for a sampled index list, shared by the live and
+    frame-store paths so their vLLM media timestamps always agree."""
+    if video_fps <= 0.0:
+        video_fps = max(1.0, float(fallback_fps))
+    if len(indices) <= 1:
+        return video_fps, 1.0 / video_fps
+    frame_span = indices[-1] - indices[0]
+    duration = max(1e-6, (frame_span + 1) / video_fps)
+    # vLLM timestamps frames at 0, 1/fps, ..., (n-1)/fps. Match the
+    # first-to-last source-frame interval, rather than inclusive duration.
+    sample_fps = (len(indices) - 1) * video_fps / frame_span
+    return sample_fps, duration
+
+
 def sampled_video_array(candidate: Candidate, fps: float, max_frames: int) -> SampledVideoArray:
-    """Decode a controlled RGB frame sample for vLLM offline video inputs."""
+    """Decode a controlled RGB frame sample for vLLM offline video inputs.
+
+    Frames are decoded with one sequential grab pass up to the last wanted
+    index. A POS_FRAMES seek re-decodes from the previous keyframe for every
+    frame, which is ~2x slower on keyframe-sparse clips and returns
+    bit-identical frames; the sequential pass reads each frame once.
+    """
     if candidate.video_path is None:
         raise ValueError("Candidate has no video_path; cannot sample video frames")
 
@@ -105,27 +126,33 @@ def sampled_video_array(candidate: Candidate, fps: float, max_frames: int) -> Sa
             total_frames=total_frames,
             video_fps=video_fps,
         )
-        frames = []
-        for frame_idx in indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                raise VideoSamplingError(f"Could not read frame {frame_idx} from source: {source}")
-            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        want = sorted({int(frame_idx) for frame_idx in indices})
+        decoded: dict[int, Any] = {}
+        position = 0
+        last = want[-1]
+        while position <= last:
+            if not cap.grab():
+                break
+            if position in want:
+                ok, frame = cap.retrieve()
+                if not ok or frame is None:
+                    raise VideoSamplingError(
+                        f"Could not read frame {position} from source: {source}"
+                    )
+                decoded[position] = frame
+            position += 1
     finally:
         cap.release()
 
-    if video_fps <= 0.0:
-        video_fps = max(1.0, float(fps))
-    if len(indices) <= 1:
-        duration = 1.0 / video_fps
-        sample_fps = video_fps
-    else:
-        frame_span = indices[-1] - indices[0]
-        duration = max(1e-6, (frame_span + 1) / video_fps)
-        # vLLM timestamps frames at 0, 1/fps, ..., (n-1)/fps. Match the
-        # first-to-last source-frame interval, rather than inclusive duration.
-        sample_fps = (len(frames) - 1) * video_fps / frame_span
+    missing = [frame_idx for frame_idx in want if frame_idx not in decoded]
+    if missing:
+        raise VideoSamplingError(
+            f"Could not read frames {missing[:3]} from source: {source}"
+        )
+    frames_bgr = [decoded[frame_idx] for frame_idx in want]
+    frames = [cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) for frame in frames_bgr]
+
+    sample_fps, duration = sample_metadata([int(i) for i in indices], video_fps, fps)
     return SampledVideoArray(
         frames=np.stack(frames, axis=0),
         frame_indices=indices,

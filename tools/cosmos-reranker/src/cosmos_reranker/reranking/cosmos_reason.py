@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import base64
+import threading
 from typing import Any
 
+from numpy.typing import NDArray
 from PIL import Image
 
 from .base import Candidate, CandidateScore
@@ -21,6 +23,70 @@ from .frames import VideoSamplingError, parallel_map, sampled_video_array
 
 _NANO_REPO = "nvidia/Cosmos3-Nano"
 
+_PREDECODE_CACHE: dict[str, NDArray] = {}
+_PREDECODE_LOCK = threading.Lock()
+
+
+def _install_predecode_loader_patch() -> None:
+    """Serve stashed pre-decoded arrays inside vLLM's video loader.
+
+    vLLM re-decodes every video/jpeg base64 frame with serial PIL inside its
+    frontend. When frames are pre-decoded (frame store or predecode handoff),
+    the identical arrays are handed over instead, so the frontend does no
+    serial JPEG work. Idempotent; only active when the option is set.
+    """
+    if getattr(_install_predecode_loader_patch, "patched", False):
+        return
+    _install_predecode_loader_patch.patched = True  # type: ignore[attr-defined]
+
+    import numpy as np
+    from vllm.multimodal.media.video import VideoMediaIO
+
+    original = VideoMediaIO.load_base64
+
+    def patched(self, media_type, data):
+        if media_type.lower() != "video/jpeg" or "," not in data:
+            return original(self, media_type, data)
+        num_frames = self.num_frames
+        parts = data.split(",", num_frames)[:num_frames] if num_frames > 0 else data.split(",")
+        with _PREDECODE_LOCK:
+            cached = {p: _PREDECODE_CACHE.pop(p) for p in parts if p in _PREDECODE_CACHE}
+        if not cached:
+            return original(self, media_type, data)
+
+        def load_frame(part):
+            if part in cached:
+                return cached[part]
+            return np.asarray(self.image_io.load_base64("image/jpeg", part))
+
+        frames = np.stack([load_frame(p) for p in parts])
+        total = int(frames.shape[0])
+        fps = float(self.kwargs.get("fps", 1))
+        frames_indices = self.kwargs.get("frames_indices")
+        if frames_indices is not None and len(frames_indices) != total:
+            raise ValueError("frames_indices length mismatch")
+        total_num_frames = self.kwargs.get("total_num_frames", total)
+        if total_num_frames < total:
+            raise ValueError("total_num_frames < frames sent")
+        duration = self.kwargs.get("duration")
+        if duration is None:
+            duration = total_num_frames / fps if fps > 0 else 0.0
+        metadata = {
+            "total_num_frames": total_num_frames,
+            "fps": fps,
+            "duration": duration,
+            "video_backend": "jpeg_sequence",
+            "frames_indices": frames_indices or list(range(total)),
+            "do_sample_frames": self.kwargs.get("do_sample_frames", False),
+        }
+        return frames, metadata
+
+    VideoMediaIO.load_base64 = patched
+
+
+def _stash_predecoded(parts, arrays) -> None:
+    with _PREDECODE_LOCK:
+        _PREDECODE_CACHE.update(zip(parts, arrays))
 
 class CosmosReasonReranker(VLMReranker):
     """Pointwise CR3 reranker using offline vLLM chat."""
@@ -33,6 +99,15 @@ class CosmosReasonReranker(VLMReranker):
         super().__init__(cfg, model_id=default_model_id, name=name)
         self.jpeg_quality = int(cfg.options.get("jpeg_quality", 95))
         self.lora_path = str(cfg.options.get("lora_path") or "").strip()
+        self.predecode_handoff = bool(cfg.options.get("predecode_handoff", False))
+        store_path = str(cfg.options.get("frame_store") or "").strip()
+        self.frame_store = None
+        if store_path:
+            from .frame_store import FrameStore
+
+            self.frame_store = FrameStore(store_path, jpeg_quality=self.jpeg_quality)
+        if self.predecode_handoff or self.frame_store is not None:
+            _install_predecode_loader_patch()
         image_min_pixels = cfg.options.get("image_min_pixels")
         image_max_pixels = cfg.options.get("image_max_pixels")
         image_processor_kwargs: dict[str, int] = {}
@@ -70,10 +145,24 @@ class CosmosReasonReranker(VLMReranker):
         self.set_score_token_ids(self.llm.get_tokenizer())
 
     def _video_data_url(self, candidate: Candidate) -> tuple[str, float]:
+        if candidate.video_path is None:
+            raise ValueError("Candidate has no video_path; cannot sample video frames")
+        store = self.frame_store
+        if store is not None and store.covers(
+            candidate.video_path, candidate, self.fps, self.max_frames
+        ):
+            video_url, arrays, sample_fps = store.serve(
+                candidate.video_path, candidate, self.fps, self.max_frames
+            )
+            if self.predecode_handoff:
+                _stash_predecoded(video_url.split(",", 1)[1].split(","), arrays)
+            return video_url, sample_fps
+
         sample = sampled_video_array(candidate, self.fps, self.max_frames)
         import cv2
 
         encoded_frames: list[str] = []
+        decoded_frames: list = []
         for frame in sample.frames:
             ok, buffer = cv2.imencode(
                 ".jpg",
@@ -82,7 +171,18 @@ class CosmosReasonReranker(VLMReranker):
             )
             if not ok:
                 raise VideoSamplingError("Could not JPEG-encode CR3 sampled frame")
-            encoded_frames.append(base64.b64encode(buffer).decode("ascii"))
+            part = base64.b64encode(buffer).decode("ascii")
+            encoded_frames.append(part)
+            if self.predecode_handoff:
+                from io import BytesIO
+
+                from numpy import asarray
+
+                decoded_frames.append(asarray(Image.open(BytesIO(buffer.tobytes()))))
+        if store is not None:
+            store.put_sample(candidate.video_path, sample)
+        if self.predecode_handoff:
+            _stash_predecoded(encoded_frames, decoded_frames)
         return "data:video/jpeg;base64," + ",".join(encoded_frames), sample.sample_fps
 
     def _image_data_url(self, candidate: Candidate) -> str:

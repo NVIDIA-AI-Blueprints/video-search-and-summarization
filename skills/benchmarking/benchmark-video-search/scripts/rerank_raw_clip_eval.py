@@ -78,6 +78,10 @@ class CosmosScorer:
         }
         if args.lora_path:
             options["lora_path"] = str(args.lora_path)
+        if args.predecode_handoff:
+            options["predecode_handoff"] = True
+        if args.frame_store is not None:
+            options["frame_store"] = str(args.frame_store)
         self.reranker = CosmosReasonReranker(
             RerankerConfig(
                 name="cosmos_reason",
@@ -537,6 +541,7 @@ def run(args, scorer: Scorer | None = None):
                 "max_model_len",
                 "max_lora_rank",
                 "enforce_eager",
+                "predecode_handoff",
             )
         }
         if args.reranker != "identity"
@@ -552,6 +557,7 @@ def run(args, scorer: Scorer | None = None):
         "max_frames": args.max_frames,
         "window_pad_s": args.window_pad_s,
         "query_text": args.query_text,
+        "frame_store": str(args.frame_store) if args.frame_store else None,
         "fusion_alphas": args.fusion_alphas,
         "variants": variants,
         "variant_definitions": {
@@ -690,6 +696,19 @@ def parse_args(argv=None):
     )
     p.add_argument("--fusion-alphas", type=float, nargs="*", default=[])
     p.add_argument("--jpeg-quality", type=int, default=95)
+    p.add_argument(
+        "--predecode-handoff",
+        action="store_true",
+        help="PIL-decode sampled JPEGs in the parallel pool and hand vLLM the "
+        "identical arrays, so its frontend does no serial JPEG work",
+    )
+    p.add_argument(
+        "--frame-store",
+        type=Path,
+        default=None,
+        help="Warm frame store directory; sampled windows are served from disk "
+        "and new ones are written through (pixels bit-identical to live)",
+    )
     p.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     p.add_argument("--tensor-parallel-size", type=int, default=1)
     p.add_argument("--max-model-len", type=int, default=32768)
