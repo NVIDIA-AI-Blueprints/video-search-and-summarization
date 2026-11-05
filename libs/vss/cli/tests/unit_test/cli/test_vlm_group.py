@@ -2229,3 +2229,162 @@ def test_explicit_max_frames_replaces_an_inherited_fps_where_backends_take_one(
     VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_frames=30), ctx)
 
     assert captured["json"]["media_io_kwargs"] == {"video": expected}
+
+
+# --------------------------------------------------------------------------
+# --return-yes-prob (first-token yes/no probability from vLLM logprobs)
+# --------------------------------------------------------------------------
+
+
+def _logprob_completion(top: list[tuple[str, float]] | None) -> dict[str, Any]:
+    completion = _completion("Yes")
+    if top is not None:
+        completion["choices"][0]["logprobs"] = {
+            "content": [
+                {
+                    "token": top[0][0],
+                    "logprob": top[0][1],
+                    "top_logprobs": [{"token": t, "logprob": lp} for t, lp in top],
+                }
+            ]
+        }
+    return completion
+
+
+def _run_yes_prob(
+    monkeypatch: pytest.MonkeyPatch,
+    completion: dict[str, Any],
+    *,
+    vlm: config_mod.VlmConfig | None,
+    **input_kw: Any,
+) -> tuple[dict[str, Any], Any]:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=completion)
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment(vlm=vlm))
+    ctx.extra = {"no_persist": True}
+    result = VlmGroup().run(
+        "",
+        VlmInput(prompt="Yes or No?", media_url="http://h/clip.mp4", **input_kw),
+        ctx,
+    )
+    return captured, result
+
+
+def test_return_yes_prob_requests_logprobs_and_returns_p_yes(monkeypatch: pytest.MonkeyPatch) -> None:
+    import math
+
+    top = [("Yes", math.log(0.9)), ("No", math.log(0.05)), (" yes", math.log(0.03)), ("Answer", math.log(0.02))]
+    captured, result = _run_yes_prob(
+        monkeypatch,
+        _logprob_completion(top),
+        vlm=config_mod.VlmConfig(backend="vllm"),
+        return_yes_prob=True,
+    )
+
+    assert captured["json"]["logprobs"] is True
+    assert captured["json"]["top_logprobs"] == 5
+    assert result.body["answer"] == "Yes"
+    assert result.body["p_yes"] == pytest.approx(0.93 / 0.98)
+    assert result.body["p_no"] == pytest.approx(0.05 / 0.98)
+    assert [e["token"] for e in result.body["first_token_top_logprobs"]] == ["Yes", "No", " yes", "Answer"]
+    assert "yes_prob_warning" not in result.body
+
+
+def test_return_yes_prob_off_leaves_request_and_body_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured, result = _run_yes_prob(
+        monkeypatch,
+        _logprob_completion([("Yes", -0.1)]),
+        vlm=config_mod.VlmConfig(backend="vllm"),
+    )
+
+    assert "logprobs" not in captured["json"]
+    assert "top_logprobs" not in captured["json"]
+    assert set(result.body) == {"job_id", "status", "answer", "model", "intent", "persisted"}
+
+
+def test_return_yes_prob_without_logprobs_returns_null_and_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, result = _run_yes_prob(
+        monkeypatch,
+        _logprob_completion(None),
+        vlm=config_mod.VlmConfig(backend="vllm"),
+        return_yes_prob=True,
+    )
+
+    assert result.exit == Exit.SUCCESS
+    assert result.body["p_yes"] is None
+    assert result.body["p_no"] is None
+    assert result.body["first_token_top_logprobs"] is None
+    assert "no choices[0].logprobs" in result.body["yes_prob_warning"]
+
+
+def test_return_yes_prob_without_yes_no_token_returns_null_and_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, result = _run_yes_prob(
+        monkeypatch,
+        _logprob_completion([("Answer", -0.1), ("The", -2.0)]),
+        vlm=config_mod.VlmConfig(backend="vllm"),
+        return_yes_prob=True,
+    )
+
+    assert result.body["p_yes"] is None
+    assert len(result.body["first_token_top_logprobs"]) == 2
+    assert "no yes/no token" in result.body["yes_prob_warning"]
+
+
+@pytest.mark.parametrize("backend", ["rt_vlm", "cosmos_reason_nim"])
+def test_return_yes_prob_rejected_for_other_backends(monkeypatch: pytest.MonkeyPatch, backend: str) -> None:
+    captured, result = _run_yes_prob(
+        monkeypatch,
+        _logprob_completion([("Yes", -0.1)]),
+        vlm=config_mod.VlmConfig(backend=backend),
+        return_yes_prob=True,
+    )
+
+    assert "json" not in captured
+    assert result.exit == Exit.INVALID_INPUT
+    assert "requires the vllm backend" in result.body["error"]
+
+
+def test_return_yes_prob_rejects_positive_chunk_duration(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured, result = _run_yes_prob(
+        monkeypatch,
+        _logprob_completion([("Yes", -0.1)]),
+        vlm=config_mod.VlmConfig(backend="vllm"),
+        return_yes_prob=True,
+        chunk_duration=10,
+    )
+
+    assert "json" not in captured
+    assert result.exit == Exit.INVALID_INPUT
+
+
+def test_return_yes_prob_works_when_locked_and_keeps_locked_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import _apply_vlm_policy
+
+    policy = config_mod.VlmConfig(backend="vllm", temperature=0, max_tokens=16, seed=1, locked=True)
+    captured, result = _run_yes_prob(
+        monkeypatch,
+        _logprob_completion([("Yes", -0.1), ("No", -3.0)]),
+        vlm=policy,
+        return_yes_prob=True,
+    )
+
+    assert captured["json"]["logprobs"] is True
+    assert captured["json"]["temperature"] == 0
+    assert captured["json"]["max_tokens"] == 16
+    assert captured["json"]["seed"] == 1
+    assert result.body["p_yes"] is not None
+
+    with pytest.raises(InvalidInput, match="--temperature is locked"):
+        _apply_vlm_policy(
+            VlmInput(prompt="p", media_url="http://h/c.mp4", return_yes_prob=True, temperature=0.5), policy
+        )

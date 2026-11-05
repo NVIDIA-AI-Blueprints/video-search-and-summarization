@@ -42,6 +42,7 @@ import base64
 import contextlib
 import json as _json_mod
 import logging
+import math
 import os
 import secrets
 import tempfile
@@ -158,6 +159,30 @@ def _extract_answer(completion: dict[str, Any]) -> str:
     return content
 
 
+def _first_token_yes_no(completion: dict[str, Any]) -> dict[str, Any]:
+    """Return p_yes / p_no from the first generated token's top logprobs.
+
+    Case-insensitive, whitespace-stripped ``yes`` / ``no`` tokens are summed and
+    p_yes is normalised over yes + no only. Missing or unusable logprobs yield
+    ``None`` values and a ``yes_prob_warning``; nothing is estimated.
+    """
+    out: dict[str, Any] = {"p_yes": None, "p_no": None, "first_token_top_logprobs": None}
+    try:
+        top = completion["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
+        entries = [{"token": str(t["token"]), "logprob": float(t["logprob"])} for t in top]
+    except (KeyError, IndexError, TypeError, ValueError):
+        out["yes_prob_warning"] = "response has no choices[0].logprobs.content[0].top_logprobs"
+        return out
+    out["first_token_top_logprobs"] = entries
+    yes = sum(math.exp(e["logprob"]) for e in entries if e["token"].strip().lower() == "yes")
+    no = sum(math.exp(e["logprob"]) for e in entries if e["token"].strip().lower() == "no")
+    if yes + no == 0:
+        out["yes_prob_warning"] = "no yes/no token in the first-token top logprobs"
+        return out
+    out["p_yes"], out["p_no"] = yes / (yes + no), no / (yes + no)
+    return out
+
+
 class VlmInput(BaseModel):
     """Ask a visual question about video and persist the answer to unified memory.
 
@@ -249,6 +274,14 @@ class VlmInput(BaseModel):
         description=(
             "Pixel budget for the whole clip (Qwen3-VL-family processors), sent as "
             "mm_processor_kwargs.size.longest_edge. About 2048 pixels per vision token."
+        ),
+    )
+
+    return_yes_prob: bool = Field(
+        False,
+        description=(
+            "Also return p_yes / p_no from the first generated token's logprobs. "
+            "Standalone vLLM backend only; use with a Yes/No prompt and --disable-reasoning."
         ),
     )
 
@@ -482,6 +515,9 @@ def _build_vllm_request(
     request = _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
     if inputs.chunk_duration is not None and inputs.chunk_duration != 0:
         raise InvalidInput("positive --chunk-duration is not supported by the standalone vLLM backend")
+    if inputs.return_yes_prob:
+        request["logprobs"] = True
+        request["top_logprobs"] = 5
     if inputs.enable_reasoning is not None:
         request["chat_template_kwargs"] = {"enable_thinking": inputs.enable_reasoning}
     mm_processor_kwargs: dict[str, Any] = {}
@@ -546,6 +582,8 @@ def _build_vlm_request(
     inputs: VlmInput,
 ) -> dict[str, Any]:
     """Build a backend-specific OpenAI-compatible request."""
+    if inputs.return_yes_prob and backend != "vllm":
+        raise InvalidInput(f"--return-yes-prob requires the vllm backend (RT-VLM drops logprobs); backend is {backend}")
     if backend == "rt_vlm":
         return _build_rt_vlm_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
     if backend == "vllm":
@@ -1033,6 +1071,8 @@ class VlmGroup(CommandGroup):
             "model": completion.get("model") or model,
         }
         body["intent"] = inputs.intent
+        if inputs.return_yes_prob:
+            body.update(_first_token_yes_no(completion))
 
         # Point call: write the terminal record once.
         if memory is None:

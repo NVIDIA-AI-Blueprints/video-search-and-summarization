@@ -1,0 +1,293 @@
+{
+ "method": "F3: score = mean(checks score, original-question P(yes)); yes iff score >= subset cut-off",
+ "cutoffs_tuned_on": "dev half only (82 questions), per subset; grid .01-.99, max Macro-F1, ties -> closest to 0.5 then lower",
+ "holdout_macro_f1_with_these_cutoffs": 72.39,
+ "cutoffs": {
+  "metropolis_event_verification": 0.17,
+  "tailgating_building_r": 0.7,
+  "tailgating_courtyard": 0.5,
+  "warehouse_near_miss": 0.49
+ },
+ "questions": {
+  "You are a traffic monitoring system analyzing video of a street. Determine if a collision between vehicles, or vehicle and pedestrian or vehicle and cyclist has likely occurred.\nThe clip may not show the exact moment of impact, so use post-event evidence such as:\n- Vehicles in contact or showing visible damage (dents, debris, smoke, broken parts).\n- Pedestrian or cyclist on the ground, struck, or showing clear signs of impact or distress.. \n- Abnormal positions (intersecting, facing opposite directions, one against the side/rear of another).\n- Stationary vehicles remaining in contact or stopped in unnatural alignment.\n- Behavior inconsistent with normal driving (sudden halt, failure to separate, blocked motion).\n- Other unusual signs (e.g., airbags, leaking fluids, shattered glass) can also support the conclusion.\nA collision is \u201clikely\u201d if two or more independent cues strongly indicate impact, even if the collision itself is not shown. If evidence is weak or ambiguous, do not assume a collision.\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDid a collision occur between two or more vehicles?": {
+   "id": "event__metropolis_event_verification__009",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Do two vehicles touch or hit each other? Answer \"Yes\" or \"No\".",
+    "Are two vehicles stopped in contact or in an unnatural position, with damage, debris, or smoke near them? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a traffic monitoring system analyzing video of a street. Determine if a collision between vehicles, or vehicle and pedestrian or vehicle and cyclist has likely occurred.\nThe clip may not show the exact moment of impact, so use post-event evidence such as:\n- Vehicles in contact or showing visible damage (dents, debris, smoke, broken parts).\n- Pedestrian or cyclist on the ground, struck, or showing clear signs of impact or distress.. \n- Abnormal positions (intersecting, facing opposite directions, one against the side/rear of another).\n- Stationary vehicles remaining in contact or stopped in unnatural alignment.\n- Behavior inconsistent with normal driving (sudden halt, failure to separate, blocked motion).\n- Other unusual signs (e.g., airbags, leaking fluids, shattered glass) can also support the conclusion.\nA collision is \u201clikely\u201d if two or more independent cues strongly indicate impact, even if the collision itself is not shown. If evidence is weak or ambiguous, do not assume a collision.\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDid a vehicle collide with pedestrian?": {
+   "id": "event__metropolis_event_verification__003",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does a vehicle hit or touch a pedestrian? Answer \"Yes\" or \"No\".",
+    "Does a pedestrian fall to the ground or get knocked down next to a vehicle? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a traffic monitoring system analyzing video of a street. Determine if a collision between vehicles, or vehicle and pedestrian or vehicle and cyclist has likely occurred.\nThe clip may not show the exact moment of impact, so use post-event evidence such as:\n- Vehicles in contact or showing visible damage (dents, debris, smoke, broken parts).\n- Pedestrian or cyclist on the ground, struck, or showing clear signs of impact or distress.. \n- Abnormal positions (intersecting, facing opposite directions, one against the side/rear of another).\n- Stationary vehicles remaining in contact or stopped in unnatural alignment.\n- Behavior inconsistent with normal driving (sudden halt, failure to separate, blocked motion).\n- Other unusual signs (e.g., airbags, leaking fluids, shattered glass) can also support the conclusion.\nA collision is \u201clikely\u201d if two or more independent cues strongly indicate impact, even if the collision itself is not shown. If evidence is weak or ambiguous, do not assume a collision.\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDid a vehicle collide with a cyclist?": {
+   "id": "event__metropolis_event_verification__004",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does a vehicle hit or touch a cyclist or bicycle? Answer \"Yes\" or \"No\".",
+    "Does a cyclist fall to the ground or get knocked off the bicycle next to a vehicle? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a traffic monitoring system analyzing video of a street. Determine if a collision between vehicles, or vehicle and pedestrian or vehicle and cyclist has likely occurred.\nThe clip may not show the exact moment of impact, so use post-event evidence such as:\n- Vehicles in contact or showing visible damage (dents, debris, smoke, broken parts).\n- Pedestrian or cyclist on the ground, struck, or showing clear signs of impact or distress.. \n- Abnormal positions (intersecting, facing opposite directions, one against the side/rear of another).\n- Stationary vehicles remaining in contact or stopped in unnatural alignment.\n- Behavior inconsistent with normal driving (sudden halt, failure to separate, blocked motion).\n- Other unusual signs (e.g., airbags, leaking fluids, shattered glass) can also support the conclusion.\nA collision is \u201clikely\u201d if two or more independent cues strongly indicate impact, even if the collision itself is not shown. If evidence is weak or ambiguous, do not assume a collision.\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDid a vehicle collide with a pedestrian?": {
+   "id": "event__metropolis_event_verification__005",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does a vehicle hit or touch a pedestrian? Answer \"Yes\" or \"No\".",
+    "Does a pedestrian fall to the ground or get knocked down next to a vehicle? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a security monitoring system analyzing video of a access gate and hallways. \n\nGate Monitoring:\nWhen monitoring access gate, people are required to badge, the gate unlocks, and they enter. Determine whether a tailgating/piggybacking event has likely occurred (i.e., one or more people enter on a single authorization without individually badging).\nThe video clip shows the badge reader. Infer from post-event evidence such as:\n- Single gate-open event while multiple people pass through before the gate closes.\n- A follower enters closely behind the badged person (minimal gap in time or distance) without stopping at the reader or making a clear badging gesture.\n- The gate is held open/propped, or gate-open duration is longer than typical for a single entrant.\n- Multiple people cross the threshold during one gate cycle (gate does not close between them).\n- The leader looks back/holds the door while the follower does not badge.\n\nHallway Monitoring: \n- At the hallways look for fights and overcrowding.\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDid a person tailgate through the access gate without badging?": {
+   "id": "event__metropolis_event_verification__039",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does a second person go through the door or gate right behind the first person, while it is still open from the first person's entry? Answer \"Yes\" or \"No\".",
+    "Does that following person go through without holding a badge or card to the reader themselves? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "You are a security monitoring system analyzing video of a access gate and hallways. \n\nGate Monitoring:\nWhen monitoring access gate, people are required to badge, the gate unlocks, and they enter. Determine whether a tailgating/piggybacking event has likely occurred (i.e., one or more people enter on a single authorization without individually badging).\nThe video clip shows the badge reader. Infer from post-event evidence such as:\n- Single gate-open event while multiple people pass through before the gate closes.\n- A follower enters closely behind the badged person (minimal gap in time or distance) without stopping at the reader or making a clear badging gesture.\n- The gate is held open/propped, or gate-open duration is longer than typical for a single entrant.\n- Multiple people cross the threshold during one gate cycle (gate does not close between them).\n- The leader looks back/holds the door while the follower does not badge.\n\nHallway Monitoring: \n- At the hallways look for fights and overcrowding.\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nIs anyone fighting?": {
+   "id": "event__metropolis_event_verification__030",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Are two or more people hitting, punching, kicking, pushing, or grappling with each other? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a security monitoring system analyzing video of a access gate and hallways. \n\nGate Monitoring:\nWhen monitoring access gate, people are required to badge, the gate unlocks, and they enter. Determine whether a tailgating/piggybacking event has likely occurred (i.e., one or more people enter on a single authorization without individually badging).\nThe video clip shows the badge reader. Infer from post-event evidence such as:\n- Single gate-open event while multiple people pass through before the gate closes.\n- A follower enters closely behind the badged person (minimal gap in time or distance) without stopping at the reader or making a clear badging gesture.\n- The gate is held open/propped, or gate-open duration is longer than typical for a single entrant.\n- Multiple people cross the threshold during one gate cycle (gate does not close between them).\n- The leader looks back/holds the door while the follower does not badge.\n\nHallway Monitoring: \n- At the hallways look for fights and overcrowding.\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nEntering is from left to right and exiting is from right to left, is anyone exiting with a cart full of equipment?": {
+   "id": "event__metropolis_event_verification__033",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Exiting means moving from right to left. Does a person move from right to left while pushing or pulling a cart? Answer \"Yes\" or \"No\".",
+    "Is that cart loaded with equipment or items? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "You are a security monitoring system analyzing video of a access gate and hallways. \n\nGate Monitoring:\nWhen monitoring access gate, people are required to badge, the gate unlocks, and they enter. Determine whether a tailgating/piggybacking event has likely occurred (i.e., one or more people enter on a single authorization without individually badging).\nThe video clip shows the badge reader. Infer from post-event evidence such as:\n- Single gate-open event while multiple people pass through before the gate closes.\n- A follower enters closely behind the badged person (minimal gap in time or distance) without stopping at the reader or making a clear badging gesture.\n- The gate is held open/propped, or gate-open duration is longer than typical for a single entrant.\n- Multiple people cross the threshold during one gate cycle (gate does not close between them).\n- The leader looks back/holds the door while the follower does not badge.\n\nHallway Monitoring: \n- At the hallways look for fights and overcrowding.\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nEntering is from left to right and exiting is from right to left, is anyone entering with a cart full of equipment?": {
+   "id": "event__metropolis_event_verification__034",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Entering means moving from left to right. Does a person move from left to right while pushing or pulling a cart? Answer \"Yes\" or \"No\".",
+    "Is that cart loaded with equipment or items? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "You are a security monitoring system analyzing video of a access gate and hallways. \n\nGate Monitoring:\nWhen monitoring access gate, people are required to badge, the gate unlocks, and they enter. Determine whether a tailgating/piggybacking event has likely occurred (i.e., one or more people enter on a single authorization without individually badging).\nThe video clip shows the badge reader. Infer from post-event evidence such as:\n- Single gate-open event while multiple people pass through before the gate closes.\n- A follower enters closely behind the badged person (minimal gap in time or distance) without stopping at the reader or making a clear badging gesture.\n- The gate is held open/propped, or gate-open duration is longer than typical for a single entrant.\n- Multiple people cross the threshold during one gate cycle (gate does not close between them).\n- The leader looks back/holds the door while the follower does not badge.\n\nHallway Monitoring: \n- At the hallways look for fights and overcrowding.\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nIs the hallway overcrowded?": {
+   "id": "event__metropolis_event_verification__035",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is the hallway packed with people close together, so that walking through it is crowded or blocked? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a security monitoring system analyzing video of a access gate and hallways. \n\nGate Monitoring:\nWhen monitoring access gate, people are required to badge, the gate unlocks, and they enter. Determine whether a tailgating/piggybacking event has likely occurred (i.e., one or more people enter on a single authorization without individually badging).\nThe video clip shows the badge reader. Infer from post-event evidence such as:\n- Single gate-open event while multiple people pass through before the gate closes.\n- A follower enters closely behind the badged person (minimal gap in time or distance) without stopping at the reader or making a clear badging gesture.\n- The gate is held open/propped, or gate-open duration is longer than typical for a single entrant.\n- Multiple people cross the threshold during one gate cycle (gate does not close between them).\n- The leader looks back/holds the door while the follower does not badge.\n\nHallway Monitoring: \n- At the hallways look for fights and overcrowding.\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDoes everyone scan a badge to enter the room?": {
+   "id": "event__metropolis_event_verification__036",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does every person who goes through the door or gate first hold a badge or card to the reader themselves? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nAre all workers wearing PPE (hardhats and safety vests)?": {
+   "id": "event__metropolis_event_verification__040",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is every visible person wearing a hardhat? Answer \"Yes\" or \"No\".",
+    "Is every visible person wearing a high-visibility safety vest? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nIs the path obstructed for the forklift to pass?": {
+   "id": "event__metropolis_event_verification__043",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is any object, box, pallet, or person in the lane directly ahead of the forklift's direction of travel? Answer \"Yes\" or \"No\".",
+    "Does the forklift stop or steer around something in its path? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nAre the boxes properly stacked on the pallet loaded on the forklift?": {
+   "id": "event__metropolis_event_verification__042",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Are the boxes on the pallet carried by the forklift neatly stacked in even, aligned layers? Answer \"Yes\" or \"No\".",
+    "Do all boxes stay in place on that pallet (none leaning, hanging over the edge, or falling)? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDid anyone experience a fall or end up on the ground?": {
+   "id": "event__metropolis_event_verification__044",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does any person fall down, trip, or end up lying or sitting on the ground? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nIs any person near or in close proximity to the box when it falls?": {
+   "id": "event__metropolis_event_verification__045",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is any person standing or walking right next to a box at the moment it falls? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nIs the operator or a person using a cell phone while working?": {
+   "id": "event__metropolis_event_verification__046",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is any person holding a cell phone to their ear or looking at a phone in their hand? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nIs the operator or a person jumping from the ladder?": {
+   "id": "event__metropolis_event_verification__047",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does any person jump down from a ladder instead of climbing down step by step? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDoes any box fall off the robot?": {
+   "id": "event__metropolis_event_verification__048",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does any box fall or slide off the robot? Answer \"Yes\" or \"No\".",
+    "Does a box that was on the robot end up on the floor? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nAre the boxes properly stacked as the operator lifts?": {
+   "id": "event__metropolis_event_verification__049",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Are the boxes on the pallet being lifted neatly stacked in even, aligned layers? Answer \"Yes\" or \"No\".",
+    "Do all boxes stay in place on the pallet while it is lifted (none tilt, slide, or fall)? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDoes the operator throw any boxes?": {
+   "id": "event__metropolis_event_verification__050",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does a person throw or toss a box through the air instead of placing it down? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDoes a box fall off the robot?": {
+   "id": "event__metropolis_event_verification__051",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does any box fall or slide off the robot? Answer \"Yes\" or \"No\".",
+    "Does a box that was on the robot end up on the floor? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDoes anyone walk in front of the forklift?": {
+   "id": "event__metropolis_event_verification__053",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does any person walk across or stand in the path directly in front of a forklift? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nIs the path of the forklift clear?": {
+   "id": "event__metropolis_event_verification__054",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is the lane directly ahead of the forklift's direction of travel free of any object, box, pallet, or person? Answer \"Yes\" or \"No\".",
+    "Does the forklift keep moving without stopping or steering around something in its path? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nAre the boxes properly stacked on the pallet that is loaded on the forklift?": {
+   "id": "event__metropolis_event_verification__057",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Are the boxes on the pallet carried by the forklift neatly stacked in even, aligned layers? Answer \"Yes\" or \"No\".",
+    "Do all boxes stay in place on that pallet (none leaning, hanging over the edge, or falling)? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nAre all workers wearing PPE?": {
+   "id": "event__metropolis_event_verification__058",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is every visible person wearing a hardhat? Answer \"Yes\" or \"No\".",
+    "Is every visible person wearing a high-visibility safety vest? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nAre any boxes crushed?": {
+   "id": "event__metropolis_event_verification__061",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is any box visibly dented, flattened, or squashed? Answer \"Yes\" or \"No\".",
+    "Does a forklift, robot, or heavy object press down on or run over a box? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nDo any boxes get dropped?": {
+   "id": "event__metropolis_event_verification__064",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Does any box fall or get dropped from a person's hands, a forklift, or a robot? Answer \"Yes\" or \"No\".",
+    "Does a box that was being carried or held end up on the floor? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nIs everyone wearing a hardhat and safety vest?": {
+   "id": "event__metropolis_event_verification__063",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is every visible person wearing a hardhat? Answer \"Yes\" or \"No\".",
+    "Is every visible person wearing a high-visibility safety vest? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nIs anything blocking the path of the small yellow robot?": {
+   "id": "event__metropolis_event_verification__065",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is any object, box, pallet, or person in the lane directly ahead of the small yellow robot's direction of travel? Answer \"Yes\" or \"No\".",
+    "Does the small yellow robot stop or steer around something in its path? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are a warehouse monitoring system analyzing video footage. Your task is to answer safety and compliance questions strictly with \"Yes\" or \"No\".\nThe clip may not show the entire event, so rely on visible evidence. Infer from post-event evidence: \n- PPE compliance (hardhats, safety vests, etc.).\n- Path clear or obstructed for forklifts or robots.\n- Boxes stacked properly on pallets or being lifted.\n- Boxes crushed, dropped, or falling off forklifts/robots/operators.\n- Operator behavior (falling, using cell phone, throwing boxes).\n- Human safety risks (walking in front of forklift, near falling boxes, jumping from ladders).\n\nConfirm \"Yes\" only when visual evidence is clear.\nOtherwise, answer \"No\".\n\nIs anything blocking the path of the forklift?": {
+   "id": "event__metropolis_event_verification__066",
+   "subset": "metropolis_event_verification",
+   "checks": [
+    "Is any object, box, pallet, or person in the lane directly ahead of the forklift's direction of travel? Answer \"Yes\" or \"No\".",
+    "Does the forklift stop or steer around something in its path? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "any"
+  },
+  "You are an expert AI assistant for video analysis. Your task is to accurately classify whether a surveillance video depicts **normal access** or **tailgating** behavior, based on the strict definitions below.\n\n# Category Definitions\n\n- **Normal Access**:  \nA person (or group) enters a secure area **properly authenticated** (e.g., by using a badge, keycard, or biometric system). Only those with authorization enter. There is **no evidence of security breach** or abnormal entry.  \n\n- **Tailgating**:  \nOne or more individuals **enter a secure area without authorization** by following closely behind an authorized person who has legitimately gained access. The unauthorized individual does not use valid credentials but takes advantage of the door being open. This includes:  \n- Following immediately behind someone with a badge swipe.  \n- Entering as part of a group where only the first person authenticates.  \n- Entering without any visible authentication while leveraging someone else's access.\n\nDoes the video depict tailgating behavior? Answer \"Yes\" or \"No\".": {
+   "id": "event__tailgating__tailgating_courtyard__021",
+   "subset": "tailgating_courtyard",
+   "checks": [
+    "Does a second person go through the door or gate right behind the first person, while it is still open from the first person's entry? Answer \"Yes\" or \"No\".",
+    "Does that following person go through without holding a badge or card to the reader themselves? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  },
+  "A near-miss collision is defined as that forklift and a person approaching to each other and then either person dodges or forklift stops, so the collision is successfully avoided.\n\n\nPlease tell whether the video contains near-miss collision between person and forklift. Your final answer should be either Yes or No.": {
+   "id": "event__warehouse_near_miss__045",
+   "subset": "warehouse_near_miss",
+   "checks": [
+    "Do a forklift and a person move toward each other and come close? Answer \"Yes\" or \"No\".",
+    "Near-miss means the collision is avoided because the person dodges or the forklift stops. Does the person step or jump aside, or does the forklift stop, so they do not hit each other? Answer \"Yes\" or \"No\"."
+   ],
+   "rule": "all"
+  }
+ },
+ "mode": "f3"
+}
