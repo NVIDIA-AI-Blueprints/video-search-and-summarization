@@ -25,10 +25,6 @@ vss-summarization:
   llmService: "nemotron-35-lightning-30b-a3b"
   vlmService: "vss-rtvi-vlm"
 
-agent:
-  vss-agent:
-    llmServiceName: "nemotron-35-lightning-30b-a3b"
-
 rtvi:
   vss-rtvi-vlm:
     enabled: true

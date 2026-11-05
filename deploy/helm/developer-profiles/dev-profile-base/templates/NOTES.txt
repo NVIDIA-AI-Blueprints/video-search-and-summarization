@@ -35,7 +35,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   Ingress is ENABLED. Services are exposed via host-based routing:
 
   VSS UI:               http://{{ $mainHost }}
-  VSS Agent API:        http://{{ $mainHost }}/api
   VST API:              http://{{ $mainHost }}/vst/api
   Phoenix Tracing Path: http://{{ $mainHost }}/phoenix
 {{- if ne $phoenixHost "" }}
@@ -51,7 +50,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   Ingress is DISABLED. Use kubectl port-forward to access services:
 
   kubectl port-forward svc/{{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui") }} 3000:3000 -n {{ .Release.Namespace }}
-  kubectl port-forward svc/{{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }} 8000:8000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-vios-ingress" "chartName" "vss-vios-ingress") }} 30888:30888 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "phoenix" "chartName" "phoenix" "subchartValues" (index (.Values.infra | default dict) "phoenix" | default dict)) }} 6006:6006 -n {{ .Release.Namespace }}
 {{- end }}

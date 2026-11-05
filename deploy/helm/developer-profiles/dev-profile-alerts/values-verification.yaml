@@ -50,13 +50,6 @@ nims:
 vios:
   enabled: true
 
-# Verification still runs RT-VLM as the verifier, but disables its Kafka output.
-agent:
-  vss-agent:
-    rtviVlmEnabled: true
-    cosmosEmbedEnabled: false
-    vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-
 vss-agent-ui:
   alertsRealtimeEnabled: true
   alertsCvVerificationEnabled: true
@@ -66,12 +59,10 @@ vssIngress:
   ingressClassName: haproxy
   host: ""
   vssUiPort: 3000
-  vssAgentPort: 8000
   vstIngressPort: 30888
   videoAnalyticsApiPort: 8081
   behaviorAnalyticsPort: 8080
   alertBridgePort: 9080
-  vaMcpPort: 9901
   elasticsearchPort: 9200
   rtviCvPort: 9010
   kibanaPort: 5601

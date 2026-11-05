@@ -204,27 +204,13 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vssIngress.host`** | `""` | Ingress hostname rule. If empty, **`global.externalHost`** is used. Set only when the Ingress hostname must differ from **`global.externalHost`**. |
 | **`vssIngress.annotations`** | `{}` | Extra annotations for the generated **`Ingress`**, for example a Traefik or NGINX rewrite middleware. Merged with the rewrite annotation the template generates. Supplying **`haproxy.org/path-rewrite`** here **replaces** the generated rewrite table for every backend rather than merging into it. See [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress). |
 | **`vssIngress.vssUiPort`** | `3000` | Backend **`Service`** port for **vss-agent-ui** paths. |
-| **`vssIngress.vssAgentPort`** | `8000` | Backend **`Service`** port for **vss-agent** paths. |
 | **`vssIngress.vstIngressPort`** | `30888` | Backend **`Service`** port for **vss-vios-ingress** (**`/vst`**, **`/storage`**). |
 | **`vssIngress.rtviVlmServiceName`** | `vss-rtvi-vlm` | **`Service`** behind **`/rtvi-vlm`**. Empty falls back to **`agent.vss-agent.rtviVlmServiceName`**, then **`vss-rtvi-vlm`**. Do not use **`vlmNameSlug`** — with **`vlmNameSlug=none`** it names no **`Service`**. |
 | **`vssIngress.rtviVlmPort`** | `8000` | Backend **`Service`** port for RT-VLM. The OpenAI-compatible root is **`<host>/rtvi-vlm/v1`**, **not** **`<host>/v1`**. |
-| **`vssIngress.vaMcpPort`** | `9901` | Backend **`Service`** port for **vss-va-mcp** (**`/va-mcp`**), mounted when **`agent.vss-va-mcp.enabled`**. |
 | **`vssIngress.elasticsearchPort`** | `9200` | Backend **`Service`** port for **`/elasticsearch`**, mounted when **`infra.elasticsearch.enabled`** (off in this profile). |
 | **`vssIngress.resourceName`** | `""` | **`Ingress`** **`metadata.name`**. Empty uses **`vss-ingress`** (not prefixed with the release name). Set this to override the name. |
 | **`vssIngress.phoenixHost`** | `""` | Dedicated Phoenix hostname. Empty keeps Phoenix at **`/phoenix`** on the main host and creates no second host rule. Set it (for example **`phoenix.example.com`**) only when you want that extra host. |
 | **`vssIngress.phoenixPort`** | `6006` | Backend **`Service`** port for Phoenix when the Phoenix subchart is enabled. |
-| **`agent.enabled`** | `true` | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**). |
-| **`agent.vss-agent.enabled`** | `true` | Set **`false`** to disable the **vss-agent** deployment only. |
-| **`agent.vss-agent.mountConfigEdge`** / **`mountEvalOutput`** | `false` / `true` | Parent **ConfigMap** includes **`config_edge.yml`** when the file exists; **`/vss-agent/eval-output`** emptyDir when **`mountEvalOutput`** is **`true`**. Agent YAML lives at **`configs/vss-agent/config.yml`** (flat path, no profile subfolders). |
-| **`agent.vss-agent.llmName`** | NGC model ID (e.g. **`nvidia/nemotron-3.5-lightning-30b-a3b`**) | NGC catalog id for the LLM; must match the model deployed under **`nims.nemotron35`**. |
-| **`agent.vss-agent.vlmName`** | RT-VLM model ID (e.g. **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`**) | Must match the model advertised by **`vss-rtvi-vlm`** `/v1/models`. |
-| **`agent.vss-agent.evalLlmJudgeName`** | `""` | Optional eval judge model ID. When empty, the **vss-agent** subchart defaults to **`llmName`**. |
-| **`agent.vss-agent.evalLlmJudgeBaseUrl`** | `""` | Optional base URL for the eval judge endpoint. When empty, the subchart defaults alongside **`llmBaseUrl`**. |
-| **`agent.vss-agent.reportsBaseUrl`** | `""` | Base URL for report links. When empty, templates derive a value from **`global.external*`** and in-cluster defaults. |
-| **`agent.vss-agent.vstExternalUrl`** | `""` | External **VST** URL passed to the agent. When empty, derived from **`global.external*`** and in-cluster defaults. |
-| **`agent.vss-agent.externalIp`** | `""` | Hostname or IP override for agent-facing external access when **`global.external*`** is not sufficient. |
-| **`agent.vss-agent.env`** | *(see **`values.yaml`**)* | **Full** container env list for vss-agent (Option B). Each **`value`** is passed through Helm **`tpl`**, so URLs can reference **`.Values`**, **`.Release`**, and **`global`** keys. Defaults mirror **`deploy/helm/services/agent/charts/agent/values.yaml`**. Use **`agent.vss-agent.extraEnv`** from the subchart only if you need late overrides (secrets / ad‑hoc vars). |
-| **`agent.vss-agent.extraEnv`** | *(omit)* | Optional **`{ name, value }`** appended last (same pattern as **vss-agent-ui.extraEnv**). |
 | **`vss-agent-ui.enabled`** | `true` | Set **`false`** to disable the **vss-agent-ui** deployment. |
 | **`vss-agent-ui.agentApiUrlBase`** | `""` | Base URL for the **vss-agent** HTTP API (browser **`NEXT_PUBLIC_AGENT_API_URL_BASE`**, typically ends with **`/api/v1`**). If unset, built from **`global.externalScheme`** / **`externalHost`** / **`externalPort`** as **`<global>/api/v1`**, else defaults to in-cluster **`http://<RELEASE_NAME>-vss-agent:8000/api/v1`**. |
 | **`vss-agent-ui.viosApiUrl`** | `""` | **VIOS** HTTP API URL for the browser (**`NEXT_PUBLIC_VIOS_API_URL`**). If unset, built as **`<global>/vst/api`**, else **`http://<RELEASE_NAME>-vss-vios-ingress:30888/vst/api`**. |

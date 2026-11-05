@@ -47,12 +47,6 @@ global:
 vssIngress:
   enabled: false
 
-agent:
-  vss-agent:
-    service:
-      type: NodePort
-      nodePort: 30800
-
 vss-agent-ui:
   service:
     type: NodePort

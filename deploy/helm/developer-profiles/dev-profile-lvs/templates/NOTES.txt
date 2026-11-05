@@ -41,7 +41,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   Ingress is ENABLED. Services are exposed via host-based routing:
 
   VSS UI:               http://{{ $mainHost }}
-  VSS Agent API:        http://{{ $mainHost }}/api
   VST API:              http://{{ $mainHost }}/vst/api
 {{- if $kibanaEnabled }}
   Kibana Dashboards:    http://{{ $kibanaHost }}
@@ -62,7 +61,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   Ingress is DISABLED. Use kubectl port-forward to access services:
 
   kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent-ui") }} 3000:3000 -n {{ .Release.Namespace }}
-  kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }} 8000:8000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-vios-ingress") }} 30888:30888 -n {{ .Release.Namespace }}
 {{- if $summarizationEnabled }}
   kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-summarization") }} 38111:38111 -n {{ .Release.Namespace }}

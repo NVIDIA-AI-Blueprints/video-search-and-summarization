@@ -19,10 +19,6 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY = ROOT / "deploy"
 POLICY = DEPLOY / "docker/services/agent/search_prompt_policy.py"
-HELM_POLICY = (
-    DEPLOY
-    / "helm/developer-profiles/dev-profile-search/configs/vss-agent/search_prompt_policy.py"
-)
 SEARCH_SOURCE = (
     ROOT / "services/agent/packages/vss_agents/src/vss_agents/tools/search.py"
 )
@@ -114,25 +110,6 @@ def test_policy_rejects_unknown_image_prompt(monkeypatch):
     assert not base.initialized
 
 
-def test_policy_copies_and_compose_import_path():
-    assert POLICY.read_bytes() == HELM_POLICY.read_bytes()
-    compose = yaml.safe_load((DEPLOY / "docker/services/agent/compose.yml").read_text())
-    agent = compose["services"]["vss-agent"]
-    assert agent["environment"]["PYTHONPATH"] == "${VSS_AGENT_PYTHONPATH:-}"
-    overrides = DEPLOY / "docker/developer-profiles/dev-profile-search/overrides.env"
-    assert (
-        "VSS_AGENT_PYTHONPATH=/vss-agent/deploy/docker/services/agent"
-        in overrides.read_text()
-    )
-    assert "${VSS_APPS_DIR}:/vss-agent/deploy/docker:ro" in agent["volumes"]
-    path = (
-        DEPLOY
-        / "docker/developer-profiles/dev-profile-search/vss-agent/configs/config.yml"
-    )
-    config = yaml.safe_load(path.read_text())
-    assert config["general"]["front_end"]["runner_class"] == WORKER
-
-
 @pytest.mark.skipif(
     shutil.which("helm") is None, reason="Helm is required for chart rendering"
 )
@@ -158,70 +135,3 @@ def test_standalone_search_chart_keeps_policy_opt_in():
         mount.get("subPath") == "search_prompt_policy.py"
         for mount in agent["volumeMounts"]
     )
-
-
-@pytest.mark.parametrize("profile", ["base", "alerts", "lvs", "search"])
-@pytest.mark.skipif(
-    shutil.which("helm") is None, reason="Helm is required for chart rendering"
-)
-def test_helm_policy_is_mounted_only_for_search(profile):
-    chart = DEPLOY / "helm/developer-profiles" / f"dev-profile-{profile}"
-    subprocess.run(
-        ["helm", "dependency", "build", str(chart)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    rendered = subprocess.run(
-        ["helm", "template", "prompt-policy", str(chart)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    documents = [item for item in yaml.safe_load_all(rendered.stdout) if item]
-    pod = next(
-        item["spec"]["template"]["spec"]
-        for item in documents
-        if item.get("kind") == "Deployment"
-        and any(
-            container["name"] == "vss-agent"
-            for container in item["spec"]["template"]["spec"]["containers"]
-        )
-    )
-    agent = next(
-        container for container in pod["containers"] if container["name"] == "vss-agent"
-    )
-    mounts = [
-        mount
-        for mount in agent["volumeMounts"]
-        if mount.get("subPath") == "search_prompt_policy.py"
-    ]
-    if profile != "search":
-        assert not mounts
-        return
-    assert mounts == [
-        {
-            "name": "config",
-            "mountPath": "/etc/vss-agent/search_prompt_policy.py",
-            "subPath": "search_prompt_policy.py",
-            "readOnly": True,
-        }
-    ]
-    env = {item["name"]: item.get("value") for item in agent["env"]}
-    assert env["PYTHONPATH"] == "/etc/vss-agent"
-    config_name = next(
-        volume["configMap"]["name"]
-        for volume in pod["volumes"]
-        if volume["name"] == "config"
-    )
-    config_map = next(
-        item
-        for item in documents
-        if item.get("kind") == "ConfigMap" and item["metadata"]["name"] == config_name
-    )
-    assert (
-        config_map["data"]["search_prompt_policy.py"].rstrip()
-        == POLICY.read_text().rstrip()
-    )
-    config = yaml.safe_load(config_map["data"]["config.yml"])
-    assert config["general"]["front_end"]["runner_class"] == WORKER
