@@ -32,8 +32,10 @@ invoked from non-REST callers (agent flows, replay tools, integration
 tests) without going through HTTP.
 """
 
+import asyncio
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from functools import lru_cache
 from http import HTTPStatus
@@ -246,9 +248,36 @@ def get_rule_store() -> Optional[RuleStore]:
     return ESRuleStore(store, collection=collection)
 
 
+# Shared with get_always_on_service()'s separate RealtimeAlertService
+# instance so the two share one stream-teardown-lock namespace instead
+# of each serialising only against itself — see that function's
+# docstring and RealtimeAlertService.__init__'s stream_teardown_locks
+# param for why two instances exist and need to share this.
+_SHARED_STREAM_TEARDOWN_LOCKS: Dict[str, asyncio.Lock] = {}
+# In-flight stream references must be visible to both service instances for
+# the same reason their teardown locks are shared: a regular POST can be
+# mid-create while always-on reconciliation decides whether a camera stream
+# is orphaned, and vice versa.
+_SHARED_PENDING_STREAM_REFS: Dict[str, set[str]] = {}
+_SHARED_PENDING_STREAM_REFS_LOCK = threading.Lock()
+# get_always_on_service()'s instance uses this as its own _rules dict
+# (its normal in-memory bookkeeping, not a copy); get_realtime_service()
+# reads it read-only via extra_in_memory_rules so the persistent
+# instance's ref-counting isn't blind to always-on rules sharing its
+# stream — the mirror of _SHARED_STREAM_TEARDOWN_LOCKS/extra_rule_store
+# in the other direction. See get_always_on_service's docstring.
+_SHARED_ALWAYS_ON_RULES: Dict[str, Dict[str, Any]] = {}
+
+
 @lru_cache()
 def get_realtime_service() -> RealtimeAlertService:
-    return RealtimeAlertService(rule_store=get_rule_store())
+    return RealtimeAlertService(
+        rule_store=get_rule_store(),
+        stream_teardown_locks=_SHARED_STREAM_TEARDOWN_LOCKS,
+        pending_stream_refs=_SHARED_PENDING_STREAM_REFS,
+        pending_stream_refs_lock=_SHARED_PENDING_STREAM_REFS_LOCK,
+        extra_in_memory_rules=_SHARED_ALWAYS_ON_RULES,
+    )
 
 
 @lru_cache()
@@ -271,8 +300,49 @@ def get_always_on_service() -> AlwaysOnService:
     ``camera_remove`` can never clean them up.  Keeping the always-on
     service on the in-memory path avoids this: rules live only in the
     sidecar's lifetime and are re-created cleanly on every restart.
+
+    ``extra_rule_store`` gives that in-memory instance read-only
+    visibility into the same ES store for ref-counting purposes only
+    (see :meth:`RealtimeAlertService._count_other_rules_for_stream`):
+    a "regular" rule created via ``POST /api/v1/realtime`` with
+    ``sensor_id`` equal to a camera id can reuse that camera's RTVI
+    stream, and without this, always-on's ref-count check would be
+    blind to it and could tear the stream down out from under it. It's
+    never used for writes, so it doesn't reintroduce the duplication
+    problem above — start_alert/stop_alert on this instance still
+    dispatch purely on ``rule_store`` (``None`` here).
+
+    ``stream_teardown_locks=_SHARED_STREAM_TEARDOWN_LOCKS`` is the same
+    reasoning applied to the per-stream teardown lock
+    (:meth:`RealtimeAlertService._get_stream_teardown_lock`): that lock
+    only serialises RTVI teardown calls made through *this* instance.
+    Without sharing the dict with :func:`get_realtime_service`'s
+    instance too, a regular rule's ``stop_alert`` and an always-on
+    ``camera_remove`` racing on the same shared stream would each
+    acquire a different lock object and could still both fire
+    concurrent RTVI calls — reproducing the 409/orphan collision this
+    lock exists to prevent, just across instances instead of within
+    one.
+
+    ``rules_registry=_SHARED_ALWAYS_ON_RULES`` makes this instance's
+    own ``_rules`` dict — its normal in-memory bookkeeping — the same
+    object :func:`get_realtime_service` reads via
+    ``extra_in_memory_rules``. Always-on rules are never written to ES
+    (see above), so without this the persistent instance's ref-count
+    has no way to see them at all: deleting a regular rule that reuses
+    a camera's ``sensor_id`` would see zero ES readers and tear the
+    stream down under a live always-on rule — the same collision
+    ``extra_rule_store`` prevents, just in the other direction.
     """
-    return AlwaysOnService(realtime_service=RealtimeAlertService())
+    return AlwaysOnService(
+        realtime_service=RealtimeAlertService(
+            extra_rule_store=get_rule_store(),
+            stream_teardown_locks=_SHARED_STREAM_TEARDOWN_LOCKS,
+            pending_stream_refs=_SHARED_PENDING_STREAM_REFS,
+            pending_stream_refs_lock=_SHARED_PENDING_STREAM_REFS_LOCK,
+            rules_registry=_SHARED_ALWAYS_ON_RULES,
+        )
+    )
 
 
 @lru_cache()
