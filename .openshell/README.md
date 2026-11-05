@@ -640,11 +640,13 @@ installed against a build that is already running. The sandbox still never
 becomes a service; Compose owns the gateway, and the gateway owns the sandboxes
 it creates as siblings.
 
-**Why not the installer.** No CLI verb provisions a gateway, so the only
-alternative is OpenShell's installer, which runs the same binary under a
-systemd user unit. Declaring the Compose service instead keeps the image tag,
-port and mounts under review with the rest of the stack rather than as host
-state. The cost is the socket mount above.
+**Why not a packaged gateway.** Since v0.0.37 the CLI has no verb that starts
+a gateway; a package owns it instead — the installer's Debian, RPM or snap
+systemd user service, Homebrew on macOS, or Helm on Kubernetes — or a
+container run from the published image. The Compose service is that container
+route, declared rather than run by hand, so the image tag, port and mounts stay
+under review with the rest of the stack rather than as host state. The cost is
+the socket mount above.
 
 **2 — Convert the policy and prove it.** Translate the preset to OpenShell policy
 YAML, then verify the result rather than eyeballing it.
