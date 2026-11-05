@@ -67,10 +67,26 @@ class VSTError(Exception):
     pass
 
 
+def normalize_vst_origin(vst_url: str) -> str:
+    """Normalize a VST base URL to the origin that API paths are appended to."""
+    normalized = vst_url.strip().rstrip("/")
+    if normalized.endswith("/vst"):
+        normalized = normalized[:-4].rstrip("/")
+    return normalized
+
+
+def resolve_vst_internal_url(vst_internal_url: str | None = None) -> str:
+    """Resolve the VST URL used for agent-to-VST API calls."""
+    raw_url = vst_internal_url if vst_internal_url is not None else os.getenv("VST_INTERNAL_URL", "")
+    resolved = normalize_vst_origin(raw_url)
+    if not resolved:
+        raise VSTError("VST_INTERNAL_URL must be set for VST API calls")
+    return resolved
+
+
 async def get_name_to_stream_id_map(vst_internal_url: str | None = None) -> dict[str, str]:
     """Fetch `/api/v1/sensor/streams` and return `{name: streamId}`."""
-    if vst_internal_url is None:
-        vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/streams"
     async with aiohttp.ClientSession() as session:
         async for retry in create_retry_strategy(retries=3, exceptions=(Exception,)):
@@ -100,8 +116,7 @@ async def get_stream_id(sensor_id: str, vst_internal_url: str | None = None) -> 
     """Get the stream ID for a given sensor ID.
     Note: sensor_id can be the name of the sensor or the stream ID.
     """
-    if vst_internal_url is None:
-        vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
     stream_id_map = await get_name_to_stream_id_map(vst_internal_url)
     stream_id = stream_id_map.get(sensor_id)
     if not stream_id:
@@ -132,8 +147,7 @@ async def get_sensor_id_from_stream_id(stream_id: str, vst_internal_url: str | N
     Raises:
         VSTError: If the stream_id is not found in VST
     """
-    if vst_internal_url is None:
-        vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
     name_to_stream_id_map = await get_name_to_stream_id_map(vst_internal_url)
 
     # Reverse the mapping: {name: streamId} -> {streamId: name}
@@ -234,13 +248,14 @@ async def delete_vst_sensor(vst_url: str, sensor_id: str) -> tuple[bool, str]:
     Must be paired with delete_vst_storage to fully remove a video.
 
     Args:
-        vst_url: Base VST URL (e.g., http://localhost:30888)
+        vst_url: Base VST URL (e.g., http://vss.local:7777)
         sensor_id: The sensor UUID to delete
 
     Returns:
         (success, message) tuple
     """
-    url = f"{vst_url.rstrip('/')}/vst/api/v1/sensor/{quote_path_segment(sensor_id)}"
+    vst_url = normalize_vst_origin(vst_url)
+    url = f"{vst_url}/vst/api/v1/sensor/{quote_path_segment(sensor_id)}"
     logger.info("Deleting VST sensor: DELETE %s", scrub_log(url))
     try:
         async with (
@@ -273,13 +288,13 @@ async def delete_vst_storage(vst_url: str, sensor_id: str) -> tuple[bool, str]:
     for the sensor, computes the full start/end range, then issues the delete.
 
     Args:
-        vst_url: Base VST URL (e.g., http://localhost:30888)
+        vst_url: Base VST URL (e.g., http://vss.local:7777)
         sensor_id: The sensor UUID whose storage to delete
 
     Returns:
         (success, message) tuple
     """
-    vst_url = vst_url.rstrip("/")
+    vst_url = normalize_vst_origin(vst_url)
     timeline_url = f"{vst_url}/vst/api/v1/storage/timelines"
     logger.info("Getting VST timeline for storage delete: GET %s", timeline_url)
     try:
@@ -333,7 +348,7 @@ class VSTDirectUploader:
         Args:
             vst_api_url: Base URL for VST API
         """
-        self.vst_api_url = vst_api_url.rstrip("/")
+        self.vst_api_url = normalize_vst_origin(vst_api_url)
 
     async def upload_media_file(
         self,
@@ -430,8 +445,7 @@ async def get_streams_info(vst_internal_url: str | None = None) -> dict[str, dic
     Fetch `/api/v1/sensor/streams` and return full stream info including URLs.
     Returns: {stream_id: {"name": name, "url": rtsp_url}} Note: this only validates 200 status code, the url is not validated.
     """
-    if vst_internal_url is None:
-        vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/streams"
 
     async with aiohttp.ClientSession() as session:
@@ -484,8 +498,7 @@ async def add_sensor(
     Add a new sensor to VST.
     Returns: (success, message, sensor_id)
     """
-    if vst_internal_url is None:
-        vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/add"
 
     payload: dict[str, str] = {
@@ -540,10 +553,9 @@ async def delete_sensor(sensor_id: str | None, vst_internal_url: str | None = No
     Delete a sensor from VST.
     Returns: (success, message)
     """
-    if vst_internal_url is None:
-        vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
     if sensor_id is None:
         return False, "sensor_id is required"
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/{quote_path_segment(sensor_id)}"
 
     logger.info("Deleting VST sensor: DELETE %s", scrub_log(url))
@@ -572,8 +584,7 @@ async def get_storage_timeline(
     Get storage timeline (start_time, end_time) for a sensor.
     Returns: (success, message, start_time, end_time)
     """
-    if vst_internal_url is None:
-        vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
 
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/timelines"
     logger.info(f"Getting VST timeline: GET {url}")
@@ -610,10 +621,9 @@ async def delete_storage(sensor_id: str | None, vst_internal_url: str | None = N
     Delete storage files for a sensor from VST.
     Returns: (success, message)
     """
-    if vst_internal_url is None:
-        vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
     if sensor_id is None:
         return False, "sensor_id is required"
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
 
     # Get timeline first
     success, msg, start_time, end_time = await get_storage_timeline(sensor_id, vst_internal_url)
