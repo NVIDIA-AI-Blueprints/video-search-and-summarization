@@ -1,0 +1,106 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Alert verification (dev-profile-alerts, MODE=2d_cv) perf matrix.
+#
+# WHERE to test: one entry per hardware x deployment combination. The shared
+# benchmark-perf-test job filters entries by IMAGE_ARCH and NODE_LABELS, and
+# runs entries with the same nodeLabel one after another on one machine.
+#
+# Standard fields (see the Microservice Perf Onboarding guide):
+#   id, composePath, nodeLabel, imageArch, enabled, <model>Model / <model>Gpus
+#
+# Alert-specific fields (read by perf/scripts/deploy.sh and the benchmark):
+#   hardwareProfile  value passed to dev-profile.sh -H
+#   cvModel          RTVI-CV detector: RTDETR or GDINO (MODEL_NAME_2D)
+#   vlmPrecision     key into defaults.yaml -> vlm_precision_models
+#   llmMode          local_shared (default) or remote. The LLM is not on the
+#                    verification hot path; remote frees GPU memory for RT-VLM.
+#
+# composePath is the perf overlay. deploy.sh layers it on top of the shipped
+# deploy/docker/compose.yml so the stack under test is the one customers run.
+#
+# Multi-GPU entries are disabled for now: the guide asks for enabled: false on
+# tests that span several GPUs on one machine until the shared nodes have
+# NVLink. RTVI-CV and RT-VLM never exchange tensors across GPUs, so these can
+# likely be enabled once DevOps confirms.
+
+perf_configs:
+  # ---------------------------------------------------------------- amd64 ---
+  - id: "h100-2-cv1-vlm1-rtdetr-cr3-bf16"
+    composePath: "deploy/docker/developer-profiles/dev-profile-alerts/perf/setup/compose/alerts-verification-perf.yaml"
+    nodeLabel: "H100-SXM"
+    imageArch: "amd64"
+    enabled: false            # multi-GPU, see header
+    hardwareProfile: "H100"
+    cvModel: "RTDETR"
+    cvGpus: "0"
+    vlmModel: "cosmos3-nano-reasoner"
+    vlmGpus: "1"
+    vlmPrecision: "bf16"
+    llmMode: "local_shared"
+
+  - id: "h100-2-cv1-vlm1-rtdetr-cr3-fp8"
+    composePath: "deploy/docker/developer-profiles/dev-profile-alerts/perf/setup/compose/alerts-verification-perf.yaml"
+    nodeLabel: "H100-SXM"
+    imageArch: "amd64"
+    enabled: false            # multi-GPU, see header
+    hardwareProfile: "H100"
+    cvModel: "RTDETR"
+    cvGpus: "0"
+    vlmModel: "cosmos3-nano-reasoner"
+    vlmGpus: "1"
+    vlmPrecision: "fp8"
+    llmMode: "local_shared"
+
+  - id: "rtxpro6000-2-cv1-vlm1-rtdetr-cr3-bf16"
+    composePath: "deploy/docker/developer-profiles/dev-profile-alerts/perf/setup/compose/alerts-verification-perf.yaml"
+    nodeLabel: "RTX-PRO-6000"  # TODO: confirm the shared-pool label with DevOps
+    imageArch: "amd64"
+    enabled: false            # multi-GPU, see header
+    hardwareProfile: "RTXPRO6000BW"
+    cvModel: "RTDETR"
+    cvGpus: "0"
+    vlmModel: "cosmos3-nano-reasoner"
+    vlmGpus: "1"
+    vlmPrecision: "bf16"
+    llmMode: "local_shared"
+
+  # ----------------------------------------------------------- arm64-sbsa ---
+  - id: "spark-1-rtdetr-cr3-bf16"
+    composePath: "deploy/docker/developer-profiles/dev-profile-alerts/perf/setup/compose/alerts-verification-perf.yaml"
+    nodeLabel: "DGX-SPARK"
+    imageArch: "arm64-sbsa"
+    enabled: true
+    hardwareProfile: "DGX-SPARK"
+    cvModel: "RTDETR"
+    cvGpus: "0"
+    vlmModel: "cosmos3-nano-reasoner"
+    vlmGpus: "0"
+    vlmPrecision: "bf16"
+    llmMode: "local_shared"
+
+  - id: "spark-1-rtdetr-cr3-nvfp4"
+    composePath: "deploy/docker/developer-profiles/dev-profile-alerts/perf/setup/compose/alerts-verification-perf.yaml"
+    nodeLabel: "DGX-SPARK"
+    imageArch: "arm64-sbsa"
+    enabled: false            # TODO: fill vlm_precision_models.nvfp4 in defaults.yaml first
+    hardwareProfile: "DGX-SPARK"
+    cvModel: "RTDETR"
+    cvGpus: "0"
+    vlmModel: "cosmos3-nano-reasoner"
+    vlmGpus: "0"
+    vlmPrecision: "nvfp4"
+    llmMode: "local_shared"

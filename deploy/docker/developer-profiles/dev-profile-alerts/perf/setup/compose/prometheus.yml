@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Prometheus for alert verification perf runs. Runs on the compose network
+# (service perf-prometheus in alerts-verification-perf.yaml) and scrapes the
+# Alert Bridge metrics endpoint directly, so 9081 is not published on the host.
+# The scrape interval must match defaults.yaml -> prometheus.scrape_interval_seconds.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "alert-bridge"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "alert-bridge:9081"
