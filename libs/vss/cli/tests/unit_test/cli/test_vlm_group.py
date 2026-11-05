@@ -74,8 +74,23 @@ def _completion(answer: str = "I see a forklift in aisle 3.") -> dict[str, Any]:
     }
 
 
+def _patch_post(monkeypatch, callback):
+    """Keep legacy request assertions while exercising the async HTTP boundary."""
+
+    async def post(_client, url, **kwargs):
+        body = kwargs.get("content")
+        if body is not None:
+            kwargs["content"] = [chunk async for chunk in body]
+        response = callback(url, timeout=_client.timeout.read, **kwargs)
+        if not hasattr(response, "_request") or response._request is None:
+            response.request = httpx.Request("POST", url)
+        return response
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+
+
 def _fake_post(response: Any) -> Any:
-    """Return a callable that patches httpx.post with a fixed response."""
+    """Return a callable for the legacy assertions at the async POST boundary."""
     if isinstance(response, Exception):
 
         def _raise(*_args: Any, **_kwargs: Any) -> httpx.Response:
@@ -199,7 +214,7 @@ def test_run_media_url_persists_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     answer = "I see a person carrying a box."
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(answer))))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion(answer))))
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -220,7 +235,7 @@ def test_run_no_persist_skips_memory(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion())))
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -239,7 +254,7 @@ def test_run_returns_answer_when_configured_memory_backend_is_absent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     answer = "The worker is wearing a hard hat and high-visibility vest."
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(answer))))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion(answer))))
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -274,7 +289,7 @@ def test_run_request_carries_video_url(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -304,7 +319,7 @@ def test_run_model_defaults_from_deployment(
         captured["model"] = json["model"]
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -327,7 +342,7 @@ def test_run_timeout_returns_timeout_exit(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.TimeoutException("timed out")))
+    _patch_post(monkeypatch, _fake_post(httpx.TimeoutException("timed out")))
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -347,7 +362,7 @@ def test_run_5xx_returns_backend_unreachable(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(503, text="Service Unavailable")))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(503, text="Service Unavailable")))
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -366,7 +381,7 @@ def test_run_4xx_returns_invalid_input(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(400, text="Bad Request")))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(400, text="Bad Request")))
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -384,7 +399,7 @@ def test_run_network_error_returns_backend_unreachable(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.ConnectError("refused")))
+    _patch_post(monkeypatch, _fake_post(httpx.ConnectError("refused")))
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -433,7 +448,7 @@ def test_cli_disable_reasoning_sends_false(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
     result = CliRunner().invoke(
         VLM.cli(),
         [
@@ -475,16 +490,30 @@ def test_cli_missing_media_source(
     assert result.exit_code == Exit.INVALID_INPUT
 
 
+@pytest.mark.parametrize(
+    "usage",
+    [
+        None,
+        [],
+        {"total_tokens": None},
+        {"total_tokens": True},
+        {"total_tokens": "30"},
+        {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+    ],
+)
 def test_cli_run_success(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    usage: Any,
 ) -> None:
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
     config_mod.save(configured)
 
     answer = "Nothing unusual."
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(answer))))
+    payload = _completion(answer)
+    payload["usage"] = usage
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=payload)))
 
     runner = CliRunner()
     result = runner.invoke(
@@ -511,7 +540,7 @@ def test_cli_intent_stored_in_body(
 ) -> None:
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
     config_mod.save(configured)
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion())))
 
     runner = CliRunner()
     result = runner.invoke(
@@ -533,7 +562,7 @@ def test_run_request_carries_max_frames(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -559,7 +588,7 @@ def test_run_request_carries_fps(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -582,7 +611,7 @@ def test_run_request_carries_vlm_controls(
         captured["timeout"] = timeout
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -630,7 +659,7 @@ def test_standalone_vllm_translates_vlm_controls(monkeypatch: pytest.MonkeyPatch
         captured["timeout"] = timeout
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -684,7 +713,7 @@ def test_cosmos_reason_nim_delegates_to_rt_vlm_with_alpha_warning(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -731,7 +760,7 @@ def test_standalone_vllm_sends_max_frames_or_leaves_sampling_to_server(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -762,7 +791,7 @@ def test_configured_vlm_policy_applies_all_defaults(monkeypatch: pytest.MonkeyPa
         captured["timeout"] = timeout
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -811,7 +840,7 @@ def test_cli_run_uses_locked_policy_without_per_call_flags(
         captured["timeout"] = timeout
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
     config_mod.save(
         _deployment(
@@ -889,7 +918,7 @@ def test_explicit_run_argument_overrides_environment_when_unlocked(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
     monkeypatch.setenv("VSS_VLM_TEMPERATURE", "0")
 
     from vss_cli.group import Context
@@ -914,7 +943,7 @@ def test_environment_policy_applies_without_persisted_policy(monkeypatch: pytest
         captured["timeout"] = timeout
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
     monkeypatch.setenv("VSS_VLM_TIMEOUT", "600")
     monkeypatch.setenv("VSS_VLM_TEMPERATURE", "0")
     monkeypatch.setenv("VSS_VLM_MAX_TOKENS", "8192")
@@ -954,7 +983,7 @@ def test_persisted_backend_overrides_environment_default(monkeypatch: pytest.Mon
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
     monkeypatch.setenv(config_mod.VLM_ENV["backend"], "vllm")
     monkeypatch.setenv(config_mod.VLM_ENV["fps"], "4")
 
@@ -994,7 +1023,7 @@ def test_total_pixels_below_the_floor_lowers_the_floor(monkeypatch: pytest.Monke
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -1013,7 +1042,7 @@ def test_unlocked_vlm_policy_allows_override(monkeypatch: pytest.MonkeyPatch) ->
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -1040,7 +1069,7 @@ def test_rt_vlm_with_fps_drops_max_frames_and_says_so(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -1066,7 +1095,7 @@ def test_run_request_preserves_fps_on_long_sensor_window(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
     monkeypatch.setattr(
         "vss_cli.vlm.group._resolve_vios_clip",
         lambda *_args, **_kwargs: ("http://vios/clip.mp4", "2025-01-01T00:00:00Z", "2025-01-01T00:02:00Z"),
@@ -1108,7 +1137,7 @@ def test_run_request_without_sampling_leaves_it_to_the_server(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
     for field_name in config_mod.VLM_SAMPLING_FIELDS:
         monkeypatch.delenv(config_mod.VLM_ENV[field_name], raising=False)
 
@@ -1168,7 +1197,7 @@ def test_run_file_source_uses_base64(
             captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -1207,7 +1236,7 @@ def test_standalone_vllm_base64_uses_backend_translation(
         captured["json"] = _json.loads(b"".join(content))
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -1275,7 +1304,7 @@ def test_standalone_vllm_loader_owns_sampling_before_qwen(
         captured["json"] = json if json is not None else json_loads(b"".join(content))
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -1385,7 +1414,7 @@ def test_sampling_in_model_params(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Sampling values must be persisted in model_params in the memory record."""
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion())))
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -1415,7 +1444,7 @@ def test_vlm_controls_in_model_params(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion())))
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -1457,7 +1486,7 @@ def test_sensor_path_uses_resolved_window_bounds(
         "_resolve_vios_clip",
         lambda *_args, **_kwargs: (resolved_url, resolved_start, resolved_end),
     )
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion("ok"))))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion("ok"))))
 
     store = _in_memory(configured)
     ctx = Context(deployment=configured, memory=store)
@@ -1494,7 +1523,7 @@ def test_run_file_source_does_not_persist_local_path(
     video_file = tmp_path / "clip.mp4"
     video_file.write_bytes(b"\x00\x01\x02video")
 
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion("looks good"))))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion("looks good"))))
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -1569,7 +1598,7 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
         return httpx.Response(200, json=_completion("loopback works"))
 
     monkeypatch.setattr(httpx, "stream", _fake_stream)
-    monkeypatch.setattr(httpx, "post", _fake_vlm_post)
+    _patch_post(monkeypatch, _fake_vlm_post)
 
     store = _in_memory(configured)
     ctx = Context(deployment=configured, memory=store)
@@ -1693,7 +1722,7 @@ def test_run_empty_answer_exits_backend_unreachable(
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
 
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(""))))
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion(""))))
 
     store = _in_memory(configured)
     ctx = Context(deployment=configured, memory=store)
@@ -2035,7 +2064,7 @@ def _run_direct(
         captured.update(url=url, json=json, headers=headers)
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -2164,7 +2193,7 @@ def test_fps_alone_lifts_vllms_default_frame_cap_only_on_vllm(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -2219,7 +2248,7 @@ def test_explicit_max_frames_replaces_an_inherited_fps_where_backends_take_one(
         captured["json"] = json
         return httpx.Response(200, json=_completion())
 
-    monkeypatch.setattr(httpx, "post", _capture)
+    _patch_post(monkeypatch, _capture)
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup
@@ -2229,3 +2258,46 @@ def test_explicit_max_frames_replaces_an_inherited_fps_where_backends_take_one(
     VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_frames=30), ctx)
 
     assert captured["json"]["media_io_kwargs"] == {"video": expected}
+
+
+@pytest.mark.parametrize("http_status", [401, 403, 429])
+def test_execution_rejection_keeps_exit_and_single_attempt(http_status, monkeypatch):
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    calls = []
+
+    def post(url, **kwargs):
+        calls.append(url)
+        return httpx.Response(http_status, text="do not echo private payload")
+
+    _patch_post(monkeypatch, post)
+    ctx = Context(deployment=_deployment())
+    ctx.extra = {"no_persist": True}
+    result = VlmGroup().run("", VlmInput(prompt="What?", media_url="https://h/clip.mp4"), ctx)
+    assert result.exit == Exit.INVALID_INPUT and len(calls) == 1
+    assert result.body["error"] == f"HTTP {http_status}"
+    assert set(result.body) == {"job_id", "status", "error"}
+
+
+def test_cli_keeps_string_only_response_acceptance(monkeypatch):
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion([{"text": "answer"}]))))
+    ctx = Context(deployment=_deployment())
+    ctx.extra = {"no_persist": True}
+    result = VlmGroup().run("", VlmInput(prompt="What?", media_url="https://h/clip.mp4"), ctx)
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+
+
+def test_explicit_empty_model_preserves_endpoint_fallback_with_saved_policy(configured):
+    from vss_cli.vlm.group import _apply_vlm_policy
+    from vss_cli.vlm.target import resolve_vlm_target
+
+    policy = config_mod.VlmConfig(model="configured-other-model")
+    inputs = VlmInput(prompt="question", media_url="https://host/video.mp4", model="")
+    applied = _apply_vlm_policy(inputs, policy)
+    assert applied.model == ""
+    target = resolve_vlm_target(configured, applied.model, policy)
+    assert target.model == configured.services["rt_vlm"].models[0]
