@@ -8,7 +8,7 @@ name: vss
 services:
   init-config-manager:
     profiles: ["latency-init"]
-    image: nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-configurator:nightly-20260906
+    image: ${PERF_VSS_CONFIGURATOR_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     container_name: init-config-manager
     network_mode: "host"
     user: "${DOCKER_UID}:${DOCKER_GID}"
@@ -23,7 +23,7 @@ services:
       - ${CI_VSS_OSS_DIR}:${CI_VSS_OSS_DIR}:rw
   bp-configurator-init:
     container_name: bp-configurator-init
-    image: curlimages/curl:latest
+    image: ${PERF_EVAL_CURL_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     network_mode: "host"
     environment:
       ENABLE_NVSTREAMER_VIDEO_UPLOAD: ${ENABLE_NVSTREAMER_VIDEO_UPLOAD:-false}
@@ -88,7 +88,7 @@ services:
 
     restart: "no"
   bp-configurator:
-    image: nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-configurator:nightly-20260906
+    image: ${PERF_VSS_CONFIGURATOR_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     container_name: bp-configurator
     network_mode: "host"
     user: "${DOCKER_UID}:${DOCKER_GID}"
@@ -132,7 +132,7 @@ services:
   # Init container: Ensures reports directory has correct permissions (alerts profile only)
   alert-bridge-evaluator-init:
     profiles: ["alerts"]
-    image: busybox:latest
+    image: ${PERF_EVAL_BUSYBOX_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     container_name: alert-bridge-evaluator-init
     # Container runs as nonroot user 65532:65532 (from distroless image)
     command: ["sh", "-c", "mkdir -p /app/reports && chown 65532:${DOCKER_GID:-65532} /app/reports && chmod 2775 /app/reports"]
@@ -142,7 +142,7 @@ services:
 
   alert-bridge-evaluator:
     profiles: ["alerts"]
-    image: nvcr.io/nv-metropolis-dev/metropolis-analytic/alert-bridge-evaluator:2026.09.22
+    image: ${PERF_ALERT_BRIDGE_EVALUATOR_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     # image: ab_eval:test2
     container_name: vss-alert-bridge-evaluator
     # ports:
@@ -218,7 +218,7 @@ services:
   # Started only when run_eval enables profile: alerts-verification-latency-prometheus.
   prometheus:
     profiles: ["alerts-verification-latency-prometheus"]
-    image: quay.io/prometheus/prometheus:v3.11.3
+    image: ${PERF_PROMETHEUS_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     container_name: prometheus
     network_mode: "host"
     command:
@@ -235,7 +235,7 @@ services:
   # Init container: Waits for required upload inputs before starting eval-orchestrator
   eval-orchestrator-init:
     container_name: eval-orchestrator-init
-    image: curlimages/curl:latest
+    image: ${PERF_EVAL_CURL_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     network_mode: "host"
     environment:
       EVAL_TYPE: ${EVAL_TYPE}
@@ -302,7 +302,7 @@ services:
   eval-orchestrator:
     profiles: ["alerts"]
     container_name: eval-orchestrator
-    image: nvcr.io/nvstaging/vss-core/vss-surf-trigger-eval-svc:3.2-2026.05.06
+    image: ${PERF_VSS_SURF_TRIGGER_EVAL_SVC_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     network_mode: "host"
     environment:
       AGENT_NAME: vss-agent

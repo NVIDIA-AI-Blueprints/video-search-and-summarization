@@ -22,7 +22,7 @@
 
 services:
   downloader:
-    image: alpine:3.20
+    image: ${PERF_ALPINE_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     profiles: ["media"]
     volumes:
       - media-data:/data
@@ -110,7 +110,7 @@ services:
     restart: 'no'
 
   media-server:
-    image: nginx:alpine
+    image: ${PERF_NGINX_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
     profiles: ["media"]
     volumes:
       - media-data:/usr/share/nginx/html:ro

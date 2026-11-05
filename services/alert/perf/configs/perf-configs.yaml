@@ -8,5 +8,6 @@ perf_configs:
     # Preserve native dev-profile GPU placement unless explicit vlmGpus/llmGpus
     # overrides are added here. Each native model accepts a single device ID.
     checkoutPaths:
+      - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
       - deploy/docker/

@@ -9,3 +9,5 @@ perf_configs:
     vlmModel: "cosmos-embed1-448p"
     llmModel: "unused"
     vision_input_tokens: "unused"
+    checkoutPaths:
+      - libs/vss-perf-tools/

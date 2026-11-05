@@ -32,6 +32,7 @@ while (($#)); do
 done
 
 mkdir -p "$output/native" "$output/vss-perf-results"
+output="$(cd "$output" && pwd)"
 runtime_config="$output/native/runtime-config.yaml"
 PERF_VENV_DIR="${PERF_VENV_DIR:-$PERF_ROOT/setup/.venv}"
 PERF_VENV_DIR="$PERF_VENV_DIR" "$PERF_ROOT/setup/setup_environment.sh"
@@ -81,6 +82,14 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# Resolve support images independently of the tested RTVI image.
+repo_root="$(cd "$PERF_ROOT/../../../.." && pwd)"
+image_tool="$repo_root/libs/vss-perf-tools/support_images.py"
+image_config="$PERF_ROOT/setup/configs/images.yaml"
+image_environment="$("$PERF_VENV_DIR/bin/python" "$image_tool" --config "$image_config" --snapshot "$output/support-images.json" --shell)"
+eval "$image_environment"
+
 
 "$PERF_ROOT/scripts/native_setup_perf_env.sh"
 

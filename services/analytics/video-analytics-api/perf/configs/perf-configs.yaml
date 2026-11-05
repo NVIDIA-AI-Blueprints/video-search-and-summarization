@@ -8,6 +8,7 @@ perf_configs:
     broker: none
     composePath: test/integration-test/docker_compose/infra/video-analytics-api-infra.yml
     checkoutPaths:
+      - libs/vss-perf-tools/
       - services/analytics/video-analytics-api/src/app/specification/openapi.json
       - services/analytics/video-analytics-api/test/integration-test/
       - deploy/docker/services/

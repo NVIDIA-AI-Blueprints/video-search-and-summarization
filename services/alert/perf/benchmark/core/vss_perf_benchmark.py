@@ -12,6 +12,7 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,9 @@ import yaml
 PERF_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = PERF_ROOT.parents[2]
 sys.path.insert(0, str(REPO_ROOT / "libs/vss-perf-reporting/src"))
+sys.path.insert(0, str(REPO_ROOT / "libs/vss-perf-tools"))
+from support_images import load as load_images, environment as image_environment, save_snapshot  # noqa: E402
+
 from vss_perf_reporting import build_and_save, discover_platform  # noqa: E402
 from alert_results_adapter import to_test_cases  # noqa: E402
 
@@ -35,6 +39,16 @@ REQUIRED_DEPLOYMENT_ENV_TEMPLATES = (
 
 def run(argv, **kwargs):
     return subprocess.run([str(arg) for arg in argv], check=True, **kwargs)
+
+
+def write_docker_shim(path, docker, image_variables):
+    """Forward only the selected image variables through passwordless sudo."""
+    names = ",".join(sorted(image_variables))
+    path.write_text(
+        "#!/usr/bin/env bash\nexec sudo -n --preserve-env=" + names + " "
+        + shlex.quote(docker) + ' "$@"\n'
+    )
+    path.chmod(0o700)
 
 
 def hardware_profile():
@@ -57,6 +71,29 @@ def hardware_profile():
     raise ValueError(f"No native alerts hardware profile for detected GPU: {name}")
 
 
+def agent_host_port(config):
+    port = config.get("deployment", {}).get("agent_host_port", 8001)
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("deployment.agent_host_port must be an integer from 1 to 65535")
+    return port
+
+
+def ensure_agent_port_available(port, env):
+    # Docker can publish ports through NAT without a listening host process.
+    published = subprocess.check_output(
+        ["docker", "ps", "--format", "{{.Names}}\t{{.Ports}}"], text=True, env=env
+    )
+    for line in published.splitlines():
+        if re.search(rf":{port}->", line):
+            owner = line.split("\t", 1)[0]
+            raise ValueError(f"Alerts agent host port {port} is already published by {owner}")
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("0.0.0.0", port))
+    except OSError as error:
+        raise ValueError(f"Cannot bind Alerts agent host port {port}: {error}") from error
+
+
 def scenario_settings(config_path, scenario):
     config = yaml.safe_load(config_path.read_text())
     selected = config["test_scenarios"][scenario]
@@ -65,6 +102,7 @@ def scenario_settings(config_path, scenario):
             "Only synthetic_kafka and e2e_kafka latency modes are supported"
         )
     global_config = config["global"]
+    agent_host_port(global_config)
     dataset = selected.get("dataset", global_config["dataset"])
     workload = {**global_config.get("workload", {}), **selected.get("workload", {})}
     for key in (
@@ -132,7 +170,7 @@ def prepare_dataset(dataset, env):
     return destination
 
 
-def prepare_runtime(work, image, supporting):
+def prepare_runtime(work, agent_port=8001):
     """Keep source code and deployment templates untouched in the checkout."""
     source = REPO_ROOT / "deploy/docker"
     environment_templates = {}
@@ -166,29 +204,19 @@ def prepare_runtime(work, image, supporting):
     profile_env = deployment / "developer-profiles/dev-profile-alerts/.env"
     with profile_env.open("a") as stream:
         stream.write("\nSTREAM_TYPE=kafka\n")
-    profile_env.chmod(0o600)
-    # Existing Compose appends a tag to VSS_ALERT_IMAGE. Replace that one image
-    # expression with the exact artifact (including a digest when supplied).
-    matched = 0
-    for path in deployment.rglob("*"):
-        if path.suffix not in (".yml", ".yaml") or not path.is_file():
-            continue
-        text = path.read_text()
-        updated, count = re.subn(
-            r"(?m)^(\s*image:)\s*[^\n]*\$\{VSS_ALERT_IMAGE[^\n]*$",
-            lambda match: match[1] + " " + image,
-            text,
-        )
-        if count:
-            path.write_text(updated)
-            matched += count
-    if not matched:
-        raise ValueError("Could not locate the alerts Compose image override")
-    compose_path = work / "eval/compose.yml"
-    compose = yaml.safe_load(compose_path.read_text())
-    for name, reference in supporting["eval_images"].items():
-        compose["services"][name]["image"] = reference
-    compose_path.write_text(yaml.safe_dump(compose, sort_keys=False))
+    # dev-profile.sh copies overrides.env into generated.env, which has higher
+    # Compose precedence than the profile .env. Change only this private copy.
+    overrides = deployment / "developer-profiles/dev-profile-alerts/overrides.env"
+    content = overrides.read_text()
+    assignment = f"VSS_AGENT_HOST_PORT={agent_port}"
+    pattern = r"(?m)^(?:export\s+)?VSS_AGENT_HOST_PORT=.*$"
+    if re.search(pattern, content):
+        content = re.sub(pattern, assignment, content)
+    else:
+        content += "\n" + assignment + "\n"
+    overrides.write_text(content)
+    # The native profile configurator still needs a private deployment copy.
+    # Images are selected by Compose environment interpolation, not file rewriting.
     (work / "eval/.env").touch(mode=0o600)
     return deployment
 
@@ -320,6 +348,11 @@ def main(argv=None):
     native_output.mkdir(exist_ok=True)
     started = time.monotonic()
     env = os.environ.copy()
+    # Native dev-profile.sh owns these paths through generated.env. Inherited
+    # exports would override that file when Compose resolves bind mounts.
+    env.pop("VSS_APPS_DIR", None)
+    env.pop("VSS_DATA_DIR", None)
+    env.pop("VSS_AGENT_HOST_PORT", None)
     env["NGC_CLI_API_KEY"] = env.get("NGC_CLI_API_KEY") or env.get("NGC_API_KEY", "")
     env["NGC_API_KEY"] = env["NGC_CLI_API_KEY"]
     stage = "pre_flight"
@@ -336,6 +369,7 @@ def main(argv=None):
         global_config, scenario, dataset, workload = scenario_settings(
             args.config, args.scenario
         )
+        agent_port = agent_host_port(global_config)
         for value in (args.vlm_gpus, args.llm_gpus):
             if value and not re.fullmatch(r"[0-9]+", value):
                 raise ValueError(
@@ -346,6 +380,7 @@ def main(argv=None):
                 "setup": scenario["benchmark_mode"],
                 "workload": workload,
                 "dataset": dataset,
+                "agent_host_port": agent_port,
             }
         )
         image = metadata_config["artifact_ref"]
@@ -357,6 +392,12 @@ def main(argv=None):
             raise ValueError(
                 "IMAGE_TAG/ARTIFACT_REF must be an explicit full alerts image reference"
             )
+        supporting = load_images(PERF_ROOT / global_config["supporting_images"])
+        support_values = image_environment(supporting, env)
+        env.update(support_values)
+        env["PERF_ALERT_IMAGE"] = image
+        save_snapshot(output / "support-images.json", support_values)
+        metadata_config["supporting_images"] = supporting
         if not env["NGC_CLI_API_KEY"]:
             raise ValueError("NGC_API_KEY/NGC_CLI_API_KEY is required")
         for binary in ("docker", "curl", "jq", "ip", "bash", "nvidia-smi"):
@@ -371,12 +412,10 @@ def main(argv=None):
             tools = work / "bin"
             tools.mkdir()
             shim = tools / "docker"
-            shim.write_text(
-                "#!/usr/bin/env bash\nexec sudo -n " + shlex.quote(docker) + ' "$@"\n'
-            )
-            shim.chmod(0o700)
+            write_docker_shim(shim, docker, [*support_values, "PERF_ALERT_IMAGE"])
             env["PATH"] = str(tools) + os.pathsep + env["PATH"]
         run(["docker", "compose", "version"], env=env)
+        ensure_agent_port_available(agent_port, env)
         existing = subprocess.check_output(
             ["docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=vss"],
             text=True,
@@ -387,16 +426,12 @@ def main(argv=None):
                 "Native alerts evaluation requires exclusive access: existing vss Compose containers detected"
             )
         profile = hardware_profile()
-        supporting = yaml.safe_load(
-            (PERF_ROOT / global_config["supporting_images"]).read_text()
-        )
-        metadata_config["supporting_images"] = supporting
         dataset_root = prepare_dataset(dataset, env)
         if not (
             dataset_root / dataset["videos_subpath"] / workload["latency_source_video"]
         ).is_file():
             raise ValueError("Configured latency source video is missing")
-        prepare_runtime(work, image, supporting)
+        prepare_runtime(work, agent_port)
         # The native stack uses fixed container names as well as project=vss.
         # Reject a conflicting name even when it belongs to a different project.
         reserved_names = set()
@@ -424,12 +459,6 @@ def main(argv=None):
             )
         env.update(
             {
-                str(key): str(value)
-                for key, value in supporting["blueprint_environment"].items()
-            }
-        )
-        env.update(
-            {
                 "CI_VSS_OSS_DIR": str(work),
                 "BLUEPRINTS_DIR": str(work / "video-search-and-summarization"),
                 "EVAL_RESULT_DIR_PATH": str(native_output),
@@ -445,7 +474,6 @@ def main(argv=None):
                 "EVAL_GROUND_TRUTH_PATH": str(
                     dataset_root / dataset["ground_truth_subpath"]
                 ),
-                "VSS_DATA_DIR": str(work / "blueprint-data"),
                 "PROFILE_CONFIG_PYTHON": sys.executable,
                 "ALERT_BRIDGE_SYNTHETIC_SUBMISSION_MODE": "message_bus",
                 "ALERT_BRIDGE_EVALUATOR_PROMETHEUS_SUMMARY_BUFFER_SECONDS": str(
@@ -604,12 +632,15 @@ def main(argv=None):
             }
         )
     passed = sum(case["status"] == "PASS" for case in cases)
+    platform = discover_platform(config_id=args.config_id)
+    if args.gpu_model:
+        platform.setdefault("gpu", {})["model"] = args.gpu_model
     path = build_and_save(
         output / "vss-perf-results",
         SERVICE,
         cases,
         config_id=args.config_id,
-        platform=discover_platform(config_id=args.config_id),
+        platform=platform,
         config=metadata_config,
         benchmark_name=args.scenario,
         benchmark_mode=metadata_config.get("setup", "latency"),

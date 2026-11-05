@@ -321,6 +321,12 @@ if [ -f "$COMPOSE_DIR/.env" ]; then
     set +a
 fi
 
+# Load supporting image variables before Compose resolves its service definitions.
+PERF_VENV_DIR="$VENV_DIR" "$SETUP_ENVIRONMENT"
+image_tool="$PERF_ROOT/../../../libs/vss-perf-tools/support_images.py"
+image_environment="$("$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" --shell)"
+eval "$image_environment"
+
 export_gpu_assignments() {
     local prefix="$1"
     local values="$2"
@@ -572,6 +578,8 @@ else
     export VIA_OUTPUT_DIR="$BENCHMARK_ROOT/vss-perf-report-${COMPOSE_NAME}-$(date +%Y%m%d-%H%M%S)"
 fi
 step "Output directory: $VIA_OUTPUT_DIR"
+mkdir -p "$VIA_OUTPUT_DIR"
+"$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" --snapshot "$VIA_OUTPUT_DIR/support-images.json"
 
 BENCHMARK_CMD=(python3 vss_perf_benchmark.py --config "$BENCHMARK_CONFIG_PATH")
 if [ "${#SCENARIO_ARGS[@]}" -gt 0 ]; then
@@ -593,8 +601,7 @@ fi
 [ -n "$RELEASE" ] && BENCHMARK_CMD+=(--release "$RELEASE")
 
 cd "$BENCHMARK_DIR"
-step "Synchronizing benchmark environment: $VENV_DIR"
-PERF_VENV_DIR="$VENV_DIR" "$SETUP_ENVIRONMENT"
+step "Using benchmark environment: $VENV_DIR"
 set +u
 source "$VENV_DIR/bin/activate"
 set -u

@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Supporting images only; the tested service still uses ARTIFACT_REF.
+# Values preserve existing references and do not certify OSRB approval.
+schema_version: 1
+images:
+  PERF_ELASTICSEARCH_IMAGE: elasticsearch
+  PERF_KAFKA_IMAGE: confluentinc/cp-kafka:8.3.0
+  PERF_VSS_KAFKA_TOPIC_INIT_IMAGE: vss-kafka-topic-init
+  PERF_KIBANA_IMAGE: docker.elastic.co/kibana/kibana:9.4.4
+  PERF_LOGSTASH_IMAGE: docker.elastic.co/logstash/logstash:9.4.4
+  PERF_ELASTICSEARCH_BASE_IMAGE: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+  PERF_ALPINE_IMAGE: alpine:3.24.1

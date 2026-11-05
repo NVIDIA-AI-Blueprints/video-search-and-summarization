@@ -3,7 +3,7 @@
 
 services:
   nemotron-3.5-lightning-30b-a3b-init:
-    image: alpine:3.24.3
+    image: ${PERF_ALPINE_IMAGE:-alpine:3.24.3}
     container_name: llm-nim-init
     profiles:
     - llm_local_nemotron-3.5-lightning-30b-a3b
@@ -15,7 +15,7 @@ services:
     restart: "no"
 
   nemotron-3.5-lightning-30b-a3b:
-    image: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+    image: ${PERF_NEMOTRON_3_5_LIGHTNING_30B_A3B_IMAGE:-nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant}
     container_name: nemotron-3.5-lightning-30b-a3b
     profiles:
     - llm_local_nemotron-3.5-lightning-30b-a3b
@@ -58,7 +58,7 @@ services:
         required: true
 
   nemotron-3.5-lightning-30b-a3b-shared-gpu:
-    image: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+    image: ${PERF_NEMOTRON_3_5_LIGHTNING_30B_A3B_IMAGE:-nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant}
     container_name: nemotron-3.5-lightning-30b-a3b
     profiles:
     - llm_local_shared_nemotron-3.5-lightning-30b-a3b

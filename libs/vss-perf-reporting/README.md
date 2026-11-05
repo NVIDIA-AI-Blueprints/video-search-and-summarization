@@ -49,6 +49,12 @@ result_path = build_and_save(
 The service runtime must make `libs/vss-perf-reporting/src` importable and
 install the dependencies declared in `pyproject.toml`.
 
+Platform discovery uses NVML when its optional Python binding is available,
+with a bounded `nvidia-smi` fallback for environments without that binding.
+Both paths populate the same GPU metadata fields. Unsupported GPU memory
+queries retain the other discovered fields and report memory as `null`.
+Services do not need an additional GPU discovery dependency for reporting.
+
 ## Jenkins-owned publication
 
 Benchmark entrypoints only write canonical reports. The common Jenkins pipeline

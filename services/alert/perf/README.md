@@ -29,6 +29,15 @@ Each invocation runs one scenario. `quick_test` is synthetic Kafka alert
 injection; `full_alerts_latency` keeps upstream alert generation enabled. Both
 use the verification workflow and Prometheus latency measurements.
 
+Both scenarios publish the agent on host port `8001`, forwarding to its internal
+port `8000`. Set `global.deployment.agent_host_port` in `configs/config.yaml` to
+use another available host port. The runner checks availability before dataset
+preparation and deployment; this check does not reserve the port. It applies the
+setting only to the private runtime profile's `overrides.env`, which the native
+deployment copies into `generated.env`. An inherited `VSS_AGENT_HOST_PORT` does
+not override this benchmark setting. Internal routing, health checks, and model
+server ports remain unchanged.
+
 Configure sensors, duration, source video, alert category, worker count,
 synthetic event rate and coverage settings in `configs/config.yaml`. The initial
 workload uses one sensor and five minutes. Five synthetic submissions provide a
@@ -70,3 +79,32 @@ Supporting blueprint defaults initially use `develop-latest`, matching the VSS
 checkout's deployment baseline. Replace those values with pinned release/commit
 tags before using results for release comparisons. The alert image itself is
 always the explicit supplied reference, including digest references.
+
+## Supporting container images
+
+Edit `setup/configs/images.yaml` to select this benchmark's supporting images.
+It contains a flat map of image variable names to complete references:
+
+```yaml
+schema_version: 1
+images:
+  PERF_PROMETHEUS_IMAGE: prom/prometheus:latest
+```
+
+Use the variable names already present in the service's file. The benchmark runner
+loads and validates them before deployment; no separate image setup command is
+needed. Explicit nonempty environment overrides take precedence. Clear an override
+to use the file's value.
+
+Compose files refer directly to these variables. Shared Dockerfiles receive base
+images through build arguments and retain their existing defaults for ordinary
+blueprint deployments. Image selection does not copy or rewrite those templates.
+The service under test still uses the artifact selected for the run.
+
+`support-images.json` records the effective support image variables alongside the
+run output. Image values preserve existing references and do not certify OSRB
+approval or record the immutable digests pulled by Docker.
+
+Alerts still makes a private deployment copy for the native latency-profile
+configurator. That copy is not used to rewrite image references; Compose receives
+the target artifact and supporting images through environment variables.

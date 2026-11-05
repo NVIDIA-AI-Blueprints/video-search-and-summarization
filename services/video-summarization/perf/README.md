@@ -99,3 +99,28 @@ docker compose -f perf/setup/monitoring/compose.yaml up -d
 ```
 
 Use `docker network ls` to find the network created for your Compose project.
+
+## Supporting container images
+
+Edit `setup/configs/images.yaml` to select this benchmark's supporting images.
+It contains a flat map of image variable names to complete references:
+
+```yaml
+schema_version: 1
+images:
+  PERF_PROMETHEUS_IMAGE: prom/prometheus:latest
+```
+
+Use the variable names already present in the service's file. The benchmark runner
+loads and validates them before deployment; no separate image setup command is
+needed. Explicit nonempty environment overrides take precedence. Clear an override
+to use the file's value.
+
+Compose files refer directly to these variables. Shared Dockerfiles receive base
+images through build arguments and retain their existing defaults for ordinary
+blueprint deployments. Image selection does not copy or rewrite those templates.
+The service under test still uses the artifact selected for the run.
+
+`support-images.json` records the effective support image variables alongside the
+run output. Image values preserve existing references and do not certify OSRB
+approval or record the immutable digests pulled by Docker.

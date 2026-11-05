@@ -61,6 +61,7 @@ def stage():
         "HOST_IP": "127.0.0.1", "VST_CONFIG_PATH": stream / "configs",
         "VST_VOLUME": root / "vst_volume", "VST_USE_SDRC": "false",
         "COMPOSE_PROFILES": "", "NGINX_MODE": "vst",
+        **{key: os.environ[key] for key in ("POSTGRES_IMAGE", "REDIS_IMAGE") if key in os.environ},
         "VST_ENABLE_NOTIFICATION": "false",
         "STREAM_PROCESSOR_MODULE_ENDPOINT": f"http://127.0.0.1:{ports['VST_STREAM_PROC_PORT']}",
         "SENSOR_MODULE_ENDPOINT": f"http://127.0.0.1:{ports['VST_SENSOR_PORT']}",
