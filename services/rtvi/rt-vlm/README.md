@@ -542,6 +542,13 @@ RTVI VLM provides REST endpoints for media assets, live streams, caption generat
 | `/v1/health/live` | GET | NIM-compatible liveness check |
 | `/v1/health/ready` | GET | NIM-compatible readiness check |
 
+Media created from `url` inside `/v1/generate_captions` is owned by that request
+and reclaimed after completion, failure, or stream closure, once inference
+releases the file. Assets uploaded through `/v1/files` and then referenced by
+`id` remain available for reuse until explicitly deleted or evicted by configured
+storage or TTL limits. File creation timestamps accept UTC seconds
+(`2025-01-15T10:00:00Z`) or milliseconds (`2025-01-15T10:00:00.123Z`).
+
 ### Text-Only Chat (No Video/Image Required)
 
 The `/v1/chat/completions` endpoint supports text-only conversations without any video or image input. Simply omit the `id` field and do not include `video_url`/`image_url` in messages. Multi-turn conversation history (system/user/assistant roles) is fully supported with token-level SSE streaming.
