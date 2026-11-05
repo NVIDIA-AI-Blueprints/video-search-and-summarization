@@ -272,7 +272,8 @@ services:
     networks:
       - default
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9100/metrics"]
+      # Read the body; --spider closes early and causes exporter broken-pipe errors.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9100/metrics"]
       interval: 30s
       timeout: 30s
       retries: 3
