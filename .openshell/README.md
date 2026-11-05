@@ -105,7 +105,100 @@ Docker's networking-off as the outer fence.
 
 ---
 
-## 2. Quickstart
+## 2. How OpenShell works
+
+### What the gateway is
+
+OpenShell's control plane. One long-lived container per deployment, the only
+component that touches the container backend, with a single listener that
+serves both the CLI/SDK and the supervisors dialing in. Per the
+[architecture page](https://docs.nvidia.com/openshell/about/architecture), it
+creates each sandbox as two parts — a trusted **supervisor** and an isolated
+**workload** — keeps their state in SQLite or Postgres, issues the JWTs that
+bind them, and delivers policy and provider credentials to the supervisor.
+
+Enforcement is not its job — that belongs to the supervisor, below. Logs,
+Prometheus metrics and OCSF audit records flow back through the gateway.
+
+One sandbox is therefore two containers, and the trust split lands on that
+boundary. The supervisor is the fragile half: on 0.1.6, if it exits, the driver
+marks the sandbox `ControlSupervisorExited` and stops the workload — the
+failure mode [#11997](https://github.com/NVIDIA/NemoClaw/issues/11997) reports.
+A restart brings up a fresh supervisor and keeps the workload's files, not its
+process.
+
+### What the supervisor is
+
+The trusted half of a sandbox, one per sandbox, and the only component that
+decides anything at runtime. The gateway creates it and hands it the policy and
+the provider credentials; from there every connection the agent attempts is
+matched against that policy, credentialed, resolved and dialed by the
+supervisor on the agent's behalf. The workload has no network of its own, so
+there is no second path out. *What OpenShell enforces* below covers the rules it
+applies; what matters here is where it comes from and what that costs.
+
+**It ships with the gateway, not with the harness image.** On 0.1.x both halves
+come from images the gateway is configured with — `openshell-sandbox` copied
+into the workload as PID 1, `openshell-supervisor` run as a companion container
+— so the supervisor's version tracks the gateway, not `.openclaw/Dockerfile`.
+Moving to 0.1.x is therefore a gateway upgrade, not an image rebuild.
+
+That also means a containerised gateway no longer needs its data directory at
+the same absolute path on host and container. The upstream Compose recipe still
+says it does, but at v0.1.5 the driver's `build_binds` returns nothing and its
+README states "No workload launch depends on a host bind mount".
+
+### What OpenShell deploys
+
+The first three rows are declared once per deployment in VSS's Compose file
+(§4 step 1). The rest are made by the gateway's compute driver — Docker here,
+selected by `compute_driver = "docker"` — through the host's Docker socket on
+each `sandbox create`. The driver builds the boundary but never makes a policy
+decision.
+
+| Resource | Process | Contents and networking |
+|---|---|---|
+| **Per deployment** — Compose, `harness` profile | | |
+| `openshell-init` container | `generate-certs`, then exits | One-shot: writes the JWT signing keys and mTLS certificates into the data volume |
+| `openshell-gateway` container | `openshell-gateway` | Host networking, one listener on `127.0.0.1:8080` for the CLI, SDK and supervisors, health on `:8081`; mounts the Docker socket |
+| `openshell-data` volume | — | `gateway.db` (SQLite record of every sandbox), the JWT signing key, and the key-encryption key that seals provider credentials |
+| **Per sandbox** — the Docker driver | | |
+| Workload container | `openshell-sandbox` as PID 1, the harness (`hermes gateway run`) as its child | The harness image, `network_mode=none`, one non-root UID, all capabilities dropped |
+| Supervisor container | `openshell-supervisor` | From the supervisor image, host networking; dials the gateway and makes every outbound connection |
+| Channel volumes | — | Sandbox bootstrap keys, and the Unix socket the two containers speak over — never the network |
+| Supervisor-only volume | — | The supervisor's JWT and gateway credentials; never mounted into the workload |
+
+![How OpenShell brings up the gateway and a sandbox](docs/assets/vss-openshell-deploy-sequence.svg)
+
+0.1.6 reversed which end of that socket dials the other, which imposes a
+version rule: a new sandbox needs matching supervisor and sandbox-runtime
+binaries, so the Quickstart's step 1 pins both images with the gateway.
+
+The per-sandbox rows are siblings of the gateway container, not part of any
+Compose project: `compose down` leaves them running, and `openshell sandbox
+delete` removes both containers and their volumes.
+
+### What OpenShell enforces
+
+The security boundary is OpenShell's, and it sits outside the agent's trust
+domain, so a compromised agent cannot switch it off:
+
+- **Filesystem and syscalls** — Landlock confinement and seccomp filtering, in
+  the kernel.
+- **Network** — default-deny; a connection is allowed only when its
+  destination *and* calling binary match the same policy block. On 0.1.x the
+  workload has no network at all and reaches out only through the supervisor.
+- **Credentials** — the agent sees an `openshell:resolve:env:<KEY>`
+  placeholder; the real secret is added at egress for approved endpoints only.
+- **Process** — non-root identity (root is rejected), and the image's
+  `ENTRYPOINT` is replaced by the supervisor.
+- **Policy changes** — the prover checks each change before approval and flags
+  new credentialed reach, new HTTP methods and cloud-metadata access.
+
+
+---
+
+## 3. Quickstart
 
 Brings up a Hermes sandbox against its own model; no VSS deployment needed.
 Every file in the table above is pre-created: the Compose services and the
@@ -434,100 +527,7 @@ in-stack `vss-agent`, which a harness build does not run.
 
 ---
 
-## 3. How OpenShell works
-
-### What the gateway is
-
-OpenShell's control plane. One long-lived container per deployment, the only
-component that touches the container backend, with a single listener that
-serves both the CLI/SDK and the supervisors dialing in. Per the
-[architecture page](https://docs.nvidia.com/openshell/about/architecture), it
-creates each sandbox as two parts — a trusted **supervisor** and an isolated
-**workload** — keeps their state in SQLite or Postgres, issues the JWTs that
-bind them, and delivers policy and provider credentials to the supervisor.
-
-Enforcement is not its job — that belongs to the supervisor, below. Logs,
-Prometheus metrics and OCSF audit records flow back through the gateway.
-
-One sandbox is therefore two containers, and the trust split lands on that
-boundary. The supervisor is the fragile half: on 0.1.6, if it exits, the driver
-marks the sandbox `ControlSupervisorExited` and stops the workload — the
-failure mode [#11997](https://github.com/NVIDIA/NemoClaw/issues/11997) reports.
-A restart brings up a fresh supervisor and keeps the workload's files, not its
-process.
-
-### What the supervisor is
-
-The trusted half of a sandbox, one per sandbox, and the only component that
-decides anything at runtime. The gateway creates it and hands it the policy and
-the provider credentials; from there every connection the agent attempts is
-matched against that policy, credentialed, resolved and dialed by the
-supervisor on the agent's behalf. The workload has no network of its own, so
-there is no second path out. *What OpenShell enforces* below covers the rules it
-applies; what matters here is where it comes from and what that costs.
-
-**It ships with the gateway, not with the harness image.** On 0.1.x both halves
-come from images the gateway is configured with — `openshell-sandbox` copied
-into the workload as PID 1, `openshell-supervisor` run as a companion container
-— so the supervisor's version tracks the gateway, not `.openclaw/Dockerfile`.
-Moving to 0.1.x is therefore a gateway upgrade, not an image rebuild.
-
-That also means a containerised gateway no longer needs its data directory at
-the same absolute path on host and container. The upstream Compose recipe still
-says it does, but at v0.1.5 the driver's `build_binds` returns nothing and its
-README states "No workload launch depends on a host bind mount".
-
-### What OpenShell deploys
-
-The first three rows are declared once per deployment in VSS's Compose file
-(§4 step 1). The rest are made by the gateway's compute driver — Docker here,
-selected by `compute_driver = "docker"` — through the host's Docker socket on
-each `sandbox create`. The driver builds the boundary but never makes a policy
-decision.
-
-| Resource | Process | Contents and networking |
-|---|---|---|
-| **Per deployment** — Compose, `harness` profile | | |
-| `openshell-init` container | `generate-certs`, then exits | One-shot: writes the JWT signing keys and mTLS certificates into the data volume |
-| `openshell-gateway` container | `openshell-gateway` | Host networking, one listener on `127.0.0.1:8080` for the CLI, SDK and supervisors, health on `:8081`; mounts the Docker socket |
-| `openshell-data` volume | — | `gateway.db` (SQLite record of every sandbox), the JWT signing key, and the key-encryption key that seals provider credentials |
-| **Per sandbox** — the Docker driver | | |
-| Workload container | `openshell-sandbox` as PID 1, the harness (`hermes gateway run`) as its child | The harness image, `network_mode=none`, one non-root UID, all capabilities dropped |
-| Supervisor container | `openshell-supervisor` | From the supervisor image, host networking; dials the gateway and makes every outbound connection |
-| Channel volumes | — | Sandbox bootstrap keys, and the Unix socket the two containers speak over — never the network |
-| Supervisor-only volume | — | The supervisor's JWT and gateway credentials; never mounted into the workload |
-
-![How OpenShell brings up the gateway and a sandbox](docs/assets/vss-openshell-deploy-sequence.svg)
-
-0.1.6 reversed which end of that socket dials the other, which imposes a
-version rule: a new sandbox needs matching supervisor and sandbox-runtime
-binaries, so step 1 pins both images with the gateway.
-
-The per-sandbox rows are siblings of the gateway container, not part of any
-Compose project: `compose down` leaves them running, and `openshell sandbox
-delete` removes both containers and their volumes.
-
-### What OpenShell enforces
-
-The security boundary is OpenShell's, and it sits outside the agent's trust
-domain, so a compromised agent cannot switch it off:
-
-- **Filesystem and syscalls** — Landlock confinement and seccomp filtering, in
-  the kernel.
-- **Network** — default-deny; a connection is allowed only when its
-  destination *and* calling binary match the same policy block. On 0.1.x the
-  workload has no network at all and reaches out only through the supervisor.
-- **Credentials** — the agent sees an `openshell:resolve:env:<KEY>`
-  placeholder; the real secret is added at egress for approved endpoints only.
-- **Process** — non-root identity (root is rejected), and the image's
-  `ENTRYPOINT` is replaced by the supervisor.
-- **Policy changes** — the prover checks each change before approval and flags
-  new credentialed reach, new HTTP methods and cloud-metadata access.
-
-
----
-
-## 4. Steps
+## 4. Quickstart steps explained
 
 **1 — Gateway becomes a Compose service.** Decided: the gateway is a container
 VSS declares. OpenShell publishes a reference
