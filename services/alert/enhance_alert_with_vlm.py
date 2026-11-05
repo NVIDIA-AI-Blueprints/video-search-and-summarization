@@ -456,6 +456,11 @@ class AnomalyEnhancer(
         # transient ES outage here leaves verdict protection to fail open and
         # retry via the handler's backoff path.
         self._verdict_retention_job = None
+        self._event_folder = None
+        # Set when the supervisor thread fails, so the failure is inspectable
+        # rather than only a line in the log.
+        self._event_folder_error = None
+        self._event_folder_stop = threading.Event()
         try:
             if self.redis_handler is not None:
                 self.redis_handler.ensure_verdict_index()
@@ -489,6 +494,24 @@ class AnomalyEnhancer(
                 self._verdict_retention_job.start()
         except Exception as e:
             logger.warning("Verdict retention job failed to start (non-fatal): %s", e)
+
+        # Folding realtime evidence into durable events is instance work, not
+        # pipeline work: every process would otherwise write the same events.
+        # It follows the retention reaper onto the leader for that reason.
+        # A configuration error here is deliberately fatal, unlike the sibling
+        # job above. The folder validates that its window can contain the
+        # events it folds, and swallowing that leaves a deployment that starts
+        # healthy, passes readiness, serves an empty page forever and reports
+        # that no fold has ever run — the one failure an operator has no way to
+        # see. Anything else keeps the established non-fatal behaviour: an
+        # unreachable cluster is retried inside the folder, not here.
+        try:
+            if instance_leader:
+                self._start_event_folder()
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.warning("Realtime event folder failed to start (non-fatal): %s", e)
 
         self.num_workers = self.config.get('alert_agent', {}).get(
             'num_workers', 1)  # Default to sequential
@@ -686,6 +709,106 @@ class AnomalyEnhancer(
 
             self._openclaw_notifier = OpenClawNotifier(self.config)
             self._webhook_forwarder = WebhookKafkaForwarder(self.config, self._openclaw_notifier)
+
+    def _start_event_folder(self) -> None:
+        """Start the durable-event folder when persistence is switched on."""
+        persistence = (
+            self.config.get("rtvi_vlm", {})
+            .get("consolidation", {})
+            .get("persistence", {})
+        ) or {}
+        if not persistence.get("enabled", False):
+            return
+
+        from realtime.services.event_folder import validate_persistence_config
+
+        consolidation = self.config.get("rtvi_vlm", {}).get("consolidation", {}) or {}
+        # Checked before anything is built — including before any conversion of
+        # its own. Converting ``fold_window_seconds`` here first would raise a
+        # TypeError on ``null``, which is not what the caller above catches, so
+        # the folder would be disabled silently by the one configuration this
+        # check exists to reject loudly.
+        window = validate_persistence_config(persistence, consolidation)
+
+        # Elasticsearch is frequently a few seconds behind Alert Bridge at
+        # startup. Building the client once and giving up would disable folding
+        # for the life of the process on a race that resolves itself, so the
+        # attempt is retried on its own thread until it succeeds.
+        thread = threading.Thread(
+            target=self._event_folder_supervisor,
+            args=(persistence, consolidation, window),
+            name="realtime-event-folder-init",
+            daemon=True,
+        )
+        thread.start()
+
+    def _event_folder_supervisor(self, persistence, consolidation, window) -> None:
+        """Build and start the folder, retrying while Elasticsearch is unreachable.
+
+        Everything here runs on a daemon thread, so an exception would reach
+        the default ``threading.excepthook``, print a traceback and end the
+        thread — leaving an instance that reports healthy, has persistence
+        switched on, and folds nothing for the rest of its life. That is the
+        one operator-invisible failure this feature set out to remove, so it is
+        caught and recorded rather than left to the hook.
+        """
+        try:
+            self._run_event_folder_supervisor(persistence, consolidation, window)
+        except Exception as exc:                       # noqa: BLE001
+            self._event_folder_error = exc
+            logger.error(
+                "Realtime event folder could not be started; persistence is "
+                "enabled but nothing is folding",
+                exc_info=True,
+            )
+
+    def _run_event_folder_supervisor(self, persistence, consolidation, window) -> None:
+        from realtime.services.elastic_factory import build_elastic_client
+        from realtime.services.event_folder import RealtimeEventFolder
+        from realtime.services.event_store import RealtimeEventStore
+        from realtime.services.incident_service import IncidentService
+
+        delay, max_delay = 2.0, 60.0
+        while not self._event_folder_stop.is_set():
+            es_client = build_elastic_client(self.config)
+            if es_client is not None:
+                break
+            # "Unreachable" and "switched off" are reported identically by the
+            # factory, so the message says which one it cannot distinguish
+            # rather than asserting the wrong one.
+            logger.warning(
+                "Realtime event folder waiting: Elasticsearch is disabled or "
+                "not yet reachable; retrying in %.0fs", delay,
+            )
+            # Waited on the stop event rather than slept, so a shutdown does
+            # not have to outlast the backoff.
+            if self._event_folder_stop.wait(delay):
+                return
+            delay = min(delay * 2, max_delay)
+        if self._event_folder_stop.is_set():
+            return
+
+        incident_cfg = (
+            self.config.get("vlm_enhanced_sink", {}).get("incident", {}) or {}
+        )
+        index_base = "mdx-vlm-incidents"
+        if incident_cfg.get("type") == "elastic":
+            index_base = incident_cfg.get("elastic", {}).get("index", index_base)
+
+        collection = persistence.get("collection", "alert-realtime-events")
+        service = IncidentService(
+            es_client=es_client,
+            index_base=index_base,
+            consolidation=consolidation,
+        )
+        store = RealtimeEventStore(es_client, collection=collection)
+        self._event_folder = RealtimeEventFolder(
+            service, store, es_client, f"{index_base}-*",
+            fold_interval_seconds=persistence.get("fold_interval_seconds", 30),
+            fold_window_seconds=window,
+            retention_days=persistence.get("retention_days", 7),
+        )
+        self._event_folder.start()
 
     def _load_custom_parser(self):
         """Auto-load custom parser module from vlm.custom_parser_module config."""
@@ -3244,6 +3367,25 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
     except Exception:
         logger.error("Pipeline process %d failed", index, exc_info=True)
         raise
+    finally:
+        # Released here rather than left to lapse. The fold thread is a daemon,
+        # so at interpreter exit it is killed and its own ``finally`` does not
+        # reliably run — leaving a live lease behind. Since a holder's identity
+        # no longer lets it re-take its own lease, that would make every
+        # ordinary restart wait out a full TTL before folding again, not just
+        # the crashes the TTL is there for.
+        instance = locals().get("enhancer", None)
+        stop = getattr(instance, "_event_folder_stop", None)
+        if stop is not None:
+            # Unblocks the supervisor if it is still backing off waiting for
+            # Elasticsearch; otherwise it sits out the full delay.
+            stop.set()
+        folder = getattr(instance, "_event_folder", None)
+        if folder is not None:
+            try:
+                folder.stop(timeout=5)
+            except Exception:
+                logger.debug("Fold thread did not stop cleanly", exc_info=True)
     logger.info("Pipeline process %d stopped", index)
 
 
@@ -3830,7 +3972,7 @@ if __name__ == "__main__":
             # not watched. A dead endpoint there leaves the pipeline running
             # without one -- the same state the watch exists to prevent above.
             # Closing that means giving the single-process path a supervisor,
-            # which is a larger change than this review round.
+            # which is a larger change than this one.
             # Labelled, or a timeout here is reported against whatever step
             # ran before it -- warmup, or building the pipeline.
             deadline.step("waiting for the pipeline to join its consumer group")
