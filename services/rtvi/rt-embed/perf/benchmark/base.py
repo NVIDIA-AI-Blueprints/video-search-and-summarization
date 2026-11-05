@@ -35,6 +35,8 @@ import yaml
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from benchmark_config import load_defaults, validate_benchmark_config
+
 try:
     from gpu_monitor import GPUMonitor
 except ImportError:
@@ -452,17 +454,7 @@ class BenchmarkBase(ABC):
 
     def _load_defaults(self) -> Dict[str, Any]:
         """Load default parameters from defaults.yaml"""
-        defaults_path = os.path.join(os.path.dirname(__file__), "defaults.yaml")
-        if not os.path.exists(defaults_path):
-            raise FileNotFoundError(
-                f"defaults.yaml not found at {defaults_path}. "
-                "This file is required for benchmark configuration."
-            )
-        with open(defaults_path, "r") as f:
-            defaults = yaml.safe_load(f)
-            if not defaults:
-                raise ValueError("defaults.yaml is empty or invalid")
-            return defaults
+        return load_defaults()
 
     def _fetch_active_file_ids(self) -> set:
         """Return the set of file IDs currently registered on the server.
@@ -948,12 +940,13 @@ class BenchmarkBase(ABC):
             if "test_scenarios" not in config:
                 raise ValueError("Missing 'test_scenarios' section")
 
-            return config
-
         except FileNotFoundError:
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
         except yaml.YAMLError as e:
             raise ValueError(f"Invalid YAML in configuration file: {e}")
+
+        validate_benchmark_config(config)
+        return config
 
     # ================================
     # EXECUTION INFRASTRUCTURE
