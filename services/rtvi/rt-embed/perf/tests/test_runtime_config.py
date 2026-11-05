@@ -3,9 +3,11 @@
 
 from copy import deepcopy
 from pathlib import Path
+import os
 import subprocess
 import sys
 
+import pytest
 import yaml
 
 
@@ -128,3 +130,50 @@ def test_malformed_yaml_leaves_runtime_config_unchanged(tmp_path):
 
     assert result.returncode != 0
     assert runtime.read_bytes() == before
+
+
+def _setup_config_path(tmp_path, **values):
+    # Execute the real setup path-selection block without deploying containers.
+    setup = (PERF_ROOT / "scripts/native_setup_perf_env.sh").read_text()
+    selection = setup.split('BENCHMARK_DIR="${SCRIPT_DIR}/benchmark"', 1)[1]
+    selection = selection.split('REQUIREMENTS_FILE=', 1)[0]
+    env = os.environ.copy()
+    for name in ("BENCHMARK_CONFIG", "CONFIG"):
+        env.pop(name, None)
+    env.update(BENCHMARK_DIR=str(PERF_ROOT / "benchmark"), **values)
+    result = subprocess.run(
+        ["bash", "-c", 'set -euo pipefail\n' + selection
+         + '\nprintf "%s" "$BENCHMARK_CONFIG"'],
+        cwd=tmp_path, env=env, text=True, capture_output=True, check=True,
+    )
+    return Path(result.stdout)
+
+
+def test_setup_updates_the_runner_config_even_with_legacy_config_set(tmp_path):
+    runtime = _prepared_config(tmp_path)
+    before = yaml.safe_load(runtime.read_text())
+    source_before = SOURCE.read_bytes()
+    selected = _setup_config_path(
+        tmp_path, BENCHMARK_CONFIG=str(runtime), CONFIG=str(SOURCE)
+    )
+    assert selected == runtime
+    result = _update(selected)
+    assert result.returncode == 0, result.stderr
+    assert yaml.safe_load(runtime.read_text()) == _apply_expected_runtime_values(before)
+    assert "RTSP_STREAM_URL" not in runtime.read_text()
+    assert SOURCE.read_bytes() == source_before
+
+
+@pytest.mark.parametrize("config", [None, "custom.yaml", "configs/custom.yaml", "/tmp/custom.yaml"])
+def test_standalone_setup_retains_legacy_config_resolution(tmp_path, config):
+    values = {} if config is None else {"CONFIG": config}
+    selected = _setup_config_path(tmp_path, **values)
+    if config is None:
+        expected = PERF_ROOT / "benchmark/rtvi_embed_bcd_config.yaml"
+    elif config.startswith("/"):
+        expected = Path(config)
+    elif "/" in config:
+        expected = tmp_path / config
+    else:
+        expected = PERF_ROOT / "benchmark" / config
+    assert selected == expected

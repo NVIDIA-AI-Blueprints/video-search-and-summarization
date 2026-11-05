@@ -133,6 +133,7 @@ Optional environment variables (sensible defaults shown):
   NUM_VLM_PROCS         Parallel VLM inference processes   (default: auto)
   VLM_BATCH_SIZE        VLM request batch size             (default: auto)
   INITIAL_STREAM_COUNT  Initial stream count for benchmarks (default: auto)
+  BENCHMARK_CONFIG      Prepared config supplied by the runner (takes precedence).
   CONFIG                Benchmark config file to patch with RTSP URL, ports, and
                         GPU settings. Bare filenames resolve against perf/benchmark.
                                                               (default: rtvi_embed_bcd_config.yaml)
@@ -211,10 +212,13 @@ BENCHMARK_VIDEOS=(
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BENCHMARK_DIR="${SCRIPT_DIR}/benchmark"
-# CONFIG (env var) overrides the default benchmark config. Accepts either an
+# Preserve the prepared config supplied by the benchmark runner.
+# CONFIG (env var) otherwise overrides the default benchmark config. Accepts either an
 # absolute path or a path relative to the current working directory; bare
 # filenames are resolved against BENCHMARK_DIR.
-if [[ -n "${CONFIG:-}" ]]; then
+if [[ -n "${BENCHMARK_CONFIG:-}" ]]; then
+    : # The runner and setup must update/read the same runtime config.
+elif [[ -n "${CONFIG:-}" ]]; then
     if [[ "${CONFIG}" == /* ]]; then
         BENCHMARK_CONFIG="${CONFIG}"
     elif [[ "${CONFIG}" == */* ]]; then
