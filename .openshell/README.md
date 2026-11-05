@@ -136,7 +136,7 @@ export COMPATIBLE_API_KEY=...     # bare value: quotes would be sealed into the 
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --env-file .env -f gateway/docker-compose.yml --profile harness up -d
-openshell gateway add http://127.0.0.1:8080 --local --name vss
+openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
 
 # 2. Harness image: upstream Hermes and the baked policy.
 docker build -t "openshell-hermes:$HERMES_REF" hermes
@@ -194,32 +194,56 @@ running API server never sees a new credential. The gateway, image and provider
 all survive the recreate:
 
 ```bash
+PROVIDER=agent-inference          # the Quickstart's provider
+
 # 1. Make one change. Skip this step to just start over.
 
 #  a) A different model on the same endpoint: edit HARNESS_MODEL in .env.
 
 #  b) A different endpoint family. The profile is what authorizes the host, so
-#     import the family's profile and create a provider from it. Then edit
-#     HARNESS_BASE_URL and HARNESS_MODEL in .env, and in the Quickstart's
-#     step 4 pass --provider agent-inference-build instead of agent-inference.
+#     import the family's profile and create a provider from it. Then set
+#     HARNESS_BASE_URL=https://integrate.api.nvidia.com/v1 and a HARNESS_MODEL
+#     it serves in .env.
 export NVIDIA_API_KEY=...         # build.nvidia.com's credential, unquoted
 openshell profile import -f providers/agent-inference-build-profile.yaml
 openshell provider create --name agent-inference-build \
   --type agent-inference-build --credential NVIDIA_API_KEY
+PROVIDER=agent-inference-build
 #     For a server on this host, use agent-inference-local-profile.yaml; its
 #     key is optional.
 
 #  c) A new key for the current provider:
 export COMPATIBLE_API_KEY=...     # unquoted
-openshell provider update agent-inference --credential COMPATIBLE_API_KEY
+openshell provider update "$PROVIDER" --credential COMPATIBLE_API_KEY
 
 # 2. Re-read .env and delete the sandbox.
 set -a; . ./.env; set +a
 openshell sandbox delete hermes
 
-# 3. Re-run the Quickstart's step 4 (openshell sandbox create, above). The new
-#    sandbox mints a new API_SERVER_KEY, so fetch the bearer again before
-#    calling the API server.
+# 3. Create it again: the Quickstart's step 4 with $PROVIDER.
+openshell sandbox create \
+  --name hermes \
+  --from "openshell-hermes:$HERMES_REF" \
+  --policy hermes/policy.yaml \
+  --provider "$PROVIDER" \
+  --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
+  --env HARNESS_MODEL="$HARNESS_MODEL" \
+  --restart-policy on-failure \
+  --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
+  -- sh -c 'chmod 770 /sandbox;
+            trust-supervisor-ca
+            C=/sandbox/.hermes/config.yaml
+            sed -i -e "s#\${env:HARNESS_BASE_URL}#$HARNESS_BASE_URL#g" \
+                   -e "s#\${env:HARNESS_MODEL}#$HARNESS_MODEL#g" "$C"
+            E=/sandbox/.hermes/.env
+            grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
+              K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
+              printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
+            chmod 640 "$E"
+            exec hermes gateway run'
+
+# 4. Test it with the two calls above. The new sandbox minted a new
+#    API_SERVER_KEY, so re-run the KEY= line before the curl.
 ```
 
 ### Optional — add VSS capabilities
@@ -530,7 +554,7 @@ JWT key paths `init` writes. Three edits VSS has to make to it:
 
 ```bash
 docker compose --env-file .env -f gateway/docker-compose.yml --profile harness up -d
-openshell gateway add http://127.0.0.1:8080 --local --name vss
+openshell gateway add http://127.0.0.1:8080 --local --name openshell
 ```
 
 Three constraints the service has to respect:
