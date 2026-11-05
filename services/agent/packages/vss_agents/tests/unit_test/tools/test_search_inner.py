@@ -288,8 +288,13 @@ class TestSearchInner:
         assert isinstance(result, SearchOutput)
 
     @pytest.mark.asyncio
-    async def test_search_agent_mode_rtsp_keeps_video_source_name_for_attribute_search(self, mock_builder, monkeypatch):
-        """RTSP agent-mode search must preserve camera names for attribute_search filters."""
+    async def test_search_agent_mode_rtsp_resolves_video_source_to_sensor_uuid(self, mock_builder, monkeypatch):
+        """RTSP agent-mode search must resolve camera names to the VST sensor UUID.
+
+        RTSP documents store the sensor UUID under ``sensor.id`` (the name lives
+        in ``sensor.description``), and the ES filter builder only matches
+        ``sensor.id``, so forwarding the bare name matched zero documents.
+        """
         from vss_agents.tools import search as search_module
 
         config = SearchConfig(
@@ -350,7 +355,9 @@ class TestSearchInner:
 
         assert isinstance(result, SearchOutput)
         mock_attribute_search.ainvoke.assert_awaited_once()
-        assert mock_attribute_search.ainvoke.await_args.args[0]["video_sources"] == ["video1"]
+        assert mock_attribute_search.ainvoke.await_args.args[0]["video_sources"] == [
+            "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
+        ]
 
     @pytest.mark.asyncio
     async def test_object_id_search_passes_external_vst_url_to_enrichment(self, mock_builder, monkeypatch):

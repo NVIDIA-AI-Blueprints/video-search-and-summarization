@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -103,3 +104,41 @@ async def test_client_is_reused_and_closed(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(created) == 1
     await client.aclose()
     assert created[0].closed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payloads, expected_calls",
+    [
+        ([{"data": []}, {"data": [{"embedding": [1.0]}]}], 2),
+        ([{"data": []}], 3),
+    ],
+)
+async def test_empty_data_retry_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+    payloads: list[Any],
+    expected_calls: int,
+) -> None:
+    calls = 0
+
+    async def post(*_args: Any, **_kwargs: Any) -> _FakeResponse:
+        nonlocal calls
+        response = _FakeResponse(payloads[min(calls, len(payloads) - 1)])
+        calls += 1
+        return response
+
+    async def no_sleep(_delay: float) -> None:
+        pass
+
+    client = RTVICVEmbedClient("http://rtvi")
+    fake = _FakeAsyncClient({})
+    fake.post = post
+    monkeypatch.setattr(client, "_client", fake)
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+
+    if len(payloads) == 1:
+        with pytest.raises(BackendUnreachableError):
+            await client.get_text_embedding("query")
+    else:
+        assert await client.get_text_embedding("query") == [1.0]
+    assert calls == expected_calls
