@@ -36,9 +36,12 @@ output="$(cd "$output" && pwd)"
 runtime_config="$output/native/runtime-config.yaml"
 PERF_VENV_DIR="${PERF_VENV_DIR:-$PERF_ROOT/setup/.venv}"
 PERF_VENV_DIR="$PERF_VENV_DIR" "$PERF_ROOT/setup/setup_environment.sh"
+preflight_args=()
+[[ -z "$scenario" ]] || preflight_args+=(--scenario "$scenario")
 "$PERF_VENV_DIR/bin/python" "$PERF_ROOT/scripts/prepare_runtime_config.py" \
     --source "$config" --destination "$runtime_config" \
-    --native-output "$output/native" --release "$release" --gpus "$gpus"
+    --native-output "$output/native" --release "$release" --gpus "$gpus" \
+    "${preflight_args[@]}"
 
 export RTVI_IMAGE="${IMAGE_TAG:-${RTVI_IMAGE:-}}"
 export NVIDIA_VISIBLE_DEVICES="$gpus"
