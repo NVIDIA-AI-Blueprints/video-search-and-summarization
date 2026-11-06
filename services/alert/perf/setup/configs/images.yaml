@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Supporting images only; the tested service still uses ARTIFACT_REF.
 # Values preserve existing references and do not certify OSRB approval.
+# Source: ci-vss-oss@617ccaf, eval/compose.yml; blueprint dependencies come from
+# its VSS submodule at 79290050c452957967770a8ef9c54f905e052c23, deploy/docker/.
+# VSS support images use release 3.3.0 below; previous references remain commented.
+# Third-party images retain their source versions.
 schema_version: 1
 images:
   PERF_ALPINE_IMAGE: alpine:3.24.1

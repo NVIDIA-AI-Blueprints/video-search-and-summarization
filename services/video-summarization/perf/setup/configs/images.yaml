@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Supporting images only; the tested service still uses ARTIFACT_REF.
 # Values preserve existing references and do not certify OSRB approval.
+# Source: via/long-video-summarization@46720ff15883d9a92228a680247822ebffee5e14,
+# compose/ and perf/compose.yaml. VSS support images use release 3.3.0 below;
+# previous references remain commented. Other images retain their source versions.
 schema_version: 1
 images:
   PERF_PROMETHEUS_IMAGE: prom/prometheus:latest

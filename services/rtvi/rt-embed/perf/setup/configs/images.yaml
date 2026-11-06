@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Supporting images only; the tested service still uses ARTIFACT_REF.
 # Values preserve existing references and do not certify OSRB approval.
+# Source: via/rtvi-microservices@5f1eb00f89aa70d0bc1500c28e8ceeb886988caf,
+# docker/rtvi_embed/deploy/compose.perf.yaml and perf/setup_perf_env_rtvi_embed.sh.
+# Configured VSS support images use release 3.3.0; previous references remain commented.
+# Additional VST package images remain package-managed.
 schema_version: 1
 images:
   PERF_PROMETHEUS_IMAGE: prom/prometheus:latest

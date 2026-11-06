@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Supporting images only; the tested service still uses ARTIFACT_REF.
 # Values preserve existing references and do not certify OSRB approval.
+# Monitoring source: via/rtvi-microservices@5f1eb00f89aa70d0bc1500c28e8ceeb886988caf,
+# docker/rtvi_vlm/deploy/compose.perf.yaml.
+# Intentional integration exception: use public VIOS 3.3.0 instead of the source
+# setup's private VST 2.1.0-26.04.1 stack. PostgreSQL and Redis match the staged
+# services/vios/deployment/stream-processing/docker-compose/compose.env defaults.
 schema_version: 1
 images:
   PERF_DCGM_EXPORTER_IMAGE: nvcr.io/nvidia/k8s/dcgm-exporter:4.2.0-4.1.0-ubuntu22.04

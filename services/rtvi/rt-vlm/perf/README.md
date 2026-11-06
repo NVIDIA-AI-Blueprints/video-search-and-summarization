@@ -48,3 +48,20 @@ approval or record the immutable digests pulled by Docker.
 The VST image settings retain the variable names expected by the native setup
 scripts. Native package staging, port configuration, and compatibility handling
 remain unchanged.
+
+### Source image versions and the public VIOS exception
+
+Monitoring image tags match `docker/rtvi_vlm/deploy/compose.perf.yaml` in
+`rtvi-microservices` at commit `5f1eb00f89aa70d0bc1500c28e8ceeb886988caf`.
+
+The public VIOS stack is an intentional integration exception. The original
+setup script defaults to private `nvcr.io/rxczgrvsg8nx/vst-dev` images tagged
+`2.1.0-26.04.1`; this benchmark retains the public
+`nvcr.io/nvidia/vss-core/vss-vios-*` images tagged `3.3.0` and stages the
+repository-owned VIOS deployment through `scripts/stage_vst.py`. Its PostgreSQL
+`17.10-alpine` and Redis `8.10.0-alpine` defaults match
+`services/vios/deployment/stream-processing/docker-compose/compose.env`.
+The previous image references remain commented in `setup/configs/images.yaml`.
+Keep the public VIOS exception when synchronizing source image tags. It changes supporting
+deployment selection, while measurement and latency calculations remain in the
+native benchmark implementation.
