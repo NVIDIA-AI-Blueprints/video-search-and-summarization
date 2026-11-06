@@ -54,6 +54,7 @@ BUILD_CONTRACT_PATHS = (
     ".github/workflows/build-dev-images.yml",
     ".github/scripts/check_container_tag_source.py",
     ".github/scripts/detect_changed_images.py",
+    ".github/scripts/container_build_plan.py",
     ".github/scripts/ghcr_image_guard.py",
     ".github/scripts/release_set.py",
     "deploy/docker/container-inventory.json",
@@ -106,6 +107,8 @@ def resolve_diff_base(
     repo: Path, event_name: str, ref_name: str, before: str, base_branch: str
 ) -> tuple[str | None, str]:
     """Return ``(base_commit, reason)``; ``None`` means build everything."""
+    if event_name == "workflow_dispatch":
+        return None, "manual regeneration; building everything"
     if event_name != "push":
         return None, f"unsupported event {event_name!r}; building everything"
 
@@ -156,6 +159,15 @@ def paths_changed_under(changed: list[str] | None, directory: str) -> bool:
     )
 
 
+def build_contract_changed(changed: list[str] | None) -> bool:
+    """An unknown diff or a build-policy change requires fresh image exports."""
+    return changed is None or any(
+        path == contract or path.startswith(contract.rstrip("/") + "/")
+        for path in changed
+        for contract in BUILD_CONTRACT_PATHS
+    )
+
+
 def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict], str]:
     """Matrix entries for the buildable images that need a build."""
     buildable = [
@@ -165,11 +177,7 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
     ]
     if changed is None:
         return buildable, "building all GHCR images"
-    if any(
-        path == contract or path.startswith(contract.rstrip("/") + "/")
-        for path in changed
-        for contract in BUILD_CONTRACT_PATHS
-    ):
+    if build_contract_changed(changed):
         return buildable, "build contract changed; building all GHCR images"
     # Every path the image is built from counts, not just the service folder:
     # a Dockerfile that COPYs libs/vss must rebuild when libs/vss changes.
@@ -411,6 +419,10 @@ def main() -> int:
         reason += "; diff failed, building everything"
 
     entries, selection_reason = select_images(inventory, changed)
+    # Selecting every image must also bypass content reuse when the build
+    # contract changed; identical source trees can carry an obsolete exporter
+    # policy. Dispatch has no diff base and deliberately rebuilds everything.
+    rebuild_all = build_contract_changed(changed)
 
     # A path diff only says the source did not change. It cannot say the content
     # tag for that source was ever published -- and the post-merge retag sources
@@ -446,6 +458,7 @@ def main() -> int:
             {
                 "reason": f"{reason}; {selection_reason}",
                 "count": len(entries),
+                "rebuild_all": rebuild_all,
                 "matrix": matrix,
                 "standard_count": len(split_matrices["standard_matrix"]["include"]),
                 "native_count": len(split_matrices["native_matrix"]["include"]),

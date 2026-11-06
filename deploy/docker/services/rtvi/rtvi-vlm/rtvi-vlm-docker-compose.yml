@@ -86,6 +86,7 @@ services:
       NVIDIA_VISIBLE_DEVICES: "${RTVI_VLM_NVIDIA_VISIBLE_DEVICES:-all}"
       NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
       LOG_LEVEL: "${RTVI_VLM_LOG_LEVEL:-INFO}"
+      RTVI_FILE_DECODER_GC_INTERVAL: "${RTVI_FILE_DECODER_GC_INTERVAL:-10}"
       # Install proprietary codecs (e.g., AAC, MP3, H.264) for extended audio/video format support
       # Set to "true" to enable installation of additional multimedia packages at container startup
       # Handled by: /opt/nvidia/rtvi/start_rtvi_vlm.sh

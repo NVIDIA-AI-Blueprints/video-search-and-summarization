@@ -5,13 +5,13 @@
 # install-vllm / ollama / nim-local. Ports are the profile's to declare, so a
 # server on anything else needs an entry added here before it is reachable.
 
-id: vss-inference-local
-display_name: VSS agent inference (host-local server)
+id: agent-inference-local
+display_name: Agent inference (host-local server)
 category: inference
 inference_capable: true
 credentials:
   - name: api_key
-    env_vars: [COMPATIBLE_API_KEY]
+    env_vars: [HARNESS_API_KEY]
     required: false
     auth_style: bearer
     header_name: authorization

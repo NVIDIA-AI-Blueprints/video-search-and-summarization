@@ -87,7 +87,7 @@ question, and the three options genuinely differ — see below.
 | **Current (v0.0.127)** | Native binary under a systemd user unit — `ExecStart=openshell-gateway`, `StateDirectory=openshell/gateway`, certs generated with `--server-san host.openshell.internal`. Homebrew service on macOS. **No container.** | `scripts/lib/openshell-gateway.service.in` and `scripts/install.sh` on NemoClaw `main`; the unit on this host matches the template verbatim |
 | **Option 1 (V1), `management: managed`** | **A container**, from an SDK-pinned digest `ghcr.io/nvidia/openshell/gateway@sha256:bdb4fe24…`, created on `engine: unix:///var/run/docker.sock`, user API on `http://127.0.0.1:17681`, its own `172.30.N.0/24` where N is the first byte of SHA-256(`metadata.uid`). `imagePullPolicy` accepts `IfNotPresent`/`Never` on Docker; `Always` is rejected. Managed gateways speak plain local HTTP and **reject** `credential` and `tls`. | `docs/reference/configuration.md` §Gateway Alternative 1, branch `v1` |
 | **Option 1 (V1), `management: external`** | No gateway created. Point `endpoint:` at one that already exists; `credential` and `tls` are accepted here. Most checked-in examples use this. | same §Gateway Alternative 2; `local.yaml`, `fabric-openclaw.yaml`, `explicit-policy.yaml` |
-| **Option 2 (OpenShell direct)** | **A Compose service VSS declares** — `ghcr.io/nvidia/openshell/gateway` behind a `harness` profile in the VSS project. Accepts the Docker-socket mount as the price of dropping the host unit. The alternative OpenShell ships is its installer's own systemd unit, deliberately not used; see step 1. | ["Running the Gateway as a Container"](https://docs.nvidia.com/openshell/latest/how-it-works/gateways/container-deployment) and ["Manage Gateways"](https://docs.nvidia.com/openshell/v0.1.5/how-it-works/gateways/overview) |
+| **Option 2 (OpenShell direct)** | **A Compose service VSS declares** — `ghcr.io/nvidia/openshell/gateway` behind a `harness` profile in the VSS project. Accepts the Docker-socket mount as the price of dropping the host unit. OpenShell's packaged alternatives — the installer's systemd user service, Homebrew, or Helm — are deliberately not used; see step 1. | ["Running the Gateway as a Container"](https://docs.nvidia.com/openshell/latest/how-it-works/gateways/container-deployment) and ["Manage Gateways"](https://docs.nvidia.com/openshell/v0.1.5/how-it-works/gateways/overview) |
 
 Both options therefore run the gateway as a container, and the remaining
 difference is who declares it: V1 from `deployment.yaml`, Option 2 from a
@@ -538,7 +538,7 @@ build and run:
 | Toolchain purge — `gcc` and `make` are present | Purge in `.hermes/Dockerfile`, where VSS already owns the layer |
 | `config.yaml` — the base ships none | Author one with `hermes config set`, so `backup/Dockerfile.policy` writes a file instead of patching one. Seven lines carry it; see below. Set `model.default` and `model.provider`, not `model.model` — the latter is accepted and then rejected upstream at request time |
 | `API_SERVER_PORT`/`API_SERVER_HOST` in `.env` | Hermes binds its documented default `8642`, so `--expose 8642` replaces `--expose 18642` and the port note in `README.md` goes away |
-| certifi's bundle is a real file, not a symlink | Append the supervisor CA at start rather than repointing `/etc/openshell-tls/ca-bundle.pem` |
+| certifi's bundle is a real file, not a symlink, and read-only under the policy | Write certifi's roots and the supervisor CA together to `SSL_CERT_FILE` at start, rather than repointing `/etc/openshell-tls/ca-bundle.pem` |
 | Bundled Hermes skills differ — no `github`, `mlops`, `smart-home`; adds `web` | `.hermes/Dockerfile` checks that Hermes' built-in skills still install, using `github` as the example; switch it to `devops`, which both images ship |
 
 **What replacing the config does and does not drop.** NemoClaw's file is 175
@@ -603,7 +603,7 @@ plugin and baked boundary added as before.
 Three properties make this cheaper than its line count suggests:
 
 - **No security configuration changes.** `hermes/policy.yaml`,
-  `hermes/boundary.yaml` and `providers/vss-inference-profile.yaml` apply unedited,
+  `hermes/boundary.yaml` and `providers/agent-inference-profile.yaml` apply unedited,
   because the interpreter keeps the `/usr/bin/python3.13` path they name and
   the process keeps its 998:999 identity. Staging uv's whole prefix under
   `usr/` is what puts it there; the base ships no `python3` to collide with,

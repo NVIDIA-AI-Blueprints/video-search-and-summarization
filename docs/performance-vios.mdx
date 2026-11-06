@@ -13,7 +13,7 @@ Runtime profiling of the VIOS microservice in terms of number of RTSP/WebRTC str
 
 Metrics obtained on the below system configuration:
 
-    * GPU: NVIDIA A100
+    * GPU: A100
     * CPU: AMD EPYC 7313P @ 3GHz - 16 Cores
 
 ## Streams per Replica/POD
@@ -22,8 +22,8 @@ The table below summarizes the maximum number of concurrent sensor streams that 
 
 | Test | GPU | Use Case | Max Streams per Replica/Pod |
 | --- | --- | --- | --- |
-| 1 | NVIDIA L40 (HW encoder via NVENC) | \| Recording × 70 \| RTSP × 70 \| Video Download × 70 (offset 100, with transcode) \| Picture Download × 20 \| WebRTC × 8 | 70 |
-| 2 | NVIDIA H100 (SW encoder, no NVENC) | \| Recording × 20 \| RTSP × 20 \| Video Download × 20 (offset 100, with transcode) \| Picture Download × 10 \| WebRTC × 8 | 20 |
+| 1 | L40 (HW encoder via NVENC) | \| Recording × 70 \| RTSP × 70 \| Video Download × 70 (offset 100, with transcode) \| Picture Download × 20 \| WebRTC × 8 | 70 |
+| 2 | H100 (SW encoder, no NVENC) | \| Recording × 20 \| RTSP × 20 \| Video Download × 20 (offset 100, with transcode) \| Picture Download × 10 \| WebRTC × 8 | 20 |
 
 <Note>
 These results were measured on **x86_64** hosts with the following specs:
@@ -36,7 +36,7 @@ Stream counts may differ on other host architectures or on smaller / lower-spec 
 
 ## Per-Request Latency Benchmarks
 
-End-to-end request latency measured on an **NVIDIA RTX PRO 6000 Blackwell** GPU paired with an **Intel(R) Xeon(R) Gold 6444Y** CPU when the Unified Stream Processing MS serves video download and picture API requests over RTSP. Each scenario is measured with both H.264 and H.265 streams using a *Very recent* recency pattern, so codec impact can be read directly off each table. All latency values (`Avg Latency`, `P50`, `P99`, `Max`) are in milliseconds.
+End-to-end request latency measured on an **RTX Pro 6000 SE** GPU paired with an **Intel(R) Xeon(R) Gold 6444Y** CPU when the Unified Stream Processing MS serves video download and picture API requests over RTSP. Each scenario is measured with both H.264 and H.265 streams using a *Very recent* recency pattern, so codec impact can be read directly off each table. All latency values (`Avg Latency`, `P50`, `P99`, `Max`) are in milliseconds.
 
 ### Single-Stream Video Download
 
