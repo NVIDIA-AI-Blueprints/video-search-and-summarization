@@ -142,3 +142,11 @@ Common invocation validates and pulls the resolved Compose stack after loading
 `setup/configs/images.yaml`, writes canonical JSON under `results/vss-perf-results/`,
 and tears down the deployment on exit. Set `IMAGE_TAG` to override the tested LVS
 image. Existing short-option invocations retain their output and teardown defaults.
+
+For common long-option invocations, the directory supplied through `--output-json`
+is the run artifact root. Canonical reports remain in `vss-perf-results/`, native
+benchmark logs and scenario outputs go into `native/`, and diagnostics stay in
+`diagnostics/`. The `native/` directory must be absent or empty; existing results
+are never deleted by the wrapper. Short-option invocations retain their output
+paths. Image snapshots are saved after measurement so they do not interfere with
+the native benchmark's empty-output-directory check.

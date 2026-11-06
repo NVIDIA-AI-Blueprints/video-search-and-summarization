@@ -178,6 +178,19 @@ if [[ "$common_mode" == true ]]; then
     [[ -n "$COMMON_OUTPUT_DIR" ]] || { error 'Common invocation requires --output-json directory'; exit 2; }
     mkdir -p "$COMMON_OUTPUT_DIR"
     COMMON_OUTPUT_DIR="$(cd "$COMMON_OUTPUT_DIR" && pwd)"
+    # Jenkins may already be streaming diagnostics into the run artifact root.
+    # The native benchmark requires its own empty directory before measuring.
+    native_output="$COMMON_OUTPUT_DIR/native"
+    if [[ -e "$native_output" || -L "$native_output" ]]; then
+        if [[ ! -d "$native_output" || -L "$native_output" ]]; then
+            error "Native output path must be a directory, not a file or symlink: $native_output"
+            exit 2
+        fi
+        if [[ -n "$(find "$native_output" -mindepth 1 -print -quit)" ]]; then
+            error "Native output directory is not empty: $native_output. Choose a new run directory."
+            exit 2
+        fi
+    fi
     translated+=(-O vss-perf-results -d -t "${PERF_LVS_HEALTH_TIMEOUT_SECONDS:-600}")
     [[ -z "${IMAGE_TAG:-}" ]] || translated+=(-I "$IMAGE_TAG")
 fi
@@ -636,7 +649,8 @@ step "Running benchmark: config=$BENCHMARK_CONFIG_PATH"
 
 # CI mode: fixed output dir for pipeline artifact copy; optional metadata and MinIO upload
 if [ -n "$OUTPUT_JSON_NAME" ]; then
-    CI_OUTPUT_DIR="${COMMON_OUTPUT_DIR:-$BENCHMARK_ROOT/vss-perf-report}"
+    CI_OUTPUT_DIR="${COMMON_OUTPUT_DIR:+$COMMON_OUTPUT_DIR/native}"
+    CI_OUTPUT_DIR="${CI_OUTPUT_DIR:-$BENCHMARK_ROOT/vss-perf-report}"
     export VIA_OUTPUT_DIR="$CI_OUTPUT_DIR"
 else
     COMPOSE_BASENAME="${COMPOSE_FILE##*/}"
@@ -644,8 +658,6 @@ else
     export VIA_OUTPUT_DIR="$BENCHMARK_ROOT/vss-perf-report-${COMPOSE_NAME}-$(date +%Y%m%d-%H%M%S)"
 fi
 step "Output directory: $VIA_OUTPUT_DIR"
-mkdir -p "$VIA_OUTPUT_DIR"
-"$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" --snapshot "$VIA_OUTPUT_DIR/support-images.json"
 
 BENCHMARK_CMD=(python3 vss_perf_benchmark.py --config "$BENCHMARK_CONFIG_PATH")
 if [ "${#SCENARIO_ARGS[@]}" -gt 0 ]; then
@@ -653,7 +665,10 @@ if [ "${#SCENARIO_ARGS[@]}" -gt 0 ]; then
     step "Scenarios: ${SCENARIO_ARGS[*]}"
 fi
 if [ -n "$OUTPUT_JSON_NAME" ]; then
-    BENCHMARK_CMD+=(--output-json "$OUTPUT_JSON_NAME" --output-dir "$VIA_OUTPUT_DIR")
+    # Keep canonical reports at the run root while native output stays isolated.
+    result_destination="$OUTPUT_JSON_NAME"
+    [[ -z "$COMMON_OUTPUT_DIR" ]] || result_destination="$COMMON_OUTPUT_DIR/vss-perf-results"
+    BENCHMARK_CMD+=(--output-json "$result_destination" --output-dir "$VIA_OUTPUT_DIR")
     BENCHMARK_CMD+=(--compose-file "$COMPOSE_REL_PATH")
     [ -n "${CONFIG_ID:-}" ] && BENCHMARK_CMD+=(--config-id "$CONFIG_ID")
     [ -n "${TRIGGERED_BY:-}" ] && BENCHMARK_CMD+=(--triggered-by "$TRIGGERED_BY")
@@ -708,6 +723,13 @@ if "${BENCHMARK_CMD[@]}"; then
 else
     benchmark_exit=$?
 fi
+
+# Do not populate the native output directory before its empty-directory check.
+# Preserve the benchmark status even if the supplemental snapshot cannot be saved.
+snapshot_root="${COMMON_OUTPUT_DIR:-$VIA_OUTPUT_DIR}"
+mkdir -p "$snapshot_root" && \
+    "$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" \
+        --snapshot "$snapshot_root/support-images.json" || warn "Could not save support image snapshot"
 
 if [ $benchmark_exit -eq 0 ]; then
     info "Benchmark completed successfully"
