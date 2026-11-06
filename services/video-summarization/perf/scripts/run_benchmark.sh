@@ -1,0 +1,752 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+#
+# run_benchmark.sh — End-to-end benchmark runner for VIA Engine.
+#
+# Deploys exactly one compose file (the one passed with -f). That file may include
+# others via Compose "include:" (e.g. media-server.yaml with nginx:alpine and
+# alpine:3.20 for the perf media server), so the stack can have multiple services.
+#
+# Automates the full workflow:
+#   1. Launches the Docker Compose stack (main file + media server)
+#   2. Polls the lvs container until it's healthy
+#   3. Runs the perf benchmark against lvs (after a quick_test warmup on Thor and Spark)
+#   4. Optionally tears down the stack on completion
+#
+# Prerequisites:
+#   - Run ../setup/scripts/setup.sh first to create setup/compose/.env and the shared media volume
+#   - Set ARTIFACTORY_USER and ARTIFACTORY_TOKEN (in environment or .env)
+#   - A benchmark config in ../configs/ (default: config.yaml, or
+#     tegra_config.yaml for thor-*, orin-nx-* and spark-* compose files)
+#   - Jetson Thor: sudo access for nvpmodel and jetson_clocks (the script switches
+#     the board to MAXN and pins its clocks before starting the stack)
+#
+# Run with -h for full usage and examples.
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PERF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BENCHMARK_ROOT="$PERF_ROOT/benchmark"
+BENCHMARK_DIR="$BENCHMARK_ROOT/core"
+CONFIG_DIR="$PERF_ROOT/configs"
+COMPOSE_DIR="$PERF_ROOT/setup/compose"
+SETUP_ENVIRONMENT="$PERF_ROOT/setup/setup_environment.sh"
+VENV_DIR="${PERF_VENV_DIR:-$PERF_ROOT/setup/.venv}"
+
+# Benchmark modules use these overrides to find service-owned configuration
+# without requiring the historical flattened runtime layout.
+export PERF_CONFIGS_YAML="$CONFIG_DIR/perf-configs.yaml"
+export PERF_DEFAULTS_YAML="$CONFIG_DIR/defaults.yaml"
+
+for required_config in "$PERF_CONFIGS_YAML" "$PERF_DEFAULTS_YAML"; do
+    if [ ! -f "$required_config" ]; then
+        echo "Required performance configuration not found: $required_config" >&2
+        exit 1
+    fi
+done
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+info()  { echo -e "${GREEN}[✓]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
+error() { echo -e "${RED}[✗]${NC} $*"; }
+step()  { echo -e "${CYAN}[➜]${NC} $*"; }
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") -f <compose-file> [options]
+CI/common interface: --compose-file FILE --config auto --scenario NAME --output-json DIR
+  Common mode writes to DIR/vss-perf-results and always tears down its stack.
+  Existing short-option invocations retain their defaults.
+
+Launch a compose stack, wait for lvs to be healthy, and run the perf benchmark.
+
+Required:
+  -f FILE        Compose file (name under compose/ or absolute path, e.g. x86-rtvi-cr-nemo3-nano_4gpu.yaml)
+
+Options:
+  -c CONFIG      Benchmark config file (default: tegra_config.yaml for thor-*, orin-nx-*
+                 and spark-* compose files, config.yaml otherwise)
+  -s SCENARIO    Benchmark scenario to run; repeat -s for multiple (or comma-separated in one -s)
+  -p PORT        LVS backend port (default: 38111)
+  -R PORT        RTVI host port (default: 8000; use a distinct port for parallel stacks)
+  -t TIMEOUT     Max seconds to wait for lvs health (default: 600)
+  -v GPUS        VLM GPU indices, comma-separated (e.g. 0,1)
+  -l GPUS        LLM GPU indices, comma-separated (e.g. 2,3)
+  -G OVERLAY     GPU overlay for MODEL_PATH (default: auto-detect by GPU name):
+                   auto                       — detect by GPU name (default)
+                   none                       — skip overlay, use base default
+                   h100 | h200 | b200 | gh200 | gb200 | l40s | thor | spark   — force a specific device
+                   rtx-pro-6000 | rtx-pro-4500                                 — force a specific RTX Pro device
+                   /path/to/custom.yaml       — absolute path to a custom overlay
+                 GPUs without a device-specific overlay (A100, A40, V100, ...) use the base compose default.
+  -r RELEASE     Release identifier for result metadata (overrides config.yaml global.release)
+  -I IMAGE       Override LVS image in compose file before launch (optional)
+  -O NAME        Output JSON base name for result (enables CI-style output dir)
+  -d             Tear down the compose stack after benchmark completes
+  -h             Show this help
+
+CI / dashboard (env or pass -O for output): CONFIG_ID (optional; CI sets it),
+  TRIGGERED_BY, PIPELINE_URL, UPLOAD_TO_MINIO (non-empty = --upload).
+  With -O, config_id/vlm/llm/topology resolve from configs/perf-configs.yaml via compose + GPU.
+  Use -r for release (overrides config.yaml).
+  On bare metal CI nodes set DOCKER_USE_SUDO=true so docker/compose run with sudo.
+
+Examples:
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml                              # auto-detects GPU overlay
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -s single_file_test
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -s single_file_test -d
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -v 0,1 -l 2,3                # split VLM/LLM across GPUs
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -p 39111 -R 9000            # distinct host ports for a parallel stack
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G h100                      # force device overlay
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G rtx-pro-6000              # force RTX Pro 6000 Blackwell overlay
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G none                      # use base compose default
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -c vss_sample_config.yaml -s single_file_test -s file_burst_test
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -O vss-perf-results -d
+EOF
+    exit 0
+}
+
+COMPOSE_FILE=""
+BENCHMARK_CONFIG=""
+SCENARIO_ARGS=()
+LVS_PORT=38111
+RTVI_PORT="${RTVI_PORT:-8000}"
+HEALTH_TIMEOUT=600
+VLM_GPUS=""
+LLM_GPUS=""
+IMAGE_TAG_OVERRIDE=""
+RELEASE=""
+OUTPUT_JSON_NAME=""
+TEARDOWN=false
+GPU_OVERLAY="auto"
+
+# Common service interface; short-option callers retain their original defaults.
+COMMON_OUTPUT_DIR=""
+common_mode=false
+translated=()
+while (($#)); do
+    case "$1" in
+        --help) translated+=(-h); shift ;;
+        --config|--compose-file|--scenario|--output-json|--config-id|--triggered-by|--pipeline-url|--release|--vlm-gpus|--llm-gpus|--vlm-model|--llm-model|--vision-input-tokens|--gpu-model)
+            [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { error "Missing value for $1"; exit 2; }
+            common_mode=true
+            case "$1" in
+                --config) [[ "$2" == auto ]] || translated+=(-c "$2") ;;
+                --compose-file) translated+=(-f "$2") ;;
+                --scenario) [[ "$2" == all ]] || translated+=(-s "$2") ;;
+                --output-json) COMMON_OUTPUT_DIR="$2" ;;
+                --release) translated+=(-r "$2") ;;
+                --vlm-gpus) translated+=(-v "$2") ;;
+                --llm-gpus) translated+=(-l "$2") ;;
+                --config-id) export CONFIG_ID="$2" ;;
+                --triggered-by) export TRIGGERED_BY="$2" ;;
+                --pipeline-url) export PIPELINE_URL="$2" ;;
+                --vlm-model) export VLM_MODEL="$2" ;;
+                --llm-model) export LLM_MODEL="$2" ;;
+                --vision-input-tokens) export VISION_INPUT_TOKENS="$2" ;;
+                --gpu-model) export GPU_MODEL="$2" ;;
+            esac
+            shift 2 ;;
+        --*) error "Unknown argument: $1"; exit 2 ;;
+        -f|-c|-s|-p|-R|-t|-v|-l|-G|-r|-I|-O)
+            [[ $# -ge 2 ]] || { error "Missing value for $1"; exit 2; }
+            translated+=("$1" "$2"); shift 2 ;;
+        *) translated+=("$1"); shift ;;
+    esac
+done
+if [[ "$common_mode" == true ]]; then
+    [[ -n "$COMMON_OUTPUT_DIR" ]] || { error 'Common invocation requires --output-json directory'; exit 2; }
+    mkdir -p "$COMMON_OUTPUT_DIR"
+    COMMON_OUTPUT_DIR="$(cd "$COMMON_OUTPUT_DIR" && pwd)"
+    # Jenkins may already be streaming diagnostics into the run artifact root.
+    # The native benchmark requires its own empty directory before measuring.
+    native_output="$COMMON_OUTPUT_DIR/native"
+    if [[ -e "$native_output" || -L "$native_output" ]]; then
+        if [[ ! -d "$native_output" || -L "$native_output" ]]; then
+            error "Native output path must be a directory, not a file or symlink: $native_output"
+            exit 2
+        fi
+        if [[ -n "$(find "$native_output" -mindepth 1 -print -quit)" ]]; then
+            error "Native output directory is not empty: $native_output. Choose a new run directory."
+            exit 2
+        fi
+    fi
+    translated+=(-O vss-perf-results -d -t "${PERF_LVS_HEALTH_TIMEOUT_SECONDS:-600}")
+    [[ -z "${IMAGE_TAG:-}" ]] || translated+=(-I "$IMAGE_TAG")
+fi
+set -- "${translated[@]}"
+
+while getopts "f:c:s:p:R:t:v:l:G:r:I:O:dh" opt; do
+    case $opt in
+        f) COMPOSE_FILE="$OPTARG" ;;
+        c) BENCHMARK_CONFIG="$OPTARG" ;;
+        s)
+            # Support -s a -s b and -s a,b (do not rely on positional args after -s; they swallow -p/-t).
+            IFS=',' read -ra _scenarios <<< "$OPTARG"
+            for _sc in "${_scenarios[@]}"; do
+                _sc="${_sc#"${_sc%%[![:space:]]*}"}"
+                _sc="${_sc%"${_sc##*[![:space:]]}"}"
+                if [ -n "$_sc" ]; then
+                    SCENARIO_ARGS+=("$_sc")
+                fi
+            done
+            ;;
+        p) LVS_PORT="$OPTARG" ;;
+        R) RTVI_PORT="$OPTARG" ;;
+        t) HEALTH_TIMEOUT="$OPTARG" ;;
+        v) VLM_GPUS="$OPTARG" ;;
+        l) LLM_GPUS="$OPTARG" ;;
+        G) GPU_OVERLAY="$OPTARG" ;;
+        r) RELEASE="$OPTARG" ;;
+        I) IMAGE_TAG_OVERRIDE="$OPTARG" ;;
+        O) OUTPUT_JSON_NAME="$OPTARG" ;;
+        d) TEARDOWN=true ;;
+        h) usage ;;
+        *) usage ;;
+    esac
+done
+
+shift $((OPTIND - 1))
+# Ignore leftover positional args (legacy callers may pass extra words; flags must use -p/-t/etc.).
+if [ "$#" -gt 0 ]; then
+    warn "Ignoring extra positional argument(s): $*"
+fi
+
+if [ -z "$COMPOSE_FILE" ]; then
+    error "Compose file is required (-f)"
+    usage
+fi
+
+if [[ ! "$RTVI_PORT" =~ ^[0-9]+$ ]] || [ "$RTVI_PORT" -lt 1 ] || [ "$RTVI_PORT" -gt 65535 ]; then
+    error "RTVI host port must be an integer from 1 to 65535: $RTVI_PORT"
+    exit 1
+fi
+export RTVI_PORT
+
+# Resolve compose file: absolute or relative to perf/setup/compose/.
+if [[ "$COMPOSE_FILE" == /* ]]; then
+    COMPOSE_FILE_PATH="$COMPOSE_FILE"
+else
+    COMPOSE_FILE_PATH="$COMPOSE_DIR/$COMPOSE_FILE"
+fi
+if [ ! -f "$COMPOSE_FILE_PATH" ]; then
+    error "Compose file not found: $COMPOSE_FILE_PATH"
+    exit 1
+fi
+
+# Thor, Orin NX and DGX Spark default to tegra_config.yaml, which runs only the
+# 1/10/30/60min single-file videos and the 1min/5min burst videos. -c overrides.
+if [ -z "$BENCHMARK_CONFIG" ]; then
+    case "$(basename "$COMPOSE_FILE_PATH")" in
+        thor-*|orin-nx-*|spark-*) BENCHMARK_CONFIG="tegra_config.yaml" ;;
+        *)                        BENCHMARK_CONFIG="config.yaml" ;;
+    esac
+fi
+
+# Resolve benchmark config: absolute or relative to perf/configs/.
+if [[ "$BENCHMARK_CONFIG" == /* ]]; then
+    BENCHMARK_CONFIG_PATH="$BENCHMARK_CONFIG"
+else
+    BENCHMARK_CONFIG_PATH="$CONFIG_DIR/$BENCHMARK_CONFIG"
+fi
+if [ ! -f "$BENCHMARK_CONFIG_PATH" ]; then
+    error "Benchmark config not found: $BENCHMARK_CONFIG_PATH"
+    exit 1
+fi
+
+# --- GPU overlay selection ---
+# Picks compose/overlays/gpu-<name>.yaml by matching the device name of GPU 0
+# from nvidia-smi (e.g. "H100", "B200", "RTX PRO 6000") against known
+# device-specific overlays. Assumes all GPUs on the node are the same model.
+# No family fallback: GPUs without a device-specific overlay (A100, H200, A40,
+# V100, ...) use the base compose file's MODEL_PATH default. Override with
+# -G <auto|none|<device>|/abs/path>.
+
+# Map a device name string (e.g. "NVIDIA H100 80GB HBM3") to a device-specific
+# overlay basename. Echo "" and return 1 if no match.
+match_device_overlay() {
+    local name_lc
+    name_lc=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+
+    case "$name_lc" in
+        *"rtx pro 4500"*)              echo "gpu-rtx-pro-4500.yaml" ;;
+        *"rtx pro 6000"*)              echo "gpu-rtx-pro-6000.yaml" ;;
+        # gb200/gh200 must come before b200/h100: "gb200" contains "b200" as a
+        # substring, so *"b200"* would false-match a GB200. (gh200 doesn't
+        # actually collide with h100, but order it here for symmetry.)
+        *"gh200"*)                     echo "gpu-gh200.yaml" ;;
+        *"h200"*)                      echo "gpu-h200.yaml" ;;
+        *"h100"*)                      echo "gpu-h100.yaml" ;;
+        *"gb200"*|*"grace blackwell"*) echo "gpu-gb200.yaml" ;;
+        *"b200"*)                      echo "gpu-b200.yaml" ;;
+        *"l40s"*)                      echo "gpu-l40s.yaml" ;;
+        *"t5000"*|*"thor"*)            echo "gpu-thor.yaml" ;;
+        *"gb10"*|*"spark"*)            echo "gpu-spark.yaml" ;;
+        *)                             return 1 ;;
+    esac
+}
+
+detect_gpu_overlay() {
+    if ! command -v nvidia-smi &>/dev/null; then
+        warn "nvidia-smi not found; skipping GPU overlay auto-detect"
+        return 1
+    fi
+
+    local name
+    name=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits -i 0 2>/dev/null \
+              | head -1 | awk '{gsub(/^ +| +$/,""); print}')
+    if [ -z "$name" ]; then
+        warn "nvidia-smi returned no devices; skipping GPU overlay auto-detect"
+        return 1
+    fi
+
+    local overlay
+    if ! overlay=$(match_device_overlay "$name"); then
+        warn "No device-specific overlay for '$name'; using base compose default"
+        return 1
+    fi
+
+    local overlay_path="$COMPOSE_DIR/overlays/$overlay"
+    if [ ! -f "$overlay_path" ]; then
+        warn "Matched device overlay $overlay but $overlay_path does not exist; using base compose default"
+        return 1
+    fi
+
+    info "GPU '$name' → overlay: overlays/$overlay"
+    OVERLAY_FILE_PATH="$overlay_path"
+    return 0
+}
+
+OVERLAY_FILE_PATH=""
+case "$GPU_OVERLAY" in
+    auto)
+        detect_gpu_overlay || true   # missing overlay falls back to base default
+        ;;
+    none|"")
+        step "GPU overlay disabled (-G none); using base compose default for MODEL_PATH"
+        ;;
+    h100|h200|b200|l40s|thor|spark|rtx-pro-6000|rtx-pro-4500|gh200|gb200)
+        OVERLAY_FILE_PATH="$COMPOSE_DIR/overlays/gpu-${GPU_OVERLAY}.yaml"
+        if [ ! -f "$OVERLAY_FILE_PATH" ]; then
+            error "Overlay not found: $OVERLAY_FILE_PATH"
+            exit 1
+        fi
+        info "GPU overlay forced via -G: overlays/gpu-${GPU_OVERLAY}.yaml"
+        ;;
+    /*)
+        OVERLAY_FILE_PATH="$GPU_OVERLAY"
+        if [ ! -f "$OVERLAY_FILE_PATH" ]; then
+            error "Custom overlay file not found: $OVERLAY_FILE_PATH"
+            exit 1
+        fi
+        info "GPU overlay forced via -G (absolute path): $OVERLAY_FILE_PATH"
+        ;;
+    *)
+        error "Invalid -G OVERLAY: '$GPU_OVERLAY'. Use auto|none|<device>|/abs/path"
+        error "  devices: h100|h200|b200|gh200|gb200|l40s|thor|spark|rtx-pro-6000|rtx-pro-4500"
+        exit 1
+        ;;
+esac
+
+# Build the compose -f argument list used by every docker compose invocation below.
+COMPOSE_FILE_ARGS=(-f "$COMPOSE_FILE_PATH")
+if [ -n "$OVERLAY_FILE_PATH" ]; then
+    COMPOSE_FILE_ARGS+=(-f "$OVERLAY_FILE_PATH")
+fi
+
+if [ -f "$COMPOSE_DIR/.env" ]; then
+    set -a
+    source "$COMPOSE_DIR/.env"
+    set +a
+fi
+
+# Load supporting image variables before Compose resolves its service definitions.
+PERF_VENV_DIR="$VENV_DIR" "$SETUP_ENVIRONMENT"
+image_tool="$PERF_ROOT/../../../libs/vss-perf-tools/support_images.py"
+image_environment="$("$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" --shell)"
+eval "$image_environment"
+
+export_gpu_assignments() {
+    local prefix="$1"
+    local values="$2"
+    local -a gpu_ids
+    local gpu_id
+    local index
+
+    IFS=',' read -ra gpu_ids <<< "$values"
+    for index in "${!gpu_ids[@]}"; do
+        gpu_id="${gpu_ids[$index]//[[:space:]]/}"
+        if [[ ! "$gpu_id" =~ ^[0-9]+$ ]]; then
+            error "Invalid GPU assignment '$gpu_id' in '$values'"
+            exit 1
+        fi
+        printf -v "${prefix}${index}" '%s' "$gpu_id"
+        export "${prefix}${index}"
+    done
+}
+
+# Keep benchmark monitoring and Compose container placement on the same GPUs.
+if [ -n "$VLM_GPUS" ]; then
+    export_gpu_assignments "RTVI_GPU_" "$VLM_GPUS"
+    export_gpu_assignments "VLM_NIM_GPU_" "$VLM_GPUS"
+fi
+if [ -n "$LLM_GPUS" ]; then
+    export_gpu_assignments "LLM_GPU_" "$LLM_GPUS"
+fi
+
+if [ -z "${ARTIFACTORY_USER:-}" ] || [ -z "${ARTIFACTORY_TOKEN:-}" ]; then
+    error "ARTIFACTORY_USER and ARTIFACTORY_TOKEN must be set"
+    echo "  Example:"
+    echo "  export ARTIFACTORY_USER='<username>'"
+    echo "  export ARTIFACTORY_TOKEN='<token>'"
+    echo "  # or set them in compose/.env"
+    exit 1
+fi
+
+# --- Optional: override LVS image in compose file (e.g. for CI or local -I) ---
+if [ -n "$IMAGE_TAG_OVERRIDE" ]; then
+    step "Overriding LVS image in compose file with: $IMAGE_TAG_OVERRIDE"
+    export LVS_IMAGE="$IMAGE_TAG_OVERRIDE"
+fi
+
+# --- Export env for compose (CI may set NGC_API_KEY, LOCAL_NIM_CACHE, etc.) ---
+[ -n "${NGC_API_KEY:-}" ] && export NGC_API_KEY
+[ -n "${LOCAL_NIM_CACHE:-}" ] && export LOCAL_NIM_CACHE
+[ -n "${NVIDIA_API_KEY:-}" ] && export NVIDIA_API_KEY
+[ -n "${HF_TOKEN:-}" ] && export HF_TOKEN
+
+# Activate `media` profile (media-server.yaml).
+if [ -z "${COMPOSE_PROFILES:-}" ]; then
+    export COMPOSE_PROFILES="media"
+elif [[ ",${COMPOSE_PROFILES}," != *",media,"* ]]; then
+    export COMPOSE_PROFILES="${COMPOSE_PROFILES},media"
+fi
+
+# --- Docker command prefix: use sudo when DOCKER_USE_SUDO is set (e.g. CI bare metal) ---
+# Use sudo -E so NGC_API_KEY, LOCAL_NIM_CACHE, etc. are passed to docker compose (sudo normally resets env).
+if [ -n "${DOCKER_USE_SUDO:-}" ] && [ "${DOCKER_USE_SUDO}" != "0" ] && [ "${DOCKER_USE_SUDO}" != "false" ]; then
+    DOCKER_PREFIX="sudo -E "
+else
+    DOCKER_PREFIX=""
+fi
+
+# The optional CI lifecycle guard owns elevation and labels every deployment.
+# Local/manual execution retains the existing Docker command and sudo behavior.
+DOCKER_CLI="${PERF_DOCKER_WRAPPER:-docker}"
+if [[ -n "${PERF_DOCKER_WRAPPER:-}" ]]; then
+    DOCKER_PREFIX=""
+fi
+
+# --- Thor: MAXN power mode and pinned clocks ---
+# Thor benchmarks run in MAXN with clocks pinned by jetson_clocks. If either step
+# fails, stop so the user can fix it and rerun.
+if [[ "$(basename "$COMPOSE_FILE_PATH")" == thor-* ]]; then
+    THOR_SUDO=""
+    if [ "$(id -u)" -ne 0 ]; then
+        THOR_SUDO="sudo "
+    fi
+    step "Switching Thor to MAXN and pinning clocks (nvpmodel -m 0, jetson_clocks)"
+    if ! ${THOR_SUDO}nvpmodel -m 0 \
+        || [ "$(${THOR_SUDO}nvpmodel -q 2>/dev/null | sed -n 's/^NV Power Mode: *//p')" != "MAXN" ]; then
+        error "Could not switch Thor to MAXN. Run 'sudo nvpmodel -m 0' (reboot if it asks), then rerun this script."
+        exit 1
+    fi
+    if ! ${THOR_SUDO}jetson_clocks; then
+        error "Could not run jetson_clocks. Run 'sudo jetson_clocks', then rerun this script."
+        exit 1
+    fi
+    info "Thor: MAXN power mode, clocks pinned"
+fi
+
+STACK_LAUNCH_ATTEMPTED=false
+LVS_LOG_PID=""
+
+collect_perf_diagnostics() {
+    local exit_code="${1:-1}"
+    local outcome="failure"
+    local collector="${PERF_DIAGNOSTICS_COLLECTOR:-}"
+    local output_dir="${PERF_DIAGNOSTICS_DIR:-${PERF_OUTPUT_DIR:-$PERF_ROOT/results}/diagnostics}"
+    local container_id
+    local -a collector_args
+
+    [[ "$exit_code" -eq 0 ]] && outcome="success"
+    [[ -n "$collector" && -x "$collector" ]] || return 0
+
+    collector_args=(
+        --output "$output_dir"
+        --outcome "$outcome"
+        --service "LVS"
+        --since "${PERF_RUN_STARTED_AT:-}"
+    )
+    while IFS= read -r container_id; do
+        [[ -n "$container_id" ]] && collector_args+=(--container "$container_id")
+    done < <(${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" ps -aq 2>/dev/null || true)
+
+    "$collector" "${collector_args[@]}" || \
+        warn "LVS diagnostics collection failed; preserving original exit status $exit_code"
+}
+
+cleanup() {
+    local exit_code=$?
+    trap - EXIT INT TERM
+    set +e
+
+    if [ -n "$LVS_LOG_PID" ]; then
+        kill -- -"$LVS_LOG_PID" 2>/dev/null || true
+    fi
+
+    # Capture every Compose service before teardown removes the containers.
+    # This also covers failures from the first docker compose up invocation,
+    # before the background log streamer has had a chance to start.
+    collect_perf_diagnostics "$exit_code"
+
+    if [ "$TEARDOWN" = true ] && [ "$STACK_LAUNCH_ATTEMPTED" = true ]; then
+        step "Tearing down compose stack..."
+        if ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" down; then
+            info "Stack torn down"
+        else
+            error "Compose teardown failed"
+            [ "$exit_code" -ne 0 ] || exit_code=1
+        fi
+    fi
+
+    exit "$exit_code"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# Common invocation owns Compose operations after loading images.yaml above.
+if [[ "$common_mode" == true ]]; then
+    image_snapshot="${PERF_DIAGNOSTICS_DIR:-$COMMON_OUTPUT_DIR/diagnostics}/support-images.json"
+    mkdir -p "$(dirname "$image_snapshot")"
+    "$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" --snapshot "$image_snapshot"
+    if [[ -n "${NGC_API_KEY:-}" ]]; then
+        set +x
+        printf '%s\n' "$NGC_API_KEY" | ${DOCKER_PREFIX}docker login nvcr.io -u '$oauthtoken' --password-stdin
+    fi
+    if [[ -n "${LOCAL_NIM_CACHE:-}" ]]; then
+        ${DOCKER_PREFIX}mkdir -p "$LOCAL_NIM_CACHE"
+    fi
+    if [[ -n "${ARTIFACTORY_TOKEN:-}" ]]; then
+        export ASSET_DOWNLOAD_AUTH_TOKENS="artifactory.nvidia.com=Bearer ${ARTIFACTORY_TOKEN}"
+    fi
+    ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" config --quiet
+    timeout --kill-after=5s "${PERF_LVS_PULL_TIMEOUT_SECONDS:-1500}s" \
+        ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" pull --include-deps
+fi
+
+# --- Step 1: Launch compose stack ---
+step "Starting compose stack: $COMPOSE_FILE${OVERLAY_FILE_PATH:+ + overlays/$(basename "$OVERLAY_FILE_PATH")}"
+STACK_LAUNCH_ATTEMPTED=true
+# This is a shared dataset volume, not a disposable deployment resource.
+${DOCKER_PREFIX}${DOCKER_CLI} volume inspect via-media-data >/dev/null 2>&1 || \
+    ${DOCKER_PREFIX}${DOCKER_CLI} volume create via-media-data >/dev/null
+LVS_BACKEND_PORT="$LVS_PORT" ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" up -d
+
+# Stream all service logs in the background immediately after containers start,
+# so startup output (including crashes) is visible. Must start before --wait so
+# logs are captured even if a container exits non-zero and the wait fails.
+# setsid puts the process in its own session (and thus its own process group),
+# so that kill -- -$LVS_LOG_PID can kill the entire process tree (parent + all
+# child log-streamer processes spawned by docker compose). Without setsid,
+# killing only the parent PID leaves orphaned children holding stdout open,
+# which causes the Jenkins sh step to hang indefinitely.
+setsid ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" logs -f &
+LVS_LOG_PID=$!
+step "Streaming all service logs in background (PID: $LVS_LOG_PID)"
+
+# Wait for all health checks to pass (or fail)
+LVS_BACKEND_PORT="$LVS_PORT" ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" \
+    up --wait --wait-timeout "$HEALTH_TIMEOUT" || {
+    # kill -- -PID sends the signal to the entire process group (the leading
+    # dash before PID means "process group ID", not a single PID). This ensures
+    # all child processes spawned by docker compose logs -f are also terminated.
+    kill -- -$LVS_LOG_PID 2>/dev/null || true
+    exit 1
+}
+
+# --- Step 2: Wait for lvs to be ready ---
+step "Waiting for lvs to be ready on port $LVS_PORT (timeout: ${HEALTH_TIMEOUT}s)..."
+elapsed=0
+interval=5
+while [ $elapsed -lt $HEALTH_TIMEOUT ]; do
+    if curl -sf "http://localhost:$LVS_PORT/v1/ready" > /dev/null 2>&1; then
+        info "lvs is ready (${elapsed}s)"
+        break
+    fi
+    sleep $interval
+    elapsed=$((elapsed + interval))
+    printf "\r  Waiting... %ds / %ds" "$elapsed" "$HEALTH_TIMEOUT"
+done
+
+# Stop streaming logs when wait phase ends (align with Groovy path: its sh block exits here so the background job dies implicitly; we must kill explicitly)
+kill -- -$LVS_LOG_PID 2>/dev/null || true
+
+if [ $elapsed -ge $HEALTH_TIMEOUT ]; then
+    echo ""
+    error "lvs did not become ready within ${HEALTH_TIMEOUT}s"
+    echo "  Check logs: ${DOCKER_PREFIX}${DOCKER_CLI} compose ${COMPOSE_FILE_ARGS[*]} logs -f lvs"
+    exit 1
+fi
+
+# --- Deployment info: surface the actual MODEL_PATH + compose layers applied ---
+# Useful post-deploy verification: did the GPU overlay land, what checkpoint is
+# loaded, which compose files were stitched together. Reads container labels and
+# env directly so it reflects ground truth (not just the pre-deploy plan).
+step "Deployment info (rtvi-vlm)"
+RTVI_CONTAINER=$(${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" ps -q rtvi-vlm 2>/dev/null | head -1)
+if [ -n "$RTVI_CONTAINER" ]; then
+    rtvi_env=$(${DOCKER_PREFIX}${DOCKER_CLI} inspect "$RTVI_CONTAINER" \
+                 --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null)
+    rtvi_compose_files=$(${DOCKER_PREFIX}${DOCKER_CLI} inspect "$RTVI_CONTAINER" \
+                 --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null)
+    rtvi_model_path=$(echo "$rtvi_env" | awk -F= '/^MODEL_PATH=/{print substr($0, index($0,"=")+1); exit}')
+    rtvi_model_type=$(echo "$rtvi_env" | awk -F= '/^VLM_MODEL_TO_USE=/{print $2; exit}')
+    rtvi_batch_size=$(echo "$rtvi_env" | awk -F= '/^VLM_BATCH_SIZE=/{print $2; exit}')
+    rtvi_input_w=$(echo "$rtvi_env" | awk -F= '/^VLM_INPUT_WIDTH=/{print $2; exit}')
+    rtvi_input_h=$(echo "$rtvi_env" | awk -F= '/^VLM_INPUT_HEIGHT=/{print $2; exit}')
+    rtvi_num_frames=$(echo "$rtvi_env" | awk -F= '/^VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=/{print $2; exit}')
+    info "  container         : $RTVI_CONTAINER"
+    info "  VLM_MODEL_TO_USE  : ${rtvi_model_type:-(unset)}"
+    info "  MODEL_PATH        : ${rtvi_model_path:-(unset)}"
+    info "  input resolution  : ${rtvi_input_w:-?}x${rtvi_input_h:-?}  (frames: ${rtvi_num_frames:-default})"
+    info "  VLM_BATCH_SIZE    : ${rtvi_batch_size:-(auto)}"
+    info "  compose files applied:"
+    echo "$rtvi_compose_files" | tr ',' '\n' | sed 's|^|      |'
+else
+    warn "Could not locate rtvi-vlm container; skipping deployment info"
+fi
+
+step "Waiting 30s for services to stabilize..."
+sleep 30
+
+# Quick probe: LVS must reach media-server inside the compose network (distinct from host→Artifactory).
+step "Probing http://media-server/10min.mp4 from lvs container (Range: 0-0)"
+if ! ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" exec -T lvs python3 -c \
+    'import urllib.request as u; r=u.Request("http://media-server/10min.mp4", headers={"Range":"bytes=0-0"}); o=u.urlopen(r, timeout=20); print("media-server probe:", o.status, "Content-Length=", o.headers.get("Content-Length"), "Content-Range=", o.headers.get("Content-Range"))'; then
+    error "Media probe failed (e.g. HTTP 404). Perf videos are missing on media-server — see downloader logs (Artifactory) or pre-populate via-media-data."
+    echo "  ${DOCKER_PREFIX}${DOCKER_CLI} compose ${COMPOSE_FILE_ARGS[*]} logs downloader"
+    exit 1
+fi
+
+# Relative compose path for perf-configs.yaml lookup (compose/<basename>).
+COMPOSE_REL_PATH="compose/$(basename "$COMPOSE_FILE_PATH")"
+export COMPOSE_FILE_PATH="$COMPOSE_REL_PATH"
+
+# --- Step 3: Run benchmark ---
+step "Running benchmark: config=$BENCHMARK_CONFIG_PATH"
+
+# CI mode: fixed output dir for pipeline artifact copy; optional metadata and MinIO upload
+if [ -n "$OUTPUT_JSON_NAME" ]; then
+    CI_OUTPUT_DIR="${COMMON_OUTPUT_DIR:+$COMMON_OUTPUT_DIR/native}"
+    CI_OUTPUT_DIR="${CI_OUTPUT_DIR:-$BENCHMARK_ROOT/vss-perf-report}"
+    export VIA_OUTPUT_DIR="$CI_OUTPUT_DIR"
+else
+    COMPOSE_BASENAME="${COMPOSE_FILE##*/}"
+    COMPOSE_NAME="${COMPOSE_BASENAME%.yaml}"
+    export VIA_OUTPUT_DIR="$BENCHMARK_ROOT/vss-perf-report-${COMPOSE_NAME}-$(date +%Y%m%d-%H%M%S)"
+fi
+step "Output directory: $VIA_OUTPUT_DIR"
+
+BENCHMARK_CMD=(python3 vss_perf_benchmark.py --config "$BENCHMARK_CONFIG_PATH")
+if [ "${#SCENARIO_ARGS[@]}" -gt 0 ]; then
+    BENCHMARK_CMD+=(--scenario "${SCENARIO_ARGS[@]}")
+    step "Scenarios: ${SCENARIO_ARGS[*]}"
+fi
+if [ -n "$OUTPUT_JSON_NAME" ]; then
+    # Keep canonical reports at the run root while native output stays isolated.
+    result_destination="$OUTPUT_JSON_NAME"
+    [[ -z "$COMMON_OUTPUT_DIR" ]] || result_destination="$COMMON_OUTPUT_DIR/vss-perf-results"
+    BENCHMARK_CMD+=(--output-json "$result_destination" --output-dir "$VIA_OUTPUT_DIR")
+    BENCHMARK_CMD+=(--compose-file "$COMPOSE_REL_PATH")
+    [ -n "${CONFIG_ID:-}" ] && BENCHMARK_CMD+=(--config-id "$CONFIG_ID")
+    [ -n "${TRIGGERED_BY:-}" ] && BENCHMARK_CMD+=(--triggered-by "$TRIGGERED_BY")
+    [ -n "${PIPELINE_URL:-}" ] && BENCHMARK_CMD+=(--pipeline-url "$PIPELINE_URL")
+    if [ -n "${UPLOAD_TO_MINIO:-}" ] && [ "$UPLOAD_TO_MINIO" != "false" ] && [ "$UPLOAD_TO_MINIO" != "0" ]; then
+        BENCHMARK_CMD+=(--upload)
+    fi
+fi
+[ -n "$VLM_GPUS" ] && BENCHMARK_CMD+=(--vlm-gpus "$VLM_GPUS")
+[ -n "$LLM_GPUS" ] && BENCHMARK_CMD+=(--llm-gpus "$LLM_GPUS")
+[ -n "$RELEASE" ] && BENCHMARK_CMD+=(--release "$RELEASE")
+
+cd "$BENCHMARK_DIR"
+step "Using benchmark environment: $VENV_DIR"
+set +u
+source "$VENV_DIR/bin/activate"
+set -u
+info "Activated virtualenv: $VENV_DIR"
+export VIA_BACKEND="http://localhost:$LVS_PORT"
+[ -n "$VLM_GPUS" ] && export VIA_VLM_GPUS="$VLM_GPUS"
+[ -n "$LLM_GPUS" ] && export VIA_LLM_GPUS="$LLM_GPUS"
+
+# Thor and Spark: warm up the stack with one quick_test run before measuring,
+# unless quick_test already runs first. Warmup output is kept outside the final
+# report directory and is not included in the measured report.
+case "$(basename "$COMPOSE_FILE_PATH")" in
+    thor-*|spark-*)
+        if [ "${#SCENARIO_ARGS[@]}" -eq 0 ] || [ "${SCENARIO_ARGS[0]}" = "quick_test" ]; then
+            info "Warmup skipped: quick_test is the first scenario"
+        else
+            # Each invocation needs an empty directory. Keep CI warmups with
+            # diagnostics so they are archived without entering the final report.
+            if [ -n "${PERF_OUTPUT_DIR:-}" ]; then
+                warmup_parent="${PERF_DIAGNOSTICS_DIR:-${PERF_OUTPUT_DIR}/diagnostics}/warmup"
+                mkdir -p "$warmup_parent"
+                warmup_output_dir="$(mktemp -d "$warmup_parent/run.XXXXXXXX")"
+            else
+                warmup_output_dir="$(mktemp -d "${VIA_OUTPUT_DIR}-warmup.XXXXXXXX")"
+            fi
+            step "Warmup: quick_test (results in $warmup_output_dir, not part of the report)"
+            if ! python3 vss_perf_benchmark.py --config "$BENCHMARK_CONFIG_PATH" --scenario quick_test \
+                --output-dir "$warmup_output_dir"; then
+                error "Warmup run failed; check the stack logs, then rerun this script."
+                exit 1
+            fi
+        fi
+        ;;
+esac
+
+if "${BENCHMARK_CMD[@]}"; then
+    benchmark_exit=0
+else
+    benchmark_exit=$?
+fi
+
+# Do not populate the native output directory before its empty-directory check.
+# Preserve the benchmark status even if the supplemental snapshot cannot be saved.
+snapshot_root="${COMMON_OUTPUT_DIR:-$VIA_OUTPUT_DIR}"
+mkdir -p "$snapshot_root" && \
+    "$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" \
+        --snapshot "$snapshot_root/support-images.json" || warn "Could not save support image snapshot"
+
+if [ $benchmark_exit -eq 0 ]; then
+    info "Benchmark completed successfully"
+else
+    error "Benchmark failed (exit code: $benchmark_exit)"
+    step "Recent lvs logs (debug HTTP 500 on /summarize, model, video pipeline)"
+    ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" logs --no-color --tail 400 lvs 2>/dev/null || true
+fi
+
+exit $benchmark_exit

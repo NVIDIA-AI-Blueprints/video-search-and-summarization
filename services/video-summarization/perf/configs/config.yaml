@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Performance Test Configuration
+# This file defines test scenarios for the VIA performance test harness
+
+# Global test settings
+global:
+  # VSS backend URL for the API (can be overridden by VIA_BACKEND env var)
+  vss_backend: "http://localhost:38111"
+
+  # Output directory for test results
+  output_dir: "vss-perf-report"
+
+  # GPU configuration
+  vlm_gpus: [0, 1]  # GPU indices used for VLM
+  llm_gpus: [2, 3]  # GPU indices used for LLM
+
+  # GPU monitoring settings
+  gpu_monitoring:
+    enabled: true  # Enable GPU monitoring during tests
+    interval_seconds: 1  # Monitoring interval in seconds (default: 2)
+
+  # CPU/RAM monitoring settings
+  cpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+
+  # /summarize API parameters
+  summarize_api_params:
+    max_tokens: 100
+    # num_frames_per_chunk: 40
+    events:
+      - "worker dropping boxes"
+      - "PPE violation"
+      - "forklift safety violation"
+      - "worker in restricted area"
+      - "equipment malfunction"
+      - "safety protocol violation"
+      - "boxes falling"
+      - "worker falling"
+      - "unauthorized personnel"
+      - "forklift stuck or blocked"
+      - "improper lifting technique"
+      - "spill or debris on floor"
+      - "emergency exit blocked"
+      - "workers congregating"
+      - "workers using phone"
+      - "unsecured load"
+      - "speed violation"
+      - "collision or near miss"
+      - "improper storage"
+      - "fire hazard"
+    scenario: "warehouse safety monitoring"
+
+
+# Test scenarios - each scenario defines a set of tests to run
+test_scenarios:
+  # Quick test scenario - for development/debugging
+  quick_test:
+    description: "Quick test with short videos"
+    benchmark_mode: "single_file"
+    iterations: 1
+    videos:
+      - url: "http://media-server/10min.mp4"
+        chunk_sizes: [10]
+        # Example: Override API params for specific video
+        # summarize_api_params:
+        #   temperature: 0.5
+
+  # Mode 1: Single File Summarization
+  single_file_test:
+    description: "Single file processing and summarization"
+    benchmark_mode: "single_file"
+    iterations: 3
+    videos:
+      - url: "http://media-server/1min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/10min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/30min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/60min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/120min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/720min.mkv"
+        chunk_sizes: [10]
+        iterations: 1
+
+  # Mode 2: File Burst Test (Concurrency video files)
+  file_burst_test:
+    description: "Test different concurrency levels and measure latency statistics"
+    benchmark_mode: "file_burst"
+    videos:
+      - url: "http://media-server/1min.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4]
+        target_latency_seconds: 60.0
+        target_latency_tolerance: 5.0
+      - url: "http://media-server/5min.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [2, 4, 8]
+        target_latency_seconds: 300.0
+        target_latency_tolerance: 10.0
+      - url: "http://media-server/10min.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [2, 4, 8]
+        target_latency_seconds: 600.0
+        target_latency_tolerance: 10.0

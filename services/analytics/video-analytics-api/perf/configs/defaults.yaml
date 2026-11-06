@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Only newly created benchmark database volumes are disposable.
+lifecycle:
+  disposable_volumes:
+    - elastic-data
+    - elastic-logs

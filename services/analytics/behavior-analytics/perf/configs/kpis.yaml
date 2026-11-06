@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Playback KPI thresholds from Yun He, 2026-10-19:
+# https://nvidia.slack.com/archives/C05RW9T7X7V/p1792432872569139
+# ?thread_ts=1792203671.915059
+# Behavior/events thresholds revised on 2026-10-20:
+# https://nvidia.slack.com/archives/C05RW9T7X7V/p1792542814392959
+#
+# Message Type        | p50 (s) | p99 (s)
+# Frame Messages      | 0.02    | 0.05
+# Incident Messages   | 0.03    | 0.06
+# Behavior Messages   | 0.06    | 0.12
+# Event Messages      | 0.06    | 0.12
+#
+# Latency limits are seconds. BA topics use topic-minus-raw (corrected).
+# min_count is a run-validity floor, not part of Yun's table.
+# Warehouse kafka playback fixture sets behaviorEmitOnce=true, which holds
+# each behavior for behaviorStateValidInterval (default 6s). Perf overlay
+# turns emit-once off so this gate measures live behavior updates.
+
+schema_version: "0.1"
+service: behavior-analytics
+source:
+  owner: Yun He
+  slack: https://nvidia.slack.com/archives/C05RW9T7X7V/p1792432872569139
+  setup: warehouse_2d_kafka_playback
+
+scenarios:
+  quick_test:
+    warehouse_2d-kafka-playback:
+      required_topics:
+        - raw
+        - frames
+        - behavior
+        - events
+        - incidents
+      raw:
+        min_count: 1000
+      frames:
+        min_count: 1000
+        max_p50_s: 0.02
+        max_p99_s: 0.05
+      incidents:
+        min_count: 1000
+        max_p50_s: 0.03
+        max_p99_s: 0.06
+      behavior:
+        min_count: 1
+        max_p50_s: 0.06
+        max_p99_s: 0.12
+      events:
+        min_count: 10
+        max_p50_s: 0.06
+        max_p99_s: 0.12

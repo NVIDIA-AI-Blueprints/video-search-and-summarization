@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+report_service: Alerts-Verification
+deployment_mode: compose
+broker: kafka
+
+# Host-network listeners; published Compose ports are checked automatically.
+lifecycle:
+  required_ports:
+    - tcp:30000
+    - tcp:30888
+    - tcp:31000
+  disposable_volumes:
+    - elastic-data
+    - elastic-logs
+    - kafka-data
+    - vios_pg_data
+    - phoenix-data
+    - logstash-libs
+    - vss-turn-password
+    - agent-eval

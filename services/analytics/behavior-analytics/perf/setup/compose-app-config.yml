@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Redirect only app configuration mounts; keep infrastructure paths in the checkout.
+services:
+  analytics-stream-playback:
+    volumes:
+      - ${BA_PERF_DATA_DIR}/apps/${APP_NAME}${APP_MODE}/analytics-stream-${STREAMING_SERVICE}-config.json:/resources/analytics-stream-config.json
+  analytics-stream:
+    volumes:
+      - ${BA_PERF_DATA_DIR}/apps/${APP_NAME}${APP_MODE}/analytics-stream-${STREAMING_SERVICE}-config.json:/resources/analytics-stream-config.json
+      - ${BA_PERF_DATA_DIR}/apps/${APP_NAME}${APP_MODE}/calibration.json:/resources/calibration.json

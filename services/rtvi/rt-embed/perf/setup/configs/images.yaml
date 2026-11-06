@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Supporting images only; the tested service still uses ARTIFACT_REF.
+# Values preserve existing references and do not certify OSRB approval.
+# Source: via/rtvi-microservices@5f1eb00f89aa70d0bc1500c28e8ceeb886988caf,
+# docker/rtvi_embed/deploy/compose.perf.yaml and perf/setup_perf_env_rtvi_embed.sh.
+# Configured VSS support images use release 3.3.0; previous references remain commented.
+# Additional VST package images remain package-managed.
+schema_version: 1
+images:
+  PERF_PROMETHEUS_IMAGE: prom/prometheus:latest
+  PERF_DCGM_EXPORTER_IMAGE: nvcr.io/nvidia/k8s/dcgm-exporter:4.2.0-4.1.0-ubuntu22.04
+  PERF_NODE_EXPORTER_IMAGE: prom/node-exporter:latest
+  # VST_STREAMPROCESSING_IMAGE: nvcr.io/rxczgrvsg8nx/vst-dev/vst-streamprocessing:2.1.0-26.04.1
+  VST_STREAMPROCESSING_IMAGE: nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.3.0
+  # VST_SENSOR_IMAGE: nvcr.io/rxczgrvsg8nx/vst-dev/vst-sensor:2.1.0-26.04.1
+  VST_SENSOR_IMAGE: nvcr.io/nvidia/vss-core/vss-vios-sensor:3.3.0
+  # VST_INGRESS_IMAGE: nvcr.io/rxczgrvsg8nx/vst-dev/vst-ingress:2.1.0-26.04.1
+  VST_INGRESS_IMAGE: nvcr.io/nvidia/vss-core/vss-vios-ingress:3.3.0
+  # VST_NVSTREAMER_IMAGE: nvcr.io/rxczgrvsg8nx/vst-dev/nvstreamer:2.1.0-26.04.1
+  VST_NVSTREAMER_IMAGE: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.3.0
+package_managed_images: The downloaded VST package inventory is unverified; its four explicit image overrides are listed above.

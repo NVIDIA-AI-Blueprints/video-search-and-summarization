@@ -20,7 +20,7 @@ shell to avoid conflicting overrides. CR2 examples are for legacy runs only.
 
 ## Legacy BCD 3.2 / custom benchmark workflow
 
-> **Recommended:** Use `perf/setup_perf_env.sh` (see
+> **Recommended:** Use `perf/scripts/native_setup_perf_env.sh` (see
 > [PERF_GUIDE.RTVI_VLM.md](PERF_GUIDE.RTVI_VLM.md)) which automates all
 > steps below end-to-end — repository VST staging, nvstreamer/VST startup, `.env.perf`
 > generation, RTVI VLM deployment, Python venv creation, and RTSP URL
@@ -51,7 +51,7 @@ exported in the shell for a non-standard experiment.
 # export VLM_MODEL_PRESET=cosmos3-edge-bf16        # AGX Orin
 # export MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 
-bash perf/setup_perf_env.sh
+bash perf/scripts/native_setup_perf_env.sh
 ```
 
 By default, setup stages the repository deployment files without Artifactory
@@ -65,7 +65,7 @@ The setup script configures the staged deployment or explicit local package to u
 `vss-vios-streamprocessing`, `vss-vios-sensor`, `vss-vios-ingress`, and
 `vss-vios-nvstreamer`. Override
 `VST_IMAGE_REGISTRY`, `VST_IMAGE_TAG`, or the per-image variables printed by
-`bash perf/setup_perf_env.sh -h` when testing a different VST build.
+`bash perf/scripts/native_setup_perf_env.sh -h` when testing a different VST build.
 
 BCD live inputs must use VST-issued `/live/<source-id>` URLs, never direct
 nvstreamer URLs. For opaque IDs, set `BCD_VST_SOURCE_ID` from verified VST
@@ -99,7 +99,7 @@ export NVIDIA_VISIBLE_DEVICES=0
 # L40S only:
 # export VLLM_GPU_MEMORY_UTILIZATION=0.45
 
-bash perf/setup_perf_env.sh
+bash perf/scripts/native_setup_perf_env.sh
 source ~/rtvi-vlm-perf-env/bin/activate
 
 CONFIG=perf/benchmark/rtvi_vlm_bcd_3_2_config.yaml
@@ -116,7 +116,7 @@ $BENCH --scenario file_burst_1_token_2k
 ### Changing the model
 
 For a custom config without `global.model_preset`, set `VLM_MODEL_PRESET` or
-`MODEL_PATH` before running `perf/setup_perf_env.sh`. For BCD 3.3, select the
+`MODEL_PATH` before running `perf/scripts/native_setup_perf_env.sh`. For BCD 3.3, select the
 platform YAML instead; it rejects model overrides.
 The script writes the resolved model settings into
 `docker/.env.perf` and restarts the RTVI service with that
@@ -158,7 +158,7 @@ export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
 
 # For CR2 paths:
 # export VLM_MODEL_TO_USE=cosmos-reason2
-bash perf/setup_perf_env.sh
+bash perf/scripts/native_setup_perf_env.sh
 ```
 
 For NVFP4 runs, leave `VLLM_ENFORCE_EAGER` unset so `compose.perf.yaml` uses its
@@ -166,7 +166,7 @@ default `false` value. Do not add an eager-mode override for standard BCD perf
 runs; it changes the vLLM execution path and makes the result non-comparable to
 the normal CUDA graph/compile path.
 
-If setup has already run, either rerun `perf/setup_perf_env.sh` with the new
+If setup has already run, either rerun `perf/scripts/native_setup_perf_env.sh` with the new
 `MODEL_PATH`, or edit `docker/.env.perf` and restart:
 
 ```bash
@@ -258,7 +258,7 @@ For BCD 3 non-streaming throughput and latency, setup fetches the public LVS
 warehouse source from NGC and derives the required 1080p, 10 FPS clips:
 
 ```bash
-bash perf/setup_perf_env.sh
+bash perf/scripts/native_setup_perf_env.sh
 ```
 
 Setup reuses the LVS `fetch-videos.sh` script and converts its
@@ -273,7 +273,7 @@ If same-named local files already exist and should be regenerated, run setup
 with:
 
 ```bash
-REFRESH_BCD_VIDEOS=true bash perf/setup_perf_env.sh
+REFRESH_BCD_VIDEOS=true bash perf/scripts/native_setup_perf_env.sh
 ```
 
 ```bash
