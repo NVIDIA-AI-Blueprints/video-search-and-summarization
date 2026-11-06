@@ -381,6 +381,7 @@ replaces the sandbox from the Quickstart's step 4 rather than modifying it.
 ```bash
 cd .openshell
 set -a; . ./.env; set +a
+PROVIDER="${PROVIDER:-agent-inference}"  # the Quickstart's provider, unless changed above
 TAG="${VSS_REF//\//-}-from-source"  # VSS_REF may be a branch; a Docker tag cannot hold "/"
 
 # 1. The VSS layer, built on the harness image from the Quickstart's step 2
@@ -775,10 +776,11 @@ flag to get wrong, because the content is not in the file.
 Two things the images leave to the start command in step 5, both because of
 what 0.1.6 changed:
 
-- **CA bundle.** certifi's `cacert.pem` is a real file and the supervisor's CA
-  is mounted only once the sandbox exists, so the image ships
-  `trust-supervisor-ca` to append
-  `/run/openshell-supervisor-ca/material/ca-bundle.crt` to it.
+- **CA bundle.** The supervisor's CA is mounted only once the sandbox exists,
+  and certifi's `cacert.pem` is root-owned under a read-only `/opt`, so the
+  image ships `trust-supervisor-ca` to write certifi's roots and
+  `/run/openshell-supervisor-ca/material/ca-bundle.crt` together to the
+  image's `SSL_CERT_FILE`, under `/sandbox`.
 - **Inference target.** 0.1.6 replaced managed inference routes with
   sandbox-scoped provider attachments, which makes the base URL and the model
   the workload's to set, so `config.yaml` carries them as
@@ -895,8 +897,8 @@ order:
 
 1. `chmod 770 /sandbox` — Hermes's secret-boundary guard requires the
    directory group-readable, which OpenShell does not leave it.
-2. `trust-supervisor-ca` — the CA it appends is mounted only once the sandbox
-   exists.
+2. `trust-supervisor-ca` — the CA it adds to the trust store is mounted only
+   once the sandbox exists.
 3. The `sed` renders the two `--env` values into `config.yaml`.
 4. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode
    640 rather than the environment — a file the image deliberately ships

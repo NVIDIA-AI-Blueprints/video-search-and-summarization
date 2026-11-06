@@ -92,16 +92,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=python /opt/pystage/ /
 COPY --from=hermes /opt/hermes /opt/hermes
 # OpenShell mounts the supervisor's CA at a fixed path and the sandbox's start
-# command runs this before the agent; certifi's bundle is what httpx reads. The
-# glob picks up any venv a later layer adds under /usr/local.
+# command runs this before the agent. certifi's own bundle cannot take the
+# append: it is root-owned under /opt, which the policy mounts read-only. So the
+# public roots and the CA are written together to SSL_CERT_FILE, under /sandbox,
+# which every TLS client in the image reads ahead of certifi.
+ENV SSL_CERT_FILE=/sandbox/.hermes/ca-bundle.crt
 RUN printf '%s\n' '#!/bin/sh' 'set -e' \
       'ca=/run/openshell-supervisor-ca/material/ca-bundle.crt' \
       '[ -r "$ca" ] || { echo "no supervisor CA at $ca" >&2; exit 1; }' \
-      'for b in /opt/hermes/.venv/bin/python3 /usr/local/*/bin/python3; do' \
-      '  [ -x "$b" ] || continue' \
-      '  s=$("$b" -c "import certifi;print(certifi.where())")' \
-      '  grep -qFf "$ca" "$s" || cat "$ca" >> "$s"' \
-      'done' \
+      's=$(/opt/hermes/.venv/bin/python3 -c "import certifi;print(certifi.where())")' \
+      'cat "$s" "$ca" > "$SSL_CERT_FILE"' \
       > /usr/local/bin/trust-supervisor-ca \
     && chmod 0755 /usr/local/bin/trust-supervisor-ca
 # config.yaml, which upstream Hermes ships none of. Endpoint, model and key
@@ -117,7 +117,12 @@ RUN su sandbox -s /bin/sh -c 'set -e; cd /sandbox; H=/opt/hermes/.venv/bin/herme
       $H config set agent.max_turns 60; \
       $H config set approvals.mode manual; \
       $H config set browser.restrict_evaluate true' \
-    && test -f /sandbox/.hermes/config.yaml
+    && test -f /sandbox/.hermes/config.yaml \
+    # Seeded with the public roots alone, so SSL_CERT_FILE resolves in a later
+    # build stage and outside a sandbox, where there is no supervisor CA.
+    && install -o sandbox -g sandbox -m 0644 \
+         "$(/opt/hermes/.venv/bin/python3 -c 'import certifi;print(certifi.where())')" \
+         "$SSL_CERT_FILE"
 # The access boundary, baked so one artifact carries harness and policy. The
 # layer budget that forced ../backup/Dockerfile.policy into a separate overlay
 # does not apply here: this image has 10 filesystem layers against overlay2's 127.
