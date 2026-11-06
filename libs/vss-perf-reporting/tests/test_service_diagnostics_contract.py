@@ -12,7 +12,7 @@ VA_API = REPO_ROOT / "services/analytics/video-analytics-api/perf/scripts"
 
 def test_each_service_collects_diagnostics_before_teardown() -> None:
     teardown_markers = {
-        LVS: 'docker compose "${COMPOSE_FILE_ARGS[@]}" down',
+        LVS: '${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" down',
         BA: '"$PERF_DIR/scripts/teardown.sh"',
         VA_API: '"$PERF_DIR/scripts/teardown.sh"',
     }
@@ -28,10 +28,10 @@ def test_each_service_collects_diagnostics_before_teardown() -> None:
 
 def test_lvs_discovers_every_compose_container() -> None:
     runner = (LVS / "run_benchmark.sh").read_text(encoding="utf-8")
-    assert 'docker compose "${COMPOSE_FILE_ARGS[@]}" ps -aq' in runner
+    assert '${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" ps -aq' in runner
     assert 'collector_args+=(--container "$container_id")' in runner
     assert runner.index('collect_perf_diagnostics "$exit_code"') < runner.index(
-        'docker compose "${COMPOSE_FILE_ARGS[@]}" down'
+        '${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" down'
     )
 
 

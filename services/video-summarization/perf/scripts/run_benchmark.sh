@@ -391,6 +391,13 @@ else
     DOCKER_PREFIX=""
 fi
 
+# The optional CI lifecycle guard owns elevation and labels every deployment.
+# Local/manual execution retains the existing Docker command and sudo behavior.
+DOCKER_CLI="${PERF_DOCKER_WRAPPER:-docker}"
+if [[ -n "${PERF_DOCKER_WRAPPER:-}" ]]; then
+    DOCKER_PREFIX=""
+fi
+
 # --- Thor: MAXN power mode and pinned clocks ---
 # Thor benchmarks run in MAXN with clocks pinned by jetson_clocks. If either step
 # fails, stop so the user can fix it and rerun.
@@ -434,7 +441,7 @@ collect_perf_diagnostics() {
     )
     while IFS= read -r container_id; do
         [[ -n "$container_id" ]] && collector_args+=(--container "$container_id")
-    done < <(${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" ps -aq 2>/dev/null || true)
+    done < <(${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" ps -aq 2>/dev/null || true)
 
     "$collector" "${collector_args[@]}" || \
         warn "LVS diagnostics collection failed; preserving original exit status $exit_code"
@@ -456,7 +463,7 @@ cleanup() {
 
     if [ "$TEARDOWN" = true ] && [ "$STACK_LAUNCH_ATTEMPTED" = true ]; then
         step "Tearing down compose stack..."
-        if ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" down; then
+        if ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" down; then
             info "Stack torn down"
         else
             error "Compose teardown failed"
@@ -473,7 +480,10 @@ trap 'exit 143' TERM
 # --- Step 1: Launch compose stack ---
 step "Starting compose stack: $COMPOSE_FILE${OVERLAY_FILE_PATH:+ + overlays/$(basename "$OVERLAY_FILE_PATH")}"
 STACK_LAUNCH_ATTEMPTED=true
-LVS_BACKEND_PORT="$LVS_PORT" ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" up -d
+# This is a shared dataset volume, not a disposable deployment resource.
+${DOCKER_PREFIX}${DOCKER_CLI} volume inspect via-media-data >/dev/null 2>&1 || \
+    ${DOCKER_PREFIX}${DOCKER_CLI} volume create via-media-data >/dev/null
+LVS_BACKEND_PORT="$LVS_PORT" ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" up -d
 
 # Stream all service logs in the background immediately after containers start,
 # so startup output (including crashes) is visible. Must start before --wait so
@@ -483,12 +493,12 @@ LVS_BACKEND_PORT="$LVS_PORT" ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS
 # child log-streamer processes spawned by docker compose). Without setsid,
 # killing only the parent PID leaves orphaned children holding stdout open,
 # which causes the Jenkins sh step to hang indefinitely.
-setsid ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" logs -f &
+setsid ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" logs -f &
 LVS_LOG_PID=$!
 step "Streaming all service logs in background (PID: $LVS_LOG_PID)"
 
 # Wait for all health checks to pass (or fail)
-LVS_BACKEND_PORT="$LVS_PORT" ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" \
+LVS_BACKEND_PORT="$LVS_PORT" ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" \
     up --wait --wait-timeout "$HEALTH_TIMEOUT" || {
     # kill -- -PID sends the signal to the entire process group (the leading
     # dash before PID means "process group ID", not a single PID). This ensures
@@ -517,7 +527,7 @@ kill -- -$LVS_LOG_PID 2>/dev/null || true
 if [ $elapsed -ge $HEALTH_TIMEOUT ]; then
     echo ""
     error "lvs did not become ready within ${HEALTH_TIMEOUT}s"
-    echo "  Check logs: ${DOCKER_PREFIX}docker compose ${COMPOSE_FILE_ARGS[*]} logs -f lvs"
+    echo "  Check logs: ${DOCKER_PREFIX}${DOCKER_CLI} compose ${COMPOSE_FILE_ARGS[*]} logs -f lvs"
     exit 1
 fi
 
@@ -526,11 +536,11 @@ fi
 # loaded, which compose files were stitched together. Reads container labels and
 # env directly so it reflects ground truth (not just the pre-deploy plan).
 step "Deployment info (rtvi-vlm)"
-RTVI_CONTAINER=$(${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" ps -q rtvi-vlm 2>/dev/null | head -1)
+RTVI_CONTAINER=$(${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" ps -q rtvi-vlm 2>/dev/null | head -1)
 if [ -n "$RTVI_CONTAINER" ]; then
-    rtvi_env=$(${DOCKER_PREFIX}docker inspect "$RTVI_CONTAINER" \
+    rtvi_env=$(${DOCKER_PREFIX}${DOCKER_CLI} inspect "$RTVI_CONTAINER" \
                  --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null)
-    rtvi_compose_files=$(${DOCKER_PREFIX}docker inspect "$RTVI_CONTAINER" \
+    rtvi_compose_files=$(${DOCKER_PREFIX}${DOCKER_CLI} inspect "$RTVI_CONTAINER" \
                  --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null)
     rtvi_model_path=$(echo "$rtvi_env" | awk -F= '/^MODEL_PATH=/{print substr($0, index($0,"=")+1); exit}')
     rtvi_model_type=$(echo "$rtvi_env" | awk -F= '/^VLM_MODEL_TO_USE=/{print $2; exit}')
@@ -554,10 +564,10 @@ sleep 30
 
 # Quick probe: LVS must reach media-server inside the compose network (distinct from host→Artifactory).
 step "Probing http://media-server/10min.mp4 from lvs container (Range: 0-0)"
-if ! ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" exec -T lvs python3 -c \
+if ! ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" exec -T lvs python3 -c \
     'import urllib.request as u; r=u.Request("http://media-server/10min.mp4", headers={"Range":"bytes=0-0"}); o=u.urlopen(r, timeout=20); print("media-server probe:", o.status, "Content-Length=", o.headers.get("Content-Length"), "Content-Range=", o.headers.get("Content-Range"))'; then
     error "Media probe failed (e.g. HTTP 404). Perf videos are missing on media-server — see downloader logs (Artifactory) or pre-populate via-media-data."
-    echo "  ${DOCKER_PREFIX}docker compose ${COMPOSE_FILE_ARGS[*]} logs downloader"
+    echo "  ${DOCKER_PREFIX}${DOCKER_CLI} compose ${COMPOSE_FILE_ARGS[*]} logs downloader"
     exit 1
 fi
 
@@ -639,7 +649,7 @@ if [ $benchmark_exit -eq 0 ]; then
 else
     error "Benchmark failed (exit code: $benchmark_exit)"
     step "Recent lvs logs (debug HTTP 500 on /summarize, model, video pipeline)"
-    ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" logs --no-color --tail 400 lvs 2>/dev/null || true
+    ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" logs --no-color --tail 400 lvs 2>/dev/null || true
 fi
 
 exit $benchmark_exit
