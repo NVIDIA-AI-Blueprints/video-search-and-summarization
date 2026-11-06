@@ -74,6 +74,9 @@ step()  { echo -e "${CYAN}[➜]${NC} $*"; }
 usage() {
     cat <<EOF
 Usage: $(basename "$0") -f <compose-file> [options]
+CI/common interface: --compose-file FILE --config auto --scenario NAME --output-json DIR
+  Common mode writes to DIR/vss-perf-results and always tears down its stack.
+  Existing short-option invocations retain their defaults.
 
 Launch a compose stack, wait for lvs to be healthy, and run the perf benchmark.
 
@@ -136,6 +139,62 @@ RELEASE=""
 OUTPUT_JSON_NAME=""
 TEARDOWN=false
 GPU_OVERLAY="auto"
+
+# Common service interface; short-option callers retain their original defaults.
+COMMON_OUTPUT_DIR=""
+common_mode=false
+translated=()
+while (($#)); do
+    case "$1" in
+        --help) translated+=(-h); shift ;;
+        --config|--compose-file|--scenario|--output-json|--config-id|--triggered-by|--pipeline-url|--release|--vlm-gpus|--llm-gpus|--vlm-model|--llm-model|--vision-input-tokens|--gpu-model)
+            [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { error "Missing value for $1"; exit 2; }
+            common_mode=true
+            case "$1" in
+                --config) [[ "$2" == auto ]] || translated+=(-c "$2") ;;
+                --compose-file) translated+=(-f "$2") ;;
+                --scenario) [[ "$2" == all ]] || translated+=(-s "$2") ;;
+                --output-json) COMMON_OUTPUT_DIR="$2" ;;
+                --release) translated+=(-r "$2") ;;
+                --vlm-gpus) translated+=(-v "$2") ;;
+                --llm-gpus) translated+=(-l "$2") ;;
+                --config-id) export CONFIG_ID="$2" ;;
+                --triggered-by) export TRIGGERED_BY="$2" ;;
+                --pipeline-url) export PIPELINE_URL="$2" ;;
+                --vlm-model) export VLM_MODEL="$2" ;;
+                --llm-model) export LLM_MODEL="$2" ;;
+                --vision-input-tokens) export VISION_INPUT_TOKENS="$2" ;;
+                --gpu-model) export GPU_MODEL="$2" ;;
+            esac
+            shift 2 ;;
+        --*) error "Unknown argument: $1"; exit 2 ;;
+        -f|-c|-s|-p|-R|-t|-v|-l|-G|-r|-I|-O)
+            [[ $# -ge 2 ]] || { error "Missing value for $1"; exit 2; }
+            translated+=("$1" "$2"); shift 2 ;;
+        *) translated+=("$1"); shift ;;
+    esac
+done
+if [[ "$common_mode" == true ]]; then
+    [[ -n "$COMMON_OUTPUT_DIR" ]] || { error 'Common invocation requires --output-json directory'; exit 2; }
+    mkdir -p "$COMMON_OUTPUT_DIR"
+    COMMON_OUTPUT_DIR="$(cd "$COMMON_OUTPUT_DIR" && pwd)"
+    # Jenkins may already be streaming diagnostics into the run artifact root.
+    # The native benchmark requires its own empty directory before measuring.
+    native_output="$COMMON_OUTPUT_DIR/native"
+    if [[ -e "$native_output" || -L "$native_output" ]]; then
+        if [[ ! -d "$native_output" || -L "$native_output" ]]; then
+            error "Native output path must be a directory, not a file or symlink: $native_output"
+            exit 2
+        fi
+        if [[ -n "$(find "$native_output" -mindepth 1 -print -quit)" ]]; then
+            error "Native output directory is not empty: $native_output. Choose a new run directory."
+            exit 2
+        fi
+    fi
+    translated+=(-O vss-perf-results -d -t "${PERF_LVS_HEALTH_TIMEOUT_SECONDS:-600}")
+    [[ -z "${IMAGE_TAG:-}" ]] || translated+=(-I "$IMAGE_TAG")
+fi
+set -- "${translated[@]}"
 
 while getopts "f:c:s:p:R:t:v:l:G:r:I:O:dh" opt; do
     case $opt in
@@ -477,6 +536,26 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# Common invocation owns Compose operations after loading images.yaml above.
+if [[ "$common_mode" == true ]]; then
+    image_snapshot="${PERF_DIAGNOSTICS_DIR:-$COMMON_OUTPUT_DIR/diagnostics}/support-images.json"
+    mkdir -p "$(dirname "$image_snapshot")"
+    "$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" --snapshot "$image_snapshot"
+    if [[ -n "${NGC_API_KEY:-}" ]]; then
+        set +x
+        printf '%s\n' "$NGC_API_KEY" | ${DOCKER_PREFIX}${DOCKER_CLI} login nvcr.io -u '$oauthtoken' --password-stdin
+    fi
+    if [[ -n "${LOCAL_NIM_CACHE:-}" ]]; then
+        ${DOCKER_PREFIX}mkdir -p "$LOCAL_NIM_CACHE"
+    fi
+    if [[ -n "${ARTIFACTORY_TOKEN:-}" ]]; then
+        export ASSET_DOWNLOAD_AUTH_TOKENS="artifactory.nvidia.com=Bearer ${ARTIFACTORY_TOKEN}"
+    fi
+    ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" config --quiet
+    timeout --kill-after=5s "${PERF_LVS_PULL_TIMEOUT_SECONDS:-1500}s" \
+        ${DOCKER_PREFIX}${DOCKER_CLI} compose "${COMPOSE_FILE_ARGS[@]}" pull --include-deps
+fi
+
 # --- Step 1: Launch compose stack ---
 step "Starting compose stack: $COMPOSE_FILE${OVERLAY_FILE_PATH:+ + overlays/$(basename "$OVERLAY_FILE_PATH")}"
 STACK_LAUNCH_ATTEMPTED=true
@@ -580,7 +659,8 @@ step "Running benchmark: config=$BENCHMARK_CONFIG_PATH"
 
 # CI mode: fixed output dir for pipeline artifact copy; optional metadata and MinIO upload
 if [ -n "$OUTPUT_JSON_NAME" ]; then
-    CI_OUTPUT_DIR="$BENCHMARK_ROOT/vss-perf-report"
+    CI_OUTPUT_DIR="${COMMON_OUTPUT_DIR:+$COMMON_OUTPUT_DIR/native}"
+    CI_OUTPUT_DIR="${CI_OUTPUT_DIR:-$BENCHMARK_ROOT/vss-perf-report}"
     export VIA_OUTPUT_DIR="$CI_OUTPUT_DIR"
 else
     COMPOSE_BASENAME="${COMPOSE_FILE##*/}"
@@ -588,8 +668,6 @@ else
     export VIA_OUTPUT_DIR="$BENCHMARK_ROOT/vss-perf-report-${COMPOSE_NAME}-$(date +%Y%m%d-%H%M%S)"
 fi
 step "Output directory: $VIA_OUTPUT_DIR"
-mkdir -p "$VIA_OUTPUT_DIR"
-"$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" --snapshot "$VIA_OUTPUT_DIR/support-images.json"
 
 BENCHMARK_CMD=(python3 vss_perf_benchmark.py --config "$BENCHMARK_CONFIG_PATH")
 if [ "${#SCENARIO_ARGS[@]}" -gt 0 ]; then
@@ -597,7 +675,10 @@ if [ "${#SCENARIO_ARGS[@]}" -gt 0 ]; then
     step "Scenarios: ${SCENARIO_ARGS[*]}"
 fi
 if [ -n "$OUTPUT_JSON_NAME" ]; then
-    BENCHMARK_CMD+=(--output-json "$OUTPUT_JSON_NAME" --output-dir "$VIA_OUTPUT_DIR")
+    # Keep canonical reports at the run root while native output stays isolated.
+    result_destination="$OUTPUT_JSON_NAME"
+    [[ -z "$COMMON_OUTPUT_DIR" ]] || result_destination="$COMMON_OUTPUT_DIR/vss-perf-results"
+    BENCHMARK_CMD+=(--output-json "$result_destination" --output-dir "$VIA_OUTPUT_DIR")
     BENCHMARK_CMD+=(--compose-file "$COMPOSE_REL_PATH")
     [ -n "${CONFIG_ID:-}" ] && BENCHMARK_CMD+=(--config-id "$CONFIG_ID")
     [ -n "${TRIGGERED_BY:-}" ] && BENCHMARK_CMD+=(--triggered-by "$TRIGGERED_BY")
@@ -643,6 +724,13 @@ if "${BENCHMARK_CMD[@]}"; then
 else
     benchmark_exit=$?
 fi
+
+# Do not populate the native output directory before its empty-directory check.
+# Preserve the benchmark status even if the supplemental snapshot cannot be saved.
+snapshot_root="${COMMON_OUTPUT_DIR:-$VIA_OUTPUT_DIR}"
+mkdir -p "$snapshot_root" && \
+    "$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" \
+        --snapshot "$snapshot_root/support-images.json" || warn "Could not save support image snapshot"
 
 if [ $benchmark_exit -eq 0 ]; then
     info "Benchmark completed successfully"
