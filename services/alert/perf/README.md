@@ -108,3 +108,12 @@ approval or record the immutable digests pulled by Docker.
 Alerts still makes a private deployment copy for the native latency-profile
 configurator. That copy is not used to rewrite image references; Compose receives
 the target artifact and supporting images through environment variables.
+
+### Local latency evaluation
+
+Both synthetic Kafka and full-flow latency scenarios run evaluation from the
+locked `setup/` Python environment. No Alert Bridge Evaluator or SURF Trigger Eval
+image is required. Actual Alerts and support services still run through Compose.
+The entrypoint and output-directory option are unchanged. Native evaluation JSON
+and diagnostic CSV files are saved under the selected output's `native/ab-eval/`
+directory; canonical benchmark reports retain the existing shared format.

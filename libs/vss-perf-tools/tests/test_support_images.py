@@ -290,10 +290,8 @@ def test_alerts_target_artifact_and_eval_images_interpolate_without_rewriting(tm
     services = compose(
         [ROOT / "services/alert/perf/setup/native-eval/compose.yml"], env
     )
-    assert (
-        services["alert-bridge-evaluator"]["image"]
-        == config["images"]["PERF_ALERT_BRIDGE_EVALUATOR_IMAGE"]
-    )
+    assert "alert-bridge-evaluator" not in services
+    assert "eval-orchestrator" not in services
     assert services["prometheus"]["image"] == config["images"]["PERF_PROMETHEUS_IMAGE"]
 
 

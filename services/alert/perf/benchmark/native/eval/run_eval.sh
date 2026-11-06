@@ -2223,29 +2223,6 @@ stop_alerts_behavior_analytics_for_synthetic_injection() {
     return 1
 }
 
-wait_for_alerts_evaluator_ready() {
-    command -v curl >/dev/null 2>&1 || { log_error "wait_for_alerts_evaluator_ready requires curl"; return 1; }
-
-    local port="${ALERT_BRIDGE_EVALUATOR_PORT:-5002}"
-    local url="http://localhost:${port}/health"
-    local attempts="${ALERT_BRIDGE_EVALUATOR_READY_ATTEMPTS:-60}"
-    local interval="${ALERT_BRIDGE_EVALUATOR_READY_INTERVAL_SECONDS:-5}"
-    local attempt http_code
-
-    log_info "Waiting for Alert Bridge evaluator to be ready at ${url}"
-    for (( attempt = 1; attempt <= attempts; attempt++ )); do
-        http_code="$(curl -s -o /dev/null -w "%{http_code}" "${url}" 2>/dev/null || true)"
-        if [[ "${http_code}" == "200" ]]; then
-            log_success "Alert Bridge evaluator is ready"
-            return 0
-        fi
-        log_debug "Alert Bridge evaluator not ready yet (attempt ${attempt}/${attempts}, HTTP ${http_code:-000})"
-        sleep "${interval}"
-    done
-
-    log_error "Alert Bridge evaluator did not become ready at ${url}"
-    return 1
-}
 
 wait_for_alerts_prometheus_target_ready() {
     command -v curl >/dev/null 2>&1 || { log_error "wait_for_alerts_prometheus_target_ready requires curl"; return 1; }
@@ -2347,211 +2324,6 @@ compose_latency_sensor_ids_from_videos() {
     done
 }
 
-trigger_compose_synthetic_alerts_injection() {
-    command -v curl >/dev/null 2>&1 || { log_error "trigger_compose_synthetic_alerts_injection requires curl"; return 1; }
-    command -v jq >/dev/null 2>&1 || { log_error "trigger_compose_synthetic_alerts_injection requires jq"; return 1; }
-
-    if [[ -z "${LATENCY_SOURCE_VIDEO:-}" ]]; then
-        log_error "--synthetic-alerts-injection requires --latency-source-video for latency eval"
-        return 1
-    fi
-
-    local duration_seconds
-    if ! duration_seconds="$(duration_to_seconds "${LATENCY_DURATION:-10m}")"; then
-        return 1
-    fi
-
-    local alerts_per_minute="${SYNTHETIC_ALERTS_PER_MINUTE:-${NUM_SENSORS:-1}}"
-    if ! [[ "${alerts_per_minute}" =~ ^[0-9]+([.][0-9]+)?$ ]] || [[ "${alerts_per_minute}" =~ ^0+([.]0+)?$ ]]; then
-        log_error "--synthetic-alerts-per-minute must be a positive number"
-        return 1
-    fi
-
-    local evaluator_url="http://localhost:${ALERT_BRIDGE_EVALUATOR_PORT:-5002}"
-    local endpoint="${evaluator_url}/eval/v2/synthetic/start"
-    local injection_job_id="${JOB_ID:-alert-bridge-eval-job-1}-synthetic-injection"
-    local timestamp
-    timestamp="$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")"
-
-    local sensor_ids_text=""
-    if ! sensor_ids_text="$(compose_latency_sensor_ids_from_videos)"; then
-        [[ -n "${sensor_ids_text}" ]] && echo "${sensor_ids_text}"
-        return 1
-    fi
-    local -a sensor_ids=()
-    readarray -t sensor_ids <<< "${sensor_ids_text}"
-    if [[ ${#sensor_ids[@]} -eq 0 ]]; then
-        log_error "No runtime sensor IDs resolved for synthetic alerts injection"
-        return 1
-    fi
-
-    local payload resp http_code body
-    payload="$(jq -n \
-        --arg job_id "${injection_job_id}" \
-        --arg source_video_id "${LATENCY_SOURCE_VIDEO}" \
-        --arg timestamp "${timestamp}" \
-        --arg category "${ALERT_CATEGORY:-FOV Count Violation}" \
-        --arg latency_duration "${LATENCY_DURATION:-10m}" \
-        --arg submission_mode "${ALERT_BRIDGE_SYNTHETIC_SUBMISSION_MODE:-message_bus}" \
-        --argjson alerts_per_minute "${alerts_per_minute}" \
-        --arg event_duration_ms "${SYNTHETIC_ALERT_EVENT_DURATION_MS:-}" \
-        '($ARGS.named + {alerts_per_minute: $alerts_per_minute, sensor_ids: $ARGS.positional}) | if .event_duration_ms == "" then del(.event_duration_ms) else .event_duration_ms |= tonumber end' \
-        --args "${sensor_ids[@]}")"
-
-    log_section "Synthetic Alerts Injection"
-    log_kv "Endpoint" "${endpoint}"
-    log_kv "Source video" "${LATENCY_SOURCE_VIDEO}"
-    log_kv "Sensor count" "${#sensor_ids[@]}"
-    log_kv "Category" "${ALERT_CATEGORY:-FOV Count Violation}"
-    log_kv "Latency duration" "${LATENCY_DURATION:-10m}"
-    log_kv "Submission mode" "${ALERT_BRIDGE_SYNTHETIC_SUBMISSION_MODE:-message_bus}"
-    log_kv "Synthetic alerts/min" "${alerts_per_minute}"
-    log_kv "Distribution" "round_robin across ${#sensor_ids[@]} stream(s)"
-    echo ""
-
-    resp="$(curl -sS -w "\n%{http_code}" \
-        -H "Content-Type: application/json" \
-        -X POST \
-        --data "${payload}" \
-        "${endpoint}" 2>&1)" || {
-        log_error "Synthetic alerts injection request failed"
-        echo "${resp}"
-        return 1
-    }
-    http_code="$(echo "${resp}" | tail -n1)"
-    body="$(echo "${resp}" | sed '$d')"
-    if [[ "${http_code}" != "200" ]]; then
-        log_error "Synthetic alerts injection failed with HTTP ${http_code:-000}"
-        echo "${body}" | jq . 2>/dev/null || echo "${body}"
-        return 1
-    fi
-
-    log_success "Synthetic alerts injection triggered"
-    echo "${body}" | jq . 2>/dev/null || echo "${body}"
-
-    local poll_interval="${ALERT_BRIDGE_SYNTHETIC_POLL_INTERVAL_SECONDS:-5}"
-    if ! [[ "${poll_interval}" =~ ^[0-9]+$ ]] || [[ "${poll_interval}" -lt 1 ]]; then
-        log_error "ALERT_BRIDGE_SYNTHETIC_POLL_INTERVAL_SECONDS must be a positive integer"
-        return 1
-    fi
-    local max_attempts="${ALERT_BRIDGE_SYNTHETIC_POLL_MAX_ATTEMPTS:-0}"
-    if ! [[ "${max_attempts}" =~ ^[0-9]+$ ]]; then
-        log_error "ALERT_BRIDGE_SYNTHETIC_POLL_MAX_ATTEMPTS must be a non-negative integer"
-        return 1
-    fi
-    if [[ "${max_attempts}" -eq 0 ]]; then
-        max_attempts=$(( duration_seconds / poll_interval + 60 ))
-    fi
-
-    local attempt status_body state
-    status_body="${body}"
-    for (( attempt = 1; attempt <= max_attempts; attempt++ )); do
-        resp="$(curl -sS -w "\n%{http_code}" "${evaluator_url}/eval/${injection_job_id}" 2>&1)" || true
-        http_code="$(echo "${resp}" | tail -n1)"
-        status_body="$(echo "${resp}" | sed '$d')"
-        if [[ "${http_code}" != "200" ]]; then
-            log_debug "Synthetic injection status not ready (attempt ${attempt}/${max_attempts}, HTTP ${http_code:-000})"
-        else
-            state="$(echo "${status_body}" | jq -r '.status // empty' 2>/dev/null || true)"
-            log_debug "Synthetic injection status attempt ${attempt}/${max_attempts}: ${state:-unknown}"
-            if [[ "${state}" == "completed" ]]; then
-                break
-            fi
-            if [[ "${state}" == "failed" || "${state}" == "error" || "${state}" == "failure" || "${state}" == "interrupted" ]]; then
-                log_error "Synthetic latency injection failed"
-                echo "${status_body}" | jq . 2>/dev/null || echo "${status_body}"
-                return 1
-            fi
-        fi
-        sleep "${poll_interval}"
-    done
-    if (( attempt > max_attempts )); then
-        log_error "Synthetic latency injection did not complete after ${max_attempts} attempts"
-        echo "${status_body}" | jq . 2>/dev/null || echo "${status_body}"
-        return 1
-    fi
-
-    local window_start window_end runtime_streams_json synthetic_injection_summary_json
-    window_start="$(echo "${status_body}" | jq -r '.summary.latency_window_start_ts // empty' 2>/dev/null || true)"
-    window_end="$(echo "${status_body}" | jq -r '.summary.latency_window_end_ts // empty' 2>/dev/null || true)"
-    runtime_streams_json="$(
-        echo "${status_body}" |
-            jq -c '.summary.runtime_streams // []' 2>/dev/null || true
-    )"
-    synthetic_injection_summary_json="$(
-        echo "${status_body}" |
-            jq -c '(.summary // {}) | {target_submissions, attempted, submitted, failed, missed} | with_entries(select(.value != null))' 2>/dev/null || true
-    )"
-    if [[ -z "${window_start}" ]]; then
-        window_start="$(echo "${body}" | jq -r '.latency_window_start_ts // .summary.latency_window_start_ts // empty' 2>/dev/null || true)"
-    fi
-    if [[ -z "${window_end}" ]]; then
-        window_end="$(echo "${body}" | jq -r '.latency_window_end_ts // .summary.latency_window_end_ts // empty' 2>/dev/null || true)"
-    fi
-    if [[ -z "${window_start}" || -z "${window_end}" ]]; then
-        log_error "Synthetic latency injection did not return latency window timestamps"
-        echo "${status_body}" | jq . 2>/dev/null || echo "${status_body}"
-        return 1
-    fi
-    if [[ -z "${runtime_streams_json}" || "${runtime_streams_json}" == "null" ]]; then
-        runtime_streams_json="[]"
-    fi
-    if [[ -z "${synthetic_injection_summary_json}" || "${synthetic_injection_summary_json}" == "null" ]]; then
-        synthetic_injection_summary_json="{}"
-    fi
-
-    log_success "Synthetic alerts injection completed"
-    log_kv "Latency window start" "${window_start}"
-    log_kv "Latency window end" "${window_end}"
-
-    local batch_payload batch_endpoint
-    batch_endpoint="${evaluator_url}/eval/v2/batch"
-    batch_payload="$(jq -n \
-        --arg job_id "${JOB_ID:-alert-bridge-eval-job-1}" \
-        --arg category "${ALERT_CATEGORY:-FOV Count Violation}" \
-        --arg timestamp "${window_end}" \
-        --arg latency_window_start_ts "${window_start}" \
-        --arg latency_window_end_ts "${window_end}" \
-        --argjson runtime_streams "${runtime_streams_json}" \
-        --argjson synthetic_injection_summary "${synthetic_injection_summary_json}" \
-        '{
-            job_id: $job_id,
-            wait_for_results: true,
-            latency_window_start_ts: $latency_window_start_ts,
-            latency_window_end_ts: $latency_window_end_ts,
-            runtime_streams: $runtime_streams,
-            synthetic_injection_summary: $synthetic_injection_summary,
-            incidents: [
-                $ARGS.positional[] |
-                {video: ., timestamp: $timestamp, category: $category}
-            ]
-        }' \
-        --args "${sensor_ids[@]}")"
-
-    log_info "Triggering Alert Bridge evaluator report for synthetic latency window"
-    resp="$(curl -sS -w "\n%{http_code}" \
-        -H "Content-Type: application/json" \
-        -X POST \
-        --data "${batch_payload}" \
-        "${batch_endpoint}" 2>&1)" || {
-        log_error "Alert Bridge evaluator batch request failed"
-        echo "${resp}"
-        return 1
-    }
-    http_code="$(echo "${resp}" | tail -n1)"
-    body="$(echo "${resp}" | sed '$d')"
-    if [[ "${http_code}" != "200" ]]; then
-        log_error "Alert Bridge evaluator batch failed with HTTP ${http_code:-000}"
-        echo "${body}" | jq . 2>/dev/null || echo "${body}"
-        return 1
-    fi
-
-    mkdir -p "${EVAL_RESULT_DIR_PATH:-./eval_results}/ab-eval"
-    echo "${body}" | jq . > "${EVAL_RESULT_DIR_PATH:-./eval_results}/ab-eval/alert_bridge_evaluation_status.json" 2>/dev/null || \
-        printf '%s\n' "${body}" > "${EVAL_RESULT_DIR_PATH:-./eval_results}/ab-eval/alert_bridge_evaluation_status.json"
-    log_success "Synthetic alerts latency report generated"
-    echo "${body}" | jq . 2>/dev/null || echo "${body}"
-}
 
 deploy_blueprint() {
     local profile="$1"
@@ -2743,7 +2515,7 @@ PY
 
 dump_eval_init_container_logs() {
     local c
-    for c in bp-configurator-init eval-orchestrator-init bp-configurator alert-bridge-evaluator-init; do
+    for c in bp-configurator-init bp-configurator; do
         if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "${c}"; then
             log_warn "---- logs: ${c} (last 40 lines) ----"
             docker logs --tail 40 "${c}" 2>&1 | sed 's/^/  /' || true
@@ -2930,121 +2702,6 @@ run_evaluation() {
 # Optional: EVAL_STATUS_POLL_INITIAL_WAIT (default 60) - seconds to wait before first poll (stack + job need time to be ready).
 # Optional: EVAL_STATUS_POLL_MAX_ATTEMPTS (default 0 = unlimited) - stop after this many poll attempts.
 # -----------------------------------------------------------------------------
-poll_eval_status_api() {
-    command -v curl >/dev/null 2>&1 || { log_error "poll_eval_status_api requires curl"; return 1; }
-    command -v jq >/dev/null 2>&1 || { log_error "poll_eval_status_api requires jq"; return 1; }
-
-    local job_id="${JOB_ID}"
-    local base_url
-    if [[ "${BLUEPRINT}" == "alerts" ]]; then
-        base_url="http://${HOST_IP}:${ALERT_BRIDGE_EVALUATOR_PORT}"
-    else
-        base_url="http://${HOST_IP}:${VSS_AGENT_PORT}"
-    fi
-    local eval_status_url
-    if [[ "${BLUEPRINT}" == "alerts" ]]; then
-        eval_status_url="${base_url}/eval/${job_id}"
-    else
-        eval_status_url="${base_url}/evaluate/job/${job_id}"
-    fi
-    local poll_interval="${EVAL_STATUS_POLL_INTERVAL:-15}"
-    local max_wait_seconds="${EVAL_STATUS_MAX_WAIT:-1800}"
-    local max_attempts="${EVAL_STATUS_POLL_MAX_ATTEMPTS:-100}"
-    local initial_wait="${EVAL_STATUS_POLL_INITIAL_WAIT:-60}"
-    local initial_wait_reason="eval stack and job to be ready"
-    local elapsed=0
-    local poll_count=0
-    local resp status http_code
-
-    if [[ "${BLUEPRINT}" == "alerts" && "${EVAL_TYPE}" == "latency" ]]; then
-        if ! initial_wait="$(duration_to_seconds "${LATENCY_DURATION:-10m}")"; then
-            return 1
-        fi
-        initial_wait_reason="alerts latency window (${LATENCY_DURATION:-10m}) to complete before status polling"
-    fi
-
-    log_section "Monitoring Evaluation"
-    log_kv "Job ID"          "${job_id}"
-    log_kv "Status endpoint" "${eval_status_url}"
-    log_kv "Poll interval"   "${poll_interval}s"
-    log_kv "Max wait"        "${max_wait_seconds}s"
-    log_kv "Max attempts"    "$([[ "${max_attempts}" -gt 0 ]] && echo "${max_attempts}" || echo 'unlimited')"
-    echo ""
-
-    if [[ -n "${initial_wait}" ]] && [[ "${initial_wait}" -gt 0 ]]; then
-        spinner_start "Waiting ${initial_wait}s for ${initial_wait_reason}..."
-        sleep "${initial_wait}"
-        spinner_stop
-        log_info "Initial wait complete — beginning to poll"
-    fi
-
-    while true; do
-        poll_count=$((poll_count + 1))
-        resp="$(curl -s -w "\n%{http_code}" "${eval_status_url}" 2>/dev/null)" || true
-        http_code="$(echo "${resp}" | tail -n1)"
-        resp="$(echo "${resp}" | sed '$d')"
-
-        if [[ "${http_code}" != "200" ]]; then
-            log_warn "HTTP ${http_code:-000} from status API (attempt ${poll_count}, elapsed ${elapsed}s) — retrying in ${poll_interval}s"
-            if [[ "${elapsed}" -ge "${max_wait_seconds}" ]]; then
-                log_error "Eval status API did not return HTTP 200 within ${max_wait_seconds}s"
-                if [[ "${http_code:-}" == "000" ]]; then
-                    log_error "HTTP 000 = connection refused: nothing is listening on ${eval_status_url}"
-                    log_error "Ensure the eval service is running and reachable."
-                fi
-                return 1
-            fi
-            if [[ "${max_attempts}" -gt 0 ]] && [[ "${poll_count}" -ge "${max_attempts}" ]]; then
-                log_error "Eval status API did not return HTTP 200 after ${max_attempts} attempt(s)"
-                return 1
-            fi
-            sleep "${poll_interval}"
-            elapsed=$((elapsed + poll_interval))
-            continue
-        fi
-
-        status="$(echo "${resp:-{}}" | jq -r '.status // "unknown"')"
-        log_info "Status poll #${poll_count}  (elapsed ${elapsed}s)"
-        echo "${resp}" | jq . 2>/dev/null || echo "${resp}"
-        log_step "Job status: ${BOLD}${status}${NC}"
-
-        if [[ "${status}" == "unknown" ]]; then
-            log_warn "Got HTTP 200 but status field is missing/unknown — retrying in ${poll_interval}s"
-            if [[ "${elapsed}" -ge "${max_wait_seconds}" ]]; then
-                log_error "Eval status remained unknown for ${max_wait_seconds}s despite HTTP 200 responses"
-                return 1
-            fi
-            if [[ "${max_attempts}" -gt 0 ]] && [[ "${poll_count}" -ge "${max_attempts}" ]]; then
-                log_error "Eval status remained unknown after ${max_attempts} attempt(s)"
-                return 1
-            fi
-            sleep "${poll_interval}"
-            elapsed=$((elapsed + poll_interval))
-            continue
-        fi
-        if [[ "${status}" == "submitted" || "${status}" == "running" ]]; then
-            if [[ "${elapsed}" -ge "${max_wait_seconds}" ]]; then
-                log_error "Eval job did not complete within ${max_wait_seconds}s"
-                return 1
-            fi
-            if [[ "${max_attempts}" -gt 0 ]] && [[ "${poll_count}" -ge "${max_attempts}" ]]; then
-                log_error "Eval job did not complete after ${max_attempts} poll attempt(s)"
-                return 1
-            fi
-            sleep "${poll_interval}"
-            elapsed=$((elapsed + poll_interval))
-        else
-            break
-        fi
-    done
-    if [[ "${status}" == "failure" || "${status}" == "interrupted" || "${status}" == "error" ]]; then
-        log_error "Eval job finished with terminal status: ${BOLD}${status}${NC}"
-        echo "${resp}" | jq . 2>/dev/null || echo "${resp}"
-        return 1
-    fi
-    log_success "Eval job complete  [status: ${BOLD}${status}${NC}]"
-    return 0
-}
 
 teardown_all() {
     local profile="$1"
@@ -3966,36 +3623,19 @@ main() {
         stop_alerts_behavior_analytics_for_synthetic_injection
     fi
 
-    # Run evaluation (pass env files so compose gets same vars as shell)
-    local _eval_services=""
-    if [[ "${video_upload_only}" == true ]]; then
-        _eval_services="bp-configurator-init bp-configurator eval-orchestrator-init"
-        log_info "Video-upload-only mode: starting only bp-configurator services (no eval-orchestrator)"
-        run_evaluation "up" "${profile}" "${_eval_services}" "${env_files[@]}"
-    elif [[ "${synthetic_alerts_injection}" == true && "${EVAL_TYPE}" == "latency" && "${profile}" == "alerts" && "${ALERTS_MODE:-}" == "verification" ]]; then
-        _eval_services="bp-configurator-init bp-configurator alert-bridge-evaluator-init alert-bridge-evaluator prometheus"
-        log_info "Starting eval support services before synthetic alerts injection"
-        run_evaluation "up" "${profile}" "${_eval_services}" "${env_files[@]}"
-        wait_for_alerts_evaluator_ready
-        wait_for_alerts_prometheus_target_ready
-        wait_for_compose_video_setup_ready
-        trigger_compose_synthetic_alerts_injection
-    else
-        run_evaluation "up" "${profile}" "${_eval_services}" "${env_files[@]}"
+    # Evaluation runs in the locked host benchmark environment. Containers below
+    # configure video streams and collect application metrics only.
+    run_evaluation "up" "${profile}" "bp-configurator-init bp-configurator prometheus" "${env_files[@]}"
+    wait_for_alerts_prometheus_target_ready
+    wait_for_compose_video_setup_ready
+    export SYNTHETIC_ALERTS_INJECTION="${synthetic_alerts_injection}"
+    if [[ "${synthetic_alerts_injection}" == true ]]; then
+        local sensor_ids_text
+        sensor_ids_text="$(compose_latency_sensor_ids_from_videos)" || return 1
+        PERF_SENSOR_IDS="$(printf '%s\n' "${sensor_ids_text}" | jq -R . | jq -s .)"
+        export PERF_SENSOR_IDS
     fi
-
-    docker ps
-
-    # Poll eval status API until job is no longer submitted/running.
-    # JOB_ID and HOST_IP/BLUEPRINT_IP are already set from the env files loaded earlier in main() (lines ~939-953).
-    if [[ "${synthetic_alerts_injection}" == true && "${EVAL_TYPE}" == "latency" && "${profile}" == "alerts" && "${ALERTS_MODE:-}" == "verification" ]]; then
-        log_info "Synthetic alerts latency evaluation already generated reports via Alert Bridge evaluator"
-    elif [[ "${skip_nat_eval}" == true ]]; then
-        log_info "Skipping NAT eval REST API polling (--skip-nat-eval); eval will be triggered separately"
-    elif ! poll_eval_status_api; then
-        log_error "Eval status polling failed"
-        exit 1
-    fi
+    "${PROFILE_CONFIG_PYTHON:?Locked benchmark Python is required}" "${PERF_LOCAL_ALERTS_RUNNER:?Local Alerts runner is required}"
 
     log_section "Done"
     log_success "Evaluation pipeline started successfully"

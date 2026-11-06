@@ -475,6 +475,7 @@ def main(argv=None):
                     dataset_root / dataset["ground_truth_subpath"]
                 ),
                 "PROFILE_CONFIG_PYTHON": sys.executable,
+                "PERF_LOCAL_ALERTS_RUNNER": str(PERF_ROOT / "benchmark/core/alerts_latency_runner.py"),
                 "ALERT_BRIDGE_SYNTHETIC_SUBMISSION_MODE": "message_bus",
                 "ALERT_BRIDGE_EVALUATOR_PROMETHEUS_SUMMARY_BUFFER_SECONDS": str(
                     workload["summary_buffer_seconds"]
@@ -558,15 +559,7 @@ def main(argv=None):
                 raise RuntimeError(
                     f"Native evaluation exited {returncode} without a report"
                 )
-            # Full-flow polling in the unchanged runner does not persist the API response.
-            host = env.get("HOST_IP", "127.0.0.1")
-            port = env.get("ALERT_BRIDGE_EVALUATOR_PORT", "5002")
-            with urllib.request.urlopen(
-                f"http://{host}:{port}/eval/{env['JOB_ID']}", timeout=30
-            ) as response:
-                payload = json.load(response)
-            report_file.parent.mkdir(exist_ok=True)
-            report_file.write_text(json.dumps(payload, indent=2))
+            raise RuntimeError("Local Alerts evaluation did not produce its native report")
         cases = to_test_cases(payload)
         if returncode:
             raise RuntimeError(
