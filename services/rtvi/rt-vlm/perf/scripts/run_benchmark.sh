@@ -56,7 +56,7 @@ if [[ -z "${VST_DIR:-}" ]]; then
     export RTVI_MANAGED_VST_DIR="$VST_DIR"
 fi
 export VST_DIR
-export COMPOSE_PROJECT_NAME="rtvi-vlm-perf-${BUILD_NUMBER:-$(id -u)}"
+export COMPOSE_PROJECT_NAME="rtvi-vlm-perf-${PERF_RUN_ID:-${BUILD_NUMBER:-$(id -u)}}"
 export VST_COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME}-vst"
 
 collect_diagnostics() {
