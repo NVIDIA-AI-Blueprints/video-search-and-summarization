@@ -35,8 +35,6 @@ images:
   PERF_VSS_CONFIGURATOR_IMAGE: nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-configurator:nightly-20260906
   PERF_EVAL_CURL_IMAGE: curlimages/curl:latest
   PERF_EVAL_BUSYBOX_IMAGE: busybox:latest
-  PERF_ALERT_BRIDGE_EVALUATOR_IMAGE: nvcr.io/nv-metropolis-dev/metropolis-analytic/alert-bridge-evaluator:2026.09.22
-  PERF_VSS_SURF_TRIGGER_EVAL_SVC_IMAGE: nvcr.io/nvstaging/vss-core/vss-surf-trigger-eval-svc:3.2-2026.05.06
   PERF_PROMETHEUS_IMAGE: quay.io/prometheus/prometheus:v3.11.3
   PERF_NEMOTRON_3_5_LIGHTNING_30B_A3B_IMAGE: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
   PERF_VSS_VIOS_NVSTREAMER_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-nvstreamer:develop-latest
