@@ -880,50 +880,36 @@ The [VSS layer](#optional--add-vss-capabilities) recreates this sandbox with
 image nor the policy can be swapped on a live sandbox, which is why it is a
 delete and a create rather than an update.
 
-To verify, run the CLI agent, then the API server the UI uses:
-
-```bash
-openshell sandbox exec -n hermes -- \
-  hermes chat -Q -q 'Reply with the single word: pong'
-
-KEY=$(openshell sandbox exec -n hermes --no-tty -- \
-  sh -c '. /sandbox/.hermes/.env; printf %s "$API_SERVER_KEY"')
-curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
-  http://default--hermes.openshell.localhost:8080/v1/chat/completions \
-  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Reply with: pong"}]}'
-```
-
-`sandbox connect` attaches to the main process's output, not a shell — detach
-with Ctrl-P Ctrl-Q, since Ctrl-C reaches `hermes gateway run`. For a shell, use
-`openshell sandbox exec -n hermes --tty -- bash`. A `Connection error` from the
-agent means the proxy denied the call; the supervisor container's log names the
-host and reason.
-
 **The two `--env` values are the model choice, and the `sed` is what makes
-them stick.** They replace `NEMOCLAW_ENDPOINT_URL`/`NEMOCLAW_MODEL`, so a
-redeploy against a different model is a flag rather than a rebuild. Rendering
+them stick.** `HARNESS_BASE_URL` is the model endpoint's OpenAI-compatible
+base URL and `HARNESS_MODEL` the model id it serves, so a redeploy against a
+different model is a flag rather than a rebuild. Rendering
 them into the file is not redundant: `hermes chat` expands a `${env:}` ref, but
 the API server the UI talks to reads the file as written and sends the
 placeholder as the model id, which the endpoint rejects with `HTTP 403`. The
 model `api_key` ref needs no rendering — the proxy replaces the bearer either
 way.
 
-**The trailing command is the harness itself, not a start script.** OpenShell
-treats it as the sandbox's canonical main process: it streams the output and
-returns the exit status, so a dead agent surfaces as `Error` with
-`MainProcessFailed` instead of a healthy-looking container. The image's own
-`CMD ["sleep", "infinity"]` only keeps an exec-driven sandbox alive and
-watches nothing.
+**The command after `--` prepares the sandbox, then becomes the harness.** In
+order:
 
-**The rest of the command is three preconditions, none of which a launcher
-baked into the image could meet.** Hermes's secret-boundary guard requires
-`/sandbox` to be group-readable, which OpenShell does not leave it, and
-`API_SERVER_KEY` in `/sandbox/.hermes/.env` at mode 640 rather than in the
-environment — a file the image deliberately ships without, so the key is minted
-per sandbox. `trust-supervisor-ca` is third, and has to run here because
-the CA it appends is mounted only once the sandbox exists. A script in the
-image could do none of it: a root PID 1 is what the gateway's policy validation
-refuses.
+1. `chmod 770 /sandbox` — Hermes's secret-boundary guard requires the
+   directory group-readable, which OpenShell does not leave it.
+2. `trust-supervisor-ca` — the CA it appends is mounted only once the sandbox
+   exists.
+3. The `sed` renders the two `--env` values into `config.yaml`.
+4. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode
+   640 rather than the environment — a file the image deliberately ships
+   without, so the key is per sandbox.
+5. `exec hermes gateway run` — the harness itself, not a start script.
+
+None of the first four can move into the image: a root PID 1 is what the
+gateway's policy validation refuses. The `exec` is what makes Hermes the
+sandbox's canonical main process, whose output OpenShell streams and whose exit
+status it returns, so a dead agent surfaces as `Error` with `MainProcessFailed`
+instead of a healthy-looking container. The image's own
+`CMD ["sleep", "infinity"]` only keeps an exec-driven sandbox alive and watches
+nothing.
 
 `--expose` publishes one of the sandbox's loopback ports at a URL the gateway
 manages, so the path becomes client → gateway listener → supervisor → sandbox
@@ -942,28 +928,13 @@ bind in step 1, not by the route — the loopback bind is what refuses a
 bridge-networked client, so putting the gateway on a network the UI can reach
 is a decision about who may create sandboxes, not a data-path constraint.
 
-**Expose `:8642`, the API server, not `:18789`, the dashboard.** The API server
+**Expose `:8642`, the API server.** The API server
 is what the UI adapter talks to and where Hermes serves `/health`. It binds the
 sandbox's own loopback at its documented default, because the image ships no
 `API_SERVER_PORT`; note that `gateway.api_server.port` in `config.yaml` does
 not move it, so overriding the port means `/sandbox/.hermes/.env`. OpenShell exposes a
 loopback port from the inside, so `--expose 8642` reaches the API server
 directly, with no forwarder in between.
-
-The dashboard does not survive the route as shipped: Hermes refuses a WebSocket
-upgrade whose `Host` or `Origin` does not match the address it bound, and the
-gateway rewrites `Host` while preserving `Origin`, so the page loads and its
-sockets close. Setting Hermes' `dashboard.public_url` to the routed origin
-clears that, so routing the dashboard is a config decision rather than a dead
-end; until then operators reach it with `openshell forward start 18789`, where
-the browser origin is loopback.
-
-Two forwards survive of three host-side processes: that one, and the UI's, from
-the Quickstart's UI option. `dashboard-relay.py` exists only to reach a forward
-pinned to loopback and `dashboard-forward-watchdog.py` only to repair one that
-holds its port while carrying no HTTP — neither has a job once
-`openshell forward start` binds the off-loopback address itself and nothing
-retires the forward behind its back.
 
 `--restart-policy` defaults to `no`, which leaves an exited Hermes dead and the
 route silently unanswered; `on-failure` has the driver replace the runtime after
@@ -980,6 +951,25 @@ alongside `compose down`.
 Still to confirm: exposed services use the gateway's own listener and TLS
 configuration, so the managed URL has to be reachable through the Brev secure
 link.
+
+To verify, run the CLI agent, then the API server the UI uses:
+
+```bash
+openshell sandbox exec -n hermes -- \
+  hermes chat -Q -q 'Reply with the single word: pong'
+
+KEY=$(openshell sandbox exec -n hermes --no-tty -- \
+  sh -c '. /sandbox/.hermes/.env; printf %s "$API_SERVER_KEY"')
+curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  http://default--hermes.openshell.localhost:8080/v1/chat/completions \
+  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Reply with: pong"}]}'
+```
+
+`sandbox connect` attaches to the main process's output, not a shell — detach
+with Ctrl-P Ctrl-Q, since Ctrl-C reaches `hermes gateway run`. For a shell, use
+`openshell sandbox exec -n hermes --tty -- bash`. A `Connection error` from the
+agent means the proxy denied the call; the supervisor container's log names the
+host and reason.
 
 **The UI keeps its existing agent adapter.** The embedded adapter under
 `services/ui/apps/nv-metropolis-bp-vss-ui/utils/server/agentAdapter/` already
