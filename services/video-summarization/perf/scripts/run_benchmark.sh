@@ -74,6 +74,9 @@ step()  { echo -e "${CYAN}[➜]${NC} $*"; }
 usage() {
     cat <<EOF
 Usage: $(basename "$0") -f <compose-file> [options]
+CI/common interface: --compose-file FILE --config auto --scenario NAME --output-json DIR
+  Common mode writes to DIR/vss-perf-results and always tears down its stack.
+  Existing short-option invocations retain their defaults.
 
 Launch a compose stack, wait for lvs to be healthy, and run the perf benchmark.
 
@@ -136,6 +139,49 @@ RELEASE=""
 OUTPUT_JSON_NAME=""
 TEARDOWN=false
 GPU_OVERLAY="auto"
+
+# Common service interface; short-option callers retain their original defaults.
+COMMON_OUTPUT_DIR=""
+common_mode=false
+translated=()
+while (($#)); do
+    case "$1" in
+        --help) translated+=(-h); shift ;;
+        --config|--compose-file|--scenario|--output-json|--config-id|--triggered-by|--pipeline-url|--release|--vlm-gpus|--llm-gpus|--vlm-model|--llm-model|--vision-input-tokens|--gpu-model)
+            [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { error "Missing value for $1"; exit 2; }
+            common_mode=true
+            case "$1" in
+                --config) [[ "$2" == auto ]] || translated+=(-c "$2") ;;
+                --compose-file) translated+=(-f "$2") ;;
+                --scenario) [[ "$2" == all ]] || translated+=(-s "$2") ;;
+                --output-json) COMMON_OUTPUT_DIR="$2" ;;
+                --release) translated+=(-r "$2") ;;
+                --vlm-gpus) translated+=(-v "$2") ;;
+                --llm-gpus) translated+=(-l "$2") ;;
+                --config-id) export CONFIG_ID="$2" ;;
+                --triggered-by) export TRIGGERED_BY="$2" ;;
+                --pipeline-url) export PIPELINE_URL="$2" ;;
+                --vlm-model) export VLM_MODEL="$2" ;;
+                --llm-model) export LLM_MODEL="$2" ;;
+                --vision-input-tokens) export VISION_INPUT_TOKENS="$2" ;;
+                --gpu-model) export GPU_MODEL="$2" ;;
+            esac
+            shift 2 ;;
+        --*) error "Unknown argument: $1"; exit 2 ;;
+        -f|-c|-s|-p|-R|-t|-v|-l|-G|-r|-I|-O)
+            [[ $# -ge 2 ]] || { error "Missing value for $1"; exit 2; }
+            translated+=("$1" "$2"); shift 2 ;;
+        *) translated+=("$1"); shift ;;
+    esac
+done
+if [[ "$common_mode" == true ]]; then
+    [[ -n "$COMMON_OUTPUT_DIR" ]] || { error 'Common invocation requires --output-json directory'; exit 2; }
+    mkdir -p "$COMMON_OUTPUT_DIR"
+    COMMON_OUTPUT_DIR="$(cd "$COMMON_OUTPUT_DIR" && pwd)"
+    translated+=(-O vss-perf-results -d -t "${PERF_LVS_HEALTH_TIMEOUT_SECONDS:-600}")
+    [[ -z "${IMAGE_TAG:-}" ]] || translated+=(-I "$IMAGE_TAG")
+fi
+set -- "${translated[@]}"
 
 while getopts "f:c:s:p:R:t:v:l:G:r:I:O:dh" opt; do
     case $opt in
@@ -470,6 +516,26 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# Common invocation owns Compose operations after loading images.yaml above.
+if [[ "$common_mode" == true ]]; then
+    image_snapshot="${PERF_DIAGNOSTICS_DIR:-$COMMON_OUTPUT_DIR/diagnostics}/support-images.json"
+    mkdir -p "$(dirname "$image_snapshot")"
+    "$VENV_DIR/bin/python" "$image_tool" --config "$PERF_ROOT/setup/configs/images.yaml" --snapshot "$image_snapshot"
+    if [[ -n "${NGC_API_KEY:-}" ]]; then
+        set +x
+        printf '%s\n' "$NGC_API_KEY" | ${DOCKER_PREFIX}docker login nvcr.io -u '$oauthtoken' --password-stdin
+    fi
+    if [[ -n "${LOCAL_NIM_CACHE:-}" ]]; then
+        ${DOCKER_PREFIX}mkdir -p "$LOCAL_NIM_CACHE"
+    fi
+    if [[ -n "${ARTIFACTORY_TOKEN:-}" ]]; then
+        export ASSET_DOWNLOAD_AUTH_TOKENS="artifactory.nvidia.com=Bearer ${ARTIFACTORY_TOKEN}"
+    fi
+    ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" config --quiet
+    timeout --kill-after=5s "${PERF_LVS_PULL_TIMEOUT_SECONDS:-1500}s" \
+        ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" pull --include-deps
+fi
+
 # --- Step 1: Launch compose stack ---
 step "Starting compose stack: $COMPOSE_FILE${OVERLAY_FILE_PATH:+ + overlays/$(basename "$OVERLAY_FILE_PATH")}"
 STACK_LAUNCH_ATTEMPTED=true
@@ -570,7 +636,7 @@ step "Running benchmark: config=$BENCHMARK_CONFIG_PATH"
 
 # CI mode: fixed output dir for pipeline artifact copy; optional metadata and MinIO upload
 if [ -n "$OUTPUT_JSON_NAME" ]; then
-    CI_OUTPUT_DIR="$BENCHMARK_ROOT/vss-perf-report"
+    CI_OUTPUT_DIR="${COMMON_OUTPUT_DIR:-$BENCHMARK_ROOT/vss-perf-report}"
     export VIA_OUTPUT_DIR="$CI_OUTPUT_DIR"
 else
     COMPOSE_BASENAME="${COMPOSE_FILE##*/}"

@@ -124,3 +124,21 @@ The service under test still uses the artifact selected for the run.
 `support-images.json` records the effective support image variables alongside the
 run output. Image values preserve existing references and do not certify OSRB
 approval or record the immutable digests pulled by Docker.
+
+### Common argument interface
+
+The existing short options remain supported. The same entrypoint also accepts:
+
+```bash
+./scripts/run_benchmark.sh \
+  --compose-file x86-rtvi-cr-nemo3-nano_2gpu.yaml \
+  --config auto --scenario quick_test \
+  --output-json ./results --config-id local-test --triggered-by manual
+```
+
+`--config auto` retains platform selection: Tegra configuration for Thor, Orin NX
+and Spark; standard configuration for x86. An explicit `--config` overrides this.
+Common invocation validates and pulls the resolved Compose stack after loading
+`setup/configs/images.yaml`, writes canonical JSON under `results/vss-perf-results/`,
+and tears down the deployment on exit. Set `IMAGE_TAG` to override the tested LVS
+image. Existing short-option invocations retain their output and teardown defaults.
