@@ -34,6 +34,7 @@ def test_scenarios_use_only_agreed_modes_and_dataset():
         assert ("--synthetic-alerts-injection" in args) == (name == "quick_test")
         assert ("--e2e-eval" in args) == (name == "full_alerts_latency")
         assert "--eval-type" in args and "accuracy" not in args
+        assert args[args.index("--host-ip") + 1] == "127.0.0.1"
 
 
 @pytest.mark.parametrize("port", [0, 65536, True, 8001.0, "8001"])
@@ -192,6 +193,7 @@ def test_pipeline_outcome_and_canonical_report(
     monkeypatch.setenv("IMAGE_TAG", "registry/vss-alert-ms:poc")
     monkeypatch.setenv("NGC_API_KEY", "test-value")
     monkeypatch.setenv("VSS_AGENT_HOST_PORT", "8000")
+    monkeypatch.setenv("HOST_IP", "<HOST_IP>")
     checked_ports = []
     monkeypatch.setattr(
         runner, "ensure_agent_port_available",
@@ -234,6 +236,19 @@ def test_pipeline_outcome_and_canonical_report(
         "verification_failed_events": verification_failures,
     }
 
+    fetched_urls = []
+
+    def fake_urlopen(url, **kwargs):
+        import io
+
+        assert url.startswith("http://127.0.0.1:5002/eval/alerts-perf-")
+        assert kwargs["timeout"] == 30
+        fetched_urls.append(url)
+        return io.StringIO(json.dumps({"status": "success", "summary": native_summary}))
+
+    monkeypatch.delenv("ALERT_BRIDGE_EVALUATOR_PORT", raising=False)
+    monkeypatch.setattr(runner.urllib.request, "urlopen", fake_urlopen)
+
     class NativeProcess:
         def __init__(self, argv, **kwargs):
             assert kwargs["env"]["PERF_ALERT_IMAGE"] == "registry/vss-alert-ms:poc"
@@ -241,10 +256,11 @@ def test_pipeline_outcome_and_canonical_report(
             assert "VSS_APPS_DIR" not in kwargs["env"]
             assert "VSS_DATA_DIR" not in kwargs["env"]
             assert "VSS_AGENT_HOST_PORT" not in kwargs["env"]
+            assert argv[argv.index("--host-ip") + 1] == "127.0.0.1"
             self.returncode = native_exit
 
         def wait(self, **kwargs):
-            if not native_exit:
+            if not native_exit and scenario == "quick_test":
                 report = output / "native/ab-eval/alert_bridge_evaluation_status.json"
                 report.parent.mkdir()
                 report.write_text(
@@ -268,6 +284,8 @@ def test_pipeline_outcome_and_canonical_report(
         arguments += ["--gpu-model", gpu_model]
     assert runner.main(arguments) == expected_exit
     assert checked_ports == [8001]
+    assert len(fetched_urls) == int(scenario == "full_alerts_latency" and not native_exit)
+    assert os.environ["HOST_IP"] == "<HOST_IP>"
     assert os.environ["VSS_AGENT_HOST_PORT"] == "8000"
     for key in ("VSS_APPS_DIR", "VSS_DATA_DIR"):
         assert os.environ.get(key) == inherited_path
@@ -401,3 +419,28 @@ def test_staged_blueprint_compose_keeps_required_environment_inputs(tmp_path, mo
     missing = subprocess.run(command, cwd=deployment, env=env, capture_output=True, text=True)
     assert missing.returncode != 0
     assert "services/nvstreamer/.env" in missing.stderr
+
+
+def test_native_host_cli_overrides_profile_placeholder(tmp_path):
+    import os
+    import shlex
+
+    profile_env = tmp_path / "profile.env"
+    profile_env.write_text('HOST_IP="<HOST_IP>"\nBLUEPRINT_IP="<HOST_IP>"\n')
+    native = (PERF / "benchmark/native/eval/run_eval.sh").read_text()
+    # Execute the existing CLI override block after loading a profile template;
+    # avoid all deployment commands and keep the upstream runner untouched.
+    block = native.split('    if [[ -n "${host_ip}" ]]; then', 1)[1]
+    block = 'if [[ -n "${host_ip}" ]]; then' + block.split(
+        '    if [[ "${external_ip_via_cli}"', 1
+    )[0]
+    command = (
+        "set -euo pipefail\nsource " + shlex.quote(str(profile_env))
+        + '\nhost_ip=127.0.0.1\nhost_ip_via_cli=true\n' + block
+        + '\nprintf "%s\\n" "$HOST_IP" "$BLUEPRINT_IP" "$HOST_IP_VIA_CLI"'
+    )
+    result = subprocess.run(
+        ["bash", "-c", command], env={"PATH": os.environ["PATH"]},
+        text=True, capture_output=True, check=True,
+    )
+    assert result.stdout.splitlines() == ["127.0.0.1", "127.0.0.1", "true"]

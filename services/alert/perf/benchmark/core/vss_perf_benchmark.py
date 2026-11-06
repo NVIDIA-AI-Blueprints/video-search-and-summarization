@@ -31,6 +31,8 @@ from vss_perf_reporting import build_and_save, discover_platform  # noqa: E402
 from alert_results_adapter import to_test_cases  # noqa: E402
 
 SERVICE = "Alerts-Verification"
+# Both the native runner and report collector execute on the Compose host.
+LOCAL_EVAL_HOST = "127.0.0.1"
 REQUIRED_DEPLOYMENT_ENV_TEMPLATES = (
     "developer-profiles/dev-profile-alerts/.env",
     "services/nvstreamer/.env",
@@ -235,6 +237,8 @@ def native_arguments(
         "latency",
         "--deployment-mode",
         "compose",
+        "--host-ip",
+        LOCAL_EVAL_HOST,
         "--env-file",
         env_file,
         "--hardware-profile",
@@ -559,7 +563,7 @@ def main(argv=None):
                     f"Native evaluation exited {returncode} without a report"
                 )
             # Full-flow polling in the unchanged runner does not persist the API response.
-            host = env.get("HOST_IP", "127.0.0.1")
+            host = LOCAL_EVAL_HOST
             port = env.get("ALERT_BRIDGE_EVALUATOR_PORT", "5002")
             with urllib.request.urlopen(
                 f"http://{host}:{port}/eval/{env['JOB_ID']}", timeout=30
