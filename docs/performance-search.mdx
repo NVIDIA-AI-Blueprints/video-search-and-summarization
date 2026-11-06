@@ -31,7 +31,7 @@ expected query latency under concurrent search load on VSS 3.3.
 | Parameter | Value |
 | --- | --- |
 | VSS release | 3.3 |
-| Platforms tested | NVIDIA RTX PRO 6000 Blackwell SE, H100 SXM |
+| Platforms tested | RTX Pro 6000 SE, H100 |
 | Dataset | vad-r1-v2 / benchmark |
 | Benchmark queries | 121 natural-language queries over 17 indexed videos |
 | Indexed videos | 17 vad-r1-v2 clips (72.28 MB total corpus) |
@@ -40,7 +40,7 @@ expected query latency under concurrent search load on VSS 3.3.
 | Video understanding VLM | Cosmos3 Nano Reasoner (`ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`) |
 | Query path | `vss search run <action>` (VSS CLI), one invocation per query |
 | Query decomposition | Separate LLM call made before each invocation, not by the CLI |
-| Routed actions | H100: `attribute` 56, `fusion` 52, `embed` 13. RTX: 56 / 51 / 14 |
+| Routed actions | H100: `attribute` 56, `fusion` 52, `embed` 13. RTX Pro 6000 SE: 56 / 51 / 14 |
 | Critic agent | Enabled, `--critic-eval-count` unset (every returned hit is verified, up to Top-K) |
 | Top-K | 5 |
 | Concurrent queries | 1, 10, 20, 50 |
@@ -98,7 +98,7 @@ in the RTVI-CV documentation.
 
 | Parameter | Value |
 | --- | --- |
-| Platforms tested | NVIDIA RTX PRO 6000 Blackwell SE, H100 SXM |
+| Platforms tested | RTX Pro 6000 SE, H100 |
 | Chunk duration | 5 seconds |
 | Indexes waited on | Embeddings, raw frames (RTVI-CV), behavior. RT-VLM tagging was off |
 
@@ -129,7 +129,7 @@ rise and additional concurrency only adds queue time — see [Reading these numb
 | 50 | 43.562 | 54.194 | 0.910 |
 
 </Tab>
-<Tab title="NVIDIA RTX PRO 6000 SE">
+<Tab title="RTX Pro 6000 SE">
 
 | Concurrent queries | E2E Avg (s) | E2E P90 (s) | Successful QPS |
 | --- | --- | --- | --- |
@@ -143,17 +143,17 @@ rise and additional concurrency only adds queue time — see [Reading these numb
 
 ### Reading these numbers
 
-Successful QPS peaks at 10 concurrent queries (1.003 on H100, 1.091 on RTX) and does not
+Successful QPS peaks at 10 concurrent queries (1.003 on H100, 1.091 on RTX Pro 6000 SE) and does not
 rise after that, because the deployment is already at its VLM inference ceiling by that
-point. It eases off slightly as load grows further, to 0.910 on H100 and 0.866 on RTX at 50.
+point. It eases off slightly as load grows further, to 0.910 on H100 and 0.866 on RTX Pro 6000 SE at 50.
 Latency, by contrast, scales roughly linearly with concurrency — 2.5s, 9.5s, 19.1s, 43.6s on
-H100 — so concurrency past the knee buys queue depth, not work. RTX is about 26% slower than
+H100 — so concurrency past the knee buys queue depth, not work. RTX Pro 6000 SE is about 26% slower than
 H100 at one concurrent query (3.2s against 2.5s) but 8–12% faster on average from 10 onward;
 at 50 its P90 is the higher of the two (61.1s against 54.2s).
 
 Critic verification is the largest single cost, and its share grows with load rather than
 staying constant. Per-call VLM inference is 65% of E2E at one concurrent query on H100 and
-88–90% at 20 and 50; RTX follows the same curve, from 62% to 92%. RTVI-VLM is therefore the
+88–90% at 20 and 50; RTX Pro 6000 SE follows the same curve, from 62% to 92%. RTVI-VLM is therefore the
 first thing to size: give it a dedicated GPU rather than sharing one with RTVI-CV, raise
 `RTVI_VLM_BATCH_SIZE` within the available GPU memory, or scale
 it out. Passing `--critic-eval-count` to `vss search run` reduces the per-query fan-out at the cost of
@@ -164,7 +164,7 @@ search holds near its single-query cost through 20 — 0.384s to 0.468s — and 
 50, to 1.624s (P90 4.097s). Nearly all of that is the attribute path's text-embedding call,
 which climbs from 0.273s to 0.359s through 20 and then to 1.511s at 50. That call goes to
 RTVI-CV, not RTVI-Embed — the attribute leg embeds its text through RTVI-CV, while
-RTVI-Embed serves the embed-search path only. On RTX, attribute search stays between 0.340s
+RTVI-Embed serves the embed-search path only. On RTX Pro 6000 SE, attribute search stays between 0.340s
 and 0.495s at every level. Embed search, Elasticsearch query execution and VST clip
 resolution stay flat throughout on both platforms. If you expect sustained load above about
 20 concurrent queries on H100, give RTVI-CV headroom as well as RTVI-VLM.
@@ -232,7 +232,7 @@ its per-call time is also very close to the wall-clock time the critic phase add
 | VST clip resolution | 0.038 | 0.040 | ≤5 |
 
 </Tab>
-<Tab title="NVIDIA RTX PRO 6000 SE">
+<Tab title="RTX Pro 6000 SE">
 
 **Latency Stage Breakdown — 1 Concurrent Query**
 
@@ -298,7 +298,7 @@ call itself returns within seconds; the rest is perception processing the video,
 why a long video takes about as long to ingest as it does to play.
 
 <Tabs>
-<Tab title="NVIDIA RTX PRO 6000 SE">
+<Tab title="RTX Pro 6000 SE">
 
 | Content | No. of Videos | Duration | Total chunks | Avg chunks per video | Avg (s) | P90 (s) | Total size |
 | --- | --- | --- | --- | --- | --- | --- | --- |

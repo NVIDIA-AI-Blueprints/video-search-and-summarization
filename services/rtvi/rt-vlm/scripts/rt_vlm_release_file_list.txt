@@ -59,6 +59,7 @@ src/vllm_cosmos3-0.1.0.dist-info/METADATA
 src/vllm_cosmos3/__init__.py
 src/vllm_cosmos3/model.py
 src/vlm_pipeline/errors.py
+src/vlm_pipeline/file_decoder_gc.py
 src/vlm_pipeline/__init__.py
 src/vlm_pipeline/ipc_frame_source.py
 src/vlm_pipeline/model_path_policy.py

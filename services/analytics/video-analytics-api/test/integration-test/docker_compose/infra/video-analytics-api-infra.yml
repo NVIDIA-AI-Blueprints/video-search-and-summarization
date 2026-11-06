@@ -49,12 +49,21 @@
 # per-run, nothing lands in the checkout, and ownership is a non-issue. The
 # config mount has to be restated because `!override` replaces the whole list.
 services:
+  # CI builds need ordinary outbound access, not the deployment's host
+  # network. Override only the build network so Compose/Bake needs no
+  # network.host entitlement; inherit the shared contexts and Dockerfiles.
   elasticsearch:
+    build:
+      network: default
     volumes: !override
       - ${VSS_APPS_DIR}/services/infra/elk/elasticsearch/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
     tmpfs:
       - /tmp/elastic/data
       - /tmp/elastic/logs
+
+  elasticsearch-init-container:
+    build:
+      network: default
 
 # Nothing references these once the service above stops mounting them, but the
 # deployment still declares them; drop the bind so a stray creation cannot fail
