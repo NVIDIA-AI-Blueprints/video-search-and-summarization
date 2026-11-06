@@ -239,12 +239,8 @@ def test_pipeline_outcome_and_canonical_report(
     fetched_urls = []
 
     def fake_urlopen(url, **kwargs):
-        import io
-
-        assert url.startswith("http://127.0.0.1:5002/eval/alerts-perf-")
-        assert kwargs["timeout"] == 30
         fetched_urls.append(url)
-        return io.StringIO(json.dumps({"status": "success", "summary": native_summary}))
+        raise AssertionError("Local evaluation must not poll the removed evaluator API")
 
     monkeypatch.delenv("ALERT_BRIDGE_EVALUATOR_PORT", raising=False)
     monkeypatch.setattr(runner.urllib.request, "urlopen", fake_urlopen)
@@ -260,7 +256,7 @@ def test_pipeline_outcome_and_canonical_report(
             self.returncode = native_exit
 
         def wait(self, **kwargs):
-            if not native_exit and scenario == "quick_test":
+            if not native_exit:
                 report = output / "native/ab-eval/alert_bridge_evaluation_status.json"
                 report.parent.mkdir()
                 report.write_text(
@@ -284,7 +280,7 @@ def test_pipeline_outcome_and_canonical_report(
         arguments += ["--gpu-model", gpu_model]
     assert runner.main(arguments) == expected_exit
     assert checked_ports == [8001]
-    assert len(fetched_urls) == int(scenario == "full_alerts_latency" and not native_exit)
+    assert fetched_urls == []
     assert os.environ["HOST_IP"] == "<HOST_IP>"
     assert os.environ["VSS_AGENT_HOST_PORT"] == "8000"
     for key in ("VSS_APPS_DIR", "VSS_DATA_DIR"):
