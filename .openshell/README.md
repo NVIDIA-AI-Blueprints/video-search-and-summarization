@@ -244,7 +244,8 @@ docker compose --env-file .env -f gateway/docker-compose.yml --profile harness u
 openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
 
 # 2. Harness image: upstream Hermes and the baked policy.
-docker build -t "openshell-hermes:$HERMES_REF" hermes
+docker build --build-arg HERMES_REF="$HERMES_REF" \
+  -t "openshell-hermes:$HERMES_REF" hermes
 
 # 3. Inference provider. The profile authorizes the host; the provider seals the
 #    key, which the proxy injects at egress so the agent never holds it.
@@ -512,10 +513,12 @@ publishes, `7777` unless the build set `HAPROXY_HOST_PORT`:
 
 ```bash
 ORIGIN="http://localhost:$(docker port vss-haproxy-ingress | head -n1 | sed 's/.*://')"
-# Whether the UI's adapter reaches the agent.
+# Whether the adapter is configured. On `responses` it never dials the agent,
+# so a down forward or a wrong token still answers "connected".
 curl -s "$ORIGIN/api/agent/connection"          # -> {"state":"connected"}
 
-# Start a run on thread t1. It returns at once with the run's id.
+# Start a run on thread t1. It returns at once with the run's id. This is the
+# first call that reaches Hermes, so it is what a wrong token or forward fails.
 RUN_ID=$(curl -s -X POST "$ORIGIN/api/agent/runs" -H 'Content-Type: application/json' \
   -d '{"thread_id":"t1","input":[{"role":"user","content":"List the VIOS sensors."}]}' |
   jq -r .run_id)
@@ -759,8 +762,13 @@ underneath; why that rather than deriving from `hermes-sandbox` is in
 [`docs/nemoclaw-v1-vs-openshell.md`](docs/nemoclaw-v1-vs-openshell.md#removing-the-last-nemoclaw-dependency-the-base-image).
 
 ```bash
-docker build -t "openshell-hermes:$HERMES_REF" .openshell/hermes
+docker build --build-arg HERMES_REF="$HERMES_REF" \
+  -t "openshell-hermes:$HERMES_REF" .openshell/hermes
 ```
+
+`HERMES_REF` has to be passed as well as interpolated into the tag: Docker
+does not read the environment for build args, so naming it only in `-t` builds
+the Dockerfile's default ref under a tag claiming a different one.
 
 The image is tagged by `HERMES_REF` rather than a VSS ref because nothing in
 it comes from VSS: a Hermes bump produces a new tag instead of overwriting the

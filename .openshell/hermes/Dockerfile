@@ -11,7 +11,8 @@
 #
 # Build context is this directory (.openshell/hermes):
 #
-#   docker build -t "openshell-hermes:$HERMES_REF" .openshell/hermes
+#   docker build --build-arg HERMES_REF="$HERMES_REF" \
+#     -t "openshell-hermes:$HERMES_REF" .openshell/hermes
 
 ARG BASE_IMAGE=nvcr.io/nvidia/base/ubuntu:24.04
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
