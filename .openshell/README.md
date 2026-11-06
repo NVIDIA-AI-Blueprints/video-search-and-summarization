@@ -140,7 +140,7 @@ applies; what matters here is where it comes from and what that costs.
 **It ships with the gateway, not with the harness image.** On 0.1.x both halves
 come from images the gateway is configured with — `openshell-sandbox` copied
 into the workload as PID 1, `openshell-supervisor` run as a companion container
-— so the supervisor's version tracks the gateway, not `.openclaw/Dockerfile`.
+— so the supervisor's version tracks the gateway, not the harness image.
 Moving to 0.1.x is therefore a gateway upgrade, not an image rebuild.
 
 That also means a containerised gateway no longer needs its data directory at
@@ -660,8 +660,8 @@ Everything before `network_policies` is identical in the two, by requirement
 rather than convention — the prover compares those sections verbatim.
 
 Each is per-harness because OpenShell matches a connection on its destination
-*and* its calling binary, so the `binaries` lists below are what make these
-Hermes's rather than OpenClaw's:
+*and* its calling binary, so the `binaries` lists below are what tie these
+policies to Hermes:
 
 ```yaml
 version: 1
@@ -694,9 +694,8 @@ process by the real path the kernel reports, and every `hermes` entry point in
 the image is a Python script, so no process ever carries one of those paths —
 the connection is opened by `/usr/bin/python3.13`. OpenShell's documentation
 makes the same point with `pip`. Inspecting the image also gives `sandbox` as
-`998:999`, where the OpenClaw base has `998:998`, so one boundary file cannot
-cover both harnesses: the prover compares process identity and exact
-binary paths, and the two images agree on neither.
+`998:999`. The prover compares process identity and exact binary paths, so a
+harness on another image needs a boundary file of its own.
 
 **A plain TCP grant is `protocol: tcp`, not the preset's `access: full`, and an
 L4 grant cannot share a named policy with REST rules.** That is why the VSS
@@ -821,7 +820,7 @@ endpoints:
     rules:
       - allow: { method: POST, path: "/v1/**" }
 binaries:
-  - { path: /usr/bin/python3.13 }     # /usr/local/bin/node, for OpenClaw
+  - { path: /usr/bin/python3.13 }
 ```
 
 ```bash
@@ -985,8 +984,7 @@ link.
 **The UI keeps its existing agent adapter.** The embedded adapter under
 `services/ui/apps/nv-metropolis-bp-vss-ui/utils/server/agentAdapter/` already
 connects browser chat to an external harness from inside the UI's Next.js
-process — a Responses connector for Hermes, an OpenClaw native-WebSocket one,
-session mapping, SSE replay, cancellation and snapshot-artifact validation. It
+process — a Responses connector for Hermes, session mapping, SSE replay, cancellation and snapshot-artifact validation. It
 reaches the harness today at `ws://host.docker.internal:<relay-port>`, and
 keeps that shape here: the Compose plumbing
 (`VSS_AGENT_ADAPTER_ENABLED`, `VSS_AGENT_BACKEND_URL`) is already in place, and
@@ -1002,9 +1000,9 @@ exposes only the agent's own port.
 Hermes is served by the `responses` connector — already the default
 `VSS_AGENT_BACKEND_PROTOCOL` in every profile — so `AGENT_BACKEND_PATH` keeps
 its `/v1/responses` default and `AGENT_BACKEND_TOKEN` carries the
-`API_SERVER_KEY`. Custom headers are a limit of the OpenClaw connector alone,
-so Hermes' `X-Hermes-Session-Key` stays configuration rather than a code
-change.
+`API_SERVER_KEY`. The `responses` connector sends the headers in
+`AGENT_BACKEND_HEADERS_JSON`, so Hermes' `X-Hermes-Session-Key` stays
+configuration rather than a code change.
 
 Measured against the harness image, the connector needs no changes: the wire
 format it already sends is the stateful Responses semantics the API server
@@ -1017,24 +1015,30 @@ streams the reply back as `message.delta` events.
 
 ### Adding a second harness later
 
-The work above is per-harness, so OpenClaw returns as a parallel set of the
+The work above is per-harness, so a second harness is a parallel set of the
 same artifacts — no new code path, because OpenShell has no harness concept to
-teach. Concretely: build `.openclaw/` to a second image, bake in
-[`openclaw/policy.yaml`](openclaw/policy.yaml) — proven against
-[`openclaw/boundary.yaml`](openclaw/boundary.yaml) — and the OpenClaw config,
-and create with `-- openclaw gateway run --port 18789`. The policy differs from
-Hermes's in three places: `binaries` name `/usr/local/bin/node`, since
-`openclaw` is a Node script; it adds `clawhub.ai` and `openclaw.ai`; and the
-process group is `998`.
+teach. For a harness in `.openshell/<name>/`:
 
-Only two differences between the harnesses change anything structural (see
-[What each manifest declares](docs/nemoclaw-v1-vs-openshell.md#what-each-manifest-declares)).
-OpenClaw authenticates its dashboard by device pairing rather than a bearer
-key, so the auto-approval that `nemoclaw-start` performed has to be replaced or
-the pairing accepted by hand. And its `inference.provider_type` is
-`gateway_managed` rather than a `base_url` key in its own config, so the step 4
-provider attaches differently. Everything else — port, health path, config dir
-and format, package binary — is data.
+- **`<name>/Dockerfile`** builds its image, with its own config and its policy
+  baked in at `/etc/openshell/policy.yaml`, as step 3 does for Hermes.
+- **`<name>/policy.yaml`**, proven against **`<name>/boundary.yaml`** as in
+  step 2. `binaries` name the interpreter the harness actually runs under —
+  `/usr/local/bin/node` for a Node harness — the endpoints add the hosts the
+  harness itself calls, and `process` takes the `sandbox` UID and GID of its
+  image.
+- **A provider profile** whose `binaries` name that same interpreter, since the
+  step 4 profiles list only `/usr/bin/python3.13`.
+- **The step 5 create**, with `--from` its image, `--policy` its file,
+  `--expose` the port its API listens on, and its own serve command after `--`.
+
+Two properties of the harness decide whether this stays data. How its API
+authenticates: a bearer the UI adapter can carry, like Hermes'
+`API_SERVER_KEY`, or something it cannot, such as device pairing. And how it
+takes its model: a base URL and key in its own config, which the provider
+serves unchanged, or a provider type of its own. Everything else — port,
+health path, config dir and format, package binary — is data. The UI reaches it
+through whichever adapter connector speaks its API; `responses` covers an
+OpenAI Responses server.
 
 
 ---
