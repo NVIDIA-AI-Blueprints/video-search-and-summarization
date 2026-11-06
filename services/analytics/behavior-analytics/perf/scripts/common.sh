@@ -186,7 +186,8 @@ resolve_image() {
 
 compose() {
     docker compose -p "$COMPOSE_PROJECT_NAME" --env-file infra/.env \
-        -f infra/compose.yml -f apps/mdx-apps.yml "$@"
+        -f infra/compose.yml -f apps/mdx-apps.yml \
+        -f "$PERF_DIR/setup/compose-app-config.yml" "$@"
 }
 
 load_compose_env() {

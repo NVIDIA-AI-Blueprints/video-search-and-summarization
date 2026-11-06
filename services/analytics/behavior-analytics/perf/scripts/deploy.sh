@@ -27,7 +27,6 @@ app_dst="$BA_PERF_DATA_DIR/apps/${APP_NAME}${APP_MODE}"
 mkdir -p "$BA_PERF_DATA_DIR/apps"
 rm -rf "$app_dst"
 cp -a "$app_src" "$app_dst"
-export MDX_SAMPLE_APPS_DIR="$BA_PERF_DATA_DIR"
 config_file="$app_dst/analytics-stream-${STREAMING_SERVICE}-config.json"
 python3 "$PERF_DIR/scripts/overlay_app_config.py" \
     "$config_file" \
@@ -44,6 +43,8 @@ mkdir -p \
 chmod -R a+rwX "$BA_PERF_DATA_DIR"
 
 cd "$COMPOSE_DIR"
+# Validate includes, build contexts and app mounts before starting containers.
+compose config --quiet
 # Remove only this benchmark's Compose resources by default. Legacy global
 # mdx_* cleanup is available solely through an explicit opt-in.
 compose down --remove-orphans -v >/dev/null 2>&1 || true

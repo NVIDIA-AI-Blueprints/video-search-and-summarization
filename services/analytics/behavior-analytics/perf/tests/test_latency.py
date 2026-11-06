@@ -624,7 +624,9 @@ INCIDENTS MESSAGES
         self.assertIn("export BA_PERF_OVERLAY_STAMP", common)
         self.assertIn("BA_PERF_BEHAVIOR_EMIT_ONCE", deploy)
         self.assertIn('cp -a "$app_src" "$app_dst"', deploy)
-        self.assertIn('export MDX_SAMPLE_APPS_DIR="$BA_PERF_DATA_DIR"', deploy)
+        self.assertNotIn('export MDX_SAMPLE_APPS_DIR="$BA_PERF_DATA_DIR"', deploy)
+        self.assertIn("compose config --quiet", deploy)
+        self.assertIn("setup/compose-app-config.yml", common)
         post_deploy = (
             REPO_ROOT
             / "services"
