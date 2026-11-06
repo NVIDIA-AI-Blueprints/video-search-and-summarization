@@ -6,14 +6,12 @@ import test from 'node:test';
 
 const components = new URL('../src/sections/', import.meta.url);
 
-test('report page separates structured fields, read-only model output and run details', async () => {
+test('report page shows structured fields without run and model-output details', async () => {
   const report = (
     await Promise.all(
-      [
-        'reports/components/ReportPane/ReportPane.tsx',
-        'reports/components/ReportRunDetails/ReportRunDetails.tsx',
-        'reports/components/ReportPage/ReportPage.tsx',
-      ].map((name) => readFile(new URL(name, components), 'utf8')),
+      ['reports/components/ReportPane/ReportPane.tsx', 'reports/components/ReportPage/ReportPage.tsx'].map((name) =>
+        readFile(new URL(name, components), 'utf8'),
+      ),
     )
   ).join('\n');
 
@@ -22,27 +20,21 @@ test('report page separates structured fields, read-only model output and run de
   assert.doesNotMatch(report, /Model event timeline/);
   assert.doesNotMatch(report, /Model-reported uncertainties/);
   assert.doesNotMatch(report, /timeline-inconsistent/);
-  assert.match(report, /Run &amp; model output details/);
-  assert.match(report, /Additional instruction/);
-  assert.match(report, /Prompt SHA-256/);
+  assert.doesNotMatch(report, /Run &amp; model output details/);
   assert.match(report, /Contract repair applied \(IDs only\)/);
-  assert.match(report, /Repair operations/);
-  assert.match(report, /First-pass violations/);
-  assert.match(report, /Valid after structural repair/);
   assert.match(report, /confidenceScore !== null/, 'no confidence percentage when the model returned none');
   assert.doesNotMatch(report, /createdBy/, 'human versions show no author name');
   assert.match(report, /ReportEditPane/, 'editing opens the side-by-side pane');
   assert.match(report, /Edit from v/, 'the report opens edit mode from the shown version');
   assert.match(report, /Model classified this as/);
   assert.match(report, /model window/);
-  assert.match(report, /Validation policy/);
-  assert.match(report, /Full contract validity \(first response\)/);
 });
 
 test('the report page has a History of versions, a reviewer prompt and explicit official controls, and no verification flow', async () => {
   const report = await readFile(new URL('reports/components/ReportPage/ReportPage.tsx', components), 'utf8');
   assert.match(report, /ReportVersions/);
   const history = await readFile(new URL('reports/components/ReportVersions/ReportVersions.tsx', components), 'utf8');
+  assert.doesNotMatch(history, /Analysis history/);
   assert.match(history, /markOfficial/);
   assert.match(history, /role="alert"/, 'the agent-unreachable message is shown inline');
   assert.doesNotMatch(history, /restore/i);
@@ -87,9 +79,7 @@ test('browser components import only browser-safe report modules', async () => {
     'reports/components/ReportVersions/ReportVersions.tsx',
     'reports/components/ReportRunDetails/ReportRunDetails.tsx',
     'reports/components/ReportEditPane/ReportEditPane.tsx',
-    'analysis/components/RunHistory/RunHistory.tsx',
     'analysis/components/ReanalysisCard/ReanalysisCard.tsx',
-    'videos/components/VideoHistoryScreen/VideoHistoryScreen.tsx',
     'reports/components/RunComparison/RunComparison.tsx',
     'analysis/components/AnalysisWorkspace/AnalysisWorkspace.tsx',
     'library/components/LibraryScreen/LibraryScreen.tsx',
@@ -126,7 +116,12 @@ test('edit mode pairs every evidence row with A and saves the whole draft as a n
   assert.match(page, /<ResizablePanelGroup/, 'the report page uses the shared resizable layout in both modes');
   assert.match(page, /Resize media workspace and report details/);
   assert.match(page, /Resize video and timeline/);
-  assert.match(page, /Resize timeline and analysis history/);
+  assert.match(page, /Resize timeline and versions/);
+  const timeline = await readFile(new URL('reports/components/ReportTimeline/ReportTimeline.tsx', components), 'utf8');
+  assert.match(timeline, /one lane per entity and what they hold/);
+  assert.match(timeline, /Entities/);
+  assert.match(timeline, /Instruments/);
+  assert.match(timeline, /Assets/);
   for (const classB of ['severity_reason', 'uncertainties', 'timeline']) {
     assert.ok(!new RegExp(`${classB}:`).test(editor), `${classB} must not be editable`);
   }
@@ -137,12 +132,37 @@ test('the report page offers re-analysis', async () => {
   assert.match(report, /ReanalysisDialog/);
   const reanalysis = await readFile(new URL('analysis/components/ReanalysisCard/ReanalysisCard.tsx', components), 'utf8');
   assert.match(reanalysis, /ReanalysisDialog/);
+  assert.match(reanalysis, /text-lg font-bold tracking-tight/, 'the re-analysis dialog has a prominent title');
+  assert.doesNotMatch(reanalysis, /DialogHeader className="[^"]*border-l-/, 'the modal header has no left accent line');
   const library = await readFile(new URL('library/components/LibraryScreen/LibraryScreen.tsx', components), 'utf8');
   assert.doesNotMatch(library, /\/api\/analysis/, 'the library no longer re-runs with the default model');
   assert.match(await readFile(new URL('library/components/IncidentCard/IncidentCard.tsx', components), 'utf8'), /library-repair-marker/);
-  const history = await readFile(new URL('analysis/components/RunHistory/RunHistory.tsx', components), 'utf8');
-  assert.match(history, /no report/);
-  assert.match(history, /Contract violations/);
+  const card = await readFile(new URL('library/components/IncidentCard/IncidentCard.tsx', components), 'utf8');
+  assert.doesNotMatch(card, /\/videos\//, 'report cards do not link to the retired video-history page');
+});
+
+test('report chat uses the same title band as report sections', async () => {
+  const chat = await readFile(new URL('reports/components/ReportChat/ReportChat.tsx', components), 'utf8');
+  assert.doesNotMatch(chat, /border-l-primary/);
+  assert.match(chat, /text-lg font-bold tracking-tight/);
+  assert.match(chat, /<SheetClose asChild>/, 'the chat has an explicit close control');
+  assert.match(chat, /className="absolute top-3 right-3"/, 'the close control sits at the top-right');
+  assert.match(chat, /rounded-none/, 'the chat title surface is flush with the browser edge');
+  assert.doesNotMatch(chat, /Asking about \{target\.label\}/, 'the version badge omits the redundant prefix');
+  const page = await readFile(new URL('reports/components/ReportPage/ReportPage.tsx', components), 'utf8');
+  assert.match(page, /showCloseButton=\{false\}/, 'the separately positioned default close button is disabled');
+});
+
+test('edit evidence pairs fit the evidence-card footprint', async () => {
+  const edit = await readFile(new URL('reports/components/ReportEditPane/ReportEditPane.tsx', components), 'utf8');
+  assert.match(edit, /w-\[min\(24rem,calc\(100vw-4rem\)\)\]/);
+  assert.doesNotMatch(edit, /w-\[min\(42rem,calc\(100vw-4rem\)\)\]/);
+  assert.doesNotMatch(edit, /CardHeader className="gap-0 border-b/, 'edit evidence cards do not add a separate title band');
+  assert.match(edit, /max-w-88 gap-0 overflow-hidden/, 'the video and title content have no card-level gap');
+  assert.match(edit, /<DraftVideoFrame/, 'a newly selected box is previewed from the browser-loaded video in its draft card');
+  assert.match(edit, /testId="draft-evidence-video-preview"/);
+  assert.match(edit, /data-testid="edit-readonly-evidence-id"/, 'the read-only A card has the same ID badge as View');
+  assert.match(edit, /kind=\{kind\}/, 'the read-only A card has the same image kind badge as View');
 });
 
 test('no component renders stored timestamps with a bare new Date(...).toLocaleString()', async () => {
@@ -151,8 +171,6 @@ test('no component renders stored timestamps with a bare new Date(...).toLocaleS
     'reports/components/ReportEditPane/ReportEditPane.tsx',
     'reports/components/ReportVersions/ReportVersions.tsx',
     'reports/components/RunComparison/RunComparison.tsx',
-    'analysis/components/RunHistory/RunHistory.tsx',
-    'videos/components/VideoHistoryScreen/VideoHistoryScreen.tsx',
     'library/components/LibraryScreen/LibraryScreen.tsx',
     'library/components/IncidentCard/IncidentCard.tsx',
     'library/components/HitCard/HitCard.tsx',

@@ -2,10 +2,11 @@
 
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { PlusIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { MutedVideo } from '@/components/muted-video';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -39,6 +40,7 @@ import { formatClock } from '@/modules/reports/domain/normalize';
 import { EvidenceFrame } from '@/sections/evidence/components/EvidenceFrame';
 import { EvidenceCarousel } from '@/sections/evidence/components/EvidenceCarousel';
 import { BoxTool, type ExistingItem } from '@/sections/evidence/components/BoxTool';
+import { BoxCanvas } from '@/sections/evidence/components/BoxTool/BoxCanvas';
 import { TrackEditor } from '@/sections/evidence/components/TrackEditor';
 import { trackEditorSource } from '@/lib/evidence/track-editor-source';
 
@@ -53,10 +55,10 @@ const draftDisplayId = (item: NonNullable<PairRow['b']>) =>
  * editable draft (B) on the right, field by field and evidence row by row. A
  * is never editable. Delete removes a draft item (and the instruments an entity
  * holds); Revert puts an edited or deleted item back exactly as A has it.
- * "+ Add evidence" and each card's Edit open the box tool: the reviewer draws a
- * box, the AI names and tracks it, and the result goes into the draft item
- * (add) or re-tracks it without touching its text (edit). An item's evidence
- * image is always the first second it is seen.
+ * "+ Add evidence" opens the box tool: the reviewer draws a box, the AI names
+ * and tracks it, and the result goes into a new draft item. Edit track adjusts
+ * an existing item's track without touching its text. An item's evidence image
+ * is always the first second it is seen.
  */
 export function ReportEditPane({
   a,
@@ -90,6 +92,7 @@ export function ReportEditPane({
 }) {
   // The box tool: adding new evidence, or re-tracking a card's item from a new box.
   const [boxTool, setBoxTool] = useState<{ row: PairRow['b'] } | null>(initiallyAddEvidence ? { row: null } : null);
+  const [carouselControlsTarget, setCarouselControlsTarget] = useState<HTMLDivElement | null>(null);
   // The track editor: fix a card's track with keyframes. `saved` is the opened version's item, whose track it starts from.
   const [trackEditor, setTrackEditor] = useState<{
     row: NonNullable<PairRow['b']>;
@@ -111,9 +114,6 @@ export function ReportEditPane({
   };
   const revert = (row: PairRow) => {
     if (a) onChange(revertDraftItem(draft, a, row));
-  };
-  const edit = (row: PairRow) => {
-    if (row.b) setBoxTool({ row: row.b });
   };
   const editTrack = (row: PairRow) => {
     if (row.b) setTrackEditor({ row: row.b, saved: row.a?.evidence ?? null });
@@ -175,7 +175,7 @@ export function ReportEditPane({
   return (
     <div className="px-5 pb-6 sm:px-8" data-testid="report-edit-pane">
       <Card className="mt-5 gap-0 border-border/80 py-0" data-testid="version-summary">
-        <CardHeader className="flex flex-row items-center gap-4 border-b border-border/70 bg-muted/25 px-4 py-4">
+        <CardHeader className="flex flex-row items-center gap-4 border-b border-l-4 border-border/70 border-l-primary bg-primary/5 px-4 py-4">
           <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-background font-mono text-sm font-bold shadow-xs ring-1 ring-border">
             V{baseRevisionNo}
           </div>
@@ -214,7 +214,7 @@ export function ReportEditPane({
       </Card>
 
       <Card className="mt-5 gap-0 border-border/80 py-0" data-testid="report-fields-compare">
-        <CardHeader className="gap-1 border-b border-border/70 px-4 py-3.5">
+        <CardHeader className="gap-1 border-b border-l-4 border-border/70 border-l-primary bg-primary/5 px-4 py-3.5">
           <CardTitle className="text-base font-semibold">Report fields</CardTitle>
           <CardDescription className="text-xs">Compare the saved values with your editable draft</CardDescription>
         </CardHeader>
@@ -346,7 +346,7 @@ export function ReportEditPane({
       </Card>
 
       <Card className="mt-5 gap-0 overflow-hidden border-border/80 py-0" data-testid="evidence-compare">
-        <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-border/70 bg-muted/20 px-4 py-3.5">
+        <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-l-4 border-border/70 border-l-primary bg-primary/5 px-4 py-3.5">
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle className="text-base font-semibold">Evidence items</CardTitle>
@@ -356,10 +356,13 @@ export function ReportEditPane({
             </div>
             <CardDescription className="text-xs">A is read-only · B is your editable draft</CardDescription>
           </div>
-          <Button className="shrink-0" data-testid="add-evidence" onClick={() => setBoxTool({ row: null })} size="sm" type="button">
-            <PlusIcon aria-hidden="true" />
-            Add evidence
-          </Button>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <Button data-testid="add-evidence" onClick={() => setBoxTool({ row: null })} size="sm" type="button">
+              <PlusIcon aria-hidden="true" />
+              Add evidence
+            </Button>
+            <div aria-label="Evidence navigation" className="flex min-h-8 gap-2" ref={setCarouselControlsTarget} />
+          </div>
         </CardHeader>
         {pairing.rows.length === 0 ? (
           <CardContent className="px-4 py-5">
@@ -372,18 +375,30 @@ export function ReportEditPane({
           </CardContent>
         ) : (
           <div className="px-4 pt-3 pb-1">
-            <EvidenceCarousel label="Read-only and editable evidence pairs">
+            <EvidenceCarousel controlsTarget={carouselControlsTarget} label="Read-only and editable evidence pairs" lanes>
+              <div className="sticky left-0 z-10 row-span-2 grid grid-rows-subgrid gap-y-2 bg-background pr-1">
+                <div className="flex min-h-20 items-center justify-center bg-background">
+                  <Badge className="border-border bg-muted/30 font-mono text-muted-foreground" variant="outline">
+                    A
+                  </Badge>
+                </div>
+                <div className="flex min-h-20 items-center justify-center bg-background">
+                  <Badge className="border-border bg-muted/30 font-mono text-muted-foreground" variant="outline">
+                    B
+                  </Badge>
+                </div>
+              </div>
               {pairing.rows.map((row) => (
                 <PairRowView
                   aRevisionNo={aRevisionNo}
                   videoId={videoId}
+                  videoSrc={videoSrc}
                   draft={draft}
                   draftHolder={draftHolder}
                   holderOptions={holderOptions}
                   inherited={row.kind === 'entity' ? inherited(row) : ''}
                   key={rowKey(row)}
                   onRemove={remove}
-                  onEdit={edit}
                   onEditTrack={editTrack}
                   onRevert={revert}
                   onSeek={onSeek}
@@ -455,6 +470,7 @@ type PatchAsset = (key: string, patch: Partial<EditDraft['assets'][number]>) => 
 function PairRowView({
   aRevisionNo,
   videoId,
+  videoSrc,
   draft,
   row,
   inherited,
@@ -462,7 +478,6 @@ function PairRowView({
   draftHolder,
   holderOptions,
   onRemove,
-  onEdit,
   onEditTrack,
   onRevert,
   onSeek,
@@ -472,6 +487,7 @@ function PairRowView({
 }: {
   aRevisionNo: number;
   videoId: string;
+  videoSrc: string;
   draft: EditDraft;
   row: PairRow;
   inherited: string;
@@ -479,7 +495,6 @@ function PairRowView({
   draftHolder: (instrument: EditDraft['instruments'][number]) => string;
   holderOptions: Array<{ key: string; label: string }>;
   onRemove: (row: PairRow) => void;
-  onEdit: (row: PairRow) => void;
   onEditTrack: (row: PairRow) => void;
   onRevert: (row: PairRow) => void;
   onSeek: (seconds: number) => void;
@@ -490,14 +505,8 @@ function PairRowView({
   const changed = rowDiffers(row, draft);
   const blocked = revertBlocked(row, draft);
   return (
-    <div
-      className="grid w-[min(42rem,calc(100vw-4rem))] shrink-0 snap-start gap-2 rounded-xl border border-border/80 bg-card p-3 shadow-xs"
-      data-row-kind={row.kind}
-    >
-      <Badge className="w-fit font-mono text-[10.5px] font-bold uppercase tracking-wider" variant="outline">
-        {row.kind}
-      </Badge>
-      <div className="min-w-0" data-side="A">
+    <Fragment>
+      <div className="min-w-0 snap-start border-r border-dotted border-border pr-3" data-row-kind={row.kind} data-side="A">
         {row.a ? (
           <ReadCard inherited={inherited} item={row.a} onSeek={onSeek} savedHolder={savedHolder} videoId={videoId} />
         ) : (
@@ -509,16 +518,16 @@ function PairRowView({
           </div>
         )}
       </div>
-      <div className="min-w-0" data-side="B">
+      <div className="min-w-0 snap-start border-r border-dotted border-border pr-3" data-row-kind={row.kind} data-side="B">
         {row.b ? (
           <EditCard
             draftHolder={draftHolder}
             videoId={videoId}
+            videoSrc={videoSrc}
             saved={row.a?.evidence ?? null}
             holderOptions={holderOptions}
             item={row.b}
             onRemove={() => onRemove(row)}
-            onEdit={() => onEdit(row)}
             onEditTrack={() => onEditTrack(row)}
             onRevert={changed ? () => onRevert(row) : null}
             onSeek={onSeek}
@@ -549,7 +558,7 @@ function PairRowView({
           </div>
         )}
       </div>
-    </div>
+    </Fragment>
   );
 }
 
@@ -567,19 +576,26 @@ function ReadCard({
   videoId: string;
 }) {
   const shown = evidenceDisplay(item.evidence, videoId);
+  const kind: BoxItemType = isSavedEntity(item) ? 'entity' : isSavedInstrument(item) ? 'instrument' : 'asset';
   return (
     <CardFrame
       box={shown.box}
       frameSrc={shown.frameSrc}
+      header={
+        <>
+          <Badge className="shrink-0 px-1.5 py-0 font-mono text-[10px] font-bold" data-testid="edit-readonly-evidence-id" variant="outline">
+            {savedItemId(item)}
+          </Badge>
+          <span className="min-w-0">{savedItemName(item)}</span>
+        </>
+      }
       imageUrl={shown.src}
+      kind={kind}
       name={`${savedItemId(item)} · ${savedItemName(item)}`}
       notLocated={shown.notLocated}
       onSeek={onSeek}
       seconds={item.timestampSeconds}
     >
-      <p className="text-sm font-semibold">
-        {savedItemId(item)} · {savedItemName(item)}
-      </p>
       <p className="text-ink/60">{item.description}</p>
       {isSavedInstrument(item) && (
         <p className="text-ink/50">
@@ -608,11 +624,11 @@ function ReadCard({
 function EditCard({
   item,
   videoId,
+  videoSrc,
   saved,
   holderOptions,
   draftHolder,
   onRemove,
-  onEdit,
   onEditTrack,
   onRevert,
   onSeek,
@@ -622,12 +638,12 @@ function EditCard({
 }: {
   item: NonNullable<PairRow['b']>;
   videoId: string;
+  videoSrc: string;
   /** The saved item's evidence, whose frame and box the draft keeps showing until the reviewer replaces the image. */
   saved: NonNullable<PairRow['a']>['evidence'] | null;
   holderOptions: Array<{ key: string; label: string }>;
   draftHolder: (instrument: EditDraft['instruments'][number]) => string;
   onRemove: () => void;
-  onEdit: () => void;
   onEditTrack: () => void;
   onRevert: (() => void) | null;
   onSeek: (seconds: number) => void;
@@ -639,52 +655,62 @@ function EditCard({
   // until then the draft shows the saved item's frame and box, as View does.
   const picked = item.imageBox && item.imageTimestampSeconds !== null;
   const inherited = !picked && saved && saved.image === item.image ? evidenceDisplay(saved, videoId) : null;
+  const browserPreview = item.sourceId === null && item.reviewer !== null;
+  const nameInput = isDraftEntity(item) ? (
+    <Input
+      aria-label="Entity name"
+      className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm font-semibold shadow-none focus-visible:ring-2"
+      onChange={(event) => patchEntity(item.key, { label: event.target.value })}
+      placeholder={item.type}
+      value={item.label}
+    />
+  ) : isDraftInstrument(item) ? (
+    <Input
+      aria-label="Instrument name"
+      className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm font-semibold shadow-none focus-visible:ring-2"
+      onChange={(event) => patchInstrument(item.key, { name: event.target.value })}
+      value={item.name}
+    />
+  ) : (
+    <Input
+      aria-label="Asset name"
+      className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm font-semibold shadow-none focus-visible:ring-2"
+      onChange={(event) => patchAsset(item.key, { name: event.target.value })}
+      value={item.name}
+    />
+  );
   return (
     <CardFrame
-      box={picked ? item.imageBox : (inherited?.box ?? null)}
+      box={picked ? item.imageBox : (inherited?.box ?? item.reviewer?.track?.samples[0]?.box ?? item.reviewer?.stillBox ?? null)}
       frameSrc={picked ? videoFrameUrl(videoId, item.imageTimestampSeconds ?? 0) : (inherited?.frameSrc ?? null)}
+      header={
+        <>
+          <Badge className="shrink-0 px-1.5 py-0 font-mono text-[10px] font-bold" variant="outline">
+            {draftDisplayId(item)}
+          </Badge>
+          {nameInput}
+        </>
+      }
       imageUrl={item.imageUrl}
       name={`${draftDisplayId(item)} · ${draftItemName(item)}`}
       notLocated={inherited?.notLocated ?? false}
       onSeek={onSeek}
+      previewVideoSrc={browserPreview ? videoSrc : null}
       seconds={item.timestampSeconds}
     >
-      {isDraftEntity(item) ? (
-        <>
-          <Input
-            aria-label="Entity name"
-            className="h-8 text-xs"
-            onChange={(event) => patchEntity(item.key, { label: event.target.value })}
-            placeholder={item.type}
-            value={item.label}
-          />
-          <Select onValueChange={(val) => patchEntity(item.key, { type: val })} value={item.type}>
-            <SelectTrigger aria-label="Entity type" className="mt-1 h-8 w-full bg-white text-xs">
-              <SelectValue placeholder="Entity type" />
-            </SelectTrigger>
-            <SelectContent position="popper">
-              {EDITABLE_ENTITY_TYPES.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {capitalize(type)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </>
-      ) : isDraftInstrument(item) ? (
-        <Input
-          aria-label="Instrument name"
-          className="h-8 text-xs"
-          onChange={(event) => patchInstrument(item.key, { name: event.target.value })}
-          value={item.name}
-        />
-      ) : (
-        <Input
-          aria-label="Asset name"
-          className="h-8 text-xs"
-          onChange={(event) => patchAsset(item.key, { name: event.target.value })}
-          value={item.name}
-        />
+      {isDraftEntity(item) && (
+        <Select onValueChange={(val) => patchEntity(item.key, { type: val })} value={item.type}>
+          <SelectTrigger aria-label="Entity type" className="h-8 w-full bg-white text-xs">
+            <SelectValue placeholder="Entity type" />
+          </SelectTrigger>
+          <SelectContent position="popper">
+            {EDITABLE_ENTITY_TYPES.map((type) => (
+              <SelectItem key={type} value={type}>
+                {capitalize(type)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
       <Textarea
         aria-label="Description"
@@ -770,15 +796,6 @@ function EditCard({
       <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] font-semibold">
         <Button
           className="h-6 rounded-full px-2 text-[11px] text-ink hover:bg-ink/5"
-          onClick={onEdit}
-          size="xs"
-          type="button"
-          variant="ghost"
-        >
-          Edit
-        </Button>
-        <Button
-          className="h-6 rounded-full px-2 text-[11px] text-ink hover:bg-ink/5"
           data-testid="edit-track"
           onClick={onEditTrack}
           size="xs"
@@ -815,25 +832,31 @@ function EditCard({
 function CardFrame({
   box = null,
   frameSrc = null,
+  header,
   imageUrl,
+  kind,
   name,
   notLocated = false,
   seconds,
   onSeek,
+  previewVideoSrc = null,
   children,
 }: {
   box?: readonly number[] | null;
   /** The whole video frame to draw the box on; the image is shown whole when there is none. */
   frameSrc?: string | null;
+  header: React.ReactNode;
   imageUrl: string | null;
+  kind?: BoxItemType;
   name: string;
   notLocated?: boolean;
   seconds: number | null;
   onSeek: (seconds: number) => void;
+  previewVideoSrc?: string | null;
   children: React.ReactNode;
 }) {
   return (
-    <Card className="w-full max-w-88 overflow-hidden rounded-2xl border border-ink/10 bg-white p-0 text-xs shadow-xs">
+    <Card className="w-full max-w-88 gap-0 overflow-hidden rounded-xl border border-border/80 bg-card p-0 text-xs shadow-xs">
       <button
         aria-label={seconds === null ? `${name} image` : `Play video from ${formatClock(seconds)}: ${name}`}
         className="block w-full disabled:cursor-default focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
@@ -841,19 +864,49 @@ function CardFrame({
         onClick={() => seconds !== null && onSeek(seconds)}
         type="button"
       >
-        <EvidenceFrame
-          aspect={16 / 9}
-          box={box}
-          className="rounded-none!"
-          frameSrc={frameSrc}
-          fullFrame
-          label={name || 'Evidence'}
-          notLocated={notLocated}
-          seconds={seconds}
-          src={imageUrl}
-        />
+        {previewVideoSrc && seconds !== null ? (
+          <DraftVideoFrame box={box} label={name || 'Evidence'} seconds={seconds} src={previewVideoSrc} />
+        ) : (
+          <EvidenceFrame
+            aspect={16 / 9}
+            box={box}
+            className="rounded-none!"
+            frameSrc={frameSrc}
+            fullFrame
+            kind={kind}
+            label={name || 'Evidence'}
+            notLocated={notLocated}
+            seconds={seconds}
+            src={imageUrl}
+          />
+        )}
       </button>
-      <div className="space-y-1 p-3">{children}</div>
+      <CardHeader className="gap-0 border-b border-border/70 bg-primary/5 px-3 py-2.5">
+        <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-semibold">{header}</CardTitle>
+      </CardHeader>
+      <div className="flex flex-col gap-1 p-3">{children}</div>
     </Card>
+  );
+}
+
+function DraftVideoFrame({ box, label, seconds, src }: { box: readonly number[] | null; label: string; seconds: number; src: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const video = ref.current;
+    if (video && Math.abs(video.currentTime - seconds) >= 0.02) video.currentTime = seconds;
+  }, [seconds]);
+  return (
+    <BoxCanvas box={box} drawable={false} label={label} testId="draft-evidence-video-preview">
+      <MutedVideo
+        className="h-full w-full object-fill"
+        onLoadedMetadata={(event) => {
+          event.currentTarget.currentTime = seconds;
+        }}
+        playsInline
+        preload="metadata"
+        ref={ref}
+        src={src}
+      />
+    </BoxCanvas>
   );
 }

@@ -177,4 +177,12 @@ test('Edit mode offers + Add evidence and one Edit per card, and no Replace imag
     assert.ok(dialog.includes(text), `the dialog says "${text}"`);
   }
   assert.doesNotMatch(dialog, /\bT-\d|\bE\d\b/, 'track labels use the item name, not an id');
+  assert.match(dialog, /ref=\{previewVideoRef\}/, 'review reuses the playable video instead of a separate frame image');
+  assert.doesNotMatch(dialog, /videoFrameUrl/, 'review does not depend on a second server frame request');
+  assert.match(
+    dialog,
+    /setPreviewSeconds\(result \? trackSecond\(at\.seconds, trackSpan\(result\.samples\)\) : at\.seconds\)/,
+    'review opens at the frame the reviewer selected',
+  );
+  assert.doesNotMatch(dialog, /evidence-crop/, 'Add to draft does not block on an ffmpeg crop request');
 });

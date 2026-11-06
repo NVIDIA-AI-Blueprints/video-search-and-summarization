@@ -91,7 +91,6 @@ test('an unknown filter is rejected before Supabase', async () => {
   assert.equal(called, false);
 });
 
-test('video page navigation link points back to the report library (/library)', async () => {
-  const page = await readFile(new URL('../src/app/videos/[videoId]/page.tsx', import.meta.url), 'utf8');
-  assert.match(page, /href="\/library"[^>]*>\s*← All videos\s*<\/Link>/);
+test('the retired video-history page is absent', async () => {
+  await assert.rejects(readFile(new URL('../src/app/videos/[videoId]/page.tsx', import.meta.url), 'utf8'), { code: 'ENOENT' });
 });

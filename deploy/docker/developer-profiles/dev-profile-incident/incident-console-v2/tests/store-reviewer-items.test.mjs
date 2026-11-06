@@ -97,8 +97,11 @@ test("a re-tracked item drops the old crop's box, second look and gaps, and cuts
   assert.equal(entry.track_source, 'reviewer');
   assert.ok(entry.image.includes('edit-') && entry.frame !== aiEntry.frame, 'a new image and frame, nothing overwritten');
   assert.deepEqual(
-    store.frames.map((frame) => frame.seconds),
-    [7.6, 7.6],
-    "crop and frame are cut at the first sample's exact second",
+    store.frames.map((frame) => [frame.seconds, frame.region === null ? 'frame' : 'crop']),
+    [
+      [7.6, 'crop'],
+      [7.6, 'frame'],
+    ],
+    "crop and frame are cut sequentially at the first sample's exact second",
   );
 });

@@ -205,25 +205,25 @@ export function ReanalysisDialog({ videoId, onAttempted }: { videoId: string; on
       <DialogTrigger asChild>
         <Button
           aria-label="Re-analyse this incident"
-          className="text-xs font-semibold"
+          className="border-primary/20 bg-primary/5 text-xs font-semibold hover:bg-primary/10"
           data-testid="reanalysis-trigger"
           size="sm"
           type="button"
           variant="outline"
         >
-          <RotateCw aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          <RotateCw aria-hidden="true" data-icon="inline-start" />
           <span className="max-sm:sr-only sm:ml-1.5">Re-analyse</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg" data-testid="reanalysis-dialog">
-        <DialogHeader>
-          <DialogTitle>Re-analyse incident</DialogTitle>
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg" data-testid="reanalysis-dialog">
+        <DialogHeader className="border-b border-border/70 bg-muted/40 px-6 py-5 pr-12">
+          <DialogTitle className="text-lg font-bold tracking-tight text-foreground">Re-analyse incident</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
             Runs the stored video again as a new AI version. Earlier versions and reviewer edits are kept as they are and are not used by
             the new run; the new version is not made official automatically.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 pt-1">
+        <div className="flex flex-col gap-4 p-6">
           <div>
             <label className="block text-xs font-bold text-foreground" htmlFor="dialog-reanalysis-model">
               Model
@@ -273,7 +273,7 @@ export function ReanalysisDialog({ videoId, onAttempted }: { videoId: string; on
             </Alert>
           )}
         </div>
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-2 border-t border-border/70 bg-muted/20 px-6 py-4 sm:gap-0">
           <Button disabled={busy} onClick={() => setOpen(false)} type="button" variant="outline">
             Cancel
           </Button>

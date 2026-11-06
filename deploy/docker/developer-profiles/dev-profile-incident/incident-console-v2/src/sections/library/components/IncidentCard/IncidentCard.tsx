@@ -2,9 +2,8 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { HistoryIcon, MoreHorizontalIcon, SearchIcon, StarIcon, TagIcon, Trash2Icon, WrenchIcon } from 'lucide-react';
+import { MoreHorizontalIcon, SearchIcon, StarIcon, TagIcon, Trash2Icon, WrenchIcon } from 'lucide-react';
 
 import { Card } from '@/components/ui/card';
 import { ReportThumbnail } from '@/sections/library/components/ReportThumbnail';
@@ -39,7 +38,6 @@ export function IncidentCard({
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const href = `/reports/${encodeURIComponent(item.videoId)}?revision=${item.revisionId}`;
-  const versions = item.versionCount ?? 0;
   const evidence = item.evidenceCount ?? 0;
   const displayTitle = cardTitle(item, `${item.incident_type} · ${formatTimestamp(item.uploadedAt)}`);
 
@@ -99,19 +97,6 @@ export function IncidentCard({
                   onClick={(event) => event.stopPropagation()}
                   onPointerDown={(event) => event.stopPropagation()}
                 >
-                  <DropdownMenuItem asChild>
-                    <Link
-                      className="flex cursor-pointer items-center gap-2"
-                      href={`/videos/${encodeURIComponent(item.videoId)}`}
-                      onClick={() => onOpen(item)}
-                    >
-                      <HistoryIcon className="size-4" />
-                      <span>History</span>
-                      <span className="ml-auto text-xs text-ink/45">
-                        {versions} {versions === 1 ? 'version' : 'versions'}
-                      </span>
-                    </Link>
-                  </DropdownMenuItem>
                   <DropdownMenuItem
                     className="flex cursor-pointer items-center gap-2"
                     disabled={evidence === 0}

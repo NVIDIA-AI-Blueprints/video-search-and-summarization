@@ -27,7 +27,6 @@ import { EvidenceFrame } from '@/sections/evidence/components/EvidenceFrame';
 import { EvidenceCarousel } from '@/sections/evidence/components/EvidenceCarousel';
 import { EvidenceDetailDialog } from '@/sections/reports/components/EvidenceDetailDialog';
 import { PresenceBar } from '@/sections/reports/components/PresenceBar';
-import { RunDetailsPanel } from '@/sections/reports/components/ReportRunDetails';
 
 const capitalize = (value: string | null) => (value ? value[0].toUpperCase() + value.slice(1) : 'Unclassified');
 
@@ -74,6 +73,7 @@ export function ReportPane({
   const heldIds = new Set(structured.entities.flatMap((entity) => heldBy(entity.entityId).map((instrument) => instrument.instrumentId)));
   const unheld = structured.instruments.filter((instrument) => !heldIds.has(instrument.instrumentId));
   const [detail, setDetail] = useState<EvidenceDetailItem | null>(null);
+  const [carouselControlsTarget, setCarouselControlsTarget] = useState<HTMLDivElement | null>(null);
   const itemCount = structured.entities.length + structured.instruments.length + structured.assets.length;
   const tracked = new Map(trackedReportItems(structured).map((item) => [`${item.kind}:${item.id}`, item]));
   const cardProps = (item: EvidenceDetailItem) => {
@@ -94,7 +94,7 @@ export function ReportPane({
   return (
     <div className="px-5 pb-16 sm:px-8">
       <UICard className="mt-5 gap-0 border-border/80 bg-card py-0 text-sm" data-testid="version-summary">
-        <CardHeader className="flex flex-row items-center gap-4 border-b border-border/70 bg-muted/25 px-4 py-4">
+        <CardHeader className="flex flex-row items-center gap-4 border-b border-l-4 border-border/70 border-l-primary bg-primary/5 px-4 py-4">
           <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-background font-mono text-sm font-bold text-foreground shadow-xs ring-1 ring-border">
             V{revision.revisionNo}
           </div>
@@ -148,7 +148,7 @@ export function ReportPane({
       </UICard>
 
       <UICard className="mt-5 gap-0 border-border/80 py-0" data-testid="report-fields-section">
-        <CardHeader className="gap-1 border-b border-border/70 px-4 py-3.5">
+        <CardHeader className="gap-1 border-b border-l-4 border-border/70 border-l-primary bg-primary/5 px-4 py-3.5">
           <CardTitle className="text-base font-semibold">Report fields</CardTitle>
           <CardDescription className="text-xs">Incident overview and model assessment</CardDescription>
         </CardHeader>
@@ -223,7 +223,7 @@ export function ReportPane({
       </UICard>
 
       <UICard className="mt-5 gap-0 overflow-hidden border-border/80 py-0" data-testid="evidence-section">
-        <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-border/70 bg-muted/20 px-4 py-3.5">
+        <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-l-4 border-border/70 border-l-primary bg-primary/5 px-4 py-3.5">
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle className="text-base font-semibold">Evidence items</CardTitle>
@@ -233,10 +233,13 @@ export function ReportPane({
             </div>
             <CardDescription className="text-xs">People, instruments and assets linked to this incident</CardDescription>
           </div>
-          <Button className="shrink-0" data-testid="add-evidence" onClick={onAddEvidence} size="sm" type="button">
-            <PlusIcon aria-hidden="true" />
-            Add evidence
-          </Button>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <Button data-testid="add-evidence" onClick={onAddEvidence} size="sm" type="button">
+              <PlusIcon aria-hidden="true" />
+              Add evidence
+            </Button>
+            <div aria-label="Evidence navigation" className="flex min-h-8 gap-2" ref={setCarouselControlsTarget} />
+          </div>
         </CardHeader>
         {itemCount === 0 ? (
           <CardContent className="px-4 py-5">
@@ -249,7 +252,7 @@ export function ReportPane({
           </CardContent>
         ) : (
           <div className="px-4 pt-3 pb-1" data-testid="evidence-grid">
-            <EvidenceCarousel label="Report evidence items">
+            <EvidenceCarousel controlsTarget={carouselControlsTarget} label="Report evidence items">
               {structured.entities.map((entity) => (
                 <Fragment key={entity.entityId}>
                   <Card {...cardProps(entityDetail(entity, structured.instruments))} />
@@ -277,10 +280,6 @@ export function ReportPane({
         track={detail ? (tracked.get(`${detail.kind}:${detail.id}`) ?? null) : null}
         videoId={report.videoId}
       />
-
-      <div className="-mx-5 mt-6 sm:-mx-8">
-        <RunDetailsPanel report={report} />
-      </div>
     </div>
   );
 }
@@ -330,7 +329,7 @@ function Card({
     <UICard
       aria-label={`Show ${item.title} in detail`}
       className={cn(
-        'w-64 max-w-full shrink-0 snap-start cursor-pointer overflow-hidden text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'w-88 max-w-full shrink-0 snap-start gap-0 overflow-hidden py-0 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         selected && 'ring-2 ring-ring',
       )}
       data-selected={selected ? 'true' : undefined}
@@ -363,11 +362,13 @@ function Card({
           src={shown.src}
         />
       </div>
-      <CardContent className="space-y-1 p-3">
-        <h4 className="flex items-center gap-2 text-sm font-semibold">
+      <CardHeader className="gap-0 border-b border-border/70 bg-primary/5 px-3 py-2.5">
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
           <IdBadge id={item.id} />
           <span className="min-w-0">{item.title}</span>
-        </h4>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1 p-3">
         <EvidenceBadges badges={lines.badges} />
         <p className="text-muted-foreground">{item.description}</p>
         {lines.holds && (

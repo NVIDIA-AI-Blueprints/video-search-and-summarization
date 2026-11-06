@@ -298,7 +298,7 @@ export function TrackEditor({
     >
       <DialogContent
         aria-label={`Edit track for ${name}`}
-        className="max-h-[calc(100vh-2rem)] w-full max-w-[calc(100%-2rem)] gap-3 overflow-y-auto rounded-2xl bg-white p-5 shadow-xl sm:max-w-4xl"
+        className="max-h-[calc(100vh-2rem)] w-full max-w-[calc(100%-2rem)] gap-0 overflow-y-auto rounded-2xl bg-white p-0 shadow-xl sm:max-w-4xl"
         onOpenAutoFocus={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => {
           event.preventDefault();
@@ -308,21 +308,22 @@ export function TrackEditor({
         }}
         role="dialog"
       >
-        <DialogHeader className="flex flex-row flex-wrap items-center gap-2 space-y-0 pr-10">
-          <DialogTitle className="text-sm font-bold text-ink">Edit track</DialogTitle>
-          {itemId && (
-            <Badge className="font-mono text-[11px] text-muted-foreground" variant="outline">
-              {itemId}
+        <DialogHeader className="relative gap-2 border-b border-border/70 bg-muted/40 px-6 py-5 pr-24 text-left">
+          <DialogTitle className="text-lg font-bold tracking-tight text-foreground">Edit track</DialogTitle>
+          <p className="truncate text-sm font-semibold text-foreground" data-testid="track-item-title">
+            {itemId && <span className="font-mono">{itemId}</span>}
+            {itemId && name && ' · '}
+            {name}
+          </p>
+          <fieldset aria-label="Track details" className="flex flex-wrap items-center gap-1.5 border-0 p-0">
+            <Badge className="text-[10px]" variant="outline">
+              {KIND_LABEL[kind]}
             </Badge>
-          )}
-          <span className="max-w-[16rem] truncate text-sm font-semibold text-ink">{name}</span>
-          <Badge className="text-[10px]" variant="outline">
-            {KIND_LABEL[kind]}
-          </Badge>
-          <Badge className="border-moss/30 bg-moss/10 text-[10px] text-moss" data-testid="track-source-badge" variant="outline">
-            {badge}
-          </Badge>
-          <div className="relative ml-auto">
+            <Badge className="border-moss/30 bg-moss/10 text-[10px] text-moss" data-testid="track-source-badge" variant="outline">
+              {badge}
+            </Badge>
+          </fieldset>
+          <div className="absolute top-4 right-14">
             <Button
               aria-expanded={help}
               aria-label="Keyboard shortcuts"
@@ -349,110 +350,118 @@ export function TrackEditor({
             )}
           </div>
         </DialogHeader>
-        <DialogDescription className="text-xs text-muted-foreground">
-          Drag the box to set a keyframe at the playhead; between keyframes the box slides in a straight line. Drag the grips at the ends of
-          the bar to set when {name || 'it'} is on screen.
-        </DialogDescription>
+        <div className="flex flex-col gap-3 p-5">
+          <DialogDescription className="flex flex-col gap-1 text-xs leading-relaxed text-muted-foreground">
+            <span>Move the box at the playhead to add a keyframe. It transitions smoothly between keyframes.</span>
+            <span>Use the timeline’s end handles to set when {name || 'the item'} is visible.</span>
+          </DialogDescription>
 
-        <TrackFrame at={at} busy={loading} duration={duration} empty={empty} onBox={commitBox} seconds={seconds}>
-          <MutedVideo
-            className="h-full w-full object-fill"
-            onLoadedMetadata={(event) => {
-              const length = event.currentTarget.duration;
-              if (Number.isFinite(length) && length > 0) setDuration(length);
-            }}
-            playsInline
-            preload="auto"
-            ref={videoRef}
-            src={videoSrc}
-          />
-        </TrackFrame>
+          <TrackFrame at={at} busy={loading} duration={duration} empty={empty} onBox={commitBox} seconds={seconds}>
+            <MutedVideo
+              className="h-full w-full object-fill"
+              onLoadedMetadata={(event) => {
+                const length = event.currentTarget.duration;
+                if (Number.isFinite(length) && length > 0) setDuration(length);
+              }}
+              playsInline
+              preload="auto"
+              ref={videoRef}
+              src={videoSrc}
+            />
+          </TrackFrame>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button
-            aria-label={playing ? 'Pause' : 'Play'}
-            disabled={duration === null}
-            onClick={() => (playing ? pause() : setPlaying(true))}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            {playing ? <PauseIcon /> : <PlayIcon />}
-          </Button>
-          <Button aria-label="Back 0.1 s" onClick={() => seek(seconds - SNAP_SECONDS)} size="icon-sm" type="button" variant="ghost">
-            <ChevronLeftIcon />
-          </Button>
-          <Button aria-label="Forward 0.1 s" onClick={() => seek(seconds + SNAP_SECONDS)} size="icon-sm" type="button" variant="ghost">
-            <ChevronRightIcon />
-          </Button>
-          <span className="font-mono text-xs text-ink" data-testid="track-clock">
-            {formatEditorClock(seconds)}
-            <span className="text-ink-caption"> / {formatEditorClock(duration ?? 0)}</span>
-          </span>
-          {duration !== null && duration > 20 && (
+          <div className="flex flex-wrap items-center gap-1.5">
             <Button
-              className="h-6 rounded-full px-2 text-[11px] text-ink hover:bg-ink/5"
-              onClick={() => setWhole((value) => !value)}
-              size="xs"
+              aria-label={playing ? 'Pause' : 'Play'}
+              disabled={duration === null}
+              onClick={() => (playing ? pause() : setPlaying(true))}
+              size="icon-sm"
               type="button"
               variant="ghost"
             >
-              {whole ? 'Zoom to track' : 'Whole clip'}
+              {playing ? <PauseIcon /> : <PlayIcon />}
             </Button>
-          )}
-          <span className="ml-auto flex items-center gap-3 text-[11px] text-ink-caption">
-            <span className="flex items-center gap-1">
-              <span className="size-2.5 rotate-45 rounded-[2px] border border-white bg-moss shadow" />
-              keyframe
+            <Button aria-label="Back 0.1 s" onClick={() => seek(seconds - SNAP_SECONDS)} size="icon-sm" type="button" variant="ghost">
+              <ChevronLeftIcon />
+            </Button>
+            <Button aria-label="Forward 0.1 s" onClick={() => seek(seconds + SNAP_SECONDS)} size="icon-sm" type="button" variant="ghost">
+              <ChevronRightIcon />
+            </Button>
+            <span className="font-mono text-xs text-ink" data-testid="track-clock">
+              {formatEditorClock(seconds)}
+              <span className="text-ink-caption"> / {formatEditorClock(duration ?? 0)}</span>
             </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2.5 w-4 rounded-sm border border-moss/40 bg-moss/15" />
-              on screen
+            {duration !== null && duration > 20 && (
+              <Button
+                className="h-6 rounded-full px-2 text-[11px] text-ink hover:bg-ink/5"
+                onClick={() => setWhole((value) => !value)}
+                size="xs"
+                type="button"
+                variant="ghost"
+              >
+                {whole ? 'Zoom to track' : 'Whole clip'}
+              </Button>
+            )}
+            <span className="ml-auto flex items-center gap-3 text-[11px] text-ink-caption">
+              <span className="flex items-center gap-1">
+                <span className="size-2.5 rotate-45 rounded-[2px] border border-white bg-moss shadow" />
+                keyframe
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-2.5 w-4 rounded-sm border border-moss/40 bg-moss/15" />
+                on screen
+              </span>
             </span>
-          </span>
-        </div>
-
-        {view && duration !== null ? (
-          <TrackTimeline
-            duration={duration}
-            onBegin={() => setHistory((past) => [...past, current.current.track])}
-            onChange={setTrack}
-            onDelete={deleteAt}
-            onSeek={seek}
-            onSelect={select}
-            seconds={seconds}
-            selected={selected}
-            track={track}
-            view={view}
-          />
-        ) : (
-          <p className="py-6 text-center text-xs text-muted-foreground" data-testid="track-timeline-loading">
-            {loadError ? 'The video could not be read.' : 'Loading the video…'}
-          </p>
-        )}
-
-        <DialogFooter className="flex flex-row items-center justify-between gap-2 text-sm sm:justify-between">
-          <p className="text-[11px] text-muted-foreground" data-testid="track-edit-count">
-            {edits} {edits === 1 ? 'edit' : 'edits'} · goes into the draft on Done
-          </p>
-          <div className="flex items-center gap-2">
-            <Button disabled={!edits} onClick={undo} size="sm" type="button" variant="ghost">
-              Undo
-            </Button>
-            <Button className="rounded-full border border-ink/20 font-semibold" onClick={onClose} size="sm" type="button" variant="outline">
-              Cancel
-            </Button>
-            <Button
-              className="rounded-full bg-ink font-semibold text-white hover:bg-ink/90 disabled:opacity-40"
-              disabled={!canDone}
-              onClick={done}
-              size="sm"
-              type="button"
-            >
-              Done
-            </Button>
           </div>
-        </DialogFooter>
+
+          {view && duration !== null ? (
+            <TrackTimeline
+              duration={duration}
+              onBegin={() => setHistory((past) => [...past, current.current.track])}
+              onChange={setTrack}
+              onDelete={deleteAt}
+              onSeek={seek}
+              onSelect={select}
+              seconds={seconds}
+              selected={selected}
+              track={track}
+              view={view}
+            />
+          ) : (
+            <p className="py-6 text-center text-xs text-muted-foreground" data-testid="track-timeline-loading">
+              {loadError ? 'The video could not be read.' : 'Loading the video…'}
+            </p>
+          )}
+
+          <DialogFooter className="flex flex-row items-center justify-between gap-2 text-sm sm:justify-between">
+            <p className="text-[11px] text-muted-foreground" data-testid="track-edit-count">
+              {edits} {edits === 1 ? 'edit' : 'edits'} · goes into the draft on Done
+            </p>
+            <div className="flex items-center gap-2">
+              <Button disabled={!edits} onClick={undo} size="sm" type="button" variant="ghost">
+                Undo
+              </Button>
+              <Button
+                className="rounded-full border border-ink/20 font-semibold"
+                onClick={onClose}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button
+                className="rounded-full bg-ink font-semibold text-white hover:bg-ink/90 disabled:opacity-40"
+                disabled={!canDone}
+                onClick={done}
+                size="sm"
+                type="button"
+              >
+                Done
+              </Button>
+            </div>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

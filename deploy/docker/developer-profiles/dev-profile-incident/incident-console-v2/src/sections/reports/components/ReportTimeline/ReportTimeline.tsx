@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 'use client';
 
-import { EvidenceFrame, KIND_COLOUR, KIND_LABEL } from '@/sections/evidence/components/EvidenceFrame';
+import { EvidenceFrame, KIND_COLOUR } from '@/sections/evidence/components/EvidenceFrame';
 import { axisPercent, axisTicks, buildTimelineLanes, timelineDuration, type LaneMarker } from '@/lib/reports/timeline-lanes';
 import { formatClock } from '@/modules/reports/domain/normalize';
 import type { ReportView } from '@/modules/reports/domain/report-view';
 
 const MARKER_SHAPE: Record<LaneMarker['kind'], string> = { entity: 'rounded-full', instrument: 'rotate-45', asset: '' };
+const LEGEND_LABEL: Record<LaneMarker['kind'], string> = { entity: 'Entities', instrument: 'Instruments', asset: 'Assets' };
 
 export function ReportTimeline({
   structured,
@@ -26,17 +27,17 @@ export function ReportTimeline({
 
   return (
     <section aria-label="Timeline" className="flex h-full min-h-0 flex-col bg-card" data-testid="report-timeline">
-      <h3 className="px-3 pt-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-        Timeline · one lane per person and what they hold
-      </h3>
-      <p className="flex gap-3 px-3 py-1 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">
-        {(['entity', 'instrument', 'asset'] as const).map((kind) => (
-          <span className="flex items-center gap-1" key={kind}>
-            <i className={`inline-block size-2 ${MARKER_SHAPE[kind]} ${KIND_COLOUR[kind]}`} />
-            {KIND_LABEL[kind]}
-          </span>
-        ))}
-      </p>
+      <div className="border-b border-l-4 border-border/70 border-l-primary bg-primary/5 px-3 py-2.5">
+        <h3 className="text-sm font-semibold text-foreground">Timeline · one lane per entity and what they hold</h3>
+        <p className="mt-1 flex gap-3 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">
+          {(['entity', 'instrument', 'asset'] as const).map((kind) => (
+            <span className="flex items-center gap-1" key={kind}>
+              <i className={`inline-block size-2 ${MARKER_SHAPE[kind]} ${KIND_COLOUR[kind]}`} />
+              {LEGEND_LABEL[kind]}
+            </span>
+          ))}
+        </p>
+      </div>
       {lanes.length === 0 ? (
         <p className="px-3 py-4 text-sm text-muted-foreground" data-testid="timeline-empty">
           This version has no evidence items to place on a timeline.

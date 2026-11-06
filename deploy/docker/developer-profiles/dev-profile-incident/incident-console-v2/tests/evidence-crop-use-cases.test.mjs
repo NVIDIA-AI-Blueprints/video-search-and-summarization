@@ -3,6 +3,7 @@
 // Frame and crop use cases and request validation, with in-memory fakes.
 
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { register } from 'node:module';
 import { test } from 'node:test';
 
@@ -89,6 +90,15 @@ test('ffmpeg is told to seek, crop to fractions and write one JPEG to stdout', (
   const args = ffmpegFrameArguments('https://r2.test/v.mp4', 12.5, region);
   assert.deepEqual(args.slice(args.indexOf('-ss'), args.indexOf('-ss') + 4), ['-ss', '12.5', '-i', 'https://r2.test/v.mp4']);
   assert.ok(args.includes('crop=w=trunc(iw*0.3):h=trunc(ih*0.4):x=trunc(iw*0.1):y=trunc(ih*0.2)'));
+  assert.ok(args.includes('file,https,tls,tcp,crypto'));
   assert.equal(args.at(-1), 'pipe:1');
   assert.ok(!ffmpegFrameArguments('u', 1, null).includes('-vf'));
+});
+
+test('ffmpeg frame failures report a terminating signal instead of a null exit code', async () => {
+  const source = await readFile(new URL('../src/lib/video/ffmpeg-frame.ts', import.meta.url), 'utf8');
+  assert.match(source, /signal \? `terminated by \$\{signal\}` : `exit code \$\{code\}`/);
+  assert.match(source, /terminated by SIGSEGV/);
+  assert.match(source, /mkdtemp\(join\(tmpdir\(\), 'incident-frame-'\)\)/);
+  assert.match(source, /await rm\(directory, \{ force: true, recursive: true \}\)/);
 });

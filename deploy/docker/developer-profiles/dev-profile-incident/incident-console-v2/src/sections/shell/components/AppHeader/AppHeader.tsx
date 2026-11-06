@@ -27,13 +27,13 @@ export function AppHeader({
   subtitle?: string;
 }) {
   return (
-    <header className="print-hidden relative z-10 mx-auto flex w-full max-w-[1500px] items-center justify-between gap-3 px-4 py-5 sm:gap-4 sm:px-6 sm:py-7 lg:px-12">
+    <header className="print-hidden relative z-10 mx-auto flex w-full max-w-[1500px] items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:px-12">
       <Link
         className="flex min-w-0 items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         href="/"
         aria-label="Incident Studio home"
       >
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink text-sm font-bold text-white">IS</span>
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-ink text-xs font-bold text-white">IS</span>
         <span className="min-w-0">
           <span className="block truncate text-sm font-semibold tracking-tight">Incident Studio</span>
           <span className="block truncate text-[11px] uppercase tracking-[0.2em] text-ink/50">{subtitle}</span>

@@ -16,7 +16,6 @@ import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { type BoxToolClient, boxToolClient } from '@/lib/evidence/box-tool-client';
 import { endTrackAt, extendTrack, extensionRequest, SLOW_NOTICE_MS, TRACK_WINDOW_SECONDS } from '@/lib/evidence/box-tool';
-import { videoFrameUrl } from '@/lib/evidence/evidence-view';
 import { pickSeconds } from '@/lib/evidence/frame-picker';
 import { scrubberBoxAt, trackSecond, trackSpan } from '@/lib/evidence/track';
 import type { Box, BoxProposal, ReviewerDraftItem as BoxToolItem, ReviewerTrack } from '@/modules/reports/domain/reviewer-item';
@@ -74,6 +73,7 @@ export function BoxTool({
   onDone: (item: BoxToolItem, holderKey: string | null) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const previewVideoRef = useRef<HTMLVideoElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [stage, setStage] = useState<Stage>('box');
   const [seconds, setSeconds] = useState(() => pickSeconds(initialSeconds, null));
@@ -147,7 +147,7 @@ export function BoxTool({
     setTrackFailed(result === null);
     setTrack(result);
     setPartialKept(false);
-    setPreviewSeconds(Math.round(result ? result.samples[0].t : at.seconds));
+    setPreviewSeconds(result ? trackSecond(at.seconds, trackSpan(result.samples)) : at.seconds);
     return true;
   };
 
@@ -253,6 +253,14 @@ export function BoxTool({
         : null;
   const frameSeconds = span ? trackSecond(previewSeconds, span) : previewSeconds;
 
+  // Reuse the browser-loaded video for review. A second server frame request can fail and expose BoxCanvas's black fallback;
+  // seeking the existing source also keeps the review on the frame the reviewer selected.
+  useEffect(() => {
+    const video = previewVideoRef.current;
+    if (stage !== 'review' || !video || Math.abs(video.currentTime - frameSeconds) < 0.02) return;
+    video.currentTime = frameSeconds;
+  }, [frameSeconds, stage]);
+
   return (
     <Dialog
       onOpenChange={(open) => {
@@ -351,12 +359,16 @@ export function BoxTool({
                 onDraw={setDrawnBox}
                 testId="box-tool-preview"
               >
-                {/* biome-ignore lint/performance/noImgElement: a JPEG the console's own frame route cuts; next/image would re-encode it */}
-                <img
-                  alt={`Frame at ${formatClock(frameSeconds)}`}
+                <MutedVideo
+                  aria-label={`Frame at ${formatClock(frameSeconds)}`}
                   className="h-full w-full object-fill"
-                  draggable={false}
-                  src={videoFrameUrl(videoId, frameSeconds)}
+                  onLoadedMetadata={(event) => {
+                    event.currentTarget.currentTime = frameSeconds;
+                  }}
+                  playsInline
+                  preload="auto"
+                  ref={previewVideoRef}
+                  src={videoSrc}
                 />
               </BoxCanvas>
               {span && track ? (

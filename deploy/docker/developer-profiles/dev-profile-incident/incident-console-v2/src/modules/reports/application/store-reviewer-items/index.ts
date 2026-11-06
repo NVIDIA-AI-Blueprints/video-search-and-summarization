@@ -94,7 +94,10 @@ export async function storeReviewerItems(
     const region = boxRegion(box);
     if (seconds === null || seconds === undefined || !region)
       throw new StoreRejection('invalid', `${itemId}: a reviewer item needs a track, or a still second and box`);
-    const [crop, frame] = await Promise.all([store.frame(videoKey, seconds, region), store.frame(videoKey, seconds, null)]);
+    // ffmpeg-static is memory-heavy. Running the crop and full-frame decode together can make the host kill one process
+    // (Node then reports a null exit code), so keep the two short extractions sequential.
+    const crop = await store.frame(videoKey, seconds, region);
+    const frame = await store.frame(videoKey, seconds, null);
     const keys = {
       image: uploadedEvidenceKey(videoKey, editNumber, itemId),
       frame: reviewerFrameKey(videoKey, editNumber, itemId),

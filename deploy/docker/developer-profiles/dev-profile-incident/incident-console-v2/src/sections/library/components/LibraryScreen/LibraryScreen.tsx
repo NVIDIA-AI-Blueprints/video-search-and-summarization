@@ -233,7 +233,7 @@ export function Library() {
   const first = (filters.page - 1) * PAGE_SIZE + 1;
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] px-6 pb-6 pt-5 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:px-12">
+    <div className="mx-auto w-full max-w-[1500px] px-6 pb-6 pt-3 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:px-12">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-moss">Incident console</p>

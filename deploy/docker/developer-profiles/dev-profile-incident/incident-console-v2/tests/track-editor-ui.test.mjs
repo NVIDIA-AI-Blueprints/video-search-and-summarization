@@ -60,11 +60,22 @@ test('Edit mode cards offer Edit track, and Done goes through the draft re-track
   assert.match(pane, /aiProposal: null,\s*track,/);
 });
 
+test('track editor presents its heading, item and metadata as separate levels', async () => {
+  const editor = await readFile(new URL('../src/sections/evidence/components/TrackEditor/TrackEditor.tsx', import.meta.url), 'utf8');
+  assert.match(editor, /text-lg font-bold tracking-tight/);
+  assert.match(editor, /aria-label="Track details"/);
+  assert.match(editor, /border-b border-border\/70 bg-muted\/40 px-6 py-5/);
+  assert.match(editor, /data-testid="track-item-title"/);
+  assert.match(editor, /\{itemId && name && ' · '\}/);
+  assert.match(editor, /Move the box at the playhead to add a keyframe/);
+  assert.doesNotMatch(editor, /flex flex-row flex-wrap items-center gap-2 space-y-0/);
+});
+
 test('the dialog follows the console: shadcn Dialog, muted video, a pill Done, Undo and Cancel', async () => {
   const editor = await read('sections/evidence/components/TrackEditor/TrackEditor.tsx');
   assert.match(editor, /from '@\/components\/ui\/dialog'/);
   assert.match(editor, /<MutedVideo/);
-  assert.match(editor, /rounded-2xl bg-white p-5 shadow-xl/);
+  assert.match(editor, /rounded-2xl bg-white p-0 shadow-xl/);
   for (const label of ['Undo', 'Cancel', 'Done']) assert.match(editor, new RegExp(`>\\s*${label}\\s*<`));
   assert.match(editor, /toast\.info\(NEW_TRACK_HINT\)/);
   assert.match(editor, /Track started\. Drag the grips to set where it starts and stops\./);
