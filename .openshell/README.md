@@ -18,8 +18,8 @@ a grant to reach VSS.
 | File | Role |
 |---|---|
 | [`.env`](.env), [`gateway/docker-compose.yml`](gateway/docker-compose.yml), [`gateway/gateway.toml`](gateway/gateway.toml) | Step 1 — the `openshell-init` and `openshell-gateway` services and their version-2 gateway config |
-| [`hermes/policy.yaml`](hermes/policy.yaml), [`hermes/boundary.yaml`](hermes/boundary.yaml) | Step 2 — the sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
-| [`hermes/Dockerfile`](hermes/Dockerfile) | Step 3 — the harness image with the policy baked in, built from upstream Hermes source on a standard Ubuntu base |
+| [`.hermes/policy.yaml`](../.hermes/policy.yaml), [`.hermes/boundary.yaml`](../.hermes/boundary.yaml) | Step 2 — the sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
+| [`.hermes/Dockerfile`](../.hermes/Dockerfile) | Step 3 — the harness image. It lives with the harness, not here: each harness owns a top-level directory, and this one carries no OpenShell-only content beyond the baked policy |
 | [`providers/`](providers/) — `agent-inference-profile.yaml`, `agent-inference-build-profile.yaml`, `agent-inference-local-profile.yaml` | Step 4 — provider profiles for the agent's own model: an OpenAI-compatible endpoint, `build.nvidia.com`, or a host-local model server |
 | [`vss/`](vss/) — `Dockerfile`, `policy.yaml`, `boundary.yaml` | Optional — the VSS layer over the step 3 image, and the policy pair adding the `vss-backend` and `ngc` grants |
 
@@ -245,7 +245,7 @@ openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
 
 # 2. Harness image: upstream Hermes and the baked policy.
 docker build --build-arg HERMES_REF="$HERMES_REF" \
-  -t "openshell-hermes:$HERMES_REF" hermes
+  -t "openshell-hermes:$HERMES_REF" ../.hermes
 
 # 3. Inference provider. The profile authorizes the host; the provider seals the
 #    key, which the proxy injects at egress so the agent never holds it.
@@ -257,7 +257,7 @@ openshell provider create --name agent-inference --type agent-inference \
 openshell sandbox create \
   --name hermes \
   --from "openshell-hermes:$HERMES_REF" \
-  --policy hermes/policy.yaml \
+  --policy ../.hermes/policy.yaml \
   --provider agent-inference \
   --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
@@ -334,7 +334,7 @@ openshell sandbox delete hermes
 openshell sandbox create \
   --name hermes \
   --from "openshell-hermes:$HERMES_REF" \
-  --policy hermes/policy.yaml \
+  --policy ../.hermes/policy.yaml \
   --provider "$PROVIDER" \
   --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
@@ -657,7 +657,7 @@ YAML, then verify the result rather than eyeballing it.
 
 There are two candidate/ceiling pairs, because a sandbox takes a single
 `--policy` file and the VSS grant cannot be an overlay on one.
-`hermes/policy.yaml` is the default: the agent's own model endpoint and the
+`.hermes/policy.yaml` is the default: the agent's own model endpoint and the
 package hosts. `vss/policy.yaml` is that file plus `vss-backend` and `ngc`,
 and is what the [VSS layer](#optional--add-vss-capabilities) creates against.
 Everything before `network_policies` is identical in the two, by requirement
@@ -675,7 +675,7 @@ filesystem_policy:
 landlock: { compatibility: best_effort }
 process:  { run_as_user: "998", run_as_group: "999" }   # `sandbox` in the image
 network_policies:
-  anthropic:                     # hermes/policy.yaml and vss/policy.yaml
+  anthropic:                     # .hermes/policy.yaml and vss/policy.yaml
     name: anthropic
     endpoints:
       - host: api.anthropic.com
@@ -722,7 +722,7 @@ filesystem_policy:
 landlock: { compatibility: best_effort }
 process:  { run_as_user: "998", run_as_group: "999" }
 network_policies:
-  harness-rest-max:              # hermes/boundary.yaml and vss/boundary.yaml
+  harness-rest-max:              # .hermes/boundary.yaml and vss/boundary.yaml
     name: harness-rest-max
     endpoints:
       - host: api.anthropic.com
@@ -741,8 +741,8 @@ network_policies:
 ```
 
 ```bash
-openshell-prover check hermes/policy.yaml --boundary hermes/boundary.yaml
-openshell-prover check vss/policy.yaml    --boundary vss/boundary.yaml
+openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
+openshell-prover check .openshell/vss/policy.yaml --boundary .openshell/vss/boundary.yaml
 # result: within_boundary
 # coverage: domains=filesystem,network_l4,network_rest,process,landlock
 ```
@@ -756,14 +756,14 @@ what it covered.
 
 **3 — Build the image and bake the policy in**, so one artifact carries the
 harness and the access boundary it is proven against.
-[`hermes/Dockerfile`](hermes/Dockerfile) builds it in one pass from upstream
+[`.hermes/Dockerfile`](../.hermes/Dockerfile) builds it in one pass from upstream
 Hermes on `nvcr.io/nvidia/base/ubuntu:24.04`, with no NemoClaw image
 underneath; why that rather than deriving from `hermes-sandbox` is in
 [`docs/nemoclaw-v1-vs-openshell.md`](docs/nemoclaw-v1-vs-openshell.md#removing-the-last-nemoclaw-dependency-the-base-image).
 
 ```bash
 docker build --build-arg HERMES_REF="$HERMES_REF" \
-  -t "openshell-hermes:$HERMES_REF" .openshell/hermes
+  -t "openshell-hermes:$HERMES_REF" .hermes
 ```
 
 `HERMES_REF` has to be passed as well as interpolated into the tag: Docker
@@ -863,7 +863,7 @@ declares it. Within a family the model id is free, and step 5 sets it.
 openshell sandbox create \
   --name hermes \
   --from openshell-hermes:$HERMES_REF \
-  --policy hermes/policy.yaml \
+  --policy .hermes/policy.yaml \
   --provider agent-inference \
   --env HARNESS_BASE_URL=https://inference-api.nvidia.com/v1 \
   --env HARNESS_MODEL=aws/anthropic/bedrock-claude-opus-5 \
@@ -1050,8 +1050,8 @@ route and the inference provider:
 
 ```bash
 # 1. Policy stays inside the boundary ceiling
-openshell-prover check .openshell/hermes/policy.yaml \
-  --boundary .openshell/hermes/boundary.yaml
+openshell-prover check .hermes/policy.yaml \
+  --boundary .hermes/boundary.yaml
 # -> result: within_boundary
 # -> coverage: domains=filesystem,network_l4,network_rest,process,landlock
 
@@ -1092,5 +1092,5 @@ openshell sandbox exec -n hermes -- \
 
 On the default sandbox both fail by design, and the two failures look
 different: `vss` is not on `PATH` at all, where a sandbox built from the VSS
-image but created with `hermes/policy.yaml` instead reports a connection
+image but created with `.hermes/policy.yaml` instead reports a connection
 error, with the supervisor's log naming the refused host.

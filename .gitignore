@@ -51,6 +51,5 @@ deploy/helm/**/charts/*.tgz
 # skills/vss-build-vision-ai/scripts/stage_vss_src.py (dev-loop override of
 # the Dockerfiles' pinned VSS_REF fetch).
 .openclaw/.vss-src/
-.hermes/.vss-src/
 .cursor/*
 assets/*.mmd
