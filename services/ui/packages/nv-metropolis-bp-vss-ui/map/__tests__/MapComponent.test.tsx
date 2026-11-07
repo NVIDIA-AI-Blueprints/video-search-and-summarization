@@ -4,7 +4,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { MapComponent } from '../lib-src/MapComponent';
 
-jest.mock('@nv-metropolis-bp-vss-ui/warehouse-analytics', () => ({
+jest.mock('../lib-src/WarehouseAnalyticsComponent', () => ({
   WarehouseAnalyticsComponent: ({
     theme,
     mapData,

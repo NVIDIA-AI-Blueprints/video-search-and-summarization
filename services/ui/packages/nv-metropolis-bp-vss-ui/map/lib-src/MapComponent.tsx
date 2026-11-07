@@ -9,7 +9,7 @@ import {
   WarehouseAnalyticsComponent,
   type WarehouseAnalyticsComponentProps,
   type WarehouseAnalyticsSidebarControlHandlers,
-} from '@nv-metropolis-bp-vss-ui/warehouse-analytics';
+} from './WarehouseAnalyticsComponent';
 
 export type MapSidebarControlHandlers = WarehouseAnalyticsSidebarControlHandlers;
 export type MapComponentProps = WarehouseAnalyticsComponentProps;

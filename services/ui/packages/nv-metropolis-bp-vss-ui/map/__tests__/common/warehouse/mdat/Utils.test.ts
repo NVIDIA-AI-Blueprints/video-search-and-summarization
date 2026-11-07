@@ -7,7 +7,7 @@ import {
   BeautifyNameString,
   MsToHMSsssString,
   GetSensorAttr,
-} from '../../../lib-src/warehouse/mdat/utils/Utils';
+} from '../../../../lib-src/common/warehouse/mdat/utils/Utils';
 
 describe('ParseMdxPlaceString', () => {
   it('parses a place string into key-value pairs', () => {
@@ -95,7 +95,7 @@ describe('getCartesianMapVizCanvasThrottleMsFromFps', () => {
   let getCartesianMapVizCanvasThrottleMsFromFps, getCartesianMapVizCanvasThrottleMsFromAppConfig;
 
   beforeAll(async () => {
-    const mod = await import('../../../lib-src/warehouse/mdat/utils/cartesianMapVizCanvasThrottle');
+    const mod = await import('../../../../lib-src/common/warehouse/mdat/utils/cartesianMapVizCanvasThrottle');
     getCartesianMapVizCanvasThrottleMsFromFps = mod.getCartesianMapVizCanvasThrottleMsFromFps;
     getCartesianMapVizCanvasThrottleMsFromAppConfig = mod.getCartesianMapVizCanvasThrottleMsFromAppConfig;
   });

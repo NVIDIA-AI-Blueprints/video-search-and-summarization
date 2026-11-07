@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-import { isAbortError, joinUrl, readJson } from '../../lib-src/warehouse/http';
+import { isAbortError, joinUrl, readJson } from '../../../lib-src/common/warehouse/http';
 
 describe('joinUrl', () => {
   it('appends a plain params object', () => {

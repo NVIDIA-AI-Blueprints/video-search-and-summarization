@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { getEnv, isDevelopment, isProduction, isObtainDynamicServiceUrls } from '../../../lib-src/warehouse/nv/js/EnvUtils';
+import { getEnv, isDevelopment, isProduction, isObtainDynamicServiceUrls } from '../../../../lib-src/common/warehouse/nv/js/EnvUtils';
 
 describe('getEnv', () => {
   afterEach(() => {

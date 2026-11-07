@@ -28,7 +28,6 @@ const nextConfig = {
     '@nv-metropolis-bp-vss-ui/search',
     '@nv-metropolis-bp-vss-ui/dashboard',
     '@nv-metropolis-bp-vss-ui/map',
-    '@nv-metropolis-bp-vss-ui/warehouse-analytics',
     '@nv-metropolis-bp-vss-ui/video-management',
     'vst-streaming-lib',
   ],
@@ -47,6 +46,11 @@ const nextConfig = {
   },
   webpack(config, { isServer, dev }) {
     const path = require('path');
+    const packagesPath = path.resolve(__dirname, '../../packages');
+    const warehouseSrc = path.join(
+      packagesPath,
+      'nv-metropolis-bp-vss-ui/map/lib-src/common/warehouse',
+    );
     const streamingLibDash = path.resolve(
       __dirname,
       '../../../vios/ui/streaming-lib/src/dash/DashStream.ts',
@@ -79,6 +83,7 @@ const nextConfig = {
       config.resolve.alias = {
         ...(config.resolve.alias || {}),
         canvas: false,
+        'common/warehouse': warehouseSrc,
         'konva/lib/index-node': require.resolve('konva/lib/index.js'),
         'konva/lib/index-node.js': require.resolve('konva/lib/index.js'),
         'vst-streaming-lib/dash$': streamingLibDash,
@@ -88,6 +93,7 @@ const nextConfig = {
       config.resolve.alias = {
         ...(config.resolve.alias || {}),
         canvas: false,
+        'common/warehouse': warehouseSrc,
         'vst-streaming-lib/dash$': streamingLibDash,
         dashjs: dashjsEntry,
       };
@@ -95,10 +101,9 @@ const nextConfig = {
 
     // In development, resolve packages to their source code for hot reload
     if (dev) {
-      const packagesPath = path.resolve(__dirname, '../../packages');
-
       config.resolve.alias = {
         ...config.resolve.alias,
+        'common/warehouse': warehouseSrc,
         'common': path.join(packagesPath, 'common/lib-src'),
         '@nv-metropolis-bp-vss-ui/alerts': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/alerts/lib-src'),
         // Exact match only: the '/styles' subpath has no lib-src equivalent and
@@ -107,7 +112,6 @@ const nextConfig = {
         '@nv-metropolis-bp-vss-ui/search': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/search/lib-src'),
         '@nv-metropolis-bp-vss-ui/dashboard': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/dashboard/lib-src'),
         '@nv-metropolis-bp-vss-ui/map': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/map/lib-src'),
-        '@nv-metropolis-bp-vss-ui/warehouse-analytics': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/warehouse-analytics/lib-src'),
         '@nv-metropolis-bp-vss-ui/video-management': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/video-management/lib-src'),
         '@nv-metropolis-bp-vss-ui/all': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/all/lib-src'),
       };
