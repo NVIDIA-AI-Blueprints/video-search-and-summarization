@@ -2,4 +2,4 @@
 // SPDX-License-Identifier: Apache-2.0
 export { MapComponent } from './MapComponent';
 export type { MapComponentProps, MapSidebarControlHandlers } from './MapComponent';
-export { WarehouseAnalyticsSidebarControls as MapSidebarControls } from '@nv-metropolis-bp-vss-ui/warehouse-analytics';
+export { WarehouseAnalyticsSidebarControls as MapSidebarControls } from './components/WarehouseAnalyticsSidebarControls';

@@ -4,7 +4,8 @@
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": true,
+    "strict": false,
+    "noImplicitAny": false,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "esModuleInterop": true,
@@ -15,11 +16,13 @@
     "jsx": "preserve",
     "baseUrl": ".",
     "paths": {
-      "@nv-metropolis-bp-vss-ui/warehouse-analytics": ["../warehouse-analytics/lib-src/index.ts"],
-      "@nv-metropolis-bp-vss-ui/warehouse-analytics/server": ["../warehouse-analytics/lib-src/server.ts"]
+      "common/warehouse": ["lib-src/common/warehouse/index.ts"],
+      "common/warehouse/mdat": ["lib-src/common/warehouse/mdat/index.ts"],
+      "common/warehouse/nv": ["lib-src/common/warehouse/nv/index.ts"],
+      "common/warehouse/mui": ["lib-src/common/warehouse/mui.tsx"],
+      "common/warehouse/mui-icons": ["lib-src/common/warehouse/mui-icons.tsx"]
     }
   },
   "include": ["lib-src/**/*"],
   "exclude": ["node_modules", "lib"]
 }
-
