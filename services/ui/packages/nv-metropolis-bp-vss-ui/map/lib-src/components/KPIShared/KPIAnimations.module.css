@@ -1,0 +1,97 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * 
+ * Shared CSS animations for KPI display elements
+ */
+
+/* Stock ticker slide-up-in animation (new content enters from below) */
+@keyframes slideUpIn {
+  0% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Stock ticker slide-up-out animation (old content exits upward) */
+@keyframes slideUpOut {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  80% {
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+
+/* Pause indicator pulse animation */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Ticker container - holds both outgoing and incoming content */
+.tickerContainer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Ticker row - a single set of values (provides positioning context for children) */
+.tickerRow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  /* Default state - visible at normal position */
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Apply slide-in animation */
+.slideIn {
+  animation: slideUpIn 0.5s ease-out forwards;
+}
+
+/* Apply slide-out animation */
+.slideOut {
+  animation: slideUpOut 0.5s ease-out forwards;
+}
+
+/* Pause indicator styling */
+.pauseIndicator {
+  position: absolute;
+  top: 50%;
+  left: 0.5vw;
+  transform: translateY(-50%);
+  z-index: 5;
+}
+
+.pauseIcon {
+  font-size: 1.2vw;
+  color: rgba(255, 200, 0, 0.8);
+  text-shadow: 0 0 0.3vw rgba(255, 200, 0, 0.5);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+

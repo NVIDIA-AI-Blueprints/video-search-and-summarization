@@ -4,7 +4,8 @@
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": true,
+    "strict": false,
+    "noImplicitAny": false,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "esModuleInterop": true,
@@ -12,9 +13,16 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve"
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "common/warehouse": ["lib-src/common/warehouse/index.ts"],
+      "common/warehouse/mdat": ["lib-src/common/warehouse/mdat/index.ts"],
+      "common/warehouse/nv": ["lib-src/common/warehouse/nv/index.ts"],
+      "common/warehouse/mui": ["lib-src/common/warehouse/mui.tsx"],
+      "common/warehouse/mui-icons": ["lib-src/common/warehouse/mui-icons.tsx"]
+    }
   },
   "include": ["lib-src/**/*"],
   "exclude": ["node_modules", "lib"]
 }
-

@@ -1,0 +1,58 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.main,
+.titleMain,
+.titleFooter,
+.nvidialogo,
+.appActionIcons {
+  position: absolute;
+  top: 0;
+  height: 3vw;
+  display: inline;
+}
+
+.main {
+  background-color: black;
+  border-bottom: 0.25vw solid #76b900;
+  left: 0;
+  width: 100vw;
+  height: 3vw;
+  box-sizing: border-box;
+}
+
+.titleMain {
+  color: #fefefe !important;
+  font-weight: bold;
+  font-size: 2vw;
+  width: 50vw;
+  text-align: right;
+  left: 6vw;
+  font-family: "Arial black, serif";
+}
+
+.titleFooter {
+  color: #fefefe !important;
+  font-weight: bold;
+  font-size: 0.5vw;
+  padding: 1.5vw 0 0.5vw 0.5vw;
+  left: calc(6vw + 50vw);
+  font-family: "Arial";
+}
+
+.nvidialogo {
+  width: 6vw;
+  padding: 0.75vw 0;
+  left: 0;
+  height: 1.5vw;
+}
+
+.appActionIcons {
+  top: 0.5vw;
+  right: 0.5vw;
+  width: 30vw;
+}

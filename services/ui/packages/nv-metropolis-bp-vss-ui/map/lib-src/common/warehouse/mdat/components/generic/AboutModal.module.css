@@ -1,0 +1,133 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+  overflow: hidden;
+  color: #1a1a1a;
+  background: #fff;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid #e4e4e7;
+}
+
+.kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #76b900;
+  margin-bottom: 4px;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #18181b;
+}
+
+.close,
+:global(.dark .nv-light) .close:global(.nv-button.nv-button--kind-tertiary),
+:global(.nv-dark .nv-light) .close:global(.nv-button.nv-button--kind-tertiary) {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  max-width: 28px;
+  max-height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #52525b;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.close:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 16px 18px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #3f3f46;
+}
+
+.body p {
+  margin: 0 0 12px;
+}
+
+.body h3 {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #18181b;
+}
+
+.body h3:first-child {
+  margin-top: 0;
+}
+
+.body ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.body li {
+  position: relative;
+  margin: 0 0 8px;
+  padding-left: 14px;
+}
+
+.body li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #76b900;
+}
+
+.body li:last-child {
+  margin-bottom: 0;
+}
+
+.body strong {
+  color: #18181b;
+  font-weight: 600;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 18px 16px;
+  border-top: 1px solid #e4e4e7;
+}
+
+.closeBtn {
+  min-width: 5.5rem;
+}
