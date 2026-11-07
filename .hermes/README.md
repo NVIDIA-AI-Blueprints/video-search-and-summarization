@@ -66,11 +66,10 @@ openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
 # result: within_boundary
 ```
 
-Both files must name the **same** filesystem paths and the same exact binary
-paths; the prover returns `unsupported` rather than a pass when either side
-generalises. `binaries` names `/usr/bin/python3.13` because OpenShell matches
-`/proc/<pid>/exe` and every `hermes` entry point is a Python script, and the
-process identity is `998:999` — both pinned by the image.
+`binaries` names `/usr/bin/python3.13` and the process identity is `998:999`,
+both pinned by the image. Why those values, and what makes the prover return
+`unsupported` rather than a pass, is in
+[`../.openshell/README.md`](../.openshell/README.md#4-quickstart-steps-explained).
 
 ## Adding VSS
 

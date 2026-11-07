@@ -760,15 +760,8 @@ harness and the access boundary it is proven against.
 Hermes on `nvcr.io/nvidia/base/ubuntu:24.04`, with no NemoClaw image
 underneath; why that rather than deriving from `hermes-sandbox` is in
 [`docs/nemoclaw-v1-vs-openshell.md`](docs/nemoclaw-v1-vs-openshell.md#removing-the-last-nemoclaw-dependency-the-base-image).
-
-```bash
-docker build --build-arg HERMES_REF="$HERMES_REF" \
-  -t "openshell-hermes:$HERMES_REF" .hermes
-```
-
-`HERMES_REF` has to be passed as well as interpolated into the tag: Docker
-does not read the environment for build args, so naming it only in `-t` builds
-the Dockerfile's default ref under a tag claiming a different one.
+The command and its build args are in
+[`.hermes/README.md`](../.hermes/README.md#building).
 
 The image is tagged by `HERMES_REF` rather than a VSS ref because nothing in
 it comes from VSS: a Hermes bump produces a new tag instead of overwriting the
@@ -781,22 +774,12 @@ with `vss/policy.yaml`. Layering rather than branching one Dockerfile on a
 build arg is what keeps the default image provably free of VSS — there is no
 flag to get wrong, because the content is not in the file.
 
-Two things the images leave to the start command in step 5, both because of
-what 0.1.6 changed:
-
-- **CA bundle.** The supervisor's CA is mounted only once the sandbox exists,
-  and certifi's `cacert.pem` is root-owned under a read-only `/opt`, so the
-  image ships `trust-supervisor-ca` to write certifi's roots and
-  `/run/openshell-supervisor-ca/material/ca-bundle.crt` together to the
-  image's `SSL_CERT_FILE`, under `/sandbox`.
-- **Inference target.** 0.1.6 replaced managed inference routes with
-  sandbox-scoped provider attachments, which makes the base URL and the model
-  the workload's to set, so `config.yaml` carries them as
-  `${env:HARNESS_BASE_URL}` and `${env:HARNESS_MODEL}`.
-
-The model `api_key` is `${env:HARNESS_API_KEY}`, the name every provider
-profile declares, so whichever provider is attached fills it with the proxy's
-placeholder, which the proxy swaps for the real key at egress.
+The images leave the CA bundle and the inference target to the start command in
+step 5, both because of what 0.1.6 changed: the supervisor's CA is mounted only
+once the sandbox exists, and sandbox-scoped provider attachments replaced
+managed inference routes, which makes the base URL and the model the workload's
+to set. What the image ships for each is in
+[`.hermes/README.md`](../.hermes/README.md#building).
 
 The NGC CLI is in neither image, so under the VSS layer an operation skill
 that resolves a sample video by name fails and the `ngc` entry in
