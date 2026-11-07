@@ -197,27 +197,26 @@ passes on it (equal to its own tag). Cutting the tag on an unstamped commit is
 the one way to ship a release whose files say the previous line; the gate
 cannot see a tag, so this order is the rule, and the release checklist step.
 
-## Harness images (OpenClaw, Hermes)
+## Harness images (OpenClaw)
 
-`.openclaw/Dockerfile` and `.hermes/Dockerfile` fetch one ref of this repo,
+`.openclaw/Dockerfile` fetches one ref of this repo,
 `VSS_REF`: `develop` by default for a local build, a `v*` tag or commit sha when
 asked for. The fetch is a `tree:0` partial clone with tags, so hatch-vcs
 versions the CLI wheels inside from the same describe and `vss --version` in
 the sandbox matches the deployment's release line for that commit.
 
-**On GHCR they are content-addressed like every other image.** Their
-`source_path` in `container-inventory.json` lists what they package —
-`[".openclaw", "skills", "libs/vss"]` and
-`[".hermes", "skills", "libs/vss", ".openclaw/workspace"]` — so a skill or CLI
-change rebuilds them and moves their `tree-<sha>`, and `build-dev-images.yml`
+**On GHCR it is content-addressed like every other image.** Its
+`source_path` in `container-inventory.json` lists what it packages —
+`[".openclaw", "skills", "libs/vss"]` — so a skill or CLI
+change rebuilds it and moves its `tree-<sha>`, and `build-dev-images.yml`
 passes `VSS_REF=<the commit being built>` so the image holds exactly the tree
 it is hashed from (an eval can name the skills it measured by that tag). A
 moving `develop` default alone would never change the Dockerfile, and the
 image would be reused stale.
 
-Both harness Dockerfiles, and every Dockerfile that declares
-`ARG VSS_PACKAGE_VERSION`, bake a version in (today: `vss-agent`,
-`vss-harness-openclaw`, `vss-harness-hermes`). Their images carry a
+The harness Dockerfile, and every Dockerfile that declares
+`ARG VSS_PACKAGE_VERSION`, bakes a version in (today: `vss-agent`,
+`vss-harness-openclaw`). Their images carry a
 `com.nvidia.vss.release_line` label, and two rules keep it current:
 
 - the reuse path re-tags an existing image only when its tree **and** release

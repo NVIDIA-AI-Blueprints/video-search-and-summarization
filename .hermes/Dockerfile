@@ -1,257 +1,143 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Hermes harness image — NemoClaw's managed Hermes runtime + the VSS operation
-# skills + the workspace docs + the pinned vss CLI.
-# tags: [nemoclaw, hermes, vss-skills, vss-cli]
-#
-# Same shape as ../openclaw/Dockerfile and NemoClaw's documented custom-image
-# workflow (docs.nvidia.com/nemoclaw → Install Hermes Plugins): start from the
-# complete managed runtime, add image-owned files, end with USER sandbox and
-# WORKDIR /sandbox. The `vss_cli` tool plugin (./plugin/) mirrors the OpenClaw
-# plugin's tool exactly (same name, same {args, cwd, timeoutSec} schema, same
-# no-shell subprocess exec, same result shape — see ./plugin/__init__.py), so
-# a skill written against "the vss_cli tool" is harness-neutral. The agent also
-# still has the `vss` CLI directly on PATH, and loads skills from
-# $HERMES_HOME/skills (/sandbox/.hermes/skills, per NemoClaw's
-# agents/hermes/manifest.yaml), which Hermes seeds from its bundled library,
-# and instruction docs (SOUL.md, AGENTS.md, …) from /sandbox.
-#
-# NemoClaw publishes hermes-sandbox by publication cohort only (no release tag,
-# NVIDIA/NemoClaw#11228). The cohort a release selects is the one its
-# openclaw-sandbox release tag is labeled with:
-#   openclaw-sandbox:v0.0.127 → io.nvidia.nemoclaw.managed-image.cohort=ghrun-35246345308-1
-#   hermes-sandbox:cohort-ghrun-35246345308-1 → the digest below
-# Move BASE_IMAGE together with ../openclaw/Dockerfile's BASE_IMAGE and the
-# notebook's NEMOCLAW_INSTALL_REF: NemoClaw requires CLI and images to be one release.
-#
-# Build context is this directory (.hermes); skills, workspace docs
-# and the vss CLI all come from one ref of this repo (VSS_REF: `develop` by
-# default, a `v*` release tag for a published image, a commit sha for a
-# reproducible rebuild) — or, dev loop, from a `.vss-src/` working-tree
-# snapshot placed here by skills/vss-build-vision-ai/scripts/stage_vss_src.py,
-# which wins over the ref when present.
-#
-#   docker build -t <registry>/vss-harness-hermes:<tag> .hermes
 
-ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:26899bd091f7ad2d58ab7cf9fad33f1fcd065c10eb54f9cf1461a24e1c21ed1a
-ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
-# uv 0.12.10, by index digest (multi-arch) — for the wheel builds in vss-src
-# (the runtime uses the uv the base image ships).
-ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
-ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-# Keep in lockstep with ../.openclaw/Dockerfile, which explains the choice.
-ARG VSS_REF=develop
+# The Hermes harness image: Hermes built from its own public source on a
+# standard Ubuntu base.
+#
+# policy.yaml beside this file is the matching policy: the agent's own model
+# endpoint and package access, nothing else. The interpreter keeps its
+# /usr/bin/python3.13 path and the process its 998:999 identity, both of which
+# that file pins by exact path.
+#
+# Build context is this directory (.hermes):
+#
+#   docker build --build-arg HERMES_REF="$HERMES_REF" \
+#     -t "openshell-hermes:$HERMES_REF" .hermes
 
-# ── uv, for the vss-src wheel builds ───────────────────────────────────────────
+ARG BASE_IMAGE=nvcr.io/nvidia/base/ubuntu:24.04
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
+# Hermes publishes weekly tags; v2026.9.14 is 0.21.3, the verified version.
+# Keep HERMES_REF on a tag, not a branch.
+ARG HERMES_REPO=https://github.com/NousResearch/hermes-agent
+ARG HERMES_REF=v2026.9.14
+
 FROM ${UV_IMAGE} AS uv
 
-# ── VSS source checkout: skills + workspace docs + CLI wheels ──────────────────
-FROM ${BUILDER_IMAGE} AS vss-src
-ARG VSS_REPO
-ARG VSS_REF
-ARG NGC_CLI_VERSION=4.10.0
-ARG TARGETARCH
-# python3 (3.13 on trixie) for the wheel builds below; curl/unzip for the NGC CLI.
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 curl unzip \
-    && rm -rf /var/lib/apt/lists/*
+# ── Python 3.13 ────────────────────────────────────────────────────────────────
+# The base ships no python3 at all, so uv supplies it — 3.13, the top of
+# Hermes' >=3.11,<3.14 range. Staging the whole prefix under usr/ is what puts
+# it at /usr/bin/python3.13 with sys.prefix=/usr instead of uv's version-and-arch
+# directory: the OPA binary check matches /proc/<pid>/exe, which no symlink can
+# redirect.
+FROM ${BASE_IMAGE} AS python
 COPY --from=uv /uv /usr/local/bin/uv
-# Dev-loop override: a .vss-src/ snapshot in the build context (staged by
-# stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
-# reaches the image without a push. The Dockerfil[e] glob keeps this COPY
-# valid when nothing is staged — the Dockerfile itself always matches.
-# --chown=root:root: docker's COPY gives the files to root by default, kaniko
-# keeps the build context's owner. Built by the eval harness (kaniko, context
-# staged by a uid-10001 service) the directory arrived owned by 10001 while RUN
-# executes as root, and `git init` refused it: "detected dubious ownership in
-# repository at '/opt/vss-src'" (exit 128). Pinning the owner makes both
-# engines agree and keeps git's safe.directory check intact.
-COPY --chown=root:root Dockerfil[e] .vss-sr[c] /opt/vss-src/
-RUN rm -f /opt/vss-src/Dockerfile \
-    && if [ -f /opt/vss-src/STAGED ]; then \
-         echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
-       else \
-         git init -q /opt/vss-src \
-         && git -C /opt/vss-src remote add origin "$VSS_REPO" \
-         && git -C /opt/vss-src fetch -q --filter=tree:0 --tags origin "$VSS_REF" \
-         && git -C /opt/vss-src checkout -q FETCH_HEAD; \
-       fi
-# Operation skills: every skill whose SKILL.md frontmatter declares vss-requires
-# (the same selection rule as the OpenClaw plugin's stage-assets.sh).
-RUN mkdir -p /opt/vss-assets/skills \
-    && find /opt/vss-src/skills -name SKILL.md | sort | while read -r f; do \
-         if sed -n '2,/^---$/p' "$f" | grep -qE '^[[:space:]]*vss-requires:'; then \
-           d=$(dirname "$f"); cp -R "$d" "/opt/vss-assets/skills/$(basename "$d")"; \
-         fi; \
-       done \
-    && test "$(ls /opt/vss-assets/skills | wc -l)" -gt 0 \
-    && ls /opt/vss-assets/skills
-# The skill-selection tool, shared with the OpenClaw harness and the host:
-# the harness-neutral python selector from the pinned VSS_REF checkout.
-RUN cp /opt/vss-src/skills/vss-build-vision-ai/scripts/sync_skills.py /opt/vss-assets/sync_skills.py
-# Workspace docs: the shared set plus the _nemoclaw overlay, overlay winning,
-# flattened the way deploy_nemoclaw.ipynb uploads them for Hermes (into /sandbox).
-RUN mkdir -p /opt/vss-assets/workspace \
-    && cp /opt/vss-src/.openclaw/workspace/*.md /opt/vss-assets/workspace/ \
-    && cp /opt/vss-src/.openclaw/workspace/_nemoclaw/*.md /opt/vss-assets/workspace/ \
-    && test -f /opt/vss-assets/workspace/AGENTS.md && test -f /opt/vss-assets/workspace/ENV.md
-# The vss CLI as wheels, riding the one /opt/vss-assets COPY the runtime's
-# layer budget allows — only the CLI library workspace (libs/vss: the
-# nvidia-vss-cli entry point and its nvidia-vss-core dependency). The agent
-# service package under services/agent is deliberately NOT built or shipped:
-# a sandbox operates a deployment through the CLI, it does not run the agent.
-# Building here (where the checkout and its .git live) keeps VSS source out of
-# the runtime image: the runtime installs the wheels by name. hatch-vcs reads
-# the version from .git on the pinned path; a pre-staged snapshot has no .git
-# and carries a PEP 440 pretend version in its STAGED marker instead.
-RUN set -eux; \
-    if [ -f /opt/vss-src/STAGED ]; then \
-      export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-src/STAGED)"; \
-      test -n "$SETUPTOOLS_SCM_PRETEND_VERSION"; \
-    fi; \
-    mkdir -p /opt/vss-assets/wheels \
-    && uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-assets/wheels \
-    && ls /opt/vss-assets/wheels
-# NGC CLI, unpacked into the staged assets so it rides the runtime stage's
-# single COPY and costs no extra layer. Fetched in this builder rather than the
-# managed base, which carries no guarantee of `curl` or `unzip`.
-RUN set -eux; \
-    case "${TARGETARCH:-amd64}" in \
-      amd64) ngc_zip=ngccli_linux.zip ;; \
-      arm64) ngc_zip=ngccli_arm64.zip ;; \
-      *) echo "no NGC CLI build for TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSLo /tmp/ngccli.zip \
-      "https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/${NGC_CLI_VERSION}/files/${ngc_zip}"; \
-    unzip -qo /tmp/ngccli.zip -d /opt/vss-assets; \
-    rm -f /tmp/ngccli.zip; \
-    # The zip also carries a sibling ngc-cli.md5, computed from stdin so what it
-    # covers is undocumented. Drop it rather than ship it into the COPY layer.
-    rm -f /opt/vss-assets/ngc-cli.md5; \
-    test -f /opt/vss-assets/ngc-cli/ngc
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && uv python install --install-dir /tmp/py 3.13 \
+    && mkdir -p /opt/pystage/usr \
+    && cp -a /tmp/py/cpython-3.13.*/. /opt/pystage/usr/ \
+    && rm -rf /tmp/py /opt/pystage/usr/lib/python3.13/test \
+         /opt/pystage/usr/lib/python3.13/idlelib \
+    && find /opt/pystage -name 'libpython*.a' -delete \
+    && /opt/pystage/usr/bin/python3.13 -c 'import ssl, sqlite3, venv, ctypes'
 
-# ── Managed Hermes runtime + vss CLI + skills + docs ───────────────────────────
-# NemoClaw's Hermes image already has 124 filesystem layers, right under the
-# overlay2 depth limit, so this stage adds exactly two: one COPY of the staged
-# assets and one RUN for everything else. Do not split the RUN.
-FROM ${BASE_IMAGE} AS nemoclaw-runtime
-USER root
-COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
-# The vss_cli tool plugin, straight from the build context (not vss-src: it is
-# this directory's own code, not something the pinned VSS_REF checkout ships).
-COPY plugin/ /opt/vss-assets/plugin/
-# In one layer:
-#  - Harbor trial paths, real world-writable directories (OpenShell chowns every
-#    read_write policy path at start and refuses symlinks). See ../openclaw/Dockerfile.
-#  - The vss CLI from the wheels the vss-src stage built out of the same pinned
-#    checkout as the skills (or the pre-staged snapshot) — installed by name,
-#    so no VSS source ships in this image. uv and python 3.13 ship in the base;
-#    the venv is its own, never /opt/hermes/.venv.
-#  - Skills into Hermes' canonical writable skill root (sandbox-owned, like the
-#    ones `nemohermes <sb> skill install` places there); docs into /sandbox,
-#    where Hermes and the notebook's verification expect them.
-#  - The NGC CLI from the staged assets, on PATH for root and the sandbox user.
-#    Unconditional: an operation skill that resolves a sample video by name
-#    shells out to `ngc` directly and cannot install it from inside the sandbox.
-#  - NemoClaw's per-shell `ulimit -u 512` hooks removed: fatal under the
-#    OpenShell k8s driver (container runs as uid 0; RLIMIT_NPROC for root counts
-#    every root process on the node). Process limits are the cluster's job.
-RUN set -eux; \
-    for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done \
-    # Installed by wheel PATH, not by name: with --find-links a bare name
-    # still admits index candidates, so a future published nvidia-vss-cli
-    # could outrank the wheel built from VSS_REF and silently break the
-    # CLI==skills guarantee.
-    && uv venv --python /opt/hermes/.venv/bin/python3 /usr/local/vss \
-    && VIRTUAL_ENV=/usr/local/vss uv pip install /opt/vss-assets/wheels/*.whl \
-    && ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss \
-    && vss --version \
-    && su -s /bin/sh sandbox -c "vss --version" \
-    # Skill discovery, same machinery as the OpenClaw plugin, same python
-    # tool: the shipped set stays read-only under /opt/vss-skills/skills, and
-    # sync_skills.py fills the active set from what `vss configure` records.
-    # Hermes loads skills from $HERMES_HOME/skills only, and every
-    # `hermes chat` first copies its bundled library (/opt/hermes/skills)
-    # into that dir. So the VSS set ships inside the bundle, under vss/:
-    # any HERMES_HOME -- the default /sandbox/.hermes or one a caller
-    # picks -- gets it with nothing run beforehand. `vss-hermes-sync`
-    # re-selects after `vss configure`; it owns $HERMES_HOME/skills/vss
-    # only, leaving Hermes' own skills alone.
-    && mkdir -p /opt/vss-skills \
-    && cp -R /opt/vss-assets/skills /opt/vss-skills/skills \
-    && cp /opt/vss-assets/sync_skills.py /opt/vss-skills/sync_skills.py \
-    && test ! -e /opt/hermes/skills/vss \
-    && python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /opt/hermes/skills/vss --all \
-    && chmod -R a+rX /opt/vss-skills /opt/hermes/skills/vss \
-    && printf '#!/bin/sh\nactive="${HERMES_HOME:-/sandbox/.hermes}/skills/vss"\nmkdir -p "$active"\nexec python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir "$active" "$@"\n' > /usr/local/bin/vss-hermes-sync \
-    && chmod 0755 /usr/local/bin/vss-hermes-sync \
-    # Prove Hermes' own launch sync seeds a fresh HERMES_HOME, as sandbox.
-    && su -s /bin/sh sandbox -c 'h=$(mktemp -d) && cd /opt/hermes && HERMES_HOME=$h /opt/hermes/.venv/bin/python3 -c "from tools.skills_sync import sync_skills; sync_skills(quiet=True)" && test -f $h/skills/vss/vss-ask-video/SKILL.md && HERMES_HOME=$h vss-hermes-sync --all && test -d $h/skills/github && rm -rf $h' \
-    && cp /opt/vss-assets/workspace/*.md /sandbox/ \
-    && for f in /opt/vss-assets/workspace/*.md; do chown sandbox:sandbox "/sandbox/$(basename "$f")"; done \
-    # vss_cli tool plugin: bundled (/opt/hermes/plugins/vss), not a
-    # $HERMES_HOME/plugins/ user install -- a plugin.yaml `kind: backend`
-    # bundled plugin auto-loads (PluginManager.discover_and_load) with no
-    # per-HERMES_HOME `plugins enable` step, so it is discovered the same way
-    # for every HERMES_HOME, default or caller-chosen, exactly like the
-    # bundled skills library above. (A plain $HERMES_HOME/plugins/ install,
-    # tried first, only reaches the one HERMES_HOME it was enabled under.)
-    && cp -R /opt/vss-assets/plugin /opt/hermes/plugins/vss \
-    && chmod -R a+rX /opt/hermes/plugins/vss \
-    && python3 -m py_compile /opt/hermes/plugins/vss/__init__.py \
-    # Prove it reaches a fresh, caller-chosen HERMES_HOME with no enable step.
-    && su -s /bin/sh sandbox -c 'h=$(mktemp -d) && cd /opt/hermes && HERMES_HOME=$h /opt/hermes/.venv/bin/python3 -c "\
-import sys; sys.path.insert(0, \".\"); \
-from hermes_cli.plugins import discover_plugins; \
-import model_tools; \
-discover_plugins(); \
-names = {t[\"function\"][\"name\"] for t in model_tools.get_tool_definitions(quiet_mode=True, skip_tool_search_assembly=True)}; \
-assert \"vss_cli\" in names, sorted(names)" \
-       && rm -rf $h' \
-    && mv /opt/vss-assets/ngc-cli /usr/local/lib/ngc-cli \
-    && chmod -R a+rX /usr/local/lib/ngc-cli \
-    && chmod +x /usr/local/lib/ngc-cli/ngc \
-    && ln -sf /usr/local/lib/ngc-cli/ngc /usr/local/bin/ngc \
-    && ngc --version \
-    && su -s /bin/sh sandbox -c "ngc --version" \
-    && rm -rf /opt/vss-assets \
-    && test -f /opt/hermes/skills/vss/vss-ask-video/SKILL.md && test -f /sandbox/AGENTS.md \
-    && rm -f /etc/profile.d/nemoclaw-rlimits.sh \
-    && sed -i '/sandbox-rlimits/d; /NemoClaw sandbox resource limits/d' /etc/bash.bashrc \
-    && ! grep -rq "sandbox-rlimits" /etc/profile.d /etc/bash.bashrc
+# ── Hermes runtime: upstream source + its venv ─────────────────────────────────
+FROM ${BASE_IMAGE} AS hermes
+ARG HERMES_REPO
+ARG HERMES_REF
+COPY --from=uv /uv /usr/local/bin/uv
+COPY --from=python /opt/pystage/ /
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+RUN git init -q /opt/hermes \
+    && git -C /opt/hermes remote add origin "$HERMES_REPO" \
+    && git -C /opt/hermes fetch -q --depth 1 --filter=blob:none origin "$HERMES_REF" \
+    && git -C /opt/hermes checkout -q FETCH_HEAD
+ENV UV_PYTHON=/usr/bin/python3.13 \
+    UV_PROJECT_ENVIRONMENT=/opt/hermes/.venv
+# Core dependencies only: every provider, messaging platform and browser extra
+# is opt-in in Hermes' own pyproject.toml. The one exception is --extra sms,
+# Hermes' aiohttp-only extra; aiohttp is what the api_server platform's adapter
+# needs, and without it the gateway logs "No adapter available for api_server"
+# and binds nothing. Taking it as an extra holds the version to uv.lock's pin
+# instead of resolving one outside it.
+#
+# Editable, because Hermes' setup.py refuses to build a wheel or sdist of
+# itself: the source tree is the installed package and stays in the runtime.
+RUN cd /opt/hermes && uv sync --no-dev --frozen --extra sms \
+    && .venv/bin/hermes --version
+# The build tree is not the runtime tree: the harness ships the package, its
+# bundled skills and its bundled plugins, not the repo it was built from. The
+# directories below are the TUI, web UI, tests and docs site — all node or
+# browser surfaces, none reachable from the API server or the CLI agent.
+RUN rm -rf /opt/hermes/.git /opt/hermes/tests /opt/hermes/tests-js /opt/hermes/evals \
+      /opt/hermes/website /opt/hermes/web /opt/hermes/ui-tui /opt/hermes/apps \
+      /opt/hermes/native /opt/hermes/nix /opt/hermes/locales /opt/hermes/contributors \
+      /opt/hermes/package-lock.json
 
-# ── VLM request defaults for `vss vlm run` ────────────────────────────────────
-# Runtime variables, declared empty: the CLI reads empty as unset, so the VLM
-# server's own behavior applies until a sandbox sets one (`openshell sandbox
-# create --env VSS_VLM_FPS=2`, `docker run -e …`). VSS_VLM_LOCKED=true makes
-# the values set here win and locks them against agent overrides; the default
-# false adds no lock. VSS_VLM_API_KEY (the endpoint's Bearer token) is set the
-# same way and deliberately not declared.
-# Names and meanings: libs/vss/cli/README.md ("Configure VLM requests").
-ENV VSS_VLM_BACKEND= \
-    VSS_VLM_MODEL= \
-    VSS_VLM_TIMEOUT= \
-    VSS_VLM_TEMPERATURE= \
-    VSS_VLM_MAX_TOKENS= \
-    VSS_VLM_SEED= \
-    VSS_VLM_ENABLE_REASONING= \
-    VSS_VLM_CHUNK_DURATION= \
-    VSS_VLM_FPS= \
-    VSS_VLM_MAX_FRAMES= \
-    VSS_VLM_TOTAL_PIXELS= \
-    VSS_VLM_LOCKED=false
+# ── Runtime ────────────────────────────────────────────────────────────────────
+# The toolchain purge is by construction rather than by removal: this stage
+# installs no compiler, no network client and no node, so there is nothing to
+# strip afterwards. Every build happens in a stage above and only its output
+# is copied.
+FROM ${BASE_IMAGE} AS runtime
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HERMES_HOME=/sandbox/.hermes \
+    PATH=/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/* \
+    # 998:999 is the process identity policy.yaml requires.
+    && groupadd -g 999 sandbox \
+    && useradd -u 998 -g 999 -m -d /sandbox -s /bin/bash sandbox
+COPY --from=python /opt/pystage/ /
+COPY --from=hermes /opt/hermes /opt/hermes
+# OpenShell mounts the supervisor's CA at a fixed path and the sandbox's start
+# command runs this before the agent. certifi's own bundle cannot take the
+# append: it is root-owned under /opt, which the policy mounts read-only. So the
+# public roots and the CA are written together to SSL_CERT_FILE, under /sandbox,
+# which every TLS client in the image reads ahead of certifi.
+ENV SSL_CERT_FILE=/sandbox/.hermes/ca-bundle.crt
+RUN printf '%s\n' '#!/bin/sh' 'set -e' \
+      'ca=/run/openshell-supervisor-ca/material/ca-bundle.crt' \
+      '[ -r "$ca" ] || { echo "no supervisor CA at $ca" >&2; exit 1; }' \
+      's=$(/opt/hermes/.venv/bin/python3 -c "import certifi;print(certifi.where())")' \
+      'cat "$s" "$ca" > "$SSL_CERT_FILE"' \
+      > /usr/local/bin/trust-supervisor-ca \
+    && chmod 0755 /usr/local/bin/trust-supervisor-ca
+# config.yaml, which upstream Hermes ships none of. Endpoint, model and key
+# stay ${env:} refs: they are a per-deployment choice the create command
+# renders. The three settings after the model block are the only non-default
+# guardrails this harness relies on; the api_server platform needs no entry,
+# since it starts by default and binds its documented 8642.
+RUN su sandbox -s /bin/sh -c 'set -e; cd /sandbox; H=/opt/hermes/.venv/bin/hermes; \
+      $H config set model.default "\${env:HARNESS_MODEL}"; \
+      $H config set model.provider custom; \
+      $H config set model.base_url "\${env:HARNESS_BASE_URL}"; \
+      $H config set model.api_key "\${env:HARNESS_API_KEY}"; \
+      $H config set agent.max_turns 60; \
+      $H config set approvals.mode manual; \
+      $H config set browser.restrict_evaluate true' \
+    && test -f /sandbox/.hermes/config.yaml \
+    # Seeded with the public roots alone, so SSL_CERT_FILE resolves in a later
+    # build stage and outside a sandbox, where there is no supervisor CA.
+    && install -o sandbox -g sandbox -m 0644 \
+         "$(/opt/hermes/.venv/bin/python3 -c 'import certifi;print(certifi.where())')" \
+         "$SSL_CERT_FILE"
+# The access boundary, baked so one artifact carries harness and policy. The
+# directory is made here rather than left to COPY, which would give it the
+# --chmod mode and leave it unsearchable.
+RUN mkdir -p /etc/openshell && chmod 0755 /etc/openshell
+COPY --chmod=0644 policy.yaml /etc/openshell/policy.yaml
 
-# Final USER is the non-root default OpenShell requires; WORKDIR /sandbox is the
-# OpenShell workspace. The runtime's CMD (/bin/bash) exits without a TTY, so the
-# eval harness's exec-driven sandbox needs a command that stays alive.
 USER sandbox
 WORKDIR /sandbox
 CMD ["sleep", "infinity"]
 
-LABEL harness.base="nemoclaw-hermes-sandbox" \
+LABEL harness.base="nvidia-ubuntu" \
       harness.contract="harbor-trial-v1" \
       harness.agent="hermes" \
-      harness.vss-cli="true" \
-      harness.vss-plugin="true" \
-      harness.ngc-cli="true" \
+      harness.vss-cli="false" \
+      harness.vss-plugin="false" \
+      harness.ngc-cli="false" \
       harness.workspace-root="/sandbox"

@@ -948,6 +948,7 @@ bytes,3.1.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/an
 bytestreamjs,2.0.1,BSD-3-Clause,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 ca-certificates,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 ca-certificates,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+ca-certificates,UNKNOWN,UNKNOWN,.openshell,deb,container,.openshell/hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 ca-certificates,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 ca-certificates,UNKNOWN,UNKNOWN,services/sdrc,deb,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,yes,container-apt,Unknown
 ca-certificates,UNKNOWN,UNKNOWN,services/video-summarization,deb,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -1685,6 +1686,7 @@ get-stream,9.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,run
 get-symbol-description,1.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 ghcr.io/astral-sh/uv,0.11.24,UNKNOWN,services/configurators/vss-configurator,container,container,services/configurators/vss-configurator/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,0.11.24,UNKNOWN,services/configurators/vss-rt-config-adaptor,container,container,services/configurators/vss-rt-config-adaptor/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+ghcr.io/astral-sh/uv,0.11.6,UNKNOWN,.openshell,container,container,.openshell/hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,latest,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,latest,UNKNOWN,services/video-summarization,container,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -1692,10 +1694,12 @@ ghcr.io/astral-sh/uv,sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d
 ghcr.io/google/cadvisor,v0.60.6,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
 ghcr.io/nvidia/nemoclaw/hermes-sandbox,sha256:26899bd091f7ad2d58ab7cf9fad33f1fcd065c10eb54f9cf1461a24e1c21ed1a,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/nvidia/nemoclaw/openclaw-sandbox,sha256:959d1255717b54f724248eb282dbb049d3cd785d5aa4eddb0da2a03839ad6fca,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
+ghcr.io/nvidia/openshell/gateway,${OPENSHELL_TAG},UNKNOWN,.openshell,container,compose,.openshell/gateway/docker-compose.yml,runtime,no,no,yes,container-image,Unknown
 gherkin-official,29.0.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 git,1:2.47.3-0+deb13u1,UNKNOWN,libs/analytics/spatialai-data-utils,deb,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 git,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 git,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+git,UNKNOWN,UNKNOWN,.openshell,deb,container,.openshell/hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 git,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,deb,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 git,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 git,UNKNOWN,UNKNOWN,services/video-summarization,deb,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -2688,6 +2692,7 @@ normalize-path,3.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json
 normalize-url,6.1.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 normalize-url,8.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 notistack,3.0.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+NousResearch/hermes-agent,UNKNOWN,UNKNOWN,.openshell,source,container,.openshell/hermes/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 npm-run-path,4.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 npm-run-path,5.3.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 npm-run-path,6.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2715,6 +2720,7 @@ numpy/numpy,v2.2.6,BSD-3-Clause,services/rtvi/rt-cv-3d/rt-cv-config-init,source,
 nuscenes,UNKNOWN,UNKNOWN,libs/analytics/spatialai-data-utils,python,usage,libs/analytics/spatialai-data-utils/spatialai_data_utils/core/boxes/aicity_box.py,runtime,no,no,no,imported-only,Unknown
 nvcr.io/nim/nvidia/cosmos3-reasoner,1.7,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/cosmos3-reasoner/compose.yml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b,2.0.9-variant,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml,runtime,no,no,yes,container-image,Unknown
+nvcr.io/nvidia/base/ubuntu,24.04,UNKNOWN,.openshell,container,container,.openshell/hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/base/ubuntu,24.04,UNKNOWN,services/vios,container,container,services/vios/deployment/scaling/ingress/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/base/ubuntu,jammy-20250415.1,UNKNOWN,services/video-summarization,container,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/base/ubuntu,jammy-20260217,UNKNOWN,services/sdrc,container,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,yes,container-base,Unknown
@@ -2753,6 +2759,7 @@ nvcr.io/nvidia/vllm,26.07-py3,UNKNOWN,deploy,container,compose,deploy/docker/ser
 nvdataset,UNKNOWN,UNKNOWN,skills/benchmarking,python,usage,skills/benchmarking/benchmark-video-search/scripts/flows/dataset.py,runtime,no,no,no,imported-only,Unknown
 NVIDIA-AI-Blueprints/video-search-and-summarization,UNKNOWN,UNKNOWN,.hermes,source,container,.hermes/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 NVIDIA-AI-Blueprints/video-search-and-summarization,UNKNOWN,UNKNOWN,.openclaw,source,container,.openclaw/Dockerfile,runtime,no,no,no,build-fetch,Unknown
+NVIDIA-AI-Blueprints/video-search-and-summarization,UNKNOWN,UNKNOWN,.openshell,source,container,.openshell/vss/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 NVIDIA-AI-IOT/deepstream_python_apps,UNKNOWN,Apache-2.0,services/rtvi/rt-embed,source,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,no,build-fetch,None
 NVIDIA-AI-IOT/deepstream_python_apps,master,Apache-2.0,services/rtvi/rt-vlm,source,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,no,build-fetch,None
 nvidia-cublas,13.6.0.2,UNKNOWN,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Unknown
@@ -4117,6 +4124,7 @@ vllm,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/dock
 vllm_cosmos3,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/models/vllm_compatible/vllm_compatible_model.py,runtime,no,no,no,imported-only,Unknown
 vss-ctx-rag,3.1.0,UNKNOWN,services/video-summarization,python,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
 vss-ctx-rag-arango,3.1.0,UNKNOWN,services/video-summarization,python,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
+vss-harness-hermes,develop,UNKNOWN,.openshell,container,container,.openshell/backup/Dockerfile.policy,runtime,no,no,yes,container-base,Unknown
 vss_agents,UNKNOWN,UNKNOWN,deploy,python,usage,deploy/docker/services/agent/search_prompt_policy.py,runtime,no,no,no,imported-only,Unknown
 vss_core,UNKNOWN,UNKNOWN,.github,python,usage,.github/scripts/stamp_versions.py,runtime,no,no,no,imported-only,Unknown
 vss_core,UNKNOWN,UNKNOWN,services/agent,python,usage,services/agent/packages/vss_agents/src/vss_agents/api/version.py,runtime,no,no,no,imported-only,Unknown

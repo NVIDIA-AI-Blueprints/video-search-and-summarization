@@ -1,0 +1,18 @@
+%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 35, "padding": 6, "wrappingWidth": 320}, "themeVariables": {"fontSize": "13px"}}}%%
+flowchart TB
+    subgraph setup["Setup (host)"]
+        direction LR
+        NB["deploy_nemoclaw.ipynb<br/>run_setup_notebook.py"] --> NC["nemoclaw CLI<br/>npm v0.0.127"]
+        NC -->|"onboard --from Dockerfile<br/>policy-add · config set · mcp add"| OS["OpenShell gateway"]
+    end
+    subgraph sb["OpenShell sandbox"]
+        OC["OpenClaw + VSS plugin<br/>skills + vss CLI"]
+    end
+    subgraph stack["VSS Compose stack"]
+        direction LR
+        HAP["HAProxy :7777"] --> VSS["VSS services"]
+        MCP["Orchestrator MCP :9988"] --> VSS
+    end
+    RELAY["dashboard-relay :18790<br/>+ forward watchdog"] -->|":18789"| sb
+    setup --> sb
+    sb -->|"vss CLI · MCP"| stack

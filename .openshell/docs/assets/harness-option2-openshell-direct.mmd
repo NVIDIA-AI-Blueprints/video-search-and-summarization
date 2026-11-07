@@ -1,0 +1,20 @@
+%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 35, "padding": 6, "wrappingWidth": 320}, "themeVariables": {"fontSize": "13px"}}}%%
+flowchart TB
+    subgraph ctl["Control plane"]
+        direction LR
+        PY["Python openshell SDK"] ~~~ OSCLI["openshell CLI"] ~~~ PRF["Provider profile"] ~~~ PROVER["Policy prover"]
+    end
+    GW["openshell-gateway :8080<br/>Compose service, VSS project (harness profile)"]
+    subgraph sb["OpenShell sandbox"]
+        OC["OpenClaw + VSS plugin + vss CLI<br/>/etc/openshell/policy.yaml"]
+    end
+    subgraph stack["VSS Compose stack"]
+        direction LR
+        HAP["HAProxy :7777"] --> VSS["VSS services"]
+        MCP["Orchestrator MCP :9988"] --> VSS
+    end
+    CLOUD["NVIDIA Hub · Anthropic<br/>OpenAI · OpenRouter"]
+    ctl --> GW
+    GW -->|"create --from image --policy --provider<br/>--expose 18789"| sb
+    sb -->|"vss CLI · MCP"| stack
+    sb -->|"credential at egress"| CLOUD

@@ -746,7 +746,7 @@ class StaleReleaseLineTest(unittest.TestCase):
         self.assertTrue(seen[0].startswith("ghcr.io/org/vss/vss-agent:tree-"))
 
     def test_the_real_version_carrying_images(self):
-        """vss-agent and both harness images bake a version in; e.g. the UI does not."""
+        """vss-agent and the harness image bake a version in; e.g. the UI does not."""
         repo = Path(__file__).resolve().parents[2]
         inventory = dci.load_inventory(repo)
         baking = {
@@ -754,7 +754,7 @@ class StaleReleaseLineTest(unittest.TestCase):
             for entry in inventory["images"]
             if entry.get("ghcr_build") and dci.bakes_release_line(str(repo / entry.get("dockerfile", "")))
         }
-        self.assertLessEqual({"vss-agent", "vss-harness-openclaw", "vss-harness-hermes"}, baking)
+        self.assertLessEqual({"vss-agent", "vss-harness-openclaw"}, baking)
         self.assertNotIn("vss-agent-ui", baking)
 
 

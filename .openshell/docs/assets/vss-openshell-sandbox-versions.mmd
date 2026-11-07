@@ -1,0 +1,38 @@
+%%{init: {"fontFamily": "Arial, Liberation Sans, Helvetica, sans-serif", "flowchart": {"nodeSpacing": 24, "rankSpacing": 45, "padding": 16, "wrappingWidth": 340}, "themeVariables": {"fontSize": "22px"}}}%%
+flowchart LR
+    subgraph now["Today — OpenShell 0.0.116"]
+        direction TB
+        GW0["Gateway · host binary :8080"]
+        subgraph sb0["Sandbox = ONE container"]
+            direction TB
+            SUP0["Supervisor · inside the workload<br/>policy proxy · OPA<br/>inference router"]
+            AG0["Agent process<br/>OpenClaw + VSS plugin · vss CLI"]
+            SUP0 -->|"launches"| AG0
+        end
+        EXT0["VSS · inference · chat"]
+        GW0 -->|"policy · credentials"| sb0
+        sb0 -->|"in-container proxy"| EXT0
+    end
+
+    subgraph next["Target — OpenShell 0.1.x"]
+        direction TB
+        GW1["Gateway · unchanged :8080"]
+        subgraph sb1["Sandbox = TWO containers"]
+            direction TB
+            SUP1["Supervisor container · trusted<br/>policy · keys · DNS<br/>only decision point"]
+            WL1["Workload container · no network<br/>OpenClaw + VSS plugin · vss CLI"]
+            SUP1 <-->|"mTLS socket"| WL1
+        end
+        EXT1["VSS · inference · chat"]
+        GW1 -->|"gateway JWT"| sb1
+        sb1 -->|"supervisor opens it"| EXT1
+    end
+
+    now ~~~ next
+
+    classDef os fill:#e8f1fb,stroke:#4a7fc1,color:#0b2e59
+    classDef wl fill:#fff4e5,stroke:#e08a00,color:#4a2c00
+    classDef ext fill:#f3f3f3,stroke:#888,color:#333
+    class GW0,GW1,SUP1 os
+    class SUP0,AG0,WL1 wl
+    class EXT0,EXT1 ext
