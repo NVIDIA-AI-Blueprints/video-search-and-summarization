@@ -50,13 +50,13 @@ jobs:
           echo "Daily is idle; the called workflow will still share its concurrency group and each worker flock."
 
   canary:
-    name: vss-manage-alerts · cv_mode_gate · L40S
+    name: vss-manage-alerts · cv_mode_gate · RTX PRO 6000
     needs: guard
     uses: ./.github/workflows/skills-eval-daily.yml
     with:
       target_skill: vss-manage-alerts
       target_spec: cv_mode_gate
-      target_platform: L40S
+      target_platform: RTXPRO6000BW
       coding_harness: codex
       operational_harness: nemoclaw
       coding_deployment: hosted-nvidia-inference

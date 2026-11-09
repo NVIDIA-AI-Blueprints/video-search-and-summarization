@@ -16,6 +16,12 @@
         "modes": [
           "remote-all"
         ]
+      },
+      "RTXPRO6000BW": {
+        "modes": [
+          "remote-all"
+        ],
+        "gpu_count": 1
       }
     }
   },
