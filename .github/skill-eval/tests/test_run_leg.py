@@ -1986,30 +1986,25 @@ class TraceUrls(unittest.TestCase):
         result.write_text(json.dumps(payload if payload is not None else self.RESULT))
         return result
 
-    def test_trace_url_matches_the_viewer_route(self):
+    def test_trace_url_matches_gateway_safe_job_route(self):
         with tempfile.TemporaryDirectory() as td:
             result = self._write_result(Path(td) / "step-7__E6dBECL")
             url = run_leg.trace_url(result, self.JOB)
 
         self.assertEqual(
             url,
-            "https://harbor-13xh5gpe7.brevlab.com/jobs/"
-            + self.JOB
-            + "/tasks/l40s/claude-code/aws"
-            + "/anthropic%2Fbedrock-claude-opus-4-6"
-            + "/nvidia-vss%2Fvss-generate-video-report-base-l40s-step-7",
+            "https://harbor-13xh5gpe7.gobrev.dev/jobs/" + self.JOB,
         )
 
-    def test_trace_url_never_ends_in_the_include_task_filter(self):
-        """The exact regression: a bare `step-7` tail renders a blank page."""
+    def test_trace_url_avoids_gateway_rejected_encoded_slashes(self):
+        """The task route's encoded model/task slashes get HTTP 400 at Brev."""
         with tempfile.TemporaryDirectory() as td:
             result = self._write_result(Path(td) / "step-7__E6dBECL")
             url = run_leg.trace_url(result, self.JOB)
 
-        self.assertFalse(url.endswith("/step-7"))
-        self.assertTrue(url.endswith("-step-7"))
-        # Slashes inside <model>/<task> must be segments, not path levels.
-        self.assertEqual(url.count("%2F"), 2)
+        self.assertNotIn("/tasks/", url)
+        self.assertNotIn("%2F", url)
+        self.assertTrue(url.endswith(self.JOB))
 
     def test_trace_url_none_on_incomplete_result(self):
         with tempfile.TemporaryDirectory() as td:
@@ -2056,7 +2051,7 @@ class TraceUrls(unittest.TestCase):
         self.assertEqual(row[0], "step-7")
         self.assertEqual(row[1], "step-7__E6dBECL")
         self.assertEqual(row[2], url)
-        self.assertIn("/jobs/leg__30284131217__2026-07-27__17-16-47/tasks/", url)
+        self.assertTrue(url.endswith("/jobs/leg__30284131217__2026-07-27__17-16-47"))
 
     def test_publish_trace_returns_none_when_trial_produced_no_result(self):
         invocation = run_leg.HarborInvocation(

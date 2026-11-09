@@ -1392,17 +1392,14 @@ def _coordinator_env_id() -> str | None:
 
 
 def trace_url(result_json: Path, job_name: str) -> str | None:
-    """Harbor viewer deep-link for one finished trial.
+    """Gateway-safe Harbor job link for one finished trial.
 
-    Every segment is read from the trial's own result.json, so the link
-    cannot drift from what the viewer indexes. `task_name` in particular is
-    Harbor's fully-qualified name (`nvidia-vss/<dataset>-step-N`), NOT the
-    `--include-task-name` filter (`step-N`) that selects the task here — the
-    viewer resolves its task route by the former. A bare `step-N` matches
-    nothing and renders a BLANK PAGE rather than a 404, because the viewer
-    is a client-side SPA where every route returns the same HTTP 200 shell.
-    That failure mode is indistinguishable from missing trace data, which is
-    why the URL is built here instead of being assembled by hand.
+    The viewer accepts a task route with %2F-encoded model/task names locally,
+    but the gobrev.dev gateway rejects that path with HTTP 400 before it
+    reaches Harbor. Each invocation is published as its own dated viewer job,
+    whose /jobs/<job_name> route contains the trial without encoded slashes.
+    Keep requiring complete result metadata so incomplete trials do not get
+    misleading links.
     """
     env_id = _coordinator_env_id()
     if not env_id:
@@ -1422,10 +1419,8 @@ def trace_url(result_json: Path, job_name: str) -> str | None:
     ]
     if not all(parts):
         return None
-    # safe="" so the slashes inside <model> and <task> encode as %2F — the
-    # viewer expects them as single path segments, not extra path levels.
-    encoded = "/".join(urllib.parse.quote(str(part), safe="") for part in parts)
-    return f"https://harbor-{env_id}.brevlab.com/jobs/{job_name}/tasks/{encoded}"
+    encoded_job = urllib.parse.quote(job_name, safe="")
+    return f"https://harbor-{env_id}.gobrev.dev/jobs/{encoded_job}"
 
 
 def publish_trace(

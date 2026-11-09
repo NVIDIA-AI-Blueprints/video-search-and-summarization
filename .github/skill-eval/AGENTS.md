@@ -728,7 +728,7 @@ dataset for that spec, rerun. Do not start modifying flags.
 `harbor view` runs persistently on the CI runner host under the
 `harbor-view.service` systemd unit at `http://localhost:8080`,
 serving the **shared, fixed** `/tmp/skill-eval/results/_viewer`,
-tunneled to `https://harbor-<BREV_ENV_ID>.brevlab.com`. For the viewer
+tunneled to `https://harbor-<BREV_ENV_ID>.gobrev.dev`. For the viewer
 to pick up a trial, its directory must live under
 `/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>/` as a
 **real dir (not a symlink)**, flattened — no nested `<date>/` level.
@@ -763,20 +763,21 @@ inventing one.
 The URL shape is:
 
 ```
-https://harbor-<COORDINATOR_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+https://harbor-<COORDINATOR_ENV_ID>.gobrev.dev/jobs/<leg-slug>__<run_id>__<date>
 ```
 
-Two things make hand-assembly unreliable, which is why it moved into
+The dated job is scoped to one Harbor invocation, so its job page links to
+that trial's task. The older task deep-link encoded slashes inside model and
+task IDs as `%2F`. Harbor accepted that route locally, but the gobrev.dev
+gateway returned HTTP 400 before forwarding it. Use the job URL recorded by
+the wrapper rather than manually changing the hostname on an older task URL.
+
+Two things make hand-assembly unreliable, which is why it stays in
 the wrapper:
 
-- **`<task>` is Harbor's fully-qualified `task_name`**
-  (`nvidia-vss/<dataset>-step-N`), *not* the `--include-task-name`
-  filter (`step-N`) used to select the task. A bare `step-N` matches
-  no task, and because the viewer is a client-side SPA — every route
-  returns the same HTTP 200 shell — the page renders **blank** rather
-  than 404ing. That is indistinguishable from missing trace data.
-  (Observed on PR #1254, run 30284131217: all seven step links were
-  built with the filter and every one opened empty.)
+- **The `<date>` is Harbor's actual invocation output directory**, not an
+  inferred time from the workflow or task name. It identifies the one viewer
+  job that contains this step's trial.
 - **`BREV_ENV_ID` is the coordinator host's env id** (the CI runner,
   set by Brev in `/etc/environment`). It is **NOT** a per-trial
   instance id from `brev ls --json` (the `id` field of `vss-eval-*`
@@ -784,10 +785,9 @@ the wrapper:
   per-trial boxes do not. `run_leg.py` reads the runner env and falls
   back to `/etc/environment` — never substitute from `brev ls`.
 
-Every segment `run_leg.py` emits comes from the trial's own
-`result.json` (`source`, `agent_info.name`,
-`agent_info.model_info.provider|name`, `task_name`), so the link
-cannot drift from what the viewer indexes, and it is produced even
+`run_leg.py` emits a job link only for a trial with complete
+`result.json` identity (`source`, `agent_info.name`,
+`agent_info.model_info.provider|name`, `task_name`), and it is produced even
 when `harbor-view.service` is down. To inspect the index by hand:
 `GET http://localhost:8080/api/jobs/<leg-slug>__<run_id>__<date>/tasks`.
 

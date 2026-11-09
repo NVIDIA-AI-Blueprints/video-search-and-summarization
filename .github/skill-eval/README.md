@@ -425,14 +425,16 @@ results root afterwards) and appends the browsable URL to
 `<results-root>/trace-urls.tsv`:
 
 ```
-step-7	step-7__E6dBECL	https://harbor-<ENV_ID>.brevlab.com/jobs/<job>/tasks/<source>/<agent>/<provider>/<model>/<task>
+step-7	step-7__E6dBECL	https://harbor-<ENV_ID>.gobrev.dev/jobs/<job>
 ```
 
-Open the URL from that file rather than composing one: the trailing
-`<task>` is Harbor's fully-qualified `task_name`
-(`nvidia-vss/<dataset>-step-N`), not the `step-N` filter, and the
-viewer is an SPA that renders a wrong path as a **blank page**, never
-a 404.
+Open the URL from that file rather than composing one. Each dated viewer job
+contains one Harbor invocation's trial. The previous `/tasks/...` deep link
+used `%2F` in model and task names; Harbor accepted it locally, but the
+gobrev.dev gateway rejected it with HTTP 400 before the viewer could respond.
+The `/jobs/<job>` route reaches Brev sign-in without encoded slashes and lets
+you open that trial from its job page. Existing GitHub result comments retain
+their older links; only newly generated results use this shape.
 
 `harbor view` runs persistently on the CI runner host. If it's down:
 
