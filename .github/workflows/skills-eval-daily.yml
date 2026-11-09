@@ -32,6 +32,42 @@ on:
         options:
           - claude-code
           - codex
+      target_skill:
+        description: "Optional single skill; empty runs the full sweep"
+        type: string
+        default: ""
+      target_spec:
+        description: "Optional spec stem for the selected skill"
+        type: string
+        default: ""
+      target_platform:
+        description: "Optional platform key from the selected spec"
+        type: string
+        default: ""
+      coding_harness:
+        description: "Optional coding harness override"
+        type: string
+        default: ""
+      operational_harness:
+        description: "Optional operational harness override"
+        type: string
+        default: ""
+      cleanup_worker:
+        description: "Clean the worker after this leg"
+        type: boolean
+        default: false
+      non_authoritative:
+        description: "Queue behind an existing Daily run instead of cancelling it"
+        type: boolean
+        default: false
+      concurrency_group:
+        description: "Optional Daily concurrency group to share"
+        type: string
+        default: ""
+      artifact_prefix:
+        description: "Optional artifact prefix for this run"
+        type: string
+        default: ""
   # Reusable nightly-style entry point for narrowly-scoped canaries. Scheduled
   # and ordinary manual runs leave these inputs empty and retain the full-sweep
   # behavior above.
