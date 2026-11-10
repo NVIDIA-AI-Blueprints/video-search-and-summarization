@@ -50,12 +50,12 @@ jobs:
           echo "Daily is idle; the called workflow will still share its concurrency group and each worker flock."
 
   canary:
-    name: vss-manage-alerts · cv_mode_gate · L40S
+    name: vss-manage-alerts · ondemand_verification · L40S
     needs: guard
     uses: ./.github/workflows/skills-eval-daily.yml
     with:
       target_skill: vss-manage-alerts
-      target_spec: cv_mode_gate
+      target_spec: ondemand_verification
       target_platform: L40S
       target_instance: vss-eval-l40s-1g-1
       coding_harness: codex
