@@ -38,6 +38,12 @@ def test_skill_routing_step_names_no_skill_or_mode(tmp_path: Path) -> None:
     assert routing, "alerts_vlm_real_time has no skill-routing step"
 
     (root,) = (tmp_path / "alerts_vlm_real_time").iterdir()
+    setup_instruction = (root / "step-1/instruction.md").read_text()
+    assert "If these optional CI variables are absent" in setup_instruction
+    assert "https://inference-api.nvidia.com/v1" in setup_instruction
+    assert "COMPATIBLE_API_KEY" in setup_instruction
+    assert "nvidia/nvidia/llama-3.1-nemotron-ultra-253b-v1" in setup_instruction
+    assert "nvidia/nvidia/cosmos3-nano-reasoner" in setup_instruction
     for idx in range(2, len(expects) + 1):
         instruction = (root / f"step-{idx}/instruction.md").read_text()
         if idx in routing:

@@ -295,9 +295,17 @@ def generate_platform_mode(
         if idx == 1:
             leading = [
                 f"Use the `/vss-manage-alerts` skill (and `/vss-build-vision-ai` as needed) on this bare `{platform}` host.",
-                "Docker + NVIDIA Container Toolkit are available, `NGC_CLI_API_KEY` is set,",
-                "and the remote LLM/VLM endpoints are configured via "
-                "`LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` / `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL`.",
+                "Docker + NVIDIA Container Toolkit are available, and `NGC_CLI_API_KEY` is set.",
+                "For the requested remote LLM/VLM placement, use "
+                "`LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` / `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` "
+                "when they are set. If these optional CI variables are absent, use the "
+                "provided `NEMOCLAW_ENDPOINT_URL` (drop its trailing `/v1` for VSS) "
+                "with `COMPATIBLE_API_KEY` only when that endpoint is "
+                "`https://inference-api.nvidia.com/v1`; select LLM "
+                "`nvidia/nvidia/llama-3.1-nemotron-ultra-253b-v1` and VLM "
+                "`nvidia/nvidia/cosmos3-nano-reasoner`. Never print the key. "
+                "If neither complete route is available, report the missing "
+                "configuration before deploying.",
             ]
         else:
             # A `skill-routing` step names neither a skill nor the alert mode:
