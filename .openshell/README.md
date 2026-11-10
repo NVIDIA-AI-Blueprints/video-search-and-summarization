@@ -87,7 +87,7 @@ invalidates the old ones.
 The gateway hops were measured on 0.1.5 with a probe server; the Hermes end was
 measured against the harness image.
 
-![Request path from the VSS UI to the harness](docs/assets/vss-openshell-request-path.svg)
+![Request path from the VSS UI to the harness](docs/assets/vss-openshell-request-path.png)
 
 **Deployed from the host.** This path assumes a VSS deployment, so the sandbox
 is the one on the [VSS layer](#optional--add-vss-capabilities). Both are
@@ -168,7 +168,7 @@ decision.
 | Channel volumes | — | Sandbox bootstrap keys, and the Unix socket the two containers speak over — never the network |
 | Supervisor-only volume | — | The supervisor's JWT and gateway credentials; never mounted into the workload |
 
-![How OpenShell brings up the gateway and a sandbox](docs/assets/vss-openshell-deploy-sequence.svg)
+![How OpenShell brings up the gateway and a sandbox](docs/assets/vss-openshell-deploy-sequence.png)
 
 0.1.6 reversed which end of that socket dials the other, which imposes a
 version rule: a new sandbox needs matching supervisor and sandbox-runtime

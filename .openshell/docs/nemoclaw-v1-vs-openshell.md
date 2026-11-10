@@ -22,7 +22,7 @@ steps were then executed end to end against gateway 0.1.6 on an `aarch64` host
 
 ### Where VSS is today
 
-![Current NemoClaw v0.0.127 harness](assets/harness-current-nemoclaw-v0.svg)
+![Current NemoClaw v0.0.127 harness](assets/harness-current-nemoclaw-v0.png)
 
 Seven imperative steps; three coupled version pins (`BASE_IMAGE`,
 `OPENCLAW_VERSION`, plugin lockfile).
@@ -66,7 +66,7 @@ inert.
 
 ### Sandbox shape: deployed 0.0.116 vs target 0.1.x
 
-![OpenShell sandbox, 0.0.116 and 0.1.x](assets/vss-openshell-sandbox-versions.svg)
+![OpenShell sandbox, 0.0.116 and 0.1.x](assets/vss-openshell-sandbox-versions.png)
 
 The host runs `openshell-gateway 0.0.116`, where the supervisor runs *inside* the
 workload — one container, with the policy proxy, OPA engine and inference router
@@ -247,7 +247,7 @@ openshell forward start 18789 vss-harness-sandbox -d
 
 ### Architecture
 
-![Option 1 - NemoClaw V1](assets/harness-option1-nemoclaw-v1.svg)
+![Option 1 - NemoClaw V1](assets/harness-option1-nemoclaw-v1.png)
 
 The ❓ is step 2, stated plainly: `cargo images build` is the only producer of a
 Fabric-labelled image, and nothing documents how to get the VSS plugin, skills
@@ -415,7 +415,7 @@ has an Option 2 equivalent. These drop out rather than move:
 
 ### Architecture
 
-![Option 2 - OpenShell direct](assets/harness-option2-openshell-direct.svg)
+![Option 2 - OpenShell direct](assets/harness-option2-openshell-direct.png)
 
 The gateway becomes a Compose service behind the `harness` profile; the policy
 joins the image; the relay and watchdog scripts are replaced by
@@ -675,7 +675,7 @@ agent harnesses" as Unsupported, with new runtimes tracked as a research epic
 
 ### How NemoClaw adds a harness (v0; V1 replaces this with Fabric adapters)
 
-![How NemoClaw selects and launches a harness](assets/harness-selection-nemoclaw.svg)
+![How NemoClaw selects and launches a harness](assets/harness-selection-nemoclaw.png)
 
 Selection is directory scanning, not a fixed list: every directory under
 [`agents/`](https://github.com/NVIDIA/NemoClaw/tree/main/agents) holding a
