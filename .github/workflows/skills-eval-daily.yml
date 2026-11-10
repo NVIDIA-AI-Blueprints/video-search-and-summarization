@@ -44,6 +44,10 @@ on:
         description: "Optional platform key from the selected spec"
         type: string
         default: ""
+      target_instance:
+        description: "Optional exact worker for a single-leg test"
+        type: string
+        default: ""
       coding_harness:
         description: "Optional coding harness override"
         type: string
@@ -62,10 +66,6 @@ on:
         default: false
       concurrency_group:
         description: "Optional Daily concurrency group to share"
-        type: string
-        default: ""
-      artifact_prefix:
-        description: "Optional artifact prefix for this run"
         type: string
         default: ""
   # Reusable nightly-style entry point for narrowly-scoped canaries. Scheduled
