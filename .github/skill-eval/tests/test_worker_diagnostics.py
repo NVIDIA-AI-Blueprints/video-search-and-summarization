@@ -21,7 +21,9 @@ class CaptureWorkerDiagnostics(unittest.TestCase):
     def test_writes_run_scoped_report_without_printing_logs(self):
         payload = {"schema": 1, "container": "vss-rtvi-cv",
                    "logs": {"stderr_tail": "CUDA driver mismatch"}}
-        result = subprocess.CompletedProcess([], 0, json.dumps(payload), "")
+        result = subprocess.CompletedProcess(
+            [], 0, "WORKER_DIAGNOSTICS=" + json.dumps(payload) + "\nbox-a\n", "",
+        )
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             worker_diagnostics.subprocess, "run", return_value=result
         ) as execute:
@@ -51,7 +53,11 @@ class CaptureWorkerDiagnostics(unittest.TestCase):
             self.assertFalse(root.exists())
 
     def test_rejects_non_json_and_unknown_schema(self):
-        for output in ("not-json", json.dumps({"schema": 2})):
+        for output in (
+            "not-json", "WORKER_DIAGNOSTICS=not-json\nbox-a\n",
+            "WORKER_DIAGNOSTICS=" + json.dumps({"schema": 2}) + "\nbox-a\n",
+            "WORKER_DIAGNOSTICS={}\nWORKER_DIAGNOSTICS={}\n",
+        ):
             with self.subTest(output=output), tempfile.TemporaryDirectory() as tmp:
                 with mock.patch.object(
                     worker_diagnostics.subprocess, "run",
@@ -81,7 +87,9 @@ class CaptureWorkerDiagnostics(unittest.TestCase):
         with mock.patch.object(subprocess, "run", side_effect=fake_run), \
              mock.patch("builtins.print") as printed:
             exec(worker_diagnostics._REMOTE_SCRIPT, {"__name__": "__main__"})
-        report = json.loads(printed.call_args.args[0])
+        receipt = printed.call_args.args[0]
+        self.assertTrue(receipt.startswith("WORKER_DIAGNOSTICS="))
+        report = json.loads(receipt.removeprefix("WORKER_DIAGNOSTICS="))
         self.assertEqual(report["state"]["exit_code"], 1)
         self.assertEqual(report["state"]["cuda_metadata"], ["CUDA_VERSION=12.9"])
         self.assertNotIn("do-not-retain", printed.call_args.args[0])

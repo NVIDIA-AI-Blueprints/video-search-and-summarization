@@ -66,8 +66,10 @@ else:
     report["inspection_error"] = bounded(err)
 rc, out, err = run("docker", "logs", "--timestamps", "--tail", "300", NAME, timeout=60)
 report["logs"] = {"exit_code": rc, "stdout_tail": bounded(out), "stderr_tail": bounded(err)}
-print(json.dumps(report, separators=(",", ":")))
+print("WORKER_DIAGNOSTICS=" + json.dumps(report, separators=(",", ":")))
 '''
+
+_RECEIPT_PREFIX = "WORKER_DIAGNOSTICS="
 
 
 def capture_worker_diagnostics(
@@ -100,8 +102,15 @@ def capture_worker_diagnostics(
         # Never put transport stderr in CI logs: Brev/SSH may echo commands or
         # agent output containing credentials.
         raise RuntimeError(f"worker diagnostic transport exited {result.returncode}")
+    # brev exec may append the instance name (or another transport message)
+    # after the command's stdout. Parse only our unique one-line receipt.
+    receipts = [line.removeprefix(_RECEIPT_PREFIX)
+                for line in result.stdout.splitlines()
+                if line.startswith(_RECEIPT_PREFIX)]
+    if len(receipts) != 1:
+        raise RuntimeError("worker diagnostics missing or ambiguous receipt")
     try:
-        report = json.loads(result.stdout)
+        report = json.loads(receipts[0])
     except ValueError as exc:
         raise RuntimeError("worker diagnostics did not return JSON") from exc
     if not isinstance(report, dict) or report.get("schema") != 1:
