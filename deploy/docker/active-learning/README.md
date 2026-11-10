@@ -161,9 +161,11 @@ docker volume rm aoi-active-learning_aoi-inference-model-repository
 ```
 
 The seed job sets a default ACL on the volume so that Triton (UID 1000) and the
-Model Manager (UID 10001) can both write to it. The job needs `setfacl` (the
-`acl` package) in the inference image. It does not install packages at deploy
-time.
+Model Manager (UID 10001) can both write to it. It uses `setfacl` from the
+inference image. If the image lacks it, the job installs the `acl` package with
+`apt-get` on first seed, which needs network access to the image's apt
+repositories. On an air-gapped host, use an inference image that includes
+`acl`.
 
 ## Regenerating the bundles
 
