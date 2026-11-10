@@ -2598,6 +2598,73 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                  ):
                 self.assertEqual(run_leg.main(self._argv(tmp)), 42)
 
+    def test_canary_captures_worker_logs_before_cleanup_even_on_failed_leg(self):
+        events = []
+        routes = mock.Mock()
+        routes.operational.runtime = "nemoclaw"
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with mock.patch.dict(os.environ, {
+                "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/cv_mode_gate.json",
+                run_leg.CLEAN_WORKER_AFTER_LEG_ENV: "true",
+            }), self._held_lock(), \
+                 mock.patch.object(run_leg, "resolve_model_routes", return_value=routes), \
+                 mock.patch.object(run_leg, "prepare_canary_verifier_runtime"), \
+                 mock.patch.object(run_leg, "run_invocations", return_value=1), \
+                 mock.patch.object(run_leg, "capture_worker_diagnostics",
+                                   side_effect=lambda *args, **kwargs: events.append("capture")), \
+                 mock.patch.object(run_leg, "cleanup_worker_after_leg",
+                                   side_effect=lambda *args: events.append("cleanup")), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy",
+                                   side_effect=lambda *args: events.append("policy")):
+                self.assertEqual(run_leg.main(self._argv(tmp)), 1)
+        self.assertEqual(events, ["capture", "cleanup", "policy"])
+
+    def test_diagnostic_failure_does_not_prevent_worker_cleanup(self):
+        events = []
+        routes = mock.Mock()
+        routes.operational.runtime = "nemoclaw"
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with mock.patch.dict(os.environ, {
+                "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/cv_mode_gate.json",
+                run_leg.CLEAN_WORKER_AFTER_LEG_ENV: "true",
+            }), self._held_lock(), \
+                 mock.patch.object(run_leg, "resolve_model_routes", return_value=routes), \
+                 mock.patch.object(run_leg, "prepare_canary_verifier_runtime"), \
+                 mock.patch.object(run_leg, "run_invocations", return_value=1), \
+                 mock.patch.object(run_leg, "capture_worker_diagnostics",
+                                   side_effect=RuntimeError("capture failed")), \
+                 mock.patch.object(run_leg, "cleanup_worker_after_leg",
+                                   side_effect=lambda *args: events.append("cleanup")), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy",
+                                   side_effect=lambda *args: events.append("policy")):
+                self.assertEqual(run_leg.main(self._argv(tmp)), 1)
+        self.assertEqual(events, ["cleanup", "policy"])
+
+    def test_diagnostic_cancellation_still_cleans_worker(self):
+        events = []
+        routes = mock.Mock()
+        routes.operational.runtime = "nemoclaw"
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with mock.patch.dict(os.environ, {
+                "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/cv_mode_gate.json",
+                run_leg.CLEAN_WORKER_AFTER_LEG_ENV: "true",
+            }), self._held_lock(), \
+                 mock.patch.object(run_leg, "resolve_model_routes", return_value=routes), \
+                 mock.patch.object(run_leg, "prepare_canary_verifier_runtime"), \
+                 mock.patch.object(run_leg, "run_invocations", return_value=1), \
+                 mock.patch.object(run_leg, "capture_worker_diagnostics",
+                                   side_effect=SystemExit(143)), \
+                 mock.patch.object(run_leg, "cleanup_worker_after_leg",
+                                   side_effect=lambda *args: events.append("cleanup")), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy",
+                                   side_effect=lambda *args: events.append("policy")):
+                with self.assertRaises(SystemExit):
+                    run_leg.main(self._argv(tmp))
+        self.assertEqual(events, ["cleanup", "policy"])
+
     def test_nemoclaw_cancellation_cleans_firewall_before_releasing_worker(self):
         held = False
         @contextlib.contextmanager

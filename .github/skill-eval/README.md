@@ -446,6 +446,27 @@ disown
 
 ## Troubleshooting
 
+### NemoClaw Alerts canary worker diagnostics
+
+The opt-in `vss-manage-alerts` NemoClaw cleanup path captures a bounded
+`vss-rtvi-cv` diagnostic snapshot while its pool lock is held, immediately
+before worker teardown. The run-scoped result artifact contains
+`<run-id>/worker-diagnostics/vss-rtvi-cv.json`: the last 300 timestamped log
+lines (capped at 64 KiB per stream), exit/OOM/restart state, exact image ID,
+selected CUDA image metadata, and the host GPU driver version. Capture failure
+does not suppress teardown. This file is deliberately not copied into the
+live Harbor viewer; the workflow secret-scans the results tree before the
+artifact upload. Do not print raw logs into GitHub Actions output.
+
+The shared worker does not retain a separate `/data/logs` copy. A worker-local
+archive would need restricted access, redaction and an explicit retention
+policy; the run-ID-scoped CI artifact already provides the default 28-day
+retention. To investigate a driver/runtime mismatch, compare the recorded
+driver version and CUDA requirement with the `trtexec` error text and image
+ID, then check the image's supported driver requirements before changing the
+worker. An absent container, OOM kill, or nonzero exit code points to a
+different failure path.
+
 **CI didn't fire after a push.** The workflow only triggers on pushes to `pull-request/<N>` mirror branches, created by copy-pr-bot after a maintainer comments `/ok to test <sha>` on the source PR. Check that the comment was posted on the correct head SHA.
 
 **"missing_platforms_declaration" blocker on a spec.** The spec has no `resources.platforms`. Add one — see the worked example above.

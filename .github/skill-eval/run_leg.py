@@ -55,6 +55,7 @@ from model_config import (
     anthropic_api_root,
     resolve_model_routes,
 )
+from worker_diagnostics import capture_worker_diagnostics
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -2628,7 +2629,31 @@ def main(argv: list[str] | None = None) -> int:
                         ):
                             try:
                                 if os.environ.get(CLEAN_WORKER_AFTER_LEG_ENV) == "true":
-                                    cleanup_worker_after_leg(instance, args.results_root)
+                                    try:
+                                        if os.environ.get("EVAL_SPEC_PATH", "").startswith(
+                                            "skills/operations/vss-manage-alerts/evals/"
+                                        ):
+                                            try:
+                                                capture_worker_diagnostics(
+                                                    instance, args.results_root,
+                                                    repo_root=REPO_ROOT,
+                                                    harbor_requirement=HARBOR_REQUIREMENT,
+                                                    harbor_env=harbor_env,
+                                                )
+                                                print(
+                                                    "[run-leg] CV worker diagnostics saved "
+                                                    "to run-scoped results (pending secret scan)",
+                                                    flush=True,
+                                                )
+                                            except Exception as exc:  # noqa: BLE001
+                                                print(
+                                                    "[run-leg] CV worker diagnostic capture "
+                                                    f"failed ({type(exc).__name__}); "
+                                                    "worker cleanup continues",
+                                                    flush=True,
+                                                )
+                                    finally:
+                                        cleanup_worker_after_leg(instance, args.results_root)
                             finally:
                                 cleanup_gateway_network_policy(instance, args.results_root)
                     if rc == 0:
