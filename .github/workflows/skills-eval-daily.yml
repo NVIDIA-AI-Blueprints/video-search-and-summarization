@@ -85,6 +85,10 @@ on:
         type: string
         required: false
         default: ""
+      target_instance:
+        type: string
+        required: false
+        default: ""
       coding_harness:
         type: string
         required: false
@@ -313,6 +317,7 @@ jobs:
           CODING_MODEL_INPUT: ${{ inputs.coding_model || '' }}
           OPERATIONAL_MODEL_INPUT: ${{ inputs.operational_model || '' }}
           CLEANUP_WORKER_INPUT: ${{ inputs.cleanup_worker && 'true' || 'false' }}
+          TARGET_INSTANCE_INPUT: ${{ inputs.target_instance || '' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -363,6 +368,11 @@ jobs:
           unset SKILLS_EVAL_CODING_ENDPOINT_URL SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL
           unset SKILLS_EVAL_CODING_PROVIDER SKILLS_EVAL_OPERATIONAL_PROVIDER
           export SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG="$cleanup_worker"
+          # A narrow canary may pin its worker without changing the regular
+          # nightly pool selector. run_leg.py still takes the per-box flock.
+          if [ -n "$TARGET_INSTANCE_INPUT" ]; then
+            export BREV_INSTANCE="$TARGET_INSTANCE_INPUT"
+          fi
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use

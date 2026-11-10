@@ -44,7 +44,7 @@ MAX_DOCKER_VERSION="29.5.0"
 
 # Packages frozen with `apt-mark hold` so unattended-upgrades / later
 # `apt-get install` calls can't drift the box afterwards.
-HOLD_PKGS=(docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin containerd.io)
+HOLD_PKGS=(docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin containerd.io docker-ce-rootless-extras)
 IN_RANGE_HOLD_PKGS=(
   "${HOLD_PKGS[@]}"
   docker.io docker-buildx docker-compose-v2 containerd runc
@@ -175,21 +175,29 @@ DOCKER_CE_VER="5:29.4.3-1~ubuntu.${DISTRO}~${CODENAME}"
 BUILDX_VER="0.33.0-1~ubuntu.${DISTRO}~${CODENAME}"
 COMPOSE_VER="5.1.3-1~ubuntu.${DISTRO}~${CODENAME}"
 CONTAINERD_VER="2.2.3-1~ubuntu.${DISTRO}~${CODENAME}"
+DOCKER_ROOTLESS_VER="$DOCKER_CE_VER"
 
 # Refresh the APT cache first -- without this, the specific epoch-versioned
 # package may not be in the local index and the install would fail with
 # version-not-found before any pinning takes effect.
 run_privileged apt-get update -qq
 
+DOCKER_PACKAGES=(
+  "docker-ce=$DOCKER_CE_VER"
+  "docker-ce-cli=$DOCKER_CE_VER"
+  "docker-buildx-plugin=$BUILDX_VER"
+  "docker-compose-plugin=$COMPOSE_VER"
+  "containerd.io=$CONTAINERD_VER"
+)
+if [ "$(dpkg-query -W -f='${db:Status-Status}' docker-ce-rootless-extras 2>/dev/null || true)" = "installed" ]; then
+  DOCKER_PACKAGES+=("docker-ce-rootless-extras=$DOCKER_ROOTLESS_VER")
+fi
+
 run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y \
   --allow-downgrades \
   -o Dpkg::Options::=--force-confdef \
   -o Dpkg::Options::=--force-confold \
-  docker-ce="$DOCKER_CE_VER" \
-  docker-ce-cli="$DOCKER_CE_VER" \
-  docker-buildx-plugin="$BUILDX_VER" \
-  docker-compose-plugin="$COMPOSE_VER" \
-  containerd.io="$CONTAINERD_VER"
+  "${DOCKER_PACKAGES[@]}"
 
 # Hold so unattended-upgrades / later `apt-get install` calls don't drift
 # the box back to newer versions.
