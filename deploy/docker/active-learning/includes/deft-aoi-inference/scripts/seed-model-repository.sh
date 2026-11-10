@@ -33,25 +33,14 @@ required_files=(
   "${target}/changenet_classify/1/model.pth"
 )
 
-ensure_acl_tools() {
-  # Use setfacl from the inference image when it is there. Otherwise install the
-  # 'acl' package, which needs network access to the image's apt repositories.
-  if command -v setfacl >/dev/null 2>&1; then
-    return
-  fi
-
-  echo "setfacl not found in the inference image; installing the 'acl' package." >&2
-  if ! command -v apt-get >/dev/null 2>&1; then
-    echo "Cannot install 'acl': apt-get is not available. Use an AOI_INFERENCE_IMAGE that includes setfacl." >&2
+require_acl_tools() {
+  # setfacl must ship in the inference image. Installing it here would need
+  # network access from an init container (fails on air-gapped hosts) and would
+  # pull an unpinned package at deploy time.
+  if ! command -v setfacl >/dev/null 2>&1; then
+    echo "setfacl not found: the AOI inference image (AOI_INFERENCE_IMAGE) must include the 'acl' package." >&2
     exit 1
   fi
-
-  export DEBIAN_FRONTEND=noninteractive
-  if ! { apt-get update && apt-get install -y --no-install-recommends acl; }; then
-    echo "Failed to install 'acl' (no network access to the apt repositories?). Use an AOI_INFERENCE_IMAGE that includes setfacl." >&2
-    exit 1
-  fi
-  rm -rf /var/lib/apt/lists/*
 }
 
 prepare_repository_permissions() {
@@ -59,11 +48,10 @@ prepare_repository_permissions() {
   find "${target}" -type d -exec chmod 2775 {} +
   find "${target}" -type f -exec chmod 0664 {} +
 
-  # The default ACL persists with the named volume, so it is applied (and acl
-  # installed, if needed) once, not on every init-container restart. Changing
-  # the ACL policy requires a new versioned marker name.
+  # The default ACL persists with the named volume, so it is applied once;
+  # changing the ACL policy requires a new versioned marker name.
   if [[ ! -e "${acl_marker}" ]]; then
-    ensure_acl_tools
+    require_acl_tools
     setfacl -R -m "g:${shared_gid}:rwX" "${target}"
     find "${target}" -type d -exec setfacl -m "d:g:${shared_gid}:rwx" {} +
     touch "${acl_marker}"
