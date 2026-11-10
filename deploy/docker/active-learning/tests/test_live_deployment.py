@@ -11,11 +11,13 @@ import json
 import re
 
 import pytest
-from conftest import http_get, is_long_running, replicas, run
+from conftest import http_get, is_long_running, mount_source, replicas, run
 
 pytestmark = pytest.mark.live
 
-# (service, container port, path, text the response body must contain)
+# Published endpoints, reached through the host port: (service, container port,
+# path, text the response body must contain). Unpublished services, such as the
+# SeaweedFS masters, are checked from inside their container instead.
 HTTP_CHECKS = [
     ("al-archiver", 8000, "/health", '"ok"'),
     ("aoi-client", 8000, "/health", '"ok"'),
@@ -29,11 +31,15 @@ HTTP_CHECKS = [
     ("kibana", 5601, "/api/status", '"level"'),
     ("logstash", 9600, "/", '"status"'),
     ("mlflow", 5000, "/health", "OK"),
-    ("seaweedfs-master1", 9333, "/cluster/status", '"Leader"'),
     ("seaweedfs-s3", 8333, "/healthz", ""),
 ]
 # One line per topic in `kafka-topics.sh --describe` output.
 TOPIC_RE = re.compile(r"^Topic: (?P<topic>\S+)\s.*?PartitionCount: (?P<partitions>\d+)", re.M)
+# Written by seed-model-repository.sh once the shared default ACL is applied.
+MODEL_REPOSITORY_ACL_MARKER = ".aoi-model-repository-acl-v1"
+MODEL_REPOSITORY_VOLUME = "aoi-inference-model-repository"
+# Services that write promoted model versions into the shared repository.
+MODEL_REPOSITORY_WRITERS = ("aoi-inference-triton", "data-flywheel-model-manager")
 
 
 def exec_in(containers_by_service, service: str, *cmd: str) -> str:
@@ -43,8 +49,8 @@ def exec_in(containers_by_service, service: str, *cmd: str) -> str:
     return result.stdout
 
 
-def mount_source(service: dict, target: str) -> str:
-    return next(v["source"] for v in service.get("volumes", []) if v["target"] == target)
+def mount_target(service: dict, source: str) -> str:
+    return next(v["target"] for v in service.get("volumes") or [] if v.get("source") == source)
 
 
 def test_long_running_services_have_all_replicas_running(services, containers_by_service):
@@ -115,6 +121,33 @@ def test_elasticsearch_cluster_is_not_red(published_url):
     status, body = http_get(url)
     assert status == 200, f"GET {url} -> {status}: {body[:300]}"
     assert json.loads(body)["status"] in ("green", "yellow"), body
+
+
+def test_seaweedfs_masters_elected_a_leader(containers_by_service):
+    # The master API is unpublished (no authentication), so ask from inside.
+    status = exec_in(
+        containers_by_service,
+        "seaweedfs-master1",
+        "wget",
+        "-qO-",
+        "http://localhost:9333/cluster/status",
+    )
+    assert json.loads(status).get("Leader"), f"SeaweedFS masters have no leader: {status[:300]}"
+
+
+def test_model_repository_is_seeded_and_writable(services, containers_by_service):
+    problems = []
+    for service in MODEL_REPOSITORY_WRITERS:
+        root = mount_target(services[service], MODEL_REPOSITORY_VOLUME)
+        container = containers_by_service[service][0].name
+        for check, path, what in (
+            ("-e", f"{root}/{MODEL_REPOSITORY_ACL_MARKER}", "ACL marker missing (seed job did not apply the ACL)"),
+            ("-w", f"{root}/changenet_classify", "model directory not writable"),
+        ):
+            result = run(["docker", "exec", container, "test", check, path], timeout=60)
+            if result.returncode != 0:
+                problems.append(f"{service}: {what}: {path} {result.stderr.strip()}".rstrip())
+    assert not problems, "Model repository problems:\n" + "\n".join(problems)
 
 
 def test_kafka_topics_exist_with_expected_partitions(services, containers_by_service):

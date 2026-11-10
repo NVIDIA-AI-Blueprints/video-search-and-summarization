@@ -20,10 +20,14 @@ from pathlib import Path
 import pytest
 
 DEPLOY_DIR = Path(__file__).resolve().parents[1]
-# Same order as the documented run command: secrets override the base .env.
-ENV_FILES = (".env", ".env.secrets")
-# Host where published ports are reachable; override to verify a remote Docker host.
-HOST = os.environ.get("AL_VERIFY_HOST", "localhost")
+COMPOSE_FILE = "compose.yml"
+# The documented run command passes only .env.secrets; each bundle loads its own
+# includes/<bundle>/.env.deft-aoi-* through `include: env_file:`.
+ENV_FILES = (".env.secrets",)
+# Host where published ports are reachable. Unset means the address each port is
+# bound to (127.0.0.1 by default). Set it to verify a remote Docker host.
+HOST = os.environ.get("AL_VERIFY_HOST")
+LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 LONG_RUNNING_RESTART_POLICIES = {"always", "unless-stopped"}
 
 
@@ -37,7 +41,7 @@ def compose_cmd(*args: str) -> list[str]:
     for env_file in ENV_FILES:
         if (DEPLOY_DIR / env_file).is_file():
             cmd += ["--env-file", env_file]
-    return [*cmd, "-f", "docker-compose.yml", *args]
+    return [*cmd, "-f", COMPOSE_FILE, *args]
 
 
 def run(cmd: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -53,6 +57,11 @@ def http_get(url: str, *, timeout: float = 10) -> tuple[int, str]:
         return exc.code, exc.read().decode(errors="replace")
     except (urllib.error.URLError, OSError) as exc:
         return 0, str(exc)
+
+
+def mount_source(service: dict, target: str) -> str:
+    """Host path (or volume name) mounted at ``target`` in a resolved service."""
+    return next(v["source"] for v in service.get("volumes") or [] if v["target"] == target)
 
 
 def is_long_running(service: dict) -> bool:
@@ -113,6 +122,8 @@ def containers(compose_config: dict) -> list[Container]:
             pytrace=False,
         )
     inspected = run(["docker", "inspect", *ids.stdout.split()])
+    if inspected.returncode != 0:
+        pytest.fail(f"docker inspect failed:\n{inspected.stderr}", pytrace=False)
     return [Container.from_inspect(c) for c in json.loads(inspected.stdout)]
 
 
@@ -126,12 +137,24 @@ def containers_by_service(containers: list[Container]) -> dict[str, list[Contain
 
 @pytest.fixture(scope="session")
 def published_url(services: dict[str, dict]):
-    """Build ``http://HOST:<published port>`` for a service's container port."""
+    """Build ``http://<host>:<published port>`` for a service's container port."""
 
     def _url(service: str, container_port: int, path: str = "") -> str:
         for port in services[service].get("ports", []):
-            if int(port["target"]) == container_port and port.get("published"):
-                return f"http://{HOST}:{port['published']}{path}"
+            if int(port["target"]) != container_port or not port.get("published"):
+                continue
+            bind = port.get("host_ip") or "0.0.0.0"
+            host = HOST or (bind if bind not in ("0.0.0.0", "::") else "localhost")
+            if bind in LOOPBACK and host not in LOOPBACK:
+                pytest.fail(
+                    f"{service} publishes port {port['published']} on {bind} only, so {host} "
+                    "cannot reach it. Run the checks on the Docker host, or set the port's bind "
+                    "variable (README.md, 'Published ports') and redeploy.",
+                    pytrace=False,
+                )
+            if ":" in host:
+                host = f"[{host}]"
+            return f"http://{host}:{port['published']}{path}"
         pytest.fail(f"{service} does not publish container port {container_port}", pytrace=False)
 
     return _url

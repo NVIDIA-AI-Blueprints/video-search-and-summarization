@@ -54,6 +54,31 @@ Pass `--env-file .env.secrets` to every `docker compose` command, including
 `ps`, `logs` and `down`. The compose files require those values to
 interpolate.
 
+### Deploy and verify in one step
+
+`deploy-and-verify.sh` runs the same deploy, then checks the result. It needs
+[uv](https://docs.astral.sh/uv/), or `pytest` and `pyyaml` for `python3`.
+
+```bash
+./deploy-and-verify.sh                 # config checks, pull, up -d, wait, deployment checks
+./deploy-and-verify.sh --verify-only   # checks only, against the running stack
+./deploy-and-verify.sh --no-pull       # use the images already on this host
+```
+
+It exits 0 only if every check passes. The checks are in `tests/`:
+
+- `test_config.py` runs before deploying and needs no running stack. It checks
+  `.env.secrets` and `DEFT_RUNTIME_DIR`, image pinning and registry access, and
+  that the shared Data Flywheel config renders for every `data-flywheel-*`
+  service with FAR targets that agree.
+- `test_live_deployment.py` is read-only. It checks replicas, health,
+  restarts, one-shot jobs, the HTTP endpoints, the Kafka topics, the bucket,
+  the index template, the Logstash pipelines and the model repository.
+
+The HTTP checks use each port's bind address, `127.0.0.1` by default. To run
+them from another machine, set `AL_VERIFY_HOST` and publish the ports on a
+reachable address first (see [Published ports](#published-ports)).
+
 To stop the stack, run `docker compose --env-file .env.secrets down`. Named
 volumes are kept. Add `-v` to delete them, which erases the bucket, the Kafka
 and Elasticsearch data, the MLflow registry and the model repository.
