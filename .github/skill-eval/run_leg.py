@@ -2446,7 +2446,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--instance",
-        default=os.environ.get("BREV_INSTANCE") or None,
+        default=(os.environ.get("SKILLS_EVAL_TARGET_INSTANCE")
+                 or os.environ.get("BREV_INSTANCE") or None),
         help="Operator override: pin the leg to this Brev instance instead "
              "of pool selection (still lock-guarded; waits if held)",
     )
@@ -2543,7 +2544,8 @@ def main(argv: list[str] | None = None) -> int:
                 "whole-leg deadline cannot fit one complete Harbor invocation"
             )
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
-        # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
+        # Pin precedence: CLI/--instance (incl. dedicated CI pin or
+        # BREV_INSTANCE env default)
         # > task.toml brev_instance > pool selection.
         pinned = selected_instance(args.instance, metadata, args.platform)
         if pinned:
