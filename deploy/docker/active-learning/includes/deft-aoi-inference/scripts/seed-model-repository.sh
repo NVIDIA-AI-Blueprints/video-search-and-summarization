@@ -1,6 +1,24 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Seed the shared Triton model repository volume from the inference image, once.
+#
+# The volume is seeded only when it is empty or incomplete. Later image upgrades
+# do NOT refresh the baseline model in it, because the volume also holds the
+# versions the flywheel has promoted since. See README.md ("Model repository").
 
 set -euo pipefail
 
@@ -15,15 +33,14 @@ required_files=(
   "${target}/changenet_classify/1/model.pth"
 )
 
-install_acl_tools() {
-  if command -v setfacl >/dev/null 2>&1; then
-    return
+require_acl_tools() {
+  # setfacl must ship in the inference image. Installing it here would need
+  # network access from an init container (fails on air-gapped hosts) and would
+  # pull an unpinned package at deploy time.
+  if ! command -v setfacl >/dev/null 2>&1; then
+    echo "setfacl not found: the AOI inference image (AOI_INFERENCE_IMAGE) must include the 'acl' package." >&2
+    exit 1
   fi
-
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y --no-install-recommends acl
-  rm -rf /var/lib/apt/lists/*
 }
 
 prepare_repository_permissions() {
@@ -31,11 +48,10 @@ prepare_repository_permissions() {
   find "${target}" -type d -exec chmod 2775 {} +
   find "${target}" -type f -exec chmod 0664 {} +
 
-  # The default ACL persists with the named volume. Avoid a network-bound
-  # package installation on every ephemeral init-container restart; changing
-  # the ACL policy requires a new versioned marker name.
+  # The default ACL persists with the named volume, so it is applied once;
+  # changing the ACL policy requires a new versioned marker name.
   if [[ ! -e "${acl_marker}" ]]; then
-    install_acl_tools
+    require_acl_tools
     setfacl -R -m "g:${shared_gid}:rwX" "${target}"
     find "${target}" -type d -exec setfacl -m "d:g:${shared_gid}:rwx" {} +
     touch "${acl_marker}"

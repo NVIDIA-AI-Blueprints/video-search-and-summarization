@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# AOI active-learning stack: the four bundles under includes/ as one Compose
+# project. The bundles do not run on their own (data-flywheel depends on
+# backend-api, deft-service and aoi-inference from the other bundles), so bring
+# them up through this file, from this directory:
+#
+#   docker compose --env-file .env.secrets up -d
+#
+# `include:` resolves each bundle's relative paths against that bundle's own
+# directory, and its env_file supplies that bundle's defaults. Values from
+# --env-file and the shell override those defaults. See README.md.
+
+name: aoi-active-learning
+
+include:
+  - path: includes/deft-aoi-active-learning/compose.yml
+    env_file: includes/deft-aoi-active-learning/.env.deft-aoi-active-learning
+  - path: includes/deft-aoi-inference/compose.yml
+    env_file: includes/deft-aoi-inference/.env.deft-aoi-inference
+  - path: includes/deft-aoi-data-flywheel/compose.yml
+    env_file: includes/deft-aoi-data-flywheel/.env.deft-aoi-data-flywheel
+  - path: includes/deft-aoi-deft-service/compose.yml
+    env_file: includes/deft-aoi-deft-service/.env.deft-aoi-deft-service

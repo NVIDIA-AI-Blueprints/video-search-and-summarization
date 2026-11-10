@@ -5,6 +5,5 @@
   "provider-resources/deft-aoi-active-learning/database-configs/kibana-config/kibana.yml",
   "provider-resources/deft-aoi-active-learning/database-configs/logstash-aoi-ingest/aoi-ingest.conf",
   "provider-resources/deft-aoi-active-learning/database-configs/logstash-config/logstash.yml",
-  "provider-resources/deft-aoi-active-learning/database-configs/logstash-pipelines/pipelines-kafka.yml",
-  "scripts/wait-for-kafka-topics.py"
+  "provider-resources/deft-aoi-active-learning/database-configs/logstash-pipelines/pipelines-kafka.yml"
 ]
