@@ -1700,6 +1700,53 @@ def cleanup_gateway_network_policy(instance: str, results_root: Path, *, timeout
         print(f"[run-leg] owned gateway network policy cleanup failed: {type(exc).__name__}", file=sys.stderr)
 
 
+def prepare_canary_verifier_runtime(instance: str, *, timeout_sec: int = 300) -> None:
+    """Ensure the cleanup-enabled alerts canary has a pinned worker-side judge.
+
+    The coordinator's Python 3.12 venv is not available over Brev SSH. Keep
+    this runtime outside the checkout and trial scratch so normal worker
+    cleanup preserves it, and check it under the worker lock before Harbor.
+    """
+    command = """set -euo pipefail
+export PATH="$HOME/.local/bin:$PATH"
+command -v uv >/dev/null || { echo "uv missing on worker" >&2; exit 1; }
+venv="$HOME/.cache/vss-skill-eval/verifier-py312-sdk-0.2.128"
+check_runtime() {
+  [ -x "$venv/bin/python" ] && "$venv/bin/python" -c 'import importlib.metadata, sys; assert sys.version_info[:2] == (3, 12); assert importlib.metadata.version("claude-agent-sdk") == "0.2.128"; import claude_agent_sdk'
+}
+if ! check_runtime; then
+  mkdir -p "$(dirname "$venv")"
+  uv venv --python 3.12 --clear "$venv"
+  uv pip install --python "$venv/bin/python" 'claude-agent-sdk==0.2.128'
+  check_runtime
+fi
+echo "canary verifier runtime ready: $venv"
+"""
+    result = subprocess.run(
+        [
+            "uvx", "--python", sys.executable, "--from", HARBOR_REQUIREMENT,
+            "python", "-c",
+            "import asyncio,sys; from envs.brev_env import _run_brev_exec_retry; "
+            "r=asyncio.run(_run_brev_exec_retry(sys.argv[1],sys.argv[2],timeout=int(sys.argv[3]))); "
+            "print(r.stdout or ''); print(r.stderr or '',file=sys.stderr); sys.exit(r.return_code)",
+            instance, command, str(max(1, timeout_sec - 30)),
+        ],
+        cwd=REPO_ROOT,
+        env=harbor_env(instance),
+        timeout=timeout_sec,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    detail = "\n".join(filter(None, (result.stdout, result.stderr))).strip()[-1500:]
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"canary verifier bootstrap failed on {instance} "
+            f"(exit {result.returncode}): {detail}"
+        )
+    print(f"[run-leg] {detail}", flush=True)
+
+
 def cleanup_worker_after_leg(instance: str, results_root: Path, *, timeout_sec: int = 720) -> None:
     """Destroy this leg's NemoClaw client and wipe trial state from its locked worker.
 
@@ -2555,6 +2602,13 @@ def main(argv: list[str] | None = None) -> int:
                     # phases below set their own labels.
                     leg_timing.set_phase(outer_phase)
                     dispatch_started = time.time()
+                    if (
+                        os.environ.get(CLEAN_WORKER_AFTER_LEG_ENV) == "true"
+                        and os.environ.get("EVAL_SPEC_PATH", "").startswith(
+                            "skills/operations/vss-manage-alerts/evals/"
+                        )
+                    ):
+                        prepare_canary_verifier_runtime(instance)
                     try:
                         rc = run_invocations(
                             invocations,

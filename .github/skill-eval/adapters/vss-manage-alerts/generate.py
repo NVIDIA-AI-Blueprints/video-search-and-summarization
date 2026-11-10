@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -157,15 +158,29 @@ def _platform_modes(spec: dict, platform_filter: str | None) -> list[tuple[str, 
 # ---------------------------------------------------------------------------
 
 def _test_sh(step_idx: int, spec_name: str) -> str:
+    # The cleanup-enabled NemoClaw canary owns a persistent, pinned verifier
+    # runtime on its selected worker. Normal nightly tasks keep their existing
+    # verifier path until this proof of concept is validated.
+    canary_verifier = os.environ.get("SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG") == "true"
+    if canary_verifier:
+        python_setup = (
+            'VERIFIER_PYTHON="$HOME/.cache/vss-skill-eval/verifier-py312-sdk-0.2.128/bin/python"\n'
+            'test -x "$VERIFIER_PYTHON" || { echo "canary verifier runtime missing" >&2; exit 1; }\n'
+        )
+        python_command = '"$VERIFIER_PYTHON"'
+    else:
+        python_setup = "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+        python_command = "python3"
+    shell_options = "set -euo pipefail" if canary_verifier else "set -uo pipefail"
     return (
         "#!/bin/bash\n"
         f"# vss-manage-alerts verifier step {step_idx}: delegates to generic LLM-as-judge.\n"
-        "set -uo pipefail\n"
+        f"{shell_options}\n"
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
-        "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+        f"{python_setup}"
         "\n"
-        'python3 "$TEST_DIR/generic_judge.py" \\\n'
+        f'{python_command} "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step {step_idx}\n'
         "exit 0\n"
     )
