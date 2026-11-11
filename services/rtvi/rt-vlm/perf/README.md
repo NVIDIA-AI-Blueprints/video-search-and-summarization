@@ -57,11 +57,11 @@ Monitoring image tags match `docker/rtvi_vlm/deploy/compose.perf.yaml` in
 The public VIOS stack is an intentional integration exception. The original
 setup script defaults to private `nvcr.io/rxczgrvsg8nx/vst-dev` images tagged
 `2.1.0-26.04.1`; this benchmark retains the public
-`nvcr.io/nvidia/vss-core/vss-vios-*` images tagged `3.3.0` and stages the
+`nvcr.io/nvidia/vss-core/vss-vios-*` images tagged `3.2.0` and stages the
 repository-owned VIOS deployment through `scripts/stage_vst.py`. Its PostgreSQL
 `17.10-alpine` and Redis `8.10.0-alpine` defaults match
 `services/vios/deployment/stream-processing/docker-compose/compose.env`.
-The previous image references remain commented in `setup/configs/images.yaml`.
+The supporting image references are defined in `setup/configs/images.yaml`.
 Keep the public VIOS exception when synchronizing source image tags. It changes supporting
 deployment selection, while measurement and latency calculations remain in the
 native benchmark implementation.

@@ -3,8 +3,7 @@
 # Supporting images only; the tested service still uses ARTIFACT_REF.
 # Values preserve existing references and do not certify OSRB approval.
 # Source: via/long-video-summarization@46720ff15883d9a92228a680247822ebffee5e14,
-# compose/ and perf/compose.yaml. VSS support images use release 3.3.0 below;
-# previous references remain commented. Other images retain their source versions.
+# compose/ and perf/compose.yaml. Supporting images retain their original references.
 schema_version: 1
 images:
   PERF_PROMETHEUS_IMAGE: prom/prometheus:latest
@@ -12,12 +11,10 @@ images:
   PERF_DCGM_EXPORTER_IMAGE: nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04
   PERF_NODE_EXPORTER_IMAGE: prom/node-exporter:latest
   PERF_CURL_IMAGE: curlimages/curl:latest
-  # PERF_RTVI_VLM_SBSA_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d-sbsa
-  PERF_RTVI_VLM_SBSA_IMAGE: nvcr.io/nvidia/vss-core/vss-rt-vlm:3.3.0-sbsa
+  PERF_RTVI_VLM_SBSA_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d-sbsa
   PERF_VLLM_IMAGE: nvcr.io/nvidia/vllm:25.12.post1-py3
   PERF_ELASTICSEARCH_IMAGE: elasticsearch:9.1.2
-  # PERF_RTVI_VLM_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d
-  PERF_RTVI_VLM_IMAGE: nvcr.io/nvidia/vss-core/vss-rt-vlm:3.3.0
+  PERF_RTVI_VLM_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-7ddad4454e4d
   PERF_NVIDIA_NEMOTRON_NANO_9B_V2_DGX_SPARK_IMAGE: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant
   PERF_ALPINE_IMAGE: alpine:3.20
   PERF_NGINX_IMAGE: nginx:alpine
