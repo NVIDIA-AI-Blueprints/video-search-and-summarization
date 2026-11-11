@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import PropTypes from "prop-types";
 import { IconButton, Tooltip } from "common/warehouse/mui";
 import {
   Fullscreen as FullscreenIcon,
@@ -451,38 +450,3 @@ export default class VideoElement extends React.PureComponent {
 VideoElement.prototype.VIDEO_CONTROL_PLAY_LABEL = "Play";
 VideoElement.prototype.VIDEO_CONTROL_PAUSE_LABEL = "Pause";
 VideoElement.prototype.HIDE_VIDEO_CONTROLS_TIMEOUT_MS = 3000;
-
-VideoElement.propTypes = {
-  /**
-   * Object containing optional attributes for the html video tag. Refer to
-   * https://www.w3schools.com/tags/tag_video.asp
-   * Example: {height:, width: }
-   *
-   * Note: Only following options are used as of now: height, width, autoPlay.
-   */
-  htmlVideoTagOptions: PropTypes.object.isRequired,
-  /**
-   * Object containing information about which custom controls to activate.
-   * Available controls are - play/pause, fullscreen.
-   * If not provided then fullscreen control is on by default while not others.
-   * videoControls = {
-   *   fullscreen: true,
-   *   playpause: false,
-   * }
-   */
-  videoControls: PropTypes.object,
-  /**
-   * Extra class for the fullscreen / play-pause cluster (e.g. park it
-   * above a recorded seek bar).
-   */
-  controlsClassName: PropTypes.string,
-  /**
-   * Object containing callbacks for HTMLMediaElement event handlers as described under
-   * https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement
-   */
-  htmlMediaElementEventHandlers: PropTypes.object,
-  /**
-   * Object containing callbacks for custom controls actions handlers
-   */
-  controlsActionsHandlers: PropTypes.object,
-};

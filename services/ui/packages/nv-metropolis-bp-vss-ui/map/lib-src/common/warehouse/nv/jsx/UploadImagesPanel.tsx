@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import { readJson } from "common/warehouse";
-import PropTypes from "prop-types";
 import React from "react";
 import { Button, IconButton } from "common/warehouse/mui";
 import {
@@ -154,13 +153,6 @@ export default class UploadImagesPanel extends React.PureComponent {
     );
   }
 }
-
-UploadImagesPanel.propTypes = {
-  /**
-   * Callback on closing the panel
-   */
-  onClose: PropTypes.func,
-};
 
 UploadImagesPanel.prototype.PANEL_TITLE = "Upload Images";
 UploadImagesPanel.prototype.TOOL_TIP =

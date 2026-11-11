@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import PropTypes from "prop-types";
 import { Warning as WarningIcon } from "common/warehouse/mui-icons";
 import { Paper } from "common/warehouse/mui";
 import { joinUrl, isAbortError, readJson } from "common/warehouse";
@@ -530,78 +529,3 @@ export default class TrajectoryClustersVisualizer extends React.Component {
       );
   }
 }
-
-TrajectoryClustersVisualizer.propTypes = {
-  /**
-   * Sensor Config JSON
-   */
-  sensorConfig: PropTypes.object.isRequired,
-  /**
-   * Type of base map.
-   *
-   * vehicles: GeoMap
-   * people: Floor Top View Image
-   */
-  type: PropTypes.oneOf(["vehicles", "people"]).isRequired,
-  /**
-   * Callback on time range selection.
-   *
-   * @param startDateTime {Date} Date Object
-   * @param endDateTime {Date} Date Object
-   */
-  onTimeRangeChanged: PropTypes.func,
-  /**
-   * Callback on Max trajectories per cluster count changed.
-   *
-   * @param count {number}
-   */
-  onMaxTrajCountChanged: PropTypes.func,
-  /**
-   * Callback on Min Behavior Distance changed.
-   *
-   * @param minBehaviorDistance {number}
-   */
-  onMinBehaviorDistanceChanged: PropTypes.func,
-  /**
-   * Callback on close button of widget.
-   *
-   * If provided, a clickable close button appears in the Window header.
-   */
-  onClose: PropTypes.func,
-  /**
-   * Widget position and size, same CSS values as Map Viz / other Widgets.
-   */
-  left: PropTypes.string,
-  top: PropTypes.string,
-  width: PropTypes.string,
-  height: PropTypes.string,
-  zIndex: PropTypes.string,
-  /**
-   * Maps Api Key if GeoMap in use
-   */
-  mapsApiKey: PropTypes.string,
-  /**
-   * Maps Options of Geo Map
-   */
-  mapOptions: PropTypes.object,
-  /**
-   * People Floor Plan Config Options
-   */
-  floorPlanViewConfig: PropTypes.object,
-  /**
-   * REST Endpoint for data.
-   */
-  clusteringBehaviorEndpoint: PropTypes.string.isRequired,
-  /**
-   * REST Endpoint for adding cluster labels.
-   */
-  clusterLabelUpdateEndpoint: PropTypes.string.isRequired,
-  /**
-   * Global Meters:Pixel Ratio for top view floor map cartesian coordinates plotting.
-   */
-  globalM2PxScaleFactor: PropTypes.number,
-  /**
-   * Canvas contents render update rate (frames per second). Pass through from UI config cartesianMapVizContentsRenderUpdateFps (default 2).
-   */
-  mapVizContentsRenderUpdateFps: PropTypes.number,
-};

@@ -3,7 +3,6 @@
 // @ts-nocheck
 import React from "react";
 import { Menu as MenuIcon } from "common/warehouse/mui-icons";
-import PropTypes from "prop-types";
 
 import MenuItem from "./MenuItem/MenuItem";
 
@@ -131,13 +130,3 @@ export default class ApplicationMenu extends React.PureComponent {
     );
   }
 }
-
-ApplicationMenu.propTypes = {
-  /**
-   * Array of App Menu Actions Panel Components
-   */
-  children: PropTypes.oneOfType([
-    PropTypes.arrayOf(PropTypes.element),
-    PropTypes.element,
-  ]),
-};

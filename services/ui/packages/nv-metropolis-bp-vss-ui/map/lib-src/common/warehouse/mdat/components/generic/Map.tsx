@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React, { useState, useCallback, useRef } from "react";
-import PropTypes from "prop-types";
 import { GoogleMap, useLoadScript } from "@react-google-maps/api";
 import { OverlappingMarkerSpiderfier } from "ts-overlapping-marker-spiderfier";
 import _ from "lodash";
@@ -863,59 +862,3 @@ function LoadedGoogleMap(props) {
     />
   );
 }
-
-Map.propTypes = {
-  /**
-   * @see {@link https://developers.google.com/maps/documentation/javascript/get-api-key}
-   */
-  apiKey: PropTypes.string,
-  /**
-   * @see {@link https://developers.google.com/maps/documentation/javascript/libraries}
-   * Default: ['drawing']
-   */
-  libraries: PropTypes.arrayOf(PropTypes.string),
-  /**
-   * @see {@link https://developers.google.com/maps/documentation/javascript/versions}
-   * Default: 'quarterly' -> most recent stable version
-   */
-  version: PropTypes.string,
-  /** Name of this instance for self recognition. Default is empty string. */
-  name: PropTypes.string,
-  /**
-   * @see {@link https://react-google-maps-api-docs.netlify.app/#googlemap}
-   * Default: { height: '100%' }
-   */
-  mapContainerStyle: PropTypes.object,
-  /**
-   * @see {@link https://react-google-maps-api-docs.netlify.app/#googlemap}
-   * Default:
-   *   options: {
-   *     styles: DefaultMapStyle,
-   *     streetViewControl: false,
-   *     mapTypeControl: false,
-   *     fullscreenControl: false,
-   *     zoomControlOptions: {
-   *       position: 8  // google.maps.ControlPosition.RIGHT_CENTER
-   *     },
-   *   },
-   */
-  options: PropTypes.object,
-  /**
-   * Enable OverlappingMarkerSpiderfier for handling overlapping markers
-   * Default: false
-   */
-  enableSpiderfier: PropTypes.bool,
-  /**
-   * Custom options for OverlappingMarkerSpiderfier
-   * @see {@link https://www.npmjs.com/package/ts-overlapping-marker-spiderfier}
-   * Available options:
-   *   - markersWontMove (default: true)
-   *   - markersWontHide (default: true)
-   *   - basicFormatEvents (default: true)
-   *   - keepSpiderfied (default: false)
-   *   - nearbyDistance (default: 20)
-   *   - circleSpiralSwitchover (default: 9)
-   *   - legWeight (default: 1.5)
-   */
-  spiderfierOptions: PropTypes.object,
-};

@@ -386,8 +386,8 @@ export default class CameraVideoPresenter extends React.Component {
  *
  * uiDelaySeconds: Any delay to be introduced in the playback. Used for 'live' mode
  *
- * endpointPts: Pts Endpoint to get start timestamp for hls video being
- *     played by Wowza server in a repeating manner
+ * endpointPts: Pts Endpoint to get start timestamp for video being
+ *     played in a repeating manner
  *
  * mode: Video playback mode - 'live', 'recorded'
  *
@@ -396,8 +396,6 @@ export default class CameraVideoPresenter extends React.Component {
  *
  * replayEventInfo: Object containing replay (metropolis analytics generated anomaly) event info
  *     For 'recorded' mode while playing an anomaly
- *
- * hlsEventListeners: Hls event listeners for HlsVideo Component
  *
  * htmlMediaElementEventHandlers: HTML Video Element Listeners
  */

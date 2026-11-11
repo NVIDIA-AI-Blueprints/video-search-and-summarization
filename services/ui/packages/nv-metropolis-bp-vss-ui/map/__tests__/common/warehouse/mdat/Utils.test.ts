@@ -2,12 +2,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import {
+  CameraTsToMs,
   ParseMdxPlaceString,
   MdxPlaceArray2String,
   BeautifyNameString,
   MsToHMSsssString,
   GetSensorAttr,
 } from '../../../../lib-src/common/warehouse/mdat/utils/Utils';
+
+describe('CameraTsToMs', () => {
+  it('parses a 12-hour camera timestamp with a negative UTC offset', () => {
+    expect(CameraTsToMs('01_15_2024_02_30_45_123_PM_UTC-08_00')).toBe(
+      Date.parse('2024-01-15T14:30:45.123-08:00'),
+    );
+  });
+
+  it('treats 12 AM as midnight and 12 PM as noon', () => {
+    expect(CameraTsToMs('12_01_2023_12_00_00_000_AM_UTC+00_00')).toBe(
+      Date.parse('2023-12-01T00:00:00.000+00:00'),
+    );
+    expect(CameraTsToMs('12_01_2023_12_00_00_000_PM_UTC+05_30')).toBe(
+      Date.parse('2023-12-01T12:00:00.000+05:30'),
+    );
+  });
+
+  it('returns NaN for an unparseable stamp', () => {
+    expect(Number.isNaN(CameraTsToMs('not-a-timestamp'))).toBe(true);
+  });
+});
 
 describe('ParseMdxPlaceString', () => {
   it('parses a place string into key-value pairs', () => {

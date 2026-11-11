@@ -4,8 +4,6 @@ export { default as LoaderDisplay } from './components/generic/LoaderDisplay/Loa
 export { default as Map } from './components/generic/Map';
 export { default as withLoaderDisplay } from './components/generic/Hoc/WithLoaderDisplay';
 export { default as VideoElement } from './components/generic/VideoElement/VideoElement';
-export { default as HlsVideo } from './components/generic/HlsVideo/HlsVideo';
-export { default as WrappedHlsVideo } from './components/generic/WrappedHlsVideo/WrappedHlsVideo';
 export { default as DashVideo } from './components/generic/DashVideo/DashVideo';
 export { default as Widget } from './components/generic/Widget/Widget';
 export { default as StartEndDateTimeSelector } from './components/generic/StartEndDateTimeSelector';

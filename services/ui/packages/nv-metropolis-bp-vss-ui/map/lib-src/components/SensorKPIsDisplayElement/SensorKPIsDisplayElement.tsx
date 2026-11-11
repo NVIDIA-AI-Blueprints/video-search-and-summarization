@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-//import PropTypes from 'prop-types';
 
 import classes from "./SensorKPIsDisplayElement.module.css";
 import sharedClasses from "./../KPIShared/KPIAnimations.module.css";
@@ -210,22 +209,5 @@ class SensorKPIsDisplayElement extends React.PureComponent {
     );
   }
 }
-
-//SensorKPIsDisplayElement.propTypes = {
-//  /**
-//   * Place String name to be used for Query to the backend for KPIs for the place
-//   */
-//  placeName: PropTypes.string.isRequired,
-//  /**
-//   * JSON Object containing Application's config params
-//   */
-//  appConfig: PropTypes.object.isRequired,
-//  /**
-//   * Function to get current time w.r.t. the application's start time
-//   *
-//   * @return { Number } time in Milliseconds
-//   */
-//  getCurrentTimestampMs: PropTypes.func.isRequired,
-//}
 
 export default SensorKPIsDisplayElement;

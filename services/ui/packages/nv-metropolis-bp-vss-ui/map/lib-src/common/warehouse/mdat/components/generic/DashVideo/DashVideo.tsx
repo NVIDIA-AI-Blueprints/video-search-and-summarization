@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from 'react';
-import PropTypes from 'prop-types';
 import { isEqual } from 'lodash';
 import { DashStream } from 'vst-streaming-lib/dash';
 
@@ -333,14 +332,3 @@ export default class DashVideo extends React.Component {
     void this.stopPlayback();
   }
 }
-
-DashVideo.propTypes = {
-  videoConnectionInfo: PropTypes.object.isRequired,
-  htmlVideoTagOptions: PropTypes.object.isRequired,
-  videoControls: PropTypes.object,
-  htmlMediaElementEventHandlers: PropTypes.object,
-  streamActionHandlers: PropTypes.object,
-  onWebRtcStreamingError: PropTypes.func,
-  onStreamingError: PropTypes.func,
-  isTimelineSeekable: PropTypes.bool,
-};

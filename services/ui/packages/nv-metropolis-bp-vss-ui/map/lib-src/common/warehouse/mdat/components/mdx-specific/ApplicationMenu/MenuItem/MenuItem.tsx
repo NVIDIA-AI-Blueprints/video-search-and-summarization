@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import PropTypes from "prop-types";
 
 import CssClasses from "./MenuItem.module.css";
 
@@ -19,21 +18,6 @@ const MenuItem = (props) => {
       - {props.content}
     </div>
   );
-};
-
-MenuItem.propTypes = {
-  /**
-   * Content Label
-   */
-  content: PropTypes.string,
-  /**
-   * Tooltip text to show on Menu Item Hover
-   */
-  tooltip: PropTypes.string,
-  /**
-   * On click callback function
-   */
-  onClick: PropTypes.func,
 };
 
 export default MenuItem;

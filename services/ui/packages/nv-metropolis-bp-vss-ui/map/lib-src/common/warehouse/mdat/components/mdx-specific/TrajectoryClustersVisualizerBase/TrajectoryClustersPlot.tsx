@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import PropTypes from "prop-types";
 import { Paper } from "common/warehouse/mui";
 
 import TrajectoryClustersGraph from "./TrajectoryClustersGraph";
@@ -131,36 +130,5 @@ class TrajectoryClustersPlot extends React.PureComponent {
     );
   }
 }
-
-TrajectoryClustersPlot.propTypes = {
-  /**
-   * Trajectory Clustering Json data
-   *
-   * Array Of Clusters[{
-   *   Trajectories Of Cluster[
-   *     Array of Trajectory Points,
-   *   ],
-   *   cluster color,
-   *   cluster name
-   * }]
-   */
-  data: PropTypes.array,
-  /**
-   * Maps Api Key if GeoMap in use
-   */
-  mapsApiKey: PropTypes.string,
-  /**
-   * Maps Options of Geo Map
-   */
-  mapOptions: PropTypes.object,
-  /**
-   * Sensor Config Json
-   */
-  sensorConfig: PropTypes.object.isRequired,
-  /**
-   * Global Meters:Pixel Ratio for top view floor map cartesian coordinates plotting.
-   */
-  globalM2PxScaleFactor: PropTypes.number,
-};
 
 export default TrajectoryClustersPlot;

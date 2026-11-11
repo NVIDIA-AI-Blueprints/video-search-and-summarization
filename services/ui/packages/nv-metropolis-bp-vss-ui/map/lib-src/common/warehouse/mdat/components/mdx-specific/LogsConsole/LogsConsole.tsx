@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import PropTypes from "prop-types";
 import {
   Cancel as CancelIcon,
   NotInterested as NotInterestedIcon,
@@ -73,25 +72,6 @@ const LogsConsole = (props) => {
       <div className={Styles.list}>{listItems}</div>
     </div>
   );
-};
-
-LogsConsole.propTypes = {
-  /**
-   * Set true to add close button. Default - false
-   */
-  closeable: PropTypes.bool,
-  /**
-   * Callback upon clicking close button
-   */
-  onClose: PropTypes.func,
-  /**
-   * Callback upon click 'Clear Logs' button
-   */
-  onClearConsole: PropTypes.func,
-  /**
-   * Array of UserMessage Objects to display as logs
-   */
-  logList: PropTypes.array.isRequired,
 };
 
 export default LogsConsole;

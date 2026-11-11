@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import PropTypes from "prop-types";
 import {
   ResponsiveContainer,
   BarChart,
@@ -103,31 +102,5 @@ class TrajectoryClustersGraph extends React.PureComponent {
     );
   }
 }
-
-TrajectoryClustersGraph.propTypes = {
-  /**
-   * Trajectory Clustering Json data
-   */
-  data: PropTypes.array.isRequired,
-  /**
-   * Cluster id of currently focused cluster
-   */
-  keyClusterFocused: PropTypes.string,
-  /**
-   * Cluster ids Set of invisible clusters
-   */
-  invisibleClusterIdsSet: PropTypes.object,
-  /**
-   * @param data {object}
-   */
-  onClusterBarMouseOver: PropTypes.func,
-  /**
-   */
-  onClusterBarMouseOut: PropTypes.func,
-  /**
-   * @param data {object}
-   */
-  onClusterBarClick: PropTypes.func,
-};
 
 export default TrajectoryClustersGraph;

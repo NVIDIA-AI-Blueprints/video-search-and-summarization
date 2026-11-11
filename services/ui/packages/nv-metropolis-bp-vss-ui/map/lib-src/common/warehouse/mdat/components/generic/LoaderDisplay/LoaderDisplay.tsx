@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import PropTypes from "prop-types";
-import _ from "lodash";
 import {
   DoneOutline as DoneOutlineIcon,
   Error as ErrorIcon,
@@ -122,28 +120,6 @@ LoaderDisplay.SIZE = {
   SMALL: 0,
   MEDIUM: 1,
   LARGE: 2,
-};
-
-LoaderDisplay.propTypes = {
-  /**
-   * Type of Loader Display. One of Enum LoaderDisplay.TYPE
-   */
-  type: PropTypes.oneOf(_.toArray(LoaderDisplay.TYPE)).isRequired,
-  /**
-   * UserMessage Object to show apt message to user
-   */
-  userMessage: PropTypes.oneOfType([
-    PropTypes.instanceOf(UserMessage),
-    PropTypes.string,
-  ]),
-  /**
-   * Display Size of icons/text
-   */
-  size: PropTypes.oneOf(_.toArray(LoaderDisplay.SIZE)),
-  /**
-   * Opacity of the root background (0 = transparent, 1 = fully opaque). Default: 1
-   */
-  backgroundOpacity: PropTypes.number,
 };
 
 export default LoaderDisplay;

@@ -2,24 +2,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import Moment from "moment";
 /**
- * Converts ITS specific camera timestamp UTC String to epoch milliseconds
+ * Converts ITS specific camera timestamp UTC String to epoch milliseconds.
+ * Input shape: `MM_DD_YYYY_hh_mm_ss_SSS_A_UTC±HH_MM`
  *
  * @param {string} timestamp UTC string time
  * @return {number} time epoch time in milliseconds
  */
 export function CameraTsToMs(ts) {
-  const unformattedTs = ts.split("_UTC")[0];
-  const unformattedTimeZoneOffset = ts.split("_UTC")[1];
-  const formattedTimeZoneOffset = unformattedTimeZoneOffset
-    .split("_")
-    .join(":");
-  const formattedTs = Moment.utc(
-    unformattedTs + " " + formattedTimeZoneOffset,
-    ["MM_DD_YYYY_hh_mm_ss_SSS_A ZZ"]
-  ).toISOString();
-  return new Date(formattedTs).getTime();
+  const [stamp, offsetRaw] = String(ts).split("_UTC");
+  const match = stamp.match(
+    /^(\d{2})_(\d{2})_(\d{4})_(\d{2})_(\d{2})_(\d{2})_(\d{3})_(AM|PM)/i,
+  );
+  if (!match) {
+    return Number.NaN;
+  }
+  const [, month, day, year, hourRaw, minute, second, ms, ampm] = match;
+  let hour = Number(hourRaw);
+  if (ampm.toUpperCase() === "PM" && hour !== 12) hour += 12;
+  if (ampm.toUpperCase() === "AM" && hour === 12) hour = 0;
+  let offset = (offsetRaw || "+00_00").replace(/_/g, ":").trim();
+  if (offset && !/^[+-]/.test(offset)) {
+    offset = `+${offset}`;
+  }
+  const iso = `${year}-${month}-${day}T${String(hour).padStart(2, "0")}:${minute}:${second}.${ms}${offset || "Z"}`;
+  return new Date(iso).getTime();
 }
 
 /**
