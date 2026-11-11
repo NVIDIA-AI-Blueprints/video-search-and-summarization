@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -449,9 +450,13 @@ def _parse_json_object(text: str) -> dict[str, Any]:
     return parsed
 
 
-def _vss_command(vss_project: str, *args: str) -> subprocess.CompletedProcess[str]:
+def _vss_prefix(vss_project: str | None) -> list[str]:
+    return ["uv", "run", "--project", vss_project, "vss"] if vss_project else ["vss"]
+
+
+def _vss_command(vss_project: str | None, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["uv", "run", "--project", vss_project, "vss", *args],
+        [*_vss_prefix(vss_project), *args],
         capture_output=True,
         text=True,
         check=False,
@@ -639,6 +644,8 @@ def _call_remote_vlm(spec: dict[str, Any], prompt: str, frame_paths: list[Path])
         "text": text,
         "error": None if ok else (str(last_payload)[:1500] or "; ".join(errors)),
         "job_id": "vlm-remote-" + uuid4().hex.upper(),
+        "usage": last_payload.get("usage") if isinstance(last_payload, dict) else None,
+        "transport_attempts": attempt + 1,
     }
 
 
@@ -660,7 +667,13 @@ def _run_remote_vlm(
         try:
             _extract_clip(vss_project, sensor, start, end, clip)
             frames = _sample_frames(clip, root / "frames", fps, frames_needed)
-            result = _call_remote_vlm(spec, prompt, frames)
+            submitted_prompt = prompt + "\n\nSAMPLING_METADATA: " + json.dumps({
+                "duration_seconds": duration, "images_sent": len(frames),
+                "requested_fps": fps,
+                "nominal_clip_offsets_seconds_in_image_order": [round(i / fps, 6) for i in range(len(frames))],
+                "timing_note": "Nominal ffmpeg output grid, not measured source-frame PTS. Report approximate event bounds; do not infer unseen transitions between images.",
+            })
+            result = _call_remote_vlm(spec, submitted_prompt, frames)
         except Exception as error:
             return {
                 "exit_code": 1,
@@ -692,7 +705,10 @@ def _run_remote_vlm(
         "remote_model": spec.get("model"),
         "remote_api": spec.get("api"),
         "http_status": result.get("http_status"),
-        "frames_sent": frames_needed,
+        "frames_sent": len(frames),
+        "submitted_prompt": submitted_prompt,
+        "usage": result.get("usage"),
+        "transport_attempts": result.get("transport_attempts"),
     }
 
 
@@ -717,11 +733,7 @@ def _run_vlm(
             prompt=prompt,
         )
     command = [
-        "uv",
-        "run",
-        "--project",
-        vss_project,
-        "vss",
+        *_vss_prefix(vss_project),
         "vlm",
         "run",
         "--raw",
@@ -773,6 +785,7 @@ def inspect_sensor_scope(
     task_call_allocation: int | None = None,
     claim_id: str | None = None,
     output_mode: str = OUTPUT_MODE_LEGACY,
+    include_sampling_context: bool = False,
 ) -> dict[str, Any]:
     """Inspect every affordable subwindow before bounded quality retries."""
     if output_mode not in OUTPUT_MODES:
@@ -892,6 +905,13 @@ def inspect_sensor_scope(
             duration_seconds=duration,
             repair=repair,
         )
+        if include_sampling_context:
+            effective += "\n\nWINDOW_METADATA: " + json.dumps({
+                "source_start": window["start"], "source_end": window["end"],
+                "duration_seconds": duration, "requested_fps": fps,
+                "frames_requested": window["frames_requested"],
+                "timestamp_basis": "Offsets from THIS submitted subwindow, not the complete video; timing is approximate at the sampled cadence.",
+            }, sort_keys=True)
         return effective, _prompt_digest(effective), duration
 
     for window_index, window in enumerate(windows):
@@ -905,6 +925,7 @@ def inspect_sensor_scope(
             continue
         if len(attempts) >= calls_budget:
             continue
+        began = time.monotonic()
         attempt = _run_vlm(
             vss_project=vss_project,
             sensor=sensor,
@@ -927,6 +948,8 @@ def inspect_sensor_scope(
                 "effective_prompt": effective_prompt,
                 "prompt_sha256": prompt_sha256,
                 "retry": 0,
+                "claim_id": claim_id,
+                "elapsed_seconds": time.monotonic() - began,
             }
         )
         attempts.append(attempt)
@@ -947,6 +970,7 @@ def inspect_sensor_scope(
         if priors:
             _remember_duplicate(window_index, window, prompt_sha256, 1, priors)
             continue
+        began = time.monotonic()
         attempt = _run_vlm(
             vss_project=vss_project,
             sensor=sensor,
@@ -969,6 +993,8 @@ def inspect_sensor_scope(
                 "effective_prompt": effective_prompt,
                 "prompt_sha256": prompt_sha256,
                 "retry": 1,
+                "claim_id": claim_id,
+                "elapsed_seconds": time.monotonic() - began,
             }
         )
         attempts.append(attempt)
@@ -1029,7 +1055,7 @@ def _parser() -> argparse.ArgumentParser:
     classify.add_argument("--input", required=True)
     classify.add_argument("--output")
     inspect = commands.add_parser("inspect")
-    inspect.add_argument("--vss-project", required=True)
+    inspect.add_argument("--vss-project", help="Optional source checkout; otherwise use installed vss on PATH")
     inspect.add_argument("--task", required=True)
     inspect.add_argument("--task-id")
     inspect.add_argument("--sensor", required=True)

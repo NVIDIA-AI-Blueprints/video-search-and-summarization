@@ -1,0 +1,11 @@
+{
+  "version": "batched-v1",
+  "max_rounds": 2,
+  "max_parallel_calls": 2,
+  "max_calls_per_task": 4,
+  "max_normal_calls": 8,
+  "final_check_calls": 1,
+  "sampling_presets": {"skim": 0.5, "locate": 1.0, "detail": 2.0},
+  "max_field_chars": 400,
+  "max_observations_per_task": 8
+}

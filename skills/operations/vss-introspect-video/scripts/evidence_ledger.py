@@ -698,7 +698,7 @@ def _needs_inspection(state: Mapping[str, Any]) -> bool:
     """
     if state["status"] not in ("supported", "contradicted"):
         return True
-    return state["coverage"] != "sufficient"
+    return state["coverage"] != "sufficient" or state["gap"] is not None
 
 
 def _budget_exhausted(ledger: Mapping[str, Any]) -> bool:
@@ -917,6 +917,8 @@ def merge_memory(
 def _is_sufficient(ledger: Mapping[str, Any]) -> bool:
     observations = {item["observation_id"]: item for item in ledger["observations"]}
     for state in ledger["claims"]:
+        if state["gap"] is not None:
+            return False
         if state["status"] not in ("supported", "contradicted"):
             return False
         if state["coverage"] != "sufficient" or not state["observation_ids"]:
@@ -945,6 +947,7 @@ def assess_sufficiency(ledger: Mapping[str, Any]) -> dict[str, Any]:
                 "coverage_sufficient": state["coverage"] == "sufficient",
                 "has_observation": bool(state["observation_ids"]),
                 "conflicting": "supports" in relations and "contradicts" in relations,
+                "has_gap": state["gap"] is not None,
             }
         )
     return {"sufficient": _is_sufficient(ledger), "claims": claims}
@@ -1252,6 +1255,7 @@ def final_result(
         if (
             state["status"] in ("supported", "contradicted")
             and state["coverage"] == "sufficient"
+            and state["gap"] is None
         ):
             continue
         if ledger["stop_reason"] == "tool_failure":
@@ -1331,6 +1335,12 @@ def validate_terminal_pair(
     expected_evidence_status = (
         "resolved" if ledger["status"] == "answered" else "unresolved"
     )
+    check = terminal_result.get("final_check")
+    downgraded = check is not None and (
+        check.get("verdict") != "supported" or check.get("answer_unchanged") is not True
+    )
+    if downgraded:
+        expected_evidence_status = "unresolved"
     if terminal_result.get("evidence_status") != expected_evidence_status:
         _fail(
             "final_result.evidence_status",
@@ -1343,7 +1353,7 @@ def validate_terminal_pair(
     if status == "answered":
         _nonempty(answer, "final_result.answer")
         source = terminal_result.get("decision_source")
-        if ledger["status"] == "unresolved":
+        if ledger["status"] == "unresolved" or downgraded:
             if source != "best_available_answer":
                 _fail(
                     "final_result.decision_source",
@@ -1355,7 +1365,7 @@ def validate_terminal_pair(
                 "a resolved ledger answers from introspection",
             )
     elif status == "unresolved":
-        if ledger["status"] != "unresolved":
+        if ledger["status"] != "unresolved" and not downgraded:
             _fail("final_result.status", "a resolved ledger must produce an answer")
         if answer is not None:
             _fail("final_result.answer", "an unresolved result cannot contain an answer")
@@ -1547,18 +1557,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             else collect_inspection_results(tasks, args.results_dir)
         )
         merged = resume_round_merge(base, current, tasks, results)
-        if args.output and merged["status"] == "unresolved" and not merged.get("requires_choice"):
-            artifact_dir = str(Path(args.output).resolve().parent)
-            terminal = final_result(merged, artifact_dir, None)
-            atomic_commit_terminal(
-                args.output,
-                merged,
-                Path(artifact_dir) / "final-result.json",
-                terminal,
-                provisional=True,
-            )
-        else:
-            _emit(merged, args.output)
+        # Never publish a provisional answer before the reserved visual check.
+        _emit(merged, args.output)
     elif args.command == "expand":
         _emit(expand_ledger(_read(args.ledger), _read(args.plan)), args.output)
     elif args.command == "assess":
@@ -1568,12 +1568,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             None,
         )
     elif args.command == "final-result":
+        from inspection_workflow import checked_final_result
+
         prepared = prepare_for_final_result(_read(args.ledger))
-        terminal = final_result(
+        terminal = checked_final_result(
             prepared,
             args.artifact_dir,
             args.answer,
-            evidence_ids=args.evidence_id,
+            args.evidence_id,
         )
         if args.output:
             atomic_commit_terminal(args.ledger, prepared, args.output, terminal)
@@ -1588,5 +1590,5 @@ def main(argv: Sequence[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except LedgerValidationError as error:
+    except (ValueError, OSError) as error:
         raise SystemExit(f"error: {error}") from error

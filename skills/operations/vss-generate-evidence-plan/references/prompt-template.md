@@ -9,9 +9,9 @@ asset_id: {{asset_id}}
 allowed_modalities: {{allowed_modalities}}
 task_constraints: {{task_constraints}}
 
-Start with exactly one claim. Add a second claim only when the question explicitly asks for two independently reportable outcomes that require different visual tests or coverage. Never return more than two claims.
+Start with one specific, independently verifiable fact or relationship. Split into two claims when one necessary part could be established while another remains uncertain and needs a different visual test. Never return more than two claims; keep further prerequisites explicit in the tests.
 
-Do not create setup claims for referenced objects, locations, target identity, event anchors, or parts of an action. Include those as qualifiers in the requirement and tests. Examples: color of the car that stops before a line is one attribute claim; cause of a vehicle stopping is one cause claim; “how many and which” may need separate count and identity claims.
+Use already grounded entities and event anchors as qualifiers. Do not combine an unverified prerequisite with its dependent conclusion: an uncertain reference frame or identity bridge may need an independent test. Each requirement is one sentence naming subject, fact and temporal scope. Do not manufacture claims for mere object existence.
 
 For each claim return only:
 - claim_id: stable claim-<slug> identifier;

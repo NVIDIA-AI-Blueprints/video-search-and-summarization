@@ -23,8 +23,8 @@ Reject claims that require audio, speech, ASR, transcripts, external subtitles, 
 
 1. Read [the claim-classification rubric](references/claim-classification.md) in full.
 2. Substitute the inputs into [the planner prompt](references/prompt-template.md). Preserve its option-blind boundary and output contract.
-3. Start with one answer-relevant claim. Put grounding details such as entity, location, and time inside its requirement and tests rather than creating setup claims.
-4. Add a second claim only when the question explicitly asks for two independently assessable outcomes that require different evidence tests or coverage. Never emit three or more initial claims.
+3. Start with one specific, independently verifiable fact or relationship. Name the subject, fact and relevant temporal scope in one sentence.
+4. Split when one necessary part could be established while another remains uncertain and needs a different evidence test. An independently unverified prerequisite may be the second claim. Never emit more than two initial claims; retain further prerequisites explicitly in the tests.
 5. For each claim, choose one primary `evidence_type` and `coverage_requirement`, then write observable support and falsification tests.
 6. Return one JSON object conforming to [the evidence-plan schema](references/evidence-plan.schema.json) with `mode="initial"`.
 
@@ -39,7 +39,7 @@ Create one additional claim only when the sufficiency result shows that an indep
 - Remain option-blind. Never expose or infer answer choices in planning.
 - State requirements neutrally; do not presuppose that an event occurred.
 - Use visible and independently assessable claims only.
-- Prefer one compound-but-testable answer claim over separate setup claims. Split only when the tests or coverage genuinely differ.
+- Do not combine an unverified prerequisite with a conclusion that depends on it. Split when tests or coverage genuinely differ.
 - Treat scene objects, target identification, event anchors, and spatial qualifiers as parts of the requirement unless the question independently asks about them.
 - Keep one primary evidence type per claim.
 - Do not cite evidence, observations, events, timestamps, or memory IDs at this stage.
@@ -53,7 +53,7 @@ After schema validation, verify that:
 
 - an initial plan contains one or two claims and an expansion contains exactly one;
 - each claim directly contributes to answering the question;
-- no claim merely establishes a noun, landmark, target, or event already usable as a qualifier in another claim;
+- a prerequisite claim establishes a genuinely uncertain necessary fact, not merely a noun already usable as a qualifier;
 - support and falsification tests name observable and incompatible outcomes;
 - a falsification test describes counterevidence, not missing visibility, ambiguity, or occlusion; those are sufficiency outcomes;
 - `whole_video` is used for unscoped `never`, `only`, `all`, `first`, `last`, absence, and counts accumulated across time;

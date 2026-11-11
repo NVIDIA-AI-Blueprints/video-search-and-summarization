@@ -1,702 +1,244 @@
 ---
 name: vss-introspect-video
-description: Run the skill-owned evidence loop for a video question delegated by vss-ask-video. Plan option-blind claims before retrieval, bind memory, dispatch bounded one-claim inspections, merge deterministically, and return a traceable answer or explicit unresolved gaps.
+description: Run a single-coordinator evidence loop using fixed-format parallel VLM tool calls, compact claim assessments, and a mandatory reserved final visual check. Delegate here from vss-ask-video for evidence-intensive questions.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "4.0.0-experimental"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
   vss-requires: "vlm"
 ---
 
-# Introspect video evidence
+# Batched video introspection — experimental workflow
 
-Use this skill only after `vss-ask-video` delegates a direct video question
-whose answer needs an introspection loop. Direct “answer this video question”
-requests still enter through `vss-ask-video`. `vss-generate-evidence-plan` is a
-planner used by this workflow; it is never an answering workflow.
+Use after `vss-ask-video` delegates an introspection question. This branch
+replaces parallel inspector agents with **parallel tool calls**. One coordinator
+plans, assesses evidence, and synthesizes. Do not spawn inspection/planning
+subagents, construct free-form VLM prompts, poll worker processes, or write the
+canonical ledger/final-result yourself.
 
-The top-level agent owns planning, the canonical ledger, memory binding, gap
-assessment, task dispatch, result collection, deterministic merge, stop
-decisions, final synthesis, and run artifacts. VSS owns only ordinary
-evidence-producing commands:
+`scripts/inspection_workflow.py` owns prompt rendering, concurrent tool calls,
+batch artifacts, accounting and merge. It reuses `vlm_inspection.py` and the
+configured backend; do not change routing or construct endpoints. Use ordinary
+`vss memory get/query`, `vss vios list/timeline` and the guarded helper, never
+a VSS introspection service or `/generate`.
 
-- `vss memory get` and `vss memory query`;
-- `vss vios list`, `vss vios timeline`, and other media lookup;
-- `vss vlm run`;
-- normal persistence of each VSS job when configured.
+## Limits and compatibility
 
-Do not use `vss memory introspect`, the VSS Agent `/generate` endpoint, raw
-service HTTP, direct Elasticsearch, or a hand-built model request. Never add or
-expect a VSS introspection job. Claims, ledgers, gaps, subagents, and rounds
-remain invisible to the VSS CLI and libraries.
+Read `config/batch-policy.json` for experiment limits and sampling presets.
+`config/ledger-budgets.json` remains the legacy schema's upper bounds; the runner
+applies tighter experiment limits. There is an initial batch, at most one
+materially different refinement, and a **separately reserved final check**.
+Historical ledger keys named `max_parallel_subagents` and
+`max_vlm_calls_per_subagent` now describe tool-task slots and allocations, not
+permission to spawn agents.
 
-## Contracts and configuration
+No claim expansion in this experiment. No quality/syntax retries: preserve useful
+imperfect captions. Existing backend transport retries remain helper-owned.
+Failures consume calls. A task interrupted with unknown consumption is charged
+its full allocation and not silently resubmitted. Repeated commands reuse saved
+artifacts. Never delete a receipt to obtain more calls.
 
-`config/ledger-budgets.json` is the only numeric budget source; never copy its
-values into prompts or other configuration. Never exceed any maximum loaded
-from that file. The initialized ledger records every effective value in
-`budgets`. Task allocation and stopping use those configured limits. Failed
-inspections and retries count toward `vlm_calls_used`.
+Only grounded **sensor windows** are supported. Discover them through VIOS; do
+not invent sensor IDs for files/URLs. Report unsupported input rather than falling
+back to the legacy workflow. Keep all artifacts in a fresh per-attempt RUN_DIR.
 
-All objects are strict: every listed field is required unless marked optional,
-and unknown fields are rejected.
+## 1. Plan atomic requirements before memory retrieval
 
-### Evidence plan
+Retain question ID, original question, choices, asset identity and allowed
+modalities. Use the `vss-generate-evidence-plan` schema and classification rubric
+to write the plan yourself before retrieval. Normal inspection/planning is
+option-blind: no choices, proposed answers or prior conclusions.
 
-The evidence plan fields are:
+Each claim is one sentence naming the subject, one independently verifiable
+fact/relationship, and temporal scope. Split when one necessary part could be
+established while another needs a different evidence test. Do not combine an
+unverified prerequisite with a dependent conclusion. Use one or two claims; do
+not manufacture a second claim for an atomic question. Preserve other required
+prerequisites in tests and missing-evidence fields.
 
-- `plan_version`: `"2.0"`;
-- `mode`: `"initial"` or `"expansion"`;
-- `question_id`, `question_text`: non-empty strings;
-- `asset_id`: string or null;
-- `claims`: one or two initial claims, or exactly one expansion claim.
-
-Each claim has `claim_id`, `requirement`, `evidence_type`,
-`coverage_requirement`, `support_test`, and `falsification_test`.
-`claim_id` is a stable `claim-<descriptive-slug>`. Allowed evidence types are
-`attribute`, `object`, `count`, `action`, `state_change`, `order`, `duration`,
-`trajectory`, `identity`, `spatial`, `cause`, `prediction`, `counterfactual`,
-and `negative`. Allowed coverage is `local_window`, `before_after`,
-`repeated_observation`, or `whole_video`.
-
-### Observations and provenance
-
-Every observation has exactly `observation_id`, `claim_id`, `relation`, `text`,
-and `source`. Relation is `supports`, `contradicts`, or `context`.
-`observation_id` is the utility-generated stable `obs-<24 hex>` content ID.
-
-A memory source has `type: "memory"`, non-empty `record_id`, and optional
-`job_id`, `sensor_id`, `start`, and `end`. Start and end must appear together.
-
-A VLM source has `type: "vlm"`, non-empty `job_id`, and exactly one provenance
-selector matching the inspected media:
-
-- sensor: `sensor_id`, `start`, and `end`;
-- URL: `media_url`;
-- file: `path`.
-
-Sensor times are timezone-aware ISO-8601 values with `start < end`. A media URL
-is absolute HTTP(S). Never fabricate sensor or time fields for URL or file
-inspection.
-
-### Ledger
-
-The ledger has exactly `ledger_version`, `revision`, `plan`, `claims`,
-`observations`, `round`, `expansions_used`, `vlm_calls_used`, `budgets`,
-`status`, and `stop_reason`. `budgets` is the effective snapshot of
-`config/ledger-budgets.json`. `ledger_version` is `"1.0"`. Status is `in_progress`, `answered`,
-or `unresolved`; stop reason is null, `resolved`, `no_progress`,
-`budget_exhausted`, or `tool_failure`.
-
-Each claim state has `claim_id`, `status`, `coverage`, `observation_ids`, and
-`gap`. Claim status is `supported`, `contradicted`, or `unresolved`; coverage
-is `none`, `partial`, or `sufficient`. The original plan claims are immutable,
-accepted observations are append-only, and terminal ledgers cannot be merged
-or expanded.
-
-### Inspection task and result
-
-Each task has exactly `task_id`, `base_revision`, `claim`, `gap`,
-`existing_observations`, `asset_id`, `media_scope`, and `max_vlm_calls`.
-`media_scope` is exactly one of:
-
-- `{"type":"sensor","sensor_id":"...","start":"...","end":"..."}`;
-- `{"type":"media_url","media_url":"https://..."}`;
-- `{"type":"file","path":"..."}`.
-
-Each result has exactly `task_id`, `base_revision`, `observations`, `coverage`,
-`gap`, `vlm_calls_used`, and `error`. Result observations must be VLM
-observations for the assigned claim and media scope. Sensor observations may
-use a subwindow within the assigned window; URL and file provenance must match
-the assigned selector exactly. Errors are strings or null and never evidence.
-
-### Final result
-
-The final result keeps decision and evidence state separate. It includes
-`status`, `evidence_status`, `answer`, `decision_source`, `evidence`,
-`evidence_details`, `unresolved_gaps`, `revision`, and `artifact_dir`.
-`answer` is the complete text supplied by the top-level agent, or null when
-abstaining. The utility does not add a letter, infer options, or join a label
-to an explanation.
-
-A resolved ledger with an answer has `evidence_status: resolved` and
-`decision_source: introspection`. A terminal unresolved ledger with a supplied
-answer has `status: answered`, `evidence_status: unresolved`, and
-`decision_source: best_available_answer`, and it keeps the unresolved gaps.
-That includes a choice question answered with no accepted observations.
-An abstention omits the answer: `status` and `evidence_status` stay
-`unresolved`, `answer` is null, and `decision_source` is `abstention`. Use
-abstention only when the question does not ask for one of its choices. A
-ledger with `requires_choice: true` cannot abstain: `final-result` without
-`--answer` is rejected.
-Every gap has `claim_id`, `gap`, and one reason: `insufficient_coverage`,
-`not_visible`, `tool_failure`, or `budget_exhausted`.
-
-Use the utility for canonical state transitions:
+Plan fields: `plan_version: "2.0"`, `mode: "initial"`, `question_id`,
+`question_text` (option-blind), `asset_id` (string/null), `claims`.
+Each claim has `claim_id: "claim-<slug>"`, `requirement`, `evidence_type`,
+`coverage_requirement`, `support_test`, `falsification_test`. Use the planner's
+existing enums. Falsification requires visible incompatible evidence, not a
+retrieval miss or uncertainty. Counts/absence need complete scoped coverage;
+motion, identity and order need linked observations.
 
 ```bash
-LEDGER_TOOL="skills/operations/vss-introspect-video/scripts/evidence_ledger.py"
-
-python3 "${LEDGER_TOOL}" init \
-  --plan "${RUN_DIR}/plan.json" \
-  --output "${RUN_DIR}/ledger.json"
-
-# When the caller listed choices or asked for a letter, mark the ledger so
-# abstention is refused. Pass the original question if the plan text is
-# option-blind.
-python3 "${LEDGER_TOOL}" init \
-  --plan "${RUN_DIR}/plan.json" \
-  --requires-choice \
-  --original-question "${ORIGINAL_QUESTION}" \
-  --output "${RUN_DIR}/ledger.json"
-
-python3 "${LEDGER_TOOL}" merge-memory \
-  --ledger "${RUN_DIR}/ledger.json" \
-  --updates "${RUN_DIR}/memory-updates.json" \
-  --output "${RUN_DIR}/ledger.json"
-
-python3 "${LEDGER_TOOL}" create-tasks \
-  --ledger "${RUN_DIR}/ledger.json" \
-  --media-scopes "${ROUND_DIR}/media-scopes.json" \
-  --output "${ROUND_DIR}/tasks.json"
-
-python3 "${LEDGER_TOOL}" merge-round \
-  --ledger "${RUN_DIR}/ledger.json" \
-  --base-ledger "${ROUND_DIR}/base-ledger.json" \
-  --tasks "${ROUND_DIR}/tasks.json" \
-  --results-dir "${ROUND_DIR}" \
-  --output "${RUN_DIR}/ledger.json"
-
-python3 "${LEDGER_TOOL}" assess --ledger "${RUN_DIR}/ledger.json"
-
-# Answered result. Pass the complete answer text and the observation IDs the
-# synthesis actually used. Do not expand an unset variable into an empty flag.
-python3 "${LEDGER_TOOL}" final-result \
-  --ledger "${RUN_DIR}/ledger.json" \
-  --artifact-dir "${RUN_DIR}" \
-  --answer "The accepted observations support the yellow vest." \
-  --evidence-id "${OBSERVATION_ID}" \
-  --output "${RUN_DIR}/final-result.json"
-
-# Choice question with incomplete evidence: still pass --answer. Omit
-# --evidence-id only when no accepted observation exists.
-python3 "${LEDGER_TOOL}" final-result \
-  --ledger "${RUN_DIR}/ledger.json" \
-  --artifact-dir "${RUN_DIR}" \
-  --answer "C. yellow" \
-  --output "${RUN_DIR}/final-result.json"
-
-# Open-ended abstention only. Omit --answer entirely. Do not pass an empty
-# string. Do not use this path when the question asks for one of its choices.
-python3 "${LEDGER_TOOL}" final-result \
-  --ledger "${RUN_DIR}/ledger.json" \
-  --artifact-dir "${RUN_DIR}" \
-  --output "${RUN_DIR}/final-result.json"
+# Set SKILL_DIR to the absolute directory containing THIS loaded SKILL.md.
+# Installed harness skills are flattened; do not assume a repository checkout.
+LEDGER_TOOL="$SKILL_DIR/scripts/evidence_ledger.py"
+WORKFLOW="$SKILL_DIR/scripts/inspection_workflow.py"
+python3 "$LEDGER_TOOL" init --plan "$RUN_DIR/plan.json" --output "$RUN_DIR/ledger.json"
+# Explicit option-selection question: also pass --requires-choice and
+# --original-question "$ORIGINAL_QUESTION" to init.
 ```
 
-Only the top-level agent invokes a command that writes `ledger.json`.
-Subagents write only their assigned result artifact.
+## 2. Retrieve and bind memory
 
-## Run artifacts
+After planning, use available Markdown memory and configured VSS memory.
+Preserve record IDs/jobs/timestamps. No matches are not negative evidence.
+Write a compact array of memory updates: `claim_id`, `observations`,
+`coverage` (`none/partial/sufficient`), `gap` (string/null).
+Observation fields: `observation_id` (helper canonicalizes), `claim_id`,
+`relation` (`supports/contradicts/context`), `text`, `source`.
+Memory source: `type: "memory"`, `record_id`, optional `job_id`,
+`sensor_id`, and paired `start/end`.
 
-Use the caller-provided per-run artifact directory when it provides one.
-Otherwise use:
-
-```text
-${VSS_WORKSPACE:-$HOME/.vss}/runs/vss-introspection/<question-id>/
-├── plan.json
-├── ledger.json
-├── final-result.json
-├── terminal-commit.json
-└── rounds/
-    ├── round-1/
-    │   ├── base-ledger.json
-    │   ├── media-scopes.json
-    │   ├── tasks.json
-    │   ├── task-<claim-id>.json
-    │   ├── results.json
-    │   └── result-<claim-id>.json
-    ├── round-2/
-    └── round-<n>/
-```
-
-`round-<n>` continues through the configured `max_inspection_rounds`. The tree
-does not cap the run at three rounds.
-
-Freeze `base-ledger.json` before dispatch. Atomically replace `ledger.json` and
-`final-result.json`; publish `terminal-commit.json` last with the committed
-revision and hashes. Never write the ledger to `MEMORY.md`, VSS memory,
-Elasticsearch, or Git.
-
-## Workflow
-
-### 1. Freeze the question and grounded media scope
-
-Retain the verbatim question, stable question ID, optional asset ID, allowed
-visual modalities, and grounded media selectors. Keep answer choices out of
-planning, retrieval, subagent prompts, and VLM prompts. The top-level agent may use them only during final synthesis.
-
-Do not invent timestamps from “recently”, “this morning”, or similar relative
-phrases. A named sensor remains a sensor. For a local file, resolve the
-user-named relative path and require the real path to remain beneath the
-working directory.
-
-### 2. Plan first and option-blind
-
-Invoke `vss-generate-evidence-plan` before reading Markdown memory, querying VSS
-memory, looking at a VIOS timeline, selecting timestamps, or inspecting video.
-Planner input may contain only:
-
-- question ID and verbatim question text;
-- optional asset ID;
-- allowed visual modalities;
-- task constraints.
-
-Never send answer choices, labels, proposed answers, prior conclusions, memory
-records, evidence, or selected timestamps. Reject claims requiring unavailable
-audio, speech, ASR, transcripts, or external subtitles. OCR is allowed only
-when visible text is an explicitly allowed modality.
-The evidence planner never answers the question.
-
-Apply these claim-classification rules:
-
-- classify the smallest visible answer-bearing outcome, not every locating fact;
-- use exactly one strict evidence type and one strict coverage requirement;
-- default to one initial claim;
-- allow a second initial claim only for two independently reportable outcomes
-  requiring independent tests or coverage;
-- keep entity, location, event, and temporal grounding inside the requirement
-  and tests;
-- treat missing or ambiguous evidence as a gathering gap, not a new claim;
-- require visible productive evidence for `cause`, not chronology;
-- use `negative` for absence and `whole_video` for unscoped absence,
-  exhaustive counts, `never`, `only`, `all`, `first`, or `last`;
-- use `before_after` or stronger for state changes and causes;
-- use `repeated_observation` or stronger for identity, duration, trajectory,
-  and cross-event order.
-
-Choose the evidence type by the answer-bearing test:
-
-- `attribute`: visible property of a qualified entity;
-- `object`: presence or category of an object, vehicle, sign, or scene element;
-- `count`: number of distinct qualifying instances;
-- `action`: defining activity or completed act;
-- `state_change`: transition between visible states;
-- `order`: relative event chronology;
-- `duration`: elapsed interval or relative length;
-- `trajectory`: path or direction through space;
-- `identity`: sameness across separated observations;
-- `spatial`: relative position or location;
-- `cause`: visible productive link between precursor and outcome;
-- `prediction`: visually grounded immediate continuation;
-- `counterfactual`: visually grounded alternative under a changed condition;
-- `negative`: absence or non-occurrence within a declared scope.
-
-When types overlap, prefer `negative`; then `counterfactual` or `prediction`;
-`cause` over mere `order`; `identity` only when sameness is answer-bearing;
-`state_change` over `action` when transition matters; `count` or `duration`
-when the number or interval is the answer; then `spatial`, `attribute`, or
-`object`. Type/category questions are `object`, not `identity`.
-
-Coverage means:
-
-- `local_window`: one bounded view can run the test;
-- `before_after`: both sides of a transition are required;
-- `repeated_observation`: linked observations over time are required;
-- `whole_video`: complete video or defensibly complete scoped interval.
-
-Support tests name visible satisfying outcomes. Falsification tests name
-visible incompatible outcomes. Occlusion, blur, incomplete coverage,
-ambiguity, VLM uncertainty, timeout, and tool failure do not falsify a claim.
-Avoid circular tests. Counts require complete scoped coverage and
-deduplication; identity requires continuity or distinguishing features; cause
-requires a visible precursor or contact leading to the outcome.
-
-Validate the plan, save it as `plan.json`, and initialize `ledger.json`.
-
-### 3. Retrieve and bind memory
-
-Only after planning, search:
-
-1. local Markdown memory, when available;
-2. structured VSS memory, when configured and needed.
-
-Use exact identity for a known record and the complete project-local CLI
-invocation:
+Check prerequisites and compatible subject, time and state before accepting
+sufficiency. Individually supported observations do not support their combination.
+Preserve uncertainty in `gap`; a non-null gap blocks code-computed sufficiency.
 
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-
-"${VSS[@]}" memory get \
-  --job-id "${JOB_ID}" \
-  --record-type "${RECORD_TYPE}" \
-  --record-id "${RECORD_ID}"
+python3 "$LEDGER_TOOL" merge-memory --ledger "$RUN_DIR/ledger.json" \
+  --updates "$RUN_DIR/memory-updates.json" --output "$RUN_DIR/ledger.json"
+python3 "$LEDGER_TOOL" assess --ledger "$RUN_DIR/ledger.json"
 ```
 
-Use `vss memory query` for grounded discovery. Branch on the CLI exit code; an
-empty result at exit zero is valid. Do not retry or fall back to a backend.
+If memory resolves the ledger, skip normal batches **but not the final check**.
 
-Convert only useful visible facts to observations. Preserve memory `job_id`,
-`record_id`, sensor, and ISO-8601 window when available. Observation text
-describes the visible fact, never an answer choice or unsupported conclusion.
-Retrieval misses, absent fields, ambiguity, and command failures are gaps, not
-contradicting observations.
+## 3. Submit a structured batch
 
-For each claim, the top-level agent interprets accepted facts against its
-support test, falsification test, and coverage requirement, then supplies one
-memory update with observations, coverage, and the current gap. Merge all
-memory updates in one canonical revision and reassess. If the deterministic
-gate passes, skip visual inspection. Never expose answer choices to an
-inspection subagent or VLM prompt.
+Write `inspection-specs.json`, a JSON array with exactly these fields per task:
 
-### 4. Select bounded inspection work
+```json
+[{
+  "claim_id": "claim-direction",
+  "subject": "The vehicle identified by the question",
+  "fact_to_establish": "Motion relative to its independently visible heading",
+  "required_state": "During the approach referenced by the question",
+  "reference_frame": "Vehicle front/rear; report unknown if not established",
+  "scope": {
+    "type": "sensor", "sensor_id": "<listed sensor>",
+    "start": "<grounded ISO-8601 start>", "end": "<grounded ISO-8601 end>"
+  },
+  "sampling": "locate"
+}]
+```
 
-Create one utility-generated task per claim that still needs evidence. A claim
-still needs evidence when it is `unresolved`, or when it is `supported` or
-`contradicted` but its coverage is not `sufficient`. Derived support is not
-completion. While round or VLM-call budget remains, keep that claim eligible
-and inspect the uncovered interval. Every task:
-
-- targets one existing claim;
-- carries the complete evidence-plan claim unchanged;
-- carries the current gap and accepted observations;
-- uses the same frozen `base_revision` from the canonical ledger;
-- embeds one strict immutable media scope: sensor plus bounded ISO-8601 window,
-  media URL, or local file;
-- receives an allocation from the remaining canonical budget.
-
-Use `vss vios list` and `vss vios timeline --sensor NAME` only after planning
-to ground sensor identity and useful ISO-8601 windows. Window selection may be
-agent-driven. Write the chosen strict selectors to `media-scopes.json` before
-creating the task batch. The file must map each selected claim ID to
-exactly one scope, so parallel claims may use different media or windows. Do
-not alter a task's embedded scope after dispatch. For `whole_video`, inspect
-useful non-overlapping bounded windows; do not issue one arbitrarily large VLM
-request. Report partial coverage unless the accepted windows defensibly cover
-the complete grounded interval, and keep uncovered intervals as explicit gaps.
-These are ordinary `vss vios` lookups, not an orchestration service.
-
-Choose `VLM_FPS` from the inspection round. Do not use one fixed density for
-every round:
-
-- **First visual round — skim (`0.5`)**: cover the still-uncovered interval
-  with the widest useful bounded windows. Skim only to locate whether, or
-  roughly when, the missing visible fact occurs. Do not start at inspect
-  density.
-- **Later rounds — shorter window, higher FPS**: do not re-skim the same
-  broad interval. Narrow to shorter windows around remaining gaps, candidate
-  event times, or occluded regions from the skim. Raise FPS to **locate
-  (`1`)** for event and action confirmation, then **inspect (`2`)** for
-  labels, clothing, object state, or precise spatial relationships. Prefer a
-  shorter grounded window before increasing density.
-
-RT-VLM keeps the requested FPS only while `fps × clip_seconds` is at most 60
-frames. The helper splits longer assigned scopes at that cap. A later round
-at a higher FPS or a shorter window is a new inspection, not a duplicate of
-the skim.
-
-Before dispatching a sensor inspection, use the deterministic window planner:
+Focus fields are bounded short strings, not an extra instruction channel.
+Name the missing discriminator, not a proposed answer. Required state anchors the
+event; reference frame names the coordinates or says not applicable.
+Select `skim/locate/detail` from the policy based on the missing fact, not always
+the densest. Code splits scopes at the frame cap and records uncovered windows.
+Sampling a scope does not guarantee observing every event in it.
 
 ```bash
-VLM_HELPER="skills/operations/vss-introspect-video/scripts/vlm_inspection.py"
-VLM_FPS=0.5 # first visual round: skim. Later rounds: 1 then 2 on a shorter window
-
-python3 "${VLM_HELPER}" plan-windows \
-  --start "${START_TIME}" \
-  --end "${END_TIME}" \
-  --fps "${VLM_FPS}" \
-  --output "${ROUND_DIR}/vlm-windows-${CLAIM_ID}.json"
+python3 "$WORKFLOW" batch --ledger "$RUN_DIR/ledger.json" \
+  --spec "$RUN_DIR/inspection-specs.json"
 ```
 
-The helper splits the assigned scope so every request remains within RT-VLM's
-frame-delivery cap. If the allocated call budget cannot cover every planned
-window, coverage remains partial and uninspected windows stay in the gap.
+The command is synchronous. If the hosting tool yields a session ID, use its
+session-wait mechanism, not process polling or another agent.
+It uses the installed configured `vss` CLI on PATH. Only for a deliberate local
+source-checkout run, add `--vss-project "$VSS_REPO_ROOT/libs/vss"`.
+Read `rounds/round-N/batch.json` and task receipts. The fixed prompt asks for
+chronological `[start_seconds:end_seconds]` captions relative to each submitted
+clip and limitations. Imperfect caption syntax does not trigger a retry.
 
-### 5. Dispatch bounded parallel subagents
+## 4. Assess compactly and merge once
 
-Spawn no more subagents than the loaded parallelism limit. Give each one task
-containing one claim ID, its immutable `media_scope`, and a result path. Instruct
-it to:
+Write one assessment per returned task:
 
-- read only its claim, gap, existing observations, asset ID, media scope, and
-  coverage;
-- inspect only the missing visible fact in the assigned media scope;
-- use targeted `vss vlm run` calls within its allocation; never search memory,
-  summarize broadly, include answer choices, or spawn agents; for sensor work,
-  invoke VLM only through the guarded helper below, never directly;
-- report visible facts against the support and falsification tests, leaving
-  missing visibility, ambiguity, occlusion, failure, and incomplete coverage
-  unresolved; an occlusion, an ambiguous view, or an unobservable requested
-  attribute is a limitation, not proof that the attribute or event was absent;
-- preserve VSS job ID and the exact assigned provenance selector: sensor plus
-  ISO-8601 window, media URL, or file path;
-- put tool failures in `error`, never in `observations`; exit 6 may retain
-  usable evidence while recording the persistence limitation;
-- return exactly one contract-valid result without changing claims, canonical
-  state, or the final answer.
+```json
+[{
+  "task_id": "inspect-claim-direction-r1",
+  "observations": [
+    {"attempt_index": 0, "quote": "<verbatim output substring>", "relation": "context"}
+  ],
+  "prerequisites_established": false,
+  "compatible_evidence": true,
+  "coverage_sufficient": false,
+  "conflict_free": true,
+  "missing_evidence": ["Vehicle front/rear is not independently visible"],
+  "rationale": "Camera-relative motion cannot establish forward motion."
+}]
+```
 
-For sensor work, use the helper instead of one unbounded VLM invocation.
-Pass the round's `VLM_FPS` chosen above:
+`attempt_index` indexes that task's `inspection.attempts` followed by
+`reused_evidence`. Quote useful lines only. Code checks exact quote membership,
+usable output, scope and job provenance and creates observation IDs.
+An empty observation list is valid. A limitation is not counterevidence.
+
+Assess whether prerequisites are established, evidence combines compatible
+subject/time/state, required coverage is sufficient, and conflicts are absent.
+A false field, explicit gap, incomplete inspection, conflicting relations, or
+missing evidence prevents closure. Code enforces these declared constraints;
+it does **not** determine whether semantic assessments are true.
 
 ```bash
-python3 "${VLM_HELPER}" inspect \
-  --vss-project "${VSS_REPO_ROOT}/libs/vss" \
-  --task "${ROUND_DIR}/tasks.json" \
-  --task-id "${TASK_ID}" \
-  --sensor "${SENSOR_NAME}" \
-  --start "${START_TIME}" \
-  --end "${END_TIME}" \
-  --fps "${VLM_FPS}" \
-  --prompt "${OPTION_BLIND_CLAIM_PROMPT}" \
-  --output-mode "${VLM_OUTPUT_MODE:-legacy}" \
-  --calls-budget "${TASK_MAX_VLM_CALLS}" \
-  --history "${PRIOR_INSPECTION_PATH}" \
-  --output "${ROUND_DIR}/inspection-${CLAIM_ID}.json"
+python3 "$WORKFLOW" merge --ledger "$RUN_DIR/ledger.json" \
+  --batch "$RUN_DIR/rounds/round-1/batch.json" --assessments "$RUN_DIR/assessments.json"
 ```
 
-`OPTION_BLIND_CLAIM_PROMPT` is the agent-written inspection focus for this claim.
-It is not a fixed dataset prompt. Customize it from the assigned claim and the
-current evidence gap: which entities must be distinguished, which observable
-action, attribute, transition, or relationship is missing, what must be visible
-before, during, and after that event, and which uncertainty still needs
-inspection. Keep it neutral and option-blind. Do not assert that an event
-happened merely because the question asks about it. Use the claim's evidence
-type only as generic guidance:
+Code merges the complete batch in deterministic order and writes one revision.
+If still in progress, use the one refinement to change window, sampling or focus
+based on the gap. A first pass with no useful observations can refine. No identical
+retry, third batch or claim expansion. Terminal states proceed to final check.
 
-- count: enumerate distinct qualifying events and distinguish incomplete events;
-- order: describe completed events and their source and destination states;
-- identity: preserve distinguishing features and visible continuity;
-- spatial or trajectory: name the reference frame and the relevant heading;
-- attribute: require a clear view of the correct entity and the relevant region;
-- cause: describe visible physical links, not merely temporal succession.
+## 5. Mandatory final check after EVERY terminal outcome
 
-`--output-mode` selects how the helper asks the VLM to report. `legacy` is the
-default and the control: the helper sends the inspection focus unchanged.
-`timestamped-caption` is the experiment. Set `VLM_OUTPUT_MODE=timestamped-caption`
-only for that arm. The helper keeps the inspection focus and appends caption
-reporting instructions separately to each submitted subwindow, using that
-subwindow's duration. The requested report shape is
-`[start_seconds:end_seconds] caption`, with offsets from the start of that
-submitted subwindow. One caption line per visible event or unchanged state;
-do not put a sequence of events inside one interval, and do not copy the
-window duration as `[0:duration]` unless that fact is unchanged for the whole
-span. The inspection artifact records `output_mode`, the inspection focus, the
-exact effective prompt and its hash, the raw answer, normalized text, the
-request window, FPS, frame limit, job ID, attempt number, exit status, and
-call accounting. The helper does not parse or validate caption syntax after
-the VLM returns. Well-formatted captions are not visual correctness,
-exhaustive coverage, or claim sufficiency. Absence from the sampled captions
-is not evidence that an event did not occur. When a caption visibly supports
-or contradicts the claim, put the timestamped line in the existing observation
-`text` field. Do not add caption-metadata fields to ledger observations or
-task results.
+After resolution, no progress, budget exhaustion or tool failure, synthesize a
+tentative answer. For explicit options choose the best available option even
+when unresolved. For open-ended questions answer naturally or abstain; never
+invent labels. Do not publish the answer yet.
 
-Timestamped mode is supported on the guarded sensor helper above. A direct
-`vss vlm run` with `--media-url` or `--file` does not attach the caption
-contract. Do not use that direct command to bypass timestamped mode. URL and
-file scopes are unsupported for this experiment; leave the claim gap explicit
-instead of inventing a sensor ID or an absolute source time.
+Write `final-check-spec.json`:
 
-Omit `--history` when no prior inspection artifact exists; repeat it for every
-prior round that targeted the claim. The helper rejects an exact duplicate
-sensor/window/FPS/effective-prompt/claim call before inference. The effective
-prompt includes the caption contract and any repair instructions, so a legacy
-answer is not timestamped-mode evidence for the same window and claim. A usable prior attempt
-for that same claim is returned in `reused_evidence` with its original
-observation ID, job ID, and provenance; it counts as inspected and does not
-spend a new VLM call. Do not insert that evidence again. A failed or unusable
-prior attempt does not establish coverage. A different sensor, claim, sampling
-rate, or prompt is not coverage. A higher-density refinement or materially
-different evidence prompt is not a duplicate.
+```json
+{
+  "candidate_answer": "<complete tentative answer, or null for open-ended abstention>",
+  "scope": {
+    "type": "sensor", "sensor_id": "<listed sensor>",
+    "start": "<ISO start>", "end": "<ISO end>"
+  },
+  "sampling": "detail"
+}
+```
 
-The helper records every attempted subwindow, detects empty, reasoning-only,
-repetitive-template, and reverse-chronology output. It does not check whether
-timestamped captions followed the requested `[start:end]` shape. It attempts
-each affordable uncovered window once before spending remaining allocation on
-at most one quality retry per unusable window. This prevents a degenerate
-early window from starving later windows. Every new inference attempt,
-including a quality retry, counts toward `vlm_calls_used`. Reused evidence
-does not. The retry uses an explicit repair prompt, so it is not rejected as a
-duplicate. Unusable output is retained for diagnostics but never becomes an
-observation. `window_inspection` reports only whether planned windows produced
-usable text. `claim_sufficiency` is always null: returned text, including a
-report that the subject is occluded, does not make the claim sufficient.
-Convert a usable attempt into an observation only when it visibly supports or
-contradicts the claim. When the requested fact is not visible, keep the claim
-unresolved and record the limitation in the gap; do not treat occlusion
-language itself as unusable text or as proof of absence.
-
-For a sensor scope, `--task` is mandatory. Before any inference call, the
-helper loads that one task and rejects a missing or ambiguous task ID, a
-non-sensor scope, a mismatched sensor, a requested interval that is reversed
-or not entirely inside the task's immutable window, and a call allowance
-above the task allocation. It requests `vss vlm run --raw` and still accepts
-a pretty-printed answer body followed by the compact completion marker; it
-does not treat the marker as the answer. When the caller supplies
-`.vss/introspection-attempt.json`, the helper also requires both the task
-sensor and requested sensor to match that attempt's video ID or sensor UUID.
-An internally consistent task for a different video is therefore rejected
-before inference.
-Every returned observation must also use the assigned sensor and remain within
-the assigned window; merge validation rejects mismatches.
-
-The direct command below illustrates the subprocess shape used by the helper;
-do not invoke it directly for sensor tasks:
+Choose the most answer-discriminating grounded window. It **must fit one call**
+at the preset; an overly long scope is rejected, not silently truncated.
+The call is fresh, outside normal budget, with no quality retry. Normal inspections
+remain option-blind; the final template intentionally receives the candidate as
+a hypothesis to challenge. One local check may not establish a whole-video/count
+answer; that should be inconclusive, not confirmation.
 
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-
-VLM_FPS=0.5 # first visual round: skim. Later rounds: 1 then 2 on a shorter window
-"${VSS[@]}" vlm run \
-  --prompt "${OPTION_BLIND_CLAIM_PROMPT}" \
-  --sensor "${SENSOR_NAME}" \
-  --start-time "${START_TIME}" \
-  --end-time "${END_TIME}" \
-  --fps "${VLM_FPS}"
+python3 "$WORKFLOW" final-check --ledger "$RUN_DIR/ledger.json" \
+  --spec "$RUN_DIR/final-check-spec.json"
 ```
 
-For non-sensor input, the illustration would replace the sensor and time flags
-with exactly one of `--media-url "${MEDIA_URL}"` or `--file "${FILE_PATH}"`.
-That direct path is not a timestamped-caption inspection. Use the guarded
-sensor helper when the experiment is enabled.
+Read `final-check.json`, including raw output. The VLM returns visual evidence and
+one `CHECK: supported/contradicted/inconclusive` line. Malformed verdicts remain
+inconclusive; useful raw text is retained. Tool failure remains failed.
+Do not loop after this call. You may revise the answer, but the revised answer
+is explicitly not rechecked. Do not modify the ledger to make the check agree.
 
-### 6. Collect and merge one complete round
+## 6. Publish answer and artifacts
 
-Wait for every assigned subagent or the caller timeout. If a subagent does not
-return, write a result for its assigned task with no observations, retained
-coverage/gap, zero consumed calls when known, and a timeout error. Preserve
-successful sibling results.
+```bash
+python3 "$LEDGER_TOOL" final-result --ledger "$RUN_DIR/ledger.json" \
+  --artifact-dir "$RUN_DIR" --answer "$ANSWER" \
+  --evidence-id "$OBSERVATION_ID" --output "$RUN_DIR/final-result.json"
+```
 
-Each subagent persists `result-<claim-id>.json` independently. On restart,
-rediscover those files, resume only missing tasks, and create explicit timeout
-results for tasks that remain missing at the round deadline. Validate every
-result against its task, then batch-merge the complete result set from the
-frozen `base-ledger.json`. Re-running the same complete batch is idempotent and
-returns the already committed revision without incrementing round or call
-counts. The utility rejects stale, unknown, duplicate, cross-claim,
-over-budget, or malformed results; deterministically deduplicates observations;
-updates only assigned claim states; preserves support and contradiction; and
-increments the call count, `round`, and `revision` exactly once.
+Cite only accepted IDs actually used; repeat the flag as needed. Omit citations
+when none exist on an unresolved choice question. For open-ended abstention
+omit `--answer`, never pass an empty string. Choice questions must answer.
 
-Never merge arbitrary ledger copies from subagents and never merge results in
-completion order.
+Finalization refuses a missing or stale final-check receipt. It records normal
+and final-check calls separately, the verdict/candidate, whether the answer
+changed, and the check's hash. Failed/inconclusive/contradictory checks or revised
+answers make overall `evidence_status: unresolved` even when the pre-check ledger
+was resolved. An unresolved ledger stays unresolved even with a supported check.
+Selecting an option never closes evidence gaps.
 
-### 7. Reassess, optionally expand, and stop
+`terminal-commit.json` binds ledger and final-result hashes. No provisional
+answer is published before the check. A process killed mid-call cannot guarantee
+completion: it records interruption and consumes the reservation without claiming
+confirmation. Re-running commands repairs saved artifacts without new inference.
 
-The deterministic sufficiency gate passes only when every claim:
-
-- is `supported` or `contradicted`;
-- has `sufficient` coverage;
-- cites at least one accepted observation;
-- does not contain both supporting and contradicting observations.
-
-If the gate passes, the ledger becomes `answered` with stop reason `resolved`.
-If a round adds no observation and improves no coverage, it stops unresolved
-with `no_progress`. Exhausted round or global-call budget stops with
-`budget_exhausted`, including when a claim is only partially covered. If every
-attempted inspection fails and no useful evidence exists, it stops with
-`tool_failure`.
-
-A supported or contradicted claim whose coverage is still `partial` or `none`
-is not finished. If budget remains, create another task for it using a shorter
-window and higher FPS targeted at the remaining gap, not another full-interval
-skim. If no budget remains, stop. Do not answer from a note while the ledger
-is `in_progress`.
-
-Invoke planner expansion mode only when an independently assessable answer
-requirement is absent from the plan. Pass the prior plan and demonstrated
-planning gap, still option-blind. An expansion adds exactly one new claim and
-must preserve every existing claim ID and all evidence. Accept no more than the
-loaded expansion and total-claim budgets. Bind memory and reassess the new
-claim before inspecting it.
-
-If the run remains in progress, perform the next bounded round on the narrower
-unresolved interval at higher FPS. Otherwise stop. Do not turn an unresolved
-gap into an observation.
-
-### 8. Synthesize and write the final result
-
-Only the top-level agent synthesizes the user answer. When an answer cites
-accepted observations, pass those IDs with repeated `--evidence-id` flags.
-Do not cite context observations or observations for other claims unless they
-are the evidence the synthesis actually used. The utility rejects unknown IDs
-and does not fill citations from the rest of the ledger. Never fabricate
-citations.
-
-Answer the original question using accepted evidence and follow the caller’s
-requested response format.
-
-When the question asks for one of its choices, choose one. Do not leave that
-question unanswered. Mark the ledger with `--requires-choice` at `init`.
-Compare the full meaning of each option against the evidence rather than
-matching isolated words. Pass the complete option text with `--answer`. If the
-evidence is incomplete, conflicting, not visible, the inspection budget is
-exhausted, or every inspection failed, still select the choice best supported
-by what is known. Cite `--evidence-id` for any accepted observations used in
-that comparison. If no accepted observation exists, still pass `--answer` and
-omit `--evidence-id`. The helper rejects a missing `--answer` on a choice
-ledger. The result records `decision_source: best_available_answer`, keeps
-`evidence_status: unresolved`, and keeps the unresolved gaps.
-
-When the question does not ask for a choice, answer naturally without
-inventing options or labels. Pass `--answer` only when accepted observations
-support the text, and cite those IDs. If no answer is supported, omit
-`--answer` and abstain. Never pass an empty string.
-
-Only the top-level agent synthesizes the answer and performs any requested
-option selection. Planning and inspection remain option-blind.
-
-A mentioned list is not a choice question unless the question asks you to
-select one of those items. Do not hardcode benchmark names or letter-only
-output. Letter, numeric, and word options are all ordinary answer text. Pass
-that text with `--answer`. A resolved ledger records
-`decision_source: introspection`. A terminal unresolved ledger with a supplied
-answer records `decision_source: best_available_answer`, keeps
-`evidence_status: unresolved`, and keeps the gaps. Supplying an answer does
-not resolve claims or the ledger. An omitted answer records
-`decision_source: abstention` and `answer: null`. Omit `--answer` only for
-questions that do not ask for a choice.
-
-Write `final-result.json` with `scripts/evidence_ledger.py final-result` before
-any user-facing answer. Do this for every outcome: resolved, partial coverage
-stopped by `budget_exhausted`, `no_progress`, and `tool_failure`. The command
-persists a budget stop when no inspection budget remains, then writes the
-file. It refuses an in-progress ledger that still has budget; create the next
-task instead of writing a synthesis note. `merge-round` also writes
-`final-result.json` and a **provisional** `terminal-commit.json` when the
-merged ledger is unresolved **and does not require a choice**. That pair is a
-crash-safety fallback, not a finished choice. Choice ledgers never publish a
-harvestable abstention; `merge-round` writes the ledger only, and you must
-call `final-result` with `--answer` and the complete option text. That
-overwrite publishes a non-provisional marker. Do not omit `--answer` for a
-choice question; the helper refuses it. Consumers must not harvest a
-provisional marker while the agent is still working. If the session goes idle
-with no overwrite, harvest the provisional pair as an abstention only for
-open-ended questions.
-
-When the question does not ask for a choice, pass `--answer` only when
-accepted observations support an answer. If no answer is supported, omit
-`--answer` and abstain. Never pass an empty string. Every unresolved run
-reports each claim gap using only:
-
-- `insufficient_coverage`;
-- `not_visible`;
-- `tool_failure`;
-- `budget_exhausted`.
-
-Do not suppress gaps, present inference as observed evidence, or present
-context observations as answers. Report whether each cited source is memory or VLM and preserve VSS
-job, record, and assigned media provenance. `final-result.json` must be
-self-contained: include the final ledger revision, run artifact directory, and
-full provenance for every cited observation.
-
-Terminal finalization commits the revision-matched `ledger.json` and
-`final-result.json`, then publishes `terminal-commit.json` last. Consumers trust
-a terminal result only when the marker's revision and hashes match both files.
-A marker with `"provisional": true` is hash-valid but not done: wait for a
-non-provisional overwrite or idle. If finalization is interrupted, rerun the
-same command to repair the pair without advancing the ledger or consuming
-additional calls.
+Keep exact prompts, raw outputs, scopes, sampling, provider token usage (null
+when unavailable), elapsed times, assessments and revisions in the run directory.
+Do not persist ledgers in VSS memory or Git. Use a new directory for every trial.

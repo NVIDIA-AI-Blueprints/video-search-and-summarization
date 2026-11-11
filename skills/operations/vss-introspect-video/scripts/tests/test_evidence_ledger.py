@@ -6,19 +6,15 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import importlib.util
 import io
 import json
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
+import evidence_ledger as ledger_mod
+import inspection_workflow as workflow
 import pytest
-
-SCRIPT = Path(__file__).resolve().parents[1] / "evidence_ledger.py"
-SPEC = importlib.util.spec_from_file_location("evidence_ledger", SCRIPT)
-assert SPEC is not None and SPEC.loader is not None
-ledger_mod = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(ledger_mod)
 
 START = "2026-09-21T20:00:00Z"
 END = "2026-09-21T20:00:10Z"
@@ -28,6 +24,14 @@ MEDIA_SCOPE = {
     "start": START,
     "end": END,
 }
+
+
+def mock_final_check(path, answer=None):
+    """Exercise the real check runner with a mocked model response, not a live VLM."""
+    response = {"job_id": "test-check", "answer": "CHECK: supported", "raw_answer": "CHECK: supported",
+                "usable": True, "exit_code": 0, "error": None}
+    with patch("vlm_inspection._run_vlm", return_value=response):
+        workflow.run_final_check(path, {"scope": MEDIA_SCOPE, "sampling": "locate", "candidate_answer": answer}, "unused")
 
 
 def claim(
@@ -959,6 +963,7 @@ def test_citations_follow_the_synthesizer_and_answer_text_is_preserved(
 
     path = tmp_path / "ledger.json"
     path.write_text(json.dumps(ledger), encoding="utf-8")
+    mock_final_check(path, "The vest is yellow.")
     with pytest.raises(ledger_mod.LedgerValidationError, match="empty answer"):
         ledger_mod.main(
             [
@@ -1326,6 +1331,7 @@ def test_exhausted_partial_ledger_terminates_and_writes_final_result(tmp_path: P
     assert exhausted["round"] == 4
     ledger_path = tmp_path / "ledger.json"
     ledger_path.write_text(json.dumps(exhausted), encoding="utf-8")
+    mock_final_check(ledger_path)
     assert ledger_mod.main(
         [
             "final-result",
@@ -1451,11 +1457,12 @@ def _run_merge(tmp_path: Path, results: list[dict]) -> tuple[dict, dict]:
         ]
     ) == 0
     merged = json.loads(ledger_path.read_text(encoding="utf-8"))
-    final = json.loads((tmp_path / "final-result.json").read_text(encoding="utf-8"))
-    return merged, final
+    assert not (tmp_path / "final-result.json").exists()
+    assert not (tmp_path / "terminal-commit.json").exists()
+    return merged, None
 
 
-def test_unresolved_no_progress_merge_writes_final_result(tmp_path: Path) -> None:
+def test_unresolved_no_progress_merge_waits_for_final_check(tmp_path: Path) -> None:
     tasks = create_tasks(initialized())
     merged, final = _run_merge(
         tmp_path,
@@ -1463,11 +1470,7 @@ def test_unresolved_no_progress_merge_writes_final_result(tmp_path: Path) -> Non
     )
     assert merged["status"] == "unresolved"
     assert merged["stop_reason"] == "no_progress"
-    assert final["status"] == "unresolved"
-    assert final["answer"] is None
-    marker = json.loads((tmp_path / "terminal-commit.json").read_text(encoding="utf-8"))
-    assert marker["provisional"] is True
-    assert marker["status"] == "unresolved"
+    assert final is None
 
 
 def test_explicit_final_result_overwrite_is_not_provisional(tmp_path: Path) -> None:
@@ -1476,8 +1479,9 @@ def test_explicit_final_result_overwrite_is_not_provisional(tmp_path: Path) -> N
         tmp_path,
         [result(tasks[0], coverage="none", gap="No useful view was found.")],
     )
-    assert json.loads((tmp_path / "terminal-commit.json").read_text())["provisional"] is True
+    assert not (tmp_path / "terminal-commit.json").exists()
     (tmp_path / "ledger.json").write_text(json.dumps(merged), encoding="utf-8")
+    mock_final_check(tmp_path / "ledger.json", "C. yellow")
     assert ledger_mod.main(
         [
             "final-result",
@@ -1516,7 +1520,7 @@ def test_answered_commit_cannot_be_marked_provisional(tmp_path: Path) -> None:
         )
 
 
-def test_tool_failure_merge_writes_final_result(tmp_path: Path) -> None:
+def test_tool_failure_merge_waits_for_final_check(tmp_path: Path) -> None:
     tasks = create_tasks(initialized())
     merged, final = _run_merge(
         tmp_path,
@@ -1524,8 +1528,7 @@ def test_tool_failure_merge_writes_final_result(tmp_path: Path) -> None:
     )
     assert merged["status"] == "unresolved"
     assert merged["stop_reason"] == "tool_failure"
-    assert final["status"] == "unresolved"
-    assert final["unresolved_gaps"][0]["reason"] == "tool_failure"
+    assert final is None
 
 
 def test_collects_persisted_results_in_task_order(tmp_path: Path) -> None:

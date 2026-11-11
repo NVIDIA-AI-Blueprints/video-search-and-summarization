@@ -6,7 +6,7 @@ Classification is based on the smallest visible outcome needed to answer the que
 
 Start with one claim. Add a second initial claim only if all three conditions hold:
 
-1. the question explicitly asks for two independently reportable outcomes;
+1. the question needs two independently testable outcomes or a separately unverified prerequisite;
 2. each outcome can be supported or contradicted independently; and
 3. they need different visual tests or coverage.
 
