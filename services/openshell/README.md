@@ -22,7 +22,6 @@ a grant to reach VSS.
 | [`.hermes/Dockerfile`](../../.hermes/Dockerfile) | Step 3 — the harness image. It lives with the harness, not here: each harness owns a top-level directory, and this one carries no OpenShell-only content beyond the baked policy |
 | [`providers/`](providers/) — `agent-inference-profile.yaml`, `agent-inference-build-profile.yaml`, `agent-inference-local-profile.yaml` | Step 4 — provider profiles for the agent's own model: an OpenAI-compatible endpoint, `build.nvidia.com`, or a host-local model server |
 | [`vss/`](vss/) — `Dockerfile`, `policy.yaml`, `boundary.yaml` | Optional — the VSS layer over the step 3 image, and the policy pair adding the `vss-backend` and `ngc` grants |
-| [`create-sandbox.sh`](create-sandbox.sh) | Optional — steps 1b, 3 and 4 with the VSS layer, in one command against a running gateway |
 
 ---
 
@@ -377,8 +376,6 @@ replaces any shell export of them:
 
 A VSS developer profile starts the gateway itself — append `openshell` to its
 `COMPOSE_PROFILES` — which covers the Quickstart's step 1 and nothing else.
-[`create-sandbox.sh`](create-sandbox.sh) then runs steps 1b, 3 and the two
-below in one command, reading the same `openshell.env`.
 
 Both halves are needed. The image alone leaves a `vss` CLI the policy refuses
 to let out; the policy alone grants reach to a sandbox with no CLI to use it.
