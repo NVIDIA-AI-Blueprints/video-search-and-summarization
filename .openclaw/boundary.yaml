@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The ceiling VSS is willing to grant an OpenClaw harness sandbox; the
-# counterpart of ../.openshell/vss/boundary.yaml, with the same rules. Same
+# counterpart of ../services/openshell/vss/boundary.yaml, with the same rules. Same
 # filesystem paths, process identity and exact binary paths as policy.yaml,
 # wider where it matters: every method on each host.
 

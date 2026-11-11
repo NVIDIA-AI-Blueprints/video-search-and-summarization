@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The ceiling a Hermes harness sandbox with the VSS layer may be granted:
-# ../hermes/boundary.yaml plus the two grants the layer adds. The rationale for
-# both files is in ../hermes/boundary.yaml.
+# ../../../.hermes/boundary.yaml plus the two grants the layer adds. The rationale for
+# both files is in ../../../.hermes/boundary.yaml.
 
 version: 1
 

@@ -405,7 +405,7 @@
       "dockerfile": ".hermes/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": [],
-      "notes": "OpenShell Hermes sandbox harness: upstream Hermes built from its own public source on a standard Ubuntu base, with the matching access policy baked at /etc/openshell/policy.yaml. Carries no VSS content; the vss CLI, skills and plugin come from the optional layer .openshell/vss/Dockerfile, which builds FROM this image. Not a compose service: consumed by `openshell sandbox create --from`. Pinned by HERMES_REF rather than VSS_REF, so a skill or CLI change does not rebuild it and the image bakes no release line."
+      "notes": "OpenShell Hermes sandbox harness: upstream Hermes built from its own public source on a standard Ubuntu base, with the matching access policy baked at /etc/openshell/policy.yaml. Carries no VSS content; the vss CLI, skills and plugin come from the optional layer services/openshell/vss/Dockerfile, which builds FROM this image. Not a compose service: consumed by `openshell sandbox create --from`. Pinned by HERMES_REF rather than VSS_REF, so a skill or CLI change does not rebuild it and the image bakes no release line."
     },
     {
       "name": "vss-harness-openclaw-base",

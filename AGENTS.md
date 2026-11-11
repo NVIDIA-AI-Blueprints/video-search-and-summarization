@@ -17,7 +17,7 @@ Human contributor guidance — licensing, DCO, file headers — is in
 
 The skills call `vss` from `PATH`. The OpenClaw harness image
 (`.openclaw/Dockerfile`) and the OpenShell VSS layer
-(`.openshell/vss/Dockerfile`) ship it; anywhere else, install
+(`services/openshell/vss/Dockerfile`) ship it; anywhere else, install
 it from the same checkout as the skills you run, so the CLI and the skills are
 one version:
 

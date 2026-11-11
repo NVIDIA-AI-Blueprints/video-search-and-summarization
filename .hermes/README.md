@@ -17,7 +17,7 @@ the way that harness loads skills.
 | `plugin/` | The VSS Hermes plugin: `plugin.yaml`, `__init__.py` (the `vss_cli` tool, registered via `ctx.register_tool`) |
 
 Bring-up — the gateway, the provider profile, the sandbox and the verification
-steps — is in [`../.openshell/README.md`](../.openshell/README.md). This file
+steps — is in [`../services/openshell/README.md`](../services/openshell/README.md). This file
 covers the image and the plugin only.
 
 ## Building
@@ -69,12 +69,12 @@ openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
 `binaries` names `/usr/bin/python3.13` and the process identity is `998:999`,
 both pinned by the image. Why those values, and what makes the prover return
 `unsupported` rather than a pass, is in
-[`../.openshell/README.md`](../.openshell/README.md#4-quickstart-steps-explained).
+[`../services/openshell/README.md`](../services/openshell/README.md#4-quickstart-steps-explained).
 
 ## Adding VSS
 
 The image here has no `vss` CLI, no operation skills and no grant to reach a
-deployment. [`../.openshell/vss/`](../.openshell/vss/) is the optional layer
+deployment. [`../services/openshell/vss/`](../services/openshell/vss/) is the optional layer
 that adds all three: it takes this image as its base, installs the CLI, the
 skills, the workspace docs and the plugin from `plugin/`, and replaces the
 baked policy with one carrying the `vss-backend` and `ngc` grants.

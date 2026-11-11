@@ -266,7 +266,7 @@ def test_vss_ref_defaults_are_in_lockstep_and_readable():
     import re as _re
     repo = Path(__file__).resolve().parents[4]
     refs = {}
-    for df in (repo / ".openclaw" / "Dockerfile", repo / ".openshell" / "vss" / "Dockerfile"):
+    for df in (repo / ".openclaw" / "Dockerfile", repo / "services" / "openshell" / "vss" / "Dockerfile"):
         m = _re.search(r"^ARG VSS_REF=(\S+)$", df.read_text(), _re.M)
         assert m, f"{df} has no VSS_REF default"
         refs[df.parent.name] = m.group(1)
@@ -278,8 +278,8 @@ def test_vss_ref_defaults_are_in_lockstep_and_readable():
 
 
 def _hermes_sync_wrapper() -> str:
-    """The vss-hermes-sync script exactly as .openshell/vss/Dockerfile writes it (via printf)."""
-    dockerfile = (Path(__file__).resolve().parents[4] / ".openshell" / "vss" / "Dockerfile").read_text()
+    """The vss-hermes-sync script exactly as services/openshell/vss/Dockerfile writes it (via printf)."""
+    dockerfile = (Path(__file__).resolve().parents[4] / "services" / "openshell" / "vss" / "Dockerfile").read_text()
     body = re.search(r"printf '(#!/bin/sh\\n.*?)' > /usr/local/bin/vss-hermes-sync", dockerfile).group(1)
     return body.replace("\\n", "\n")
 

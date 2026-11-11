@@ -39,6 +39,9 @@ include:
   - path: ./nim/compose.yml
     env_file:
       - ${VSS_APPS_DIR}/services/nim/nim.env
+  - path: ./openshell/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/openshell/openshell.env
   - path: ./nvstreamer/base.yml
     env_file:
       - ${VSS_APPS_DIR}/services/nvstreamer/.env

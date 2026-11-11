@@ -3,7 +3,7 @@
 
 # VSS OpenClaw harness policy — the OpenShell-native translation of
 # assets/vss_nemoclaw_policy.yaml, in the same form as
-# ../.openshell/vss/policy.yaml.
+# ../services/openshell/vss/policy.yaml.
 #
 #   - `binaries` names /usr/local/bin/node: `openclaw` is a `#!/usr/bin/env
 #     node` script, so no process carries its path. The `vss` CLI venv is

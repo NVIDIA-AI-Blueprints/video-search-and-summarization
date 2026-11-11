@@ -17,11 +17,12 @@ a grant to reach VSS.
 
 | File | Role |
 |---|---|
-| [`.env`](.env), [`gateway/docker-compose.yml`](gateway/docker-compose.yml), [`gateway/gateway.toml`](gateway/gateway.toml) | Step 1 — the `openshell-init` and `openshell-gateway` services and their version-2 gateway config |
-| [`.hermes/policy.yaml`](../.hermes/policy.yaml), [`.hermes/boundary.yaml`](../.hermes/boundary.yaml) | Step 2 — the sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
-| [`.hermes/Dockerfile`](../.hermes/Dockerfile) | Step 3 — the harness image. It lives with the harness, not here: each harness owns a top-level directory, and this one carries no OpenShell-only content beyond the baked policy |
+| [`openshell.env`](../../deploy/docker/services/openshell/openshell.env), [`compose.yml`](../../deploy/docker/services/openshell/compose.yml), [`gateway.toml`](../../deploy/docker/services/openshell/gateway.toml) | Step 1 — the `openshell-init` and `openshell-gateway` services and their version-2 gateway config |
+| [`.hermes/policy.yaml`](../../.hermes/policy.yaml), [`.hermes/boundary.yaml`](../../.hermes/boundary.yaml) | Step 2 — the sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
+| [`.hermes/Dockerfile`](../../.hermes/Dockerfile) | Step 3 — the harness image. It lives with the harness, not here: each harness owns a top-level directory, and this one carries no OpenShell-only content beyond the baked policy |
 | [`providers/`](providers/) — `agent-inference-profile.yaml`, `agent-inference-build-profile.yaml`, `agent-inference-local-profile.yaml` | Step 4 — provider profiles for the agent's own model: an OpenAI-compatible endpoint, `build.nvidia.com`, or a host-local model server |
 | [`vss/`](vss/) — `Dockerfile`, `policy.yaml`, `boundary.yaml` | Optional — the VSS layer over the step 3 image, and the policy pair adding the `vss-backend` and `ngc` grants |
+| [`create-sandbox.sh`](create-sandbox.sh) | Optional — steps 1b, 3 and 4 with the VSS layer, in one command against a running gateway |
 
 ---
 
@@ -92,7 +93,7 @@ measured against the harness image.
 **Deployed from the host.** This path assumes a VSS deployment, so the sandbox
 is the one on the [VSS layer](#optional--add-vss-capabilities). Both are
 deployed from the host and in that order: VSS by
-[`vss-build-vision-ai`](../skills/vss-build-vision-ai/SKILL.md) or Compose,
+[`vss-build-vision-ai`](../../skills/vss-build-vision-ai/SKILL.md) or Compose,
 then the harness against the running build with the `openshell` CLI. The agent
 inside the sandbox drives VSS but never deploys or tears it down.
 
@@ -158,9 +159,9 @@ decision.
 
 | Resource | Process | Contents and networking |
 |---|---|---|
-| **Per deployment** — Compose, `harness` profile | | |
+| **Per deployment** — Compose, `openshell` profile | | |
 | `openshell-init` container | `generate-certs`, then exits | One-shot: writes the JWT signing keys and mTLS certificates into the data volume |
-| `openshell-gateway` container | `openshell-gateway` | Host networking, one listener on `127.0.0.1:8080` for the CLI, SDK and supervisors, health on `:8081`; mounts the Docker socket |
+| `openshell-gateway` container | `openshell-gateway` | Host networking, one listener on `127.0.0.1:8080` for the CLI, SDK and supervisors, health on `:8082`; mounts the Docker socket |
 | `openshell-data` volume | — | `gateway.db` (SQLite record of every sandbox), the JWT signing key, and the key-encryption key that seals provider credentials |
 | **Per sandbox** — the Docker driver | | |
 | Workload container | `openshell-sandbox` as PID 1, the harness (`hermes gateway run`) as its child | The harness image, `network_mode=none`, one non-root UID, all capabilities dropped |
@@ -207,7 +208,7 @@ boundary it is proven against, the harness Dockerfile, and the provider
 profiles. Section 4 is the same ground with the reasoning; §5 is how to check
 the result.
 
-First set the agent's own model in [`.env`](.env). The commands source it, so
+First set the agent's own model in [`openshell.env`](../../deploy/docker/services/openshell/openshell.env). The commands source it, so
 its values replace any of the same name exported in the shell:
 
 | Variable | Set it to |
@@ -235,21 +236,21 @@ mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
   done )
 openshell --version && openshell-prover --version     # both 0.1.6
 
-cd .openshell
-set -a; . ./.env; set +a          # OPENSHELL_TAG, HERMES_REF, HARNESS_*
+set -a; . deploy/docker/services/openshell/openshell.env; set +a   # OPENSHELL_TAG, HERMES_REF, HARNESS_*
 case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; *) echo "HARNESS_API_KEY ok";; esac
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
-docker compose --env-file .env -f gateway/docker-compose.yml --profile harness up -d
+docker compose --env-file deploy/docker/services/openshell/openshell.env \
+  -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
 openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
 
 # 2. Harness image: upstream Hermes and the baked policy.
 docker build --build-arg HERMES_REF="$HERMES_REF" \
-  -t "openshell-hermes:$HERMES_REF" ../.hermes
+  -t "openshell-hermes:$HERMES_REF" .hermes
 
 # 3. Inference provider. The profile authorizes the host; the provider seals the
 #    key, which the proxy injects at egress so the agent never holds it.
-openshell profile import -f providers/agent-inference-profile.yaml
+openshell profile import -f services/openshell/providers/agent-inference-profile.yaml
 openshell provider create --name agent-inference --type agent-inference \
   --credential HARNESS_API_KEY
 
@@ -257,7 +258,7 @@ openshell provider create --name agent-inference --type agent-inference \
 openshell sandbox create \
   --name hermes \
   --from "openshell-hermes:$HERMES_REF" \
-  --policy ../.hermes/policy.yaml \
+  --policy .hermes/policy.yaml \
   --provider agent-inference \
   --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
@@ -300,10 +301,10 @@ and then recreate the sandbox. The model and endpoint are fixed at create, and a
 running API server never sees a new credential. The gateway, image and provider
 all survive the recreate.
 
-First make one edit in [`.env`](.env); starting over needs none. Each option then
+First make one edit in [`openshell.env`](../../deploy/docker/services/openshell/openshell.env); starting over needs none. Each option then
 has a matching lettered step in the block below:
 
-| Change | Edit in `.env` |
+| Change | Edit in `openshell.env` |
 |---|---|
 | a) A different model on the same endpoint | `HARNESS_MODEL` to a model id it serves |
 | b) A different endpoint, on another host | `HARNESS_BASE_URL` to its base URL, including its `/v1`, `HARNESS_MODEL` to a model id it serves, `HARNESS_API_KEY` to its key |
@@ -315,14 +316,14 @@ on any other host. To start over, follow a).
 ```bash
 PROVIDER=agent-inference          # the Quickstart's provider
 
-# 1. Re-read the edited .env, then register the change with the gateway.
-set -a; . ./.env; set +a
+# 1. Re-read the edited openshell.env, then register the change with the gateway.
+set -a; . deploy/docker/services/openshell/openshell.env; set +a
 #  a) Nothing to register; go to step 2.
 #  b) A provider from the profile in providers/ that authorizes the new host:
 #     agent-inference-build for build.nvidia.com, as here, or
 #     agent-inference-local for a server on this host, whose key is optional.
 PROVIDER=agent-inference-build
-openshell profile import -f "providers/$PROVIDER-profile.yaml"
+openshell profile import -f "services/openshell/providers/$PROVIDER-profile.yaml"
 openshell provider create --name "$PROVIDER" \
   --type "$PROVIDER" --credential HARNESS_API_KEY
 #  c) The new key on the current provider.
@@ -334,7 +335,7 @@ openshell sandbox delete hermes
 openshell sandbox create \
   --name hermes \
   --from "openshell-hermes:$HERMES_REF" \
-  --policy ../.hermes/policy.yaml \
+  --policy .hermes/policy.yaml \
   --provider "$PROVIDER" \
   --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
@@ -366,7 +367,7 @@ Gives the agent the `vss` CLI, the operation skills and the `vss_cli` tool
 plugin, and the one grant that lets it reach a VSS deployment. Take it only
 against a deployment that is already up.
 
-First set the VSS layer's two values in [`.env`](.env), which likewise
+First set the VSS layer's two values in [`openshell.env`](../../deploy/docker/services/openshell/openshell.env), which likewise
 replaces any shell export of them:
 
 | Variable | Set it to |
@@ -374,21 +375,25 @@ replaces any shell export of them:
 | `VSS_REF` | A ref on `VSS_REPO` that the skills and the `vss` CLI are built from, at one reproducible version. The build fetches it rather than reading the working tree, so a local commit reaches the image only once it is pushed |
 | `VSS_PUBLIC_URL` | The deployment's origin as the sandbox reaches it. The default, `http://host.openshell.internal:7777`, is a deployment on this host |
 
+A VSS developer profile starts the gateway itself — append `openshell` to its
+`COMPOSE_PROFILES` — which covers the Quickstart's step 1 and nothing else.
+[`create-sandbox.sh`](create-sandbox.sh) then runs steps 1b, 3 and the two
+below in one command, reading the same `openshell.env`.
+
 Both halves are needed. The image alone leaves a `vss` CLI the policy refuses
 to let out; the policy alone grants reach to a sandbox with no CLI to use it.
 Neither the image nor the policy can be swapped on a running sandbox, so this
 replaces the sandbox from the Quickstart's step 4 rather than modifying it.
 
 ```bash
-cd .openshell
-set -a; . ./.env; set +a
+set -a; . deploy/docker/services/openshell/openshell.env; set +a
 PROVIDER="${PROVIDER:-agent-inference}"  # the Quickstart's provider, unless changed above
 TAG="${VSS_REF//\//-}-from-source"  # VSS_REF may be a branch; a Docker tag cannot hold "/"
 
 # 1. The VSS layer, built on the harness image from the Quickstart's step 2
 #    (openshell-hermes:$HERMES_REF).
 docker build --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
-  --build-arg VSS_REF="$VSS_REF" -t "openshell-hermes-vss:$TAG" vss
+  --build-arg VSS_REF="$VSS_REF" -t "openshell-hermes-vss:$TAG" services/openshell/vss
 
 # 2. Replace the sandbox with one on the VSS image and the VSS policy. Same
 #    create command as the Quickstart's step 4 otherwise, plus VSS_PUBLIC_URL.
@@ -396,7 +401,7 @@ openshell sandbox delete hermes
 openshell sandbox create \
   --name hermes \
   --from "openshell-hermes-vss:$TAG" \
-  --policy vss/policy.yaml \
+  --policy services/openshell/vss/policy.yaml \
   --provider "$PROVIDER" \
   --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
   --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
@@ -431,7 +436,7 @@ Builds on the VSS layer above, so take that one first: this points a VSS
 deployment's own UI at the sandbox, and a deployment is what supplies the UI.
 Skip it to reach the agent through `hermes chat` or the API server instead.
 Deploying VSS itself is
-[`vss-build-vision-ai`](../skills/vss-build-vision-ai/SKILL.md)'s job;
+[`vss-build-vision-ai`](../../skills/vss-build-vision-ai/SKILL.md)'s job;
 `<build>` below is the `_builds/<name>` it wrote.
 
 Nothing moves on the browser's side: it still enters through the deployment's
@@ -545,14 +550,14 @@ to start from:
 services:
   openshell-init:                # one-shot: writes the sandbox JWT signing
     image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_TAG}  # keys the Docker
-    profiles: [harness]                                       # driver requires
+    profiles: [openshell]                                       # driver requires
     command: [generate-certs, --output-dir, /var/lib/openshell/tls]
     user: "0"                    # seeds a root-owned fresh named volume
     environment: { HOME: /var/lib/openshell }
     volumes: [openshell-data:/var/lib/openshell]
   openshell-gateway:
     image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_TAG}
-    profiles: [harness]          # never materialises for a no-harness build
+    profiles: [openshell]          # never materialises for a no-harness build
     depends_on: { openshell-init: { condition: service_completed_successfully } }
     restart: unless-stopped
     network_mode: host           # the supervisor dials the host's own loopback
@@ -599,7 +604,8 @@ JWT key paths `init` writes. Three edits VSS has to make to it:
   above is for.
 
 ```bash
-docker compose --env-file .env -f gateway/docker-compose.yml --profile harness up -d
+docker compose --env-file deploy/docker/services/openshell/openshell.env \
+  -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
 openshell gateway add http://127.0.0.1:8080 --local --name openshell
 ```
 
@@ -636,13 +642,11 @@ key, and the key-encryption key that provider credentials are sealed with.
 Keeping it across `compose down` is what keeps sandboxes' gateway records.
 
 **One project, one profile.** The gateway sits in the VSS project behind the
-`harness` profile, so a deployment stays one `compose up` and one `compose
+`openshell` profile, so a deployment stays one `compose up` and one `compose
 down`, and a no-harness build — the correct outcome for one that only ingests,
 indexes or serves an API — never materialises a Docker-socket mount it would
-not use. Ordering is not a reason to split the projects: the harness is
-installed against a build that is already running. The sandbox still never
-becomes a service; Compose owns the gateway, and the gateway owns the sandboxes
-it creates as siblings.
+not use. The sandbox still never becomes a service; Compose owns the gateway,
+and the gateway owns the sandboxes it creates as siblings.
 
 **Why not a packaged gateway.** Since v0.0.37 the CLI has no verb that starts
 a gateway; a package owns it instead — the installer's Debian, RPM or snap
@@ -742,7 +746,7 @@ network_policies:
 
 ```bash
 openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
-openshell-prover check .openshell/vss/policy.yaml --boundary .openshell/vss/boundary.yaml
+openshell-prover check services/openshell/vss/policy.yaml --boundary services/openshell/vss/boundary.yaml
 # result: within_boundary
 # coverage: domains=filesystem,network_l4,network_rest,process,landlock
 ```
@@ -756,12 +760,12 @@ what it covered.
 
 **3 — Build the image and bake the policy in**, so one artifact carries the
 harness and the access boundary it is proven against.
-[`.hermes/Dockerfile`](../.hermes/Dockerfile) builds it in one pass from upstream
+[`.hermes/Dockerfile`](../../.hermes/Dockerfile) builds it in one pass from upstream
 Hermes on `nvcr.io/nvidia/base/ubuntu:24.04`, with no NemoClaw image
 underneath; why that rather than deriving from `hermes-sandbox` is in
 [`docs/nemoclaw-v1-vs-openshell.md`](docs/nemoclaw-v1-vs-openshell.md#removing-the-last-nemoclaw-dependency-the-base-image).
 The command and its build args are in
-[`.hermes/README.md`](../.hermes/README.md#building).
+[`.hermes/README.md`](../../.hermes/README.md#building).
 
 The image is tagged by `HERMES_REF` rather than a VSS ref because nothing in
 it comes from VSS: a Hermes bump produces a new tag instead of overwriting the
@@ -779,7 +783,7 @@ step 5, both because of what 0.1.6 changed: the supervisor's CA is mounted only
 once the sandbox exists, and sandbox-scoped provider attachments replaced
 managed inference routes, which makes the base URL and the model the workload's
 to set. What the image ships for each is in
-[`.hermes/README.md`](../.hermes/README.md#building).
+[`.hermes/README.md`](../../.hermes/README.md#building).
 
 The NGC CLI is in neither image, so under the VSS layer an operation skill
 that resolves a sample video by name fails and the `ngc` entry in
@@ -794,7 +798,7 @@ for Compose.
 **4 — Register the inference provider:**
 
 ```yaml
-# .openshell/providers/agent-inference-profile.yaml
+# services/openshell/providers/agent-inference-profile.yaml
 id: agent-inference
 display_name: Agent inference
 category: inference
@@ -817,8 +821,8 @@ binaries:
 ```
 
 ```bash
-openshell profile lint   -f .openshell/providers/agent-inference-profile.yaml
-openshell profile import -f .openshell/providers/agent-inference-profile.yaml
+openshell profile lint   -f services/openshell/providers/agent-inference-profile.yaml
+openshell profile import -f services/openshell/providers/agent-inference-profile.yaml
 HARNESS_API_KEY=... openshell provider create \
   --name agent-inference --type agent-inference --credential HARNESS_API_KEY
 ```
@@ -868,7 +872,7 @@ openshell policy get hermes --full         # verify effective policy
 ```
 
 The [VSS layer](#optional--add-vss-capabilities) recreates this sandbox with
-`--from openshell-hermes-vss:$TAG`, `--policy vss/policy.yaml` and one more
+`--from openshell-hermes-vss:$TAG`, `--policy services/openshell/vss/policy.yaml` and one more
 `--env VSS_PUBLIC_URL`; nothing else about the command changes. Neither the
 image nor the policy can be swapped on a live sandbox, which is why it is a
 delete and a create rather than an update.
@@ -1000,7 +1004,7 @@ streams the reply back as `message.delta` events.
 
 The work above is per-harness, so a second harness is a parallel set of the
 same artifacts — no new code path, because OpenShell has no harness concept to
-teach. For a harness in `.openshell/<name>/`:
+teach. For a harness in `services/openshell/<name>/`:
 
 - **`<name>/Dockerfile`** builds its image, with its own config and its policy
   baked in at `/etc/openshell/policy.yaml`, as step 3 does for Hermes.

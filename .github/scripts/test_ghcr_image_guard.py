@@ -115,7 +115,7 @@ class BakesReleaseLineTest(unittest.TestCase):
         for dockerfile in (
             "services/agent/docker/Dockerfile",
             ".openclaw/Dockerfile",
-            ".openshell/vss/Dockerfile",
+            "services/openshell/vss/Dockerfile",
         ):
             with self.subTest(dockerfile=dockerfile):
                 self.assertTrue(bakes_release_line(str(self.ROOT / dockerfile)))

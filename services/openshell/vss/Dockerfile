@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# The optional VSS layer on top of the pure harness ../../.hermes/Dockerfile
+# The optional VSS layer on top of the pure harness ../../../.hermes/Dockerfile
 # builds. Adds the `vss` CLI, the operation skills, the vss_cli tool plugin and
 # the workspace docs, and replaces the baked policy with the pair beside this
 # file, which is the pure one plus the vss-backend and ngc grants.
@@ -13,24 +13,24 @@
 # video by name shells out to `ngc`, and that call fails here; the `ngc` entry
 # in policy.yaml simply never matches.
 #
-# Build context is this directory (.openshell/vss):
+# Build context is this directory (services/openshell/vss):
 #
 #   docker build --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
 #     --build-arg VSS_REF="$VSS_REF" \
-#     -t "openshell-hermes-vss:$TAG" .openshell/vss
+#     -t "openshell-hermes-vss:$TAG" services/openshell/vss
 
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
-# The image ../../.hermes/Dockerfile produced. No default: a stale base silently
+# The image ../../../.hermes/Dockerfile produced. No default: a stale base silently
 # yields a harness the policy pair here was not proven against.
 ARG HARNESS_IMAGE
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-# Keep in lockstep with ../../.openclaw/Dockerfile, which explains the choice.
+# Keep in lockstep with ../../../.openclaw/Dockerfile, which explains the choice.
 ARG VSS_REF=develop
 
 FROM ${UV_IMAGE} AS uv
 
 # ── VSS source checkout: skills + workspace docs + CLI wheels ──────────────────
-# Same selection rules as ../../.openclaw/Dockerfile's vss-src stage. Built on the
+# Same selection rules as ../../../.openclaw/Dockerfile's vss-src stage. Built on the
 # harness image rather than the bare base so the wheels are built against the
 # same /usr/bin/python3.13 the runtime resolves. The vss_cli plugin comes from
 # the pinned checkout rather than the build context, since the context here
