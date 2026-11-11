@@ -42,6 +42,10 @@ services:
     environment:
       VLM_BASE_URL: ${VLM_BASE_URL:-http://rtvi-vlm:8000}
       VLM_NAME: ${VLM_NAME}
+      # Explicit key for any endpoint; NVIDIA_API_KEY is used only when the
+      # VLM client targets NVIDIA's HTTPS inference API.
+      VLM_API_KEY: ${VLM_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
       # URL rewriting configuration
       EXTERNAL_IP: ${EXTERNAL_IP}
       INTERNAL_IP: ${HOST_IP}

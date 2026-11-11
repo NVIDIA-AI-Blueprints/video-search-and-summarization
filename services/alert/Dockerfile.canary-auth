@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# This POC-only overlay keeps the stock Alert Bridge dependencies and changes
+# only the VLM client under test. Never tag or push it as a released image.
+FROM ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms:develop-latest
+COPY src/vlm/vlm_client.py /app/src/vlm/vlm_client.py

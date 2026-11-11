@@ -307,6 +307,22 @@ def generate_platform_mode(
                 "If neither complete route is available, report the missing "
                 "configuration before deploying.",
             ]
+            if (
+                spec_stem == "ondemand_verification"
+                and os.environ.get("SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG") == "true"
+            ):
+                leading.append(
+                    "This isolated VSS-1009 canary must test the checked-out Alert Bridge "
+                    "auth patch, not the stock image. Before resolving the build, copy "
+                    "`.github/skill-eval/canary/alert-bridge.yml` to the build's "
+                    "`patches/alert-bridge.yml` and include that patch after the root "
+                    "Compose file in the build's `compose.yml`. It builds a local "
+                    "`vss1009-alert-auth:develop-latest` overlay from "
+                    "`services/alert/Dockerfile.canary-auth`; do not push or retag the "
+                    "stock image. Confirm `resolved.yml` selects this image and has a "
+                    "build context for `alert-bridge` before deployment. The normal "
+                    "`pull --ignore-buildable` then `up -d --build` path applies."
+                )
         else:
             # A `skill-routing` step names neither a skill nor the alert mode:
             # it grades which installed skill the agent picks and where it

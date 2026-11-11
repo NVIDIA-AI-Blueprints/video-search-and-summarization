@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,30 @@ SPEC_PATH = (
 )
 SKILL_DIR = REPO_ROOT / "skills/operations/vss-manage-alerts"
 DEPLOY_SKILL_DIR = REPO_ROOT / "skills/vss-build-vision-ai"
+
+
+def test_ondemand_canary_uses_local_alert_auth_overlay(tmp_path: Path) -> None:
+    spec_path = SKILL_DIR / "evals/ondemand_verification.json"
+    command = [
+        sys.executable, str(ADAPTER_PATH),
+        "--output-dir", str(tmp_path),
+        "--skill-dir", str(SKILL_DIR),
+        "--deploy-skill-dir", str(DEPLOY_SKILL_DIR),
+        "--spec", str(spec_path),
+        "--platform", "L40S",
+    ]
+    env = os.environ.copy()
+    env.pop("SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG", None)
+    subprocess.run(command, check=True, capture_output=True, text=True, env=env)
+    (root,) = (tmp_path / "ondemand_verification").iterdir()
+    assert "vss1009-alert-auth" not in (root / "step-1/instruction.md").read_text()
+
+    env["SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG"] = "true"
+    subprocess.run(command, check=True, capture_output=True, text=True, env=env)
+    instruction = (root / "step-1/instruction.md").read_text()
+    assert "vss1009-alert-auth:develop-latest" in instruction
+    assert "patches/alert-bridge.yml" in instruction
+    assert "pull --ignore-buildable" in instruction
 
 
 def test_skill_routing_step_names_no_skill_or_mode(tmp_path: Path) -> None:
