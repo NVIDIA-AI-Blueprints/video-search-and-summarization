@@ -6,7 +6,8 @@ Mirrors the OpenClaw plugin's ``vss_cli`` tool (``../../.openclaw/plugin/src/ind
 same name, same {args, cwd, timeoutSec} parameter schema, the pinned ``vss``
 CLI run as a no-shell subprocess (``subprocess.run([bin, *args], ...)``, never
 ``shell=True``), the same 200,000-char per-stream output cap, and the same
-{command, exitCode, signal, timedOut, stdout, stderr, truncated} result shape.
+{command, exitCode, signal, timedOut, stdout, stderr, truncated} result shape,
+JSON-encoded.
 A skill that says "call the vss_cli tool" works unchanged on either harness.
 
 No platform adapter, so registration goes through ``register(ctx)`` directly
@@ -17,6 +18,7 @@ no cost worth deferring.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from typing import Any, Optional
@@ -82,7 +84,13 @@ def _as_text(value: object) -> str:
     return ""
 
 
-def vss_cli_tool(args: dict, **_kw: Any) -> dict:
+def _result(payload: dict) -> str:
+    # A tool handler may return only a string or Hermes' multimodal envelope;
+    # a bare dict is refused with `unsupported result type: dict`.
+    return json.dumps(payload)
+
+
+def vss_cli_tool(args: dict, **_kw: Any) -> str:
     argv = args.get("args") or []
     cwd: Optional[str] = args.get("cwd")
     timeout_sec = args.get("timeoutSec") or int(
@@ -102,7 +110,7 @@ def vss_cli_tool(args: dict, **_kw: Any) -> dict:
         )
         out, out_truncated = _clip(proc.stdout or "")
         err, err_truncated = _clip(proc.stderr or "")
-        return {
+        return _result({
             "command": command,
             "exitCode": proc.returncode,
             "signal": None,
@@ -110,11 +118,11 @@ def vss_cli_tool(args: dict, **_kw: Any) -> dict:
             "stdout": out,
             "stderr": err,
             "truncated": out_truncated or err_truncated,
-        }
+        })
     except subprocess.TimeoutExpired as e:
         out, out_truncated = _clip(_as_text(e.stdout))
         err, err_truncated = _clip(_as_text(e.stderr))
-        return {
+        return _result({
             "command": command,
             "exitCode": None,
             "signal": "SIGTERM",
@@ -122,9 +130,9 @@ def vss_cli_tool(args: dict, **_kw: Any) -> dict:
             "stdout": out,
             "stderr": err,
             "truncated": out_truncated or err_truncated,
-        }
+        })
     except OSError as e:
-        return {
+        return _result({
             "command": command,
             "exitCode": None,
             "signal": None,
@@ -132,7 +140,7 @@ def vss_cli_tool(args: dict, **_kw: Any) -> dict:
             "stdout": "",
             "stderr": f"{type(e).__name__}: {e}",
             "truncated": False,
-        }
+        })
 
 
 def register(ctx) -> None:

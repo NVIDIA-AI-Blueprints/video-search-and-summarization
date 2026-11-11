@@ -982,11 +982,12 @@ class NemoClawForwardContractTests(unittest.TestCase):
         self.assertIn("NEMOCLAW_RECREATE_SANDBOX = True", str(raised.exception))
         self.assertEqual(self.relays, [])
 
-    def test_hermes_checks_no_ui_origin(self) -> None:
-        # Hermes has no controlUi block, so there is nothing for the secure link to
-        # check and no reason to read the sandbox's config at all.
+    def test_non_openclaw_checks_no_ui_origin(self) -> None:
+        # Only OpenClaw has a controlUi block, so for any other harness there is
+        # nothing for the secure link to check and no reason to read the
+        # sandbox's config at all.
         _, calls, relays = self._run_ui_cell(
-            adapter_enabled=False, chat_fqdn="agent.example.test", runtime="hermes"
+            adapter_enabled=False, chat_fqdn="agent.example.test", runtime="other"
         )
         self.assertFalse(any(c[:3] == ("openshell", "sandbox", "exec") for c in calls))
         self.assertEqual(len(relays), 1)

@@ -397,15 +397,15 @@
       "notes": "NemoClaw OpenClaw sandbox harness (VSS skills + vss CLI). Not a compose service: consumed by `nemoclaw onboard --from` on deploy hosts. Skills and the vss CLI come from this repo at the commit being built: CI passes VSS_REF=<commit sha> (the Dockerfile default is develop for local builds), and skills/ and libs/vss are in source_path, so a skill or CLI change rebuilds the image and moves its tree-<sha>."
     },
     {
-      "name": "vss-harness-hermes",
+      "name": "openshell-hermes",
       "strategy": "build",
       "ghcr_build": true,
-      "source_path": [".hermes", "skills", "libs/vss", ".openclaw/workspace"],
+      "source_path": [".hermes"],
       "context": ".hermes",
       "dockerfile": ".hermes/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": [],
-      "notes": "NemoClaw Hermes sandbox harness (VSS skills + vss CLI on NemoClaw's managed Hermes runtime). Not a compose service: consumed by `nemoclaw onboard --from` on deploy hosts and by the eval harness's Provision panel. Skills and the vss CLI come from this repo at the commit being built: CI passes VSS_REF=<commit sha> (the Dockerfile default is develop for local builds), and skills/ and libs/vss are in source_path, so a skill or CLI change rebuilds the image and moves its tree-<sha>."
+      "notes": "OpenShell Hermes sandbox harness: upstream Hermes built from its own public source on a standard Ubuntu base, with the matching access policy baked at /etc/openshell/policy.yaml. Carries no VSS content; the vss CLI, skills and plugin come from the optional layer services/openshell/vss/Dockerfile, which builds FROM this image. Not a compose service: consumed by `openshell sandbox create --from`. Pinned by HERMES_REF rather than VSS_REF, so a skill or CLI change does not rebuild it and the image bakes no release line."
     },
     {
       "name": "vss-harness-openclaw-base",
@@ -420,20 +420,6 @@
       "compose_image_names": [],
       "tag_variables": [],
       "notes": "Base variant of vss-harness-openclaw: NemoClaw's managed OpenClaw runtime plus the vss CLI and the vss_cli tool plugin (memory on by default), but no VSS skills and no workspace instruction docs beyond the empty AGENTS.md, for evaluating an agent users extend with their own skills and plugins. Shares the vss-harness-openclaw GHCR repository with the -base tag suffix. Builds the vss CLI wheels and the plugin from VSS_REF=<commit being built>, same as the full image, so source_path includes libs/vss and .openclaw/plugin."
-    },
-    {
-      "name": "vss-harness-hermes-base",
-      "strategy": "build",
-      "ghcr_build": true,
-      "repository": "vss-harness-hermes",
-      "tag_suffix": "-base",
-      "source_path": [".hermes", "libs/vss"],
-      "context": ".hermes",
-      "dockerfile": ".hermes/Dockerfile.base",
-      "platforms": ["linux/amd64", "linux/arm64"],
-      "compose_image_names": [],
-      "tag_variables": [],
-      "notes": "Base variant of vss-harness-hermes: NemoClaw's managed Hermes runtime plus the vss CLI and the vss_cli tool plugin (memory on by default), but no VSS skills and no workspace instruction docs beyond the empty /sandbox/AGENTS.md, for evaluating an agent users extend with their own skills and plugins. Shares the vss-harness-hermes GHCR repository with the -base tag suffix. Builds the vss CLI wheels from VSS_REF=<commit being built>, same as the full image, so source_path includes libs/vss and .hermes/plugin."
     }
   ]
 }
