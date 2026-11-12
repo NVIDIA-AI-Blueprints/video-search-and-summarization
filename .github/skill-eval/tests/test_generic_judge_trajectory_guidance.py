@@ -9,10 +9,10 @@ import os
 import subprocess
 import sys
 import unittest
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
-
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GENERIC_JUDGE = REPO_ROOT / ".github/skill-eval/verifiers/generic_judge.py"
@@ -41,6 +41,46 @@ def _load_generic_judge():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def test_judge_bootstraps_without_modifying_host_python(tmp_path: Path) -> None:
+    """A Python without pip or the SDK must still produce a verifier result."""
+    host = tmp_path / "host"
+    subprocess.run(
+        [sys.executable, "-m", "venv", "--without-pip", str(host)], check=True,
+    )
+    wheels = tmp_path / "wheels"
+    wheels.mkdir()
+    metadata = "claude_agent_sdk-0.2.128.dist-info"
+    with zipfile.ZipFile(wheels / "claude_agent_sdk-0.2.128-py3-none-any.whl", "w") as wheel:
+        wheel.writestr("claude_agent_sdk/__init__.py", "\n".join(
+            f"class {name}: pass" for name in (
+                "AssistantMessage", "ClaudeAgentOptions", "ClaudeSDKClient",
+                "ResultMessage", "TextBlock",
+            )
+        ))
+        wheel.writestr(f"{metadata}/METADATA", "Metadata-Version: 2.1\nName: claude-agent-sdk\nVersion: 0.2.128\n")
+        wheel.writestr(f"{metadata}/WHEEL", "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+        wheel.writestr(f"{metadata}/RECORD", "")
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"expects": [{"query": "Bootstrap", "checks": ["Ready"]}]}))
+    env = dict(os.environ, PIP_NO_INDEX="1", PIP_FIND_LINKS=str(wheels),
+               PIP_CONFIG_FILE=os.devnull, PIP_REQUIRE_VIRTUALENV="true")
+    env.pop("ANTHROPIC_API_KEY", None)
+    result = subprocess.run(
+        [str(host / "bin/python"), str(GENERIC_JUDGE), "--spec", str(spec),
+         "--step", "1", "--reward-file", str(tmp_path / "reward.txt"),
+         "--details-file", str(tmp_path / "judge.json")],
+        env=env, capture_output=True, text=True, timeout=60, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "reward.txt").read_text() == "0.0"
+    details = json.loads((tmp_path / "judge.json").read_text())
+    assert details["checks"][0]["rationale"] == "ANTHROPIC_API_KEY unset; cannot run LLM judge"
+    assert subprocess.run(
+        [str(host / "bin/python"), "-c", "import claude_agent_sdk"],
+        capture_output=True, check=False,
+    ).returncode != 0
 
 
 def test_judge_counts_normalized_tool_calls_without_metadata_duplicates() -> None:

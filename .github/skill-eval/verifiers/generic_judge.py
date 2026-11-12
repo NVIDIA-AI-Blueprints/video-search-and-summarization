@@ -43,13 +43,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # Trajectory discovery (Harbor conventions) — the judge agent will Read
@@ -327,26 +328,13 @@ async def _judge_llm_agent(
     query: str | None = None, step: int | None = None,
 ) -> dict:
     """Run one check through a claude-agent-sdk judge agent."""
-    try:
-        from claude_agent_sdk import (
-            AssistantMessage,
-            ClaudeAgentOptions,
-            ClaudeSDKClient,
-            ResultMessage,
-            TextBlock,
-        )
-    except ImportError:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "claude-agent-sdk>=0.0.5"],
-            check=False, timeout=180,
-        )
-        from claude_agent_sdk import (  # noqa: F811
-            AssistantMessage,
-            ClaudeAgentOptions,
-            ClaudeSDKClient,
-            ResultMessage,
-            TextBlock,
-        )
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ClaudeSDKClient,
+        ResultMessage,
+        TextBlock,
+    )
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return {
@@ -716,4 +704,17 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    if importlib.util.find_spec("claude_agent_sdk") is not None:
+        sys.exit(main())
+    # Eval hosts may use externally managed Python. Bootstrap once before
+    # parallel checks, without installing into or overriding the host Python.
+    with tempfile.TemporaryDirectory(prefix="vss-judge-") as runtime:
+        subprocess.run(
+            [sys.executable, "-m", "venv", runtime], check=True, timeout=60,
+        )
+        python = str(Path(runtime) / "bin" / "python")
+        subprocess.run(
+            [python, "-m", "pip", "install", "--quiet", "claude-agent-sdk==0.2.128"],
+            check=True, timeout=180,
+        )
+        sys.exit(subprocess.run([python, __file__, *sys.argv[1:]], check=False).returncode)
