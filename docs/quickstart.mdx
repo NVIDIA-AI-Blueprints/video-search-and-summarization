@@ -40,20 +40,20 @@ The exact service set depends on the deployment path:
 - **Build Vision AI Skill (default):** VSS UI, VSS Video IO & Storage
   (VIOS), and RT-VLM. RT-VLM serves the Cosmos3 Nano Reasoner model through
   `vss-rtvi-vlm` on port `8018`; there is no separate Cosmos3 Reasoner
-  container. The default NemoClaw harness runs on the host outside the Compose
-  project and connects the UI chat to its OpenClaw sandbox.
+  container. The default harness, an OpenShell sandbox running Hermes, runs on
+  the host outside the Compose project and connects the UI chat to it.
 - **Manual Docker Compose:** The stock base profile adds the in-stack VSS Agent
   to those services. It uses the configured LLM to route requests and
   orchestrate VSS tools.
 
 Build Vision AI removes the in-stack `vss-agent` service whether you select
-NemoClaw or no harness. It deploys that service only when your request
+the sandbox or no harness. It deploys that service only when your request
 explicitly names the in-stack Agent, its REST API, or its chat workflow.
 
 ## Agent Harness Options
 
-For Build Vision AI deployments, NemoClaw is the default and recommended agent
-harness for interacting with VSS.
+For Build Vision AI deployments, the OpenShell sandbox is the default and
+recommended agent harness for interacting with VSS.
 The underlying VSS microservices (Video Analytics MCP, VSS Orchestrator MCP,
 VST/VIOS, and Video Analytics API) are framework-agnostic, so you can also drive
 them through direct MCP or REST integrations. The table below compares the
@@ -61,21 +61,21 @@ supported options.
 
 | Harness | What it is | Pros | Cons |
 | --- | --- | --- | --- |
-| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that can drive VSS through the [VSS Orchestrator MCP server](/vision-agent/agent-harnesses/open-shell/vss-orchestrator-mcp) (port `9988`). Build Vision AI can provision it as part of the Skill-driven deployment. The `deploy_nemoclaw.ipynb` notebook provides a separate route for a guided Brev/host installation. | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; deployment status and log inspection; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents. The orchestrator MCP server is required when deploying or managing VSS from NemoClaw chat, but not when using installed operation Skills against an existing deployment. |
+| **[OpenShell](/vision-agent/agent-harnesses/open-shell) sandbox (Hermes, Build Vision AI default)** | A host-side sandbox running the Hermes agent with the VSS operation Skills and the `vss` CLI baked in, reached from the VSS Web UI chat, its API server, or `openshell sandbox exec`. Build Vision AI provisions it after the stack is ready; you can also bring it up by hand. | Natural-language *operations* on a running deployment (upload, search, summarize, alerts, reports); a policy boundary the agent cannot switch off; the agent never holds a credential. | Operates a deployment rather than deploying one, and rather than building bespoke video analytics agents. Needs `127.0.0.1:8080` for its gateway and the ingress on `7777`. |
 | **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP](/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP](/vision-agent/agent-harnesses/open-shell/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
 | **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API](/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
 
 <Note>
-When you deploy with Build Vision AI, NemoClaw runs on the host outside the
+When you deploy with Build Vision AI, the sandbox runs on the host outside the
 Docker Compose project, and the in-stack VSS Agent is omitted unless the request
 explicitly names it. The manual Docker Compose base-profile commands later on
 this page use the stock `COMPOSE_PROFILES` and still deploy the NAT-based VSS
 Agent.
 
-Use one NemoClaw setup route for a deployment. For this quickstart, let Build
-Vision AI provision the harness when it prompts you. Use the standalone
-notebooks instead when you want the guided NemoClaw-on-Brev setup; do not run
-them again for a harness that Build Vision AI already provisioned.
+Use one setup route for a deployment's sandbox. For this quickstart, let Build
+Vision AI provision the harness when it prompts you. Follow
+[Setup VSS and Skills](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills)
+instead only for a deployment that has no harness yet.
 </Note>
 
 ## Prerequisites
@@ -191,7 +191,7 @@ Before deployment, have the credentials required by your choices available:
 | Credential | When the Skill asks for it |
 | --- | --- |
 | `NGC_CLI_API_KEY` | Standard VSS image, model, and sample-data access. |
-| `COMPATIBLE_API_KEY` | A token-protected OpenAI-compatible endpoint. Obtain the key from the endpoint provider. |
+| `HARNESS_API_KEY` | The sandbox harness's model endpoint. Obtain the key from the endpoint provider. |
 | `NVIDIA_API_KEY` | A model served from `build.nvidia.com` or `integrate.api.nvidia.com`. Create a key from [NVIDIA API Keys](https://build.nvidia.com/settings/api-keys). |
 | `HF_TOKEN` | Gated or rate-limited model downloads from Hugging Face. |
 
@@ -204,23 +204,24 @@ printf '%s' "$NGC_CLI_API_KEY" | \
   docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
 
-For a custom OpenAI-compatible NemoClaw endpoint, obtain the key from the
-endpoint provider. Do not paste the key into chat. Store it in the
-checkout-root, gitignored `nemoclaw.env` file:
+For the sandbox's default OpenAI-compatible endpoint, or a custom one, obtain
+the key from the endpoint provider. Do not paste the key into chat. Store it in
+the checkout-root, gitignored `harness.env` file:
 
 ```bash
-COMPATIBLE_API_KEY='your-provider-api-key'
+HARNESS_API_KEY='your-provider-api-key'
 ```
 
-Alternatively, export `COMPATIBLE_API_KEY` in the shell that starts the
+Alternatively, export `HARNESS_API_KEY` in the shell that starts the
 coding-agent session. The session must inherit the variable; exporting it later
 in another terminal does not update the running agent.
 
 For developer-profile deployments, the Skill asks whether to add a host-side
-agent harness. If you select NemoClaw, choose a model provider that is available
-from your host. The `build.nvidia.com` provider uses `NVIDIA_API_KEY`; a custom
-OpenAI-compatible provider uses `COMPATIBLE_API_KEY`. Select **no harness** to
-operate the deployment with the project-local `vss` CLI instead.
+agent harness. If you select the sandbox, choose a model provider that is
+available from your host. Every provider takes its key as `HARNESS_API_KEY`:
+the endpoint provider's key for the default, or an `nvapi-…` key for
+`build.nvidia.com`. Select **no harness** to operate the deployment with the project-local `vss`
+CLI instead.
 
 A self-hosted endpoint or **no harness** needs no harness key, although the VSS
 stack can still require NGC and model-download credentials. See
@@ -286,12 +287,14 @@ it, such as `lvs-server`, or when the harness is explicitly routed to the
 build's LLM NIM. It keeps Phoenix when the in-stack Agent is explicitly
 requested.
 
-If you selected NemoClaw, use the sandbox name and harness URL returned by the
-Skill. Run `nemoclaw <sandbox> gateway-token --quiet` on the deployment host to
-get a current token. Use it with the NemoClaw dashboard URL as `/#token=<token>`;
-to use chat in the VSS Web UI, enter it in **Connect NemoClaw chat**. Do not
-share the token-bearing URL. If you selected no harness, operate the
-deployment with the project-local `vss` CLI as directed by the Skill.
+If you selected the sandbox, use the sandbox name the Skill returns. The VSS
+Web UI's chat is already wired to it, so you can chat there directly, or from
+the deployment host with
+`openshell sandbox exec -n <sandbox-name> -- hermes chat`. The harness API
+server is authenticated with a key minted per sandbox; the Skill reports the
+command that prints it rather than the key itself, so do not share the output.
+If you selected no harness, operate the deployment with the project-local `vss`
+CLI as directed by the Skill.
 
 #### If the Skill-driven UI Doesn't Load
 
@@ -300,10 +303,8 @@ use `docker ps` to identify any unhealthy container. Check that container's
 startup logs with `docker logs <container-name>`; do not use the manual
 in-stack Agent check on port `8000` for the default Skill-generated stack.
 
-If the VSS containers are healthy but the NemoClaw dashboard, sandbox, or MCP
-tools are unavailable, follow
-[OpenShell Troubleshooting](/vision-agent/agent-harnesses/open-shell/troubleshooting),
-which covers the gateway and sandbox layer both harnesses run on.
+If the VSS containers are healthy but the sandbox or its chat is unavailable,
+follow [OpenShell Troubleshooting](/vision-agent/agent-harnesses/open-shell/troubleshooting).
 
 ## Agent Skills walkthrough
 
@@ -320,8 +321,8 @@ Before starting this walkthrough, follow
 [Ask the coding agent to install the Skills](/vision-agent/agent-skills#step-2-ask-the-coding-agent-to-install-the-skills)
 if you have not already completed [Prepare your coding agent](#prepare-your-coding-agent),
 then start a new coding-agent session so all four Skills below are discovered.
-If Build Vision AI provisioned NemoClaw, run the operational steps in the
-NemoClaw session; its Skills are installed inside that sandbox, not back into
+If Build Vision AI provisioned the sandbox, run the operational steps in the
+sandbox's chat; its Skills are installed inside that sandbox, not back into
 the original coding-agent session. Also confirm your host meets the
 [Prerequisites](/getting-started/prerequisites).
 </Note>
@@ -403,18 +404,18 @@ List all available sensors.
 Take a snapshot of warehouse_safety_0001 at 0:05.
 ```
 
-If Build Vision AI provisioned NemoClaw, copy the video into its sandbox from
-the deployment host first, using the sandbox name returned by the Skill:
+If Build Vision AI provisioned the sandbox, copy the video into it from the
+deployment host first, using the sandbox name returned by the Skill:
 
 ```bash
-nemoclaw <sandbox-name> upload \
+openshell sandbox upload <sandbox-name> \
   <absolute-path>/sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 \
   /sandbox/
 ```
 
-Then ask the agent in the NemoClaw session:
+Then ask the agent in the sandbox's chat:
 
-```text title="NemoClaw example prompt"
+```text title="Sandbox example prompt"
 Upload /sandbox/warehouse_safety_0001.mp4 to VSS.
 ```
 
@@ -1223,7 +1224,7 @@ Other examples of general supported queries include:
 You can also ask the agent to generate a report about the video. Here is an example prompt to generate a report about the video:
 
 <Note>
-The screenshots below show the in-stack VSS Agent UI. In this workflow, VSS Agent provides a PDF report download and uses a Human in the Loop (HITL) dialog to review the VLM prompt. With NemoClaw's OpenClaw runtime, the summary or report appears directly in the OpenClaw chat UI. HITL happens in that chat: the agent asks for prompt details inline, and you answer in the conversation. The VSS Agent's structured HITL dialogs are not available through an external VSS UI connected to NemoClaw.
+The screenshots below show the in-stack VSS Agent UI. In this workflow, VSS Agent provides a PDF report download and uses a Human in the Loop (HITL) dialog to review the VLM prompt. With the OpenShell sandbox harness, the summary or report appears directly in the sandbox's chat. HITL happens in that chat: the agent asks for prompt details inline, and you answer in the conversation. The VSS Agent's structured HITL dialogs are not available through a VSS UI connected to the sandbox.
 </Note>
 
 ```bash

@@ -38,7 +38,7 @@ selected, which removes it. The sandbox is host-side: an
 [OpenShell](https://docs.nvidia.com/openshell/latest/) sandbox running the
 Hermes harness with this repository's operation skills and the `vss` CLI baked
 in, driving the deployment from outside over the same public routes an operator
-would use. [`.openshell/README.md`](../../../.openshell/README.md) owns it end
+would use. [`services/openshell/README.md`](../../../services/openshell/README.md) owns it end
 to end — gateway, policy, image, provider, sandbox; this file says only what a
 *build* changes about it.
 
@@ -66,7 +66,7 @@ to the sandbox never means adding a harness to a headless build.
 
 When a sandbox build includes `vss-ui`, connect its chat sidebar and Chat tab to
 the harness API server through the embedded adapter, per
-[`.openshell/README.md`](../../../.openshell/README.md#optional--answer-from-the-vss-ui).
+[`services/openshell/README.md`](../../../services/openshell/README.md#optional--answer-from-the-vss-ui).
 Do it **after** the sandbox exists: the bearer is `API_SERVER_KEY`, minted per
 sandbox inside `/sandbox/.hermes/.env`, and a sandbox recreated later invalidates
 both it and the forward.
@@ -106,8 +106,8 @@ on the invented key. Treat it exactly as `<name>` is treated in the artifact
 contract: a label outside the Compose model.
 
 The OpenShell **gateway** is a Compose service, but of its own pinned `openshell`
-project ([`.openshell/gateway/docker-compose.yml`](../../../.openshell/gateway/docker-compose.yml),
-behind the `harness` profile), not of the build. It is one per host and survives
+project ([`deploy/docker/services/openshell/compose.yml`](../../../deploy/docker/services/openshell/compose.yml),
+behind the `openshell` profile), not of the build. It is one per host and survives
 any number of builds, so it is brought up once and left alone — the build's own
 `docker compose down` neither reaches it nor should.
 
@@ -315,27 +315,29 @@ already holds is replaced without asking.
 ## Harness model and provider
 
 **Default to the remote OpenAI-compatible endpoint — Claude Opus 5 through the
-NVIDIA Inference Hub**, which is what `.openshell/.env` ships. First ask the user
-which model the sandbox runs on, per [Harness model —
+NVIDIA Inference Hub**, which is what
+[`openshell.env`](../../../deploy/docker/services/openshell/openshell.env) ships.
+First ask the user which model the sandbox runs on, per [Harness model —
 Q3a](../SKILL.md#harness-model--q3a). Another model on this same endpoint
-replaces `VSS_HERMES_MODEL` alone and keeps every other value below. Only a
+replaces `HARNESS_MODEL` alone and keeps every other value below. Only a
 request for a different *endpoint* changes the provider profile.
 
 | Variable | Default | Note |
 |---|---|---|
-| `VSS_HERMES_MODEL` | `aws/anthropic/bedrock-claude-opus-5` | Claude Opus 5 as the Inference Hub routes it. The id is **the endpoint's, not the model's**: `azure/anthropic/claude-opus-5` is the same model over another route, a provider's public API serves the bare `claude-opus-5`, and a model router takes a **route id**. Replace it whenever the endpoint changes |
-| `VSS_HERMES_BASE_URL` | `https://inference-api.nvidia.com/v1` | the NVIDIA Inference Hub gateway, reachable from NVIDIA infrastructure. Any OpenAI-compatible base URL replaces it: another gateway, a model router, a self-hosted server, or a provider's public API |
-| `COMPATIBLE_API_KEY` | **no default** | a real bearer token is required for a public endpoint. Take it from the environment or the platform secret store — never a literal in a command, a file, or skill output. Pass it **unquoted**: quotes are sealed into the credential |
+| `HARNESS_MODEL` | `aws/anthropic/bedrock-claude-opus-5` | Claude Opus 5 as the Inference Hub routes it. The id is **the endpoint's, not the model's**: `azure/anthropic/claude-opus-5` is the same model over another route, a provider's public API serves the bare `claude-opus-5`, and a model router takes a **route id**. Replace it whenever the endpoint changes |
+| `HARNESS_BASE_URL` | `https://inference-api.nvidia.com/v1` | the NVIDIA Inference Hub gateway, reachable from NVIDIA infrastructure. Any OpenAI-compatible base URL replaces it: another gateway, a model router, a self-hosted server, or a provider's public API |
+| `HARNESS_PROVIDER` | `agent-inference` | the profile below that authorizes `HARNESS_BASE_URL`'s host, and the name of the provider created from it |
+| `HARNESS_API_KEY` | **no default** | the one credential name every provider profile declares; a real bearer token is required for a public endpoint. Take it from the environment or the platform secret store — never a literal in a command, a file, or skill output. Pass it **unquoted**: quotes are sealed into the credential |
 
 **The profile is what authorizes the endpoint's host**, so an endpoint outside
 the imported profile is unreachable however correct the URL is. One file each
 covers the three choices, and only one is imported:
 
-| Endpoint | Profile under `.openshell/providers/` | Credential |
+| Endpoint | `HARNESS_PROVIDER` (profile under `services/openshell/providers/`) | `HARNESS_API_KEY` |
 |---|---|---|
-| (a) OpenAI-compatible endpoint — the skill default | `vss-inference-profile.yaml` | `COMPATIBLE_API_KEY` |
-| (b) a model served on this host, including the build's own LLM NIM | `vss-inference-local-profile.yaml` | optional |
-| (c) build.nvidia.com | `vss-inference-build-profile.yaml` | `NVIDIA_API_KEY` |
+| (a) OpenAI-compatible endpoint — the skill default | `agent-inference` | the endpoint's key |
+| (b) a model served on this host, including the build's own LLM NIM | `agent-inference-local` | optional |
+| (c) build.nvidia.com | `agent-inference-build` | an `nvapi-…` key, the `NVIDIA_API_KEY` value when the build has one |
 
 Within a family the model id is free. Profile (b) declares `host.openshell.internal`
 on `8000` (vLLM, NIM) and `11434` (Ollama) only, so a server on any other port —
@@ -344,7 +346,7 @@ a copy of that profile. Say so before taking the route rather than after the
 first turn fails.
 
 The agent never holds the key: the supervisor injects the real credential at
-egress, which is why the image's `api_key` stays an `${env:COMPATIBLE_API_KEY}`
+egress, which is why the image's `api_key` stays an `${env:HARNESS_API_KEY}`
 placeholder and only its presence matters.
 
 ### Where the user gets each value
@@ -371,8 +373,8 @@ to report, never grounds to substitute a provider.
 obvious route, so it is spelled out. It applies only to a build whose `LLM_MODE`
 resolved to `local` or `local_shared`; one resolved to a remote LLM has no local
 NIM to point at. Take profile (b) with a `host.openshell.internal:<LLM_PORT>`
-entry added, set `VSS_HERMES_BASE_URL=http://host.openshell.internal:<LLM_PORT>/v1`
-and `VSS_HERMES_MODEL` to the NIM's `NIM_SERVED_MODEL_NAME` from `resolved.yml`
+entry added, set `HARNESS_BASE_URL=http://host.openshell.internal:<LLM_PORT>/v1`
+and `HARNESS_MODEL` to the NIM's `NIM_SERVED_MODEL_NAME` from `resolved.yml`
 — never an assumed slug. Say what the route costs **before** taking it: the
 harness adds no GPU but shares one NIM instance with the build's own LLM work,
 at `NIM_KVCACHE_PERCENT=0.3` and `NIM_MAX_MODEL_LEN=65536` on the shared-GPU
@@ -390,25 +392,30 @@ report, not a fallback to take for them.
 ## Bring-up
 
 Do not reimplement any of this.
-[`.openshell/README.md`](../../../.openshell/README.md#2-quickstart) §2 is the
+[`services/openshell/README.md`](../../../services/openshell/README.md#3-quickstart) §3 is the
 single source of host-side harness logic — CLI install, gateway, policy, image,
 provider, sandbox, skill activation — and §4 is the same steps with the
-reasoning. Run its steps 0–5 from the checkout root. This section says only what
-a *build* changes about them.
+reasoning. From the checkout root, run the Quickstart's steps 0–3, then
+[Optional — add VSS capabilities](../../../services/openshell/README.md#optional--add-vss-capabilities)
+steps 1–3 in place of the Quickstart's step 4, so the one sandbox is created on
+the VSS image and policy. This section says only what a *build* changes about
+them.
 
-Set the environment, then run the Quickstart:
+The commands source `openshell.env`, whose values replace any of the same name
+exported in the shell and which ships `HARNESS_API_KEY` empty. Source it first,
+then apply this build's values over it:
 
 | Value | For a build | Why |
 |---|---|---|
-| `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` — the `.env` default, unchanged for a Compose build | the origin as **the sandbox** sees it, not `HOST_IP`. Set it only for a Kubernetes deployment, to that cluster's Ingress origin, which then also needs a policy entry |
+| `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` — the `openshell.env` default, unchanged for a Compose build | the origin as **the sandbox** sees it, not `HOST_IP`. Set it only for a Kubernetes deployment, to that cluster's Ingress origin, which then also needs a policy entry |
 | `VSS_REF` | the checkout's branch, or a [harness source ref](#harness-source-ref) | the image fetches this ref from `VSS_REPO`; it is what fixes the skills and the `vss` CLI inside the sandbox |
-| `VSS_HERMES_BASE_URL`, `VSS_HERMES_MODEL` | the Q3a answers | the two model values; a change is a re-create, not a rebuild |
-| `COMPATIBLE_API_KEY` (or `NVIDIA_API_KEY`) | from the environment or the secret store | the selected provider's credential, unquoted. Never into `override.env`, a transcript, or a summary |
-| sandbox name | `vss-harness-hermes` unless this host already holds that name | `--name` on `sandbox create`; settled at Q3, per [Sandbox names on a shared host](#sandbox-names-on-a-shared-host) |
+| `HARNESS_BASE_URL`, `HARNESS_MODEL`, `HARNESS_PROVIDER` | the Q3a answers | the model values and the profile that authorizes them; a model change is a re-create, not a rebuild |
+| `HARNESS_API_KEY` | from the environment or the secret store | the selected provider's credential, unquoted. Never into `openshell.env`, `override.env`, a transcript, or a summary |
+| sandbox name | `vss-harness-hermes` unless this host already holds that name | in place of the README's `hermes` on `sandbox create`, `sandbox delete` and `sandbox exec`; settled at Q3, per [Sandbox names on a shared host](#sandbox-names-on-a-shared-host) |
 
-Record the name before the run, not on success — `create` is step 4 of five, and
-a failure in step 5 still leaves a live sandbox that teardown reaches only
-through this file:
+Record the name before the run, not on success — `create` is not the last step,
+and a failure in a later one still leaves a live sandbox that teardown reaches
+only through this file:
 
 ```bash
 REPO="$(git rev-parse --show-toplevel)"
@@ -443,14 +450,14 @@ further builds or manage the `_builds/` tree this run produced.
 
 ## Verification
 
-The Quickstart's five checks are in
-[`.openshell/README.md`](../../../.openshell/README.md#5-verification) §5 —
-prover, sandbox state and effective policy, the exposed route, the VSS grant,
-and an end-to-end agent turn. Run them, then confirm the two things a build
-adds:
+The checks are in
+[`services/openshell/README.md`](../../../services/openshell/README.md#5-verification) §5 —
+prover, sandbox state and effective policy, the exposed route, an end-to-end
+agent turn, and the VSS layer's two: the CLI and its grant. Run them, then
+confirm the two things a build adds:
 
-1. **The build's own origin answers from inside the sandbox.** Step 5 of the
-   Quickstart already runs `vss configure --base-url "$VSS_PUBLIC_URL"`; read
+1. **The build's own origin answers from inside the sandbox.** Step 3 of the
+   VSS capabilities section already runs `vss configure --base-url "$VSS_PUBLIC_URL"`; read
    what it prints. A partial deployment is normal, and the inactive skills name
    the service they wanted. A `403 CONNECT tunnel failed` is the egress policy
    (see [Prerequisites](#prerequisites)), not a deployment fault — the two have
@@ -495,7 +502,7 @@ record and the sealed provider credentials are meant to go with it.
 
 ## Sources
 
-- [`.openshell/README.md`](../../../.openshell/README.md) — the harness itself: architecture, Quickstart, steps, verification
-- [`.openshell/.env`](../../../.openshell/.env), [`.openshell/gateway/`](../../../.openshell/gateway/), [`.openshell/hermes/`](../../../.openshell/hermes/), [`.openshell/providers/`](../../../.openshell/providers/)
+- [`services/openshell/README.md`](../../../services/openshell/README.md) — the harness itself: architecture, Quickstart, steps, verification
+- [`deploy/docker/services/openshell/`](../../../deploy/docker/services/openshell/), [`.hermes/`](../../../.hermes/), [`services/openshell/vss/`](../../../services/openshell/vss/), [`services/openshell/providers/`](../../../services/openshell/providers/)
 - `deploy/docker/services/ui/compose.yml`
 - `services/ui/DOCKER-README.md`

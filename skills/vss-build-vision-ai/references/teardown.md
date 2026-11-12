@@ -26,7 +26,7 @@ the OpenShell sandbox. Run it first, so the sandbox is not left pointed at an
 origin that has stopped answering.
 
 A build whose harness bring-up **failed** has the file too: the name is recorded
-before the run, because `sandbox create` is step 4 of five and a later step can
+before the run, because `sandbox create` is not the last step and a later one can
 still fail over a live sandbox. So run this section for a failed build as well;
 skipping it is how a sandbox gets left behind.
 
@@ -58,8 +58,8 @@ keep its `openshell-data` volume unless every sandbox record and the sealed
 provider credentials are meant to go with it:
 
 ```bash
-docker compose --env-file "$REPO/.openshell/.env" \
-  -f "$REPO/.openshell/gateway/docker-compose.yml" --profile harness down
+docker compose --env-file "$REPO/deploy/docker/services/openshell/openshell.env" \
+  -f "$REPO/deploy/docker/services/openshell/compose.yml" --profile openshell down
 ```
 
 The name comes from the build's `sandbox` file and nowhere else: a sandbox

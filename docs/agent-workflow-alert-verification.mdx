@@ -47,7 +47,7 @@ The following diagram illustrates the alert verification workflow architecture:
 
 This list describes the stock profile used by the manual Compose deployment.
 Build Vision AI customizes that profile for the requested capabilities. With
-the default NemoClaw harness, or with no harness, it does not deploy the
+the default sandbox harness, or with no harness, it does not deploy the
 in-stack VSS Agent or Phoenix. It also omits the Agent's local LLM unless
 another selected service needs it. Ask for the in-stack VSS Agent if you plan
 to use the Agent REST API or the manual Agent UI workflow below.
@@ -785,7 +785,7 @@ Once all the containers are running, you can access the [Agent UI](/system-compo
 #### Deploy with Agent Skills
 
 As an alternative to running the deployment command manually, you can use VSS
-Agent Skills from a coding agent such as Claude Code, Codex, or NemoClaw.
+Agent Skills from a coding agent such as Claude Code, Codex, or OpenShell.
 First, install the [`vss-build-vision-ai`](/vision-agent/build-vision-ai-skill) skill as described in [Agent Skills](/vision-agent/agent-skills) and make it
 accessible to your coding agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/getting-started/prerequisites).

@@ -20,7 +20,7 @@ deploy/docker/resolved.yml
 deploy/docker/rag-secret.override.yml
 
 # Agent-harness credentials the user drops in for the sandbox bring-up
-# (COMPATIBLE_API_KEY). Read by the skill, never committed.
+# (HARNESS_API_KEY). Read by the skill, never committed.
 harness.env
 nemoclaw.env
 

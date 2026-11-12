@@ -39,7 +39,7 @@ The in-stack VSS Agent UI does use HITL dialogs for these prompts and provides g
 
 ## How to run OpenShell with VSS
 
-Everything is driven from the `openshell` CLI against a checkout of the [VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}); no Skill deploys the harness. There are two stages, and the second is optional:
+The [Build Vision AI Skill](/vision-agent/build-vision-ai-skill#agent-harness) brings the sandbox up for you: it is the default harness of a developer-profile build. To run it by hand instead, everything is driven from the `openshell` CLI against a checkout of the [VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}), in two stages, the second optional:
 
 1. **A Hermes sandbox on its own model.** Bring up the gateway with Compose, build the harness image, register an inference provider, and create the sandbox. No VSS deployment is needed, and the result is a working agent you can prove, exec into, and call over HTTP.
 2. **The VSS layer.** A second image layer and a second policy pair add the `vss` CLI, the operation Skills, the `vss_cli` tool plugin, and a grant to reach VSS on port `7777`. Take it only against a deployment that is already up — deploying VSS itself is the [Build Vision AI Skill](/vision-agent/build-vision-ai-skill)'s job.

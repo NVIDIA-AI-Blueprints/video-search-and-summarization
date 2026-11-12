@@ -114,7 +114,7 @@
     "ground_truth": "No harness ref was requested, so the sandbox builds from develop.",
     "expected_behavior": [
       "Activates vss-build-vision-ai.",
-      "Does not ask for a harness ref, and builds the image with the VSS_REF that .openshell/.env already carries."
+      "Does not ask for a harness ref, and builds the image with the VSS_REF that deploy/docker/services/openshell/openshell.env already carries."
     ]
   },
   {
