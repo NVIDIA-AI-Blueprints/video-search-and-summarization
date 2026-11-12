@@ -578,6 +578,91 @@ def test_search_subject_check_follows_the_critic_vlm(monkeypatch: pytest.MonkeyP
     assert search_group._subject_checker_from(deployment, None) is None
 
 
+@pytest.mark.parametrize("flag_on", [False, True], ids=["default-off", "subject-check"])
+def test_search_subject_check_is_off_unless_asked_for(monkeypatch: pytest.MonkeyPatch, flag_on: bool) -> None:
+    from vss_cli.search import group as search_group
+    from vss_cli.search.group import SEARCH
+    from vss_cli.search.group import FusionInput
+    from vss_core.search_core import host as host_mod
+    from vss_core.search_core.models.search import SearchOutput
+
+    deployment = config_mod.Deployment(
+        base_url="https://vss.example",
+        services={
+            "elasticsearch": config_mod.Service(url="https://vss.example/elasticsearch"),
+            "rt_embed": config_mod.Service(url="https://vss.example/rtvi-embed", models=["cosmos-embed"]),
+            "vst": config_mod.Service(url="https://vss.example/vst"),
+        },
+    )
+    vlm = object()
+    checker = object()
+    built_for: list[object] = []
+    passed: list[object] = []
+
+    async def critic_from(_deployment: object, eval_count: int | None = None) -> tuple[None, object, None]:
+        del eval_count
+        return None, vlm, None
+
+    def subject_checker_from(_deployment: object, analyzer: object) -> object:
+        built_for.append(analyzer)
+        return checker
+
+    class _FakeVSS:
+        @classmethod
+        def from_runtime(cls, runtime, *, critic=None, subject_checker=None):
+            _ = runtime, critic
+            passed.append(subject_checker)
+            return cls()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def search(self, **kw):
+            return SearchOutput(data=[])
+
+    monkeypatch.setattr(search_group, "_critic_from", critic_from)
+    monkeypatch.setattr(search_group, "_subject_checker_from", subject_checker_from)
+    monkeypatch.setattr(host_mod, "VSSSearch", _FakeVSS)
+
+    extra = {"subject_check": True} if flag_on else {}
+    SEARCH.run(
+        "fusion",
+        FusionInput(query="pushing a cart", attributes=["person in white shirt"]),
+        Context(deployment=deployment, extra=extra),
+    )
+
+    assert built_for == ([vlm] if flag_on else [])
+    assert passed == [checker if flag_on else None]
+
+
+def test_log_level_sends_vss_records_to_stderr_and_leaves_warning_alone() -> None:
+    import logging
+
+    from vss_cli.group import _apply_log_level
+
+    core_logger = logging.getLogger("vss_core")
+    before = (core_logger.level, list(core_logger.handlers))
+    try:
+        _apply_log_level("WARNING")
+        assert (core_logger.level, core_logger.handlers) == before
+
+        _apply_log_level("INFO")
+        _apply_log_level("INFO")  # idempotent: one handler, not two
+        ours = [h for h in core_logger.handlers if getattr(h, "_vss_cli_log_level", False)]
+        assert core_logger.level == logging.INFO and len(ours) == 1
+        # Third-party loggers (request URLs can carry credentials) are not touched.
+        assert logging.getLogger("httpx").level == logging.NOTSET
+    finally:
+        core_logger.setLevel(before[0])
+        core_logger.handlers[:] = before[1]
+        cli_logger = logging.getLogger("vss_cli")
+        cli_logger.handlers[:] = [h for h in cli_logger.handlers if not getattr(h, "_vss_cli_log_level", False)]
+        cli_logger.setLevel(logging.NOTSET)
+
+
 def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
     from vss_cli.search import group as search_group
 
