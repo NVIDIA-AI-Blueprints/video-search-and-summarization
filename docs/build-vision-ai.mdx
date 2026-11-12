@@ -15,8 +15,8 @@ deploy a ready-made VSS workflow, deploy a warehouse blueprint, or build a
 custom vision stack from the VSS microservices.
 
 For developer-profile and custom builds, the Skill can also set up a host-side
-NemoClaw harness after the VSS stack is ready. Warehouse deployments do not
-support the NemoClaw harness yet.
+[OpenShell](/vision-agent/agent-harnesses/open-shell) harness after the VSS
+stack is ready. Warehouse deployments do not support the harness yet.
 
 Unlike runtime Skills that operate a running deployment, `vss-build-vision-ai`
 does the build-time work: it chooses the closest validated profile, resolves the
@@ -121,7 +121,7 @@ The credential gate is determined by those answers:
 | Choice | Credential |
 | --- | --- |
 | Any standard VSS deployment | `NGC_CLI_API_KEY`; authenticate Docker to `nvcr.io` separately before running the Skill. |
-| Public OpenAI-compatible harness endpoint | `COMPATIBLE_API_KEY` issued by the endpoint provider. |
+| Sandbox harness model endpoint | `HARNESS_API_KEY` issued by the endpoint provider, or an `nvapi-…` key for a `build.nvidia.com` model. |
 | `build.nvidia.com` model endpoint | `NVIDIA_API_KEY`. Create one from [NVIDIA API Keys](https://build.nvidia.com/settings/api-keys). |
 | Gated or rate-limited Hugging Face model download | `HF_TOKEN`. |
 | Self-hosted harness endpoint or no harness | No harness key. Stack-level NGC/model credentials still apply. |
@@ -243,48 +243,59 @@ selected tag, so their images differ from the common tag by that suffix.
 
 ## Harness source ref
 
-The NemoClaw sandbox image carries the operation Skills, the `vss` CLI and the
-OpenClaw plugin from one revision of this repository. It is built from
-`develop` by default, whatever image tag the stack runs. To build it from a
-nightly or a release instead, name the revision in the request:
+The sandbox image carries the operation Skills, the `vss` CLI and the Hermes
+plugin from one revision of this repository. It is built from `develop` by
+default, whatever image tag the stack runs. To build it from a nightly or a
+release instead, name the revision in the request:
 
-1. The request, for example *"deploy base with the NemoClaw harness at
+1. The request, for example *"deploy base with the sandbox harness at
    `nightly-20260928`"*.
-2. `VSS_HARNESS_REF` already exported in your shell.
+2. `VSS_REF` already exported in your shell, or set in the harness's env file.
 3. Neither, in which case the harness builds from `develop`.
 
-The Skill checks out that revision alongside your checkout (under
-`_builds/<name>/harness-src`) and builds the sandbox from it, so the Skills,
-CLI and plugin all come from the one revision; `vss --version` inside the
-sandbox reports it. The ref is independent of the
-[container image tag](#container-image-tag): name both to pin both. Revisions
-older than staged harness builds are refused rather than silently replaced
-by `develop`.
+The image build fetches that revision from the remote repository rather than
+reading your working tree, so the Skills, CLI and plugin all come from the one
+revision, and a local commit reaches the sandbox only once it is pushed.
+`vss --version` inside the sandbox reports it. The ref is independent of the
+[container image tag](#container-image-tag): name both to pin both. A ref that
+does not resolve on the remote stops the build rather than being silently
+replaced by `develop`.
 
 ## Agent harness
 
 When a developer-profile or custom build includes the in-stack VSS Agent, the
-Skill asks whether to deploy a host-side agent harness. The default harness is
-NemoClaw, which runs outside the Docker Compose project and operates the
-deployed stack through its public ingress URL.
+Skill asks one yes/no question: deploy the sandbox as the harness? **Yes** is
+the default. The sandbox is an [OpenShell](/vision-agent/agent-harnesses/open-shell)
+sandbox running the Hermes harness with the VSS operation Skills and the `vss`
+CLI baked in. It runs on the host, outside the Docker Compose project, and
+operates the deployed stack through its public ingress URL.
 
-For a NemoClaw build with the VSS Web UI, the UI starts with the stack. Its
-chat surfaces wait for a gateway token. After NemoClaw onboarding, run
-`nemoclaw <sandbox> gateway-token --quiet` on the deployment host and enter the
-token in **Connect NemoClaw chat**. The UI checks gateway access at runtime;
-the container does not need to be restarted.
+Before it asks, the Skill checks that the host can take the sandbox:
+`127.0.0.1:8080` is free or already held by an OpenShell gateway, the ingress is
+on `7777` (the port the sandbox policy grants), and the agent model's
+credential is available. It then asks which model the sandbox runs on. The
+default is Claude Opus 5 through the NVIDIA Inference Hub. The endpoint's key
+goes in `HARNESS_API_KEY`, for the default and for a `build.nvidia.com` model
+alike; a model served on the host needs none.
+
+For a build with the VSS Web UI, the Skill wires the UI's chat sidebar and Chat
+tab to the sandbox's API server once the sandbox exists. The bearer is a key
+minted per sandbox, so recreating the sandbox means wiring the UI again. The
+Skill reports the sandbox name, which every later `openshell` command takes.
 
 If you choose no harness, operate the deployment from the host with the `vss`
 CLI. If you explicitly request the in-stack VSS Agent, the Skill preserves that
-agent instead.
+agent instead. On either answer to the harness question, the in-stack agent is
+removed.
 
 <Note>
-A harness is not a Docker Compose service. The Skill never adds `nemoclaw` to
-`COMPOSE_PROFILES`; it installs and starts the harness only after the VSS stack
-passes readiness checks.
+A harness is not a Docker Compose service of the build. The Skill never adds it
+to `COMPOSE_PROFILES`; it brings up the sandbox only after the VSS stack passes
+readiness checks. The OpenShell gateway is one per host and survives the
+build's own teardown, which deletes the sandbox before Compose.
 </Note>
 
-Warehouse deployments do not enter the NemoClaw harness flow. The Skill deploys
+Warehouse deployments do not enter the harness flow. The Skill deploys
 the selected Warehouse variant as-is; for the 2D `bp_wh` variant, that means
 preserving the in-stack VSS Agent.
 
@@ -327,11 +338,11 @@ Use the vss-build-vision-ai skill to build a custom VSS stack for streaming obje
 ```
 
 ```text title="Deploy with a nightly harness"
-Use the vss-build-vision-ai skill to deploy the VSS base profile with the NemoClaw harness at nightly-20260928.
+Use the vss-build-vision-ai skill to deploy the VSS base profile with the sandbox harness at nightly-20260928.
 ```
 
 ```text title="Pin images and harness to one release"
-Use the vss-build-vision-ai skill to deploy the VSS base profile with image tag 3.4.0 and the NemoClaw harness at v3.4.0.
+Use the vss-build-vision-ai skill to deploy the VSS base profile with image tag 3.4.0 and the sandbox harness at v3.4.0.
 ```
 
 ```text title="Tear down"
