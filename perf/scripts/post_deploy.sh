@@ -39,6 +39,66 @@ wait_http() {
     return 1
 }
 
+http_any_status() {
+    local url="$1"
+    local code
+    code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 "$url" 2>/dev/null || true)"
+    [[ "$code" =~ ^[1-5][0-9][0-9]$ ]]
+}
+
+reload_vst_nginx() {
+    docker exec vss-vios-ingress sh -lc \
+        'nginx -t -c /etc/nginx/nginx.conf && nginx -s reload -c /etc/nginx/nginx.conf' \
+        >/dev/null 2>&1 || true
+}
+
+wait_vst_ingress() {
+    # ci-vss-oss ensure_vst_ingress.py: any HTTP status means the port is up.
+    local timeout="${1:-180}"
+    local port="${VST_INGRESS_HOST_PORT:-30898}"
+    local path="/api/v2/live/streams"
+    local host_ip="${HOST_IP:-127.0.0.1}"
+    local deadline=$((SECONDS + timeout))
+    local reloaded=0 restarts=0
+    local url
+    local urls=(
+        "http://127.0.0.1:${port}${path}"
+        "http://${host_ip}:${port}${path}"
+    )
+    echo "Waiting up to ${timeout}s for VST ingress on port $port"
+    while (( SECONDS < deadline )); do
+        for url in "${urls[@]}"; do
+            if http_any_status "$url"; then
+                echo "VST ingress reachable: $url"
+                return 0
+            fi
+        done
+        if (( reloaded == 0 )); then
+            reloaded=1
+            echo "VST ingress not reachable yet; reloading nginx in vss-vios-ingress"
+            docker logs vss-vios-ingress --tail 40 >&2 || true
+            reload_vst_nginx
+        elif (( restarts < 2 )); then
+            restarts=$((restarts + 1))
+            echo "Restarting vss-vios-ingress (attempt $restarts)"
+            docker restart vss-vios-ingress >/dev/null 2>&1 || true
+            reload_vst_nginx
+        fi
+        sleep 15
+    done
+    echo "Timed out waiting for VST ingress on port $port" >&2
+    docker logs vss-vios-ingress --tail 80 >&2 || true
+    return 1
+}
+
+wait_compose_gates() {
+    python3 "$PERF_DIR/scripts/wait_compose_gates.py" \
+        --project "$COMPOSE_PROJECT_NAME" \
+        --budget-sec "${PERF_GATE_WAIT_SECONDS:-180}" \
+        --poll-sec 15 \
+        --gate-only
+}
+
 kafka_raw_messages() {
     local offsets
     offsets="$(docker exec kafka kafka-get-offsets --bootstrap-server localhost:29092 \
@@ -84,10 +144,12 @@ wait_kafka_raw() {
     return 1
 }
 
+wait_compose_gates
 wait_container vss-behavior-analytics "${PERF_BA_READY_TIMEOUT:-900}"
 wait_container vss-rtvi-cv "${PERF_PERCEPTION_READY_TIMEOUT:-1200}"
 wait_container vss-video-analytics-api "${PERF_API_READY_TIMEOUT:-300}"
 wait_http "http://127.0.0.1:${VIDEO_ANALYTICS_API_HOST_PORT}/livez" "${PERF_API_HTTP_TIMEOUT:-300}"
+wait_vst_ingress "${PERF_VST_INGRESS_TIMEOUT:-180}"
 wait_kafka_raw "${PERF_TRAFFIC_TIMEOUT:-900}"
 
 echo "Warehouse industry-example post-deploy ready."

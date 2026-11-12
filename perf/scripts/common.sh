@@ -37,6 +37,22 @@ VIDEO_ANALYTICS_API_HOST_PORT="${VIDEO_ANALYTICS_API_HOST_PORT:-28081}"
 ELASTICSEARCH_HOST_PORT="${ELASTICSEARCH_HOST_PORT:-29200}"
 KAFKA_HOST_PORT="${KAFKA_HOST_PORT:-19092}"
 HAPROXY_HOST_PORT="${HAPROXY_HOST_PORT:-17777}"
+VST_INGRESS_HOST_PORT="${VST_INGRESS_HOST_PORT:-30898}"
+NGC_DOWNLOAD_ATTEMPTS="${NGC_DOWNLOAD_ATTEMPTS:-3}"
+NO_TURN_COMPOSE="$VSS_APPS_DIR/services/infra/compose-no-turn-tcp-relay.yml"
+# Process-env keys that must not outrank generated.env (ci-vss-oss compose_profile.sh).
+COMPOSE_UNSET=(
+    VSS_APPS_DIR VSS_DATA_DIR HOST_IP EXTERNAL_IP
+    MODE BP_PROFILE COMPOSE_PROFILES STREAM_TYPE
+    LLM_MODE VLM_MODE LLM_NAME VLM_NAME
+    LLM_NAME_SLUG VLM_NAME_SLUG LLM_BASE_URL VLM_BASE_URL
+    LLM_DEVICE_ID VLM_DEVICE_ID SHARED_LLM_VLM_DEVICE_ID
+    FIXED_SHARED_DEVICE_IDS RT_CV_DEVICE_ID RT_VLM_DEVICE_ID
+    RT_EMBED_DEVICE_ID RTVI_VLLM_GPU_MEMORY_UTILIZATION
+    RTVI_VLLM_ATTENTION_BACKEND
+    VSS_RT_CV_TAG VSS_RT_VLM_TAG VSS_RT_EMBED_TAG
+    VSS_VIDEO_SUMMARIZATION_TAG
+)
 export COMPOSE_PROJECT_NAME VSS_APPS_DIR VSS_DATA_DIR OUTPUT_DIR
 # Product compose defaults to GHCR. nvstaging/vss-core:develop-latest 404s for
 # vss-behavior-analytics and vss-rt-cv. Jenkins ARTIFACT_REF is the warehouse
@@ -92,16 +108,97 @@ detect_host_ip() {
     hostname -I 2>/dev/null | awk '{print $1}'
 }
 
+compose_env_prefix() {
+    local args=(env)
+    local name
+    for name in "${COMPOSE_UNSET[@]}"; do
+        args+=(-u "$name")
+    done
+    printf '%s\n' "${args[@]}"
+}
+
+compose_files() {
+    local files=(-f "$VSS_APPS_DIR/compose.yml")
+    if [[ -f "$NO_TURN_COMPOSE" ]]; then
+        files+=(-f "$NO_TURN_COMPOSE")
+    fi
+    printf '%s\n' "${files[@]}"
+}
+
 compose() {
+    local files=()
+    local env_cmd=()
+    mapfile -t files < <(compose_files)
+    mapfile -t env_cmd < <(compose_env_prefix)
     (
         cd "$VSS_APPS_DIR"
-        docker compose -p "$COMPOSE_PROJECT_NAME" \
+        "${env_cmd[@]}" docker compose -p "$COMPOSE_PROJECT_NAME" \
             --env-file "$VSS_APPS_DIR/containers.env" \
             --env-file "$WAREHOUSE_DIR/.env" \
             --env-file "$GENERATED_ENV" \
-            -f "$VSS_APPS_DIR/compose.yml" \
+            "${files[@]}" \
             "$@"
     )
+}
+
+login_nvcr() {
+    local key="${NGC_CLI_API_KEY:-${NGC_API_KEY:-}}"
+    if [[ -z "$key" ]]; then
+        echo "Skipping nvcr.io login: NGC_CLI_API_KEY is unset"
+        return 0
+    fi
+    printf '%s' "$key" | docker login nvcr.io -u '$oauthtoken' --password-stdin
+}
+
+validate_compose() {
+    local rendered
+    rendered="$(compose config)"
+    if grep -Fq '/path/to/' <<<"$rendered"; then
+        echo "Rendered Compose configuration contains an unresolved /path/to/ placeholder" >&2
+        return 1
+    fi
+}
+
+project_resource_ids() {
+    local containers networks volumes
+    containers="$(docker ps -aq --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" 2>/dev/null || true)"
+    networks="$(docker network ls -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" 2>/dev/null || true)"
+    volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" 2>/dev/null || true)"
+    printf '%s\n%s\n%s\n' "$containers" "$networks" "$volumes" | sed '/^$/d'
+}
+
+down_project_by_name() {
+    (cd "$VSS_APPS_DIR" && docker compose -p "$COMPOSE_PROJECT_NAME" down -v --remove-orphans)
+}
+
+down_project() {
+    if [[ -f "$GENERATED_ENV" ]]; then
+        if compose down -v --remove-orphans; then
+            return 0
+        fi
+        echo "Env-aware Compose teardown failed; retrying by project name" >&2
+    fi
+    down_project_by_name
+}
+
+verify_project_down() {
+    local leftover
+    leftover="$(project_resource_ids)"
+    if [[ -n "$leftover" ]]; then
+        echo "Compose teardown left resources for project $COMPOSE_PROJECT_NAME:" >&2
+        echo "$leftover" >&2
+        return 1
+    fi
+    echo "Compose teardown verified: no resources remain for project $COMPOSE_PROJECT_NAME"
+}
+
+pre_clean_project() {
+    echo "Pre-cleaning compose project $COMPOSE_PROJECT_NAME"
+    down_project || true
+    if ! verify_project_down; then
+        down_project_by_name || true
+        verify_project_down || true
+    fi
 }
 
 load_generated_env() {
@@ -196,7 +293,39 @@ normalize_warehouse_app_data() {
 
 chmod_warehouse_app_data() {
     # NGC extract is mode 750 uid 2524; warehouse containers run as uid 1000.
+    # Eval uses chmod 777; a+rwX is the Jenkins equivalent without a global 777.
     chmod -R a+rX "$VSS_DATA_DIR" || true
+    local extra
+    for extra in videos playback models data_log; do
+        if [[ -d "$VSS_DATA_DIR/$extra" ]]; then
+            chmod -R a+rwX "$VSS_DATA_DIR/$extra" || true
+        fi
+    done
+}
+
+_stage_ngc_app_data() {
+    local staging="$1"
+    local extract_dir="$2"
+    local archive downloaded
+    ensure_host_dir "$staging"
+    ensure_host_dir "$extract_dir"
+    ngc registry resource download-version "$WAREHOUSE_APP_DATA_REF" --dest "$staging" || return 1
+    archive="$(find "$staging" -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.tar' -o -name '*.zip' \) | head -n 1 || true)"
+    if [[ -n "$archive" ]]; then
+        extract_one_archive "$archive" "$extract_dir" || return 1
+    else
+        downloaded="$(find "$staging" -mindepth 1 -maxdepth 1 -type d | head -n 1 || true)"
+        if [[ -z "$downloaded" ]]; then
+            echo "NGC download produced no archive under $staging" >&2
+            return 1
+        fi
+        cp -a "$downloaded"/. "$extract_dir"/
+    fi
+    (
+        export VSS_DATA_DIR="$extract_dir"
+        normalize_warehouse_app_data
+    )
+    warehouse_data_ready_at "$extract_dir"
 }
 
 download_warehouse_app_data() {
@@ -216,32 +345,34 @@ download_warehouse_app_data() {
         return 1
     fi
     export NGC_CLI_API_KEY="${NGC_CLI_API_KEY:-$NGC_API_KEY}"
-    local staging="$WH_PERF_DATA_DIR/ngc-download"
-    ensure_host_dir "$staging"
-    echo "Downloading $WAREHOUSE_APP_DATA_REF"
-    ngc registry resource download-version "$WAREHOUSE_APP_DATA_REF" --dest "$staging"
-    local archive
-    archive="$(find "$staging" -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.tar' -o -name '*.zip' \) | head -n 1 || true)"
-    ensure_host_dir "$VSS_DATA_DIR"
-    if [[ -n "$archive" ]]; then
-        extract_one_archive "$archive" "$VSS_DATA_DIR"
-    else
-        local downloaded
-        downloaded="$(find "$staging" -mindepth 1 -maxdepth 1 -type d | head -n 1 || true)"
-        if [[ -z "$downloaded" ]]; then
-            echo "NGC download produced no archive under $staging" >&2
-            return 1
+    local attempt staging extract_dir last_error="<none>"
+    # Eval download_app_data.py retries truncated NGC transfers 3 times and
+    # never keeps a partial extract as the cache.
+    for attempt in $(seq 1 "$NGC_DOWNLOAD_ATTEMPTS"); do
+        echo "Downloading $WAREHOUSE_APP_DATA_REF (attempt ${attempt}/${NGC_DOWNLOAD_ATTEMPTS})"
+        staging="$WH_PERF_DATA_DIR/ngc-download"
+        extract_dir="$WH_PERF_DATA_DIR/ngc-extract"
+        remove_root_tree "$staging"
+        remove_root_tree "$extract_dir"
+        if _stage_ngc_app_data "$staging" "$extract_dir"; then
+            ensure_host_dir "$VSS_DATA_DIR"
+            cp -a "$extract_dir"/. "$VSS_DATA_DIR"/
+            normalize_warehouse_app_data
+            chmod_warehouse_app_data
+            if warehouse_data_ready; then
+                remove_root_tree "$staging"
+                remove_root_tree "$extract_dir"
+                return 0
+            fi
+            last_error="copied extract was not ready at $VSS_DATA_DIR"
+        else
+            last_error="ngc download or extract failed"
+            echo "WARN: $last_error — NGC transfer may be truncated; purged partial extract"
         fi
-        cp -a "$downloaded"/. "$VSS_DATA_DIR"/
-    fi
-    normalize_warehouse_app_data
-    chmod_warehouse_app_data
-    if ! warehouse_data_ready; then
-        echo "Warehouse app data extract did not contain videos/ or playback/: $VSS_DATA_DIR" >&2
-        ls -la "$VSS_DATA_DIR" >&2 || true
-        ls -la "$VSS_DATA_DIR/vss-warehouse-app-data" >&2 || true
-        return 1
-    fi
+    done
+    echo "FATAL: NGC download of $WAREHOUSE_APP_DATA_REF failed after ${NGC_DOWNLOAD_ATTEMPTS} attempt(s); last error: $last_error" >&2
+    ls -la "$VSS_DATA_DIR" >&2 || true
+    return 1
 }
 
 write_generated_env() {
@@ -261,6 +392,10 @@ write_generated_env() {
         "STREAM_TYPE=kafka" \
         "LLM_MODE=none" \
         "VLM_MODE=none" \
+        "LLM_NAME_SLUG=none" \
+        "VLM_NAME_SLUG=none" \
+        "COMPOSE_PROFILES=\${COMPOSE_PROFILES_WH_KAFKA_2D}" \
+        "INSTALL_PROPRIETARY_CODECS=${INSTALL_PROPRIETARY_CODECS:-true}" \
         "HARDWARE_PROFILE=$HARDWARE_PROFILE" \
         "VSS_APPS_DIR=$VSS_APPS_DIR" \
         "VSS_DATA_DIR=$VSS_DATA_DIR" \
@@ -303,14 +438,28 @@ write_generated_env() {
 }
 
 prepare_data_logs() {
-    ensure_host_dir "$VSS_DATA_DIR/data_log/elastic/data"
-    ensure_host_dir "$VSS_DATA_DIR/data_log/elastic/logs"
-    ensure_host_dir "$VSS_DATA_DIR/data_log/kafka"
-    ensure_host_dir "$VSS_DATA_DIR/data_log/redis/data"
-    ensure_host_dir "$VSS_DATA_DIR/data_log/redis/log"
-    ensure_host_dir "$VSS_DATA_DIR/data_log/vss_video_analytics_api"
-    ensure_host_dir "$VSS_DATA_DIR/models"
-    chmod -R a+rwX "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/models" || true
+    # Same warehouse bind-mount tree as ci-vss-oss compose_profile.sh prepare().
+    local dir
+    for dir in \
+        "$VSS_DATA_DIR/data_log/analytics_cache" \
+        "$VSS_DATA_DIR/data_log/calibration_toolkit" \
+        "$VSS_DATA_DIR/data_log/elastic/data" \
+        "$VSS_DATA_DIR/data_log/elastic/logs" \
+        "$VSS_DATA_DIR/data_log/kafka" \
+        "$VSS_DATA_DIR/data_log/redis/data" \
+        "$VSS_DATA_DIR/data_log/redis/log" \
+        "$VSS_DATA_DIR/data_log/nvstreamer/vst_data" \
+        "$VSS_DATA_DIR/data_log/behavior_learning_data" \
+        "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+        "$VSS_DATA_DIR/models" \
+        "$VSS_DATA_DIR/playback"
+    do
+        ensure_host_dir "$dir"
+    done
+    chmod -R a+rwX "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/models" "$VSS_DATA_DIR/playback" || true
+    if [[ -d "$VSS_DATA_DIR/videos" ]]; then
+        chmod -R a+rwX "$VSS_DATA_DIR/videos" || true
+    fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

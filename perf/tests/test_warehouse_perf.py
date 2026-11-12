@@ -33,13 +33,20 @@ SCRIPTS = [
 ]
 
 
-def load_overlay():
-    path = PERF / "scripts" / "overlay_env.py"
-    spec = importlib.util.spec_from_file_location("overlay_env", path)
+def load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def load_overlay():
+    return load_module("overlay_env", PERF / "scripts" / "overlay_env.py")
+
+
+def load_gate_wait():
+    return load_module("wait_compose_gates", PERF / "scripts" / "wait_compose_gates.py")
 
 
 SAMPLE_REPORT = """
@@ -60,6 +67,32 @@ INCIDENTS MESSAGES
 | Sensor | count | min(s) | max(s) | avg(s) | size(kb) | p50(s) | p95(s) | p99(s) |
 | Camera | 10 | 0.025 | 0.060 | 0.040 | 1.0 | 0.035 | 0.050 | 0.055 |
 """
+
+
+class GateWaitTests(unittest.TestCase):
+    def test_explicit_container_names_match_eval_gates(self) -> None:
+        gates = load_gate_wait()
+        self.assertEqual(gates.short_name("vss-rtvi-cv"), "vss-rtvi-cv")
+        self.assertEqual(
+            gates.gate_name("vss-vios-ingress", gates.WAREHOUSE_GATE_CONTAINERS),
+            "vss-vios-ingress",
+        )
+        self.assertEqual(
+            gates.gate_name(
+                "warehouse-bp-perf-kafka-1", gates.WAREHOUSE_GATE_CONTAINERS
+            ),
+            "kafka",
+        )
+        self.assertIn("vss-rtvi-cv", gates.WAREHOUSE_GATE_CONTAINERS)
+        self.assertIn("vss-vios-nvstreamer", gates.WAREHOUSE_GATE_CONTAINERS)
+
+    def test_optional_gates_are_ignored_when_absent(self) -> None:
+        gates = load_gate_wait()
+        self.assertIsNone(
+            gates.gate_name("unrelated-helper", gates.WAREHOUSE_GATE_CONTAINERS)
+        )
+        line = gates.format_status_line([], elapsed_sec=12, gates=gates.WAREHOUSE_GATE_CONTAINERS)
+        self.assertIn("no containers found", line)
 
 
 class OverlayEnvTests(unittest.TestCase):
@@ -252,7 +285,11 @@ class ScriptTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, f"{script}: {completed.stderr}")
 
     def test_spdx_headers(self) -> None:
-        for script in SCRIPTS:
+        extra = [
+            PERF / "scripts" / "overlay_env.py",
+            PERF / "scripts" / "wait_compose_gates.py",
+        ]
+        for script in [*SCRIPTS, *extra]:
             text = script.read_text()
             self.assertIn("SPDX-FileCopyrightText", text)
             self.assertIn("SPDX-License-Identifier: Apache-2.0", text)
@@ -274,7 +311,20 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("chmod -R a+rX", common)
         self.assertIn("wait_kafka_raw", post)
         self.assertIn("mdx-raw", post)
+        self.assertIn("wait_vst_ingress", post)
+        self.assertIn("wait_compose_gates", post)
+        self.assertIn("NGC_DOWNLOAD_ATTEMPTS", common)
+        self.assertIn("compose-no-turn-tcp-relay.yml", common)
+        self.assertIn("COMPOSE_UNSET", common)
+        self.assertIn("validate_compose", common)
+        self.assertIn("login_nvcr", common)
+        self.assertIn("pre_clean_project", common)
+        self.assertIn("COMPOSE_PROFILES=\\${COMPOSE_PROFILES_WH_KAFKA_2D}", common)
         self.assertIn('PERF_CONFIG_PATH="${PERF_CONFIG_PATH:-$PERF_DIR/configs/config.yaml}"', common)
+        deploy = (PERF / "scripts" / "deploy.sh").read_text()
+        self.assertIn("pre_clean_project", deploy)
+        self.assertIn("validate_compose", deploy)
+        self.assertIn("Do not run host-global eval cleanup.py", deploy)
         measure = (PERF / "scripts" / "measure.sh").read_text()
         self.assertLess(
             measure.find('sleep "$PERF_WARMUP_SECONDS"'),
@@ -282,6 +332,17 @@ class ScriptTests(unittest.TestCase):
         )
         teardown = (PERF / "scripts" / "teardown.sh").read_text()
         self.assertIn('rm -f "$GENERATED_ENV"', teardown)
+        self.assertIn("verify_project_down", teardown)
+        self.assertIn("Do not run eval host-global cleanup.py or cleanup_all_datalog.sh", teardown)
+
+    def test_gate_wait_script_compiles(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-m", "py_compile", str(PERF / "scripts" / "wait_compose_gates.py")],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_flatten_nested_app_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

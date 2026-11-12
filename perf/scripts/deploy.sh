@@ -11,6 +11,18 @@ prepare_data_logs
 write_generated_env
 load_generated_env
 
+# Eval compose_profile.sh pre-clean: tear down this compose project only.
+# Do not run host-global eval cleanup.py (shared Jenkins GPU node).
+pre_clean_project
+prepare_data_logs
+write_generated_env
+load_generated_env
+
+login_nvcr
+validate_compose
+echo "Compose images:"
+compose config --images | sort -u || true
+
 echo "Starting warehouse 2D Kafka industry example (project=$COMPOSE_PROJECT_NAME)"
 if ! compose up -d --pull always --force-recreate --build; then
     echo "Warehouse compose up failed" >&2

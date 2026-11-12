@@ -62,8 +62,19 @@ The extracted warehouse app data and model cache are kept across teardowns on
 the same node. NGC app-data is flattened from the inner
 `vss-warehouse-app-data/` wrapper, chmod `a+rX` for uid 1000, and
 `BP_CONFIGURATOR_ENV_FILE` is pointed at `generated.env` so HOST_IP is not
-baked as `<HOST_IP>`. `post_deploy.sh` waits for `mdx-raw` traffic (first GPU
-run compiles the RT-DETR engine; livez alone is not enough).
+baked as `<HOST_IP>`.
+
+Deploy follows the `ci-vss-oss` warehouse kafka-2d recipe inside `perf/scripts/`
+(Jenkins cannot clone that repo): NGC download with 3 retries, product
+`compose-no-turn-tcp-relay.yml`, env-file isolation so `generated.env` wins,
+`compose config` placeholder check, nvcr.io login, project-scoped pre-clean /
+verify-down, warehouse `data_log` bind dirs, gate-container poll (eval continue),
+VST ingress HTTP any-status wait, then fail-closed `mdx-raw`. Not copied:
+host-global `cleanup.py`, host sysctl, TRT workspace cache, 2×GPU eval
+template.
+
+`post_deploy.sh` waits for `mdx-raw` traffic (first GPU run compiles the
+RT-DETR engine; livez / VST HTTP alone is not enough).
 
 ## Not in this package
 
