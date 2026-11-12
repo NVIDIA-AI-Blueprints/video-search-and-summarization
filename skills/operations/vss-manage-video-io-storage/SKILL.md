@@ -283,3 +283,5 @@ Example operation prompts:
 - **Sensor name:** Address media by sensor name. `video` is a file-backed sensor; `stream` is RTSP. Read the type from `vss vios list`, then delete with `vss vios delete --type <that type> --sensor NAME`; a mismatch is refused.
 - **Recorded timeline after upload:** `vss vios add --type video` records the file. Read the anchored range with `vss vios timeline --sensor NAME` before a later clip or snapshot. Do not hand-build an upload request.
 - **Endpoints:** CLI examples take no endpoint. The origin is whatever `vss configure` recorded.
+
+This skill is maintained in the VSS repository and mirrored to the public catalog at [NVIDIA/skills](https://github.com/NVIDIA/skills).

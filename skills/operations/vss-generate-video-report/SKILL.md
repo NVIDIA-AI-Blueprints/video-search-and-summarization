@@ -419,3 +419,5 @@ Mode letters are stable aliases (other skills reference them); files are named b
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
 - **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Mode A Step 4, `references/report-types/video-analysis.md`) is still filled by this skill.
 - **`references/default-vlm-prompt.md`** — default Mode A VLM prompt (edit this file to change the prompt). Mode A Step 3 (`references/report-types/video-analysis.md`) loads it via `$SKILL_DIR/references/default-vlm-prompt.md` and fails if missing or empty.
+
+This skill is maintained in the VSS repository and mirrored to the public catalog at [NVIDIA/skills](https://github.com/NVIDIA/skills).
