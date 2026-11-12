@@ -202,11 +202,11 @@ def test_subject_requires_a_frame_level_box() -> None:
 
 
 @pytest.mark.asyncio
-async def test_rerank_moves_rejected_results_below_the_rest(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_rerank_moves_a_rejected_result_down_three_places(monkeypatch: pytest.MonkeyPatch) -> None:
     vlm = _VLM({200: '{"answer": "no"}', 300: '{"answer": "yes"}', 400: '{"answer": "unsure"}'})
     checker = _checker(vlm, monkeypatch)
-    results = [_result("a"), _result("b"), _result("c"), _result("d")]
-    subjects = {"a": _subject("1"), "b": _subject("2"), "c": _subject("3")}  # "d" has no subject
+    results = [_result(name) for name in "abcdef"]
+    subjects = {"a": _subject("1"), "b": _subject("2"), "c": _subject("3")}  # the rest have no subject
 
     reranked = await checker.rerank(
         results,
@@ -215,11 +215,81 @@ async def test_rerank_moves_rejected_results_below_the_rest(monkeypatch: pytest.
         attributes=["person in white shirt"],
     )
 
-    assert [r.video_name for r in reranked] == ["b", "c", "d", "a"]
+    # A wrong "no" costs three places, not the hit: "a" lands after "d", before "e".
+    assert [r.video_name for r in reranked] == ["b", "c", "d", "a", "e", "f"]
     # The results themselves are untouched: same objects, no new fields.
-    assert reranked[-1] is results[0]
+    assert reranked[3] is results[0]
     assert '"person pushing a cart wearing a white shirt"' in vlm.prompts[0]
     assert '"person in white shirt"' in vlm.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_rerank_keeps_rejected_results_in_their_relative_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    vlm = _VLM({200: '{"answer": "no"}', 300: '{"answer": "no"}'})
+    checker = _checker(vlm, monkeypatch)
+    results = [_result(name) for name in "abcdefg"]
+    subjects = {"a": _subject("1"), "b": _subject("2")}
+
+    reranked = await checker.rerank(results, lambda r: subjects.get(r.video_name), query="q", attributes=["shirt"])
+
+    # Each moves three places down from where it was; "a" stays ahead of "b".
+    assert [r.video_name for r in reranked] == ["c", "d", "a", "e", "b", "f", "g"]
+
+
+@pytest.mark.asyncio
+async def test_rerank_checks_at_most_five_results_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    vlm = _VLM({200: '{"answer": "yes"}'})
+    checker = _checker(vlm, monkeypatch)
+
+    await checker.rerank([_result(str(i)) for i in range(8)], lambda _r: _subject("1"), query="q", attributes=["shirt"])
+
+    assert len(vlm.prompts) == sc.DEFAULT_MAX_CHECKS == 5
+
+
+@pytest.mark.asyncio
+async def test_rerank_logs_one_verdict_line_per_checked_result(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import json
+
+    vlm = _VLM({200: '{"answer": "no"}', 300: "garbled"})
+    checker = _checker(vlm, monkeypatch)
+    results = [_result("a"), _result("b")]
+    subjects = {"a": _subject("1"), "b": _subject("2")}
+
+    with caplog.at_level("INFO", logger=sc.logger.name):
+        await checker.rerank(results, lambda r: subjects[r.video_name], query="q", attributes=["shirt"])
+
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith(sc.VERDICT_LOG_MARKER + " ")]
+    records = [json.loads(line.split(" ", 1)[1]) for line in lines]
+    assert records == [
+        {
+            "rank": 1,
+            "video_name": "a",
+            "sensor_id": "cam1",
+            "start_time": "2025-01-01T00:00:00Z",
+            "end_time": "2025-01-01T00:00:05Z",
+            "object_id": "1",
+            "frame_timestamp": "2025-01-01T00:00:02Z",
+            "verdict": "no",
+        },
+        {
+            "rank": 2,
+            "video_name": "b",
+            "sensor_id": "cam1",
+            "start_time": "2025-01-01T00:00:00Z",
+            "end_time": "2025-01-01T00:00:05Z",
+            "object_id": "2",
+            "frame_timestamp": "2025-01-01T00:00:02Z",
+            "verdict": "unsure",
+        },
+    ]
+
+
+def test_prompt_prefers_unsure_over_no_for_actions_a_frame_cannot_show() -> None:
+    prompt = " ".join(sc.SUBJECT_CHECK_PROMPT.split())
+    assert 'Answer "no" only when the frame clearly shows it' in prompt
+    assert 'When in doubt between "no" and "unsure", answer "unsure".' in prompt
 
 
 @pytest.mark.asyncio

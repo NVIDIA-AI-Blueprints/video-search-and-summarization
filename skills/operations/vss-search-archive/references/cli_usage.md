@@ -85,6 +85,13 @@ off by default), `w_embed=0.35`, `w_attribute=0.55`, `rrf_k=60`,
 no tag leg). Opting into the VLM tag leg with `--w-tag > 0`
 auto-selects `weighted_rrf` (the only method that fuses a tag leg);
 an explicit `--fusion-method rrf --w-tag > 0` is an input error.
+`--subject-check` (fusion only, off by default) asks the VLM, for each of the
+top five hits, whether the person who matched `--attribute` is the one doing the
+action, using that person's best frame with their box drawn on it. A hit it
+answers no for moves down three places; nothing is dropped and no field is
+added. It needs the same VST and RT-VLM as the critic and is skipped without
+them. It adds a VST frame fetch and a VLM call per checked hit, so leave it off
+unless an evaluation on your data shows it helps.
 `--critic-eval-count N` caps how many retrieved hits the VLM critic verifies;
 hits beyond the cap stay `unverified`. Omit to verify every hit (bounded by
 `--top-k`). The critic is best-effort, fail-open, and already concurrent

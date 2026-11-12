@@ -244,6 +244,17 @@ class SearchTuning(BaseModel):
         ),
         json_schema_extra={"cli_flag": "--critic-eval-count"},
     )
+    subject_check: bool = Field(
+        False,
+        description=(
+            "Fusion only: ask the VLM whether the person who matched the attribute"
+            " is the one doing the action, using that person's best frame with their box"
+            " drawn on it, and move each top result it answers no for down three"
+            " places. Off by default. Needs the same VST and RT-VLM the critic uses;"
+            " without them it is skipped. Changes only the order of results."
+        ),
+        json_schema_extra={"cli_flag": "--subject-check"},
+    )
 
 
 class SearchPersistOptions(BaseModel):
@@ -431,9 +442,10 @@ def _subject_checker_from(
 ) -> SubjectChecker | None:
     """Build the fusion subject check on the critic's VLM, or ``None`` without one.
 
-    It needs the same two services the critic does (RT-VLM and VST), so it is
-    on exactly when the critic is: ``_critic_from`` has already probed RT-VLM,
-    and a ``None`` analyzer means it found no usable VLM.
+    Only called for ``--subject-check``. It needs the same two services the
+    critic does (RT-VLM and VST): ``_critic_from`` has already probed RT-VLM,
+    and a ``None`` analyzer means it found no usable VLM, so the check is
+    skipped.
     """
     if vlm is None:
         return None
@@ -522,6 +534,9 @@ class SearchGroup(CommandGroup):
         # out of `tuning` (which feeds SearchRuntime) and thread it to the
         # critic instead. None = verify every hit (bounded by --top-k).
         critic_eval_count = tuning.pop("critic_eval_count", None)
+        # Like critic_eval_count, a caller preference rather than a runtime
+        # field: it decides whether the subject checker is built at all.
+        subject_check = bool(tuning.pop("subject_check", False))
         # Auto-select the fusion method from the VLM tag leg choice. The
         # legacy `rrf` (embed + attribute, no tag leg) is the default; opting
         # into the VLM tag leg (--w-tag > 0) auto-selects `weighted_rrf`
@@ -641,7 +656,7 @@ class SearchGroup(CommandGroup):
 
         async def _go() -> Any:
             critic, vlm, disabled_reason = await _critic_from(deployment, eval_count=critic_eval_count)
-            subject_checker = _subject_checker_from(deployment, vlm)
+            subject_checker = _subject_checker_from(deployment, vlm) if subject_check else None
             try:
                 async with VSSSearch.from_runtime(runtime, critic=critic, subject_checker=subject_checker) as vss:
                     output = await vss.search(**payload)

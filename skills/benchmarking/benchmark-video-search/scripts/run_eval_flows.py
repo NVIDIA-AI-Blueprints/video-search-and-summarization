@@ -185,6 +185,7 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             cwd=args.vss_repo_root,
             decompositions=decompositions,
             pass_original_query=pass_original_query,
+            subject_check=args.subject_check,
         )
     raise SystemExit(f"Unknown query flow: {args.query_flow}")
 
@@ -847,6 +848,15 @@ def run_evaluation(
         stage_timings = getattr(query_backend, "timings_by_query", {}).get(query)
         if stage_timings:
             result["timings"] = stage_timings
+
+        # One entry per result the subject check judged, with whether that
+        # result's window matches a ground-truth segment -- so a run can count
+        # how often a "no" pushed a correct result down.
+        subject_checks = getattr(query_backend, "subject_checks_by_query", {}).get(query)
+        if subject_checks:
+            result["subject_check"] = [
+                {**check, "gt_match": flows.match_segment(check, expected)[0] > -1} for check in subject_checks
+            ]
 
         kept, num_rejected = flows.filter_rejected(normalized)
         result["num_rejected"] = num_rejected
@@ -1549,6 +1559,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     query.add_argument("--min-cosine-similarity", type=float, default=0.0)
     query.add_argument("--source-type", default="video_file", choices=["video_file", "rtsp"])
     query.add_argument("--concurrency", type=int, default=1)
+    query.add_argument(
+        "--subject-check",
+        action="store_true",
+        help=(
+            "CLI flow, fusion queries: run `vss search run fusion --subject-check` and "
+            "record each checked result's verdict and whether it matches ground truth "
+            "under `subject_check` in the per-query results."
+        ),
+    )
     query.add_argument(
         "--merge-adjacent",
         action=argparse.BooleanOptionalAction,

@@ -144,6 +144,7 @@ from .query import (
     QueryUnanswerableError,
     is_fatal_exit,
     parse_cli_output,
+    parse_subject_check_log,
 )
 from .readiness import (
     compare_inventory,
@@ -298,6 +299,7 @@ __all__ = [
     "normalize_result",
     "normalize_results",
     "parse_cli_output",
+    "parse_subject_check_log",
     "parse_ts",
     "path_distribution",
     "plan_for",
