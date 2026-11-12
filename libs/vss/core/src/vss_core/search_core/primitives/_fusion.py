@@ -67,6 +67,8 @@ class FusionCandidate:
     per-video attribute score sum divided by the attribute count; ``screenshot_url``
     prefers the attribute screenshot and falls back to the embed result's; and
     ``object_ids`` are the de-duplicated behavior object ids matched for the video.
+    ``subject`` is the highest-scoring attribute match, kept so the subject
+    check can find that object's frame and box; it never reaches the output.
     """
 
     embed_result: SearchResult
@@ -74,6 +76,7 @@ class FusionCandidate:
     normalised_attribute_score: float
     screenshot_url: str
     object_ids: list[str] = field(default_factory=list)
+    subject: AttributeSearchResult | None = None
 
 
 def _validate_attribute_results(attribute_results: Any) -> list[AttributeSearchResult]:
@@ -149,6 +152,7 @@ def build_fusion_candidates(
                 normalised_attribute_score=normalised_attribute_score,
                 screenshot_url=screenshot_url,
                 object_ids=object_ids,
+                subject=max(validated, key=_attribute_score, default=None),
             )
         )
     return candidates

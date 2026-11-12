@@ -180,6 +180,53 @@ class OpenAIVLMAnalyzer:
             logger.error("Invalid VLM response: %s", scrub_log(e))
             raise BackendUnreachableError("vlm", f"Invalid VLM response format: {e}", e) from e
 
+    async def analyze_image(
+        self,
+        *,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str = "image/jpeg",
+    ) -> str:
+        """Ask the VLM about one still image and return its text response.
+
+        The image travels inline as a base64 data URL, so the VLM never has to
+        reach VST. RT-VLM reads only the first media item of a request, so
+        callers that want several frames tile them into one image first.
+        """
+        if not image_bytes:
+            raise ValueError("image_bytes must be non-empty")
+        image_b64 = base64.b64encode(image_bytes).decode("ascii")
+        payload = {
+            "model": self._model,
+            "temperature": 0,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_b64}"}},
+                    ],
+                }
+            ],
+        }
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        try:
+            response = await self._request_with_retries(
+                "POST", self._chat_completions_url, headers=headers, json=payload
+            )
+            answer = _extract_chat_content(response.json())
+            if not answer.strip():
+                raise ValueError("VLM response contained no text content")
+            return answer
+        except (httpx.HTTPError, _RetryableVLMStatusError) as e:
+            logger.error("VLM image request failed: %s", scrub_log(e))
+            raise BackendUnreachableError("vlm", str(e), e) from e
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            logger.error("Invalid VLM image response: %s", scrub_log(e))
+            raise BackendUnreachableError("vlm", f"Invalid VLM response format: {e}", e) from e
+
     async def _request_with_retries(
         self,
         method: str,

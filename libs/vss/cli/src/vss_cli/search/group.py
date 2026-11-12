@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     import click
 
     from vss_core.search_core.critic import CriticAgent
+    from vss_core.search_core.subject_check import SubjectChecker
     from vss_core.vlm import OpenAIVLMAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -424,6 +425,26 @@ async def _critic_from(
     )
 
 
+def _subject_checker_from(
+    deployment: config_mod.Deployment,
+    vlm: OpenAIVLMAnalyzer | None,
+) -> SubjectChecker | None:
+    """Build the fusion subject check on the critic's VLM, or ``None`` without one.
+
+    It needs the same two services the critic does (RT-VLM and VST), so it is
+    on exactly when the critic is: ``_critic_from`` has already probed RT-VLM,
+    and a ``None`` analyzer means it found no usable VLM.
+    """
+    if vlm is None:
+        return None
+
+    from vss_core.search_core.subject_check import SubjectChecker
+    from vss_core.vios import VSTClient
+
+    vst = VSTClient(internal_url=deployment.base_url, external_url=deployment.base_url)
+    return SubjectChecker(image_analyzer=vlm, vst=vst, vst_internal_url=deployment.base_url)
+
+
 class SearchGroup(CommandGroup):
     """Search indexed video."""
 
@@ -620,8 +641,9 @@ class SearchGroup(CommandGroup):
 
         async def _go() -> Any:
             critic, vlm, disabled_reason = await _critic_from(deployment, eval_count=critic_eval_count)
+            subject_checker = _subject_checker_from(deployment, vlm)
             try:
-                async with VSSSearch.from_runtime(runtime, critic=critic) as vss:
+                async with VSSSearch.from_runtime(runtime, critic=critic, subject_checker=subject_checker) as vss:
                     output = await vss.search(**payload)
             finally:
                 if vlm is not None:
