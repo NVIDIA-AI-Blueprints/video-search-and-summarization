@@ -85,10 +85,12 @@ class HttpLatencyTests(unittest.TestCase):
         self.assertIn("metrics_occupancy_fov", names)
         self.assertIn("sensor_lookup", names)
         self.assertIn("config_calibration_image", names)
+        self.assertIn("config_calibration_image_metadata", names)
         paths = {row["path"] for row in rows}
         self.assertNotIn("/behavior/pts", paths)
         self.assertNotIn("/metrics/road-network/segment-speed", paths)
         self.assertIn("/config/calibration/image", paths)
+        self.assertIn("/config/calibration/image-metadata", paths)
         for skipped in SKIP_PATHS:
             self.assertNotIn(skipped, paths)
         get_count = sum(1 for ops in spec["paths"].values() if "get" in ops)
@@ -99,6 +101,23 @@ class HttpLatencyTests(unittest.TestCase):
         self.assertEqual(occupancy["query_keys"], ["place", "timestamp"])
         image = next(row for row in rows if row["name"] == "config_calibration_image")
         self.assertEqual(image["query_keys"], ["place", "view"])
+        image_metadata = next(
+            row for row in rows if row["name"] == "config_calibration_image_metadata"
+        )
+        self.assertEqual(image_metadata["query_keys"], ["place", "view"])
+        warehouse = {
+            "sensorId": "Camera",
+            "place": "building=Warehouse/room=Room-1",
+            "view": "plan-view",
+        }
+        self.assertEqual(
+            query_params_for(image, warehouse),
+            query_params_for(image_metadata, warehouse),
+        )
+        self.assertEqual(
+            query_params_for(image, warehouse),
+            {"place": "building=Warehouse/room=Room-1", "view": "plan-view"},
+        )
         for name in ("behavior", "events", "incidents", "alerts"):
             row = next(item for item in rows if item["name"] == name)
             self.assertIn("sensorId", row["query_keys"], name)

@@ -62,6 +62,10 @@ symlink paths. Use `scripts/run_benchmark.sh` to run the complete lifecycle.
 Measurement inputs are defined in `perf/configs/config.yaml`. The endpoint
 matrix is derived from `src/app/specification/openapi.json`. KPI thresholds are
 defined in `perf/configs/kpis.yaml`.
+`GET /config/calibration/image` and `GET /config/calibration/image-metadata`
+use `view=plan-view` and the fixture place, not Camera `sensorId`. Camera
+`sensorId` on those two returns an empty body because the uploaded fixture is
+place-keyed.
 
 ## KPI behavior
 
