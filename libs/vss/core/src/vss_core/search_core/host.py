@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from .critic import VideoInfo
     from .events import SearchEvent
     from .runtime import SearchRuntime
+    from .subject_check import SubjectChecker
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +70,16 @@ class VSSSearch:
     fields. The facade never builds or invokes model clients for decomposition.
     """
 
-    def __init__(self, runtime: SearchRuntime, *, critic: CriticAgent | None = None) -> None:
+    def __init__(
+        self,
+        runtime: SearchRuntime,
+        *,
+        critic: CriticAgent | None = None,
+        subject_checker: SubjectChecker | None = None,
+    ) -> None:
         self._rt = runtime
         self._critic = critic
+        self._subject_checker = subject_checker
         self._embed: EmbedSearch | None = None
         self._attribute: AttributeSearch | None = None
         self._tag: TagSearch | None = None
@@ -90,8 +98,14 @@ class VSSSearch:
     # ------------------------------------------------------------------ Builders
 
     @classmethod
-    def from_runtime(cls, rt: SearchRuntime, *, critic: CriticAgent | None = None) -> VSSSearch:
-        return cls(rt, critic=critic)
+    def from_runtime(
+        cls,
+        rt: SearchRuntime,
+        *,
+        critic: CriticAgent | None = None,
+        subject_checker: SubjectChecker | None = None,
+    ) -> VSSSearch:
+        return cls(rt, critic=critic, subject_checker=subject_checker)
 
     # ------------------------------------------------ Convenience primitive-only
 
@@ -130,7 +144,7 @@ class VSSSearch:
 
     def _build_search(self) -> Search:
         """Lazy-build the Search primitive."""
-        return Search.from_runtime(self._rt)
+        return Search.from_runtime(self._rt, subject_checker=self._subject_checker)
 
     async def search(self, **kw: Any) -> SearchOutput:
         if self._search is None:

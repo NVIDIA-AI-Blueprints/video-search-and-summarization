@@ -335,3 +335,48 @@ async def test_vst_clip_download_error_does_not_expose_presigned_query() -> None
         assert error.value.__cause__ is None
     finally:
         await analyzer.aclose()
+
+
+@pytest.mark.asyncio
+async def test_analyze_image_sends_one_inline_image() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        content = payload["messages"][0]["content"]
+        assert content[0] == {"type": "text", "text": "is the boxed person pushing a cart?"}
+        assert content[1] == {
+            "type": "image_url",
+            "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(b"jpeg-bytes").decode()},
+        }
+        # Video-only sampling options never ride along with a still image.
+        assert "media_io_kwargs" not in payload
+        assert "num_frames_per_second_or_fixed_frames_chunk" not in payload
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"answer": "yes"}'}}]}, request=request)
+
+    analyzer = OpenAIVLMAnalyzer(
+        base_url="https://rt-vlm.example/v1",
+        model="nvidia/cosmos-reason",
+        vst=_VST(),  # type: ignore[arg-type]
+        rt_vlm_frame_budget=8,
+    )
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        answer = await analyzer.analyze_image(image_bytes=b"jpeg-bytes", prompt="is the boxed person pushing a cart?")
+    finally:
+        await analyzer.aclose()
+    assert answer == '{"answer": "yes"}'
+
+
+@pytest.mark.asyncio
+async def test_analyze_image_rejects_empty_input_and_wraps_backend_failures() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": []}, request=request)
+
+    analyzer = OpenAIVLMAnalyzer(base_url="https://vlm.example/v1", model="model", vst=_VST())  # type: ignore[arg-type]
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ValueError, match="non-empty"):
+            await analyzer.analyze_image(image_bytes=b"", prompt="p")
+        with pytest.raises(BackendUnreachableError, match="Invalid VLM response format"):
+            await analyzer.analyze_image(image_bytes=b"x", prompt="p")
+    finally:
+        await analyzer.aclose()

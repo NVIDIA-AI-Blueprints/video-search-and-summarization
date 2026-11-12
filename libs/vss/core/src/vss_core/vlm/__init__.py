@@ -5,5 +5,6 @@
 from .openai import OpenAIVLMAnalyzer
 from .openai import bound_rt_vlm_fps_sampling
 from .protocols import VLMAnalyzer
+from .protocols import VLMImageAnalyzer
 
-__all__ = ["OpenAIVLMAnalyzer", "VLMAnalyzer", "bound_rt_vlm_fps_sampling"]
+__all__ = ["OpenAIVLMAnalyzer", "VLMAnalyzer", "VLMImageAnalyzer", "bound_rt_vlm_fps_sampling"]

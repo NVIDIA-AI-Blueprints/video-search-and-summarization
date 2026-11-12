@@ -22,3 +22,16 @@ class VLMAnalyzer(Protocol):
         prompt: str,
         time_format: Literal["iso", "offset"] = "iso",
     ) -> str: ...
+
+
+@runtime_checkable
+class VLMImageAnalyzer(Protocol):
+    """Ask a VLM about one still image and return its text response."""
+
+    async def analyze_image(
+        self,
+        *,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str = "image/jpeg",
+    ) -> str: ...
