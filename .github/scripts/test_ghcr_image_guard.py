@@ -112,7 +112,11 @@ class BakesReleaseLineTest(unittest.TestCase):
     ROOT = Path(__file__).resolve().parents[2]
 
     def test_version_carrying_dockerfiles(self):
-        for dockerfile in ("services/agent/docker/Dockerfile", ".openclaw/Dockerfile", ".hermes/Dockerfile"):
+        for dockerfile in (
+            "services/agent/docker/Dockerfile",
+            ".openclaw/Dockerfile",
+            "services/openshell/vss/Dockerfile",
+        ):
             with self.subTest(dockerfile=dockerfile):
                 self.assertTrue(bakes_release_line(str(self.ROOT / dockerfile)))
 

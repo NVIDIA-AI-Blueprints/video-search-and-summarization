@@ -266,21 +266,20 @@ def test_vss_ref_defaults_are_in_lockstep_and_readable():
     import re as _re
     repo = Path(__file__).resolve().parents[4]
     refs = {}
-    for rel in (".openshell/hermes", ".openclaw", ".hermes"):
-        df = repo / rel / "Dockerfile"
+    for df in (repo / ".openclaw" / "Dockerfile", repo / "services" / "openshell" / "vss" / "Dockerfile"):
         m = _re.search(r"^ARG VSS_REF=(\S+)$", df.read_text(), _re.M)
         assert m, f"{df} has no VSS_REF default"
-        refs[rel] = m.group(1)
-    assert len(set(refs.values())) == 1, f"VSS_REF defaults drifted: {refs}"
-    ref = refs[".openshell/hermes"]
+        refs[df.parent.name] = m.group(1)
+    assert refs[".openclaw"] == refs["vss"], f"VSS_REF defaults drifted: {refs}"
+    ref = refs[".openclaw"]
     assert ref == "develop" or _re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", ref), (
         f"VSS_REF default {ref!r} is neither `develop` nor a v* release tag")
 
 
 
 def _hermes_sync_wrapper() -> str:
-    """The vss-hermes-sync script exactly as the harness Dockerfile writes it (via printf)."""
-    dockerfile = (Path(__file__).resolve().parents[4] / ".openshell/hermes/Dockerfile").read_text()
+    """The vss-hermes-sync script exactly as services/openshell/vss/Dockerfile writes it (via printf)."""
+    dockerfile = (Path(__file__).resolve().parents[4] / "services" / "openshell" / "vss" / "Dockerfile").read_text()
     body = re.search(r"printf '(#!/bin/sh\\n.*?)' > /usr/local/bin/vss-hermes-sync", dockerfile).group(1)
     return body.replace("\\n", "\n")
 

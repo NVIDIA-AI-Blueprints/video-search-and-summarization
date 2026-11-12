@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# The Hermes harness policy with the VSS layer: ../hermes/policy.yaml plus the
-# two grants the layer needs. A sandbox created with ../hermes/policy.yaml
+# The Hermes harness policy with the VSS layer: ../../../.hermes/policy.yaml plus the
+# two grants the layer needs. A sandbox created with ../../../.hermes/policy.yaml
 # instead reaches no VSS deployment at all.
 #
-# The notes on both files are in ../hermes/policy.yaml. The sections before
+# The notes on both files are in ../../../.hermes/policy.yaml. The sections before
 # `network_policies` are identical to it by requirement, not by convention: the
 # prover compares them to the ceiling verbatim.
 #

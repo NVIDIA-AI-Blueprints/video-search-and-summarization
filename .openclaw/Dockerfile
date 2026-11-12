@@ -55,7 +55,7 @@ ARG NGC_CLI_VERSION=4.10.0
 # a sha works for a manual reproducible build. Whatever the ref, its operation
 # skills must declare `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise) and its CLI
 # library must live at libs/vss (the wheel build below fails loudly on older
-# layouts). Keep in lockstep with ../.hermes/Dockerfile.
+# layouts). Keep in lockstep with ../services/openshell/vss/Dockerfile.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
 ARG VSS_REF=develop
 

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# OpenShell gateway configuration for the VSS harness profile.
+# OpenShell gateway configuration for the VSS openshell profile.
 # Mounted read-only at /etc/openshell/gateway.toml, loaded via
 # OPENSHELL_GATEWAY_CONFIG. Derived from upstream deploy/docker/gateway.toml
 # at v0.1.6.
@@ -13,7 +13,7 @@ version = 2
 # The compose service names --bind-address/--port on the command, because the
 # image CMD beats this file and `command: []` does not clear it.
 bind_address        = "127.0.0.1:8080"
-health_bind_address = "127.0.0.1:8081"
+health_bind_address = "127.0.0.1:8082"
 log_level           = "info"
 compute_driver      = "docker"
 disable_tls         = true

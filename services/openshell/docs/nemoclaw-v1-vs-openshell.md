@@ -22,7 +22,7 @@ steps were then executed end to end against gateway 0.1.6 on an `aarch64` host
 
 ### Where VSS is today
 
-![Current NemoClaw v0.0.127 harness](assets/harness-current-nemoclaw-v0.svg)
+![Current NemoClaw v0.0.127 harness](assets/harness-current-nemoclaw-v0.png)
 
 Seven imperative steps; three coupled version pins (`BASE_IMAGE`,
 `OPENCLAW_VERSION`, plugin lockfile).
@@ -66,7 +66,7 @@ inert.
 
 ### Sandbox shape: deployed 0.0.116 vs target 0.1.x
 
-![OpenShell sandbox, 0.0.116 and 0.1.x](assets/vss-openshell-sandbox-versions.svg)
+![OpenShell sandbox, 0.0.116 and 0.1.x](assets/vss-openshell-sandbox-versions.png)
 
 The host runs `openshell-gateway 0.0.116`, where the supervisor runs *inside* the
 workload — one container, with the policy proxy, OPA engine and inference router
@@ -87,7 +87,7 @@ question, and the three options genuinely differ — see below.
 | **Current (v0.0.127)** | Native binary under a systemd user unit — `ExecStart=openshell-gateway`, `StateDirectory=openshell/gateway`, certs generated with `--server-san host.openshell.internal`. Homebrew service on macOS. **No container.** | `scripts/lib/openshell-gateway.service.in` and `scripts/install.sh` on NemoClaw `main`; the unit on this host matches the template verbatim |
 | **Option 1 (V1), `management: managed`** | **A container**, from an SDK-pinned digest `ghcr.io/nvidia/openshell/gateway@sha256:bdb4fe24…`, created on `engine: unix:///var/run/docker.sock`, user API on `http://127.0.0.1:17681`, its own `172.30.N.0/24` where N is the first byte of SHA-256(`metadata.uid`). `imagePullPolicy` accepts `IfNotPresent`/`Never` on Docker; `Always` is rejected. Managed gateways speak plain local HTTP and **reject** `credential` and `tls`. | `docs/reference/configuration.md` §Gateway Alternative 1, branch `v1` |
 | **Option 1 (V1), `management: external`** | No gateway created. Point `endpoint:` at one that already exists; `credential` and `tls` are accepted here. Most checked-in examples use this. | same §Gateway Alternative 2; `local.yaml`, `fabric-openclaw.yaml`, `explicit-policy.yaml` |
-| **Option 2 (OpenShell direct)** | **A Compose service VSS declares** — `ghcr.io/nvidia/openshell/gateway` behind a `harness` profile in the VSS project. Accepts the Docker-socket mount as the price of dropping the host unit. OpenShell's packaged alternatives — the installer's systemd user service, Homebrew, or Helm — are deliberately not used; see step 1. | ["Running the Gateway as a Container"](https://docs.nvidia.com/openshell/latest/how-it-works/gateways/container-deployment) and ["Manage Gateways"](https://docs.nvidia.com/openshell/v0.1.5/how-it-works/gateways/overview) |
+| **Option 2 (OpenShell direct)** | **A Compose service VSS declares** — `ghcr.io/nvidia/openshell/gateway` behind an `openshell` profile in the VSS project. Accepts the Docker-socket mount as the price of dropping the host unit. OpenShell's packaged alternatives — the installer's systemd user service, Homebrew, or Helm — are deliberately not used; see step 1. | ["Running the Gateway as a Container"](https://docs.nvidia.com/openshell/latest/how-it-works/gateways/container-deployment) and ["Manage Gateways"](https://docs.nvidia.com/openshell/v0.1.5/how-it-works/gateways/overview) |
 
 Both options therefore run the gateway as a container, and the remaining
 difference is who declares it: V1 from `deployment.yaml`, Option 2 from a
@@ -247,7 +247,7 @@ openshell forward start 18789 vss-harness-sandbox -d
 
 ### Architecture
 
-![Option 1 - NemoClaw V1](assets/harness-option1-nemoclaw-v1.svg)
+![Option 1 - NemoClaw V1](assets/harness-option1-nemoclaw-v1.png)
 
 The ❓ is step 2, stated plainly: `cargo images build` is the only producer of a
 Fabric-labelled image, and nothing documents how to get the VSS plugin, skills
@@ -383,7 +383,7 @@ status still reaches OpenShell. One image value does need changing:
 ### What VSS does not carry over from NemoClaw
 
 Not every step in
-[`deploy/docker/scripts/nemoclaw/README.md`](../../deploy/docker/scripts/nemoclaw/README.md)
+[`deploy/docker/scripts/nemoclaw/README.md`](../../../deploy/docker/scripts/nemoclaw/README.md)
 has an Option 2 equivalent. These drop out rather than move:
 
 - **The installer and `onboard`.** Both exist to produce a gateway and a
@@ -415,9 +415,9 @@ has an Option 2 equivalent. These drop out rather than move:
 
 ### Architecture
 
-![Option 2 - OpenShell direct](assets/harness-option2-openshell-direct.svg)
+![Option 2 - OpenShell direct](assets/harness-option2-openshell-direct.png)
 
-The gateway becomes a Compose service behind the `harness` profile; the policy
+The gateway becomes a Compose service behind the `openshell` profile; the policy
 joins the image; the relay and watchdog scripts are replaced by
 `service expose`.
 
@@ -500,7 +500,7 @@ joins the image; the relay and watchdog scripts are replaced by
 
 ### Removing the last NemoClaw dependency: the base image
 
-Option 2 leaves no NemoClaw code on the runtime path: the `.openshell/` configs
+Option 2 leaves no NemoClaw code on the runtime path: the `services/openshell/` configs
 name it only in provenance comments, and `nemoclaw-start` is already replaced
 by the trailing command. What stays is `BASE_IMAGE`. Both ways out were built
 on `aarch64` and run as sandboxes against a live deployment:
@@ -576,7 +576,7 @@ current image is 0.20.6, so the move is a base swap and a Hermes upgrade at
 once. Pin it by digest, as `.hermes/Dockerfile` already pins today.
 
 **Building Hermes from source removes the artifact instead of trading it.**
-[`hermes/Dockerfile`](../hermes/Dockerfile) is the built
+[`.hermes/Dockerfile`](../../../.hermes/Dockerfile) is the built
 and verified form: upstream Hermes at tag `v2026.9.14` (0.21.3) installed onto
 `nvcr.io/nvidia/base/ubuntu:24.04`, with the `vss` CLI, skills, workspace docs,
 plugin and baked boundary added as before.
@@ -675,7 +675,7 @@ agent harnesses" as Unsupported, with new runtimes tracked as a research epic
 
 ### How NemoClaw adds a harness (v0; V1 replaces this with Fabric adapters)
 
-![How NemoClaw selects and launches a harness](assets/harness-selection-nemoclaw.svg)
+![How NemoClaw selects and launches a harness](assets/harness-selection-nemoclaw.png)
 
 Selection is directory scanning, not a fixed list: every directory under
 [`agents/`](https://github.com/NVIDIA/NemoClaw/tree/main/agents) holding a
