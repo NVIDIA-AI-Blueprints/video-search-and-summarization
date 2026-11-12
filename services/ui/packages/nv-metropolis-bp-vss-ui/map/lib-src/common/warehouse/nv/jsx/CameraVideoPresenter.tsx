@@ -3,7 +3,7 @@
 // @ts-nocheck
 import React from "react";
 
-import CameraVideoPresenter from "../../components/mdx-specific/CameraVideoPresenter";
+import CameraVideoPresenter from "../../components/vss-analytics-specific/CameraVideoPresenter";
 import Widget from "../../components/generic/Widget/Widget";
 
 import DefaultHTMLVideoTagOptions from "./../js/DefaultHTMLVideoTagOptions";
