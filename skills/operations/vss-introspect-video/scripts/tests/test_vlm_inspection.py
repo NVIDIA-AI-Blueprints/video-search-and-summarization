@@ -25,19 +25,19 @@ def test_short_window_is_not_split() -> None:
     assert windows[0]["frames_requested"] == 20
 
 
-def test_two_fps_window_splits_at_thirty_seconds() -> None:
+def test_two_fps_window_splits_at_twenty_four_seconds() -> None:
     windows = vlm.split_sensor_window(START, "2026-09-30T00:02:00Z", 2)
-    assert len(windows) == 4
-    assert {window["frames_requested"] for window in windows} == {60}
+    assert len(windows) == 5
+    assert {window["frames_requested"] for window in windows} == {48}
     assert windows[0]["start"] == START
     assert windows[-1]["end"] == "2026-09-30T00:02:00Z"
     assert all(left["end"] == right["start"] for left, right in zip(windows, windows[1:]))
 
 
-def test_half_fps_allows_two_minute_window() -> None:
+def test_half_fps_splits_two_minute_window() -> None:
     windows = vlm.split_sensor_window(START, "2026-09-30T00:02:00Z", 0.5)
-    assert len(windows) == 1
-    assert windows[0]["frames_requested"] == 60
+    assert len(windows) == 2
+    assert {window["frames_requested"] for window in windows} == {30}
 
 
 def test_invalid_window_and_fps_are_rejected() -> None:
@@ -134,7 +134,7 @@ def test_inspection_stops_at_call_budget(monkeypatch: pytest.MonkeyPatch) -> Non
         prompt="Locate the event.",
         calls_budget=2,
     )
-    assert len(result["planned_windows"]) == 4
+    assert len(result["planned_windows"]) == 5
     assert result["vlm_calls_used"] == 2
     assert result["window_inspection"] == "partial"
     assert result["claim_sufficiency"] is None
@@ -220,7 +220,7 @@ def test_degenerate_retry_runs_after_initial_window_coverage(
         vss_project="/repo/libs/vss",
         sensor="sensor-1",
         start=START,
-        end="2026-09-30T00:02:00Z",
+        end="2026-09-30T00:01:36Z",
         fps=1,
         prompt="Locate the event.",
         calls_budget=3,
@@ -725,7 +725,7 @@ def test_prior_usable_windows_are_reused_without_a_new_call(
 
     monkeypatch.setattr(vlm, "_run_vlm", fake_run)
     prompt = "Is the vest visible?"
-    windows = vlm.split_sensor_window(START, "2026-09-30T00:02:00Z", 1)
+    windows = vlm.split_sensor_window(START, "2026-09-30T00:01:36Z", 1)
     assert len(windows) == 2
     prior = {
         "sensor_id": "sensor-1",
@@ -746,7 +746,7 @@ def test_prior_usable_windows_are_reused_without_a_new_call(
         sensor="sensor-1",
         claim_id="claim-color",
         start=START,
-        end="2026-09-30T00:02:00Z",
+        end="2026-09-30T00:01:36Z",
         fps=1,
         prompt=prompt,
         calls_budget=1,
@@ -915,10 +915,10 @@ def test_timestamped_prompt_keeps_focus_and_uses_each_window_duration(
     assert len(seen) == 2
     assert all(prompt.startswith(focus) for prompt in seen)
     assert "This window lasts 60.000 seconds." not in seen[0]
-    assert "This window lasts 30.000 seconds." in seen[0]
-    assert "This window lasts 30.000 seconds." in seen[1]
+    assert "This window lasts 20.000 seconds." in seen[0]
+    assert "This window lasts 20.000 seconds." in seen[1]
     assert "Do not put a sequence of events inside one caption." in seen[0]
-    assert "[0.0:30.000] Workers talk, then the middle worker removes his hat" in seen[0]
+    assert "[0.0:20.000] Workers talk, then the middle worker removes his hat" in seen[0]
     short = vlm.effective_inspection_prompt(
         focus, output_mode=vlm.OUTPUT_MODE_TIMESTAMPED, duration_seconds=12.5
     )

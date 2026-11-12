@@ -77,6 +77,7 @@ def execution_identity(project):
     return ledger._digest(
         {
             "project": str(Path(project).resolve()) if project else None,
+            "max_vlm_frames": vlm.MAX_VLM_FRAMES,
             "configs": [
                 ledger._digest(path.read_text()) if path.is_file() else None
                 for path in paths
@@ -527,7 +528,7 @@ def run_final_check(ledger_path, spec, project):
         scope = spec["scope"]
         if len(vlm.split_sensor_window(scope["start"], scope["end"], fps)) != 1:
             raise ValueError(
-                "Final check must fit ONE call (at most 60 frames); choose a bounded window"
+                f"Final check must fit ONE call (at most {vlm.MAX_VLM_FRAMES} frames); choose a bounded window"
             )
         binding = final_binding(current, spec, project)
         path = root / "final-check.json"

@@ -4,6 +4,7 @@
 
 import copy
 import threading
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -545,3 +546,108 @@ def test_final_check_cannot_ignore_retractions_or_malformed_extra_verdicts(text)
         workflow.final_verdict({"attempts": [response(text)], "vlm_calls_used": 1})
         == "inconclusive"
     )
+
+
+def scope_for_seconds(seconds):
+    start = datetime.fromisoformat(SCOPE["start"])
+    return {**SCOPE, "end": (start + timedelta(seconds=seconds)).isoformat()}
+
+
+@pytest.mark.parametrize(
+    "preset,seconds", [("skim", 120), ("locate", 60), ("detail", 30)]
+)
+def test_workflow_splits_former_sixty_frame_requests(
+    tmp_path, monkeypatch, preset, seconds
+):
+    calls = []
+
+    def invoke(**kwargs):
+        calls.append(kwargs)
+        assert (
+            vlm.frames_requested(
+                kwargs["fps"],
+                vlm.window_duration_seconds(kwargs["start"], kwargs["end"]),
+            )
+            <= 48
+        )
+        return response()
+
+    monkeypatch.setattr(vlm, "_run_vlm", invoke)
+    path = initialize(tmp_path)
+    request = {**spec(), "scope": scope_for_seconds(seconds), "sampling": preset}
+    batch = workflow.run_batch(path, [request], None)
+    report = batch["results"][0]["inspection"]
+    assert len(calls) == 2
+    assert report["max_frames_per_call"] == 48
+    assert report["complete"]
+    assert report["vlm_calls_used"] == 2
+    assert report["planned_windows"][0]["start"] == SCOPE["start"]
+    assert vlm._parse_instant(
+        report["planned_windows"][-1]["end"]
+    ) == vlm._parse_instant(request["scope"]["end"])
+
+
+@pytest.mark.parametrize(
+    "preset,seconds", [("skim", 96), ("locate", 48), ("detail", 24)]
+)
+def test_final_check_allows_48_frames_but_rejects_larger_window(
+    tmp_path, monkeypatch, preset, seconds
+):
+    path = initialize(tmp_path)
+    run_and_merge(path)
+    calls = []
+
+    def invoke(**kwargs):
+        calls.append(kwargs)
+        return response("[0:1] Blue vehicle.\nCHECK: supported")
+
+    monkeypatch.setattr(vlm, "_run_vlm", invoke)
+    request = {
+        "scope": scope_for_seconds(seconds),
+        "sampling": preset,
+        "candidate_answer": "Blue",
+    }
+    receipt = workflow.run_final_check(path, request, None)
+    assert receipt["inspection"]["attempts"][0]["frames_requested"] == 48
+    assert len(calls) == 1
+    request["scope"] = scope_for_seconds(seconds + 1)
+    with pytest.raises(ValueError, match="at most 48 frames"):
+        workflow.run_final_check(path, request, None)
+    assert len(calls) == 1
+
+
+def test_remote_sampler_uses_48_frame_cap(tmp_path, monkeypatch):
+    captured = []
+    monkeypatch.setattr(vlm, "_extract_clip", lambda *args: None)
+
+    def sample(clip, dest, fps, frames_needed):
+        assert frames_needed == 48
+        return [tmp_path / f"frame-{i}.jpg" for i in range(frames_needed)]
+
+    def invoke(spec, prompt, paths):
+        captured.append(len(paths))
+        return {"text": "Blue vehicle", "ok": True, "job_id": "test-remote"}
+
+    monkeypatch.setattr(vlm, "_sample_frames", sample)
+    monkeypatch.setattr(vlm, "_call_remote_vlm", invoke)
+    scope = scope_for_seconds(30)
+    result = vlm._run_remote_vlm(
+        spec={"model": "test"},
+        vss_project=None,
+        sensor="sensor-1",
+        start=scope["start"],
+        end=scope["end"],
+        fps=2,
+        prompt="Observe",
+    )
+    assert captured == [48]
+    assert result["frames_sent"] == 48
+
+
+def test_frame_cap_change_invalidates_saved_check(tmp_path, monkeypatch):
+    path = initialize(tmp_path)
+    current, _, _ = run_and_merge(path)
+    check(path)
+    monkeypatch.setattr(vlm, "MAX_VLM_FRAMES", 60)
+    with pytest.raises(ValueError, match="stale"):
+        workflow.checked_final_result(current, str(tmp_path), "Blue")

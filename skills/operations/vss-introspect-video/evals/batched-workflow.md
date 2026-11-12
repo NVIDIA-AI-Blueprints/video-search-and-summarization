@@ -8,7 +8,7 @@ isolated ablations. Base: `529858777` on `feat/agent-introspection-loop`.
 - One coordinator; Python threads execute parallel VLM **tools**, not inspector
   agents. The coordinator still plans, evaluates evidence and answers.
 - Fixed versioned prompt plus four bounded focus fields; code selects the
-  configured FPS preset and splits at the existing 60-frame cap.
+  configured FPS preset and splits at a 48-frame cap for 50-image backends.
 - Up to two normal rounds, two concurrent tasks, four calls per task and eight
   normal calls total. A first empty-evidence round may refine once; identical
   requests are rejected. Tool failure proceeds to final checking.
@@ -60,7 +60,7 @@ denominator. Separate completed/scored accuracy from operational success rate.
 ## Limitations
 
 - Sensor scopes only. URL/file inputs are rejected, not silently routed elsewhere.
-- Final check is one bounded clip (at most 120/60/30 seconds at the configured
+- Final check is one bounded clip (at most 96/48/24 seconds at the configured
   skim/locate/detail presets). It cannot certify an exhaustive long-video count.
 - Frame timestamps on the remote path are nominal ffmpeg sampling-grid offsets,
   not measured source presentation timestamps. Sparse samples can miss events.
@@ -70,6 +70,13 @@ denominator. Separate completed/scored accuracy from operational success rate.
 - No live VLM call, deployment or benchmark was performed during implementation.
 
 ## Validation and independent review
+
+48-frame compatibility fix: **150 tests passed**. Additional tests cover the
+workflow's three FPS presets, final-check acceptance at 48 frames and rejection
+above the limit, remote sampling, and invalidation of receipts from a different
+frame-cap configuration. This changes partition sizes, not normal call budgets;
+long scopes can therefore leave more uncovered windows. No live lease retest
+was performed during this fix.
 
 Run `python -m pytest skills/operations/vss-introspect-video/scripts/tests -q`.
 New coverage includes parallel execution, exact-quote provenance, failed calls,

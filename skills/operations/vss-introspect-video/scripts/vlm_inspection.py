@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Any, Sequence
 from uuid import uuid4
 
-MAX_VLM_FRAMES = 60
+# Keep default requests below backends that accept at most 50 images.
+MAX_VLM_FRAMES = 48
 MAX_DEGENERATE_RETRIES = 1
 ATTEMPT_CONTEXT_ENV = "VSS_INTROSPECTION_ATTEMPT_CONTEXT"
 DEFAULT_ATTEMPT_CONTEXT_PATH = Path(

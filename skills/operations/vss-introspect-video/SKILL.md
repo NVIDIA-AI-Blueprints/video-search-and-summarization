@@ -124,6 +124,11 @@ Select `skim/locate/detail` from the policy based on the missing fact, not alway
 the densest. Code splits scopes at the frame cap and records uncovered windows.
 Sampling a scope does not guarantee observing every event in it.
 
+The workflow uses the helper's 48-frame default to stay below 50-image backend
+limits. A single call spans at most 96 seconds at skim, 48 at locate, or 24 at
+detail. Longer normal scopes split and consume additional calls within the same
+budget; inspect the recorded uncovered windows if the allocation runs out.
+
 ```bash
 python3 "$WORKFLOW" batch --ledger "$RUN_DIR/ledger.json" \
   --spec "$RUN_DIR/inspection-specs.json"
@@ -199,6 +204,7 @@ Write `final-check-spec.json`:
 
 Choose the most answer-discriminating grounded window. It **must fit one call**
 at the preset; an overly long scope is rejected, not silently truncated.
+Use the same 48-frame limit (96/48/24 seconds at skim/locate/detail).
 The call is fresh, outside normal budget, with no quality retry. Normal inspections
 remain option-blind; the final template intentionally receives the candidate as
 a hypothesis to challenge. One local check may not establish a whole-video/count
