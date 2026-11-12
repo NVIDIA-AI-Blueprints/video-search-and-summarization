@@ -29,7 +29,7 @@
 # Optional environment variable overrides (same defaults as setup_perf_env_rtvi_embed.sh):
 #   VST_DIR              — VST package directory (default: ~/rtvi-perf/vst_package)
 #   RTVI_MANAGED_VST_DIR — exact pipeline-owned VST directory eligible for cleanup
-#   VST_COMPOSE_PROJECT   — Docker Compose project name for VST/nvstreamer (default: rtvi-embed-perf-vst)
+#   VST_COMPOSE_PROJECT   — Base namespace for separate VST/nvstreamer Compose projects (default: rtvi-embed-perf-vst)
 #   COMPOSE_PERF_YAML    — path to compose.perf.yaml
 #   ENV_PERF_FILE        — path to .env.perf (used for --env-file if present)
 # =============================================================================
@@ -135,7 +135,7 @@ log "Step 2/5: Stopping VST..."
 if [[ ! -f "${VST_DIR}/deploy.sh" ]]; then
     warn "  deploy.sh not found at ${VST_DIR}/deploy.sh — skipping."
 else
-    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" bash deploy.sh down vst 2>/dev/null) \
+    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-vst" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-vst" bash deploy.sh down vst 2>/dev/null) \
         && log "  ${_C_GREEN}VST stopped.${_C_RESET}" \
         || warn "  deploy.sh down vst returned non-zero (may not have been running)."
 fi
@@ -147,7 +147,7 @@ log "Step 3/5: Stopping nvstreamer..."
 if [[ ! -f "${VST_DIR}/deploy.sh" ]]; then
     warn "  deploy.sh not found — skipping."
 else
-    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" bash deploy.sh down nvstreamer 2>/dev/null) \
+    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-nvstreamer" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-nvstreamer" bash deploy.sh down nvstreamer 2>/dev/null) \
         && log "  ${_C_GREEN}nvstreamer stopped.${_C_RESET}" \
         || warn "  deploy.sh down nvstreamer returned non-zero (may not have been running)."
 fi

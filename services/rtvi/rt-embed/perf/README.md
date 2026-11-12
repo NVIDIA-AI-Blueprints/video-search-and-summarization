@@ -54,3 +54,9 @@ remain unchanged.
 Embed still consumes its existing VST package. Only its four explicit VST image
 overrides and perf monitoring images are inventoried here. Any other package
 references remain package-managed until the package contents are verified.
+
+VST and NVStreamer use separate Compose projects derived from the
+`VST_COMPOSE_PROJECT` namespace: `<namespace>-vst` and
+`<namespace>-nvstreamer`. Setup scopes the staged package's Compose commands to
+the selected component, so VST cleanup preserves the running NVStreamer.
+Diagnostics cover both projects; normal and failure teardown stop both.

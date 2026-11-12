@@ -63,7 +63,7 @@
 #   VST_RTSP_PORT       — VST RTSP server port (default: 30554)
 #   DISABLE_IPV6        — Set to 'true' to add IPv6-disable sysctl entries (default: false)
 #   VST_API_BASE        — VST HTTP API base URL (default: http://localhost:${VST_INGRESS_PORT})
-#   VST_COMPOSE_PROJECT — Docker Compose project name for VST/nvstreamer (default: rtvi-embed-perf-vst)
+#   VST_COMPOSE_PROJECT — Base namespace for separate VST/nvstreamer Compose projects (default: rtvi-embed-perf-vst)
 #   PERF_VIDEOS_DIR     — Host path for benchmark videos (default: ${VST_DIR}/videos)
 # =============================================================================
 
@@ -174,7 +174,7 @@ VST_INGRESS_IMAGE="${VST_INGRESS_IMAGE:-${VST_IMAGE_REGISTRY}/vst-ingress:${VST_
 VST_NVSTREAMER_IMAGE="${VST_NVSTREAMER_IMAGE:-${VST_IMAGE_REGISTRY}/nvstreamer:${VST_IMAGE_TAG}}"
 VIDEOS_URL="${VIDEOS_URL:-${ARTIFACTORY_BASE}/sw-ds-generic-bld-local/via-engine/media/perf}"
 VST_DIR="${VST_DIR:-${HOME}/rtvi-perf/vst_package}"
-# Project name passed to docker compose for both VST and nvstreamer containers.
+# Base namespace; deploy.sh uses separate -vst and -nvstreamer Compose projects.
 # Prefixes all container names (e.g. rtvi-embed-perf-vst-redis-server-1) so they don't
 # conflict with other VST deployments on the same host.
 VST_COMPOSE_PROJECT="${VST_COMPOSE_PROJECT:-rtvi-embed-perf-vst}"
@@ -285,7 +285,8 @@ die() {
     echo -e "${_C_RED}[setup_perf_env] ERROR:${_C_RESET} $*" >&2
     if [[ -n "${PERF_DIAGNOSTICS_COLLECTOR:-}" && -x "${PERF_DIAGNOSTICS_COLLECTOR}" ]]; then
         "${PERF_DIAGNOSTICS_COLLECTOR}" --output "${PERF_DIAGNOSTICS_DIR:-.}" --outcome failure --service RTVI-Embed --since "${PERF_RUN_STARTED_AT:-}" --compose-project "${COMPOSE_PROJECT_NAME:-}" || true
-        "${PERF_DIAGNOSTICS_COLLECTOR}" --output "${PERF_DIAGNOSTICS_DIR:-.}" --outcome failure --service RTVI-Embed --since "${PERF_RUN_STARTED_AT:-}" --compose-project "${VST_COMPOSE_PROJECT:-}" || true
+        "${PERF_DIAGNOSTICS_COLLECTOR}" --output "${PERF_DIAGNOSTICS_DIR:-.}" --outcome failure --service RTVI-Embed --since "${PERF_RUN_STARTED_AT:-}" --compose-project "${VST_COMPOSE_PROJECT}-vst" || true
+        "${PERF_DIAGNOSTICS_COLLECTOR}" --output "${PERF_DIAGNOSTICS_DIR:-.}" --outcome failure --service RTVI-Embed --since "${PERF_RUN_STARTED_AT:-}" --compose-project "${VST_COMPOSE_PROJECT}-nvstreamer" || true
     fi
     # When compose containers were started this run, bring them down automatically
     # so their ports are released and a re-run doesn't hit conflicts.
@@ -299,8 +300,8 @@ die() {
     # Always stop VST and nvstreamer on error so their ports are released for a re-run.
     if [[ -f "${VST_DIR:-}/deploy.sh" ]]; then
         echo -e "${_C_YELLOW}[setup_perf_env] WARNING:${_C_RESET} Stopping VST and nvstreamer to release ports..." >&2
-        (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" bash deploy.sh down vst 2>/dev/null) || true
-        (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" bash deploy.sh down nvstreamer 2>/dev/null) || true
+        (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-vst" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-vst" bash deploy.sh down vst 2>/dev/null) || true
+        (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-nvstreamer" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-nvstreamer" bash deploy.sh down nvstreamer 2>/dev/null) || true
     fi
     # Stop cache cleaner if we started one
     local _pid_file="/tmp/sys_cache_cleaner.pid"
@@ -375,9 +376,9 @@ cleanup() {
     # before the script started or were never started this run.
     if [[ -f "${VST_DIR}/deploy.sh" ]]; then
         log "  Stopping VST..."
-        (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" bash deploy.sh down vst 2>/dev/null) || true
+        (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-vst" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-vst" bash deploy.sh down vst 2>/dev/null) || true
         log "  Stopping nvstreamer..."
-        (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" bash deploy.sh down nvstreamer 2>/dev/null) || true
+        (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-nvstreamer" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-nvstreamer" bash deploy.sh down nvstreamer 2>/dev/null) || true
         log "  VST and nvstreamer stopped."
     fi
 
@@ -690,8 +691,8 @@ fi
 # or unprefixed project name) ensures no stale containers hold ports 6379 etc.
 if [[ -f "${VST_DIR}/deploy.sh" ]]; then
     log "  Stopping pre-existing VST containers before re-extraction..."
-    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" bash deploy.sh down vst       2>/dev/null) || true
-    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" bash deploy.sh down nvstreamer 2>/dev/null) || true
+    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-vst" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-vst" bash deploy.sh down vst       2>/dev/null) || true
+    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-nvstreamer" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-nvstreamer" bash deploy.sh down nvstreamer 2>/dev/null) || true
 fi
 # Belt-and-suspenders: force-remove any container whose name contains the project
 # prefix, regardless of which project name deploy.sh used internally.  This catches
@@ -999,25 +1000,10 @@ for _compose_file in "${_compose_files[@]}"; do
     log "  Prefixed container_name entries in ${_compose_file#"${VST_DIR}/"}"
 done
 
-# Patch deploy.sh: prefix all docker compose project names with VST_COMPOSE_PROJECT.
+# Keep package-provided project overrides from merging VST and NVStreamer.
 if [[ -f "${VST_DEPLOY_SH}" ]]; then
-    sed -i "/COMPOSE_PROJECT_NAME.*${VST_COMPOSE_PROJECT}/! s/COMPOSE_PROJECT_NAME=\"\([^\"$][^\"]*\)\"/COMPOSE_PROJECT_NAME=\"${VST_COMPOSE_PROJECT}-\1\"/g" \
-        "${VST_DEPLOY_SH}" || true
-    sed -i "/COMPOSE_PROJECT_NAME.*${VST_COMPOSE_PROJECT}/! s/COMPOSE_PROJECT_NAME='\([^'$][^']*\)'/COMPOSE_PROJECT_NAME=\"${VST_COMPOSE_PROJECT}-\1\"/g" \
-        "${VST_DEPLOY_SH}" || true
-    sed -i "/-p.*${VST_COMPOSE_PROJECT}/! s/-p \"\([^\"$][^\"]*\)\"/-p \"${VST_COMPOSE_PROJECT}-\1\"/g" \
-        "${VST_DEPLOY_SH}" || true
-    sed -i "/-p.*${VST_COMPOSE_PROJECT}/! s/-p '\([^'$][^']*\)'/-p \"${VST_COMPOSE_PROJECT}-\1\"/g" \
-        "${VST_DEPLOY_SH}" || true
-    sed -i -E "/-p.*${VST_COMPOSE_PROJECT}/! s/-p ([a-zA-Z][a-zA-Z0-9_-]*)\b/-p \"${VST_COMPOSE_PROJECT}-\1\"/g" \
-        "${VST_DEPLOY_SH}" || true
-    grep -n 'COMPOSE_PROJECT_NAME\| -p ' "${VST_DEPLOY_SH}" 2>/dev/null | head -20 \
-        | while IFS= read -r _l; do log "    after:  ${_l}"; done || true
-    sed -i 's/docker compose \(.*\) up \(-d\)/docker compose \1 up \2 --remove-orphans/g' \
-        "${VST_DEPLOY_SH}" || true
-    sed -i 's/docker compose \(.*\) up$/docker compose \1 up --remove-orphans/' \
-        "${VST_DEPLOY_SH}" || true
-    log "  Patched deploy.sh: all compose projects prefixed with ${VST_COMPOSE_PROJECT}"
+    python3 "${SCRIPT_DIR}/scripts/isolate_vst_projects.py" "${VST_DEPLOY_SH}" \
+        || die "Failed to isolate VST and NVStreamer Compose projects"
 fi
 
 # Directly update all vst_config.json instances that hardcode the Redis port.
@@ -1118,11 +1104,11 @@ if [[ ! -f "${VST_DEPLOY_SH}" ]]; then
     warn "  deploy.sh not found at ${VST_DEPLOY_SH} — skipping nvstreamer/VST start."
 else
     log "  Stopping any existing nvstreamer containers..."
-    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" bash deploy.sh down nvstreamer 2>/dev/null) || true
-    (cd "${VST_DIR}" && bash deploy.sh down nvstreamer 2>/dev/null) || true
+    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-nvstreamer" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-nvstreamer" bash deploy.sh down nvstreamer 2>/dev/null) || true
     log "  Starting nvstreamer..."
     # Ports are already baked into nvstreamer/compose.env by the patching above.
-    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" \
+    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-nvstreamer" \
+        PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-nvstreamer" \
         REDIS_PORT="${REDIS_PORT}" \
         bash deploy.sh up nvstreamer) \
         || die "Failed to start nvstreamer"
@@ -1164,8 +1150,7 @@ else
 
     section "VST"
     log "  Stopping any existing VST containers..."
-    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" bash deploy.sh down vst 2>/dev/null) || true
-    (cd "${VST_DIR}" && bash deploy.sh down vst 2>/dev/null) || true
+    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-vst" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-vst" bash deploy.sh down vst 2>/dev/null) || true
     # Force-remove any remaining VST containers that deploy.sh missed (e.g. stale from prior run).
     _stale_vst_non_ns=$(docker ps -aq --filter "name=${VST_COMPOSE_PROJECT}" 2>/dev/null \
         | xargs -r docker inspect --format '{{.Name}}' 2>/dev/null \
@@ -1175,7 +1160,8 @@ else
         echo "${_stale_vst_non_ns}" | xargs -r docker rm -f 2>/dev/null || true
     fi
     log "  Starting VST..."
-    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}" \
+    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-vst" \
+        PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-vst" \
         REDIS_PORT="${REDIS_PORT}" CENTRALIZE_DB_PORT="${CENTRALIZE_DB_PORT}" \
         VST_INGRESS_PORT="${VST_INGRESS_PORT}" \
         VST_SENSOR_PORT="${VST_SENSOR_PORT}" \

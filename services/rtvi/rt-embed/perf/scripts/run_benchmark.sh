@@ -71,7 +71,10 @@ collect_diagnostics() {
         --compose-project "$COMPOSE_PROJECT_NAME" || true
     "$PERF_DIAGNOSTICS_COLLECTOR" --output "${PERF_DIAGNOSTICS_DIR:-$output/diagnostics}" \
         --outcome "$outcome" --service RTVI-Embed --since "${PERF_RUN_STARTED_AT:-}" \
-        --compose-project "$VST_COMPOSE_PROJECT" || true
+        --compose-project "${VST_COMPOSE_PROJECT}-vst" || true
+    "$PERF_DIAGNOSTICS_COLLECTOR" --output "${PERF_DIAGNOSTICS_DIR:-$output/diagnostics}" \
+        --outcome "$outcome" --service RTVI-Embed --since "${PERF_RUN_STARTED_AT:-}" \
+        --compose-project "${VST_COMPOSE_PROJECT}-nvstreamer" || true
 }
 
 cleanup() {
