@@ -178,4 +178,4 @@ a memory record.
 - Exit 0 with empty arrays/counts: report that no matching analytics data is
   indexed.
 
-This skill is maintained in the VSS repository and mirrored to the public catalog at [NVIDIA/skills](https://github.com/NVIDIA/skills).
+

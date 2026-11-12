@@ -401,4 +401,4 @@ restart, teardown, backend selection, or service logs, prefer
 
 bump:3
 
-This skill is maintained in the VSS repository and mirrored to the public catalog at [NVIDIA/skills](https://github.com/NVIDIA/skills).
+
