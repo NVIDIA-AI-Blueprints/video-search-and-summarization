@@ -210,4 +210,4 @@ a memory record.
   matching records (for incidents, after the empty-incident-list step); do not
   suggest that the pipeline or event generation is broken.
 
-This skill is maintained in the VSS repository and mirrored to the public catalog at [NVIDIA/skills](https://github.com/NVIDIA/skills).
+

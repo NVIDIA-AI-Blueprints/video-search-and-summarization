@@ -499,4 +499,4 @@ alternate-identity check, the VIOS-down fallback) and the response contract. Its
 
 bump:1
 
-This skill is maintained in the VSS repository and mirrored to the public catalog at [NVIDIA/skills](https://github.com/NVIDIA/skills).
+

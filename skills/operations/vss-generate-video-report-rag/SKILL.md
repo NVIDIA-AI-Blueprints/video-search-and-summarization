@@ -262,4 +262,4 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
   its `hitl_enabled` field from that variable and defaults it to false.
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
 
-This skill is maintained in the VSS repository and mirrored to the public catalog at [NVIDIA/skills](https://github.com/NVIDIA/skills).
+
