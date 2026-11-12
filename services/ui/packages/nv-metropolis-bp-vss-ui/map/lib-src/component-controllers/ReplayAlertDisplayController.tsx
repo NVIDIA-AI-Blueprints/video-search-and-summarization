@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { connect } from "react-redux";
 
 import AlertsPanel from "../components/AlertsPanel/AlertsPanel";
-import { EventCard } from "common/warehouse";
+import {
+  connect, EventCard } from "common/warehouse";
 import { FramesUrl, Utils } from "common/warehouse";
 
 /**

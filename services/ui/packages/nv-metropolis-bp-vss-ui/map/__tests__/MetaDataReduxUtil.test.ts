@@ -12,7 +12,7 @@ describe('VideoElementDefaultConfig', () => {
 });
 
 describe('MetaDataReduxUtil', () => {
-  it('exports a valid Redux slice', () => {
+  it('exports a valid store slice', () => {
     expect(MetaDataReduxUtil.slice).toBeDefined();
     expect(MetaDataReduxUtil.slice.name).toBe('metadata');
     expect(typeof MetaDataReduxUtil.slice.reducer).toBe('function');
@@ -23,8 +23,28 @@ describe('MetaDataReduxUtil', () => {
     expect(typeof MetaDataReduxUtil.slice.actions.updateMetaData).toBe('function');
   });
 
-  it('has middleware configuration', () => {
-    expect(MetaDataReduxUtil.middleware).toBeDefined();
-    expect(typeof MetaDataReduxUtil.middleware).toBe('function');
+  it('builds sensor and place maps from calibration payload', () => {
+    const action = MetaDataReduxUtil.slice.actions.updateMetaData({
+      city: 'Warehouse',
+      calibrationType: 'cartesian',
+      sensors: [
+        {
+          id: 'cam-1',
+          place: [
+            { name: 'city', value: 'Warehouse' },
+            { name: 'building', value: 'Building-1' },
+            { name: 'room', value: 'Room-1' },
+          ],
+          geoLocation: { lat: 1, lng: 2 },
+          scaleFactor: 1,
+          translationToGlobalCoordinates: { x: 0, y: 0 },
+        },
+      ],
+    });
+    const next = MetaDataReduxUtil.slice.reducer({}, action);
+    expect(next.sensorsMap.get('cam-1').id).toBe('cam-1');
+    expect(next.roomsMap.has('Room-1')).toBe(true);
+    expect(next.buildingsMap.has('Building-1')).toBe(true);
+    expect(next.cityConfig.name).toBe('Warehouse');
   });
 });

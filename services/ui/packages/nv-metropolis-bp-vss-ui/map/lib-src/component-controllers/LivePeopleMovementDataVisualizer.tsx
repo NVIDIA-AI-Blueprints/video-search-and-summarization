@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { joinUrl, isAbortError, readJson } from "common/warehouse";
+import {
+  connect, joinUrl, isAbortError, readJson } from "common/warehouse";
 import React from "react";
 import { Circle } from "react-konva";
 import { Portal } from "react-konva-utils";
-import { connect } from "react-redux";
 
 import {
   CameraView,

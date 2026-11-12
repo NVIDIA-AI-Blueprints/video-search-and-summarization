@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { connect } from "react-redux";
 
 import ReplayPeopleMovementDataVisualizer from "./../../component-controllers/ReplayPeopleMovementDataVisualizer";
 import ReplayAlertDisplayController from "./../../component-controllers/ReplayAlertDisplayController";
 import CameraVideoPresenterWrapper from "./../../component-controllers/CameraVideoPresenterWrapper";
-import { Utils } from "common/warehouse";
+import {
+  connect, Utils } from "common/warehouse";
 
 class SensorLevelViewReplay extends React.Component {
   state = {

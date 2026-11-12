@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { createSlice } from "@reduxjs/toolkit";
+import { createSlice } from "../common/warehouse/nv/js/WarehouseStore";
 import _ from "lodash";
 
 let PlaceArrayToKVPairs = (array) => {
@@ -144,21 +144,22 @@ function processSensor(
 }
 
 /**
- * Redux Util to add processed MetaData for entities to redux store
+ * Store util for processed calibration metadata (sensors, rooms, buildings).
  */
 const slice = createSlice({
   name: "metadata",
   initialState: {},
   reducers: {
-    updateMetaData: function (state, action) {
-      // Clean old and initialize new state
-      state.sensorsMap = new Map();
-      state.roomsMap = new Map();
-      state.buildingsMap = new Map();
-      state.cityConfig = {};
+    updateMetaData: function (_prev, action) {
+      const state = {
+        sensorsMap: new Map(),
+        roomsMap: new Map(),
+        buildingsMap: new Map(),
+        cityConfig: {},
+        calibrationType: action.payload.calibrationType,
+      };
 
       state.cityConfig.name = action.payload.city ? action.payload.city : "";
-      state.calibrationType = action.payload.calibrationType;
 
       let m2PxScaleFactor = -1.0;
       let translationToGlobalCoordinates;
@@ -243,20 +244,6 @@ const slice = createSlice({
 
 const MetaDataReduxUtil = {
   slice: slice,
-  middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware({
-      serializableCheck: {
-        // https://redux-toolkit.js.org/usage/usage-guide#working-with-non-serializable-data
-        ignoredPaths: [
-          "metadata.sensorsMap",
-          "metadata.roomsMap",
-          "metadata.buildingsMap",
-          "metadata.cityConfig",
-          "metadata.m2PxScaleFactor",
-          "metadata.translationToGlobalCoordinates",
-        ],
-      },
-    }),
 };
 
 export default MetaDataReduxUtil;

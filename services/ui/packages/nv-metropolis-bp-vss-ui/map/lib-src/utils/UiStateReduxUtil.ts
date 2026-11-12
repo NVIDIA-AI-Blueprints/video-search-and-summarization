@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { createSlice } from "@reduxjs/toolkit";
+import { createSlice } from "../common/warehouse/nv/js/WarehouseStore";
 
 /**
- * Redux Util to add current ui state data for components to redux store
+ * Store util for current UI state (view type, selected place, start time).
  */
 
 const slice = createSlice({
@@ -23,9 +23,10 @@ const slice = createSlice({
     appStartTimeMs: null, // Set on app load from config or current time
   },
   reducers: {
-    updateUiState: (state, action) => {
-      return Object.assign(state, action.payload);
-    },
+    updateUiState: (state, action) => ({
+      ...state,
+      ...action.payload,
+    }),
   },
 });
 

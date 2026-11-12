@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { connect } from "react-redux";
 
 import LivePeopleMovementDataVisualizer from "./../../component-controllers/LivePeopleMovementDataVisualizer";
 import SensorKPIDisplayer from "./../../component-controllers/SensorKPIDisplayer";
 import TripwireAlertsDisplayController from "./../../component-controllers/LiveTripwireAlertsDisplayController";
 import ROIAlertsDisplayController from "./../../component-controllers/LiveROIAlertsDisplayController";
 import CameraVideoPresenterWrapper from "./../../component-controllers/CameraVideoPresenterWrapper";
-import { AppConstants, Utils } from "common/warehouse";
+import {
+  connect, AppConstants, Utils } from "common/warehouse";
 
 class SensorLevelViewLive extends React.Component {
   state = {

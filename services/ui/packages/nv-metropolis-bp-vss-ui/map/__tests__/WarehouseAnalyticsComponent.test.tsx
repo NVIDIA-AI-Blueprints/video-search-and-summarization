@@ -15,6 +15,7 @@ jest.mock('../lib-src/App.module.css', () => ({
 
 jest.mock('common/warehouse', () => {
   const ReactLib = require('react');
+  const storeMod = jest.requireActual('../lib-src/common/warehouse/nv/js/WarehouseStore');
 
   class UserMessage {
     static SRC_TYPE = { GENERIC: 'generic', HTTP_ERROR: 'http-error', AXIOS_ERROR: 'http-error' };
@@ -80,6 +81,10 @@ jest.mock('common/warehouse', () => {
     AppConfigReduxUtil: { slice: emptySlice },
     AppLogsConsoleReduxUtil: { slice: emptySlice },
     AppConstants: { APP_LOGS_CONSOLE_NAME: 'AppLogs' },
+    Provider: storeMod.Provider,
+    connect: storeMod.connect,
+    combineReducers: storeMod.combineReducers,
+    createStore: storeMod.createStore,
   };
 });
 

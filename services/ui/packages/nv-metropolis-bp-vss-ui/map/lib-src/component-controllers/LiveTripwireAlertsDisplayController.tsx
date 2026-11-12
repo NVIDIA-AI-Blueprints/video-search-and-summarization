@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { joinUrl, isAbortError, readJson } from "common/warehouse";
-import { connect } from "react-redux";
+import {
+  connect, joinUrl, isAbortError, readJson } from "common/warehouse";
 import { Divider as Divider } from "common/warehouse/mui";
 import { DoNotDisturbOnOutlined as DoNotDisturbOnOutlinedIcon } from "common/warehouse/mui-icons";
 import { Tooltip as Tooltip } from "common/warehouse/mui";

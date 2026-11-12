@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React, { Component } from "react";
-import { connect } from "react-redux";
 
-import { BeautifyNameString, Map } from "common/warehouse";
+import {
+  connect, BeautifyNameString, Map } from "common/warehouse";
 import {
   PlaceHeader,
   PlaceHeaderContent,

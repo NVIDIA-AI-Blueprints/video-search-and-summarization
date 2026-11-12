@@ -7,6 +7,13 @@ export * from './js/EnvUtils';
 export { default as AppLogsConsoleReduxUtil } from './js/AppLogsConsoleReduxUtil';
 export { default as AppConfigReduxUtil } from './js/AppConfigReduxUtil';
 export { default as ReduxUtils } from './js/ReduxUtils';
+export {
+  Provider,
+  connect,
+  combineReducers,
+  createStore,
+  createSlice,
+} from './js/WarehouseStore';
 export { default as Utils } from './js/Utils';
 export { default as DefaultHTMLVideoTagOptions } from './js/DefaultHTMLVideoTagOptions';
 

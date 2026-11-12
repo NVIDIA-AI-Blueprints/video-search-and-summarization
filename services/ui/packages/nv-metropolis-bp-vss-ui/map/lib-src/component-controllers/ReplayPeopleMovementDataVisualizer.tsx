@@ -4,9 +4,9 @@
 import React from "react";
 import { Circle } from "react-konva";
 import { Portal } from "react-konva-utils";
-import { connect } from "react-redux";
 
 import {
+  connect,
   CameraView,
   LoaderDisplay,
   VizTooltip,

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { connect } from "react-redux";
 
 import {
+  connect,
   TrajectoryClustersVisualizer,
   DEFAULT_CARTESIAN_MAP_VIZ_CONTENTS_RENDER_UPDATE_FPS,
 } from "common/warehouse";

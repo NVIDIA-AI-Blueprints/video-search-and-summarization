@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { LastUpdateTimeDisplay, Widget, Window } from "common/warehouse";
+import {
+  connect, LastUpdateTimeDisplay, Widget, Window } from "common/warehouse";
 import { List as List } from "common/warehouse/mui";
-import { connect } from "react-redux";
 import { InfoOutlined as InfoOutlinedIcon } from "common/warehouse/mui-icons";
 
 import { MetricsLastProcessedTimestampUrl } from "common/warehouse";

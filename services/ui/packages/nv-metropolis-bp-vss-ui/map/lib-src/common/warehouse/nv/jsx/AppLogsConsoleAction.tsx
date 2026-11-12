@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React from "react";
-import { connect } from "react-redux";
+import { connect } from "../js/WarehouseStore";
 import {
   Info as InfoIcon,
   Circle as CircleIcon,

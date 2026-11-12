@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
 import React, { useEffect, useMemo, useState } from 'react';
-import { combineReducers, configureStore } from '@reduxjs/toolkit';
 import { ThemeProvider } from '@nvidia/foundations-react-core';
-import { Provider, connect } from 'react-redux';
 import {
   AppConfigReduxUtil,
   AppConstants,
@@ -17,6 +15,10 @@ import {
   UserMessage,
   withLoaderDisplay,
   readJson,
+  Provider,
+  connect,
+  combineReducers,
+  createStore,
 } from 'common/warehouse';
 
 import BuildingsLevelView from './page-builder/BuildingsLevelView';
@@ -54,22 +56,15 @@ export interface WarehouseAnalyticsComponentProps {
 
 const BuildingsLevelViewWithLoaderDisplay = withLoaderDisplay(BuildingsLevelView);
 
-const createStore = () =>
-  configureStore({
-    reducer: combineReducers(
-      Object.fromEntries([
-        [AppConstants.APP_LOGS_CONSOLE_NAME, AppLogsConsoleReduxUtil.slice.reducer],
-        ['appConfig', AppConfigReduxUtil.slice.reducer],
-        ['metadata', MetaDataReduxUtil.slice.reducer],
-        ['uiState', UiStateReduxUtil.slice.reducer],
-      ]),
-    ),
-    middleware: (getDefaultMiddleware) =>
-      getDefaultMiddleware({
-        immutableCheck: false,
-        serializableCheck: false,
-      }),
-  });
+const createWarehouseStore = () =>
+  createStore(
+    combineReducers({
+      [AppConstants.APP_LOGS_CONSOLE_NAME]: AppLogsConsoleReduxUtil.slice.reducer,
+      appConfig: AppConfigReduxUtil.slice.reducer,
+      metadata: MetaDataReduxUtil.slice.reducer,
+      uiState: UiStateReduxUtil.slice.reducer,
+    }),
+  );
 
 const DEFAULT_INITIAL_USER_MESSAGE = 'Loading map…';
 
@@ -229,7 +224,7 @@ const ConnectedWarehouseAnalyticsApp = connect(
 )(WarehouseAnalyticsAppInner);
 
 export const WarehouseAnalyticsComponent: React.FC<WarehouseAnalyticsComponentProps> = (props) => {
-  const store = useMemo(() => createStore(), []);
+  const store = useMemo(() => createWarehouseStore(), []);
   const sidebarControls = useMemo(
     () => (
       <Provider store={store}>
