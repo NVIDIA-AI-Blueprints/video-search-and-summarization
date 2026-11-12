@@ -1,0 +1,223 @@
+---
+title: "Additional Configuration"
+description: ""
+position: 4
+---
+Reference for the values the OpenShell integration reads, the provider profiles and policy pairs it ships, and the reasoning behind each step of [Setup VSS and Skills](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills).
+
+## openshell.env variables
+
+Every command in the setup sources `deploy/docker/services/openshell/openshell.env`, and Compose reads the same file as its `--env-file`. Values in the file replace any of the same name exported in the shell.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `OPENSHELL_TAG` | `0.1.6` | Gateway image tag. The `openshell` CLI and `openshell-prover` must be the same release, since the CLI and gateway speak Protobuf. |
+| `HERMES_REF` | `v2026.9.14` | Upstream Hermes tag the harness image is built from, and the image's own tag, so a Hermes bump renames the image rather than overwriting it. |
+| `HARNESS_BASE_URL` | `https://inference-api.nvidia.com/v1` | The agent model endpoint's OpenAI-compatible base URL, including its `/v1`. Unrelated to any VLM a VSS deployment serves. |
+| `HARNESS_MODEL` | `aws/anthropic/bedrock-claude-opus-5` | A model id that endpoint serves. |
+| `HARNESS_PROVIDER` | `agent-inference` | The `providers/<name>-profile.yaml` that authorizes `HARNESS_BASE_URL`'s host. |
+| `HARNESS_API_KEY` | *(blank)* | That model's key, unquoted, under the one name every provider profile declares. `provider create` seals it; never commit the value. |
+| `VSS_REF` | `develop` | VSS layer only. The reference the Skills and `vss` CLI are built from. The build fetches it rather than reading the working tree, so a local commit reaches the image only once it is pushed. |
+| `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` | VSS layer only. The deployment's origin as the sandbox reaches it. The default is a deployment on this host. |
+
+## Agent model versus VSS models
+
+The two are separate surfaces and are configured in different places:
+
+* `HARNESS_*` in `openshell.env` configures the agent chat model that operates VSS. It is reached by the supervisor, with the provider's key added at egress.
+* The LLM and VLM endpoints used by the deployed VSS services are profile settings on the deployment, not harness settings. See [Build Vision AI Skill](/vision-agent/build-vision-ai-skill).
+
+## Provider profiles
+
+A provider profile is what authorizes an endpoint's host, so it is per endpoint family rather than per model. Within a family the model id is free, and `HARNESS_MODEL` sets it.
+
+| Endpoint | Profile | `HARNESS_API_KEY` |
+| --- | --- | --- |
+| An OpenAI-compatible endpoint | `providers/agent-inference-profile.yaml` | the endpoint's key |
+| A model served on this host | `providers/agent-inference-local-profile.yaml` | optional |
+| `build.nvidia.com` | `providers/agent-inference-build-profile.yaml` | an `nvapi-` key |
+
+A server on a port the profile does not declare is unreachable until the profile declares it. The profiles look like this:
+
+```yaml
+# services/openshell/providers/agent-inference-profile.yaml
+id: agent-inference
+display_name: Agent inference
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    env_vars: [HARNESS_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: inference-api.nvidia.com
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow: { method: POST, path: "/v1/**" }
+binaries:
+  - { path: /usr/bin/python3.13 }
+```
+
+Lint a profile before importing it, and import before creating the provider that uses it:
+
+```bash
+openshell profile lint   -f services/openshell/providers/agent-inference-profile.yaml
+openshell profile import -f services/openshell/providers/agent-inference-profile.yaml
+HARNESS_API_KEY=... openshell provider create \
+  --name agent-inference --type agent-inference --credential HARNESS_API_KEY
+```
+
+`--credential KEY` reads the value from the environment, which is the form a custom profile needs: `--from-existing` has no stored credentials to read.
+
+## Change the model, endpoint, or key
+
+To change the model, the endpoint, or the key, or to start over, make the change and then recreate the sandbox. The model and endpoint are fixed at create, and a running API server never sees a new credential. The gateway, image, and provider all survive the recreate.
+
+Make one edit in `openshell.env`; starting over needs none. Each option has a matching lettered step below:
+
+| Change | Edit in `openshell.env` |
+| --- | --- |
+| a) A different model on the same endpoint | `HARNESS_MODEL` to a model id it serves |
+| b) A different endpoint, on another host | `HARNESS_BASE_URL` to its base URL including `/v1`, `HARNESS_MODEL` to a model id it serves, `HARNESS_API_KEY` to its key |
+| c) A new key for the current provider | `HARNESS_API_KEY` |
+
+A provider authorizes only its profile's host, so the sandbox refuses a base URL on any other host. To start over, follow a).
+
+```bash
+PROVIDER=agent-inference          # the provider from the setup
+
+# 1. Re-read the edited openshell.env, then register the change with the gateway.
+set -a; . deploy/docker/services/openshell/openshell.env; set +a
+#  a) Nothing to register; go to step 2.
+#  b) A provider from the profile in providers/ that authorizes the new host:
+#     agent-inference-build for build.nvidia.com, as here, or
+#     agent-inference-local for a server on this host, whose key is optional.
+PROVIDER=agent-inference-build
+openshell profile import -f "services/openshell/providers/$PROVIDER-profile.yaml"
+openshell provider create --name "$PROVIDER" \
+  --type "$PROVIDER" --credential HARNESS_API_KEY
+#  c) The new key on the current provider.
+openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
+
+# 2. Delete the sandbox and create it again: step 4 of the setup, with $PROVIDER.
+openshell sandbox delete hermes
+```
+
+Then re-run the `openshell sandbox create` command from [step 4](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-4-create-the-sandbox) with `--provider "$PROVIDER"`. The new sandbox mints a new `API_SERVER_KEY`, so fetch it again before calling the API server.
+
+## The policy and the boundary
+
+A sandbox takes a single `--policy` file, and the VSS grant cannot be an overlay on one, so there are two candidate and ceiling pairs:
+
+| Policy | Ceiling | Grants |
+| --- | --- | --- |
+| `.hermes/policy.yaml` | `.hermes/boundary.yaml` | The agent's own model endpoint and the package hosts |
+| `services/openshell/vss/policy.yaml` | `services/openshell/vss/boundary.yaml` | The same, plus `vss-backend` and `ngc` |
+
+Everything before `network_policies` is identical in the two, by requirement rather than convention — the prover compares those sections verbatim. Each is per-harness, because OpenShell matches a connection on its destination *and* its calling binary:
+
+```yaml
+version: 1
+filesystem_policy:
+  read_only:  [/usr, /bin, /sbin, /lib, /lib64, /etc, /opt, /proc]
+  read_write: [/sandbox, /tmp, /dev/null, /dev/urandom]
+landlock: { compatibility: best_effort }
+process:  { run_as_user: "998", run_as_group: "999" }   # `sandbox` in the image
+network_policies:
+  anthropic:                     # both policies
+    name: anthropic
+    endpoints:
+      - host: api.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce     # audit-mode REST is `unsupported`, not a pass
+        rules:
+          - allow: { method: POST, path: "/v1/**" }
+    binaries: [{ path: /usr/bin/python3.13 }]
+  vss-backend:                   # vss/policy.yaml only
+    name: vss-backend-readwrite
+    endpoints:
+      - { host: host.openshell.internal, port: 7777, protocol: tcp }
+    binaries: [{ path: /usr/bin/python3.13 }]
+  # ... pypi and github in both, ngc in vss/policy.yaml
+```
+
+Three rules decide whether a policy works at all:
+
+* **`binaries` must name the interpreter, not the launcher.** OpenShell matches a process by the real path the kernel reports, and every `hermes` entry point in the image is a Python script, so no process ever carries one of those paths — the connection is opened by `/usr/bin/python3.13`. A harness on another image needs a boundary file of its own.
+* **A plain TCP grant is `protocol: tcp`, not `access: full`, and an L4 grant cannot share a named policy with REST rules.** That is why the VSS port and the harness's REST hosts are separate named entries.
+* **Candidate and ceiling must name the same filesystem paths and the same exact binary paths.** A candidate `/tmp/cache` under a boundary `/tmp`, or `/usr/bin/curl` under a boundary glob `/usr/bin/*`, returns `unsupported` rather than passing, because an image symlink could redirect either.
+
+The ceiling is deliberately wider where it matters — every method on the model host rather than `POST /v1/**`:
+
+```bash
+openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
+openshell-prover check services/openshell/vss/policy.yaml \
+  --boundary services/openshell/vss/boundary.yaml
+# result: within_boundary
+# coverage: domains=filesystem,network_l4,network_rest,process,landlock
+```
+
+The prover refuses policies using GraphQL or MCP rules rather than ignoring them, so the result is honest about what it covered.
+
+Precedence at create is `--policy` > `OPENSHELL_SANDBOX_POLICY` > the image's baked policy > the built-in default. Keep runtime-discovered parts on `--policy` at create.
+
+## What the start command does
+
+The command after `--` in `openshell sandbox create` prepares the sandbox and then becomes the harness. In order:
+
+1. `chmod 770 /sandbox` — Hermes's secret-boundary guard requires the directory group-readable, which OpenShell does not leave it.
+2. `trust-supervisor-ca` — the CA it adds to the trust store is mounted only once the sandbox exists.
+3. The `sed` renders `HARNESS_BASE_URL` and `HARNESS_MODEL` into `config.yaml`. This is not redundant with the `--env` values: `hermes chat` expands a `${env:}` reference, but the API server the UI talks to reads the file as written and would send the placeholder as the model id, which the endpoint rejects with `HTTP 403`. The model `api_key` reference needs no rendering — the supervisor replaces the bearer either way.
+4. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode 640 rather than into the environment — a file the image deliberately ships without, so the key is per sandbox.
+5. `exec hermes gateway run` — the harness itself, not a start script.
+
+None of the first four can move into the image: a root PID 1 is what the gateway's policy validation refuses. The `exec` is what makes Hermes the sandbox's canonical main process, whose output OpenShell streams and whose exit status it returns, so a dead agent surfaces as `Error` with `MainProcessFailed` instead of a healthy-looking container.
+
+Two flags on the create are load-bearing:
+
+* **`--expose 8642`** is the API server, which the UI adapter talks to and where Hermes serves `/health`. It binds the sandbox's own loopback at its documented default, because the image ships no `API_SERVER_PORT`; `gateway.api_server.port` in `config.yaml` does not move it, so overriding the port means editing `/sandbox/.hermes/.env`. With `--expose-authorization-mode bearer-passthrough` the application `Authorization` header survives the route, where the default `strip` removes it.
+* **`--restart-policy on-failure`**. The default is `no`, which leaves an exited Hermes dead and the route silently unanswered.
+
+## The gateway Compose service
+
+The gateway is declared in `deploy/docker/services/openshell/compose.yml` behind the `openshell` profile, so a deployment stays one `docker compose up` and one `docker compose down`, and a build with no harness never materializes a Docker-socket mount it would not use. The sandbox still never becomes a service: Compose owns the gateway, and the gateway owns the sandboxes it creates as siblings.
+
+Three constraints the service has to respect:
+
+* **Host networking, loopback bind.** `supervisor_network_mode` defaults to `host`, so the supervisor shares the host's network namespace and dials `127.0.0.1:<gateway port>`. Putting the gateway on host networking too means there is no published port to get wrong and no bridge peers that can reach it. Do not switch the supervisor to `bridge`: it would then have its own loopback, and the driver rejects a loopback-only gateway for it. Binding the listener anywhere a container can reach trades a boundary Docker enforces for one a network declaration enforces, and whoever reaches the listener can create sandboxes and read credentials while `allow_unauthenticated_users` is `true`.
+* **Pass the bind flags explicitly.** The image's `CMD` is `--bind-address 0.0.0.0 --port 8080` and flags beat the TOML, so the TOML's `bind_address` is ignored unless the command is replaced. Name the flags rather than clearing the command with `command: []`, which Compose treats as unset.
+* **Docker socket, not privilege.** This is Docker-outside-of-Docker: the gateway creates sibling containers on the host. It needs read/write on the socket, which upstream's recipe gets with `user: "0"` — never `--privileged`. A `group_add` of the docker GID is not enough on its own, because the image's declared UID 1000 has no `/etc/passwd` entry and no writable state directory. Root in the gateway container is why the listener stays on loopback.
+
+### gateway.toml
+
+`deploy/docker/services/openshell/gateway.toml` is derived from upstream's `deploy/docker/gateway.toml` at v0.1.6, with four changes VSS has to make:
+
+* **Pin `sandbox_runtime_image` and `supervisor_image` to the gateway's release.** Upstream ships both as `latest`. Since 0.1.6 a new sandbox requires matching supervisor and sandbox-runtime binaries, so a drifting tag is a sandbox that refuses to start, not a version-hygiene nicety.
+* **Write the version 2 schema.** A `version = 1` file is rejected. The renames that bite, each a separate startup failure: `compute_drivers = ["docker"]` becomes `compute_driver = "docker"`, `[openshell.drivers.docker].sandbox_namespace` is gone, and `gateway_jwt.ttl_secs = 0` is refused as "expected a nonzero u64".
+* **Configure the sandbox JWT.** Without a `[openshell.gateway.gateway_jwt]` block the gateway starts and serves happily, then fails every `sandbox create` with `docker sandboxes require launch-scoped gateway authentication`. That is what the `openshell-init` service writes the keys for.
+* **Move the health listener off `:8081`.** VSS already publishes the Video Analytics API there on the alerts and search profiles, so the gateway health endpoint is on `127.0.0.1:8082`.
+
+The authentication posture is upstream's opt-out, `allow_unauthenticated_users = true`, which is defensible only because the listener is on loopback. It means any process on the host can drive the control plane, so a shared host needs the mTLS certificates `openshell-init` already writes.
+
+## Adding a second harness
+
+The work is per-harness, so a second harness is a parallel set of the same artifacts — no new code path, because OpenShell has no harness concept to teach. For a harness in `services/openshell/<name>/`:
+
+* **`<name>/Dockerfile`** builds its image, with its own config and its policy baked in at `/etc/openshell/policy.yaml`.
+* **`<name>/policy.yaml`**, proven against **`<name>/boundary.yaml`**. `binaries` name the interpreter the harness actually runs under — `/usr/local/bin/node` for a Node harness — the endpoints add the hosts the harness itself calls, and `process` takes the `sandbox` UID and GID of its image.
+* **A provider profile** whose `binaries` name that same interpreter, since the shipped profiles list only `/usr/bin/python3.13`.
+* **The create**, with `--from` its image, `--policy` its file, `--expose` the port its API listens on, and its own serve command after `--`.
+
+Two properties of the harness decide whether this stays data. How its API authenticates: a bearer the UI adapter can carry, like Hermes's `API_SERVER_KEY`, or something it cannot, such as device pairing. And how it takes its model: a base URL and key in its own config, which the provider serves unchanged, or a provider type of its own. Everything else — port, health path, config directory and format, package binary — is data. The UI reaches it through whichever adapter connector speaks its API; `responses` covers an OpenAI Responses server.
+
+## Artifacts and state
+
+* **`openshell-data` volume** — `gateway.db`, the JWT signing key, and the key-encryption key that seals provider credentials. Back it up; keeping it across a `docker compose down` is what keeps sandboxes' gateway records.
+* **Sandbox logs** — `openshell logs` for the gateway's view, and the supervisor container's own log for the host and reason behind a refused connection.
+* **`~/.config/openshell`** — the CLI's gateway registrations, written by `openshell gateway add`.
+* **Per-sandbox state** — the workload's `/sandbox` directory, including `.hermes/.env` with the minted `API_SERVER_KEY` and, under the VSS layer, `.vss/config.json` written by `vss configure`.

@@ -1,0 +1,331 @@
+---
+title: "Setup VSS and Skills"
+description: ""
+position: 2
+---
+Minimum path to a Hermes agent running in an OpenShell sandbox, and then to one that can drive a VSS deployment. The first half needs no GPU and no VSS: OpenShell and the harness are CPU-only, and the result is a working agent you can prove, exec into, and call over HTTP. Only the VSS layer requires a deployment, and only VSS itself requires a GPU.
+
+Every file the commands below reference is already in the repository — the Compose services and the image tags they read, the gateway config, the policy and the boundary it is proven against, the harness Dockerfile, and the provider profiles. [Additional Configuration](/vision-agent/agent-harnesses/open-shell/additional-configuration) covers the same ground with the reasoning and the per-variable detail.
+
+<Note>
+No Skill deploys the harness. The [Build Vision AI
+Skill](/vision-agent/build-vision-ai-skill) deploys VSS; the harness is brought
+up afterwards from the same checkout with the `openshell` CLI. Run the
+commands below from the repository root.
+</Note>
+
+## Prerequisites
+
+* A checkout of the [VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}) at the reference selected for this documentation build:
+
+  ```bash
+  git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git ~/video-search-and-summarization
+  cd ~/video-search-and-summarization
+  git checkout "${VSS_DOCS_GIT_REF:-develop}"
+  ```
+
+* Docker and `curl` on the host. The gateway runs as a container and creates sandboxes as sibling containers through the host's Docker socket.
+* An agent chat model: an OpenAI-compatible endpoint, a `build.nvidia.com` account, or a model server on this host. Each has a provider profile in `services/openshell/providers/`; see [Provider profiles](/vision-agent/agent-harnesses/open-shell/additional-configuration#provider-profiles).
+* For the [VSS layer](#optional--add-vss-capabilities) only: a VSS deployment that is already up, reachable from this host.
+
+## Set the agent's model
+
+The commands source `deploy/docker/services/openshell/openshell.env`, so its values replace any of the same name exported in the shell. Set these three before you start:
+
+| Variable | Set it to |
+| --- | --- |
+| `HARNESS_BASE_URL` | The endpoint's OpenAI-compatible base URL, including its `/v1`. The default is the host that `providers/agent-inference-profile.yaml` authorizes |
+| `HARNESS_MODEL` | A model id that endpoint serves |
+| `HARNESS_API_KEY` | The endpoint's key, unquoted. Never commit it |
+
+A base URL on another host needs that host's own provider profile. [Change the model, endpoint, or key](/vision-agent/agent-harnesses/open-shell/additional-configuration#change-the-model-endpoint-or-key) covers `build.nvidia.com` and a server on this host.
+
+## Step 0. Install the CLI
+
+Install the `openshell` CLI and `openshell-prover` at the gateway's own release into `~/.local/bin`, from the checksum-verified release tarballs. The CLI has to match the gateway, since the two speak Protobuf.
+
+```bash
+mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
+( cd "$(mktemp -d)" && V=0.1.6 A=$(uname -m) &&
+  for p in openshell openshell-prover; do
+    curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-$A-unknown-linux-musl.tar.gz"
+    curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-checksums-sha256.txt"
+    grep " $p-$A-unknown-linux-musl.tar.gz\$" "$p-checksums-sha256.txt" | sha256sum -c - &&
+    tar -xzf "$p-$A-unknown-linux-musl.tar.gz" -C ~/.local/bin
+  done )
+openshell --version && openshell-prover --version     # both 0.1.6
+
+set -a; . deploy/docker/services/openshell/openshell.env; set +a
+case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; *) echo "HARNESS_API_KEY ok";; esac
+```
+
+## Step 1. Start the gateway
+
+The gateway is a Compose service behind the `openshell` profile. Bringing it up is idempotent: re-running it leaves a live gateway alone. Registering it with the CLI is what makes it the active gateway for every command that follows.
+
+```bash
+docker compose --env-file deploy/docker/services/openshell/openshell.env \
+  -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
+openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
+```
+
+<Note>
+A VSS developer profile can start the gateway for you: append `openshell` to
+its `COMPOSE_PROFILES` and the deployment brings it up with the rest of the
+stack. That replaces the `docker compose` line above and nothing else — you
+still register the gateway and create the sandbox yourself. `openshell gateway
+add` only warns when the endpoint is cold, so if Compose has just returned,
+poll `openshell sandbox list` until it answers before continuing.
+</Note>
+
+## Step 2. Build the harness image
+
+One pass from upstream Hermes, with the sandbox policy baked in at `/etc/openshell/policy.yaml`, so one artifact carries the harness and the access boundary it is proven against.
+
+```bash
+docker build --build-arg HERMES_REF="$HERMES_REF" \
+  -t "openshell-hermes:$HERMES_REF" .hermes
+```
+
+The image is tagged by `HERMES_REF` rather than a VSS reference because nothing in it comes from VSS: a Hermes bump produces a new tag instead of overwriting the old one, and a VSS commit does not invalidate it at all.
+
+## Step 3. Register the inference provider
+
+The profile authorizes the endpoint's host; the provider seals the key, which the supervisor injects at egress so the agent never holds it.
+
+```bash
+openshell profile import -f services/openshell/providers/agent-inference-profile.yaml
+openshell provider create --name agent-inference --type agent-inference \
+  --credential HARNESS_API_KEY
+```
+
+`--credential KEY` reads the value from the environment, which is the form a custom profile needs. One profile covers each endpoint family; see [Provider profiles](/vision-agent/agent-harnesses/open-shell/additional-configuration#provider-profiles) for the other two.
+
+## Step 4. Create the sandbox
+
+The trailing command after `--` prepares the sandbox and then becomes the harness itself. [What the start command does](/vision-agent/agent-harnesses/open-shell/additional-configuration#what-the-start-command-does) explains each line and why none of it can move into the image.
+
+```bash
+openshell sandbox create \
+  --name hermes \
+  --from "openshell-hermes:$HERMES_REF" \
+  --policy .hermes/policy.yaml \
+  --provider agent-inference \
+  --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
+  --env HARNESS_MODEL="$HARNESS_MODEL" \
+  --restart-policy on-failure \
+  --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
+  -- sh -c 'chmod 770 /sandbox;
+            trust-supervisor-ca
+            C=/sandbox/.hermes/config.yaml
+            sed -i -e "s#\${env:HARNESS_BASE_URL}#$HARNESS_BASE_URL#g" \
+                   -e "s#\${env:HARNESS_MODEL}#$HARNESS_MODEL#g" "$C"
+            E=/sandbox/.hermes/.env
+            grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
+              K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
+              printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
+            chmod 640 "$E"
+            exec hermes gateway run'
+```
+
+`--expose` publishes one of the sandbox's loopback ports at a URL the gateway manages, so the path becomes client to gateway listener to supervisor to sandbox, with no host-side forward process in it. The URL is `http://<workspace>--<sandbox>.openshell.localhost:<gateway port>/` — the gateway's own listener, routed by `Host` header, so `--expose 8642` publishes nothing on host port 8642.
+
+## Verification
+
+Four checks cover the default sandbox: the prover, the gateway, the exposed route, and the inference provider.
+
+```bash
+# 1. Policy stays inside the boundary ceiling
+openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
+# -> result: within_boundary
+# -> coverage: domains=filesystem,network_l4,network_rest,process,landlock
+
+# 2. Sandbox reaches Ready and the effective policy matches what was baked
+openshell sandbox list
+openshell policy get hermes --full
+
+# 3. Exposed route reaches Hermes's API server, and bearer-passthrough
+#    preserves the application Authorization header
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H 'Host: default--hermes.openshell.localhost' \
+  http://127.0.0.1:8080/health                              # -> 200
+
+KEY=$(openshell sandbox exec -n hermes -- \
+  sed -n 's/^API_SERVER_KEY=//p' /sandbox/.hermes/.env)
+curl -s -H 'Host: default--hermes.openshell.localhost' \
+  -H "Authorization: Bearer $KEY" \
+  http://127.0.0.1:8080/v1/models                           # -> 200, hermes-agent
+
+# 4. End-to-end agent turn through the inference provider
+openshell sandbox exec -n hermes -- \
+  hermes chat -q "Reply with the single word: pong"
+```
+
+`sandbox connect` attaches to the main process's output, not a shell — detach with Ctrl-P Ctrl-Q, since Ctrl-C reaches `hermes gateway run`. For a shell, use `openshell sandbox exec -n hermes --tty -- bash`. A `Connection error` from the agent means the supervisor denied the call; its container log names the host and the reason.
+
+## Optional: Add VSS capabilities
+
+Gives the agent the `vss` CLI, the VSS operation Skills, and the `vss_cli` tool plugin, plus the one grant that lets it reach a VSS deployment. Take it only against a deployment that is already up.
+
+Both halves are needed. The image alone leaves a `vss` CLI the policy refuses to let out; the policy alone grants reach to a sandbox with no CLI to use it. Neither the image nor the policy can be swapped on a running sandbox, so this replaces the step 4 sandbox rather than modifying it.
+
+First set the layer's two values in `deploy/docker/services/openshell/openshell.env`:
+
+| Variable | Set it to |
+| --- | --- |
+| `VSS_REF` | A reference on `VSS_REPO` that the Skills and the `vss` CLI are built from, at one reproducible version. The build fetches it rather than reading the working tree, so a local commit reaches the image only once it is pushed |
+| `VSS_PUBLIC_URL` | The deployment's origin as the sandbox reaches it. The default, `http://host.openshell.internal:7777`, is a deployment on this host |
+
+```bash
+set -a; . deploy/docker/services/openshell/openshell.env; set +a
+PROVIDER="${PROVIDER:-agent-inference}"  # the provider from step 3, unless changed
+TAG="${VSS_REF//\//-}-from-source"       # VSS_REF may be a branch; a Docker tag cannot hold "/"
+
+# 1. The VSS layer, built on the harness image from step 2.
+docker build --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
+  --build-arg VSS_REF="$VSS_REF" -t "openshell-hermes-vss:$TAG" services/openshell/vss
+
+# 2. Replace the sandbox with one on the VSS image and the VSS policy. Same
+#    create command as step 4 otherwise, plus VSS_PUBLIC_URL.
+openshell sandbox delete hermes
+openshell sandbox create \
+  --name hermes \
+  --from "openshell-hermes-vss:$TAG" \
+  --policy services/openshell/vss/policy.yaml \
+  --provider "$PROVIDER" \
+  --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
+  --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
+  --env HARNESS_MODEL="$HARNESS_MODEL" \
+  --restart-policy on-failure \
+  --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
+  -- sh -c 'chmod 770 /sandbox;
+            trust-supervisor-ca
+            C=/sandbox/.hermes/config.yaml
+            sed -i -e "s#\${env:HARNESS_BASE_URL}#$HARNESS_BASE_URL#g" \
+                   -e "s#\${env:HARNESS_MODEL}#$HARNESS_MODEL#g" "$C"
+            E=/sandbox/.hermes/.env
+            grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
+              K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
+              printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
+            chmod 640 "$E"
+            exec hermes gateway run'
+
+# 3. Point the CLI at VSS, then re-select the Skills those services can serve.
+openshell sandbox exec -n hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
+openshell sandbox exec -n hermes -- vss-hermes-sync
+```
+
+Step 3 prints which command groups the deployment can serve and which Skills went active. A partial deployment is normal, and the inactive Skills name the service they wanted:
+
+```text
+wrote /sandbox/.vss/config.json (3/8 services)
+[vss] skills active: vss-ask-video, vss-generate-video-report,
+vss-manage-video-io-storage, vss-summarize-video; inactive: vss-manage-alerts
+(alert-bridge not reachable), vss-query-analytics, vss-search-archive
+```
+
+This layer changes check 1 above — the sandbox is now proven against the VSS policy pair — and adds two checks of its own:
+
+```bash
+# 1. The VSS policy, against its own ceiling
+openshell-prover check services/openshell/vss/policy.yaml \
+  --boundary services/openshell/vss/boundary.yaml
+
+# 5. The CLI is present and the sandbox reaches VSS over the vss-backend grant
+openshell sandbox exec -n hermes -- vss configure check
+openshell sandbox exec -n hermes -- vss vios list
+
+# 6. An agent turn that goes through the CLI rather than the model alone
+openshell sandbox exec -n hermes -- \
+  hermes chat -q "Run vss configure check and report which services are ok."
+```
+
+On the default sandbox both fail by design, and the two failures look different: `vss` is not on `PATH` at all, where a sandbox built from the VSS image but created with `.hermes/policy.yaml` instead reports a connection error, with the supervisor's log naming the refused host.
+
+## Optional: Answer from the VSS UI
+
+Builds on the VSS layer above, so take that one first: this points a VSS deployment's own UI at the sandbox, and a deployment is what supplies the UI. Skip it to reach the agent through `hermes chat` or the API server instead. `<build>` below is the `_builds/<name>` directory the Build Vision AI Skill wrote.
+
+Nothing moves on the browser's side: it still enters through the deployment's ingress, and `vss-ui` stays on its Compose network. Only the UI container's own outbound hop to the agent is new, and it cannot use the gateway-managed URL — step 1 binds the gateway to the host's loopback, which a bridged container has no route to. Publish the sandbox's API server on the Docker bridge gateway address instead, which is what `host.docker.internal` resolves to inside the UI container:
+
+```bash
+HG=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
+openshell forward start -d "$HG:8642" hermes   # do not pipe: -d holds the pipe open
+```
+
+`openshell forward list` names it and `openshell forward stop 8642 hermes` ends it. Only the agent's port crosses; the gateway's own listener stays on loopback. Nothing restarts the forward after a reboot, and a recreated sandbox invalidates both the forward and the key below, so redo this step and the next one together.
+
+Then give the UI adapter the endpoint and the key. First print the sandbox's key:
+
+```bash
+openshell sandbox exec -n hermes --no-tty -- \
+  sh -c '. /sandbox/.hermes/.env; printf "AGENT_BACKEND_TOKEN: \"%s\"\n" "$API_SERVER_KEY"'
+```
+
+A build that is already up carries its resolved values in `resolved.yml`, so recreate the one service against an overlay rather than editing what the resolver wrote. Create this file in the build's directory and replace `<API_SERVER_KEY>` with the key just printed:
+
+```yaml
+# _builds/<build>/ui-hermes.override.yml
+services:
+  vss-ui:
+    environment:
+      AGENT_ADAPTER_ENABLED: "true"
+      AGENT_BACKEND_PROTOCOL: responses
+      AGENT_BACKEND_URL: http://host.docker.internal:8642
+      AGENT_BACKEND_MODEL: hermes-agent
+      AGENT_BACKEND_TOKEN: "<API_SERVER_KEY>"
+      NEXT_PUBLIC_AGENT_ADAPTER_ENABLED: "true"
+      NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT: "true"
+      NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR: "true"
+      NEXT_PUBLIC_ENABLE_CHAT_TAB: "true"
+```
+
+```bash
+cd _builds/<build>
+docker compose -p "$(docker inspect vss-agent-ui \
+  --format '{{index .Config.Labels "com.docker.compose.project"}}')" \
+  -f resolved.yml -f ui-hermes.override.yml up -d --no-deps vss-ui
+```
+
+A build that is not up yet takes the same settings in `_builds/<build>/override.env` instead and needs no overlay. Add the adapter keys under a `VSS_` prefix, from which the resolver derives the two `NEXT_PUBLIC_` adapter flags, and set the two chat flags that a harness build leaves `false` for lack of an in-stack agent:
+
+```bash
+VSS_AGENT_ADAPTER_ENABLED=true
+VSS_AGENT_BACKEND_PROTOCOL=responses
+VSS_AGENT_BACKEND_URL=http://host.docker.internal:8642
+VSS_AGENT_BACKEND_MODEL=hermes-agent
+VSS_AGENT_BACKEND_TOKEN=<API_SERVER_KEY>
+NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR=true
+NEXT_PUBLIC_ENABLE_CHAT_TAB=true
+```
+
+Verify through the ingress rather than the container, so the check covers the path the browser takes. The origin is the host port the deployment's HAProxy ingress publishes, `7777` unless the build set `HAPROXY_HOST_PORT`:
+
+```bash
+ORIGIN="http://localhost:$(docker port vss-haproxy-ingress | head -n1 | sed 's/.*://')"
+# Whether the adapter is configured. On `responses` it never dials the agent,
+# so a down forward or a wrong token still answers "connected".
+curl -s "$ORIGIN/api/agent/connection"          # -> {"state":"connected"}
+
+# Start a run on thread t1. It returns at once with the run's id. This is the
+# first call that reaches Hermes, so it is what a wrong token or forward fails.
+RUN_ID=$(curl -s -X POST "$ORIGIN/api/agent/runs" -H 'Content-Type: application/json' \
+  -d '{"thread_id":"t1","input":[{"role":"user","content":"List the VIOS sensors."}]}' |
+  jq -r .run_id)
+
+# Stream the run's events until run.completed.
+curl -s "$ORIGIN/api/agent/runs/$RUN_ID/events"
+```
+
+The reply streams back as `message.delta` events, with each `vss` call shown as a tool event before them. This connects the two chat surfaces only: the Search tab and the ingress `/api`, `/chat`, and `/websocket` routes address the in-stack `vss-agent`, which a harness build does not run.
+
+## Add video sources
+
+Once the VSS stack is deployed, open the VSS UI and use the **Video Management** tab to upload video files (MP4, MKV) or add live RTSP camera streams for the agent to ingest. See [Video Management Tab](/system-components/user-interface#4-video-management-tab) for the full walkthrough of upload, RTSP setup, and stream management.
+
+To hand the agent a file from the host instead, copy it into the sandbox first and then ask for it by its in-sandbox path:
+
+```bash
+openshell sandbox upload hermes \
+  sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 /sandbox/
+```

@@ -16,6 +16,8 @@ The following harnesses are validated against the VSS Agent Skills:
 - **OpenClaw** - the open agent sandbox that exposes an `agentskills.io`-compatible
   host with a chat UI.
 - **NemoClaw** - NVIDIA's open-source reference stack for running always-on AI agents (such as Hermes and OpenClaw) more safely inside NVIDIA OpenShell sandboxes.
+- **OpenShell** - NVIDIA's agent sandbox on its own, running the Hermes harness against a
+  policy boundary the agent cannot switch off.
 
 <Note>
 Agent harnesses are a developer-side tool for working with the VSS Blueprint. They
@@ -82,15 +84,34 @@ preconfigured rather than installed by hand.
 Instead of installing Skills by hand, the bundled `deploy_nemoclaw.ipynb` and
 `deploy_vss_orchestrator.ipynb` notebooks apply the VSS policy, install the repository's
 VSS Skills and workspace docs into the sandbox, register the VSS Orchestrator MCP, and
-start the [VSS Orchestrator MCP server](/vision-agent/agent-harnesses/nemo-claw/vss-orchestrator-mcp) on the
+start the [VSS Orchestrator MCP server](/vision-agent/agent-harnesses/open-shell/vss-orchestrator-mcp) on the
 host. From the chat UI you can deploy profiles, manage cameras and streams, query
 incidents, run searches, summarize videos, and pull logs - with confirmation prompts
-before destructive actions. For setup, configuration, and troubleshooting, see
-[NemoClaw](/vision-agent/agent-harnesses/nemo-claw).
+before destructive actions. For the sandbox layer it runs on, see
+[OpenShell](/vision-agent/agent-harnesses/open-shell).
 
 <Note>
 The NemoClaw notebooks are released as an Early Access feature.
 </Note>
+
+## OpenShell
+
+[NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/) is the agent sandbox that
+NemoClaw builds on, and VSS also drives it directly - without NemoClaw - to run the
+Hermes harness. The gateway is declared as a Docker Compose service alongside the rest of
+the stack, and an optional image layer adds the `vss` CLI, the VSS operation Skills, and
+the one network grant that lets the agent reach a deployment.
+
+What this route gives you over installing Skills into a coding agent is a boundary the
+agent cannot switch off: the workload container has no network at all, the supervisor
+opens every connection only when its destination *and* calling binary match the policy,
+and the real credential is added at egress so the agent never holds a key. Each policy is
+checked against a boundary ceiling with `openshell-prover` before anything is deployed.
+
+Unlike NemoClaw, no Skill provisions it - you bring it up from the checkout with the
+`openshell` CLI, against a VSS deployment that is already running. See
+[OpenShell](/vision-agent/agent-harnesses/open-shell) for the architecture, setup,
+configuration, and troubleshooting.
 
 ## Related Documentation
 
