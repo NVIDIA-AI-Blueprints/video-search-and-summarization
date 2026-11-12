@@ -26,18 +26,13 @@
   },
   "dependencies": {
     "@nvidia/foundations-react-core": "1.17.0",
-    "@reduxjs/toolkit": "^2.11.2",
     "@tabler/icons-react": "^3.46.0",
-    "@xmldom/xmldom": "^0.9.12",
     "lodash": "^4.18.1",
     "next-runtime-env": "^1.8.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hot-toast": "^2.6.0",
-    "react-redux": "^9.2.0",
-    "rsuite": "^6.2.4",
-    "serialize-javascript": "^6.0.2",
-    "uuid": "^11.1.1"
+    "rsuite": "^6.2.4"
   },
   "devDependencies": {
     "@swc/cli": "^0.8.1",
@@ -47,7 +42,6 @@
     "@types/lodash": "^4.17.20",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
-    "@types/serialize-javascript": "^5.0.4",
     "identity-obj-proxy": "^3.0.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
