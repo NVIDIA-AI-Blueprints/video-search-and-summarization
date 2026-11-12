@@ -66,4 +66,4 @@ export {
   createThrottledObjectsLocationState,
 } from './utils/cartesianMapVizDisplayHelpers';
 
-export * from './nv';
+export * from './shell';

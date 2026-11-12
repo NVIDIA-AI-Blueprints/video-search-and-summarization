@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { createSlice } from "../nv/js/WarehouseStore";
+import { createSlice } from "../shell/js/WarehouseStore";
 
 /**
  * Utilities for a LogsConsole slice (log list + add/clear actions).

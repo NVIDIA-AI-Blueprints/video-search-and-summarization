@@ -15,7 +15,7 @@ jest.mock('../lib-src/App.module.css', () => ({
 
 jest.mock('common/warehouse', () => {
   const ReactLib = require('react');
-  const storeMod = jest.requireActual('../lib-src/common/warehouse/nv/js/WarehouseStore');
+  const storeMod = jest.requireActual('../lib-src/common/warehouse/shell/js/WarehouseStore');
 
   class UserMessage {
     static SRC_TYPE = { GENERIC: 'generic', HTTP_ERROR: 'http-error', AXIOS_ERROR: 'http-error' };
