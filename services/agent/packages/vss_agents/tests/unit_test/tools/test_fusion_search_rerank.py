@@ -401,3 +401,58 @@ async def test_fusion_preserves_partial_match_scores_and_overlay_metadata() -> N
     assert result[0].similarity == pytest.approx(0.45)
     assert result[0].object_ids == ["1", "2"]
     assert result[0].screenshot_url == "http://vst.test/overlay"
+
+
+@pytest.mark.asyncio
+async def test_rrf_rerank_ranks_strong_event_above_weak_event_with_similar_attribute() -> None:
+    # A bystander clip (embed 0.12) whose attribute score is slightly higher than
+    # the true event clip's (0.581 vs 0.5725) must not outrank it, because the
+    # attribute boost is scaled by the clip's embed similarity.
+    embed_results = [
+        _embed_result(video_name="Normal_Videos759", sensor_id="cam759", similarity=0.53),
+        _embed_result(video_name="Event_Only_Clip", sensor_id="camEvent", similarity=0.38),
+        _embed_result(video_name="Normal_Videos07_0005", sensor_id="cam07", similarity=0.12),
+    ]
+
+    class _SelectiveAttr:
+        async def ainvoke(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+            sources = payload.get("video_sources") or []
+            if "Normal_Videos759" in sources or "cam759" in sources:
+                return [
+                    {
+                        "screenshot_url": "http://vst.test/759",
+                        "metadata": {
+                            "sensor_id": "cam759",
+                            "object_id": "15",
+                            "object_type": "person",
+                            "frame_timestamp": "2025-01-01T00:00:02Z",
+                            "behavior_score": 0.5725,
+                            "frame_score": None,
+                        },
+                    }
+                ]
+            if "Normal_Videos07_0005" in sources or "cam07" in sources:
+                return [
+                    {
+                        "screenshot_url": "http://vst.test/07",
+                        "metadata": {
+                            "sensor_id": "cam07",
+                            "object_id": "22",
+                            "object_type": "person",
+                            "frame_timestamp": "2025-01-01T00:00:02Z",
+                            "behavior_score": 0.5810,
+                            "frame_score": None,
+                        },
+                    }
+                ]
+            return []
+
+    results = await fusion_search_rerank(
+        embed_results=embed_results,
+        attributes=["person in white t-shirt"],
+        attribute_search_fn=_SelectiveAttr(),
+        vst_internal_url="",
+        fusion_method="rrf",
+    )
+    assert [r.video_name for r in results] == ["Normal_Videos759", "Normal_Videos07_0005", "Event_Only_Clip"]
+    assert results[0].object_ids == ["15"]
