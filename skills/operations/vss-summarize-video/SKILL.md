@@ -399,3 +399,5 @@ restart, teardown, backend selection, or service logs, prefer
 - `vss-generate-video-report` and `vss-ask-video`: hand off here for recordings of 120 s or longer.
 
 bump:3
+
+This skill is maintained in the VSS repository and mirrored to the public catalog at [NVIDIA/skills](https://github.com/NVIDIA/skills).

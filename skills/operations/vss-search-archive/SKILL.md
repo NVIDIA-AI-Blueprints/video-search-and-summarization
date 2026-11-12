@@ -235,3 +235,5 @@ only if every displayed result in the nonempty set is `unverified`, offer a
 confirmation, load [search-result verification](references/result_verification.md)
 and hand off only the displayed, bounded hits, preserving the original question;
 do not rerun search. Never hand off a partially verified result set.
+
+This skill is maintained in the VSS repository and mirrored to the public catalog at [NVIDIA/skills](https://github.com/NVIDIA/skills).
