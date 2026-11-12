@@ -174,17 +174,19 @@ navigation:
       - section: "Agent Harnesses"
         path: ./agent-harnesses.mdx
         contents:
-          - section: "NemoClaw"
-            path: ./nemoclaw.mdx
+          - section: "OpenShell"
+            path: ./openshell.mdx
             contents:
+              - page: "Architecture"
+                path: ./openshell-architecture.mdx
               - page: "Setup VSS and Skills"
-                path: ./nemoclaw-deploy-vss-and-skills.mdx
+                path: ./openshell-setup.mdx
               - page: "VSS Orchestrator MCP"
                 path: ./vss-orchestrator-mcp.mdx
               - page: "Additional Configuration"
-                path: ./nemoclaw-configuration.mdx
+                path: ./openshell-configuration.mdx
               - page: "Troubleshooting"
-                path: ./nemoclaw-troubleshooting.mdx
+                path: ./openshell-troubleshooting.mdx
       - section: "VSS Agents"
         path: ./VSS-Agents.mdx
         contents:

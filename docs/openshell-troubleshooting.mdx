@@ -1,0 +1,257 @@
+---
+title: "Troubleshooting"
+description: ""
+position: 5
+---
+Recovery steps for common OpenShell gateway, sandbox, and VSS layer issues. Substitute your sandbox name wherever `hermes` appears. Every command assumes `~/.local/bin` is on `PATH` and that you are in the repository root.
+
+Two commands answer most questions before anything else:
+
+```bash
+openshell sandbox list                  # phase of every sandbox on this gateway
+docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell \
+  logs openshell-gateway                # the gateway's own startup and errors
+```
+
+Address the gateway through Compose rather than by container name: a developer profile brings it up in the VSS project, where it is named for that project instead.
+
+The supervisor container has its own log, and it is the one that names a refused connection's host and reason. It is a sibling of the gateway rather than a Compose service, so find it by its label:
+
+```bash
+docker logs "$(docker ps -q \
+  --filter 'label=openshell.ai/isolation-role=supervisor' \
+  --filter 'label=openshell.ai/sandbox-name=hermes')"
+```
+
+## No Active Gateway, or a Transport Error
+
+**Symptom**: `openshell sandbox list` fails with `No active gateway. Set one with: openshell gateway select <name>`, or any command fails with a transport error immediately after `docker compose up`.
+
+**Cause**: Either the gateway was never registered with the CLI, or it was registered before the container bound its listener. `openshell gateway add` only warns when the endpoint is cold, and Compose returns before the gateway is listening, so a registration that looks successful can still have nothing behind it.
+
+**Solution**:
+
+1. Confirm the container is up and the listener answers:
+
+   ```bash
+   docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell ps
+   curl -fsS http://127.0.0.1:8082/health
+   ```
+
+2. Register the gateway, or poll until it answers if Compose has just returned:
+
+   ```bash
+   openshell gateway list
+   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
+   until openshell sandbox list >/dev/null 2>&1; do sleep 2; done
+   ```
+
+3. If a registration exists but points at the wrong endpoint, remove and re-add it:
+
+   ```bash
+   openshell gateway remove openshell-gateway
+   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
+   ```
+
+## Gateway Container Exits at Startup
+
+**Symptom**: `openshell-gateway` restarts in a loop, or `docker compose up` returns but the container is not running.
+
+**Cause and solution**: Read the gateway log and match the message:
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `this build requires version 2; migrate legacy fields` | The config is on the version 1 schema | Use the shipped `gateway.toml`. The renames that bite are `compute_drivers = ["docker"]` to `compute_driver = "docker"`, the removal of `sandbox_namespace`, and `gateway_jwt.ttl_secs = 0` |
+| `address already in use` | Another service holds `8080` or the health port | The gateway health listener is on `127.0.0.1:8082` precisely because VSS publishes the Video Analytics API on `8081` in the alerts and search profiles. Check what holds the port before moving it |
+| A missing-key or permission error on `/var/lib/openshell/tls` | `openshell-init` did not complete | Re-run it on its own: `docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell up openshell-init` |
+
+## Sandbox Create Fails on Gateway Authentication
+
+**Symptom**: The gateway starts and serves happily, then every `openshell sandbox create` fails with `docker sandboxes require launch-scoped gateway authentication`.
+
+**Cause**: The Docker compute driver needs a `[openshell.gateway.gateway_jwt]` block even when `allow_unauthenticated_users` is `true`. The two settings are independent: the opt-out covers user calls, not the driver's launch-scoped JWT.
+
+**Solution**: Confirm the block is present in `deploy/docker/services/openshell/gateway.toml` and that the key files it names exist in the data volume. The `openshell-init` service writes them:
+
+```bash
+docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell \
+  run --rm --entrypoint ls openshell-init -l /var/lib/openshell/tls/jwt
+```
+
+If the directory is empty, the init service never ran. Bring it up on its own, then restart the gateway:
+
+```bash
+docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell \
+  up openshell-init
+```
+
+## Sandbox Will Not Reach Ready
+
+**Symptom**: `openshell sandbox list` shows a phase other than `Ready`, or the sandbox reaches `ControlSupervisorExited`.
+
+**Cause**: The supervisor is the fragile half of a sandbox. If it exits, the driver marks the sandbox `ControlSupervisorExited` and stops the workload. The most common underlying cause is a supervisor or sandbox-runtime image that does not match the gateway release: since OpenShell 0.1.6 a new sandbox requires matching binaries on both ends of the control socket.
+
+**Solution**:
+
+1. Check that `gateway.toml` pins both images to the gateway's own release rather than `latest`:
+
+   ```bash
+   grep -E 'sandbox_runtime_image|supervisor_image' \
+     deploy/docker/services/openshell/gateway.toml
+   ```
+
+2. Read the supervisor container's log for the actual exit reason.
+
+3. Stop and start the sandbox. That brings up a fresh supervisor and keeps the workload's files, but not its process. JWTs and certificates are issued per generation, so the old ones stop working:
+
+   ```bash
+   openshell sandbox stop hermes && openshell sandbox start hermes
+   ```
+
+4. If the phase does not clear, delete and create it again. Neither the image nor the policy can be swapped on a live sandbox, so a change to either is always a delete and a create.
+
+## Sandbox Shows Error with MainProcessFailed
+
+**Symptom**: The sandbox reaches `Error`, and the reason is `MainProcessFailed`.
+
+**Cause**: The command after `--` exited. Because that command ends in `exec hermes gateway run`, Hermes is the sandbox's canonical main process and its exit status is the sandbox's — which is the point, since a dead agent surfaces here instead of as a healthy-looking container.
+
+**Solution**: Read the main process's output, which OpenShell streams:
+
+```bash
+openshell logs hermes
+```
+
+A failure in the preparation steps before the `exec` shows up the same way. The usual causes are a `chmod 770 /sandbox` that did not run before Hermes's secret-boundary guard checked the directory, or `trust-supervisor-ca` failing because the supervisor CA was not yet mounted.
+
+## Agent Reports a Connection Error
+
+**Symptom**: Chat answers with `Connection error`, or a tool call fails to reach a host that you expected to be allowed.
+
+**Cause**: The supervisor denied the connection. The workload has no network of its own, so every refusal is a policy decision, and a connection is allowed only when its destination **and** its calling binary match the same policy block.
+
+**Solution**:
+
+1. Read the supervisor container's log. It names the host and the reason.
+
+2. Check the effective policy the sandbox actually received, which may differ from the file you think you passed:
+
+   ```bash
+   openshell policy get hermes --full
+   ```
+
+   Precedence is `--policy` > `OPENSHELL_SANDBOX_POLICY` > the image's baked policy > the built-in default.
+
+3. If the destination is in the policy but still refused, check the `binaries` list. OpenShell matches a process by the real path the kernel reports, and every `hermes` entry point is a Python script, so the entry must name `/usr/bin/python3.13` rather than a `hermes` path.
+
+4. A plain TCP destination needs `protocol: tcp`, and an L4 grant cannot share a named policy block with REST rules. Split them into separate named entries.
+
+## Model Calls Fail with 401 or 403
+
+**Symptom**: The agent cannot reach its model. The endpoint returns `401`, or `403` with a message about an unknown model.
+
+**Cause and solution**:
+
+* **`401` from the endpoint.** The sealed credential is wrong. `HARNESS_API_KEY` is read from the environment at `provider create` time, so a key edited in `openshell.env` afterwards has not reached the gateway. Re-register it and recreate the sandbox, because a running API server never sees a new credential:
+
+  ```bash
+  set -a; . deploy/docker/services/openshell/openshell.env; set +a
+  openshell provider update agent-inference --credential HARNESS_API_KEY
+  ```
+
+  Note that many endpoints answer `GET /v1/models` without valid authentication, so a successful models call does not prove the key works. Test with a chat completion.
+
+* **`403` naming the model as unknown.** The API server sent the literal `${env:HARNESS_MODEL}` placeholder as the model id. `hermes chat` expands those references but the API server reads `config.yaml` as written, which is why the start command renders both values into the file with `sed`. Recreate the sandbox with the full start command.
+
+* **A refusal before the request leaves the host.** A provider authorizes only its profile's host, so a `HARNESS_BASE_URL` on any other host is denied regardless of the key. Import the profile that covers the new host and create a provider from it.
+
+## Prover Returns unsupported Instead of within_boundary
+
+**Symptom**: `openshell-prover check` exits with `unsupported` rather than `result: within_boundary`.
+
+**Cause**: The candidate and the ceiling do not line up in a way the prover can reason about. It refuses rather than guessing, so the result stays honest about what it covered.
+
+**Solution**: Both files must name the **same** filesystem paths and the same exact binary paths. A candidate `/tmp/cache` under a boundary `/tmp`, or `/usr/bin/curl` under a boundary glob `/usr/bin/*`, returns `unsupported` because an image symlink could redirect either. Two more cases:
+
+* A REST endpoint in audit mode is `unsupported`, not a pass. Use `enforcement: enforce`.
+* Mixing REST rules into an L4 entry is `unsupported`. Keep `protocol: tcp` entries separate.
+
+The prover also refuses policies using GraphQL or MCP rules rather than ignoring them.
+
+## VSS Commands Missing or Unreachable
+
+**Symptom**: `openshell sandbox exec -n hermes -- vss configure check` fails, or the agent reports it has no VSS Skills.
+
+**Cause**: The two halves of the VSS layer are separate and both are needed. The image alone leaves a `vss` CLI the policy refuses to let out; the policy alone grants reach to a sandbox with no CLI to use it.
+
+**Solution**: The two failures look different, which tells you which half is missing:
+
+* **`vss: not found`** — the sandbox is on the plain harness image. Rebuild with `services/openshell/vss/Dockerfile` and recreate the sandbox from `openshell-hermes-vss:<tag>`.
+* **A connection error from `vss`** — the sandbox is on the VSS image but was created with `.hermes/policy.yaml`. Recreate it with `--policy services/openshell/vss/policy.yaml`. The supervisor's log names the refused host.
+
+If both halves are right and `vss configure check` reports services as unavailable, that is usually the deployment rather than the sandbox. A partial deployment is normal: the command names which groups it can serve, and `vss-hermes-sync` marks the matching Skills inactive with the service they wanted.
+
+```bash
+openshell sandbox exec -n hermes -- vss configure show
+openshell sandbox exec -n hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
+openshell sandbox exec -n hermes -- vss-hermes-sync
+```
+
+Reach the deployment as `host.openshell.internal`, never as host `127.0.0.1`: the sandbox has its own loopback, and the policy's grant is keyed on that hostname.
+
+## VSS UI Chat Cannot Reach the Agent
+
+**Symptom**: `curl "$ORIGIN/api/agent/connection"` answers `connected`, but starting a run fails or hangs.
+
+**Cause**: On the `responses` protocol the connection check never dials the agent, so it answers `connected` even when the forward is down or the token is wrong. The first call that actually reaches Hermes is the run.
+
+**Solution**:
+
+1. Check the forward is up and on the bridge gateway address, not loopback. A bridged container has no route to the host's loopback, which is where the OpenShell gateway binds:
+
+   ```bash
+   openshell forward list
+   HG=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
+   openshell forward start -d "$HG:8642" hermes
+   ```
+
+2. Check the token. A recreated sandbox mints a new `API_SERVER_KEY` and invalidates both the forward and the old token, so the two are always redone together:
+
+   ```bash
+   openshell sandbox exec -n hermes --no-tty -- \
+     sh -c '. /sandbox/.hermes/.env; printf %s "$API_SERVER_KEY"'
+   ```
+
+   Put the current value in the UI's `AGENT_BACKEND_TOKEN` and recreate the `vss-ui` service.
+
+3. Nothing restarts a forward after a reboot. Re-run it.
+
+## CLI and Gateway Version Mismatch
+
+**Symptom**: Commands fail with decoding or protocol errors against a gateway that is otherwise healthy.
+
+**Cause**: The `openshell` CLI and the gateway speak Protobuf, so they must be the same release. `openshell-prover` is pinned the same way.
+
+**Solution**:
+
+```bash
+openshell --version && openshell-prover --version
+grep OPENSHELL_TAG deploy/docker/services/openshell/openshell.env
+```
+
+If they differ, reinstall the CLI at the gateway's release using the install step in [Setup VSS and Skills](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-0-install-the-cli).
+
+## Start Over
+
+**Symptom**: The gateway and sandbox state are inconsistent and the steps above do not resolve it.
+
+**Solution**: Delete the sandboxes first, so the gateway removes their containers and volumes, then take the gateway down. `docker compose down` on its own leaves sandbox containers running, because they are siblings the Compose project never created.
+
+```bash
+openshell sandbox delete hermes
+docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell down
+```
+
+That keeps the `openshell-data` volume, and with it the gateway's record of every sandbox, its JWT signing key, and the key-encryption key that provider credentials are sealed with. Add `-v` only when you intend to discard all of it — every provider has to be created again afterwards.
+
+Then re-run the setup from [step 1](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-1-start-the-gateway). The harness image survives a teardown, so a rebuild is needed only when `HERMES_REF` or `VSS_REF` changed.
