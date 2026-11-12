@@ -551,6 +551,33 @@ def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.Monk
     assert vlm._rt_vlm_frame_budget == 8
 
 
+def test_search_subject_check_follows_the_critic_vlm(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vss_cli.search import group as search_group
+    from vss_core.search_core.subject_check import SubjectChecker
+
+    deployment = config_mod.Deployment(
+        base_url="https://vss.example",
+        services={
+            "vst": config_mod.Service(url="https://vss.example/vst"),
+            "rt_vlm": config_mod.Service(url="https://vss.example/rtvi-vlm", models=["cosmos-reason3"]),
+        },
+    )
+
+    async def available(_url: str, _model: str) -> str | None:
+        return None
+
+    monkeypatch.setattr(search_group, "_rt_vlm_probe", available)
+    _critic, vlm, _reason = asyncio.run(search_group._critic_from(deployment))
+
+    # On by default whenever the critic's VLM is usable, and on the same VLM.
+    checker = search_group._subject_checker_from(deployment, vlm)
+    assert isinstance(checker, SubjectChecker)
+    assert checker._vlm is vlm
+    assert checker._vst_internal_url == "https://vss.example"
+    # No usable VLM: no check, and fusion keeps its own order.
+    assert search_group._subject_checker_from(deployment, None) is None
+
+
 def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
     from vss_cli.search import group as search_group
 
@@ -609,8 +636,8 @@ def test_search_run_surfaces_disabled_critic_reason(monkeypatch: pytest.MonkeyPa
 
     class _FakeVSS:
         @classmethod
-        def from_runtime(cls, runtime, *, critic=None):
-            _ = runtime, critic
+        def from_runtime(cls, runtime, *, critic=None, subject_checker=None):
+            _ = runtime, critic, subject_checker
             return cls()
 
         async def __aenter__(self):
@@ -655,8 +682,8 @@ def test_search_run_surfaces_disabled_critic_reason_on_zero_hits(monkeypatch: py
 
     class _FakeVSS:
         @classmethod
-        def from_runtime(cls, runtime, *, critic=None):
-            _ = runtime, critic
+        def from_runtime(cls, runtime, *, critic=None, subject_checker=None):
+            _ = runtime, critic, subject_checker
             return cls()
 
         async def __aenter__(self):

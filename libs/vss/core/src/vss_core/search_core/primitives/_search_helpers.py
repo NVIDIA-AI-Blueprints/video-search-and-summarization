@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import aclosing
+from datetime import datetime
 from datetime import timedelta
 import json
 import logging
@@ -61,6 +62,8 @@ from ..models.search import SearchInput
 from ..models.search import SearchOutput
 from ..models.search import SearchResult
 from ..models.tag_search import TagSearchOutput
+from ..subject_check import Subject
+from ..subject_check import subject_from_attribute_result
 from . import _fusion
 from ._attribute_helpers import enrich_attribute_results
 from ._attribute_helpers import resolve_index_by_source_type
@@ -68,9 +71,11 @@ from ._attribute_helpers import search_by_object_embedding
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+    from collections.abc import Callable
 
     from ..clients.protocols import ElasticIndex
     from ..clients.protocols import TextEmbedder
+    from ..subject_check import SubjectChecker
 
 logger = logging.getLogger(__name__)
 
@@ -393,6 +398,41 @@ async def fusion_search_rerank(
     results. The assembled candidates are handed to :mod:`._fusion` for the
     chosen fusion method (an unknown method raises :class:`InvalidInputError`).
     """
+    results, _candidates = await _fusion_rerank_with_candidates(
+        embed_results,
+        attributes,
+        attribute_search_fn,
+        vst_internal_url=vst_internal_url,
+        source_type=source_type,
+        fusion_method=fusion_method,
+        rrf_k=rrf_k,
+        rrf_w=rrf_w,
+        w_attribute=w_attribute,
+        w_embed=w_embed,
+        attribute_embed_client=attribute_embed_client,
+    )
+    return results
+
+
+async def _fusion_rerank_with_candidates(
+    embed_results: list[SearchResult],
+    attributes: list[str],
+    attribute_search_fn: SupportsAinvoke,
+    *,
+    vst_internal_url: str | None,
+    source_type: str,
+    fusion_method: str,
+    rrf_k: int,
+    rrf_w: float,
+    w_attribute: float,
+    w_embed: float,
+    attribute_embed_client: TextEmbedder | None,
+) -> tuple[list[SearchResult], list[_fusion.FusionCandidate]]:
+    """:func:`fusion_search_rerank`, also returning the candidates it fused.
+
+    The candidates carry each clip's best attribute match, which the subject
+    check needs and the ranked results deliberately do not expose.
+    """
     # Drop blank/whitespace-only attributes once so the precomputed vectors stay
     # aligned with the (blank-stripping) normalized_queries() used downstream, and so
     # len(attributes) no longer counts no-op entries (NVBug 6781021, Greptile).
@@ -438,7 +478,42 @@ async def fusion_search_rerank(
             w_attribute=w_attribute,
         )
     logger.info(f"{fusion_method.upper()} fusion reranking complete: {len(final_results)} videos reranked")
-    return final_results
+    return final_results, candidates
+
+
+def _subject_lookup(
+    candidates: list[_fusion.FusionCandidate],
+) -> Callable[[SearchResult], Subject | None]:
+    """Map a final (possibly merged) result back to the best checkable subject.
+
+    Merging builds new result objects, so a result is matched to candidates by
+    sensor and time overlap rather than identity; when several merged chunks
+    carry a subject, the highest-scoring one is checked.
+    """
+    by_sensor: dict[str, list[tuple[datetime, datetime, Subject]]] = {}
+    for candidate in candidates:
+        if candidate.subject is None:
+            continue
+        subject = subject_from_attribute_result(candidate.subject)
+        start = safe_iso8601_to_datetime(candidate.embed_result.start_time)
+        end = safe_iso8601_to_datetime(candidate.embed_result.end_time)
+        if subject is None or start is None or end is None:
+            continue
+        by_sensor.setdefault(candidate.embed_result.sensor_id, []).append((start, end, subject))
+
+    def lookup(result: SearchResult) -> Subject | None:
+        start = safe_iso8601_to_datetime(result.start_time)
+        end = safe_iso8601_to_datetime(result.end_time)
+        if start is None or end is None:
+            return None
+        overlapping = [
+            subject
+            for cand_start, cand_end, subject in by_sensor.get(result.sensor_id, [])
+            if cand_start <= end and cand_end >= start
+        ]
+        return max(overlapping, key=lambda subject: subject.score, default=None)
+
+    return lookup
 
 
 # ==========================================================================
@@ -672,8 +747,9 @@ async def execute_core_search(
                 content="Running embedding and optional attribute retrieval for rrf fusion",
             )
             embed_results = await _embed_provider()
+            fused_candidates: list[_fusion.FusionCandidate] = []
             if attribute_list and attribute_search_fn is not None:
-                search_results = await fusion_search_rerank(
+                search_results, fused_candidates = await _fusion_rerank_with_candidates(
                     embed_results,
                     attribute_list,
                     attribute_search_fn,
@@ -682,6 +758,8 @@ async def execute_core_search(
                     fusion_method="rrf",
                     rrf_k=config.rrf_k,
                     rrf_w=config.rrf_w,
+                    w_attribute=0.55,
+                    w_embed=0.35,
                     attribute_embed_client=getattr(attribute_search_fn, "embed_client", None),
                 )
             else:
@@ -705,6 +783,18 @@ async def execute_core_search(
             )
             if getattr(config, "merge_adjacent", True):
                 search_results = _fusion.merge_consecutive_results(search_results)
+            # Is the person who matched the attribute the one doing the action?
+            # Best-effort and order-only: rejected hits sink, nothing is added
+            # to the results, and any failure leaves the fused order as it is.
+            subject_checker: SubjectChecker | None = getattr(config, "subject_checker", None)
+            if subject_checker is not None and fused_candidates:
+                search_results = await subject_checker.rerank(
+                    search_results,
+                    _subject_lookup(fused_candidates),
+                    query=search_input.original_query or search_input.query,
+                    attributes=attribute_list,
+                    limit=original_top_k,
+                )
             yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
             return
 
