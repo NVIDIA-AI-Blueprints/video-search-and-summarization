@@ -25,10 +25,15 @@ VLM whether the boxed person does what the query says that person does. The
 query, not a parsed role, tells the VLM which action belongs to that person, so
 "... while a person in black watches" is judged on watching.
 
-Only the order changes. A ``no`` moves the result below every other result;
-``yes`` and ``unsure`` leave it where it is. Any failure (VST, VLM, an
-unusable box) is ``unsure``, so a broken dependency degrades to today's order
-and never fails the search. No field is added to the results.
+Only the order changes. A ``no`` moves the result down a few places (three by
+default), so a wrong ``no`` costs ranks rather than the hit; ``yes`` and
+``unsure`` leave it where it is. Any failure (VST, VLM, an unusable box) is
+``unsure``, so a broken dependency degrades to today's order and never fails
+the search. No field is added to the results.
+
+Each checked result is logged once at INFO as ``subject_check_verdict`` followed
+by a JSON object (rank, result window, object, verdict), so an evaluation can
+join the verdicts with ground truth without the response carrying them.
 """
 
 from __future__ import annotations
@@ -69,8 +74,16 @@ TIMER_FETCH = "subject_check: fetch frame"
 TIMER_DRAW = "subject_check: draw box"
 TIMER_VLM = "subject_check: vlm inference"
 
-#: Upper bound on results checked per search, whatever ``top_k`` is.
-DEFAULT_MAX_CHECKS = 10
+#: Upper bound on results checked per search, whatever ``top_k`` is. HIT@1,
+#: HIT@3 and most of mAP are decided at the top, and each check costs a VST
+#: frame fetch plus a VLM call.
+DEFAULT_MAX_CHECKS = 5
+
+#: How many places a ``no`` moves a result down.
+DEFAULT_DEMOTE_BY = 3
+
+#: Prefix of the per-result INFO log line; the rest of the line is JSON.
+VERDICT_LOG_MARKER = "subject_check_verdict"
 
 _BOX_COLOR_BGR = (0, 255, 0)
 _MAX_IMAGE_SIDE = 1280
@@ -93,11 +106,18 @@ Rules:
 - First read the search and work out which action, if any, it gives to the
   person with that appearance. That person may be the one doing the main action,
   or someone else in the scene (for example "while a person in black watches").
-- Judge only the person inside the green box. If a different person is doing
-  that action, the answer is "no".
-- If the search gives the person with that appearance no action, answer "yes".
-- If the boxed person is hidden or the frame is too unclear to tell, answer
-  "unsure".
+- Judge only the person inside the green box.
+- Answer "yes" if the boxed person is doing that action, or could plausibly be
+  in the middle of it in this frame, or if the search gives that person no
+  action.
+- Answer "no" only when the frame clearly shows it: a different person is the
+  one doing that action, or the boxed person is clearly doing something that
+  rules it out (for example standing still and empty-handed when the search
+  says pushing a cart).
+- Answer "unsure" when one still frame cannot show the action (for example
+  stealing, running away, or an action that happens before or after this
+  moment), or when the boxed person is hidden or the frame is unclear. When in
+  doubt between "no" and "unsure", answer "unsure".
 
 Return only JSON, one of:
 {{"answer": "yes"}}
@@ -219,6 +239,23 @@ def draw_subject_box(image_bytes: bytes, bbox: dict[str, Any]) -> bytes | None:
     return bytes(encoded.tobytes())
 
 
+def _log_verdict(rank: int, result: SearchResult, subject: Subject, verdict: SubjectVerdict) -> None:
+    """One machine-readable INFO line per checked result (see the module docstring)."""
+    if not logger.isEnabledFor(logging.INFO):
+        return
+    record = {
+        "rank": rank + 1,
+        "video_name": result.video_name,
+        "sensor_id": result.sensor_id,
+        "start_time": result.start_time,
+        "end_time": result.end_time,
+        "object_id": subject.object_id,
+        "frame_timestamp": subject.frame_timestamp,
+        "verdict": verdict.value,
+    }
+    logger.info("%s %s", VERDICT_LOG_MARKER, scrub_log(json.dumps(record, sort_keys=True)))
+
+
 class _RunCache:
     """Per-rerank VST lookups shared by every result on the same sensor."""
 
@@ -243,18 +280,22 @@ class SubjectChecker:
         vst: VSTSnapshot,
         vst_internal_url: str,
         max_checks: int = DEFAULT_MAX_CHECKS,
+        demote_by: int = DEFAULT_DEMOTE_BY,
         max_concurrent: int = 5,
         frame_timeout_seconds: float = 10.0,
         prompt: str = SUBJECT_CHECK_PROMPT,
     ) -> None:
         if max_checks < 1:
             raise ValueError("max_checks must be >= 1")
+        if demote_by < 1:
+            raise ValueError("demote_by must be >= 1")
         if max_concurrent < 1:
             raise ValueError("max_concurrent must be >= 1")
         self._vlm = image_analyzer
         self._vst = vst
         self._vst_internal_url = vst_internal_url
         self._max_checks = max_checks
+        self._demote_by = demote_by
         self._max_concurrent = max_concurrent
         self._frame_timeout = frame_timeout_seconds
         self._prompt = prompt
@@ -268,7 +309,7 @@ class SubjectChecker:
         attributes: list[str],
         limit: int | None = None,
     ) -> list[SearchResult]:
-        """Check the top results and move those answered ``no`` below the rest.
+        """Check the top results and move each one answered ``no`` down ``demote_by`` places.
 
         ``limit`` caps how many results from the top are checked (normally the
         caller's ``top_k``); it is itself capped at ``max_checks``.
@@ -291,6 +332,8 @@ class SubjectChecker:
                 verdicts = await asyncio.gather(
                     *(self._check(subject, prompt, semaphore, cache, client) for _, subject in checks)
                 )
+        for (index, subject), verdict in zip(checks, verdicts, strict=True):
+            _log_verdict(index, results[index], subject, verdict)
 
         rejected = {index for (index, _), verdict in zip(checks, verdicts, strict=True) if verdict == SubjectVerdict.NO}
         counts = {v.value: sum(1 for verdict in verdicts if verdict == v) for v in SubjectVerdict}
@@ -304,8 +347,13 @@ class SubjectChecker:
         )
         if not rejected:
             return results
-        kept = [result for index, result in enumerate(results) if index not in rejected]
-        return kept + [results[index] for index in sorted(rejected)]
+        # Each rejected result sorts as if it sat ``demote_by`` places lower;
+        # the half step puts it after the result already at that place.
+        # Python's sort is stable, so everything else keeps its order.
+        position = {
+            index: index + (self._demote_by + 0.5 if index in rejected else 0.0) for index in range(len(results))
+        }
+        return [results[index] for index in sorted(range(len(results)), key=position.__getitem__)]
 
     async def _check(
         self,
@@ -331,14 +379,7 @@ class SubjectChecker:
                     return SubjectVerdict.UNSURE
                 with TimeMeasure(TIMER_VLM):
                     answer = await self._vlm.analyze_image(image_bytes=image, prompt=prompt)
-            verdict = parse_verdict(answer)
-            logger.debug(
-                "Subject check object %s on %s: %s",
-                scrub_log(subject.object_id),
-                scrub_log(subject.sensor_id),
-                verdict.value,
-            )
-            return verdict
+            return parse_verdict(answer)
         except Exception as e:
             logger.warning(
                 "Subject check failed for object %s on %s (%s); leaving its rank unchanged",

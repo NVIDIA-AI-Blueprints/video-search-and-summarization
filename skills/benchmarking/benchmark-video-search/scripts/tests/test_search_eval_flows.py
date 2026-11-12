@@ -178,6 +178,46 @@ def test_merging_is_on_by_default_like_the_agent() -> None:
     assert "--no-merge-adjacent" in flows.CliQueryBackend(["vss"], merge_adjacent=False).build_argv("q")
 
 
+def test_subject_check_is_passed_only_on_fusion_and_asks_for_info_logs() -> None:
+    off = flows.CliQueryBackend(["vss"], search_path="fusion", attributes=["white shirt"])
+    assert "--subject-check" not in off.build_argv("q")
+
+    on = flows.CliQueryBackend(["vss"], search_path="fusion", attributes=["white shirt"], subject_check=True)
+    argv = on.build_argv("q")
+    assert "--subject-check" in argv
+    assert argv[argv.index("--log-level") + 1] == "INFO"
+    assert on.describe()["subject_check"] is True
+    # Embed and attribute searches have no such flag; passing it would exit 2.
+    embed = flows.CliQueryBackend(["vss"], search_path="embed", subject_check=True)
+    assert "--subject-check" not in embed.build_argv("q")
+
+    import run_eval_flows as rf
+
+    assert rf.parse_args(["--endpoint", "https://host:8000"]).subject_check is False
+    assert rf.parse_args(["--endpoint", "https://host:8000", "--subject-check"]).subject_check is True
+
+
+def test_subject_check_verdicts_are_read_from_stderr(monkeypatch: Any) -> None:
+    verdict = {"rank": 1, "video_name": "v", "start_time": "a", "end_time": "b", "verdict": "no"}
+
+    class _Proc:
+        returncode = 0
+        stdout = '{"data": [], "search_messages": []}'
+        stderr = "\n".join(
+            [
+                "INFO vss_core.search_core.subject_check: Subject check on 1 of 1 results: 0 yes, 1 no, 0 unsure",
+                "INFO vss_core.search_core.subject_check: subject_check_verdict " + json.dumps(verdict),
+                "INFO vss_core.search_core.subject_check: subject_check_verdict {not json",
+            ]
+        )
+
+    monkeypatch.setattr("flows.query.subprocess.run", lambda *_a, **_k: _Proc())
+    backend = flows.CliQueryBackend(["vss"], search_path="fusion", attributes=["shirt"], subject_check=True)
+    backend.search("a person in a white shirt pushing a cart")
+
+    assert backend.subject_checks_by_query == {"a person in a white shirt pushing a cart": [verdict]}
+
+
 def test_merge_adjacent_flag_defaults_on_and_can_be_turned_off() -> None:
     import run_eval_flows as rf
 

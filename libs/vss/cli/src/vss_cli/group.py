@@ -495,12 +495,48 @@ def context_from(values: dict[str, Any]) -> Context:
         # and collapsing them to a bare None loses the one that says which.
         deployment = None
         config_error = str(exc)
+    log_level = values.get("log_level") or "WARNING"
+    _apply_log_level(log_level)
     return Context(
         config_error=config_error,
         deployment=deployment,
         pretty=values.get("pretty"),
-        log_level=values.get("log_level") or "WARNING",
+        log_level=log_level,
     )
+
+
+#: Loggers ``--log-level`` controls. Third-party libraries (httpx, the
+#: Elasticsearch client) stay at WARNING: their INFO lines carry full request
+#: URLs, which can hold short-lived credentials.
+_VSS_LOGGERS = ("vss_core", "vss_cli")
+
+
+def _apply_log_level(level: str) -> None:
+    """Send this package's log records at ``level`` and above to stderr.
+
+    The default (WARNING) changes nothing: Python's last-resort handler already
+    prints warnings, and stderr stays exactly as it was. Any other level gets a
+    stderr handler on the ``vss_core`` / ``vss_cli`` loggers, never on the
+    root logger, so stdout stays pure JSON.
+    """
+    if level == "WARNING":
+        return
+    import logging
+    import sys
+
+    numeric = logging.getLevelName(level)
+    if not isinstance(numeric, int):
+        return
+    for name in _VSS_LOGGERS:
+        package_logger = logging.getLogger(name)
+        package_logger.setLevel(numeric)
+        if not any(getattr(h, "_vss_cli_log_level", False) for h in package_logger.handlers):
+            handler = logging.StreamHandler(sys.stderr)
+            handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+            handler._vss_cli_log_level = True  # type: ignore[attr-defined]
+            package_logger.addHandler(handler)
+        # Propagation stays on: with a handler on this logger, Python's
+        # last-resort handler is not used, so nothing prints twice.
 
 
 def _completion_marker(result: Result, group: str) -> dict[str, Any]:
