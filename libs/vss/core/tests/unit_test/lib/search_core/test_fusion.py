@@ -421,3 +421,53 @@ def test_embed_output_mapping_coerces_and_skips_empty_video_name():
     assert results[0].video_name == "v1"
     assert results[0].similarity == pytest.approx(0.8)
     assert results[0].object_ids == []
+
+
+# ------------------------------------------- embed-scaled attribute boost (rrf)
+
+
+def test_rrf_gates_attribute_boost_by_embed_score():
+    # A weak embed tail hit (0.12) with a slightly higher attribute score (0.581)
+    # must NOT outrank a strong event hit (0.53) with attribute score (0.5725).
+    true_match = _fusion.FusionCandidate(
+        _embed_result(video_name="true_event"),
+        embed_score=0.53,
+        normalised_attribute_score=0.5725,
+        screenshot_url="",
+        object_ids=["15"],
+    )
+    false_positive = _fusion.FusionCandidate(
+        _embed_result(video_name="bystander_only"),
+        embed_score=0.12,
+        normalised_attribute_score=0.5810,
+        screenshot_url="",
+        object_ids=["22"],
+    )
+    ranked = _fusion.rrf_fusion([true_match, false_positive], rrf_k=60, rrf_w=0.5)
+    assert [r.video_name for r in ranked] == ["true_event", "bystander_only"]
+
+
+def test_rrf_preserves_standard_merge_ratio_on_adjacent_event_chunks():
+    # Two adjacent chunks of the same video (embed=0.53 and 0.36, attr=0.5725)
+    # must stay within the standard 0.90 similarity ratio so merge_consecutive_results
+    # merges them naturally without relaxing SIMILARITY_RATIO_THRESHOLD.
+    c1 = _fusion.FusionCandidate(
+        _embed_result(sensor_id="cam1", start="2025-01-01T00:00:20Z", end="2025-01-01T00:00:25Z"),
+        embed_score=0.53,
+        normalised_attribute_score=0.5725,
+        screenshot_url="",
+        object_ids=["15"],
+    )
+    c2 = _fusion.FusionCandidate(
+        _embed_result(sensor_id="cam1", start="2025-01-01T00:00:25Z", end="2025-01-01T00:00:30Z"),
+        embed_score=0.36,
+        normalised_attribute_score=0.5725,
+        screenshot_url="",
+        object_ids=["15"],
+    )
+    ranked = _fusion.rrf_fusion([c1, c2], rrf_k=60, rrf_w=0.5)
+    merged = _fusion.merge_consecutive_results(ranked)
+    assert len(merged) == 1
+    assert merged[0].start_time == "2025-01-01T00:00:20Z"
+    assert merged[0].end_time == "2025-01-01T00:00:30Z"
+    assert merged[0].object_ids == ["15"]

@@ -193,11 +193,18 @@ def rrf_fusion(
     rrf_k: int,
     rrf_w: float,
 ) -> list[SearchResult]:
-    """Reciprocal Rank Fusion over the embed rank, boosted by attribute score."""
+    """Reciprocal Rank Fusion over the embed rank, boosted by attribute score.
+
+    The attribute boost is scaled by ``0.6 + 0.4 * embed_score`` so an attribute
+    match in a clip that barely matches the event cannot outrank a clip that
+    strongly matches both.
+    """
     sorted_candidates = sorted(candidates, key=lambda c: c.embed_score, reverse=True)
     scored: list[tuple[float, SearchResult]] = []
     for rank, candidate in enumerate(sorted_candidates, start=1):
-        rrf_score = 1.0 / (rank + rrf_k) + rrf_w * candidate.normalised_attribute_score
+        embed_gate = max(0.0, candidate.embed_score)
+        attr_modulation = 0.6 + 0.4 * embed_gate
+        rrf_score = 1.0 / (rank + rrf_k) + rrf_w * attr_modulation * candidate.normalised_attribute_score
         scored.append((rrf_score, _result_from_candidate(candidate, rrf_score)))
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return [result for _, result in scored]
