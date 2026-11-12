@@ -3,7 +3,7 @@
 // @ts-nocheck
 import React from "react";
 
-import { Widget } from "common/warehouse/mdat";
+import Widget from "../../components/generic/Widget/Widget";
 
 /**
  * Header Bar transparent over Map within the context of the current place

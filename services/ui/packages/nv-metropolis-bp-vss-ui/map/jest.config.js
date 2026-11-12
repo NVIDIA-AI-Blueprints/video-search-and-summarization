@@ -5,7 +5,6 @@ module.exports = {
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
-    '^common/warehouse/mdat$': '<rootDir>/lib-src/common/warehouse/mdat/index.ts',
     '^common/warehouse/mui$': '<rootDir>/lib-src/common/warehouse/mui.tsx',
     '^common/warehouse/mui-icons$': '<rootDir>/lib-src/common/warehouse/mui-icons.tsx',
     '^common/warehouse$': '<rootDir>/lib-src/common/warehouse/index.ts',

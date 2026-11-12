@@ -8,7 +8,7 @@ import {
 } from "common/warehouse/mui-icons";
 import { Spinner as KaizenSpinner } from "@nvidia/foundations-react-core";
 
-import "../../../../kaizen-light.css";
+import "../../../kaizen-light.css";
 import UserMessage from "./../../../utils/UserMessage";
 
 import CssClasses from "./LoaderDisplay.module.css";

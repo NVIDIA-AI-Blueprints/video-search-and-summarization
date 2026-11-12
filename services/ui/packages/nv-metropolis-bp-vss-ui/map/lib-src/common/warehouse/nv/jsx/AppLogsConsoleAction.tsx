@@ -8,7 +8,7 @@ import {
   Circle as CircleIcon,
 } from "common/warehouse/mui-icons";
 
-import { LogsConsole } from "common/warehouse/mdat";
+import LogsConsole from "../../components/mdx-specific/LogsConsole/LogsConsole";
 
 import { AppConstants } from "../js/UrlConstants";
 import AppLogsConsoleReduxUtil from "../js/AppLogsConsoleReduxUtil";

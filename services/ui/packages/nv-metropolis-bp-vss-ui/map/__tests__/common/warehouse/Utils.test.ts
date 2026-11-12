@@ -8,7 +8,7 @@ import {
   BeautifyNameString,
   MsToHMSsssString,
   GetSensorAttr,
-} from '../../../../lib-src/common/warehouse/mdat/utils/Utils';
+} from '../../../lib-src/common/warehouse/utils/Utils';
 
 describe('CameraTsToMs', () => {
   it('parses a 12-hour camera timestamp with a negative UTC offset', () => {
@@ -117,7 +117,7 @@ describe('getCartesianMapVizCanvasThrottleMsFromFps', () => {
   let getCartesianMapVizCanvasThrottleMsFromFps, getCartesianMapVizCanvasThrottleMsFromAppConfig;
 
   beforeAll(async () => {
-    const mod = await import('../../../../lib-src/common/warehouse/mdat/utils/cartesianMapVizCanvasThrottle');
+    const mod = await import('../../../lib-src/common/warehouse/utils/cartesianMapVizCanvasThrottle');
     getCartesianMapVizCanvasThrottleMsFromFps = mod.getCartesianMapVizCanvasThrottleMsFromFps;
     getCartesianMapVizCanvasThrottleMsFromAppConfig = mod.getCartesianMapVizCanvasThrottleMsFromAppConfig;
   });

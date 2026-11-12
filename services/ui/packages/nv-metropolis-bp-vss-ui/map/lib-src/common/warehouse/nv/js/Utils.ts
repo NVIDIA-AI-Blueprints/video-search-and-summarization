@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { GetSensorAttr } from "common/warehouse/mdat";
+import { GetSensorAttr } from "../../utils/Utils";
 import { ProdBaseBackendUrl } from "./UrlConstants";
 import { getEnv, isProduction, isObtainDynamicServiceUrls } from "./EnvUtils";
 

@@ -3,7 +3,8 @@
 // @ts-nocheck
 import React from "react";
 
-import { CameraVideoPresenter, Widget } from "common/warehouse/mdat";
+import CameraVideoPresenter from "../../components/mdx-specific/CameraVideoPresenter";
+import Widget from "../../components/generic/Widget/Widget";
 
 import DefaultHTMLVideoTagOptions from "./../js/DefaultHTMLVideoTagOptions";
 

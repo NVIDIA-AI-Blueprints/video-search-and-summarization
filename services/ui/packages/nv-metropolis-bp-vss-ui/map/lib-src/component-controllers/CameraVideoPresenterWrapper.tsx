@@ -3,8 +3,12 @@
 // @ts-nocheck
 import React from "react";
 
-import { CameraVideoPresenter, Widget, Window } from "common/warehouse/mdat";
-import { DefaultHTMLVideoTagOptions } from "common/warehouse";
+import {
+  CameraVideoPresenter,
+  DefaultHTMLVideoTagOptions,
+  Widget,
+  Window,
+} from "common/warehouse";
 import { Warning as WarningIcon } from "common/warehouse/mui-icons";
 
 import Styles from "./CameraVideoPresenterWrapper.module.css";

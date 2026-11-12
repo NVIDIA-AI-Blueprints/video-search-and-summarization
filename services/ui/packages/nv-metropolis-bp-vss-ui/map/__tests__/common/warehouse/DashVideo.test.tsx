@@ -6,7 +6,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import {
   formatReplayTimestring,
   parseReplayWindowMs,
-} from '../../../lib-src/common/warehouse/mdat/components/generic/DashVideo/DashVideoTimeline';
+} from '../../../lib-src/common/warehouse/components/generic/DashVideo/DashVideoTimeline';
 
 const start = jest.fn();
 const stop = jest.fn();
@@ -25,7 +25,7 @@ jest.mock(
   { virtual: true },
 );
 
-jest.mock('../../../lib-src/common/warehouse/mdat/components/generic/VideoElement/VideoElement', () => {
+jest.mock('../../../lib-src/common/warehouse/components/generic/VideoElement/VideoElement', () => {
   const ReactLib = require('react');
   class VideoElement extends ReactLib.Component {
     VIDEO_CONTROL_PAUSE_LABEL = 'Pause';
@@ -47,7 +47,7 @@ jest.mock('common/warehouse/mui', () => {
   };
 });
 
-import DashVideo from '../../../lib-src/common/warehouse/mdat/components/generic/DashVideo/DashVideo';
+import DashVideo from '../../../lib-src/common/warehouse/components/generic/DashVideo/DashVideo';
 
 describe('parseReplayWindowMs', () => {
   it('returns start and end milliseconds for a recorded window', () => {

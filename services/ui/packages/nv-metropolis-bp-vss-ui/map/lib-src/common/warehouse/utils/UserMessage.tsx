@@ -3,7 +3,7 @@
 // @ts-nocheck
 import React from "react";
 import _ from "lodash";
-import { isAbortError } from "../../http";
+import { isAbortError } from "../http";
 import { Chip } from "common/warehouse/mui";
 
 /**

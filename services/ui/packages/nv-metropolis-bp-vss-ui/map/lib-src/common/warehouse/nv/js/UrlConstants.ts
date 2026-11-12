@@ -33,7 +33,7 @@ import {
   TrackerUniqueObjectsUrlSuffix,
   TrackerUniqueObjectCountWithLocationsUrlSuffix,
   UploadConfigFileUrlSuffix,
-} from "common/warehouse/mdat";
+} from "../../utils/UrlConstants";
 
 import { getEnv, isDevelopment, isProduction, isObtainDynamicServiceUrls, stripTrailingSlash } from "./EnvUtils";
 
