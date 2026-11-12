@@ -5,6 +5,8 @@
 set -Eeuo pipefail
 
 mode=check
+repair_docker=false
+allow_ubuntu_22=false
 data_mount=/data
 docker_root=
 min_driver=595.58.03
@@ -12,9 +14,11 @@ min_root_gb=200
 min_data_gb=500
 
 usage() {
-  printf 'Usage: %s [--check|--apply] [--min-driver VERSION]\n' "$0"
+  printf 'Usage: %s [--check|--apply] [--repair-docker] [--allow-ubuntu-22-04] [--min-driver VERSION]\n' "$0"
   printf '  --check  Validate prerequisites and show planned changes (default).\n'
   printf '  --apply  Prepare storage on a fresh worker and ensure uv exists.\n'
+  printf '  --repair-docker  On --apply, pin Docker and set cgroupfs on an idle, empty worker.\n'
+  printf '  --allow-ubuntu-22-04  Explicit test-only exception to the Ubuntu 24.04 baseline.\n'
 }
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -24,6 +28,8 @@ while (($#)); do
   case "$1" in
     --check) mode=check ;;
     --apply) mode=apply ;;
+    --repair-docker) repair_docker=true ;;
+    --allow-ubuntu-22-04) allow_ubuntu_22=true ;;
     --min-driver)
       (($# >= 2)) || die '--min-driver requires a version'
       min_driver=$2
@@ -40,8 +46,12 @@ done
 
 # shellcheck source=/dev/null
 source /etc/os-release
-[[ ${ID:-} == ubuntu && ${VERSION_ID:-} == 24.04 ]] ||
-  die "VSS x86 workers require Ubuntu 24.04; found ${PRETTY_NAME:-unknown}"
+[[ ${ID:-} == ubuntu ]] || die "VSS x86 workers require Ubuntu; found ${PRETTY_NAME:-unknown}"
+if [[ ${VERSION_ID:-} != 24.04 ]]; then
+  [[ $allow_ubuntu_22 == true && ${VERSION_ID:-} == 22.04 ]] ||
+    die "VSS x86 baseline is Ubuntu 24.04; found ${PRETTY_NAME:-unknown} (test-only --allow-ubuntu-22-04 available)"
+  say 'WARNING: Ubuntu 22.04 is a test-only exception; this check does not certify VSS support'
+fi
 [[ $(uname -m) == x86_64 ]] || die 'this bootstrap currently supports x86_64 only'
 
 command -v nvidia-smi >/dev/null || die 'nvidia-smi missing; provision a VSS-supported GPU driver first'
@@ -81,12 +91,15 @@ docker info >/dev/null || die 'Docker daemon is unavailable to this user; check 
 docker_version=$(docker version --format '{{.Server.Version}}')
 docker_version=${docker_version%%[-+]*}
 [[ $docker_version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "unparseable Docker version: $docker_version"
-[[ $(printf '%s\n%s\n' 28.3.3 "$docker_version" | sort -V | head -n 1) == 28.3.3 ]] ||
-  die "Docker $docker_version is below VSS minimum 28.3.3"
-[[ $(printf '%s\n%s\n' "$docker_version" 29.5.0 | sort -V | head -n 1) == "$docker_version" && $docker_version != 29.5.0 ]] ||
-  die "Docker $docker_version is outside VSS range (<29.5.0)"
 cgroup_driver=$(docker info --format '{{.CgroupDriver}}')
-[[ $cgroup_driver == cgroupfs ]] || die "Docker cgroup driver is $cgroup_driver; VSS requires cgroupfs"
+docker_compatible=true
+if [[ $(printf '%s\n%s\n' 28.3.3 "$docker_version" | sort -V | head -n 1) != 28.3.3 ]] ||
+   [[ $(printf '%s\n%s\n' "$docker_version" 29.5.0 | sort -V | head -n 1) != "$docker_version" ]] ||
+   [[ $docker_version == 29.5.0 || $cgroup_driver != cgroupfs ]]; then
+  docker_compatible=false
+  [[ $repair_docker == true ]] || die "Docker $docker_version / $cgroup_driver is outside VSS's [28.3.3,29.5.0) / cgroupfs requirement; use --repair-docker on a fresh worker"
+  say "Docker $docker_version / $cgroup_driver needs repair"
+fi
 current_root=$(docker info --format '{{.DockerRootDir}}')
 [[ $current_root == /var/lib/docker || $current_root == "$docker_root" ]] ||
   die "Docker uses unexpected data root $current_root; refusing to overwrite its configuration"
@@ -106,6 +119,9 @@ docker info --format '{{json .Runtimes}}' | grep -q '"nvidia"' ||
 say "Docker $docker_version root: $current_root; NVIDIA Container Toolkit $toolkit_version runtime present"
 
 if [[ $mode == check ]]; then
+  if [[ $docker_compatible == false ]]; then
+    say 'would pin Docker packages and set cgroupfs; verify package transaction and worker idleness before --apply'
+  fi
   if [[ $current_root == "$docker_root" ]]; then
     say 'Docker data-root already configured'
   else
@@ -121,6 +137,24 @@ if [[ $mode == check ]]; then
 fi
 
 sudo -n true || die 'passwordless sudo is required for non-interactive bootstrap'
+if [[ $docker_compatible == false ]]; then
+  [[ -z $(docker ps -aq) && -z $(docker images -q) && -z $(docker volume ls -q) ]] ||
+    die 'Docker repair requires a fresh worker with no containers, images or volumes'
+  pin_script=$(dirname -- "${BASH_SOURCE[0]}")/pin_docker_version.sh
+  if [[ ! -f $pin_script ]]; then
+    pin_script=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../deploy/docker/scripts" && pwd)/pin_docker_version.sh
+  fi
+  [[ -f $pin_script ]] || die "Docker repair script missing: $pin_script (copy the VSS checkout or stage the companion script)"
+  say "repairing Docker with $pin_script; packages may downgrade and Docker will restart"
+  bash "$pin_script"
+  docker_version=$(docker version --format '{{.Server.Version}}')
+  docker_version=${docker_version%%[-+]*}
+  cgroup_driver=$(docker info --format '{{.CgroupDriver}}')
+  [[ $(printf '%s\n%s\n' 28.3.3 "$docker_version" | sort -V | head -n 1) == 28.3.3 ]] || die "Docker repair left unsupported version $docker_version"
+  [[ $(printf '%s\n%s\n' "$docker_version" 29.5.0 | sort -V | head -n 1) == "$docker_version" && $docker_version != 29.5.0 ]] || die "Docker repair left unsupported version $docker_version"
+  [[ $cgroup_driver == cgroupfs ]] || die "Docker repair left cgroup driver $cgroup_driver"
+  say "Docker repaired: $docker_version / $cgroup_driver"
+fi
 if ! command -v uv >/dev/null && [[ ! -x $HOME/.local/bin/uv ]]; then
   command -v curl >/dev/null || die 'curl missing; needed for the official uv installer'
   say 'installing uv for the normal user'
