@@ -12,11 +12,14 @@ from alert_results_adapter import to_test_cases  # noqa: E402
 import vss_perf_benchmark as runner  # noqa: E402
 
 
-def test_scenarios_use_only_agreed_modes_and_dataset():
-    config = PERF / "configs/config.yaml"
+def test_scenarios_use_only_agreed_modes_and_dataset(tmp_path):
+    data = yaml.safe_load((PERF / "configs/config.yaml").read_text())
+    data["test_scenarios"]["e2e_alerts_eval"]["enabled"] = True
+    config = tmp_path / "config.yaml"
+    config.write_text(yaml.safe_dump(data))
     for name, mode in (
-        ("quick_test", "synthetic_kafka"),
-        ("full_alerts_latency", "e2e_kafka"),
+        ("synthetic_alerts", "synthetic_kafka"),
+        ("e2e_alerts_eval", "e2e_kafka"),
     ):
         _, selected, dataset, workload = runner.scenario_settings(config, name)
         assert selected["benchmark_mode"] == mode
@@ -31,8 +34,8 @@ def test_scenarios_use_only_agreed_modes_and_dataset():
             "H100",
             Path("/tmp/eval.env"),
         )
-        assert ("--synthetic-alerts-injection" in args) == (name == "quick_test")
-        assert ("--e2e-eval" in args) == (name == "full_alerts_latency")
+        assert ("--synthetic-alerts-injection" in args) == (name == "synthetic_alerts")
+        assert ("--e2e-eval" in args) == (name == "e2e_alerts_eval")
         assert "--eval-type" in args and "accuracy" not in args
         assert args[args.index("--host-ip") + 1] == "127.0.0.1"
 
@@ -44,7 +47,7 @@ def test_agent_host_port_rejects_invalid_values(tmp_path, port):
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(config))
     with pytest.raises(ValueError, match="deployment.agent_host_port"):
-        runner.scenario_settings(path, "quick_test")
+        runner.scenario_settings(path, "synthetic_alerts")
 
 
 def test_agent_port_preflight_detects_docker_nat_publication(monkeypatch):
@@ -169,14 +172,14 @@ def test_dataset_paths_cannot_escape_dataset_root(tmp_path):
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(config))
     with pytest.raises(ValueError, match="dataset-relative"):
-        runner.scenario_settings(path, "quick_test")
+        runner.scenario_settings(path, "synthetic_alerts")
 
 
 @pytest.mark.parametrize(
     "native_exit,verification_failures,expected_exit", [(0, 0, 0), (0, 5, 0), (1, 0, 1)]
 )
 @pytest.mark.parametrize("inherited_path", [None, "/path/to/stale-data", "/tmp/other-deployment"])
-@pytest.mark.parametrize("scenario", ["quick_test", "full_alerts_latency"])
+@pytest.mark.parametrize("scenario", ["synthetic_alerts", "e2e_alerts_eval", "all"])
 @pytest.mark.parametrize("gpu_model", [None, "RTXPRO6000BW-SE"])
 def test_pipeline_outcome_and_canonical_report(
     tmp_path, monkeypatch, native_exit, verification_failures, expected_exit,
@@ -273,7 +276,11 @@ def test_pipeline_outcome_and_canonical_report(
             return native_exit
 
     monkeypatch.setattr(runner.subprocess, "Popen", NativeProcess)
-    arguments = ["--output-json", str(output), "--scenario", scenario,
+    config = yaml.safe_load((PERF / "configs/config.yaml").read_text())
+    config["test_scenarios"]["e2e_alerts_eval"]["enabled"] = scenario != "all"
+    config_path = tmp_path / "enabled-config.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    arguments = ["--config", str(config_path), "--output-json", str(output), "--scenario", scenario,
                  "--release", "v3.4.0", "--pipeline-url", "https://ci.example/run/135",
                  "--triggered-by", "manual"]
     if gpu_model:
@@ -305,7 +312,7 @@ def test_pipeline_outcome_and_canonical_report(
     assert run_info["triggered_by"] == "manual"
     assert report["metadata"]["config"]["artifact_ref"] == "registry/vss-alert-ms:poc"
     assert report["metadata"]["config"]["setup"] == (
-        "synthetic_kafka" if scenario == "quick_test" else "e2e_kafka"
+        "synthetic_kafka" if scenario in ("synthetic_alerts", "all") else "e2e_kafka"
     )
     assert report["metadata"]["config"]["agent_host_port"] == 8001
     if native_exit:
@@ -440,3 +447,15 @@ def test_native_host_cli_overrides_profile_placeholder(tmp_path):
         text=True, capture_output=True, check=True,
     )
     assert result.stdout.splitlines() == ["127.0.0.1", "127.0.0.1", "true"]
+
+
+def test_only_synthetic_alerts_is_enabled():
+    config = yaml.safe_load((PERF / "configs/config.yaml").read_text())
+    assert set(config["test_scenarios"]) == {"synthetic_alerts", "e2e_alerts_eval"}
+    assert runner.resolve_scenario(config, "all") == "synthetic_alerts"
+    assert runner.resolve_scenario(config, "synthetic_alerts") == "synthetic_alerts"
+    with pytest.raises(ValueError, match="disabled"):
+        runner.scenario_settings(PERF / "configs/config.yaml", "e2e_alerts_eval")
+    for old in ("quick_test", "full_alerts_latency"):
+        with pytest.raises(ValueError, match="Unknown Alerts scenario"):
+            runner.resolve_scenario(config, old)

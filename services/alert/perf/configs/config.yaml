@@ -20,11 +20,13 @@ global:
     summary_buffer_seconds: 90
     min_coverage_ratio: 0.99
 test_scenarios:
-  quick_test:
+  synthetic_alerts:
+    enabled: true
     description: Synthetic Kafka verification latency smoke test
     benchmark_mode: synthetic_kafka
     workload: *workload
-  full_alerts_latency:
+  e2e_alerts_eval:
+    enabled: false
     description: Full alerts profile latency including Behavior Analytics
     benchmark_mode: e2e_kafka
     workload:

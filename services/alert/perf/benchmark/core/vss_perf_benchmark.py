@@ -96,8 +96,24 @@ def ensure_agent_port_available(port, env):
         raise ValueError(f"Cannot bind Alerts agent host port {port}: {error}") from error
 
 
+def resolve_scenario(config, requested):
+    scenarios = config["test_scenarios"]
+    enabled = [name for name, settings in scenarios.items()
+               if settings.get("enabled", True) is not False]
+    if requested.lower() == "all":
+        if len(enabled) != 1:
+            raise ValueError("Run each enabled Alerts scenario separately: " + ", ".join(enabled))
+        return enabled[0]
+    if requested not in scenarios:
+        raise ValueError(f"Unknown Alerts scenario: {requested}. Enabled: {', '.join(enabled)}")
+    if requested not in enabled:
+        raise ValueError(f"Alerts scenario is disabled: {requested}")
+    return requested
+
+
 def scenario_settings(config_path, scenario):
     config = yaml.safe_load(config_path.read_text())
+    scenario = resolve_scenario(config, scenario)
     selected = config["test_scenarios"][scenario]
     if selected["benchmark_mode"] not in ("synthetic_kafka", "e2e_kafka"):
         raise ValueError(
@@ -324,7 +340,7 @@ def main(argv=None):
     parser.add_argument(
         "--config", type=Path, default=PERF_ROOT / "configs/config.yaml"
     )
-    parser.add_argument("--scenario", default="quick_test")
+    parser.add_argument("--scenario", default="synthetic_alerts")
     parser.add_argument("--config-id", default="alerts-verification-compose")
     parser.add_argument("--output-json", type=Path)
     parser.add_argument("--release", default=os.environ.get("RELEASE", ""))
@@ -370,6 +386,7 @@ def main(argv=None):
         "artifact_ref": env.get("IMAGE_TAG") or env.get("ARTIFACT_REF", ""),
     }
     try:
+        args.scenario = resolve_scenario(yaml.safe_load(args.config.read_text()), args.scenario)
         global_config, scenario, dataset, workload = scenario_settings(
             args.config, args.scenario
         )

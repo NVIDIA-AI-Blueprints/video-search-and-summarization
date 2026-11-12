@@ -19,14 +19,17 @@ compatibility must be validated before enabling additional configurations.
 export NGC_API_KEY='<runtime credential>'
 export IMAGE_TAG='<registry>/vss-alert-ms:<version>'
 export PERF_OUTPUT_DIR="$PWD/alerts-perf-results"
-bash services/alert/perf/scripts/run_benchmark.sh --scenario quick_test
+bash services/alert/perf/scripts/run_benchmark.sh --scenario synthetic_alerts
 
-# Full alerts flow, including Behavior Analytics:
-bash services/alert/perf/scripts/run_benchmark.sh --scenario full_alerts_latency
+# Run all enabled scenarios (currently synthetic_alerts only):
+bash services/alert/perf/scripts/run_benchmark.sh --scenario all
 ```
 
-Each invocation runs one scenario. `quick_test` is synthetic Kafka alert
-injection; `full_alerts_latency` keeps upstream alert generation enabled. Both
+Each invocation runs one scenario. `synthetic_alerts` is synthetic Kafka alert
+injection; `e2e_alerts_eval` keeps upstream alert generation enabled but is
+currently disabled (`enabled: false`). Explicitly requesting the disabled scenario
+is rejected before deployment. `all` selects only enabled scenarios and currently
+runs `synthetic_alerts` only. Both
 use the verification workflow and Prometheus latency measurements.
 
 Both scenarios publish the agent on host port `8001`, forwarding to its internal
