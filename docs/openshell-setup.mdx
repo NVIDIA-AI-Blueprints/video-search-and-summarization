@@ -183,7 +183,8 @@ TAG="${VSS_REF//\//-}-from-source"       # VSS_REF may be a branch; a Docker tag
 
 # 1. The VSS layer, built on the harness image from step 2.
 docker build --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
-  --build-arg VSS_REF="$VSS_REF" -t "openshell-hermes-vss:$TAG" services/openshell/vss
+  --build-arg VSS_REF="$VSS_REF" --build-context plugin=.hermes/plugin \
+  -t "openshell-hermes-vss:$TAG" services/openshell/vss
 
 # 2. Replace the sandbox with one on the VSS image and the VSS policy. Same
 #    create command as step 4 otherwise, plus VSS_PUBLIC_URL.

@@ -390,7 +390,8 @@ TAG="${VSS_REF//\//-}-from-source"  # VSS_REF may be a branch; a Docker tag cann
 # 1. The VSS layer, built on the harness image from the Quickstart's step 2
 #    (openshell-hermes:$HERMES_REF).
 docker build --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
-  --build-arg VSS_REF="$VSS_REF" -t "openshell-hermes-vss:$TAG" services/openshell/vss
+  --build-arg VSS_REF="$VSS_REF" --build-context plugin=.hermes/plugin \
+  -t "openshell-hermes-vss:$TAG" services/openshell/vss
 
 # 2. Replace the sandbox with one on the VSS image and the VSS policy. Same
 #    create command as the Quickstart's step 4 otherwise, plus VSS_PUBLIC_URL.
@@ -769,8 +770,9 @@ it comes from VSS: a Hermes bump produces a new tag instead of overwriting the
 old one, and a VSS commit does not invalidate it at all.
 
 [`vss/Dockerfile`](vss/Dockerfile) is the optional second build. It takes this
-image as its base and adds the `vss` CLI, the operation skills, the workspace
-docs and the `vss_cli` plugin at one `VSS_REF`, then replaces the baked policy
+image as its base and adds the `vss` CLI, the operation skills and the
+workspace docs at one `VSS_REF`, plus the `vss_cli` plugin from the
+`plugin` named build context, then replaces the baked policy
 with `vss/policy.yaml`. Layering rather than branching one Dockerfile on a
 build arg is what keeps the default image provably free of VSS — there is no
 flag to get wrong, because the content is not in the file.
