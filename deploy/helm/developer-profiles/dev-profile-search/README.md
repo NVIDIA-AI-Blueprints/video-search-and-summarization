@@ -322,10 +322,7 @@ the VLM through the RT-VLM proxy:
 
 | Key | Purpose |
 |-----|---------|
-| `agent.vss-agent.llmBaseUrl` / `llmName` | The LLM endpoint the agent calls directly. Omit both to keep this file's hosted Nemotron default. |
-| `agent.vss-agent.evalLlmJudgeBaseUrl` / `evalLlmJudgeName` | The judge used by evaluation runs. This file pins them to NVIDIA Build and they take precedence over `llmBaseUrl`, so a custom LLM leaves the judge on Build unless you set these as well — the example below does. |
 | `global.vlmBaseUrl` / `global.vlmName` | The remote VLM that RT-VLM forwards to (`VIA_VLM_ENDPOINT`). Overriding only `agent.vss-agent.vlmBaseUrl` leaves the proxy pointed at this file's Cosmos3 default and the critic still fails. |
-| `agent.vss-agent.vlmName` | The model id the agent asks RT-VLM for. Must match `global.vlmName`, or RT-VLM rejects the request. |
 
 `configs/vss-agent/config.yml` appends `/v1` to `LLM_BASE_URL` (`nim_llm` / `openai_llm`) and to `VLM_BASE_URL` (`nim_vlm` / `openai_vlm`). Leave the trailing `/v1` off `agent.vss-agent.llmBaseUrl`. That file does not reference `EVAL_LLM_JUDGE_BASE_URL`, so the search agent does not append `/v1` to the judge URL. The benchmark client in `skills/benchmarking/vss-benchmark-vlm-qa/scripts/benchmark_vlm_qa.py` (`judge_completions_url`) keeps an existing `/v1` and adds `/v1` when the root has none, so a judge root with or without `/v1` both reach `/v1/chat/completions`. A URL that already ends in `/v1` is valid for that client and is not valid for `llmBaseUrl`. RT-VLM's `VIA_VLM_ENDPOINT` keeps a `/v1` suffix when `global.vlmBaseUrl` already has one, and adds `/v1` when it does not. The examples below use a root with no trailing `/v1`. Read the model id from each endpoint's `/v1/models` list.
 

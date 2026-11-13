@@ -33,10 +33,6 @@ dependencies:
     version: 3.4.0
     repository: "file://../../services/vios"
     condition: vios.enabled
-  - name: agent
-    version: 3.4.0
-    repository: "file://../../services/agent"
-    condition: agent.enabled
   - name: vss-agent-ui
     version: 3.4.0
     repository: "file://../../services/ui"

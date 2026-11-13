@@ -40,10 +40,6 @@ AGENT_EDGE_BACKENDS = ("bk_vss_ui", "bk_vss_agent")
 # Backends an agent turn can be waiting on when the edge decides to give up.
 AGENT_CALLEES = ("bk_lvs_strip", "bk_llm_strip")
 
-# Profiles whose Helm chart already raises the agent's own server timeout.
-HELM_AGENT_TIMEOUT_PROFILES = ("dev-profile-lvs", "dev-profile-search")
-
-
 def _seconds(value: str) -> int:
     match = re.fullmatch(r"(\d+)(ms|s|m|h)?", value.strip())
     if not match:
@@ -107,39 +103,6 @@ class AgentEdgeTimeoutTests(unittest.TestCase):
                         _seconds(callee_timeout),
                         f"{caller} gives up before {callee} does, so a call the "
                         f"tool would have completed is reported as a failure",
-                    )
-
-
-class AgentEdgeHelmParityTests(unittest.TestCase):
-    """Compose does not give the agent less headroom than Kubernetes does."""
-
-    def _helm_agent_timeout(self, profile: str) -> str:
-        values = yaml.safe_load(
-            (HELM_ROOT / "developer-profiles" / profile / "values.yaml").read_text()
-        )
-        timeout = (values.get("agent") or {}).get("vss-agent", {}).get(
-            "ingressTimeoutServer"
-        )
-        self.assertTrue(
-            timeout,
-            f"{profile} no longer raises the agent's ingressTimeoutServer; drop it "
-            "from HELM_AGENT_TIMEOUT_PROFILES if that is deliberate",
-        )
-        return timeout
-
-    def test_docker_edge_is_not_stingier_than_helm(self):
-        for profile in HELM_AGENT_TIMEOUT_PROFILES:
-            helm_timeout = self._helm_agent_timeout(profile)
-            for name in AGENT_EDGE_BACKENDS:
-                docker_timeout = _timeout_server(name)
-                self.assertIsNotNone(docker_timeout, f"{name} carries no timeout server")
-                with self.subTest(profile=profile, backend=name):
-                    self.assertGreaterEqual(
-                        _seconds(docker_timeout),
-                        _seconds(helm_timeout),
-                        f"{name} on the Docker edge is shorter than {profile} grants "
-                        "vss-agent under Helm, so the same call behaves differently "
-                        "on the two edges",
                     )
 
 

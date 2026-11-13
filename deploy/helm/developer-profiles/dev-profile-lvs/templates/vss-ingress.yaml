@@ -26,9 +26,6 @@
 {{- $vios := .Values.vios | default dict }}
 {{- $viosIngress := index $vios "vss-vios-ingress" | default dict }}
 {{- $nvstreamer := index $vios "vss-vios-nvstreamer" | default dict }}
-{{- $agentRoot := .Values.agent | default dict }}
-{{- $agent := index $agentRoot "vss-agent" | default dict }}
-{{- $vaMcp := index $agentRoot "vss-va-mcp" | default dict }}
 {{- $ui := index .Values "vss-agent-ui" | default dict }}
 {{- $rtvi := .Values.rtvi | default dict }}
 {{- $vlm := index $rtvi "vss-rtvi-vlm" | default dict }}
@@ -39,7 +36,6 @@
 {{- $en := "vss.ingress.enabled" }}
 {{- $streamerEnabled := and (include $en (dict "vals" $vios "default" true)) (include $en (dict "vals" $nvstreamer "default" false)) }}
 {{- $infraOn := include $en (dict "vals" $infra "default" true) }}
-{{- $agentUmbrellaOn := include $en (dict "vals" $agentRoot "default" true) }}
 {{- $rtviOn := include $en (dict "vals" $rtvi "default" true) }}
 {{- $kibanaOn := and $infraOn (include $en (dict "vals" $fk "default" true)) }}
 {{- /*
@@ -58,9 +54,6 @@
 {{- if include $en (dict "vals" $ui "default" true) }}
 {{- $_ := set $b "ui" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent-ui")) "port" $vi.vssUiPort) }}
 {{- end }}
-{{- if and $agentUmbrellaOn (include $en (dict "vals" $agent "default" true)) }}
-{{- $_ := set $b "agent" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent")) "port" $vi.vssAgentPort) }}
-{{- end }}
 {{- if and (include $en (dict "vals" $vios "default" true)) (include $en (dict "vals" $viosIngress "default" true)) }}
 {{- $_ := set $b "vst" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-vios-ingress")) "port" $vi.vstIngressPort) }}
 {{- end }}
@@ -72,9 +65,6 @@
 {{- end }}
 {{- if and $infraOn (include $en (dict "vals" $fes "default" false)) }}
 {{- $_ := set $b "elasticsearch" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "elasticsearch")) "port" $vi.elasticsearchPort) }}
-{{- end }}
-{{- if and $agentUmbrellaOn (include $en (dict "vals" $vaMcp "default" false)) }}
-{{- $_ := set $b "va-mcp" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-va-mcp")) "port" $vi.vaMcpPort) }}
 {{- end }}
 {{- if and $infraOn (include $en (dict "vals" $fp "default" true)) }}
 {{- $_ := set $b "phoenix" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "phoenix")) "port" $vi.phoenixPort) }}
