@@ -392,7 +392,7 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
                 pause.assert_not_awaited()
 
     async def test_transfer_recovers_from_transient_failures(self):
-        for message in ("Too many requests", "Connection closed by remote host", "client_loop: send disconnect: Broken pipe", "Timeout, server worker.example not responding."):
+        for message in ("Too many requests", "Connection closed by remote host", "client_loop: send disconnect: Broken pipe", "Timeout, server worker.example not responding.", "resource exhausted", "rpc error: code = ResourceExhausted"):
             with self.subTest(message=message):
                 failure = brev_env.ExecResult(stderr=message, return_code=1)
                 success = brev_env.ExecResult(return_code=0)
