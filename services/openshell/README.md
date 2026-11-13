@@ -683,8 +683,8 @@ YAML, then verify the result rather than eyeballing it.
 
 There are two candidate/ceiling pairs, because a sandbox takes a single
 `--policy` file and the VSS grant cannot be an overlay on one.
-`.hermes/policy.yaml` is the default: the agent's own model endpoint and the
-package hosts. `vss/policy.yaml` is that file plus `vss-backend` and `ngc`,
+`.hermes/policy.yaml` is the default: the package hosts; the inference
+provider's profile authorizes the model host. `vss/policy.yaml` is that file plus `vss-backend` and `ngc`,
 and is what the [VSS layer](#optional--add-vss-capabilities) creates against.
 Everything before `network_policies` is identical in the two, by requirement
 rather than convention — the prover compares those sections verbatim.
@@ -701,22 +701,23 @@ filesystem_policy:
 landlock: { compatibility: best_effort }
 process:  { run_as_user: "998", run_as_group: "999" }   # `sandbox` in the image
 network_policies:
-  anthropic:                     # .hermes/policy.yaml and vss/policy.yaml
-    name: anthropic
+  pypi:                          # .hermes/policy.yaml and vss/policy.yaml
+    name: pypi
     endpoints:
-      - host: api.anthropic.com
+      - host: pypi.org
         port: 443
         protocol: rest
         enforcement: enforce     # audit-mode REST is `unsupported`, not a pass
         rules:
-          - allow: { method: POST, path: "/v1/**" }
+          - allow: { method: GET, path: "/**" }
+      # ... files.pythonhosted.org and pypi.nvidia.com the same way
     binaries: [{ path: /usr/bin/python3.13 }]
   vss-backend:                   # vss/policy.yaml only
     name: vss-backend-readwrite
     endpoints:
       - { host: host.openshell.internal, port: 7777, protocol: tcp }
     binaries: [{ path: /usr/bin/python3.13 }]
-  # ... pypi and github in both, ngc in vss/policy.yaml
+  # ... github in both, ngc in vss/policy.yaml
 ```
 
 **`binaries` must name the interpreter, not the launcher.** OpenShell matches a
@@ -737,8 +738,8 @@ address for `host.openshell.internal`, so the `172.17.0.0/16`-style grants
 match nothing.
 
 Each candidate has its own ceiling, written once by hand. Same paths and same
-binaries, deliberately wider where it matters — every method on Anthropic
-rather than `POST /v1/**`:
+binaries, deliberately wider where it matters — every method on each host
+rather than `GET /**`:
 
 ```yaml
 version: 1
@@ -751,13 +752,14 @@ network_policies:
   harness-rest-max:              # .hermes/boundary.yaml and vss/boundary.yaml
     name: harness-rest-max
     endpoints:
-      - host: api.anthropic.com
+      - host: pypi.org
         port: 443
         protocol: rest
         enforcement: enforce
         rules:
           - allow: { method: GET,  path: "/**" }
           - allow: { method: POST, path: "/**" }
+      # ... and the policy's other REST hosts the same way
     binaries: [{ path: /usr/bin/python3.13 }]
   vss-backend-max:               # vss/boundary.yaml only. L4 only; mixing
     name: vss-backend-max        # REST in here is `unsupported`

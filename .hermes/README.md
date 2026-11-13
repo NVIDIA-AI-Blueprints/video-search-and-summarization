@@ -59,7 +59,8 @@ values are not known at build time:
 
 `policy.yaml` is baked to `/etc/openshell/policy.yaml`, so one artifact carries
 the harness and the access boundary it was proven against. It grants the
-agent's own model endpoint and the package hosts, and nothing else.
+package hosts and nothing else; the inference provider's profile authorizes
+the model host.
 
 ```
 openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
