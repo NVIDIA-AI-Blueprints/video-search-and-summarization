@@ -148,7 +148,9 @@ def register(ctx) -> None:
     ctx.register_tool(
         name="vss_cli",
         toolset="vss",
-        schema=_SCHEMA,
+        # Hermes wraps the entry in the {"type": "function", "function": {...}}
+        # envelope itself; pre-wrapping leaves the model a tool with no parameters.
+        schema=_SCHEMA["function"],
         handler=vss_cli_tool,
         description=_SCHEMA["function"]["description"],
         emoji="\U0001f4f9",  # video camera

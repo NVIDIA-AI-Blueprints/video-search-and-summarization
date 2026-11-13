@@ -101,6 +101,10 @@ RUN set -eux; \
     # with no per-home `plugins enable` step.
     && cp -R /opt/vss-assets/plugin /opt/hermes/plugins/vss \
     && /usr/bin/python3.13 -m py_compile /opt/hermes/plugins/vss/__init__.py \
+    # py_compile cannot see a double-wrapped schema, which reaches the model as a
+    # vss_cli with no parameters. Assert the shape Hermes itself hands the model.
+    && HERMES_HOME=/sandbox/.hermes /opt/hermes/.venv/bin/python -I -c \
+        'from hermes_cli.plugins import discover_plugins; from tools.registry import registry; discover_plugins(); fn = registry.get_definitions({"vss_cli"})[0]["function"]; assert sorted(fn.get("parameters", {}).get("properties", {})) == ["args", "cwd", "timeoutSec"], fn' \
     && cp /opt/vss-assets/workspace/*.md /sandbox/ \
     && chown -R sandbox:sandbox /sandbox \
     && chmod -R a+rX /opt/vss-skills /opt/hermes/skills/vss /opt/hermes/plugins/vss \
