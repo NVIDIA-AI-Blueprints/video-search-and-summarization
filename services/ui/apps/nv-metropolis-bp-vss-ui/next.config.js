@@ -75,9 +75,9 @@ const nextConfig = {
   webpack(config, { isServer, dev }) {
     const path = require('path');
     const packagesPath = path.resolve(__dirname, '../../packages');
-    const warehouseSrc = path.join(
+    const mapCommonSrc = path.join(
       packagesPath,
-      'nv-metropolis-bp-vss-ui/map/lib-src/common/warehouse',
+      'nv-metropolis-bp-vss-ui/map/lib-src/common',
     );
     const streamingLibDash = path.resolve(
       __dirname,
@@ -111,7 +111,7 @@ const nextConfig = {
       config.resolve.alias = {
         ...(config.resolve.alias || {}),
         canvas: false,
-        'common/warehouse': warehouseSrc,
+        'common/map': mapCommonSrc,
         'konva/lib/index-node': require.resolve('konva/lib/index.js'),
         'konva/lib/index-node.js': require.resolve('konva/lib/index.js'),
         'vst-streaming-lib/dash$': streamingLibDash,
@@ -121,7 +121,7 @@ const nextConfig = {
       config.resolve.alias = {
         ...(config.resolve.alias || {}),
         canvas: false,
-        'common/warehouse': warehouseSrc,
+        'common/map': mapCommonSrc,
         'vst-streaming-lib/dash$': streamingLibDash,
         dashjs: dashjsEntry,
       };
@@ -131,7 +131,7 @@ const nextConfig = {
     if (dev) {
       config.resolve.alias = {
         ...config.resolve.alias,
-        'common/warehouse': warehouseSrc,
+        'common/map': mapCommonSrc,
         'common': path.join(packagesPath, 'common/lib-src'),
         '@nv-metropolis-bp-vss-ui/alerts': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/alerts/lib-src'),
         // Exact match only: the '/styles' subpath has no lib-src equivalent and

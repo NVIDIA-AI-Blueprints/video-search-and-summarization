@@ -3,7 +3,7 @@
 // @ts-nocheck
 import React, { Component } from "react";
 
-import { LoaderDisplay, Map, getEnv, connect } from "common/warehouse";
+import { LoaderDisplay, Map, getEnv, connect } from "common/map";
 
 import AnomalyTrajectory from "./AnomalyTrajectory/AnomalyTrajectory";
 import CameraMarkersOverlay from "./CameraMarkersOverlay/CameraMarkersOverlay";

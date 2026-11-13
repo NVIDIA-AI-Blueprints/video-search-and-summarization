@@ -7,7 +7,7 @@ import {
   CAMERA_ICON_SVG_PATH_DIRECTIONAL,
   CAMERA_ICON_SVG_PATH_NON_DIRECTIONAL,
   connect,
-} from "common/warehouse";
+} from "common/map";
 
 const defaultIconColor = "#1E90FF";
 

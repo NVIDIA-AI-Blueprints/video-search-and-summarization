@@ -3,7 +3,7 @@
 // @ts-nocheck
 import React, { Component } from "react";
 
-import { BeautifyNameString } from "common/warehouse";
+import { BeautifyNameString } from "common/map";
 
 import {
   PlaceHeader,
@@ -11,7 +11,7 @@ import {
   PlaceHeaderLiveControl,
   ReduxUtils,
   connect,
-} from "common/warehouse";
+} from "common/map";
 
 import IntersectionView from "./IntersectionView/IntersectionView";
 import Map from "../components/Map/Map";

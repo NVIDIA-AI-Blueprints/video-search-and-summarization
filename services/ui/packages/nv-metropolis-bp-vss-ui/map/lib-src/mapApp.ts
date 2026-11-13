@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-import { getEnv } from 'common/warehouse';
+import { getEnv } from 'common/map';
 import { MAP_APP_TRAFFIC_LIGHT, MAP_APP_WAREHOUSE } from './mapAppConstants';
 
 export { MAP_APP_TRAFFIC_LIGHT, MAP_APP_WAREHOUSE };

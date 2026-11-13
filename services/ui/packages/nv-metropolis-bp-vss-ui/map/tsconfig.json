@@ -16,10 +16,10 @@
     "jsx": "preserve",
     "baseUrl": ".",
     "paths": {
-      "common/warehouse": ["lib-src/common/warehouse/index.ts"],
-      "common/warehouse/shell": ["lib-src/common/warehouse/shell/index.ts"],
-      "common/warehouse/mui": ["lib-src/common/warehouse/mui.tsx"],
-      "common/warehouse/mui-icons": ["lib-src/common/warehouse/mui-icons.tsx"]
+      "common/map": ["lib-src/common/index.ts"],
+      "common/map/shell": ["lib-src/common/shell/index.ts"],
+      "common/map/mui": ["lib-src/common/mui.tsx"],
+      "common/map/mui-icons": ["lib-src/common/mui-icons.tsx"]
     }
   },
   "include": ["lib-src/**/*"],

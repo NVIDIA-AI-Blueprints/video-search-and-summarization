@@ -10,7 +10,7 @@ jest.mock('../lib-src/mapApp', () => ({
   getMapApp: jest.fn(() => 'warehouse'),
 }));
 
-jest.mock('../lib-src/WarehouseAnalyticsComponent', () => ({
+jest.mock('../lib-src/warehouse/WarehouseAnalyticsComponent', () => ({
   WarehouseAnalyticsComponent: ({
     theme,
     mapData,

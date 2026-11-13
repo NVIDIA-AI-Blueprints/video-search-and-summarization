@@ -3,9 +3,9 @@
 // @ts-nocheck
 import React from "react";
 import { OverlayView } from "@react-google-maps/api";
-import { Close as CloseIcon } from "common/warehouse/mui-icons";
+import { Close as CloseIcon } from "common/map/mui-icons";
 
-import { BeautifyNameString } from "common/warehouse";
+import { BeautifyNameString } from "common/map";
 
 import CssClasses from "./MarkerMenu.module.css";
 

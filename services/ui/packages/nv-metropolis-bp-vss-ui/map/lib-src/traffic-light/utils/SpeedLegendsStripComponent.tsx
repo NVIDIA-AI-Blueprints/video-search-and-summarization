@@ -3,7 +3,7 @@
 // @ts-nocheck
 import React from "react";
 
-import { Widget } from "common/warehouse";
+import { Widget } from "common/map";
 import SpeedLegendsStrip from "../components/SpeedLegendsStrip/SpeedLegendsStrip";
 
 /**

@@ -8,7 +8,7 @@ import IntersectionAlertedIcon from "../../../../assets/map-marker-place-alerted
 import IntersectionSelectedIcon from "../../../../assets/map-marker-place-selected.png";
 import IntersectionActiveIcon from "../../../../assets/map-marker-place-active.png";
 import IntersectionInactiveIcon from "../../../../assets/map-marker-place-inactive.png";
-import { BeautifyNameString } from "common/warehouse";
+import { BeautifyNameString } from "common/map";
 import { resolveAssetUrl } from "../../../../../utils/resolveAssetUrl";
 
 /**

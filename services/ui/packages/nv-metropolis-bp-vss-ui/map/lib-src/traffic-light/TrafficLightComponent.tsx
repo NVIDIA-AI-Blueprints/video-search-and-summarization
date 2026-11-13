@@ -19,12 +19,12 @@ import {
   connect,
   combineReducers,
   createStore,
-} from 'common/warehouse';
+  MapSidebarControls,
+} from 'common/map';
 
 import MainView from './page-builder/MainView';
 import MetaDataReduxUtil from './utils/MetaDataReduxUtil';
 import UiStateReduxUtil from './utils/UiStateReduxUtil';
-import { WarehouseAnalyticsSidebarControls } from '../components/WarehouseAnalyticsSidebarControls';
 import classes from './App.module.css';
 
 export interface TrafficLightSidebarControlHandlers {
@@ -219,7 +219,7 @@ export const TrafficLightComponent: React.FC<TrafficLightComponentProps> = (prop
   const sidebarControls = useMemo(
     () => (
       <Provider store={store}>
-        <WarehouseAnalyticsSidebarControls
+        <MapSidebarControls
           configTypes={CONFIG_PANEL_ALLOWED_CONFIG_TYPES_ITS}
           theme={props.theme}
         />

@@ -7,8 +7,8 @@ import {
   CameraVideoPresenter,
   DefaultHTMLVideoTagOptions,
   Widget,
-} from "common/warehouse";
-import { Warning as WarningIcon } from "common/warehouse/mui-icons";
+} from "common/map";
+import { Warning as WarningIcon } from "common/map/mui-icons";
 
 import Styles from "./CameraVideoPresenterWrapper.module.css";
 

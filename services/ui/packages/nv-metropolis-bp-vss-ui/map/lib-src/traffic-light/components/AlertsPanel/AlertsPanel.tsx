@@ -5,8 +5,8 @@ import React, { Component } from "react";
 import {
   InfoOutlined as InfoOutlinedIcon,
   DoNotDisturbOnOutlined as DoNotDisturbOnOutlinedIcon,
-} from "common/warehouse/mui-icons";
-import { List } from "common/warehouse/mui";
+} from "common/map/mui-icons";
+import { List } from "common/map/mui";
 
 import {
   UserMessage,
@@ -23,7 +23,7 @@ import {
   isAbortError,
   readJson,
   connect,
-} from "common/warehouse";
+} from "common/map";
 
 import UiStateReduxUtil from "../../utils/UiStateReduxUtil";
 import {

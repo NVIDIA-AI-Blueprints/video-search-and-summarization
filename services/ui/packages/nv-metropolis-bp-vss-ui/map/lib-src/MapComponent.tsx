@@ -9,7 +9,7 @@ import {
   WarehouseAnalyticsComponent,
   type WarehouseAnalyticsComponentProps,
   type WarehouseAnalyticsSidebarControlHandlers,
-} from './WarehouseAnalyticsComponent';
+} from './warehouse/WarehouseAnalyticsComponent';
 import { TrafficLightComponent } from './traffic-light/TrafficLightComponent';
 import { getMapApp, MAP_APP_TRAFFIC_LIGHT } from './mapApp';
 

@@ -13,9 +13,9 @@ jest.mock('../../lib-src/traffic-light/App.module.css', () => ({
   placeContent: 'placeContent',
 }));
 
-jest.mock('common/warehouse', () => {
+jest.mock('common/map', () => {
   const ReactLib = require('react');
-  const storeMod = jest.requireActual('../../lib-src/common/warehouse/shell/js/WarehouseStore');
+  const storeMod = jest.requireActual('../../lib-src/common/shell/js/WarehouseStore');
 
   class UserMessage {
     static SRC_TYPE = { GENERIC: 'generic', HTTP_ERROR: 'http-error', AXIOS_ERROR: 'http-error' };
@@ -63,6 +63,7 @@ jest.mock('common/warehouse', () => {
     CalibrationUrl: 'http://example.test/config/calibration',
     CONFIG_PANEL_ALLOWED_CONFIG_TYPES_ITS: ['calibration', 'road-network'],
     ConfigFileActionsPanel: () => null,
+    MapSidebarControls: () => null,
     LoaderDisplay,
     ReduxUtils: {
       combineDispatchToProps: (...slices: Array<Record<string, unknown>>) =>

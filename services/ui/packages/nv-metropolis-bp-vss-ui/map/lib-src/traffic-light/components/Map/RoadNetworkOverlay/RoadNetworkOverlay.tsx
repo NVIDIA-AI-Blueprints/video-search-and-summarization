@@ -12,7 +12,7 @@ import {
   connect,
   MetricsRoadNetworkSegmentSpeedUrl,
   RoadNetworkUrl,
-} from "common/warehouse";
+} from "common/map";
 
 import RoadSegment from "./RoadSegment/RoadSegment";
 import SpeedInfoBox from "./SpeedInfoBox/SpeedInfoBox";

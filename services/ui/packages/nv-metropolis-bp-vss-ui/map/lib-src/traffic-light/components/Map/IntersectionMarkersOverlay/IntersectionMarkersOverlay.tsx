@@ -10,7 +10,7 @@ import {
   isAbortError,
   readJson,
   connect,
-} from "common/warehouse";
+} from "common/map";
 import IntersectionMarker from "./IntersectionMarker/IntersectionMarker";
 import MarkerMenu from "./MarkerMenu/MarkerMenu";
 
@@ -21,7 +21,7 @@ import {
   AlertsSevereUrl,
   IncidentsSevereUrl,
   MetricsLastProcessedTimestampUrl,
-} from "common/warehouse";
+} from "common/map";
 
 /**
  * Intersection Markers Layer. Shows intersections of interest on the Google Maps.

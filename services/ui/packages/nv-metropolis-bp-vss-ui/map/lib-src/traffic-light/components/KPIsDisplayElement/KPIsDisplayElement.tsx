@@ -15,7 +15,7 @@ import {
   isAbortError,
   readJson,
   connect,
-} from "common/warehouse";
+} from "common/map";
 
 import classes from "./KPIsDisplayElement.module.css";
 

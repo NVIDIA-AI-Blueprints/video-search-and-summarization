@@ -9,7 +9,7 @@ import {
   getEnv,
   connect,
   TrajectoryClustersVisualizer,
-} from "common/warehouse";
+} from "common/map";
 
 import Styles from "./TrajectoryClusterView.module.css";
 

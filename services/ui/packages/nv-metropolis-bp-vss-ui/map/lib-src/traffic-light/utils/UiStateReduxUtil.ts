@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { createSlice } from "../../common/warehouse/shell/js/WarehouseStore";
+import { createSlice } from "../../common/shell/js/WarehouseStore";
 
 /**
  * Store util for current UI state (view type, selected intersection, start time).

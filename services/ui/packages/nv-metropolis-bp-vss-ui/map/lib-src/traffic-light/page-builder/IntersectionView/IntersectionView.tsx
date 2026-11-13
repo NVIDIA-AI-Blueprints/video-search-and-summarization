@@ -10,7 +10,7 @@ import {
   Utils,
   LoaderDisplay,
   connect,
-} from "common/warehouse";
+} from "common/map";
 
 import AlertsPanel from "../../components/AlertsPanel/AlertsPanel";
 import UiStateReduxUtil from "../../utils/UiStateReduxUtil";

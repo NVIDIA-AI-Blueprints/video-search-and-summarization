@@ -3,7 +3,7 @@
 // @ts-nocheck
 import React from "react";
 
-import { BeautifyNameString, Widget } from "common/warehouse";
+import { BeautifyNameString, Widget } from "common/map";
 
 import CssClasses from "./KpiPlaceTitle.module.css";
 
