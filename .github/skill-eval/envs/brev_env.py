@@ -2168,6 +2168,7 @@ def _transient_transport_failure(result: ExecResult) -> bool:
         return False
     return result.return_code == 124 or any(term in detail for term in (
         "deadline_exceeded", "context deadline exceeded", "rate limit", "too many requests",
+        "resource exhausted", "resourceexhausted",
         "connection reset", "connection refused", "connection timed out",
         "connection closed", "connection lost", "broken pipe",
         "connection failed", "connection corrupted", "bad packet length",
