@@ -402,8 +402,8 @@ the VSS image and policy. This section says only what a *build* changes about
 them.
 
 The commands source `openshell.env`, whose values replace any of the same name
-exported in the shell and which ships `HARNESS_API_KEY` empty. Source it first,
-then apply this build's values over it:
+exported in the shell, then `harness.env` when it exists. Source them first,
+then apply this build's values over them:
 
 | Value | For a build | Why |
 |---|---|---|

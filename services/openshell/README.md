@@ -214,7 +214,10 @@ its values replace any of the same name exported in the shell:
 |---|---|
 | `HARNESS_BASE_URL` | The endpoint's OpenAI-compatible base URL, including its `/v1`. The default is the host `providers/agent-inference-profile.yaml` authorizes |
 | `HARNESS_MODEL` | A model id that endpoint serves |
-| `HARNESS_API_KEY` | The endpoint's key, unquoted. Never commit it |
+
+Export `HARNESS_API_KEY`, the endpoint's key, unquoted, or put it in the
+gitignored `harness.env` at the repository root, which the commands source
+after `openshell.env`.
 
 A base URL on another host needs that host's profile;
 [Change the model, endpoint or key](#change-the-model-endpoint-or-key) covers
@@ -235,7 +238,7 @@ mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
   done )
 openshell --version && openshell-prover --version     # both 0.1.6
 
-set -a; . deploy/docker/services/openshell/openshell.env; set +a   # OPENSHELL_TAG, HERMES_REF, HARNESS_*
+set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
 case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; *) echo "HARNESS_API_KEY ok";; esac
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
@@ -306,9 +309,10 @@ has a matching lettered step in the block below:
 | Change | Edit in `openshell.env` |
 |---|---|
 | a) A different model on the same endpoint | `HARNESS_MODEL` to a model id it serves |
-| b) A different endpoint, on another host | `HARNESS_BASE_URL` to its base URL, including its `/v1`, `HARNESS_MODEL` to a model id it serves, `HARNESS_API_KEY` to its key |
-| c) A new key for the current provider | `HARNESS_API_KEY` |
+| b) A different endpoint, on another host | `HARNESS_BASE_URL` to its base URL, including its `/v1`, `HARNESS_MODEL` to a model id it serves |
+| c) A new key for the current provider | Nothing |
 
+For b) and c), set the new key as `HARNESS_API_KEY` in the shell or `harness.env`.
 A provider authorizes only its profile's host, so the sandbox refuses a base URL
 on any other host. To start over, follow a).
 
@@ -316,7 +320,7 @@ on any other host. To start over, follow a).
 PROVIDER=agent-inference          # the Quickstart's provider
 
 # 1. Re-read the edited openshell.env, then register the change with the gateway.
-set -a; . deploy/docker/services/openshell/openshell.env; set +a
+set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
 #  a) Nothing to register; go to step 2.
 #  b) A provider from the profile in providers/ that authorizes the new host:
 #     agent-inference-build for build.nvidia.com, as here, or

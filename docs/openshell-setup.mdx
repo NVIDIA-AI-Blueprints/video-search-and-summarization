@@ -30,13 +30,14 @@ repository root.
 
 ## Set the agent's model
 
-The commands source `deploy/docker/services/openshell/openshell.env`, so its values replace any of the same name exported in the shell. Set these three before you start:
+The commands source `deploy/docker/services/openshell/openshell.env`, so its values replace any of the same name exported in the shell. Set these two before you start:
 
 | Variable | Set it to |
 | --- | --- |
 | `HARNESS_BASE_URL` | The endpoint's OpenAI-compatible base URL, including its `/v1`. The default is the host that `providers/agent-inference-profile.yaml` authorizes |
 | `HARNESS_MODEL` | A model id that endpoint serves |
-| `HARNESS_API_KEY` | The endpoint's key, unquoted. Never commit it |
+
+Export `HARNESS_API_KEY`, the endpoint's key, unquoted, or put it in the gitignored `harness.env` at the repository root, which the commands source after `openshell.env`.
 
 A base URL on another host needs that host's own provider profile. [Change the model, endpoint, or key](/vision-agent/agent-harnesses/open-shell/additional-configuration#change-the-model-endpoint-or-key) covers `build.nvidia.com` and a server on this host.
 
@@ -55,7 +56,7 @@ mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
   done )
 openshell --version && openshell-prover --version     # both 0.1.6
 
-set -a; . deploy/docker/services/openshell/openshell.env; set +a
+set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
 case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; *) echo "HARNESS_API_KEY ok";; esac
 ```
 

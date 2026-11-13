@@ -152,10 +152,10 @@ A failure in the preparation steps before the `exec` shows up the same way. The 
 
 **Cause and solution**:
 
-* **`401` from the endpoint.** The sealed credential is wrong. `HARNESS_API_KEY` is read from the environment at `provider create` time, so a key edited in `openshell.env` afterwards has not reached the gateway. Re-register it and recreate the sandbox, because a running API server never sees a new credential:
+* **`401` from the endpoint.** The sealed credential is wrong. `HARNESS_API_KEY` is read from the environment at `provider create` time, so a key changed in the shell or `harness.env` afterwards has not reached the gateway. Re-register it and recreate the sandbox, because a running API server never sees a new credential:
 
   ```bash
-  set -a; . deploy/docker/services/openshell/openshell.env; set +a
+  set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
   openshell provider update agent-inference --credential HARNESS_API_KEY
   ```
 
