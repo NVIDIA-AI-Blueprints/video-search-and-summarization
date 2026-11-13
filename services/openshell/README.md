@@ -244,7 +244,8 @@ case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, withou
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
-openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
+openshell gateway list | grep -q ' http://127.0.0.1:8080 ' ||
+  openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
 
 # 2. Harness image: upstream Hermes and the baked policy.
 docker build --build-arg HERMES_REF="$HERMES_REF" \
@@ -608,7 +609,8 @@ JWT key paths `init` writes. Three edits VSS has to make to it:
 ```bash
 docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
-openshell gateway add http://127.0.0.1:8080 --local --name openshell
+openshell gateway list | grep -q ' http://127.0.0.1:8080 ' ||
+  openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
 ```
 
 Three constraints the service has to respect:
