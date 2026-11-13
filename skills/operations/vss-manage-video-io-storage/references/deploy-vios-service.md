@@ -73,7 +73,7 @@ This makes VIOS a light-weight GPU consumer: only `streamprocessing-ms` contends
 
 | Mount Path (host → container) | Purpose | Type | Size estimate | Required permissions |
 |---|---|---|---|---|
-| `${CLIP_STORAGE_PATH}` → `/opt/clip_storage` | Clip storage; **shared bind mount with RT-VLM** for IN-1 on-demand path | bind | grows with on-demand uploads (typical: 10–50 GB) | writable by UID 1001 — `chmod 777` on the leaf dir (not recursive on the parent); `chown -R 1001:1001` is the cleanest approach |
+| `${CLIP_STORAGE_PATH}` → `/opt/clip_storage` | Clip storage; **shared bind mount with RT-VLM** for IN-1 on-demand path | bind | grows with on-demand uploads (typical: 10–50 GB) | owned and writable by UID/GID 1001:1001; mode 0755 on the leaf dir, without granting other users write access |
 | `${VST_VIDEO_STORAGE_PATH}` → `/opt/vst_video` | Long-term continuous recording storage | bind | capped at `${VST_VIDEO_STORAGE_SIZE_MB}` (default 100 GB) | writable by UID 1001 |
 | `${VST_TEMP_FILES_PATH}` → `/opt/temp_files` | Temp files (transcode scratch, etc.) | bind | low (< 5 GB) | writable by UID 1001 |
 | `${VST_DATA_PATH}` → `/opt/vst_data` | Internal data + DB seed + logs | bind | < 5 GB | writable by UID 1001 |
@@ -92,10 +92,9 @@ This makes VIOS a light-weight GPU consumer: only `streamprocessing-ms` contends
 **Required host-path setup before first `up`:**
 
 ```bash
-mkdir -p ${VSS_DATA_DIR}/data_log/vst/{clip_storage,vst_video,temp_files,vst_data}
-sudo chown -R 1001:1001 ${VSS_DATA_DIR}/data_log/vst
-# Alternatively, if sudo unavailable:
-# sudo setfacl -R -m u:1001:rwx ${VSS_DATA_DIR}/data_log/vst
+sudo install -d -o 1001 -g 1001 -m 0755 "${VSS_DATA_DIR:?}/data_log/vst/"{clip_storage,vst_video,temp_files,vst_data}
+# For existing data, have the host administrator repair ownership only within
+# these four service directories; preserve unrelated data and parent ownership.
 
 # SDRC workload-definition templates — minimum set for standalone VIOS
 # (model after deploy/docker/developer-profiles/dev-profile-lvs/sdrc/2d/configs/).
