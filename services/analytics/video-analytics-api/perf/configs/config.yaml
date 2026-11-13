@@ -1,0 +1,24 @@
+# MinIO publication is owned by the common Jenkins pipeline.
+# Service benchmark configuration contains measurement inputs only.
+scenarios: &scenarios
+  quick_test:
+    duration_seconds: 60
+    warmup_seconds: 2
+    request_count: 20
+    warmup_requests: 2
+    profile: warehouse_2d
+    sensor_id: Camera
+    place: "building=Warehouse/room=Room-1"
+    from_ts: "2026-02-14T10:16:00.000Z"
+    to_ts: "2026-02-14T10:17:00.000Z"
+    # 60s warehouse window. Per-endpoint OpenAPI maxResultSize (usually 25) is sent explicitly.
+    # spec_gets = dump-backed OpenAPI GETs plus P0 calibration POSTs.
+    endpoints:
+      - spec_gets
+    percentiles:
+      - 50
+      - 95
+      - 99
+
+# Jenkins compose-base runner reads this key.
+test_scenarios: *scenarios

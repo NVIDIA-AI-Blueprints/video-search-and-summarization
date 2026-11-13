@@ -16,7 +16,7 @@
 services:
   nvidia-nemotron-nano-9b-v2-fp8-toolcall-init:
     # Fetch toolcall parser from Hugging Face (public repo, no HF_TOKEN required).
-    image: docker.io/alpine/curl:8.22.0
+    image: ${PERF_CURL_IMAGE:-docker.io/alpine/curl:8.22.0}
     container_name: nvidia-nemotron-nano-9b-v2-fp8-toolcall-init
     profiles:
     - llm_local_nvidia-nemotron-nano-9b-v2-fp8
@@ -31,7 +31,7 @@ services:
 
   nvidia-nemotron-nano-9b-v2-fp8:
     # Nemotron-Nano-V2 and tool-parser (nemotron_toolcall_parser_no_streaming.py) require vLLM 25.12+; 25.10 does not support Nemotron.
-    image: nvcr.io/nvidia/vllm:26.07-py3
+    image: ${PERF_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}
     # Invokes sh so the container shell expands the hw-*.env sizing keys
     # (env_file only sets container env; the previous exec-form array never read
     # it, so those values were dead letters). $$ keeps Compose from interpolating
@@ -99,7 +99,7 @@ services:
 
   nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
     # Nemotron-Nano-V2 and tool-parser require vLLM 25.12+ (see rel-25-12 release notes).
-    image: nvcr.io/nvidia/vllm:26.07-py3
+    image: ${PERF_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}
     # Invokes sh so the container shell expands the hw-*.env sizing keys
     # (env_file only sets container env; the previous exec-form array never read
     # it, so those values were dead letters). $$ keeps Compose from interpolating

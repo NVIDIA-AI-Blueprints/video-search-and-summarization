@@ -57,6 +57,104 @@ BENCHMARK_REGISTRY = {
     "text_embedding_concurrency": TextEmbeddingConcurrencyBenchmark,
 }
 
+# A benchmark can complete correctly while one or more evaluated test cases fail.
+# The service wrapper translates only this exit code to a successful Jenkins step
+# after verifying that the canonical report was produced. Operational errors keep
+# their normal non-zero exit status and therefore still fail the pipeline.
+BENCHMARK_TEST_FAILURE_EXIT_CODE = 3
+
+
+def _native_test_case_passed(test_case: Dict, benchmark_mode: str) -> bool:
+    """Mirror the benchmark implementations' existing test-case pass criteria."""
+    passed = bool(test_case.get("success", False))
+    if benchmark_mode == "max_live_streams":
+        passed = passed and test_case.get("fixed_load_latency_complete") is not False
+    return passed
+
+
+def _canonical_test_cases_with_outcomes(test_cases, execution_results: Dict, benchmark_mode: str):
+    """Add native test outcomes and failure details to adapter-produced cases.
+
+    Adapters intentionally omit cases without useful KPI metrics. A failed case
+    still needs a canonical entry so the published report explains the failure.
+    """
+    canonical_cases = [dict(test_case) for test_case in test_cases]
+    cases_by_id = {
+        test_case.get("test_case_id"): test_case
+        for test_case in canonical_cases
+        if test_case.get("test_case_id")
+    }
+    for test_case in canonical_cases:
+        test_case.setdefault("status", "PASS")
+
+    detail_keys = (
+        "resource_bound",
+        "status_code",
+        "code",
+        "capacity_success",
+        "capacity_censored",
+        "fixed_load_latency_complete",
+        "unreached_latency_plateau_counts",
+        "max_sustainable_streams",
+        "search_stop_reason",
+    )
+    for index, native_case in enumerate(execution_results.get("test_cases", []), start=1):
+        if _native_test_case_passed(native_case, benchmark_mode):
+            continue
+
+        test_case_id = native_case.get("test_case_id") or f"test_case_{index}"
+        canonical_case = cases_by_id.get(test_case_id)
+        if canonical_case is None:
+            canonical_case = {"test_case_id": test_case_id, "metrics": {}}
+            canonical_cases.append(canonical_case)
+            cases_by_id[test_case_id] = canonical_case
+
+        if native_case.get("error"):
+            message = str(native_case["error"])
+            stage = "benchmark"
+        elif native_case.get("resource_bound"):
+            message = "Benchmark test case was resource-bound"
+            stage = "benchmark"
+        elif (
+            benchmark_mode == "max_live_streams"
+            and native_case.get("fixed_load_latency_complete") is False
+        ):
+            message = (
+                "Fixed-load latency KPI validation did not complete for all configured plateaus"
+            )
+            stage = "kpi_validation"
+        else:
+            message = "Benchmark test case failed"
+            stage = "benchmark"
+
+        details = {
+            key: native_case[key]
+            for key in detail_keys
+            if key in native_case and native_case[key] is not None
+        }
+        canonical_case.update(
+            {
+                "status": "FAIL",
+                "error": {"stage": stage, "message": message, "details": details},
+            }
+        )
+
+    return canonical_cases
+
+
+def benchmark_suite_exit_code(scenario_results) -> int:
+    """Classify suite results as pass, reportable test failure, or operational failure."""
+    for result in scenario_results:
+        if (
+            result.get("cleanup_failed")
+            or result.get("report_generation_failed")
+            or result.get("total_test_cases", 0) <= 0
+        ):
+            return 1
+    if any(result.get("failed_test_cases", 0) > 0 for result in scenario_results):
+        return BENCHMARK_TEST_FAILURE_EXIT_CODE
+    return 0
+
 
 def log_gpu_information(vlm_gpus=None):
     """Log GPU information once at the start of benchmark suite"""
@@ -300,7 +398,7 @@ def run_single_scenario(
         logger.info(f"Report generated: {report_file}")
 
         # Optional: output VSS result JSON and/or upload (vss_perf_common + vss_perf_rtvi_adapter)
-        if getattr(args, "output_json", None) and scenario_success:
+        if getattr(args, "output_json", None) and total > 0:
             try:
                 backend = getattr(benchmark, "backend_type", None) or global_config.get(
                     "backend_type", "rtvi_vlm"
@@ -314,6 +412,9 @@ def run_single_scenario(
                         execution_results,
                         platform=effective_config_id,
                     )
+                test_cases = _canonical_test_cases_with_outcomes(
+                    test_cases, execution_results, benchmark_mode
+                )
                 if test_cases:
                     try:
                         platform = discover_platform(
@@ -361,11 +462,24 @@ def run_single_scenario(
                             logger.info("Uploaded to MinIO: %s/%s", service_name, json_path.name)
                         else:
                             logger.warning(
-                                "Upload failed. Optional: set MINIO_ACCESS_KEY, MINIO_SECRET_KEY if your "
-                                "server does not use default (minioadmin). Check MINIO_ENDPOINT is reachable."
+                                "Upload failed. Set MINIO_ACCESS_KEY and MINIO_SECRET_KEY and ensure "
+                                "MINIO_ENDPOINT is reachable."
                             )
+                else:
+                    raise ValueError("No canonical test cases were generated")
             except Exception as e:
-                logger.warning("VSS JSON/upload failed: %s", e)
+                previous_error = scenario_result.get("error")
+                report_error = f"VSS result JSON generation failed: {e}"
+                scenario_result.update(
+                    {
+                        "success": False,
+                        "error": (
+                            f"{previous_error}; {report_error}" if previous_error else report_error
+                        ),
+                        "report_generation_failed": True,
+                    }
+                )
+                logger.error("%s", report_error)
 
     except Exception as e:
         scenario_result.update({"success": False, "error": str(e)})
@@ -705,8 +819,8 @@ def main():
         except Exception as e:
             logger.warning("Dashboard JSON generation failed: %s", e)
 
-    # Exit with appropriate code
-    sys.exit(0 if failed_scenarios == 0 else 1)
+    # Test/KPI failures are reportable outcomes, distinct from operational errors.
+    sys.exit(benchmark_suite_exit_code(scenario_results))
 
 
 if __name__ == "__main__":

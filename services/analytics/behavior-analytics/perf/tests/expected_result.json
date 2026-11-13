@@ -1,0 +1,6 @@
+{
+  "schema_version": "0.1",
+  "service": "behavior-analytics",
+  "setup": "warehouse_2d_kafka_playback",
+  "correction": "topic_summary_minus_raw"
+}

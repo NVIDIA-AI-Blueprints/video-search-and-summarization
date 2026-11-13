@@ -25,7 +25,13 @@ cleanup_docker_environment() {
     # No --rmi: the Elasticsearch image is the deployment's own, shared with any
     # stack the developer is running outside this suite. --volumes still drops
     # this project's data and log volumes, so each run starts on an empty index.
-    COMPOSE_CMD="docker compose --project-directory $INFRA_DIR -f $INFRA_DIR/compose.yml -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml down --volumes"
+    # COMPOSE_EXTRA_FILES lets perf layer unique names / ES bind-mounts on the
+    # same file set test.sh uses.
+    extra_files=""
+    for extra in ${COMPOSE_EXTRA_FILES:-}; do
+        extra_files+=" -f $extra"
+    done
+    COMPOSE_CMD="docker compose --project-directory $INFRA_DIR ${COMPOSE_ENV_FILE:+--env-file $COMPOSE_ENV_FILE} ${COMPOSE_PROJECT_NAME:+-p $COMPOSE_PROJECT_NAME} -f $INFRA_DIR/compose.yml -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml${extra_files} down --volumes"
     if $COMPOSE_CMD; then
         echo "✓ Docker Compose down successfully"
     else

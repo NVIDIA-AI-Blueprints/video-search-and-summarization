@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Supporting images only; the tested service still uses ARTIFACT_REF.
+# Values preserve existing references and do not certify OSRB approval.
+# Source: ci-vss-oss@617ccaf, eval/compose.yml; blueprint dependencies come from
+# its VSS submodule at 79290050c452957967770a8ef9c54f905e052c23, deploy/docker/.
+# VSS support images retain their original GHCR develop and configurator references.
+# Third-party images retain their source versions.
+schema_version: 1
+images:
+  PERF_ALPINE_IMAGE: alpine:3.24.1
+  PERF_COTURN_IMAGE: coturn/coturn:4.14.0
+  PERF_ECLIPSE_MOSQUITTO_IMAGE: eclipse-mosquitto:2
+  PERF_PHOENIX_IMAGE: arizephoenix/phoenix:19.8.0
+  PERF_ELASTICSEARCH_IMAGE: elasticsearch
+  PERF_KAFKA_IMAGE: confluentinc/cp-kafka:8.3.0
+  PERF_VSS_KAFKA_TOPIC_INIT_IMAGE: vss-kafka-topic-init
+  PERF_REDIS_IMAGE: redis:8.10.0-alpine
+  PERF_KIBANA_IMAGE: docker.elastic.co/kibana/kibana:9.4.4
+  PERF_LOGSTASH_IMAGE: docker.elastic.co/logstash/logstash:9.4.4
+  PERF_HAPROXY_IMAGE: docker.io/library/haproxy:3.4.2-alpine
+  PERF_SDR_MW_L_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/sdr-mw-l:develop-latest
+  PERF_VSS_RT_VLM_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
+  PERF_VSS_RT_CV_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv:develop-latest
+  PERF_VSS_BEHAVIOR_ANALYTICS_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics:develop-latest
+  PERF_VSS_VIDEO_ANALYTICS_API_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-video-analytics-api:develop-latest
+  PERF_VSS_AGENT_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
+  PERF_VSS_AGENT_UI_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:develop-latest
+  PERF_POSTGRES_IMAGE: postgres:17.10-alpine
+  PERF_VSS_VIOS_INGRESS_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-ingress:develop-latest
+  PERF_BUSYBOX_IMAGE: busybox:1.37.0
+  PERF_VSS_VIOS_SENSOR_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-sensor:develop-latest
+  PERF_VSS_VIOS_STREAMPROCESSING_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing:develop-latest
+  PERF_CURL_IMAGE: docker.io/alpine/curl:8.21.0
+  PERF_VLLM_IMAGE: nvcr.io/nvidia/vllm:26.07-py3
+  PERF_COSMOS3_REASONER_IMAGE: nvcr.io/nim/nvidia/cosmos3-reasoner:1.7
+  PERF_ELASTICSEARCH_BASE_IMAGE: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+  PERF_CUDA_IMAGE: nvidia/cuda:13.0.0-cudnn-runtime-ubuntu22.04
+  PERF_VSS_CONFIGURATOR_IMAGE: nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-configurator:nightly-20260906
+  PERF_EVAL_CURL_IMAGE: curlimages/curl:latest
+  PERF_EVAL_BUSYBOX_IMAGE: busybox:latest
+  PERF_PROMETHEUS_IMAGE: quay.io/prometheus/prometheus:v3.11.3
+  PERF_NEMOTRON_3_5_LIGHTNING_30B_A3B_IMAGE: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant
+  PERF_VSS_VIOS_NVSTREAMER_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-nvstreamer:develop-latest

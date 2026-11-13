@@ -1,0 +1,204 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# VSS Sample Performance Test Configuration
+# This file demonstrates all benchmark modes using videos available in the VSS container
+
+# Global test settings
+global:
+  # VSS backend URL for the API (can be overridden by VIA_BACKEND env var)
+  vss_backend: "http://localhost:8000"
+
+  # Output directory for test results
+  output_dir: "vss-sample-perf-report"
+
+  # Optional schema metadata (included in Metropolis JSON output)
+  release: ""   # e.g., "EA2"
+  topology: ""  # e.g., "2x2", "4x4" (inferred from config_id if omitted)
+
+  # GPU configuration
+  vlm_gpus: [0, 1]  # Adjust based on your system
+  llm_gpus: [2, 3]  # Adjust based on your system
+
+  # GPU monitoring settings
+  gpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+
+  # CPU/RAM monitoring settings
+  cpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+
+  # /summarize API parameters
+  summarize_api_params:
+    temperature: 0.7
+    max_tokens: 150
+    # Default events and scenario (can be overridden per video)
+    events: []
+    scenario: ""
+
+
+# Test scenarios
+test_scenarios:
+
+  # Mode 1: Single File Mode - Testing video processing and summarization
+  single_file_test:
+    description: "Demo single file processing with VSS sample videos"
+    benchmark_mode: "single_file"
+    iterations: 2
+    videos:
+      # Traffic monitoring video
+      - filepath: "/opt/nvidia/via/streams/its.mp4"
+        chunk_sizes: [10, 15]
+        summarize_api_params:
+          events:
+            - "traffic collision"
+            - "unsafe maneuver"
+            - "traffic violation"
+            - "obstructed traffic flow"
+            - "emergency vehicle present"
+            - "pedestrian crossing violation"
+            - "speeding"
+            - "illegal turn"
+            - "lane violation"
+            - "accident"
+          scenario: "intelligent traffic monitoring system"
+
+      # Bridge inspection video
+      - filepath: "/opt/nvidia/via/streams/bridge.mp4"
+        chunk_sizes: [10]
+        summarize_api_params:
+          events:
+            - "visible cracks"
+            - "structural damage"
+            - "corrosion or rust"
+            - "support structure issues"
+            - "surface deterioration"
+            - "unusual movement or vibration"
+            - "joint separation"
+            - "water damage"
+            - "concrete spalling"
+          scenario: "bridge inspection system"
+
+      # Warehouse monitoring video
+      - filepath: "/opt/nvidia/via/streams/warehouse.mp4"
+        chunk_sizes: [10]
+        summarize_api_params:
+          events:
+            - "worker dropping boxes"
+            - "PPE violation"
+            - "forklift safety violation"
+            - "worker in restricted area"
+            - "equipment malfunction"
+            - "boxes falling"
+            - "worker falling"
+            - "collision or near miss"
+            - "improper lifting technique"
+            - "spill or debris"
+          scenario: "warehouse safety monitoring"
+
+      # Conference/presentation video
+      - filepath: "/opt/nvidia/via/streams/Jensen_AI_Summit_India_2024_clip.mp4"
+        chunk_sizes: [20]
+        summarize_api_params:
+          events:
+            - "speaker introduction"
+            - "product announcement"
+            - "technology demonstration"
+            - "slide presentation"
+            - "audience interaction"
+            - "Q&A session"
+            - "demo on stage"
+            - "key message or insight"
+            - "partnership announcement"
+          scenario: "conference and presentation monitoring"
+
+  # Mode 2: File Burst Mode - Testing concurrent processing
+  file_burst_test:
+    description: "Demo concurrent file processing with varying loads"
+    benchmark_mode: "file_burst"
+    videos:
+      # Short video for higher concurrency testing
+      - filepath: "/opt/nvidia/via/streams/its.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4, 8]
+        # target_latency_seconds: 60.0
+        # target_latency_tolerance: 5.0
+        summarize_api_params:
+          events:
+            - "traffic collision"
+            - "unsafe maneuver"
+            - "traffic violation"
+            - "obstructed traffic flow"
+            - "emergency vehicle present"
+            - "pedestrian crossing violation"
+            - "speeding"
+            - "illegal turn"
+            - "lane violation"
+            - "accident"
+          scenario: "intelligent traffic monitoring system"
+
+      # Medium video for moderate concurrency
+      - filepath: "/opt/nvidia/via/streams/bridge.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4]
+        summarize_api_params:
+          events:
+            - "visible cracks"
+            - "structural damage"
+            - "corrosion or rust"
+            - "support structure issues"
+            - "surface deterioration"
+            - "unusual movement or vibration"
+            - "joint separation"
+            - "water damage"
+            - "concrete spalling"
+          scenario: "bridge inspection system"
+
+      # Longer video for lower concurrency
+      - filepath: "/opt/nvidia/via/streams/warehouse.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2]
+        summarize_api_params:
+          events:
+            - "worker dropping boxes"
+            - "PPE violation"
+            - "forklift safety violation"
+            - "worker in restricted area"
+            - "equipment malfunction"
+            - "boxes falling"
+            - "worker falling"
+            - "collision or near miss"
+            - "improper lifting technique"
+            - "spill or debris"
+          scenario: "warehouse safety monitoring"
+
+      # Conference video for diverse content testing
+      - filepath: "/opt/nvidia/via/streams/Jensen_AI_Summit_India_2024_clip.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 3]
+        summarize_api_params:
+          events:
+            - "speaker introduction"
+            - "product announcement"
+            - "technology demonstration"
+            - "slide presentation"
+            - "audience interaction"
+            - "Q&A session"
+            - "demo on stage"
+            - "key message or insight"
+            - "partnership announcement"
+          scenario: "conference and presentation monitoring"

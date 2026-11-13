@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+[project]
+name = "vss-alerts-verification-perf"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.32.5,<3", "confluent-kafka>=2.3.0", "protobuf>=5.27.3,<6", "PyYAML>=6,<7", "pydantic>=2.12,<3", "minio>=7.2,<8", "ruamel.yaml==0.18.15"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.uv]
+package = false

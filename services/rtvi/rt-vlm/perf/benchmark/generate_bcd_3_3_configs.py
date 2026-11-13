@@ -59,7 +59,7 @@ def render(
     text = text.replace("global:\n", f'global:\n  model_preset: "{preset}"\n', 1)
     text = re.sub(r'rtvi_backend: "[^"]+"', 'rtvi_backend: "http://localhost:8010/v1"', text)
     text = re.sub(r'dcgm_exporter_url: "[^"]+"', 'dcgm_exporter_url: "http://localhost:9400/metrics"', text)
-    text = re.sub(r'node_exporter_url: "[^"]+"', 'node_exporter_url: "http://localhost:9100/metrics"', text)
+    text = re.sub(r'node_exporter_url: "[^"]+"', 'node_exporter_url: "http://localhost:9102/metrics"', text)
     text = text.replace("initial_stream_count: 5", f"initial_stream_count: {initial}")
     text = text.replace(
         "add_stream_count: 5\n",

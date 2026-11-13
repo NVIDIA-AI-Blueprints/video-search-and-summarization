@@ -1,0 +1,10 @@
+global:
+  output_dir: rtvi-vlm-perf-report
+  release: ""
+
+# Host-network listeners; published Compose ports are checked automatically.
+lifecycle:
+  required_ports:
+    - tcp:30000
+    - tcp:30888
+    - tcp:31000

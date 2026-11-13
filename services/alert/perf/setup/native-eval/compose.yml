@@ -1,0 +1,149 @@
+# Must match COMPOSE_PROJECT in eval/scripts/_lib/_config.py and CI
+# --project vss filters (collect_logs / check_containers / compose_progress).
+# Without this, compose defaults to the directory name ("eval") and those
+# filters find nothing — collect_logs then exits 1 and aborts the job before
+# integration/UI tests.
+name: vss
+
+services:
+  init-config-manager:
+    profiles: ["latency-init"]
+    image: ${PERF_VSS_CONFIGURATOR_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
+    container_name: init-config-manager
+    network_mode: "host"
+    user: "${DOCKER_UID}:${DOCKER_GID}"
+    environment:
+      ENABLE_PROFILE_CONFIGURATOR: true
+      ENABLE_SENSOR_CONFIGURATOR: false
+      DEPLOYMENT_MODES_ENABLED: false
+      PROFILE_CONFIG_FILE: $CI_VSS_OSS_DIR/eval/configs/bp_config_latency.yaml
+      HARDWARE_PROFILE: ${HARDWARE_PROFILE:-RTXPRO6000BW}
+      CI_VSS_OSS_DIR: $CI_VSS_OSS_DIR
+    volumes:
+      - ${CI_VSS_OSS_DIR}:${CI_VSS_OSS_DIR}:rw
+  bp-configurator-init:
+    container_name: bp-configurator-init
+    image: ${PERF_EVAL_CURL_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
+    network_mode: "host"
+    environment:
+      ENABLE_NVSTREAMER_VIDEO_UPLOAD: ${ENABLE_NVSTREAMER_VIDEO_UPLOAD:-false}
+      ENABLE_VMS_VIDEO_UPLOAD: ${ENABLE_VMS_VIDEO_UPLOAD:-false}
+      ALERTS_MODE: ${ALERTS_MODE:-}
+      NVSTREAMER_STREAMS_URL: ${NVSTREAMER_STREAMS_URL:-http://localhost:31000/api/v1/sensor/streams}
+      VMS_SENSOR_STATUS_URL: ${VMS_SENSOR_STATUS_URL:-http://localhost:30888/vst/api/v1/sensor/status}
+      RTVI_CV_READY_URL: ${RTVI_CV_READY_URL:-http://localhost:9010/api/v1/live}
+      INIT_WAIT_TIMEOUT_SEC: ${INIT_WAIT_TIMEOUT_SEC:-3600}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        timeout_sec=$${INIT_WAIT_TIMEOUT_SEC:-3600}
+        poll=5
+        start=$$(date +%s)
+        iter=0
+        if [ "$${ENABLE_NVSTREAMER_VIDEO_UPLOAD}" = "true" ]; then
+          echo "Waiting for nvstreamer ($${NVSTREAMER_STREAMS_URL}) to be ready (timeout=$${timeout_sec}s)..."
+        fi
+        if [ "$${ENABLE_VMS_VIDEO_UPLOAD}" = "true" ]; then
+          echo "Waiting for vst ($${VMS_SENSOR_STATUS_URL}) to be ready (timeout=$${timeout_sec}s)..."
+        fi
+        alerts_mode_lc="$$(printf '%s' "$${ALERTS_MODE:-}" | tr '[:upper:]' '[:lower:]')"
+        if [ "$$alerts_mode_lc" = "verification" ]; then
+          echo "Waiting for rtvi-cv ($${RTVI_CV_READY_URL}) to report liveness (timeout=$${timeout_sec}s)..."
+        fi
+        ready=0
+        while [ $$ready -eq 0 ]; do
+          iter=$$((iter + 1))
+          elapsed=$$(($$(date +%s) - start))
+          if [ $$elapsed -ge $$timeout_sec ]; then
+            echo "[bp-configurator-init] TIMEOUT after $${timeout_sec}s — last probe: nvst=$${nvst_ok:-?} vst=$${vst_ok:-?} rtvi_cv=$${rtvi_cv_ok:-?}"
+            exit 1
+          fi
+          if [ $$((iter % 12)) -eq 0 ]; then
+            echo "[bp-configurator-init] +$${elapsed}s still waiting (nvst/vst/rtvi-cv readiness)..."
+          fi
+          nvst_ok="200"
+          vst_ok="200"
+          rtvi_cv_ok="200"
+          if [ "$${ENABLE_NVSTREAMER_VIDEO_UPLOAD}" = "true" ]; then
+            nvst_ok="$$(curl -s -o /dev/null -w '%{http_code}' "$${NVSTREAMER_STREAMS_URL}")"
+          fi
+          if [ "$${ENABLE_VMS_VIDEO_UPLOAD}" = "true" ]; then
+            vst_ok="$$(curl -s -o /dev/null -w '%{http_code}' "$${VMS_SENSOR_STATUS_URL}")"
+          fi
+          if [ "$$alerts_mode_lc" = "verification" ]; then
+            rtvi_cv_response="$$(curl -s "$${RTVI_CV_READY_URL}" || true)"
+            if printf '%s' "$$rtvi_cv_response" | grep -q '"ds-liveness"[[:space:]]*:[[:space:]]*"YES"' && printf '%s' "$$rtvi_cv_response" | grep -q '"status"[[:space:]]*:[[:space:]]*"HTTP/1.1 200 OK"'; then
+              rtvi_cv_ok="200"
+            else
+              rtvi_cv_ok="000"
+            fi
+          fi
+          if [ "$$nvst_ok" = "200" ] && [ "$$vst_ok" = "200" ] && [ "$$rtvi_cv_ok" = "200" ]; then
+            ready=1
+          else
+            sleep $$poll
+          fi
+        done
+        echo "[bp-configurator-init] Services are ready after $$(($$(date +%s) - start))s"
+
+    restart: "no"
+  bp-configurator:
+    image: ${PERF_VSS_CONFIGURATOR_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
+    container_name: bp-configurator
+    network_mode: "host"
+    user: "${DOCKER_UID}:${DOCKER_GID}"
+    environment:
+      SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
+      ENABLE_PROFILE_CONFIGURATOR: false
+      ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR}
+      ENABLE_REDIS_DUPLICATOR_THREAD: false
+      ENABLE_CALIBRATION_PROCESS: false
+      SEND_CONFIG_TO_SDR: ${SEND_CONFIG_TO_SDR} # true for alerts profile, false for search/base (set by run_eval.sh from BLUEPRINT)
+      CALL_SENSOR_ADD_API: ${CALL_SENSOR_ADD_API}
+      ENABLE_NVSTREAMER_VIDEO_UPLOAD: ${ENABLE_NVSTREAMER_VIDEO_UPLOAD}
+      VIDEO_UPLOAD_DELAY: ${VIDEO_UPLOAD_DELAY:-1} # 1 second delay between subsequent video uploads to nvstreamer
+      ENABLE_VMS_VIDEO_UPLOAD: ${ENABLE_VMS_VIDEO_UPLOAD}
+      DEPLOYMENT_MODES_ENABLED: false
+      VIDEO_SOURCE_DIR: /opt/data/videos
+      NVSTREAMER_UPLOAD_BASE_URL: ${NVSTREAMER_UPLOAD_BASE_URL:-http://localhost:31000}
+      VMS_UPLOAD_BASE_URL: ${VMS_UPLOAD_BASE_URL:-http://localhost:30888}
+      PROFILE_CONFIG_FILE: $CI_VSS_OSS_DIR/eval/configs/bp_config.yml
+      HARDWARE_PROFILE: ${HARDWARE_PROFILE:-RTXPRO6000BW}
+      LOG_LEVEL: DEBUG
+      NVSTREAMER_STREAMS_ENDPOINT: ${NVSTREAMER_STREAMS_ENDPOINT:-http://localhost:31000/api/v1/sensor/streams}
+      NVSTREAMER_SENSOR_STATUS_ENDPOINT: ${NVSTREAMER_SENSOR_STATUS_ENDPOINT:-http://localhost:31000/api/v1/sensor/status}
+      VST_CAMERA_ADD_ENDPOINT: ${VST_CAMERA_ADD_ENDPOINT:-http://localhost:30888/vst/api/v1/sensor/add}
+      PORT: ${BLUEPRINT_CONFIGURATOR_PORT:-5001}
+      WDM_KFK_MSG_KEY: vst.event
+      WDM_KFK_BOOTSTRAP_URL: localhost:9092
+      WDM_KFK_TOPIC: mdx-notification
+      WDM_WL_ID_FIELD: camera_id
+      WDM_WL_EVENT_FIELD: event
+      CI_VSS_OSS_DIR: ${CI_VSS_OSS_DIR}
+    volumes:
+      # - $MDX_SAMPLE_APPS_DIR:$MDX_SAMPLE_APPS_DIR:rw
+      - $EVAL_VIDEOS_PATH:/opt/data/videos # TODO: Update this once the video source is moved to the correct location
+      - ${CI_VSS_OSS_DIR}:${CI_VSS_OSS_DIR}:rw
+
+    depends_on:
+      bp-configurator-init:
+        condition: service_completed_successfully
+
+  # Init container: Ensures reports directory has correct permissions (alerts profile only)
+  prometheus:
+    profiles: ["alerts-verification-latency-prometheus"]
+    image: ${PERF_PROMETHEUS_IMAGE:?Load perf/setup/configs/images.yaml before deployment}
+    container_name: prometheus
+    network_mode: "host"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=2h"
+      - "--web.listen-address=:${ALERT_BRIDGE_EVALUATOR_PROMETHEUS_PORT:-9090}"
+    volumes:
+      - ./configs/prometheus_alert_agent.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped
+    environment:
+      - PROMETHEUS_PORT=${ALERT_BRIDGE_EVALUATOR_PROMETHEUS_PORT:-9090}
+
+  # Init container: Waits for required upload inputs before starting eval-orchestrator

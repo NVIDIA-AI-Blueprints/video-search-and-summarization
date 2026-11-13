@@ -1,0 +1,141 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+global:
+  # VSS backend URL for the API (can be overridden by VIA_BACKEND env var)
+  vss_backend: "http://localhost:8000"
+
+  # Output directory for test results
+  output_dir: "vlm-resolution-comparison-report"
+
+  # Optional schema metadata (included in Metropolis JSON output)
+  release: ""   # e.g., "EA2"
+  topology: ""  # e.g., "2x2", "4x4" (inferred from config_id if omitted)
+
+  # GPU configuration
+  vlm_gpus: [0, 1, 2, 3]  # GPU indices used for VLM
+  llm_gpus: [4, 5, 6, 7]  # GPU indices used for LLM
+
+  # GPU monitoring settings
+  gpu_monitoring:
+    enabled: true  # Enable GPU monitoring during tests
+    interval_seconds: 1  # Monitoring interval in seconds (default: 2)
+
+  # CPU/RAM monitoring settings
+  cpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+
+  # /summarize API parameters
+  summarize_api_params:
+    max_tokens: 100
+    events:
+      - "worker dropping boxes"
+      - "PPE violation"
+      - "forklift safety violation"
+      - "worker in restricted area"
+      - "equipment malfunction"
+      - "boxes falling"
+      - "worker falling"
+      - "collision or near miss"
+      - "improper lifting technique"
+      - "spill or debris"
+      - "workers using phone"
+      - "workers chitchatting"
+      - "forklift stuck"
+      - "unauthorized personnel"
+      - "operational inefficiency"
+    scenario: "warehouse safety and operational monitoring"
+
+test_scenarios:
+  # Scenario 1: 2K VLM Input Test
+  single_file_2k_vlm_test:
+    description: "Single file test with 2k VLM input dimensions (532x280)"
+    benchmark_mode: "single_file"
+    iterations: 1
+    summarize_api_params:
+      vlm_input_width: 532
+      vlm_input_height: 280
+    videos:
+      - url: "http://media-server/1min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/10min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/30min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/60min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/120min.mp4"
+        chunk_sizes: [10]
+
+  # Scenario 2: 4K VLM Input Test
+  single_file_4k_vlm_test:
+    description: "Single file test with 4K VLM input dimensions (756x392)"
+    benchmark_mode: "single_file"
+    iterations: 1
+    summarize_api_params:
+      vlm_input_width: 756
+      vlm_input_height: 392
+    videos:
+      - url: "http://media-server/1min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/10min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/30min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/60min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/120min.mp4"
+        chunk_sizes: [10]
+
+  # Scenario 3: 8K VLM Input Test
+  single_file_8k_vlm_test:
+    description: "Single file test with 8K VLM input dimensions (1036x588)"
+    benchmark_mode: "single_file"
+    iterations: 1
+    summarize_api_params:
+      vlm_input_width: 1036
+      vlm_input_height: 588
+    videos:
+      - url: "http://media-server/1min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/10min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/30min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/60min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/120min.mp4"
+        chunk_sizes: [10]
+
+  # Scenario 4: 9k VLM Input Test
+  single_file_9k_vlm_test:
+    description: "Single file test with 9k VLM input dimensions (1312x736)"
+    benchmark_mode: "single_file"
+    iterations: 1
+    summarize_api_params:
+      vlm_input_width: 1312
+      vlm_input_height: 736
+    videos:
+      - url: "http://media-server/1min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/10min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/30min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/60min.mp4"
+        chunk_sizes: [10]
+      - url: "http://media-server/120min.mp4"
+        chunk_sizes: [10]
