@@ -35,10 +35,12 @@ import tempfile
 import uuid
 from enum import Enum
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from harbor.environments.base import BaseEnvironment, ExecResult
 
 logger = logging.getLogger(__name__)
+_ssh_transfer_endpoints: dict[str, tuple[str, int]] = {}
 
 # The pre-existing Brev instance to connect to.
 # CLI env var > task.toml metadata > None (error).
@@ -140,8 +142,8 @@ class BrevEnvironment(BaseEnvironment):
     Lifecycle:
         start()    → validate instance is reachable (no provisioning)
         exec()     → brev exec <instance> <command>
-        upload()   → brev copy local:<path> <instance>:<path>
-        download() → brev copy <instance>:<path> local:<path>
+        upload()   → rsync over discovered Brev SSH endpoint
+        download() → rsync over discovered Brev SSH endpoint
         stop()     → no-op (instance stays running for reuse)
     """
 
@@ -2241,17 +2243,17 @@ async def _run_brev_copy(
     dst: str,
     timeout: int = BREV_COPY_TIMEOUT,
 ) -> ExecResult:
-    """Run ``brev copy <src> <dst>`` with transient-failure retries.
+    """Copy via SSH/rsync with transient-failure retries.
 
-    The brev gateway occasionally corrupts a connection mid-transfer
-    ("Bad packet length ... Connection corrupted"), which used to fail the
-    whole trial (AddTestsDirError). Copies are idempotent — retry."""
+    File copies are idempotent, so retry interrupted SSH transfers. The
+    original Brev API copy remains an explicit rollback only.
+    """
     result = None
     for attempt in range(3):
         result = await _run_brev_copy_once(src, dst, timeout)
         if result.return_code == 0 or not _transient_transport_failure(result) or attempt == 2:
             return result
-        logger.warning("brev copy failed (attempt %s): %s",
+        logger.warning("worker copy failed (attempt %s): %s",
                        attempt + 1, (result.stderr or "")[-200:])
         await _transport_backoff(attempt)
     return result
@@ -2262,11 +2264,12 @@ async def _run_brev_copy_once(
     dst: str,
     timeout: int = BREV_COPY_TIMEOUT,
 ) -> ExecResult:
-    """Run ``brev copy <src> <dst>`` and return result.
+    """Run rsync over the instance's published SSH port.
 
-    For registered external nodes, transparently falls back to ``scp``
-    using the ssh alias (same host:path convention, just with lowercase
-    name)."""
+    Registered external nodes continue using their existing scp alias.
+    Set BREV_COPY_TRANSPORT=legacy only for an explicit rollback; never
+    silently fall back to Brev's rate-limited copy API.
+    """
     # Detect registered-node endpoint on either side: "<name>:<path>"
     for endpoint in (src, dst):
         if ":" not in endpoint:
@@ -2277,6 +2280,100 @@ async def _run_brev_copy_once(
             scp_src = src.replace(f"{instance_name}:", f"{alias}:", 1) if src.startswith(f"{instance_name}:") else src
             scp_dst = dst.replace(f"{instance_name}:", f"{alias}:", 1) if dst.startswith(f"{instance_name}:") else dst
             return await _run_scp(scp_src, scp_dst, timeout)
+
+    if os.environ.get("BREV_COPY_TRANSPORT") == "legacy":
+        return await _run_brev_copy_legacy_once(src, dst, timeout)
+
+    if not _which("rsync"):
+        return ExecResult(stdout=None, stderr="rsync is missing on the validator", return_code=2)
+
+    remote_endpoints = [value for value in (src, dst) if ":" in value]
+    if len(remote_endpoints) != 1:
+        return ExecResult(stdout=None, stderr="Expected exactly one remote copy endpoint", return_code=2)
+    instance_name = remote_endpoints[0].split(":", 1)[0]
+    if not instance_name:
+        return ExecResult(stdout=None, stderr="Remote copy endpoint has no instance name", return_code=2)
+    try:
+        host, port = await _get_brev_ssh_endpoint(instance_name)
+    except RuntimeError as exc:
+        return ExecResult(stdout=None, stderr=str(exc), return_code=1)
+    key = Path.home() / ".brev" / "brev.pem"
+    if not key.is_file():
+        return ExecResult(stdout=None, stderr="Brev SSH key is missing; run brev refresh", return_code=2)
+    ssh_command = shlex.join([
+        "ssh", "-i", str(key), "-p", str(port),
+        "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+        "-o", "StrictHostKeyChecking=accept-new",
+    ])
+    remote = remote_endpoints[0]
+    remote_path = remote.split(":", 1)[1]
+    ssh_remote = f"ubuntu@{host}:{remote_path}"
+    rsync_src = ssh_remote if src == remote else src
+    rsync_dst = ssh_remote if dst == remote else dst
+    cmd = ["rsync", "-a", "--partial", "-e", ssh_command, "--", rsync_src, rsync_dst]
+    logger.debug("rsync copy for %s", instance_name)
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    _register_transport_process(proc)
+    try:
+        stdout, stderr = await _communicate_with_cancellation_cleanup(
+            proc, input_data=b"", timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        stdout, stderr = await _reap_transport_process(proc)
+        return ExecResult(
+            stdout=stdout.decode() if stdout else None,
+            stderr="rsync timed out", return_code=124,
+        )
+    if proc.returncode and any(marker in (stderr or b"").lower() for marker in (
+        b"connection refused", b"connection timed out", b"no route to host",
+    )):
+        _ssh_transfer_endpoints.pop(instance_name, None)
+    return ExecResult(
+        stdout=stdout.decode() if stdout else None,
+        stderr=stderr.decode() if stderr else None,
+        return_code=proc.returncode or 0,
+    )
+
+
+async def _get_brev_ssh_endpoint(instance: str) -> tuple[str, int]:
+    cached = _ssh_transfer_endpoints.get(instance)
+    if cached:
+        return cached
+    result = await _run_brev("ports", "ls", instance, "--json", timeout=30)
+    if result.return_code != 0:
+        raise RuntimeError(f"Brev SSH port lookup failed: {result.stderr or 'unknown error'}")
+    matches = [row for row in _parse_brev_json(result.stdout) if row.get("destination_port") == 22]
+    if len(matches) != 1:
+        raise RuntimeError(f"Expected one SSH port for {instance}; found {len(matches)}")
+    row = matches[0]
+    endpoint = row.get("endpoint")
+    public_port = row.get("public_port")
+    if not isinstance(endpoint, str) or not isinstance(public_port, int) or not 1 <= public_port <= 65535:
+        raise RuntimeError(f"Invalid SSH endpoint for {instance}")
+    try:
+        parsed = urlsplit("//" + endpoint)
+        host = parsed.hostname
+        endpoint_port = parsed.port
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid SSH endpoint for {instance}") from exc
+    if not host or endpoint_port != public_port or not host.isascii() or not all(c.isalnum() or c in ".-" for c in host):
+        raise RuntimeError(f"Invalid SSH endpoint for {instance}")
+    _ssh_transfer_endpoints[instance] = (host, public_port)
+    return host, public_port
+
+
+async def _run_brev_copy_legacy_once(
+    src: str,
+    dst: str,
+    timeout: int = BREV_COPY_TIMEOUT,
+) -> ExecResult:
+    """Original Brev API copy path, retained for explicit rollback only."""
 
     cmd = ["brev", "copy", src, dst]
     logger.debug("brev copy: %s -> %s", src, dst)
