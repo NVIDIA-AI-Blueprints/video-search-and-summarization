@@ -14,7 +14,7 @@ this repo's `deploy/docker/scripts/nemoclaw/README.md`, `.openclaw/Dockerfile`,
 and `assets/vss_nemoclaw_policy.yaml`. Claims about the Hermes image were
 checked against `ghcr.io/nvidia/nemoclaw/hermes-sandbox` itself, and claims
 about gateway behaviour against the OpenShell source at `v0.1.6`. Section 3's
-steps were then executed end to end against gateway 0.1.6 on an `aarch64` host
+steps were then executed end to end against gateway 0.1.6 on an `aarch64` host.
 
 ---
 
@@ -345,7 +345,7 @@ The concrete steps, policy conversion and architecture are in
 | `mcp add` | network grant in the policy; the HTTP path already needs nothing |
 | `gateway-token` | Still a read-out, both harnesses: Hermes mints its own `API_SERVER_KEY` in the sandbox, OpenClaw keeps a gateway token the UI adapter uses to bypass device pairing. `sandbox exec` fetches either |
 | `upload` ENV.md | `--env` at create; the image ships no `ENV.md` |
-| forward + relay + watchdog | `openshell service expose` for a gateway-managed URL, a detached `openshell forward start` where the caller is a container |
+| forward + relay + watchdog | `--expose` at create for a gateway-managed URL, a detached `openshell forward start` where the caller is a container |
 | `nemoclaw-start` as the entrypoint | the harness command itself after `--`, so OpenShell tracks the agent's exit status |
 
 
@@ -356,29 +356,24 @@ own steps, and where each lands:
 
 | `nemoclaw-start` did | Under Option 2 |
 |---|---|
-| Write the harness config (`/sandbox/.hermes`, yaml) | Baked into the image — it is deterministic, and a build-time file needs no post-create restart |
+| Write the harness config (`/sandbox/.hermes`, yaml) | Baked into the image with `${env:…}` placeholders; the create command fills in the base URL and model on each start |
 | Point the harness at managed inference | `--provider` (step 4); the agent sees a placeholder and the supervisor adds the key at egress |
-| Issue the dashboard token / auto-approve pairing | Nothing to do: the image mints `API_SERVER_KEY` itself and refuses to start if one is passed in (below); the device-pairing helper is OpenClaw-only |
+| Issue the dashboard token / auto-approve pairing | The create command mints `API_SERVER_KEY` into the sandbox (below); the device-pairing helper is OpenClaw-only |
 | socat-forward `:8642` and `:18789` outward | Dropped — `--expose` reaches the loopback ports from inside the namespace |
 | Seed the workspace, fix ownership under the config dir | Image build, under the same `USER sandbox` the sandbox runs as |
 | Clear raw inference keys, tighten rlimits, `setpriv` | Dropped — OpenShell owns this boundary and `no-new-privileges` blocks the `setpriv` step anyway (§1) |
 | `wait` on the gateway process | OpenShell's canonical main process does this |
 
-What remains is a config file in the image, not a launcher. The key never
-leaves the sandbox: step 5's command mints one into `/sandbox/.hermes/.env`,
-and `hermes gateway run` enrols the API server only when it finds a usable one
-there. Passing one with `--env` is worse than redundant — the image aborts
-with `[SECURITY] Refusing Hermes startup because the process environment
-contains raw secret-shaped values`, naming `API_SERVER_KEY`. So the UI's token
-is read out of the sandbox with `sandbox exec` after create, the same shape as
-OpenClaw's gateway token.
+What remains is step 5's short `sh -c` start command rather than a launcher
+image: it trusts the supervisor CA, renders the base URL and model into
+`config.yaml`, mints `API_SERVER_KEY` into `/sandbox/.hermes/.env` when none is
+there, and ends with `exec hermes gateway run`, so the exit status still
+reaches OpenShell. `hermes gateway run` enrols the API server only when it
+finds a usable key in that file. The UI's token is read out with `sandbox exec`
+after create, the same shape as OpenClaw's gateway token.
 
-No launcher is needed for the environment either: the base image's passwd entry
-is `sandbox:x:998:999::/sandbox:/bin/bash`, so `HOME` resolves to `/sandbox` and
-`HERMES_HOME` to `/sandbox/.hermes`, the path the image already assumes. If one
-does prove necessary, it should end with `exec hermes gateway run`, so the exit
-status still reaches OpenShell. One image value does need changing:
-`HERMES_ENVIRONMENT_HINT` tells the agent its "inference [is] routed through
+The environment needs nothing more: the image's `sandbox` user has home
+`/sandbox`, and the image sets `HERMES_HOME=/sandbox/.hermes`.
 
 ### What VSS does not carry over from NemoClaw
 
@@ -393,8 +388,7 @@ has an Option 2 equivalent. These drop out rather than move:
 - **`dashboard-relay.py` and `dashboard-forward-watchdog.py`.** Both exist to
   get past a forward pinned to loopback. `openshell forward start` binds the
   off-loopback address itself and nothing retires it behind the caller's back,
-  so the UI needs neither; `openshell forward` also stays the operator's way to
-  open the dashboard, which is not routed.
+  so the UI needs neither.
   `gateway-token` does **not** drop out with them: the UI adapter still needs a
   bearer — Hermes' minted `API_SERVER_KEY`, OpenClaw's shared gateway token —
   so only its source moves, from `nemoclaw <sandbox> gateway-token` to a
@@ -404,13 +398,12 @@ has an Option 2 equivalent. These drop out rather than move:
 - **`CHAT_UI_URL` at onboard.** NemoClaw bakes the dashboard origin because
   `gateway.*` cannot be edited afterwards. The UI's own data path needs no
   pre-authorised origin, since it is the `responses` API rather than the
-  dashboard. Routing the dashboard itself does need one — Hermes's
-  `dashboard.public_url` — but that is a later choice, not a create-time input.
+  dashboard, and the image ships no dashboard frontend.
 - **The ENV.md upload.** The image ships no `ENV.md`; `--env` at create
   carries `VSS_PUBLIC_URL`.
 - **`mcp add`.** Already skipped today on the HTTP path. The policy grants
-  only `:7777`, so deploy and teardown through the `:9988` orchestrator stay
-  outside the sandbox.
+  only VSS's `:7777` ingress and no MCP endpoint, so the sandbox has no path to
+  an orchestrator.
 
 
 ### Architecture
@@ -418,8 +411,8 @@ has an Option 2 equivalent. These drop out rather than move:
 ![Option 2 - OpenShell direct](assets/harness-option2-openshell-direct.png)
 
 The gateway becomes a Compose service behind the `openshell` profile; the policy
-joins the image; the relay and watchdog scripts are replaced by
-`service expose`.
+joins the image; the relay and watchdog scripts are replaced by `--expose`
+and, for the UI container, one detached `openshell forward start`.
 
 ### Pros / cons
 
@@ -444,8 +437,7 @@ joins the image; the relay and watchdog scripts are replaced by
   an OpenShell one — `nemoclaw recover` retires a non-loopback forward as stale
   and re-creates the loopback one, then judges the replacement by a TCP connect
   that a wedged forward still accepts. Neither applies to `openshell forward
-  service`, so both scripts drop outright. The Hermes dashboard is the exception: it stays behind an
-  operator-side `forward` until `dashboard.public_url` is set (step 5).
+  start`, so both scripts drop outright.
 - **The harness set stays VSS's decision.** OpenShell takes any image at
   `sandbox create --from`, so `.openclaw/` and `.hermes/` are build choices, not
   entries on someone else's supported list.
@@ -512,7 +504,7 @@ on `aarch64` and run as sandboxes against a live deployment:
 | **Build Hermes from source** | `uv sync` the upstream checkout onto a standard base | **Recommended** — the only one that leaves no NemoClaw artifact |
 
 **What `hermes-sandbox-base` gives**, measured on `aarch64` by building
-`.hermes/Dockerfile` against it and running the result as a sandbox:
+the NemoClaw-based harness image against it and running the result as a sandbox:
 
 | | `hermes-sandbox` | `hermes-sandbox-base` |
 |---|---|---|
@@ -525,21 +517,21 @@ on `aarch64` and run as sandboxes against a live deployment:
 | `sandbox` user, `/sandbox/.hermes` | 998:999 | **unchanged** |
 
 The layer figure is the operational one: at 126 of 127 the current image is one
-layer from failing to run, which is why `.hermes/Dockerfile` must not split its
-`RUN` and why `backup/Dockerfile.policy` collapses its overlay into a single `COPY`.
-Both constraints lift. Process identity is unchanged, so `hermes/policy.yaml`
-and `hermes/boundary.yaml` apply as written.
+layer from failing to run, which is why that image's build must not split its
+`RUN` and why its policy overlay collapses into a single `COPY`.
+Both constraints lift. Process identity is unchanged, so `.hermes/policy.yaml`
+and `.hermes/boundary.yaml` apply as written.
 
 **What is lost, and what replaces it.** Every row was hit during the trial
 build and run:
 
 | Lost | Mitigation |
 |---|---|
-| Toolchain purge — `gcc` and `make` are present | Purge in `.hermes/Dockerfile`, where VSS already owns the layer |
-| `config.yaml` — the base ships none | Author one with `hermes config set`, so `backup/Dockerfile.policy` writes a file instead of patching one. Seven lines carry it; see below. Set `model.default` and `model.provider`, not `model.model` — the latter is accepted and then rejected upstream at request time |
+| Toolchain purge — `gcc` and `make` are present | Purge in the harness Dockerfile, where VSS already owns the layer |
+| `config.yaml` — the base ships none | Author one with `hermes config set`, so the policy overlay writes a file instead of patching one. Seven lines carry it; see below. Set `model.default` and `model.provider`, not `model.model` — the latter is accepted and then rejected upstream at request time |
 | `API_SERVER_PORT`/`API_SERVER_HOST` in `.env` | Hermes binds its documented default `8642`, so `--expose 8642` replaces `--expose 18642` and the port note in `README.md` goes away |
 | certifi's bundle is a real file, not a symlink, and read-only under the policy | Write certifi's roots and the supervisor CA together to `SSL_CERT_FILE` at start, rather than repointing `/etc/openshell-tls/ca-bundle.pem` |
-| Bundled Hermes skills differ — no `github`, `mlops`, `smart-home`; adds `web` | `.hermes/Dockerfile` checks that Hermes' built-in skills still install, using `github` as the example; switch it to `devops`, which both images ship |
+| Bundled Hermes skills differ — no `github`, `mlops`, `smart-home`; adds `web` | The harness Dockerfile checks that Hermes' built-in skills still install, using `github` as the example; switch it to `devops`, which both images ship |
 
 **What replacing the config does and does not drop.** NemoClaw's file is 175
 lines and 91 leaf keys, compared against the image's own `DEFAULT_CONFIG`:
@@ -573,13 +565,14 @@ so the plugin now JSON-encodes its result rather than returning a bare dict.
 
 The one judgement call is the Hermes version: the base tracks 0.21.3 where the
 current image is 0.20.6, so the move is a base swap and a Hermes upgrade at
-once. Pin it by digest, as `.hermes/Dockerfile` already pins today.
+once. Pin it by digest.
 
 **Building Hermes from source removes the artifact instead of trading it.**
 [`.hermes/Dockerfile`](../../../.hermes/Dockerfile) is the built
 and verified form: upstream Hermes at tag `v2026.9.14` (0.21.3) installed onto
-`nvcr.io/nvidia/base/ubuntu:24.04`, with the `vss` CLI, skills, workspace docs,
-plugin and baked boundary added as before.
+`nvcr.io/nvidia/base/ubuntu:24.04`, with the policy baked in. The `vss` CLI,
+skills, workspace docs and plugin come from the VSS layer,
+[`services/openshell/vss/Dockerfile`](../vss/Dockerfile).
 
 - **Hermes comes from source, not PyPI.** The PyPI package stops at `0.19.0`
   (§4), so the build clones the GitHub repo at a release tag.
@@ -597,13 +590,13 @@ plugin and baked boundary added as before.
 | Size, built image | 2.15 GB | **0.73 GB** |
 | Python packages in Hermes' venv | 248 | **72** |
 | `config.yaml` | 175 lines, patched by `sed` | **11 lines, authored** |
-| Build and network tools | `node`, `npm`, `ssh`, `curl` present; `gcc` purged | **none installed** |
+| Build and network tools | `node`, `npm`, `ssh`, `curl` present; `gcc` purged | **`git` only** |
 | NemoClaw artifacts on the build | base image | **none** |
 
 Three properties make this cheaper than its line count suggests:
 
-- **No security configuration changes.** `hermes/policy.yaml`,
-  `hermes/boundary.yaml` and `providers/agent-inference-profile.yaml` apply unedited,
+- **No security configuration changes.** `.hermes/policy.yaml`,
+  `.hermes/boundary.yaml` and `providers/agent-inference-profile.yaml` apply unedited,
   because the interpreter keeps the `/usr/bin/python3.13` path they name and
   the process keeps its 998:999 identity. Staging uv's whole prefix under
   `usr/` is what puts it there; the base ships no `python3` to collide with,
@@ -612,8 +605,8 @@ Three properties make this cheaper than its line count suggests:
   `ca-certificates` and `git`, so there is nothing to strip — and no purge step
   to keep in sync with a base image that might reintroduce one.
 - **The layer budget stops mattering.** At 13 layers the policy can be baked
-  directly, so `backup/Dockerfile.policy` and its single-`COPY` constraint fall away
-  along with the unsplittable `RUN` in `.hermes/Dockerfile`.
+  directly, so the separate policy overlay and its single-`COPY` constraint fall
+  away along with the unsplittable `RUN`.
 
 Two install settings are load-bearing and not obvious from Hermes' own docs.
 Install with `uv sync --extra sms`, Hermes' aiohttp-only extra: the
@@ -636,7 +629,8 @@ same checks as the current sandbox ([README §5](../README.md#5-verification)).
 What it costs: VSS owns a Hermes build it did not own before, so `HERMES_REF`
 joins `VSS_REF` as a pin to move, and upstream's weekly tags are the cadence to
 track. The NGC CLI is also absent, so an operation skill that resolves a sample
-video by name fails and the `ngc` entry in `hermes/policy.yaml` never matches.
+video by name fails and the `ngc` entry in `services/openshell/vss/policy.yaml`
+never matches.
 
 ---
 
@@ -864,7 +858,8 @@ solve for every downstream consumer anyway.
 3. **Bake the policy into the image**, keeping the runtime-discovered CIDR and
    ingress values on `--policy` at create.
 4. **Replace the remaining `nemoclaw` calls** with `openshell` and Python SDK
-   equivalents; evaluate `service expose` as the relay/watchdog replacement.
+   equivalents; `--expose` and a detached `forward start` replace the relay
+   and watchdog.
 5. **Port the hardening** and add build-arg credential filtering.
 6. **Add a workspace preserve/restore helper** around image replacement, closing
    the `rebuild` gap on VSS's own terms.
