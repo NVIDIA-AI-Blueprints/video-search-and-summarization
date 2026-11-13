@@ -86,6 +86,16 @@ This Compose deployment does not start VIOS. To use RTSP capture, deploy VIOS se
 
 ### 5. Optional VGGT model setup
 
+<Warning>
+NOTICE — VGGT is an optional third-party model governed by Meta’s VGGT License and Acceptable Use Policy, separately from this repository’s Apache-2.0 license. The VGGT-1B-Commercial checkpoint permits commercial use subject to restrictions, including a prohibition on military applications.
+
+Before downloading or using VGGT, review and accept the applicable terms and confirm that your intended use is permitted. Redistribution of VGGT code, weights or derivatives remains subject to Meta’s agreement; these materials are not relicensed under Apache-2.0.
+
+Model and license terms:
+https://huggingface.co/facebook/VGGT-1B-Commercial
+
+VGGT is not required to use the AMC calibration method.
+</Warning>
 
 The Auto Calibration service can run the AMC method without VGGT support. To enable VGGT calibration, download the licensed [VGGT model](https://huggingface.co/facebook/VGGT-1B-Commercial) and place it in `${VSS_DATA_DIR}/auto-calib/vggt/`:
 ```bash
