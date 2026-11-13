@@ -38,8 +38,13 @@ def test_skill_routing_step_names_no_skill_or_mode(tmp_path: Path) -> None:
     assert routing, "alerts_vlm_real_time has no skill-routing step"
 
     (root,) = (tmp_path / "alerts_vlm_real_time").iterdir()
+    setup = (root / "step-1/instruction.md").read_text()
+    assert "Use `/vss-build-vision-ai` to deploy the backend" in setup
+    assert "validate `_builds/<name>/resolved.yml`" in setup
+    assert "Do not substitute a direct legacy `dev-profile.sh` deployment" in setup
     for idx in range(2, len(expects) + 1):
         instruction = (root / f"step-{idx}/instruction.md").read_text()
+        assert "validate `_builds/<name>/resolved.yml`" not in instruction
         if idx in routing:
             assert "/vss-manage-alerts" not in instruction
             assert "real-time (VLM)" not in instruction
