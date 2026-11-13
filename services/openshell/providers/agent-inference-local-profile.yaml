@@ -16,7 +16,7 @@ credentials:
     auth_style: bearer
     header_name: authorization
 endpoints:
-  - { host: host.openshell.internal, port: 8000, protocol: tcp }    # vLLM, NIM
-  - { host: host.openshell.internal, port: 11434, protocol: tcp }   # Ollama
+  - {host: host.openshell.internal, port: 8000, protocol: tcp}    # vLLM, NIM
+  - {host: host.openshell.internal, port: 11434, protocol: tcp}   # Ollama
 binaries:
-  - { path: /usr/bin/python3.13 }
+  - {path: /usr/bin/python3.13}

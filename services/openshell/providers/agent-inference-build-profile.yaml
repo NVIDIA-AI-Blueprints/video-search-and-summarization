@@ -20,6 +20,6 @@ endpoints:
     protocol: rest
     enforcement: enforce
     rules:
-      - allow: { method: POST, path: "/v1/**" }
+      - allow: {method: POST, path: "/v1/**"}
 binaries:
-  - { path: /usr/bin/python3.13 }
+  - {path: /usr/bin/python3.13}
