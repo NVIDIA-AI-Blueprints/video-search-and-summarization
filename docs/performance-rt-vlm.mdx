@@ -9,13 +9,12 @@ position: 5
 The Real-Time VLM (RTVI-VLM) microservice processes live RTSP streams and recorded
 videos in 10-second chunks. These VSS 3.3 measurements replace the VSS 3.2 results
 previously published on this page. They cover the integrated vLLM backend, with
-Adaptive EVS disabled and enabled, on one GPU per worker or one embedded device.
+EVS++ disabled and enabled, on one GPU per worker or one embedded device.
 They do not measure a Dynamo deployment, an external NIM endpoint, or the
 end-to-end video summarization workflow.
 
 OSL=1 uses a binary alert prompt; OSL=100 uses a descriptive caption prompt.
 Both are benchmark output-length settings, not recommendations for every application.
-Adaptive EVS is the feature previously called EVS++.
 
 ## Test Configuration
 
@@ -33,16 +32,16 @@ Adaptive EVS is the feature previously called EVS++.
 | OSL | 1 and 100 tokens |
 | Recorded source video | 1080p, 10 FPS, H.264 |
 | Recorded file durations | 10 seconds, 10 minutes, 60 minutes |
-| Adaptive EVS on | `VIA_EVS_SESSION=true`, `VLM_VIDEO_PRUNING_RATE=0.5` |
+| EVS++ on | `VIA_EVS_SESSION=true`, `VLM_VIDEO_PRUNING_RATE=0.5` |
 | Datacenter GPU memory fraction | 0.7; 0.45 on L40S |
 | Embedded GPU memory fraction / batch limit | 0.30 / 2,048 batched tokens; VLM batch size 32 |
 | Embedded admission mode | Adaptive |
 | Jetson AGX Thor power setting | T5000, 120 W, maximum clocks |
 
-The vision-token labels describe the input profile before Adaptive EVS pruning;
+The vision-token labels describe the input profile before EVS++ pruning;
 they are not the actual post-pruning input sequence length. Text prompt tokens
 are additional. Prefix caching and the multimodal preprocessor cache were disabled
-for these runs. Adaptive EVS retains its own session state.
+for these runs. EVS++ retains its own session state.
 
 | Platform | Model and language-model precision |
 | --- | --- |
@@ -67,7 +66,7 @@ Do not interpret the tables as a like-for-like hardware speedup comparison.
   ramp and binary search using a moving-average chunk-latency threshold of 10 seconds.
   It is not a p95 latency guarantee. Ramp runs can include dropped chunks while
   probing overloaded levels; revalidate the intended load and drop policy before deployment.
-- **Single-stream latency** compares the same load with Adaptive EVS off and on.
+- **Single-stream latency** compares the same load with EVS++ off and on.
   It is chunk-processing latency after frames are available, not TTFT or video capture time.
 - **File throughput** counts completed 10-second files per second. The reported peak
   is the highest observed throughput among tested concurrency levels, not a proven ceiling.
@@ -77,7 +76,7 @@ Do not interpret the tables as a like-for-like hardware speedup comparison.
   excluding the first warm-up iteration; embedded values use the workbook's three-run mean.
 
 The tables summarize PBR 309400 (datacenter, report revision 4, October 22, 2026)
-and PBR 309401 (embedded baseline and Adaptive EVS runs, October 2026).
+and PBR 309401 (embedded baseline and EVS++ runs, October 2026).
 No new benchmark runs were performed for this documentation update.
 
 ## Performance by Platform
@@ -89,7 +88,7 @@ No new benchmark runs were performed for this documentation update.
 
 ### Reported Maximum Live Streams
 
-| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| Vision tokens | OSL | EVS++ off | EVS++ on |
 | --- | --- | --- | --- |
 | 2K | 1 | 61 | 148 |
 | 4K | 1 | 30 | 97 |
@@ -128,7 +127,7 @@ Completed 10-second files/s at concurrency 1 and at the best tested concurrency 
 
 Mean seconds per file, concurrency 1.
 
-| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| Vision tokens | OSL | EVS++ | 10 s | 10 min | 60 min |
 | --- | --- | --- | --- | --- | --- |
 | 2K | 1 | Off | 0.42 | 10.18 | 59.3 |
 | 2K | 1 | On | 0.34 | 4.59 | 24.87 |
@@ -150,7 +149,7 @@ Mean seconds per file, concurrency 1.
 
 ### Reported Maximum Live Streams
 
-| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| Vision tokens | OSL | EVS++ off | EVS++ on |
 | --- | --- | --- | --- |
 | 2K | 1 | 166 | 256 |
 | 4K | 1 | 81 | 171 |
@@ -189,7 +188,7 @@ Completed 10-second files/s at concurrency 1 and at the best tested concurrency 
 
 Mean seconds per file, concurrency 1.
 
-| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| Vision tokens | OSL | EVS++ | 10 s | 10 min | 60 min |
 | --- | --- | --- | --- | --- | --- |
 | 2K | 1 | Off | 0.25 | 4.04 | 22.29 |
 | 2K | 1 | On | 0.26 | 2.91 | 13.73 |
@@ -211,7 +210,7 @@ Mean seconds per file, concurrency 1.
 
 ### Reported Maximum Live Streams
 
-| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| Vision tokens | OSL | EVS++ off | EVS++ on |
 | --- | --- | --- | --- |
 | 2K | 1 | 179 | 244 |
 | 4K | 1 | 90 | 177 |
@@ -250,7 +249,7 @@ Completed 10-second files/s at concurrency 1 and at the best tested concurrency 
 
 Mean seconds per file, concurrency 1.
 
-| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| Vision tokens | OSL | EVS++ | 10 s | 10 min | 60 min |
 | --- | --- | --- | --- | --- | --- |
 | 2K | 1 | Off | 0.2 | 3.67 | 19.68 |
 | 2K | 1 | On | 0.21 | 2.65 | 13.29 |
@@ -272,7 +271,7 @@ Mean seconds per file, concurrency 1.
 
 ### Reported Maximum Live Streams
 
-| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| Vision tokens | OSL | EVS++ off | EVS++ on |
 | --- | --- | --- | --- |
 | 2K | 1 | 60 | 130 |
 | 4K | 1 | 27 | 80 |
@@ -281,7 +280,7 @@ Mean seconds per file, concurrency 1.
 | 4K | 100 | 18 | ≥47 |
 | 8K | 100 | 7 | 29 |
 
-The 4K, OSL=100, Adaptive EVS-on value is a lower bound: 47 streams were stable, but the run did not reach a stability decision at 52 streams.
+The 4K, OSL=100, EVS++-on value is a lower bound: 47 streams were stable, but the run did not reach a stability decision at 52 streams.
 
 ### Single-Stream Chunk Latency
 
@@ -313,7 +312,7 @@ Completed 10-second files/s at concurrency 1 and at the best tested concurrency 
 
 Mean seconds per file, concurrency 1.
 
-| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| Vision tokens | OSL | EVS++ | 10 s | 10 min | 60 min |
 | --- | --- | --- | --- | --- | --- |
 | 2K | 1 | Off | 0.38 | 10.38 | 60.92 |
 | 2K | 1 | On | 0.28 | 4.91 | 27.69 |
@@ -335,7 +334,7 @@ Mean seconds per file, concurrency 1.
 
 ### Reported Maximum Live Streams
 
-| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| Vision tokens | OSL | EVS++ off | EVS++ on |
 | --- | --- | --- | --- |
 | 2K | 1 | 47 | 52 |
 | 4K | 1 | 23 | 26 |
@@ -374,7 +373,7 @@ Completed 10-second files/s at concurrency 1 and at the best tested concurrency 
 
 Mean seconds per file, concurrency 1.
 
-| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| Vision tokens | OSL | EVS++ | 10 s | 10 min | 60 min |
 | --- | --- | --- | --- | --- | --- |
 | 2K | 1 | Off | 0.38 | 13.04 | 77.3 |
 | 2K | 1 | On | 0.32 | 11.52 | 68.94 |
@@ -396,7 +395,7 @@ Mean seconds per file, concurrency 1.
 
 ### Reported Maximum Live Streams
 
-| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| Vision tokens | OSL | EVS++ off | EVS++ on |
 | --- | --- | --- | --- |
 | 2K | 1 | 54 | 84 |
 | 4K | 1 | 26 | 49 |
@@ -435,7 +434,7 @@ Completed 10-second files/s at concurrency 1 and at the best tested concurrency 
 
 Mean seconds per file, concurrency 1.
 
-| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| Vision tokens | OSL | EVS++ | 10 s | 10 min | 60 min |
 | --- | --- | --- | --- | --- | --- |
 | 2K | 1 | Off | 0.4 | 11.37 | 67.42 |
 | 2K | 1 | On | 0.32 | 7.06 | 42.68 |
@@ -457,7 +456,7 @@ Mean seconds per file, concurrency 1.
 
 ### Reported Maximum Live Streams
 
-| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| Vision tokens | OSL | EVS++ off | EVS++ on |
 | --- | --- | --- | --- |
 | 2K | 1 | 25 | 36 |
 | 4K | 1 | 11 | 17 |
@@ -496,7 +495,7 @@ Completed 10-second files/s at concurrency 1 and at the best tested concurrency 
 
 Mean seconds per file, concurrency 1.
 
-| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| Vision tokens | OSL | EVS++ | 10 s | 10 min | 60 min |
 | --- | --- | --- | --- | --- | --- |
 | 2K | 1 | Off | 0.64 | 25.65 | 145.24 |
 | 2K | 1 | On | 0.45 | 17.96 | 100.01 |
@@ -518,7 +517,7 @@ Mean seconds per file, concurrency 1.
 
 ### Reported Maximum Live Streams
 
-| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| Vision tokens | OSL | EVS++ off | EVS++ on |
 | --- | --- | --- | --- |
 | 2K | 1 | 25 | 33 |
 | 4K | 1 | 9 | 15 |
@@ -557,7 +556,7 @@ Completed 10-second files/s at concurrency 1 and at the best tested concurrency 
 
 Mean seconds per file, concurrency 1.
 
-| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| Vision tokens | OSL | EVS++ | 10 s | 10 min | 60 min |
 | --- | --- | --- | --- | --- | --- |
 | 2K | 1 | Off | 0.64 | 25.74 | 146.48 |
 | 2K | 1 | On | 0.47 | 24.53 | 113.61 |
@@ -581,7 +580,7 @@ Mean seconds per file, concurrency 1.
   latency reporting. The source report records errors at 100 of 359 tested load
   levels, predominantly at 64 and 128 streams. The single-stream table above uses
   only error-free measurements.
-- Four datacenter Adaptive EVS-on capacity points use the benchmark harness fix
+- Four datacenter EVS++-on capacity points use the benchmark harness fix
   from PR #2712: B200 and GB200 at 2K/OSL=1, and RTX PRO 6000 SE at 2K/OSL=100
   and 4K/OSL=100. The GB200 2K/OSL=1 on result uses a GB200 NVL4 node; the other
   GB200 measurements use a different cluster node configuration.
@@ -589,5 +588,5 @@ Mean seconds per file, concurrency 1.
   their measured stream count; this is distinct from a runtime error. Their workbook
   records zero dropped chunks at the reported capacity.
 - Source videos, prompt, output length, model, precision, sampling profile, memory
-  budget, and Adaptive EVS setting all affect capacity. Validate the intended
+  budget, and EVS++ setting all affect capacity. Validate the intended
   application workload rather than treating any one stream count as universal.
