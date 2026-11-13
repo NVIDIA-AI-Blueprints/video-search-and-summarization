@@ -1196,7 +1196,7 @@ class CompOpenAIModel(BaseVlmModel):
                         )
                         content = ""
                         for choice in resp.choices:
-                            content += str(choice.message.content)
+                            content += choice.message.content or ""
                         if hasattr(resp, "usage") and resp.usage:
                             input_tokens = getattr(resp.usage, "prompt_tokens", 0)
                             output_tokens = getattr(resp.usage, "completion_tokens", 0)
