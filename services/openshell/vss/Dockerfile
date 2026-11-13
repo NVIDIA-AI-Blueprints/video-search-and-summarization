@@ -52,11 +52,10 @@ RUN mkdir -p /opt/vss-assets/skills \
        done \
     && test "$(ls /opt/vss-assets/skills | wc -l)" -gt 0 \
     && cp /opt/vss-src/skills/vss-build-vision-ai/scripts/sync_skills.py /opt/vss-assets/sync_skills.py
-# Workspace docs: the shared set plus the _nemoclaw overlay, overlay winning.
+# Workspace docs: the shared set only.
 RUN mkdir -p /opt/vss-assets/workspace \
     && cp /opt/vss-src/.openclaw/workspace/*.md /opt/vss-assets/workspace/ \
-    && cp /opt/vss-src/.openclaw/workspace/_nemoclaw/*.md /opt/vss-assets/workspace/ \
-    && test -f /opt/vss-assets/workspace/AGENTS.md && test -f /opt/vss-assets/workspace/ENV.md
+    && test -f /opt/vss-assets/workspace/AGENTS.md
 # Only the CLI library workspace (libs/vss). services/agent is deliberately not
 # built: a sandbox operates a deployment through the CLI, it does not run the
 # agent. Building here keeps VSS source out of the runtime image.

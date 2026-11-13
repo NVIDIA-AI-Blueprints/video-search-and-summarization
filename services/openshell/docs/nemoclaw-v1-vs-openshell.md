@@ -344,7 +344,7 @@ The concrete steps, policy conversion and architecture are in
 | `config set` (hooks) | image-level config overlay, already owned by the harness Dockerfile |
 | `mcp add` | network grant in the policy; the HTTP path already needs nothing |
 | `gateway-token` | Still a read-out, both harnesses: Hermes mints its own `API_SERVER_KEY` in the sandbox, OpenClaw keeps a gateway token the UI adapter uses to bypass device pairing. `sandbox exec` fetches either |
-| `upload` ENV.md | `--env` at create; `openshell sandbox upload` for the Kubernetes-only rendered copy |
+| `upload` ENV.md | `--env` at create; the image ships no `ENV.md` |
 | forward + relay + watchdog | `openshell service expose` for a gateway-managed URL, a detached `openshell forward start` where the caller is a container |
 | `nemoclaw-start` as the entrypoint | the harness command itself after `--`, so OpenShell tracks the agent's exit status |
 
@@ -406,11 +406,11 @@ has an Option 2 equivalent. These drop out rather than move:
   pre-authorised origin, since it is the `responses` API rather than the
   dashboard. Routing the dashboard itself does need one — Hermes's
   `dashboard.public_url` — but that is a later choice, not a create-time input.
-- **The ENV.md upload.** `--env` at create carries `VSS_PUBLIC_URL`; the
-  Kubernetes-only rendered copy becomes a separate `sandbox upload` call —
-  `create --upload` cannot be combined with the trailing command step 5 needs.
-- **`mcp add`.** Already skipped today on the HTTP path; the policy's `:9988`
-  grant is what the agent needs.
+- **The ENV.md upload.** The image ships no `ENV.md`; `--env` at create
+  carries `VSS_PUBLIC_URL`.
+- **`mcp add`.** Already skipped today on the HTTP path. The policy grants
+  only `:7777`, so deploy and teardown through the `:9988` orchestrator stay
+  outside the sandbox.
 
 
 ### Architecture
