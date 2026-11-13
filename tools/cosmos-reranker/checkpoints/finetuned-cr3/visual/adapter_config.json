@@ -1,0 +1,33 @@
+{
+  "alpha_pattern": null,
+  "base_model_name_or_path": "nvidia/Cosmos3-Nano",
+  "init_lora_weights": true,
+  "lora_alpha": 64.0,
+  "lora_dropout": 0.0,
+  "lora_names": [
+    "default"
+  ],
+  "lora_path": null,
+  "modules_to_save": null,
+  "peft_type": "LORA",
+  "primary_adapter": null,
+  "r": 32,
+  "r_pattern": null,
+  "target_modules": [
+    "model.visual.blocks.24.attn.qkv",
+    "model.visual.blocks.24.attn.proj",
+    "model.visual.blocks.24.mlp.linear_fc1",
+    "model.visual.blocks.24.mlp.linear_fc2",
+    "model.visual.blocks.25.attn.qkv",
+    "model.visual.blocks.25.attn.proj",
+    "model.visual.blocks.25.mlp.linear_fc1",
+    "model.visual.blocks.25.mlp.linear_fc2",
+    "model.visual.blocks.26.attn.qkv",
+    "model.visual.blocks.26.attn.proj",
+    "model.visual.blocks.26.mlp.linear_fc1",
+    "model.visual.blocks.26.mlp.linear_fc2",
+    "model.visual.merger.linear_fc1",
+    "model.visual.merger.linear_fc2"
+  ],
+  "use_rslora": false
+}

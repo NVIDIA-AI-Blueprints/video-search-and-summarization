@@ -35,6 +35,7 @@ from pydantic import ValidationError
 
 from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.errors import LibraryError
+from vss_core.vios._metadata_cache import metadata_scope
 
 from .._internal.embed_translation import params_to_embed_input
 from ..errors import InvalidInputError
@@ -336,15 +337,19 @@ class Search:
 
     async def run(self, inp: SearchInput) -> SearchOutput:
         """Single-shot: collect chunks, return final SearchOutput."""
+        from ._attribute_helpers import frame_query_scope
+
         inp.validate_semantics()
-        return await _search_helpers.execute_core_search_wrapper(
-            search_input=inp,
-            embed_search=self._embed_adapter,
-            config=self._config,
-            attribute_search_fn=self._attr_adapter,
-            tag_search=self._tag_adapter,
-            behavior_es=self._behavior_es,
-        )
+        async with metadata_scope():
+            with frame_query_scope():
+                return await _search_helpers.execute_core_search_wrapper(
+                    search_input=inp,
+                    embed_search=self._embed_adapter,
+                    config=self._config,
+                    attribute_search_fn=self._attr_adapter,
+                    tag_search=self._tag_adapter,
+                    behavior_es=self._behavior_es,
+                )
 
     async def stream(self, inp: SearchInput) -> AsyncIterator[SearchEvent]:
         """Streaming: translate AgentMessageChunk → SearchEvent. Exactly one

@@ -27,13 +27,13 @@ takes, which is otherwise invisible in a latency breakdown that starts at
 a wrong decomposition shows up as a retrieval regression. That is the intended
 behaviour: the eval reports the deployment, not an idealised version of it.
 
-The prompt is read from the product source at run time rather than copied::
+The default prompt is read from product source at run time::
 
     services/agent/packages/vss_agents/src/vss_agents/tools/search.py
 
 This skill ships inside that repo, so the file is always present and always the
-version this checkout would send. A vendored copy would silently diverge the
-first time someone edited the prompt.
+version this checkout would send. The explicit v22 benchmark profile loads a
+pinned, checksum-verified prompt and never changes the product default.
 
 Not deterministic. This model returns different attributes for the same query
 between runs even at ``temperature=0``, so two runs can route the same query
@@ -44,10 +44,12 @@ shift is visible rather than silently changing what was measured.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
 import warnings
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import requests
@@ -95,25 +97,48 @@ def thinking_off_tag(model: str) -> str | None:
         return "/no_think"
     return None
 
+
 _THINK_BLOCK = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL)
 
 _SYSTEM = (
-    "You are a helpful assistant that extracts search parameters from natural "
-    "language queries. Return only valid JSON."
+    "You are a helpful assistant that extracts search parameters from natural language queries. Return only valid JSON."
 )
+
+
+@dataclass(frozen=True)
+class DecompositionTrace:
+    """Per-call response metadata; never shared mutable last-call state."""
+
+    decomposition: dict[str, Any]
+    elapsed_s: float
+    metadata: dict[str, Any]
 
 
 class DecompositionError(RuntimeError):
     """The LLM was unreachable, or returned something that was not a decomposition."""
 
+    def __init__(self, message: str, *, response: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.response = response
 
-def load_prompt(repo_root: Path) -> tuple[str, str]:
-    """Return ``(prompt_template, few_shot_examples)`` from the product source."""
+
+def load_prompt(repo_root: Path, variant: str = "product") -> tuple[str, str]:
+    """Load the product prompt or an explicitly pinned benchmark prompt."""
+    if variant in {"v22", "person-state"}:
+        from pathlib import Path
+
+        filename = "v22_prompt.json" if variant == "v22" else "person_state_prompt.json"
+        pinned = json.loads(Path(__file__).with_name(filename).read_text())
+        template = pinned["template"]
+        if hashlib.sha256(template.encode()).hexdigest() != pinned["template_sha256"]:
+            raise DecompositionError(f"Pinned {variant} prompt checksum differs")
+        return template, pinned["few_shot_examples"]
+    if variant != "product":
+        raise ValueError(f"Unknown decomposition prompt: {variant!r}")
     src = repo_root / PROMPT_SOURCE
     if not src.exists():
         raise DecompositionError(
-            f"cannot read the decomposition prompt: {src} not found. "
-            "This skill must run from inside a VSS checkout."
+            f"cannot read the decomposition prompt: {src} not found. This skill must run from inside a VSS checkout."
         )
     text = src.read_text()
     template_match = re.search(r'QUERY_DECOMPOSITION_PROMPT = """(.*?)"""', text, re.DOTALL)
@@ -152,12 +177,20 @@ class LiveDecomposer:
         model: str | None = None,
         timeout_s: float = 120.0,
         source_type: str = "video_file",
+        prompt_variant: str = "product",
+        max_tokens: int = MAX_TOKENS,
     ) -> None:
+        if type(max_tokens) is not int or max_tokens < 1:
+            raise ValueError("max_tokens must be a positive integer")
+        self._prompt_variant = prompt_variant
+        self._max_tokens = max_tokens
         self._url = llm_url.rstrip("/")
         self._timeout = timeout_s
         #: How the agent labels the source list for this search's source_type.
         self._sources_label = "Video streams" if source_type == "rtsp" else "Video files"
-        self._prompt, self._few_shot = load_prompt(repo_root)
+        self._prompt, self._few_shot = (
+            load_prompt(repo_root) if prompt_variant == "product" else load_prompt(repo_root, prompt_variant)
+        )
         self._model = model or self._discover_model()
 
     @property
@@ -194,15 +227,24 @@ class LiveDecomposer:
             "temperature": TEMPERATURE,
             "chat_template_kwargs": thinking_kwargs(self._model) or None,
             "system_thinking_tag": thinking_off_tag(self._model),
-            "prompt_source": PROMPT_SOURCE,
+            "prompt_source": (
+                PROMPT_SOURCE
+                if self._prompt_variant == "product"
+                else "flows/person_state_prompt.json"
+                if self._prompt_variant == "person-state"
+                else "flows/v22_prompt.json"
+            ),
+            "prompt_variant": self._prompt_variant,
+            "max_tokens": self._max_tokens,
         }
 
     def decompose(self, query: str, video_sources: list[str] | None = None) -> tuple[dict[str, Any], float]:
-        """Return ``(decomposition, seconds)``.
+        """Backward-compatible interface; detailed callers retain token usage."""
+        trace = self.decompose_detailed(query, video_sources=video_sources)
+        return trace.decomposition, trace.elapsed_s
 
-        ``seconds`` is wall clock around the call, so it belongs to the query's
-        end-to-end cost the same way the CLI subprocess does.
-        """
+    def decompose_detailed(self, query: str, video_sources: list[str] | None = None) -> DecompositionTrace:
+        """Make exactly one fresh request and return metadata bound to its result."""
         sources = (
             f"{self._sources_label}: {', '.join(video_sources)}" if video_sources else "No specific sources available"
         )
@@ -210,7 +252,7 @@ class LiveDecomposer:
         body: dict[str, Any] = {
             "model": self._model,
             "temperature": TEMPERATURE,
-            "max_tokens": MAX_TOKENS,
+            "max_tokens": self._max_tokens,
             "messages": [
                 {"role": "system", "content": f"{_SYSTEM}\n{tag}" if tag else _SYSTEM},
                 {
@@ -228,13 +270,18 @@ class LiveDecomposer:
             body["chat_template_kwargs"] = template_kwargs
         started = time.perf_counter()
         try:
-            resp = requests.post(
-                f"{self._url}/v1/chat/completions", json=body, timeout=self._timeout
-            )
+            resp = requests.post(f"{self._url}/v1/chat/completions", json=body, timeout=self._timeout)
             resp.raise_for_status()
-            message = resp.json()["choices"][0]["message"]
+            response = resp.json()
+            message = response["choices"][0]["message"]
             content = message["content"]
-        except (requests.RequestException, KeyError, IndexError, TypeError, ValueError) as e:
+        except (
+            requests.RequestException,
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+        ) as e:
             raise DecompositionError(f"decomposition request failed for {query!r}: {e}") from e
         elapsed = time.perf_counter() - started
         if not isinstance(content, str) or not content.strip():
@@ -242,20 +289,67 @@ class LiveDecomposer:
             raise DecompositionError(
                 f"decomposition for {query!r} returned no content"
                 + (f" (only reasoning: {str(reasoning)[:120]!r})" if reasoning else "")
-                + "; the model answered in thinking mode."
+                + "; the model answered in thinking mode.",
+                response=response,
             )
 
         try:
             decomposition = json.loads(_strip_fences(content))
         except json.JSONDecodeError as e:
             raise DecompositionError(
-                f"decomposition for {query!r} was not JSON: {content[:200]!r}"
+                f"decomposition for {query!r} was not JSON: {content[:200]!r}",
+                response=response,
             ) from e
         if not isinstance(decomposition, dict):
             raise DecompositionError(
-                f"decomposition for {query!r} was {type(decomposition).__name__}, expected object"
+                f"decomposition for {query!r} was {type(decomposition).__name__}, expected object",
+                response=response,
+            )
+        if (
+            self._prompt_variant in {"v22", "person-state"}
+            and response["choices"][0].get("finish_reason") == "length"
+        ):
+            raise DecompositionError(
+                f"{self._prompt_variant} decomposition truncated at completion-token limit",
+                response=response,
+            )
+        if self._prompt_variant == "person-state":
+            from .person_state import person_state_route
+
+            try:
+                person_state_route(decomposition)
+            except ValueError as error:
+                raise DecompositionError(str(error), response=response) from error
+        if self._prompt_variant == "v22" and (
+            not isinstance(decomposition.get("query"), str)
+            or not decomposition["query"].strip()
+            or type(decomposition.get("has_action")) is not bool
+            or not isinstance(decomposition.get("attributes"), list)
+            or not all(
+                isinstance(a, str) and a.strip()
+                for a in decomposition["attributes"]
+            )
+        ):
+            raise DecompositionError(
+                "v22 requires query text, boolean has_action and an attributes array of nonempty strings",
+                response=response,
             )
         # The prompt marks has_action REQUIRED, but the model sometimes omits
         # it. Absent stays absent rather than being invented here; routing
         # then treats it as attribute-only, as the agent does.
-        return decomposition, elapsed
+        usage = response.get("usage")
+        normalized = {
+            key: usage.get(key) if isinstance(usage, dict) and type(usage.get(key)) is int and usage[key] >= 0 else None
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        }
+        return DecompositionTrace(
+            decomposition,
+            elapsed,
+            {
+                "usage": normalized,
+                "raw_usage": usage,
+                "response_id": response.get("id"),
+                "finish_reason": response["choices"][0].get("finish_reason"),
+                "response_content": content,
+            },
+        )
