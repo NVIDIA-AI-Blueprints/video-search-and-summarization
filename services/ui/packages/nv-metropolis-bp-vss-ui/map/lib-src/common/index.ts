@@ -68,3 +68,4 @@ export {
 
 export * from './shell';
 export { MapSidebarControls, WarehouseAnalyticsSidebarControls } from './MapSidebarControls';
+export { resolveAssetUrl } from './utils/resolveAssetUrl';
