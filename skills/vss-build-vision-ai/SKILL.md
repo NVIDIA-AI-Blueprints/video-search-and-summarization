@@ -397,7 +397,7 @@ After the selection, ask in one typed-values message only for that provider's st
 
 **Tell the user how to hand the selected provider's credential over**, rather than having them paste it into chat where the transcript keeps it. Every option takes it as `HARNESS_API_KEY`. Two ways are supported:
 
-- **A gitignored env file** at the checkout root holding the required variable. Read it in after `openshell.env`, which ships the key empty: `set -a; . harness.env; set +a`.
+- **A gitignored env file** at the checkout root holding the required variable. The bring-up commands source it after `openshell.env`.
 - **An `export <REQUIRED_VARIABLE>=<credential>`** in the shell they start this session from, so the agent's own shells inherit it. An export in a separate terminal, after the fact, is not visible here.
 
 Pass it **unquoted**: the provider seals the value as given, so surrounding quotes become part of the credential.
