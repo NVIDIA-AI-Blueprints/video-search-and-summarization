@@ -304,37 +304,51 @@ and then recreate the sandbox. The model and endpoint are fixed at create, and a
 running API server never sees a new credential. The gateway, image and provider
 all survive the recreate.
 
-First make one edit in [`openshell.env`](../../deploy/docker/services/openshell/openshell.env); starting over needs none. Each option then
-has a matching lettered step in the block below:
+Pick the one change you are making and follow only its steps. To start over,
+follow the model change with no edit.
 
-| Change | Edit in `openshell.env` |
-|---|---|
-| a) A different model on the same endpoint | `HARNESS_MODEL` to a model id it serves |
-| b) A different endpoint, on another host | `HARNESS_BASE_URL` to its base URL, including its `/v1`, `HARNESS_MODEL` to a model id it serves |
-| c) A new key for the current provider | Nothing |
+| Change | Edit in [`openshell.env`](../../deploy/docker/services/openshell/openshell.env) | Key in the shell or `harness.env` |
+|---|---|---|
+| Model, on the same endpoint | `HARNESS_MODEL` to a model id it serves | Unchanged |
+| Endpoint, on another host | `HARNESS_BASE_URL` to its base URL, including its `/v1`, `HARNESS_MODEL` to a model id it serves | `HARNESS_API_KEY` to its key |
+| Key, for the current provider | Nothing | `HARNESS_API_KEY` to the new key |
 
-For b) and c), set the new key as `HARNESS_API_KEY` in the shell or `harness.env`.
 A provider authorizes only its profile's host, so the sandbox refuses a base URL
-on any other host. To start over, follow a).
+on any other host.
+
+First re-read the settings:
 
 ```bash
 PROVIDER=agent-inference          # the Quickstart's provider
-
-# 1. Re-read the edited openshell.env, then register the change with the gateway.
 set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
-#  a) Nothing to register; go to step 2.
-#  b) A provider from the profile in providers/ that authorizes the new host:
-#     agent-inference-build for build.nvidia.com, as here, or
-#     agent-inference-local for a server on this host, whose key is optional.
-PROVIDER=agent-inference-build
-openshell profile import -f "services/openshell/providers/$PROVIDER-profile.yaml"
-openshell provider create --name "$PROVIDER" \
-  --type "$PROVIDER" --credential HARNESS_API_KEY
-#  c) The new key on the current provider.
-openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
+```
 
-# 2. Delete the sandbox and create it again: the Quickstart's step 4 with
-#    $PROVIDER.
+Then register the change with the gateway, by which one you made:
+
+- **Model:** nothing to register.
+- **Endpoint:** create a provider from the profile in `providers/` that
+  authorizes the new host. Set `PROVIDER` to `agent-inference-build` for
+  build.nvidia.com, or `agent-inference-local` for a server on this host, which
+  needs no real key but still takes a non-empty `HARNESS_API_KEY`, such as a
+  placeholder:
+
+  ```bash
+  PROVIDER=agent-inference-build
+  openshell profile import -f "services/openshell/providers/$PROVIDER-profile.yaml"
+  openshell provider create --name "$PROVIDER" \
+    --type "$PROVIDER" --credential HARNESS_API_KEY
+  ```
+
+- **Key:** update the current provider:
+
+  ```bash
+  openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
+  ```
+
+Finally, for every change, delete the sandbox and create it again: the
+Quickstart's step 4 with `$PROVIDER`.
+
+```bash
 openshell sandbox delete hermes
 openshell sandbox create \
   --name hermes \
@@ -371,12 +385,12 @@ Gives the agent the `vss` CLI, the operation skills and the `vss_cli` tool
 plugin, and the one grant that lets it reach a VSS deployment. Take it only
 against a deployment that is already up.
 
-First set the VSS layer's two values in [`openshell.env`](../../deploy/docker/services/openshell/openshell.env), which likewise
-replaces any shell export of them:
+The image carries this checkout's skills, workspace docs, `vss` CLI and
+`vss_cli` plugin, so it is rebuilt to pick up an edit to any of them. One value
+in [`openshell.env`](../../deploy/docker/services/openshell/openshell.env), which likewise replaces any shell export of it:
 
 | Variable | Set it to |
 |---|---|
-| `VSS_REF` | A ref on `VSS_REPO` that the skills and the `vss` CLI are built from, at one reproducible version. The build fetches it rather than reading the working tree, so a local commit reaches the image only once it is pushed |
 | `VSS_PUBLIC_URL` | The deployment's origin as the sandbox reaches it. The default, `http://host.openshell.internal:7777`, is a deployment on this host |
 
 A VSS developer profile starts the gateway itself — append `openshell` to its
@@ -390,13 +404,17 @@ replaces the sandbox from the Quickstart's step 4 rather than modifying it.
 ```bash
 set -a; . deploy/docker/services/openshell/openshell.env; set +a
 PROVIDER="${PROVIDER:-agent-inference}"  # the Quickstart's provider, unless changed above
-TAG="${VSS_REF//\//-}-from-source"  # VSS_REF may be a branch; a Docker tag cannot hold "/"
+# The CLI's reported version, and a tag naming the tree the image carries, so
+# two checkouts never collide on one tag. A Docker tag cannot hold the `+`.
+VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
+TAG="${VERSION//+/-}-from-source"
 
 # 1. The VSS layer, built on the harness image from the Quickstart's step 2
 #    (openshell-hermes:$HERMES_REF).
-docker build --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
-  --build-arg VSS_REF="$VSS_REF" --build-context plugin=.hermes/plugin \
-  -t "openshell-hermes-vss:$TAG" services/openshell/vss
+docker build -f services/openshell/vss/Dockerfile \
+  --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
+  --build-arg VSS_PACKAGE_VERSION="$VERSION" \
+  -t "openshell-hermes-vss:$TAG" .
 
 # 2. Replace the sandbox with one on the VSS image and the VSS policy. Same
 #    create command as the Quickstart's step 4 otherwise, plus VSS_PUBLIC_URL.
@@ -776,9 +794,8 @@ it comes from VSS: a Hermes bump produces a new tag instead of overwriting the
 old one, and a VSS commit does not invalidate it at all.
 
 [`vss/Dockerfile`](vss/Dockerfile) is the optional second build. It takes this
-image as its base and adds the `vss` CLI, the operation skills and the
-workspace docs at one `VSS_REF`, plus the `vss_cli` plugin from the
-`plugin` named build context, then replaces the baked policy
+image as its base and adds the `vss` CLI, the operation skills, the
+workspace docs and the `vss_cli` plugin from this checkout, then replaces the baked policy
 with `vss/policy.yaml`. Layering rather than branching one Dockerfile on a
 build arg is what keeps the default image provably free of VSS — there is no
 flag to get wrong, because the content is not in the file.

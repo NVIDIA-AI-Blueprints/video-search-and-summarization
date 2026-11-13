@@ -285,8 +285,9 @@ jobs:
           # a commit-derived stamp would go stale. The release line is baked in
           # too, so reuse also requires the com.nvidia.vss.release_line label to
           # match: a new v* tag rebuilds the images that carry a version once.
-          # VSS_REF pins the harness images (the only Dockerfiles declaring it)
-          # to this commit, so their skills and CLI are the tree hashed above.
+          # VSS_REF pins the OpenClaw harness image (the only Dockerfile
+          # declaring it) to this commit, so its skills and CLI are the tree
+          # hashed above.
           build-args: |
             ${{ matrix.build_args }}
             VSS_PACKAGE_VERSION=${{ needs.changes.outputs.release-line }}+tree.${{ steps.meta.outputs.tree_sha }}
