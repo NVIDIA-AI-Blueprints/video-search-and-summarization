@@ -158,10 +158,10 @@ def _platform_modes(spec: dict, platform_filter: str | None) -> list[tuple[str, 
 # ---------------------------------------------------------------------------
 
 def _test_sh(step_idx: int, spec_name: str) -> str:
-    # The cleanup-enabled NemoClaw canary owns a persistent, pinned verifier
-    # runtime on its selected worker. Normal nightly tasks keep their existing
-    # verifier path until this proof of concept is validated.
-    canary_verifier = os.environ.get("SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG") == "true"
+    # NemoClaw Alerts uses a pinned verifier runtime on the worker regardless
+    # of whether the deployment is preserved for debugging after this leg.
+    # Normal nightly tasks keep their existing verifier path for now.
+    canary_verifier = os.environ.get("SKILLS_EVAL_OPERATIONAL_HARNESS") == "nemoclaw"
     if canary_verifier:
         python_setup = (
             'VERIFIER_PYTHON="$HOME/.cache/vss-skill-eval/verifier-py312-sdk-0.2.128/bin/python"\n'
@@ -309,7 +309,7 @@ def generate_platform_mode(
             ]
             if (
                 spec_stem == "ondemand_verification"
-                and os.environ.get("SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG") == "true"
+                and os.environ.get("SKILLS_EVAL_OPERATIONAL_HARNESS") == "nemoclaw"
             ):
                 leading.append(
                     "This isolated VSS-1009 canary must test the checked-out Alert Bridge "

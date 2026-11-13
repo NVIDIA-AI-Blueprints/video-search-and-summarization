@@ -1701,8 +1701,16 @@ def cleanup_gateway_network_policy(instance: str, results_root: Path, *, timeout
         print(f"[run-leg] owned gateway network policy cleanup failed: {type(exc).__name__}", file=sys.stderr)
 
 
+def needs_canary_verifier_runtime(operational_runtime: str, spec_path: str) -> bool:
+    """The NemoClaw Alerts verifier is independent of post-run cleanup."""
+    return (
+        operational_runtime == "nemoclaw"
+        and spec_path.startswith("skills/operations/vss-manage-alerts/evals/")
+    )
+
+
 def prepare_canary_verifier_runtime(instance: str, *, timeout_sec: int = 300) -> None:
-    """Ensure the cleanup-enabled alerts canary has a pinned worker-side judge.
+    """Ensure the NemoClaw Alerts canary has a pinned worker-side judge.
 
     The coordinator's Python 3.12 venv is not available over Brev SSH. Keep
     this runtime outside the checkout and trial scratch so normal worker
@@ -2605,11 +2613,9 @@ def main(argv: list[str] | None = None) -> int:
                     # phases below set their own labels.
                     leg_timing.set_phase(outer_phase)
                     dispatch_started = time.time()
-                    if (
-                        os.environ.get(CLEAN_WORKER_AFTER_LEG_ENV) == "true"
-                        and os.environ.get("EVAL_SPEC_PATH", "").startswith(
-                            "skills/operations/vss-manage-alerts/evals/"
-                        )
+                    if needs_canary_verifier_runtime(
+                        model_routes.operational.runtime,
+                        os.environ.get("EVAL_SPEC_PATH", ""),
                     ):
                         prepare_canary_verifier_runtime(instance)
                     try:

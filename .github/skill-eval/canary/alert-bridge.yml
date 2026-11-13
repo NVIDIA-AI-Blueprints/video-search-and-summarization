@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # POC-only patch copied into _builds/<name>/patches/alert-bridge.yml.
 # The build context is an absolute path derived from the deployment's
 # VSS_APPS_DIR; the standard pull --ignore-buildable / up --build path then
