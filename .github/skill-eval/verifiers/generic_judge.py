@@ -522,7 +522,9 @@ def _parse_verdict_json(text: str) -> dict | None:
     snippets, API bodies) and discarded — no fallback. None means the
     judge did not emit a compliant verdict; caller should surface raw
     text for triage."""
-    decoder = json.JSONDecoder()
+    # The judge may quote literal tabs/newlines from command output inside a
+    # JSON string. Accept those characters without changing the verdict value.
+    decoder = json.JSONDecoder(strict=False)
     candidates: list[dict] = []
     idx = 0
     while True:

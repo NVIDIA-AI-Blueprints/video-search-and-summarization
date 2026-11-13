@@ -84,6 +84,16 @@ def test_judge_bootstraps_without_modifying_host_python(tmp_path: Path) -> None:
     ).returncode != 0
 
 
+def test_verdict_parser_preserves_verdict_with_literal_command_output() -> None:
+    judge = _load_generic_judge()
+    matched = "docker ps --format '{{.Names}}':\nvss-rtvi-vlm\tUp 6 minutes (healthy)"
+    for passed in (True, False):
+        expected = {"pass": passed, "matched": matched, "rationale": "Observed command output"}
+        response = json.dumps(expected).replace("\\t", "\t").replace("\\n", "\n")
+        assert judge._parse_verdict_json(response) == expected
+    assert judge._parse_verdict_json('{"pass":true,"matched":"unterminated}') is None
+
+
 def test_judge_counts_normalized_tool_calls_without_metadata_duplicates() -> None:
     """Require guidance that counts canonical calls instead of metadata copies."""
     prompt = _load_generic_judge()._JUDGE_SYSTEM_PROMPT
