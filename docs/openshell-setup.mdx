@@ -82,7 +82,7 @@ poll `openshell sandbox list` until it answers before continuing.
 
 ## Step 2. Build the harness image
 
-One pass from upstream Hermes, with the sandbox policy baked in at `/etc/openshell/policy.yaml`, so one artifact carries the harness and the access boundary it is proven against.
+One pass from upstream Hermes, with the sandbox policy baked in at `/etc/openshell/policy.yaml` as the image's default for a create that passes no `--policy`; every create here passes one.
 
 ```bash
 docker build --build-arg HERMES_REF="$HERMES_REF" \
@@ -137,12 +137,13 @@ openshell sandbox create \
 Four checks cover the default sandbox: the prover, the gateway, the exposed route, and the inference provider.
 
 ```bash
-# 1. Policy stays inside the boundary ceiling
+# 1. The policy file stays inside the boundary ceiling
 openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
 # -> result: within_boundary
 # -> coverage: domains=filesystem,network_l4,network_rest,process,landlock
 
-# 2. Sandbox reaches Ready and the effective policy matches what was baked
+# 2. Sandbox reaches Ready; the effective policy is the --policy file plus the
+#    provider profile's endpoints
 openshell sandbox list
 openshell policy get hermes --full
 

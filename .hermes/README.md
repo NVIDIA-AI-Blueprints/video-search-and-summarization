@@ -57,15 +57,19 @@ values are not known at build time:
 
 ## The policy pair
 
-`policy.yaml` is baked to `/etc/openshell/policy.yaml`, so one artifact carries
-the harness and the access boundary it was proven against. It grants the
-package hosts and nothing else; the inference provider's profile authorizes
-the model host.
+`policy.yaml` is baked to `/etc/openshell/policy.yaml` as the image's default
+for a create that passes no `--policy`; every create in this repository passes
+one. It grants the package hosts and nothing else; the inference provider's
+profile authorizes the model host.
 
 ```
 openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
 # result: within_boundary
 ```
+
+The proof covers the policy file only. The provider profile's endpoints, such
+as `inference-api.nvidia.com` where the credential is injected, are merged in
+at create and are not checked.
 
 `binaries` names `/usr/bin/python3.13` and the process identity is `998:999`,
 both pinned by the image. Why those values, and what makes the prover return

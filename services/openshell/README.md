@@ -56,9 +56,9 @@ picture with the VSS column and the `:7777` arrow removed.
 ### Inside the boundary
 
 The same deployment, one level down. The destinations are the only hosts the
-sandbox can reach: the policy pair it was created with allows them, and the
-provider profile supplies the key added to inference calls. VSS HAProxy is
-among them only under `vss/policy.yaml`.
+sandbox can reach: the policy file it was created with allows them, and the
+provider profile adds the inference host and the key injected into calls to it.
+VSS HAProxy is among them only under `vss/policy.yaml`.
 
 ![Inside the OpenShell sandbox boundary](docs/assets/vss-openshell-detailed-architecture.png)
 
@@ -782,8 +782,12 @@ an image symlink could redirect either. The prover also refuses policies using
 GraphQL or MCP rules rather than ignoring them, so the result is honest about
 what it covered.
 
-**3 — Build the image and bake the policy in**, so one artifact carries the
-harness and the access boundary it is proven against.
+The proof covers the policy file only. The provider profile's endpoints, such
+as `inference-api.nvidia.com` where the credential is injected, are merged in
+at create and are not checked.
+
+**3 — Build the image and bake the policy in**, as the image's default for a
+create that passes no `--policy`; every create here passes one.
 [`.hermes/Dockerfile`](../../.hermes/Dockerfile) builds it in one pass from upstream
 Hermes on `nvcr.io/nvidia/base/ubuntu:24.04`, with no NemoClaw image
 underneath; why that rather than deriving from `hermes-sandbox` is in
@@ -1038,7 +1042,8 @@ teach. For a harness in `services/openshell/<name>/`:
   harness itself calls, and `process` takes the `sandbox` UID and GID of its
   image.
 - **A provider profile** whose `binaries` name that same interpreter, since the
-  step 4 profiles list only `/usr/bin/python3.13`.
+  step 4 profiles list only `/usr/bin/python3.13`. Its endpoints are merged in
+  at create, outside the proof.
 - **The step 5 create**, with `--from` its image, `--policy` its file,
   `--expose` the port its API listens on, and its own serve command after `--`.
 
@@ -1060,13 +1065,14 @@ Four checks cover the default sandbox — the prover, the gateway, the exposed
 route and the inference provider:
 
 ```bash
-# 1. Policy stays inside the boundary ceiling
+# 1. The policy file stays inside the boundary ceiling
 openshell-prover check .hermes/policy.yaml \
   --boundary .hermes/boundary.yaml
 # -> result: within_boundary
 # -> coverage: domains=filesystem,network_l4,network_rest,process,landlock
 
-# 2. Sandbox reaches Ready and the effective policy matches what was baked
+# 2. Sandbox reaches Ready; the effective policy is the --policy file plus the
+#    provider profile's endpoints
 openshell sandbox list
 openshell policy get hermes --full
 

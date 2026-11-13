@@ -174,6 +174,8 @@ openshell-prover check services/openshell/vss/policy.yaml \
 
 The prover refuses policies using GraphQL or MCP rules rather than ignoring them, so the result is honest about what it covered.
 
+The proof covers the policy file only. The provider profile's endpoints, such as `inference-api.nvidia.com` where the credential is injected, are merged in at create and are not checked.
+
 Precedence at create is `--policy` > `OPENSHELL_SANDBOX_POLICY` > the image's baked policy > the built-in default. Keep runtime-discovered parts on `--policy` at create.
 
 ## What the start command does
@@ -220,7 +222,7 @@ The work is per-harness, so a second harness is a parallel set of the same artif
 
 * **`<name>/Dockerfile`** builds its image, with its own config and its policy baked in at `/etc/openshell/policy.yaml`.
 * **`<name>/policy.yaml`**, proven against **`<name>/boundary.yaml`**. `binaries` name the interpreter the harness actually runs under — `/usr/local/bin/node` for a Node harness — the endpoints add the hosts the harness itself calls, and `process` takes the `sandbox` UID and GID of its image.
-* **A provider profile** whose `binaries` name that same interpreter, since the shipped profiles list only `/usr/bin/python3.13`.
+* **A provider profile** whose `binaries` name that same interpreter, since the shipped profiles list only `/usr/bin/python3.13`. Its endpoints are merged in at create, outside the proof.
 * **The create**, with `--from` its image, `--policy` its file, `--expose` the port its API listens on, and its own serve command after `--`.
 
 Two properties of the harness decide whether this stays data. How its API authenticates: a bearer the UI adapter can carry, like Hermes's `API_SERVER_KEY`, or something it cannot, such as device pairing. And how it takes its model: a base URL and key in its own config, which the provider serves unchanged, or a provider type of its own. Everything else — port, health path, config directory and format, package binary — is data. The UI reaches it through whichever adapter connector speaks its API; `responses` covers an OpenAI Responses server.
