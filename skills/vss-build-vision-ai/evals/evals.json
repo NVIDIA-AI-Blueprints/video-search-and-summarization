@@ -103,7 +103,7 @@
     "ground_truth": "Select nightly-20260928 as the harness source ref and build the sandbox image from it.",
     "expected_behavior": [
       "Activates vss-build-vision-ai.",
-      "Verifies nightly-20260928 resolves on the remote, then builds the harness image with --build-arg VSS_REF=nightly-20260928 and a tag derived from it.",
+      "Checks out nightly-20260928 into a git worktree, then builds the harness image from it with a tag derived from the version that ref reports.",
       "Does not set VSS_CONTAINER_TAG from the harness ref, and names the ref and the version the sandbox's vss --version reports in the architecture diagram and the final summary."
     ]
   },
@@ -111,10 +111,10 @@
     "id": "build-base-harness-default-ref",
     "question": "Deploy the VSS base profile with the harness sandbox.",
     "expected_skill": "vss-build-vision-ai",
-    "ground_truth": "No harness ref was requested, so the sandbox builds from develop.",
+    "ground_truth": "No harness ref was requested, so the sandbox builds from the checkout.",
     "expected_behavior": [
       "Activates vss-build-vision-ai.",
-      "Does not ask for a harness ref, and builds the image with the VSS_REF that deploy/docker/services/openshell/openshell.env already carries."
+      "Does not ask for a harness ref, and builds the image from the checkout without creating a worktree."
     ]
   },
   {

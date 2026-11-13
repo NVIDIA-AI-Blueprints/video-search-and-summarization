@@ -254,4 +254,4 @@ docker compose -f deploy/docker/services/openshell/compose.yml --profile openshe
 
 That keeps the `openshell-data` volume, and with it the gateway's record of every sandbox, its JWT signing key, and the key-encryption key that provider credentials are sealed with. Add `-v` only when you intend to discard all of it — every provider has to be created again afterwards.
 
-Then re-run the setup from [step 1](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-1-start-the-gateway). The harness image survives a teardown, so a rebuild is needed only when `HERMES_REF` or `VSS_REF` changed.
+Then re-run the setup from [step 1](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-1-start-the-gateway). The harness image survives a teardown, so a rebuild is needed only when `HERMES_REF` changed, or when the VSS layer's Skills, CLI, or plugin did.

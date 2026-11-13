@@ -13,37 +13,36 @@
 # video by name shells out to `ngc`, and that call fails here; the `ngc` entry
 # in policy.yaml simply never matches.
 #
-# Build context is this directory (services/openshell/vss), plus the plugin
-# named context, run from the checkout root:
+# Build context is the checkout root, so the image carries this tree:
 #
-#   docker build --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
-#     --build-arg VSS_REF="$VSS_REF" \
-#     --build-context plugin=.hermes/plugin \
-#     -t "openshell-hermes-vss:$TAG" services/openshell/vss
+#   docker build -f services/openshell/vss/Dockerfile \
+#     --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
+#     -t "openshell-hermes-vss:$TAG" .
 
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
 # The image ../../../.hermes/Dockerfile produced. No default: a stale base silently
 # yields a harness the policy pair here was not proven against.
 ARG HARNESS_IMAGE
-ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-# Keep in lockstep with ../../../.openclaw/Dockerfile, which explains the choice.
-ARG VSS_REF=develop
+# The CLI wheels' version: hatch-vcs reads git metadata, and a build context has
+# no .git. Same arg and default as ../../../services/agent/docker/Dockerfile.
+ARG VSS_PACKAGE_VERSION=0.0.0+local
 
 FROM ${UV_IMAGE} AS uv
 
-# ── VSS source checkout: skills + workspace docs + CLI wheels ──────────────────
+# ── VSS source: skills + workspace docs + CLI wheels ──────────────────────────
 # Same selection rules as ../../../.openclaw/Dockerfile's vss-src stage. Built on the
 # harness image rather than the bare base so the wheels are built against the
 # same /usr/bin/python3.13 the runtime resolves.
 FROM ${HARNESS_IMAGE} AS vss-src
-ARG VSS_REPO
-ARG VSS_REF
 USER root
 COPY --from=uv /uv /usr/local/bin/uv
-RUN git init -q /opt/vss-src \
-    && git -C /opt/vss-src remote add origin "$VSS_REPO" \
-    && git -C /opt/vss-src fetch -q --filter=tree:0 --tags origin "$VSS_REF" \
-    && git -C /opt/vss-src checkout -q FETCH_HEAD
+# libs/vss by its two members, not whole: a developer's .venv sits beside them
+# and BuildKit would send all of it.
+COPY libs/vss/pyproject.toml libs/vss/uv.lock /opt/vss-src/libs/vss/
+COPY libs/vss/cli /opt/vss-src/libs/vss/cli
+COPY libs/vss/core /opt/vss-src/libs/vss/core
+COPY skills /opt/vss-src/skills
+COPY .openclaw/workspace /opt/vss-src/.openclaw/workspace
 # Operation skills: every skill whose SKILL.md frontmatter declares vss-requires.
 RUN mkdir -p /opt/vss-assets/skills \
     && find /opt/vss-src/skills -name SKILL.md | sort | while read -r f; do \
@@ -61,8 +60,10 @@ RUN mkdir -p /opt/vss-assets/workspace \
 # Only the CLI library workspace (libs/vss). services/agent is deliberately not
 # built: a sandbox operates a deployment through the CLI, it does not run the
 # agent. Building here keeps VSS source out of the runtime image.
+ARG VSS_PACKAGE_VERSION
 RUN mkdir -p /opt/vss-assets/wheels \
-    && uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-assets/wheels
+    && SETUPTOOLS_SCM_PRETEND_VERSION="$VSS_PACKAGE_VERSION" \
+       uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-assets/wheels
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
 FROM ${HARNESS_IMAGE} AS runtime
@@ -70,10 +71,9 @@ USER root
 ENV PATH=/usr/local/vss/bin:/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 COPY --from=uv /uv /usr/local/bin/uv
 COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
-# `plugin` is the named build context: --build-context plugin=.hermes/plugin
-COPY --from=plugin . /opt/vss-assets/plugin/
+COPY .hermes/plugin /opt/vss-assets/plugin
 RUN set -eux; \
-    # The vss CLI, from the wheels built out of the same VSS_REF as the skills.
+    # The vss CLI, from the wheels built out of the same tree as the skills.
     # Installed by path, not by name: with --find-links a bare name still
     # admits index candidates, so a future published nvidia-vss-cli could
     # outrank the wheel and silently break the CLI==skills guarantee. The CLI
@@ -112,7 +112,7 @@ RUN set -eux; \
     && test -f /opt/hermes/skills/vss/vss-ask-video/SKILL.md && test -f /sandbox/AGENTS.md \
     && rm -rf /opt/vss-assets /usr/local/bin/uv
 # Replaces the base's pure policy with the pair beside this file.
-COPY --chmod=0644 policy.yaml /etc/openshell/policy.yaml
+COPY --chmod=0644 services/openshell/vss/policy.yaml /etc/openshell/policy.yaml
 
 # ── VLM request defaults for `vss vlm run` ────────────────────────────────────
 # Runtime variables, declared empty: the CLI reads empty as unset, so the VLM

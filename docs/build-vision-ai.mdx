@@ -244,22 +244,20 @@ selected tag, so their images differ from the common tag by that suffix.
 ## Harness source ref
 
 The sandbox image carries the operation Skills, the `vss` CLI and the Hermes
-plugin from one revision of this repository. It is built from `develop` by
+plugin from one revision of this repository. It is built from your checkout by
 default, whatever image tag the stack runs. To build it from a nightly or a
 release instead, name the revision in the request:
 
 1. The request, for example *"deploy base with the sandbox harness at
    `nightly-20260928`"*.
-2. `VSS_REF` already exported in your shell, or set in the harness's env file.
-3. Neither, in which case the harness builds from `develop`.
+2. Nothing, in which case the harness builds from your checkout.
 
-The image build fetches that revision from the remote repository rather than
-reading your working tree, so the Skills, CLI and plugin all come from the one
-revision, and a local commit reaches the sandbox only once it is pushed.
-`vss --version` inside the sandbox reports it. The ref is independent of the
+A named revision is checked out into a git worktree and built from there, so
+the Skills, CLI and plugin all come from the one revision. `vss --version`
+inside the sandbox reports it. The ref is independent of the
 [container image tag](#container-image-tag): name both to pin both. A ref that
-does not resolve on the remote stops the build rather than being silently
-replaced by `develop`.
+does not resolve stops the build rather than being silently replaced by your
+checkout.
 
 ## Agent harness
 

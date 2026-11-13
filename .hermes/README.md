@@ -84,8 +84,6 @@ the OpenClaw plugin's tool exactly — same name, same `{args, cwd, timeoutSec}`
 schema, same no-shell subprocess exec, same `{command, exitCode, signal,
 timedOut, stdout, stderr, truncated}` result shape. See `./plugin/__init__.py`.
 
-The VSS layer takes it as the `plugin` named build context.
-
 ## Skill discovery
 
 Hermes loads skills from `$HERMES_HOME/skills` only, and seeds that directory

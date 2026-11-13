@@ -171,22 +171,25 @@ Gives the agent the `vss` CLI, the VSS operation Skills, and the `vss_cli` tool 
 
 Both halves are needed. The image alone leaves a `vss` CLI the policy refuses to let out; the policy alone grants reach to a sandbox with no CLI to use it. Neither the image nor the policy can be swapped on a running sandbox, so this replaces the step 4 sandbox rather than modifying it.
 
-First set the layer's two values in `deploy/docker/services/openshell/openshell.env`:
+The image carries this checkout's Skills, workspace docs, `vss` CLI, and `vss_cli` plugin, so it is rebuilt to pick up an edit to any of them. Set one value in `deploy/docker/services/openshell/openshell.env`:
 
 | Variable | Set it to |
 | --- | --- |
-| `VSS_REF` | A reference on `VSS_REPO` that the Skills and the `vss` CLI are built from, at one reproducible version. The build fetches it rather than reading the working tree, so a local commit reaches the image only once it is pushed |
 | `VSS_PUBLIC_URL` | The deployment's origin as the sandbox reaches it. The default, `http://host.openshell.internal:7777`, is a deployment on this host |
 
 ```bash
 set -a; . deploy/docker/services/openshell/openshell.env; set +a
 PROVIDER="${PROVIDER:-agent-inference}"  # the provider from step 3, unless changed
-TAG="${VSS_REF//\//-}-from-source"       # VSS_REF may be a branch; a Docker tag cannot hold "/"
+# The CLI's reported version, and a tag naming the tree the image carries, so
+# two checkouts never collide on one tag. A Docker tag cannot hold the `+`.
+VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
+TAG="${VERSION//+/-}-from-source"
 
 # 1. The VSS layer, built on the harness image from step 2.
-docker build --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
-  --build-arg VSS_REF="$VSS_REF" --build-context plugin=.hermes/plugin \
-  -t "openshell-hermes-vss:$TAG" services/openshell/vss
+docker build -f services/openshell/vss/Dockerfile \
+  --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
+  --build-arg VSS_PACKAGE_VERSION="$VERSION" \
+  -t "openshell-hermes-vss:$TAG" .
 
 # 2. Replace the sandbox with one on the VSS image and the VSS policy. Same
 #    create command as step 4 otherwise, plus VSS_PUBLIC_URL.

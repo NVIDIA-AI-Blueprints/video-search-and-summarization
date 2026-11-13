@@ -299,31 +299,28 @@ Two things still supersede the common tag, by design:
 
 An input of its own, like the container image tag and independent of it: the
 revision of this repo the sandbox image is built from — its skills, the `vss`
-CLI, the Hermes plugin and workspace docs. The image's `VSS_REF` build arg
-defaults to `develop`, so without a ref a harness always gets develop's skills
-and CLI **whatever the checkout or the image tag says**. Applies only when Q3
-selected the sandbox.
+CLI, the Hermes plugin and workspace docs. The image is built from the build
+context, so without a ref a harness gets **this checkout's** skills and CLI,
+including uncommitted edits. Applies only when Q3 selected the sandbox.
 
 Take the ref from the first source that answers, and do not ask when one does:
 
 1. The request — "harness at `nightly-20260928`", "harness ref `v3.3.0`",
    "deploy base with the sandbox from `<tag or sha>`".
-2. `VSS_REF` already exported in the environment, or set in `deploy/docker/services/openshell/openshell.env`.
-3. Neither: select nothing and let the `.env` default stand. This is the
-   ordinary case and nothing below applies to it.
+2. Nothing: build from the checkout. This is the ordinary case and nothing
+   below applies to it.
 
 **Never derive it from the container image tag.** `3.4.0` or
 `develop-<sha12>` names images; a harness ref names a git revision. When a user
 wants both pinned they name both, and the summary shows both.
 
-The image **fetches the ref from the remote** rather than reading the working
-tree, so a selected ref must resolve on `VSS_REPO` and a local commit reaches
-the sandbox only once it is pushed. A ref that does not resolve is a blocker to
-report, never a silent fall back to `develop`. Pass it as
-`docker build --build-arg VSS_REF=<ref>`, which is the whole of the pinning —
-[`references/agent-harness.md`](references/agent-harness.md#harness-source-ref).
-Name the ref and the version `vss --version` reports inside the sandbox in the
-Step 6 diagram and the final summary, next to the image tag.
+A selected ref is built from a **git worktree** of it, never from the checkout
+with the ref's name attached to it: the build reads the tree, so the two must
+be the same thing. A ref that does not resolve is a blocker to report, never a
+silent fall back to the checkout —
+[`references/agent-harness.md`](references/agent-harness.md#harness-source-ref)
+has the commands. Name the ref and the version `vss --version` reports inside
+the sandbox in the Step 6 diagram and the final summary, next to the image tag.
 
 ### Harness selection — Q3
 

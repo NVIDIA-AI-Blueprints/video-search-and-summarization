@@ -16,7 +16,6 @@ Every command in the setup sources `deploy/docker/services/openshell/openshell.e
 | `HARNESS_BASE_URL` | `https://inference-api.nvidia.com/v1` | The agent model endpoint's OpenAI-compatible base URL, including its `/v1`. Unrelated to any VLM a VSS deployment serves. |
 | `HARNESS_MODEL` | `aws/anthropic/bedrock-claude-opus-5` | A model id that endpoint serves. |
 | `HARNESS_PROVIDER` | `agent-inference` | The `providers/<name>-profile.yaml` that authorizes `HARNESS_BASE_URL`'s host. |
-| `VSS_REF` | `develop` | VSS layer only. The reference the Skills and `vss` CLI are built from. The build fetches it rather than reading the working tree, so a local commit reaches the image only once it is pushed. |
 | `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` | VSS layer only. The deployment's origin as the sandbox reaches it. The default is a deployment on this host. |
 
 ## Agent model versus VSS models
@@ -76,33 +75,44 @@ HARNESS_API_KEY=... openshell provider create \
 
 To change the model, the endpoint, or the key, or to start over, make the change and then recreate the sandbox. The model and endpoint are fixed at create, and a running API server never sees a new credential. The gateway, image, and provider all survive the recreate.
 
-Make one edit in `openshell.env`; starting over needs none. Each option has a matching lettered step below:
+Pick the one change you are making and follow only its steps. To start over, follow the model change with no edit.
 
-| Change | Edit in `openshell.env` |
-| --- | --- |
-| a) A different model on the same endpoint | `HARNESS_MODEL` to a model id it serves |
-| b) A different endpoint, on another host | `HARNESS_BASE_URL` to its base URL including `/v1`, `HARNESS_MODEL` to a model id it serves |
-| c) A new key for the current provider | Nothing |
+| Change | Edit in `openshell.env` | Key in the shell or `harness.env` |
+| --- | --- | --- |
+| Model, on the same endpoint | `HARNESS_MODEL` to a model id it serves | Unchanged |
+| Endpoint, on another host | `HARNESS_BASE_URL` to its base URL including `/v1`, `HARNESS_MODEL` to a model id it serves | `HARNESS_API_KEY` to its key |
+| Key, for the current provider | Nothing | `HARNESS_API_KEY` to the new key |
 
-For b) and c), set the new key as `HARNESS_API_KEY` in the shell or `harness.env`. A provider authorizes only its profile's host, so the sandbox refuses a base URL on any other host. To start over, follow a).
+A provider authorizes only its profile's host, so the sandbox refuses a base URL on any other host.
+
+First re-read the settings:
 
 ```bash
 PROVIDER=agent-inference          # the provider from the setup
-
-# 1. Re-read the edited openshell.env, then register the change with the gateway.
 set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
-#  a) Nothing to register; go to step 2.
-#  b) A provider from the profile in providers/ that authorizes the new host:
-#     agent-inference-build for build.nvidia.com, as here, or
-#     agent-inference-local for a server on this host, whose key is optional.
-PROVIDER=agent-inference-build
-openshell profile import -f "services/openshell/providers/$PROVIDER-profile.yaml"
-openshell provider create --name "$PROVIDER" \
-  --type "$PROVIDER" --credential HARNESS_API_KEY
-#  c) The new key on the current provider.
-openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
+```
 
-# 2. Delete the sandbox and create it again: step 4 of the setup, with $PROVIDER.
+Then register the change with the gateway, by which one you made:
+
+* **Model:** nothing to register.
+* **Endpoint:** create a provider from the profile in `providers/` that authorizes the new host. Set `PROVIDER` to `agent-inference-build` for `build.nvidia.com`, or `agent-inference-local` for a server on this host, which needs no real key but still takes a non-empty `HARNESS_API_KEY`, such as a placeholder:
+
+  ```bash
+  PROVIDER=agent-inference-build
+  openshell profile import -f "services/openshell/providers/$PROVIDER-profile.yaml"
+  openshell provider create --name "$PROVIDER" \
+    --type "$PROVIDER" --credential HARNESS_API_KEY
+  ```
+
+* **Key:** update the current provider:
+
+  ```bash
+  openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
+  ```
+
+Finally, for every change, delete the sandbox:
+
+```bash
 openshell sandbox delete hermes
 ```
 

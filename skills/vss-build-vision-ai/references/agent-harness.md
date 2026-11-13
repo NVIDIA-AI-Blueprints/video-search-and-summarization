@@ -408,7 +408,6 @@ then apply this build's values over them:
 | Value | For a build | Why |
 |---|---|---|
 | `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` — the `openshell.env` default, unchanged for a Compose build | the origin as **the sandbox** sees it, not `HOST_IP`. Set it only for a Kubernetes deployment, to that cluster's Ingress origin, which then also needs a policy entry |
-| `VSS_REF` | the checkout's branch, or a [harness source ref](#harness-source-ref) | the image fetches this ref from `VSS_REPO`; it is what fixes the skills and the `vss` CLI inside the sandbox |
 | `HARNESS_BASE_URL`, `HARNESS_MODEL`, `HARNESS_PROVIDER` | the Q3a answers | the model values and the profile that authorizes them; a model change is a re-create, not a rebuild |
 | `HARNESS_API_KEY` | from the environment or the secret store | the selected provider's credential, unquoted. Never into `openshell.env`, `override.env`, a transcript, or a summary |
 | sandbox name | `vss-harness-hermes` unless this host already holds that name | in place of the README's `hermes` on `sandbox create`, `sandbox delete` and `sandbox exec`; settled at Q3, per [Sandbox names on a shared host](#sandbox-names-on-a-shared-host) |
@@ -432,15 +431,28 @@ may hold a live sandbox and name it — the claim is on disk, so
 ### Harness source ref
 
 Only when SKILL.md's [Harness source ref](../SKILL.md#harness-source-ref)
-selected one. `VSS_REF` is a `--build-arg`: the image **fetches it from
-`VSS_REPO`** rather than reading the working tree, so a local commit reaches the
-sandbox only once it is pushed, and a ref that does not resolve on the remote is
-a blocker to report rather than a reason to fall back to `develop`.
+selected one. The build reads its context, so the ref is checked out into a
+worktree and the build runs from there. A ref that does not resolve is a
+blocker to report rather than a reason to fall back to the checkout:
 
-The image tag derives from it — `TAG="${VSS_REF//\//-}-from-source"`, because a
-branch's `/` is not valid in a Docker tag — so two refs coexist as two images and
-`docker build` is the whole of the pinning. Quote the ref and the version
-`vss --version` reports inside the sandbox in the summary.
+```bash
+REPO="$(git rev-parse --show-toplevel)"
+SRC="$REPO/_builds/<name>/harness-src"
+git -C "$REPO" fetch -q origin "$REF" && git -C "$REPO" worktree add -q --detach "$SRC" FETCH_HEAD
+VERSION="$(cd "$SRC/libs/vss/cli" && uvx --with hatch-vcs hatch version)"
+docker build -f "$SRC/services/openshell/vss/Dockerfile" \
+  --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
+  --build-arg VSS_PACKAGE_VERSION="$VERSION" \
+  -t "openshell-hermes-vss:${VERSION//+/-}-from-source" "$SRC"
+git -C "$REPO" worktree remove "$SRC"
+```
+
+Both the Dockerfile and the context come from the worktree, so the ref builds
+its own image definition. A ref from before that file existed cannot be built
+this way, and is a blocker to report. The version names the ref's own commit,
+so two refs coexist as two images.
+Quote the ref and the version `vss --version` reports inside the sandbox in the
+summary.
 
 The sandbox image ships only the **operation** skills — the ones whose `SKILL.md`
 declares `vss-requires` — and `vss-hermes-sync` activates those the recorded
