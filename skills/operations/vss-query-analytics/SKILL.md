@@ -2,8 +2,8 @@
 name: vss-query-analytics
 description: Use this skill for read-only incident, occupancy, speed, place, and analytics-sensor questions through the project-local VSS CLI. Not for live VLM, incident-range narrative reports, deployment, or alert-rule management.
 license: Apache-2.0
-vss-requires: "analytics"
 metadata:
+  vss-requires: "analytics"
   author: "NVIDIA Video Search and Summarization team"
   version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
