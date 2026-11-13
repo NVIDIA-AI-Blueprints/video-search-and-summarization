@@ -58,7 +58,7 @@ This section documents the environment variables read by the MCP server process.
 
 From `services/agent/`:
 
-```bash
+```bash title="Run in the deployment host terminal"
 export HARDWARE_PROFILE="RTXPRO6000BW"
 export NGC_CLI_API_KEY="<your-ngc-key>"
 export NVIDIA_API_KEY="<your-nvidia-key>"  # required only for NVIDIA-hosted VSS endpoints
@@ -71,7 +71,7 @@ uv run nat mcp serve \
 
 Call a tool directly with the NAT MCP client:
 
-```bash
+```bash title="Run in the deployment host terminal"
 uv run nat mcp client tool call vss_orchestrator__profiles \
   --url http://127.0.0.1:9988/mcp \
   --transport streamable-http

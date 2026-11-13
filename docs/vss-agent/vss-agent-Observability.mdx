@@ -58,7 +58,7 @@ Click on any trace to view its detailed span breakdown.
 
 This example demonstrates a trace for the query:
 
-```text
+```text title="Paste into the in-stack VSS Agent chat"
 What videos are available?
 ```
 
@@ -142,7 +142,7 @@ Container logs are essential for diagnosing deployment issues, runtime errors, a
 
 To see all running containers in your deployment:
 
-```bash
+```bash title="Run in the deployment host terminal"
 # List running containers
 docker ps
 ```
@@ -151,7 +151,7 @@ docker ps
 
 **View logs for a specific container:**
 
-```bash
+```bash title="Run in the deployment host terminal"
 # View logs by container name
 docker logs <container-name>
 
@@ -169,6 +169,6 @@ docker logs --tail 100 <container-name>
 
 **Search for errors:**
 
-```bash
+```bash title="Run in the deployment host terminal"
 docker logs <container-name> | grep -i error
 ```
