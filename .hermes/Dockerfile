@@ -72,7 +72,7 @@ RUN cd /opt/hermes && uv sync --no-dev --frozen --extra sms \
 # browser surfaces, none reachable from the API server or the CLI agent.
 RUN rm -rf /opt/hermes/.git /opt/hermes/tests /opt/hermes/tests-js /opt/hermes/evals \
       /opt/hermes/website /opt/hermes/web /opt/hermes/ui-tui /opt/hermes/apps \
-      /opt/hermes/native /opt/hermes/nix /opt/hermes/locales /opt/hermes/contributors \
+      /opt/hermes/native /opt/hermes/nix /opt/hermes/contributors \
       /opt/hermes/package-lock.json
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
