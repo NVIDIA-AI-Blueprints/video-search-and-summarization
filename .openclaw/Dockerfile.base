@@ -30,7 +30,7 @@
 #   docker build -f .openclaw/Dockerfile.base -t <registry>/vss-harness-openclaw:<tag>-base .openclaw
 
 ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:959d1255717b54f724248eb282dbb049d3cd785d5aa4eddb0da2a03839ad6fca
-ARG OPENCLAW_VERSION=2026.7.1
+ARG OPENCLAW_VERSION=2026.9.2
 ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
 # uv 0.12.10, by index digest (multi-arch). Same pin as ./Dockerfile's.
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500

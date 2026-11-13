@@ -127,7 +127,7 @@ Pins are build args:
 | Build arg | Default | What it pins |
 |---|---|---|
 | `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:959d…` (v0.0.127, the release `deploy_nemoclaw.ipynb` installs) | the managed runtime |
-| `OPENCLAW_VERSION` | `2026.7.1` | the OpenClaw the base carries; the build fails if the plugin lockfile pins a different one |
+| `OPENCLAW_VERSION` | `2026.9.2` | the OpenClaw the plugin is built against; the build fails if the plugin lockfile pins a different one. Ahead of `BASE_IMAGE`, which still carries 2026.7.1 — see below |
 | `VSS_REPO`, `VSS_REF` | this repo, `develop` (a `v*` tag for a published image; a commit sha still works) | the skills and the `vss` CLI |
 | `BUILDER_IMAGE` | `node:24.18.1-trixie-slim@sha256:ac39…` | the plugin build stage (same as NemoClaw's) |
 | `UV_IMAGE` | `ghcr.io/astral-sh/uv@sha256:2bb3…` (0.12.10) | uv, for the `vss` venv |
@@ -149,6 +149,15 @@ to the OpenClaw that release pins and regenerating the plugin lockfile
 (`npm install --package-lock-only` in `plugin/` after editing its
 `devDependencies.openclaw`). NemoClaw's doc is explicit that a plugin image must
 not mix one release's runtime with another's OpenClaw.
+
+`OPENCLAW_VERSION` is currently ahead of `BASE_IMAGE`: the plugin is built
+against 2026.9.2 and loads into the base's 2026.7.1 runtime. The single symbol
+the plugin consumes, `defineToolPlugin` from `openclaw/plugin-sdk/tool-plugin`,
+has the same declaration in both, so the mixed build is sound; the next NemoClaw
+release move closes the gap and must take `.hermes` and the notebook's
+`NEMOCLAW_INSTALL_REF` with it. The newest published `openclaw-sandbox` tag,
+v0.0.128, carries 2026.9.1 — one advisory short of 2026.9.2 — so there is no
+image to move to yet.
 
 ### Trial paths
 
