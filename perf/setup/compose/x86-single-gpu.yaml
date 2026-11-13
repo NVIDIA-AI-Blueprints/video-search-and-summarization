@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Reuse production services. Set VSS_APPS_DIR, VSS_DATA_DIR and stock containers.env.
+include:
+  - path: ${VSS_APPS_DIR}/services/infra/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/vios/vst.env
+  - path: ${VSS_APPS_DIR}/services/vios/compose.yml
+services:
+  rtvi-cv:
+    extends:
+      file: ${VSS_APPS_DIR}/services/rtvi/rtvi-cv/compose.yaml
+      service: perception
+    shm_size: 6gb
+    environment:
+      DS_MODEL_FAMILY: rtdetr-warehouse
+      DS_VISION_ENCODER: "false"
+      DS_TRACKER_REID: "false"
+      DS_MESSAGE_RATE: "1"
+      DS_MODEL_DOWNLOAD: auto
+    volumes:
+      # Acquisition compatibility helper: NGC 4.37 removed --org from model download.
+      # Service/model definitions remain from the verified promoted Compose tree.
+      - ${VSS_REPO_ROOT}/deploy/docker/services/rtvi/rtvi-cv/download-models.sh:/opt/scripts/download-models.sh:ro
+      - ${VSS_DATA_DIR}/models:/opt/storage
+      - ${VSS_DATA_DIR}/rt-cv-configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs:ro
+      - ${VSS_PERF_ROOT}/setup/models-download.json:/opt/config/models-download.json:ro
+  vss-video-analytics-api:
+    extends:
+      file: ${VSS_APPS_DIR}/services/analytics/video-analytics-api/compose.yml
+      service: vss-video-analytics-api
+    healthcheck:
+      test: [CMD, node, -e, "require('http').get('http://localhost:8081/livez',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 60

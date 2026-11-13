@@ -55,7 +55,7 @@ ensure_ngc_cli() {
   local ngc_cli_zip
   ngc_cli_zip="$(ngc_cli_zip_for_arch)"
   wget -q "https://ngc.nvidia.com/downloads/${ngc_cli_zip}" -O ngccli.zip
-  unzip -q ngccli.zip && chmod +x ngc-cli/ngc
+  unzip -qo ngccli.zip && chmod +x ngc-cli/ngc
   popd > /dev/null
   export PATH="/tmp/ngc-cli:${PATH}"
   ngc --version
@@ -122,7 +122,13 @@ download_package() {
   mkdir -p "$package_dir"
   # This function is called through command substitution. Keep NGC's progress and
   # completion output out of stdout so package_dir contains only the path below.
-  ngc registry model download-version "$package_ref" --org "$org" --dest "$package_dir" >&2
+  # NGC CLI 4.37 removed --org from this command. Registry references already
+  # carry the organization (org/team/model:version), including our manifests.
+  # Qualify legacy unscoped references once instead of passing a removed flag.
+  if [[ "$package_ref" != */* ]]; then
+    package_ref="${org}/${package_ref}"
+  fi
+  ngc registry model download-version "$package_ref" --dest "$package_dir" >&2
 
   echo "$package_dir"
 }
