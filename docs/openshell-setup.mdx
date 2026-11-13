@@ -67,7 +67,8 @@ The gateway is a Compose service behind the `openshell` profile. Bringing it up 
 ```bash
 docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
-openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
+openshell gateway list | grep -q ' http://127.0.0.1:8080 ' ||
+  openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
 ```
 
 <Note>
