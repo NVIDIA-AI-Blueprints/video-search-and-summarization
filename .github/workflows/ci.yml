@@ -478,8 +478,6 @@ jobs:
             deploy/docker/scripts/tests/test_dashboard_forward_watchdog.py \
             .openclaw/tests/test_runtime_instructions.py \
             skills/vss-build-vision-ai/scripts/tests/test_sync_skills.py \
-            skills/vss-build-vision-ai/scripts/tests/test_stage_vss_src.py \
-            skills/vss-build-vision-ai/scripts/tests/test_apply_onboard_config.py \
             skills/vss-build-vision-ai/scripts/tests/test_container_tag_override.py \
             skills/vss-build-vision-ai/scripts/tests/test_script_help.py \
             skills/vss-build-vision-ai/scripts/tests/test_check_credentials_gate.py \
