@@ -6,227 +6,588 @@ position: 5
 
 ## Overview
 
-The Real-Time VLM (RTVI-VLM) microservice provides real-time video understanding capabilities
-using Vision Language Models (VLM) for live RTSP streams and pre-recorded video files,
-generating captions and detecting incidents. It uses the Cosmos3 Nano Reasoner model
-served via vLLM.
+The Real-Time VLM (RTVI-VLM) microservice processes live RTSP streams and recorded
+videos in 10-second chunks. These VSS 3.3 measurements replace the VSS 3.2 results
+previously published on this page. They cover the integrated vLLM backend, with
+Adaptive EVS disabled and enabled, on one GPU per worker or one embedded device.
+They do not measure a Dynamo deployment, an external NIM endpoint, or the
+end-to-end video summarization workflow.
 
-Video is processed in 10-second chunks: the microservice accumulates 80 frames per chunk at
-448×448 resolution, producing 7,840 vision tokens per inference call. Benchmarks cover two
-operating modes and two output sequence lengths (OSL):
-
-- **Streaming mode** — the microservice reads live RTSP streams continuously. Latency is
-  measured from when a chunk is ready until the VLM response is received.
-- **File processing mode** — pre-recorded video files are processed as fast as possible
-  since all frames are immediately available.
-
-Output sequence length (OSL) determines the use case:
-
-- **OSL = 1 (Alerting)** — the VLM outputs a single Yes/No token in response to a binary
-  alert prompt. Lower latency and higher throughput.
-- **OSL = 100 (Captioning)** — the VLM generates a descriptive caption of the video chunk.
-  Higher output token count leads to longer latency and lower throughput.
-
-<Frame caption="Max concurrent live RTSP streams per GPU. Alerting (OSL=1) consistently supports more concurrent streams than captioning (OSL=100) due to its single-token output. H100 and RTX Pro 6000 SE are the recommended platforms for multi-stream deployments.">
-  <img src="./assets/images/performance/vlm_max_streams_alerting_vs_captioning.png" alt="RTVI-VLM max concurrent streams per GPU for alerting and captioning use cases" />
-</Frame>
+OSL=1 uses a binary alert prompt; OSL=100 uses a descriptive caption prompt.
+Both are benchmark output-length settings, not recommendations for every application.
+Adaptive EVS is the feature previously called EVS++.
 
 ## Test Configuration
 
 | Parameter | Value |
 | --- | --- |
-| VSS Release | 3.2 |
-| Model | Cosmos3 Nano Reasoner |
-| Model precision | FP8 |
-| Inference engine | vLLM |
+| VSS release | 3.3 |
+| Datacenter test image | `vss-rt-vlm:nightly-20261009` (SBSA variant on GB200) |
+| Embedded test image | `vss-rt-vlm:develop-7ddad4454e4d` (SBSA variant on DGX Spark) |
+| Inference engine | Integrated vLLM, one GPU per worker |
 | Chunk duration | 10 seconds |
-| Frames per chunk | 80 |
-| Image resolution | 448×448 |
-| Vision tokens per chunk | 7,840 |
-| Input sequence length (ISL) | 56 text tokens |
-| GPUs tested | H100, RTX Pro 6000 SE, DGX Spark, AGX Thor |
+| Model input resolution | 640×640 |
+| Frames sampled per chunk | 10 / 20 / 40 |
+| Nominal vision tokens before pruning | Approximately 2K / 4K / 8K, respectively |
+| Effective model sampling rate | 1 / 2 / 4 FPS, respectively |
+| OSL | 1 and 100 tokens |
+| Recorded source video | 1080p, 10 FPS, H.264 |
+| Recorded file durations | 10 seconds, 10 minutes, 60 minutes |
+| Adaptive EVS on | `VIA_EVS_SESSION=true`, `VLM_VIDEO_PRUNING_RATE=0.5` |
+| Datacenter GPU memory fraction | 0.7; 0.45 on L40S |
+| Embedded GPU memory fraction / batch limit | 0.30 / 2,048 batched tokens; VLM batch size 32 |
+| Embedded admission mode | Adaptive |
+| Jetson AGX Thor power setting | T5000, 120 W, maximum clocks |
 
-## Performance by GPU
+The vision-token labels describe the input profile before Adaptive EVS pruning;
+they are not the actual post-pruning input sequence length. Text prompt tokens
+are additional. Prefix caching and the multimodal preprocessor cache were disabled
+for these runs. Adaptive EVS retains its own session state.
+
+| Platform | Model and language-model precision |
+| --- | --- |
+| H100 SXM | Cosmos3 Super Reasoner, FP8 |
+| B200 SXM | Cosmos3 Super Reasoner, NVFP4 |
+| GB200 | Cosmos3 Super Reasoner, NVFP4 |
+| RTX PRO 6000 SE | Cosmos3 Super Reasoner, NVFP4 |
+| RTX PRO 4500 | Cosmos3 Nano Reasoner, NVFP4 |
+| L40S | Cosmos3 Nano Reasoner, FP8 |
+| DGX Spark | Cosmos3 Nano Reasoner, NVFP4 |
+| AGX Thor | Cosmos3 Nano Reasoner, NVFP4 |
+
+<Note>
+The platforms run different model sizes and precisions. L40S, RTX PRO 4500,
+DGX Spark, and AGX Thor use Nano; the other datacenter platforms use Super.
+Do not interpret the tables as a like-for-like hardware speedup comparison.
+</Note>
+
+## Reading the Results
+
+- **Reported maximum live streams** is the capacity value found by the benchmark's
+  ramp and binary search using a moving-average chunk-latency threshold of 10 seconds.
+  It is not a p95 latency guarantee. Ramp runs can include dropped chunks while
+  probing overloaded levels; revalidate the intended load and drop policy before deployment.
+- **Single-stream latency** compares the same load with Adaptive EVS off and on.
+  It is chunk-processing latency after frames are available, not TTFT or video capture time.
+- **File throughput** counts completed 10-second files per second. The reported peak
+  is the highest observed throughput among tested concurrency levels, not a proven ceiling.
+  Off/on peaks can occur at different concurrency levels; use concurrency 1 for a matched-load comparison.
+- **File latency** is the time to process an entire file at concurrency 1, without a
+  downstream summarization LLM. Datacenter values average iterations 2 and 3,
+  excluding the first warm-up iteration; embedded values use the workbook's three-run mean.
+
+The tables summarize PBR 309400 (datacenter, report revision 4, October 22, 2026)
+and PBR 309401 (embedded baseline and Adaptive EVS runs, October 2026).
+No new benchmark runs were performed for this documentation update.
+
+## Performance by Platform
 
 <Tabs>
-<Tab title="H100">
-**Streaming Mode**
+<Tab title="H100 SXM">
 
-| Use Case | Max Streams | Chunk E2E Avg (s) | p90 (s) | p95 (s) | GPU Core (%) | GPU Mem (%) |
-| --- | --- | --- | --- | --- | --- | --- |
-| Alerting (OSL=1) | 51 | 3.6 | 4.86 | 4.95 | 94.8 | 86.8 |
-| Captioning (OSL=100) | 33 | 4.78 | 6.31 | 6.44 | 83.8 | 83.9 |
+**Cosmos3 Super Reasoner, FP8**
 
-| Use Case | Concurrent Streams | Chunk E2E Avg (s) | GPU Core Avg (%) |
+### Reported Maximum Live Streams
+
+| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
 | --- | --- | --- | --- |
-| Alerting (OSL=1) | 1 | 0.58 | 0.4 |
-| Alerting (OSL=1) | 10 | 1.10 | 21.0 |
-| Alerting (OSL=1) | 20 | 1.33 | 30.8 |
-| Captioning (OSL=100) | 1 | 1.23 | 8.2 |
-| Captioning (OSL=100) | 10 | 2.21 | 31.2 |
-| Captioning (OSL=100) | 20 | 3.72 | 52.2 |
+| 2K | 1 | 61 | 148 |
+| 4K | 1 | 30 | 97 |
+| 8K | 1 | 13 | 58 |
+| 2K | 100 | 44 | 97 |
+| 4K | 100 | 21 | 66 |
+| 8K | 100 | 10 | 41 |
 
-**File Processing Mode**
+### Single-Stream Chunk Latency
 
-| Use Case | Video Length | E2E Latency (s) |
-| --- | --- | --- |
-| Alerting (OSL=1) | 10 s | 0.67 |
-| Alerting (OSL=1) | 10 min | 18.1 |
-| Alerting (OSL=1) | 60 min | 108.0 |
-| Captioning (OSL=100) | 10 s | 1.31 |
-| Captioning (OSL=100) | 10 min | 22.0 |
-| Captioning (OSL=100) | 60 min | 131.1 |
+Mean and p95 latency in seconds at one live stream.
 
-| Concurrency | E2E Latency Avg (s) | Throughput (req/s) | p90 (s) | p95 (s) |
-| --- | --- | --- | --- | --- |
-| 1 | 0.61 | 1.64 | 0.74 | 0.74 |
-| 2 | 0.60 | 3.33 | 0.75 | 0.75 |
-| 4 | 0.67 | 5.97 | 0.80 | 0.81 |
-| 8 | 0.72 | 11.11 | 1.07 | 1.14 |
-| 16 | 1.12 | 14.29 | 1.75 | 1.76 |
-| 32 | 1.58 | 20.25 | 2.38 | 2.44 |
+| Vision tokens | OSL | Off mean | Off p95 | On mean | On p95 |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 0.46 | 0.47 | 0.37 | 0.38 |
+| 4K | 1 | 0.84 | 0.86 | 0.56 | 0.59 |
+| 8K | 1 | 1.62 | 1.64 | 1.07 | 1.11 |
+| 2K | 100 | 2.01 | 2.04 | 1.89 | 1.9 |
+| 4K | 100 | 2.41 | 2.43 | 2.09 | 2.11 |
+| 8K | 100 | 3.22 | 3.25 | 2.61 | 2.65 |
 
-| Concurrency | E2E Latency Avg (s) | Throughput (req/s) | p90 (s) | p95 (s) |
-| --- | --- | --- | --- | --- |
-| 1 | 1.13 | 0.88 | 1.35 | 1.35 |
-| 2 | 1.19 | 1.68 | 1.43 | 1.43 |
-| 4 | 1.25 | 3.20 | 1.53 | 1.54 |
-| 8 | 1.69 | 4.73 | 1.67 | 1.68 |
-| 16 | 1.92 | 8.33 | 2.33 | 2.34 |
-| 32 | 2.65 | 12.08 | 3.69 | 3.71 |
+### File Throughput
+
+Completed 10-second files/s at concurrency 1 and at the best tested concurrency (C).
+
+| Vision tokens | OSL | Off C=1 | Off peak | Off peak C | On C=1 | On peak | On peak C |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 2.43 | 5.96 | 128 | 3.04 | 14.04 | 128 |
+| 4K | 1 | 1.21 | 2.9 | 128 | 1.72 | 9.5 | 128 |
+| 8K | 1 | 0.62 | 1.33 | 128 | 0.91 | 5.67 | 128 |
+| 2K | 100 | 0.51 | 4.71 | 64 | 0.54 | 10.79 | 128 |
+| 4K | 100 | 0.41 | 2.37 | 128 | 0.47 | 7.73 | 128 |
+| 8K | 100 | 0.31 | 1.04 | 16 | 0.38 | 4.97 | 128 |
+
+### File Processing Latency
+
+Mean seconds per file, concurrency 1.
+
+| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | Off | 0.42 | 10.18 | 59.3 |
+| 2K | 1 | On | 0.34 | 4.59 | 24.87 |
+| 4K | 1 | Off | 0.83 | 20.94 | 122.73 |
+| 4K | 1 | On | 0.6 | 7 | 38.08 |
+| 8K | 1 | Off | 1.63 | 45.82 | 268.31 |
+| 8K | 1 | On | 1.11 | 11.63 | 64 |
+| 2K | 100 | Off | 2.02 | 12.7 | 74.31 |
+| 2K | 100 | On | 1.86 | 6.78 | 34.16 |
+| 4K | 100 | Off | 2.4 | 25.7 | 148.83 |
+| 4K | 100 | On | 2.12 | 8.97 | 46.97 |
+| 8K | 100 | Off | 3.21 | 60.58 | 352.23 |
+| 8K | 100 | On | 2.63 | 13.86 | 74.31 |
 
 </Tab>
-<Tab title="RTX Pro 6000 SE">
-**Streaming Mode**
+<Tab title="B200 SXM">
 
-| Use Case | Max Streams | Chunk E2E Avg (s) | p90 (s) | p95 (s) | GPU Core (%) | GPU Mem (%) |
-| --- | --- | --- | --- | --- | --- | --- |
-| Alerting (OSL=1) | 33 | 3.4 | 4.61 | 4.61 | 94.0 | 81.1 |
-| Captioning (OSL=100) | 18 | 6.4 | 8.02 | 8.46 | 93.6 | 78.8 |
+**Cosmos3 Super Reasoner, NVFP4**
 
-| Use Case | Concurrent Streams | Chunk E2E Avg (s) | GPU Core Avg (%) |
+### Reported Maximum Live Streams
+
+| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
 | --- | --- | --- | --- |
-| Alerting (OSL=1) | 1 | 0.73 | 6.2 |
-| Alerting (OSL=1) | 10 | 1.48 | 32.1 |
-| Alerting (OSL=1) | 20 | 2.07 | 56.0 |
-| Captioning (OSL=100) | 1 | 2.23 | 17.5 |
-| Captioning (OSL=100) | 10 | 4.69 | 54.3 |
-| Captioning (OSL=100) | 20 | 9.42 | 74.2 |
+| 2K | 1 | 166 | 256 |
+| 4K | 1 | 81 | 171 |
+| 8K | 1 | 36 | 96 |
+| 2K | 100 | 132 | 190 |
+| 4K | 100 | 64 | 124 |
+| 8K | 100 | 30 | 71 |
 
-**File Processing Mode**
+### Single-Stream Chunk Latency
 
-| Use Case | Video Length | E2E Latency (s) |
-| --- | --- | --- |
-| Alerting (OSL=1) | 10 s | 0.44 |
-| Alerting (OSL=1) | 10 min | 27.6 |
-| Alerting (OSL=1) | 60 min | 164.5 |
-| Captioning (OSL=100) | 10 s | 1.93 |
-| Captioning (OSL=100) | 10 min | 35.8 |
-| Captioning (OSL=100) | 60 min | 219.0 |
+Mean and p95 latency in seconds at one live stream.
 
-| Concurrency | E2E Latency Avg (s) | Throughput (req/s) | p90 (s) | p95 (s) |
-| --- | --- | --- | --- | --- |
-| 1 | 0.46 | 2.17 | 0.52 | 0.52 |
-| 2 | 0.37 | 5.41 | 0.54 | 0.54 |
-| 4 | 0.46 | 8.70 | 0.80 | 0.82 |
-| 8 | 0.41 | 19.51 | 0.52 | 0.53 |
-| 16 | 0.61 | 26.23 | 1.02 | 1.03 |
-| 32 | 1.10 | 29.09 | 1.50 | 1.53 |
+| Vision tokens | OSL | Off mean | Off p95 | On mean | On p95 |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 0.31 | 0.32 | 0.32 | 0.33 |
+| 4K | 1 | 0.51 | 0.53 | 0.48 | 0.51 |
+| 8K | 1 | 1.1 | 1.12 | 0.93 | 0.95 |
+| 2K | 100 | 1.26 | 1.28 | 1.25 | 1.27 |
+| 4K | 100 | 1.53 | 1.55 | 1.42 | 1.43 |
+| 8K | 100 | 2.13 | 2.16 | 1.95 | 1.97 |
 
-| Concurrency | E2E Latency Avg (s) | Throughput (req/s) | p90 (s) | p95 (s) |
-| --- | --- | --- | --- | --- |
-| 1 | 1.76 | 0.57 | 1.98 | 1.98 |
-| 2 | 1.88 | 1.06 | 2.09 | 2.09 |
-| 4 | 1.98 | 2.02 | 1.95 | 1.96 |
-| 8 | 2.22 | 3.60 | 2.43 | 2.43 |
-| 16 | 2.77 | 5.78 | 3.01 | 3.07 |
-| 32 | 3.92 | 8.16 | 4.32 | 4.34 |
+### File Throughput
+
+Completed 10-second files/s at concurrency 1 and at the best tested concurrency (C).
+
+| Vision tokens | OSL | Off C=1 | Off peak | Off peak C | On C=1 | On peak | On peak C |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 4.48 | 15.54 | 128 | 4.49 | 24.33 | 128 |
+| 4K | 1 | 2.13 | 7.61 | 128 | 2.3 | 15.63 | 128 |
+| 8K | 1 | 0.96 | 3.43 | 128 | 1.11 | 8.74 | 128 |
+| 2K | 100 | 0.85 | 12.7 | 128 | 0.84 | 18.87 | 128 |
+| 4K | 100 | 0.71 | 6.73 | 128 | 0.72 | 13 | 128 |
+| 8K | 100 | 0.5 | 3.14 | 128 | 0.54 | 7.7 | 128 |
+
+### File Processing Latency
+
+Mean seconds per file, concurrency 1.
+
+| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | Off | 0.25 | 4.04 | 22.29 |
+| 2K | 1 | On | 0.26 | 2.91 | 13.73 |
+| 4K | 1 | Off | 0.51 | 8.1 | 46 |
+| 4K | 1 | On | 0.47 | 4.13 | 21.7 |
+| 8K | 1 | Off | 1.08 | 18.02 | 102.38 |
+| 8K | 1 | On | 0.9 | 7.78 | 38.84 |
+| 2K | 100 | Off | 1.23 | 5.5 | 27.2 |
+| 2K | 100 | On | 1.22 | 3.97 | 19.43 |
+| 4K | 100 | Off | 1.4 | 9.54 | 51.95 |
+| 4K | 100 | On | 1.4 | 5.33 | 27.11 |
+| 8K | 100 | Off | 1.98 | 19.93 | 110.48 |
+| 8K | 100 | On | 1.85 | 8.84 | 45.91 |
+
+</Tab>
+<Tab title="GB200">
+
+**Cosmos3 Super Reasoner, NVFP4**
+
+### Reported Maximum Live Streams
+
+| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| --- | --- | --- | --- |
+| 2K | 1 | 179 | 244 |
+| 4K | 1 | 90 | 177 |
+| 8K | 1 | 42 | 96 |
+| 2K | 100 | 138 | 183 |
+| 4K | 100 | 69 | 111 |
+| 8K | 100 | 34 | 64 |
+
+### Single-Stream Chunk Latency
+
+Mean and p95 latency in seconds at one live stream.
+
+| Vision tokens | OSL | Off mean | Off p95 | On mean | On p95 |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 0.26 | 0.27 | 0.31 | 0.33 |
+| 4K | 1 | 0.32 | 0.33 | 0.32 | 0.34 |
+| 8K | 1 | 0.56 | 0.59 | 0.45 | 0.48 |
+| 2K | 100 | 1.18 | 1.19 | 1.19 | 1.24 |
+| 4K | 100 | 1.22 | 1.22 | 1.18 | 1.19 |
+| 8K | 100 | 1.49 | 1.62 | 1.39 | 1.49 |
+
+### File Throughput
+
+Completed 10-second files/s at concurrency 1 and at the best tested concurrency (C).
+
+| Vision tokens | OSL | Off C=1 | Off peak | Off peak C | On C=1 | On peak | On peak C |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 4.62 | 16.96 | 128 | 5.06 | 23.68 | 128 |
+| 4K | 1 | 3.59 | 8.75 | 128 | 3.47 | 16.25 | 128 |
+| 8K | 1 | 1.92 | 4.07 | 128 | 2.22 | 8.27 | 128 |
+| 2K | 100 | 0.92 | 14.17 | 128 | 0.9 | 19.23 | 128 |
+| 4K | 100 | 0.83 | 7.69 | 128 | 0.83 | 13.93 | 128 |
+| 8K | 100 | 0.66 | 3.73 | 128 | 0.71 | 8.07 | 128 |
+
+### File Processing Latency
+
+Mean seconds per file, concurrency 1.
+
+| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | Off | 0.2 | 3.67 | 19.68 |
+| 2K | 1 | On | 0.21 | 2.65 | 13.29 |
+| 4K | 1 | Off | 0.29 | 7.12 | 41 |
+| 4K | 1 | On | 0.34 | 3.93 | 21.2 |
+| 8K | 1 | Off | 0.53 | 16.5 | 91.27 |
+| 8K | 1 | On | 0.41 | 6.54 | 37.12 |
+| 2K | 100 | Off | 1.08 | 4.76 | 24.38 |
+| 2K | 100 | On | 1.17 | 3.98 | 18.06 |
+| 4K | 100 | Off | 1.16 | 8.38 | 45.64 |
+| 4K | 100 | On | 1.23 | 4.92 | 25.4 |
+| 8K | 100 | Off | 1.47 | 17.62 | 98.25 |
+| 8K | 100 | On | 1.25 | 7.83 | 41.52 |
+
+</Tab>
+<Tab title="RTX PRO 6000 SE">
+
+**Cosmos3 Super Reasoner, NVFP4**
+
+### Reported Maximum Live Streams
+
+| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| --- | --- | --- | --- |
+| 2K | 1 | 60 | 130 |
+| 4K | 1 | 27 | 80 |
+| 8K | 1 | 11 | 45 |
+| 2K | 100 | 40 | 82 |
+| 4K | 100 | 18 | ≥47 |
+| 8K | 100 | 7 | 29 |
+
+The 4K, OSL=100, Adaptive EVS-on value is a lower bound: 47 streams were stable, but the run did not reach a stability decision at 52 streams.
+
+### Single-Stream Chunk Latency
+
+Mean and p95 latency in seconds at one live stream.
+
+| Vision tokens | OSL | Off mean | Off p95 | On mean | On p95 |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 0.42 | 0.42 | 0.34 | 0.35 |
+| 4K | 1 | 0.76 | 0.78 | 0.53 | 0.55 |
+| 8K | 1 | 1.69 | 1.7 | 1.04 | 1.07 |
+| 2K | 100 | 2.84 | 2.87 | 2.74 | 2.76 |
+| 4K | 100 | 3.22 | 3.26 | 2.91 | 2.95 |
+| 8K | 100 | 4.11 | 4.12 | 3.45 | 3.48 |
+
+### File Throughput
+
+Completed 10-second files/s at concurrency 1 and at the best tested concurrency (C).
+
+| Vision tokens | OSL | Off C=1 | Off peak | Off peak C | On C=1 | On peak | On peak C |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 3.04 | 5.81 | 128 | 4.07 | 12.59 | 128 |
+| 4K | 1 | 1.41 | 2.68 | 128 | 2.14 | 7.91 | 128 |
+| 8K | 1 | 0.61 | 1.14 | 128 | 1.04 | 4.47 | 128 |
+| 2K | 100 | 0.38 | 4.77 | 128 | 0.39 | 9.47 | 128 |
+| 4K | 100 | 0.33 | 2.27 | 128 | 0.36 | 6.47 | 128 |
+| 8K | 100 | 0.25 | 0.99 | 128 | 0.31 | 3.94 | 128 |
+
+### File Processing Latency
+
+Mean seconds per file, concurrency 1.
+
+| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | Off | 0.38 | 10.38 | 60.92 |
+| 2K | 1 | On | 0.28 | 4.91 | 27.69 |
+| 4K | 1 | Off | 0.72 | 22.31 | 132.96 |
+| 4K | 1 | On | 0.49 | 7.96 | 45.61 |
+| 8K | 1 | Off | 1.63 | 52.95 | 313.61 |
+| 8K | 1 | On | 0.98 | 14.15 | 80.88 |
+| 2K | 100 | Off | 2.74 | 13.68 | 74.17 |
+| 2K | 100 | On | 2.63 | 7.5 | 37.66 |
+| 4K | 100 | Off | 3.09 | 26.82 | 156.01 |
+| 4K | 100 | On | 2.8 | 10.68 | 56.27 |
+| 8K | 100 | Off | 4.09 | 61.73 | 357.43 |
+| 8K | 100 | On | 3.35 | 17.03 | 92.69 |
+
+</Tab>
+<Tab title="RTX PRO 4500">
+
+**Cosmos3 Nano Reasoner, NVFP4**
+
+### Reported Maximum Live Streams
+
+| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| --- | --- | --- | --- |
+| 2K | 1 | 47 | 52 |
+| 4K | 1 | 23 | 26 |
+| 8K | 1 | 10 | 13 |
+| 2K | 100 | 16 | 17 |
+| 4K | 100 | 10 | 13 |
+| 8K | 100 | 6 | 9 |
+
+### Single-Stream Chunk Latency
+
+Mean and p95 latency in seconds at one live stream.
+
+| Vision tokens | OSL | Off mean | Off p95 | On mean | On p95 |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 0.43 | 0.43 | 0.37 | 0.38 |
+| 4K | 1 | 0.83 | 0.85 | 0.62 | 0.64 |
+| 8K | 1 | 1.76 | 1.78 | 1.3 | 1.32 |
+| 2K | 100 | 1.47 | 1.49 | 1.42 | 1.43 |
+| 4K | 100 | 1.92 | 1.94 | 1.7 | 1.72 |
+| 8K | 100 | 2.91 | 2.93 | 2.38 | 2.4 |
+
+### File Throughput
+
+Completed 10-second files/s at concurrency 1 and at the best tested concurrency (C).
+
+| Vision tokens | OSL | Off C=1 | Off peak | Off peak C | On C=1 | On peak | On peak C |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 2.82 | 4.52 | 32 | 3.43 | 5.16 | 32 |
+| 4K | 1 | 1.27 | 2.2 | 32 | 1.73 | 2.66 | 32 |
+| 8K | 1 | 0.58 | 0.96 | 32 | 0.81 | 1.3 | 32 |
+| 2K | 100 | 0.7 | 1.54 | 32 | 0.75 | 1.76 | 32 |
+| 4K | 100 | 0.54 | 1.03 | 32 | 0.62 | 1.33 | 32 |
+| 8K | 100 | 0.35 | 0.59 | 32 | 0.44 | 0.87 | 32 |
+
+### File Processing Latency
+
+Mean seconds per file, concurrency 1.
+
+| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | Off | 0.38 | 13.04 | 77.3 |
+| 2K | 1 | On | 0.32 | 11.52 | 68.94 |
+| 4K | 1 | Off | 0.78 | 26.69 | 159.24 |
+| 4K | 1 | On | 0.6 | 22.56 | 134.42 |
+| 8K | 1 | Off | 1.71 | 61.83 | 370.56 |
+| 8K | 1 | On | 1.23 | 45.59 | 276.03 |
+| 2K | 100 | Off | 1.44 | 37.81 | 226.6 |
+| 2K | 100 | On | 1.33 | 33.52 | 200.69 |
+| 4K | 100 | Off | 1.85 | 56.67 | 341.01 |
+| 4K | 100 | On | 1.62 | 44.48 | 269.25 |
+| 8K | 100 | Off | 2.83 | 99.28 | 595.21 |
+| 8K | 100 | On | 2.29 | 68.42 | 408.69 |
+
+</Tab>
+<Tab title="L40S">
+
+**Cosmos3 Nano Reasoner, FP8**
+
+### Reported Maximum Live Streams
+
+| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| --- | --- | --- | --- |
+| 2K | 1 | 54 | 84 |
+| 4K | 1 | 26 | 49 |
+| 8K | 1 | 12 | 27 |
+| 2K | 100 | 32 | 45 |
+| 4K | 100 | 18 | 31 |
+| 8K | 100 | 8 | 20 |
+
+### Single-Stream Chunk Latency
+
+Mean and p95 latency in seconds at one live stream.
+
+| Vision tokens | OSL | Off mean | Off p95 | On mean | On p95 |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 0.42 | 0.43 | 0.35 | 0.36 |
+| 4K | 1 | 0.75 | 0.77 | 0.58 | 0.6 |
+| 8K | 1 | 1.64 | 1.67 | 1.14 | 1.17 |
+| 2K | 100 | 1.91 | 1.93 | 1.83 | 1.84 |
+| 4K | 100 | 2.27 | 2.29 | 2.06 | 2.08 |
+| 8K | 100 | 3.21 | 3.23 | 2.58 | 2.62 |
+
+### File Throughput
+
+Completed 10-second files/s at concurrency 1 and at the best tested concurrency (C).
+
+| Vision tokens | OSL | Off C=1 | Off peak | Off peak C | On C=1 | On peak | On peak C |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 2.84 | 5.26 | 128 | 3.32 | 8.13 | 128 |
+| 4K | 1 | 1.33 | 2.55 | 128 | 1.75 | 4.64 | 64 |
+| 8K | 1 | 0.61 | 1.18 | 128 | 0.89 | 2.55 | 128 |
+| 2K | 100 | 0.54 | 3.13 | 128 | 0.56 | 4.38 | 128 |
+| 4K | 100 | 0.44 | 1.82 | 128 | 0.49 | 3.08 | 64 |
+| 8K | 100 | 0.31 | 0.94 | 128 | 0.38 | 1.91 | 128 |
+
+### File Processing Latency
+
+Mean seconds per file, concurrency 1.
+
+| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | Off | 0.4 | 11.37 | 67.42 |
+| 2K | 1 | On | 0.32 | 7.06 | 42.68 |
+| 4K | 1 | Off | 0.77 | 23.52 | 140.67 |
+| 4K | 1 | On | 0.57 | 13.03 | 77.52 |
+| 8K | 1 | Off | 1.65 | 51 | 304.25 |
+| 8K | 1 | On | 1.12 | 23.9 | 140.42 |
+| 2K | 100 | Off | 1.88 | 19.54 | 115.04 |
+| 2K | 100 | On | 1.77 | 13.91 | 83.02 |
+| 4K | 100 | Off | 2.28 | 33.33 | 198.97 |
+| 4K | 100 | On | 2.03 | 20.18 | 118.05 |
+| 8K | 100 | Off | 3.21 | 63.91 | 379.58 |
+| 8K | 100 | On | 2.6 | 32.33 | 191.19 |
 
 </Tab>
 <Tab title="DGX Spark">
-**Streaming Mode**
 
-| Use Case | Max Streams | Chunk E2E Avg (s) | p90 (s) | p95 (s) | GPU Core (%) |
+**Cosmos3 Nano Reasoner, NVFP4**
+
+### Reported Maximum Live Streams
+
+| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| --- | --- | --- | --- |
+| 2K | 1 | 25 | 36 |
+| 4K | 1 | 11 | 17 |
+| 8K | 1 | 5 | 8 |
+| 2K | 100 | 15 | 22 |
+| 4K | 100 | 6 | 11 |
+| 8K | 100 | 3 | 5 |
+
+### Single-Stream Chunk Latency
+
+Mean and p95 latency in seconds at one live stream.
+
+| Vision tokens | OSL | Off mean | Off p95 | On mean | On p95 |
 | --- | --- | --- | --- | --- | --- |
-| Alerting (OSL=1) | 2 | 4.08 | 4.24 | 4.24 | 90.9 |
-| Captioning (OSL=100) | 1 | 8.61 | 8.64 | 8.65 | 89.2 |
+| 2K | 1 | 0.59 | 0.65 | 0.47 | 0.53 |
+| 4K | 1 | 1.07 | 1.2 | 0.75 | 0.86 |
+| 8K | 1 | 2.25 | 2.39 | 1.39 | 1.53 |
+| 2K | 100 | 3.41 | 3.48 | 3.22 | 3.28 |
+| 4K | 100 | 3.96 | 4.1 | 3.53 | 3.65 |
+| 8K | 100 | 5.33 | 5.43 | 4.17 | 4.33 |
 
-| Use Case | Concurrent Streams | Chunk E2E Avg (s) |
-| --- | --- | --- |
-| Alerting (OSL=1) | 1 | 4.03 |
-| Alerting (OSL=1) | 2 | 6.92 |
-| Captioning (OSL=100) | 1 | 8.62 |
-| Captioning (OSL=100) | 2 | 27.14 |
+### File Throughput
 
-**File Processing Mode**
+Completed 10-second files/s at concurrency 1 and at the best tested concurrency (C).
 
-| Use Case | Video Length | E2E Latency (s) |
-| --- | --- | --- |
-| Alerting (OSL=1) | 10 s | 1.63 |
-| Alerting (OSL=1) | 10 min | 176.3 |
-| Captioning (OSL=100) | 10 s | 6.04 |
-| Captioning (OSL=100) | 10 min | 218.1 |
+| Vision tokens | OSL | Off C=1 | Off peak | Off peak C | On C=1 | On peak | On peak C |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 1.93 | 2.44 | 16 | 2.75 | 3.52 | 16 |
+| 4K | 1 | 0.9 | 1.1 | 16 | 1.36 | 1.71 | 16 |
+| 8K | 1 | 0.43 | 0.52 | 16 | 0.7 | 0.87 | 16 |
+| 2K | 100 | 0.3 | 1.52 | 16 | 0.32 | 2.04 | 16 |
+| 4K | 100 | 0.25 | 0.73 | 16 | 0.28 | 1.04 | 16 |
+| 8K | 100 | 0.19 | 0.35 | 16 | 0.24 | 0.54 | 16 |
 
-| Concurrency | E2E Latency Avg (s) | Throughput (req/s) |
-| --- | --- | --- |
-| 1 | 1.63 | 0.61 |
-| 2 | 1.15 | 1.74 |
-| 4 | 1.31 | 3.05 |
-| 8 | 1.96 | 4.08 |
+### File Processing Latency
 
-| Concurrency | E2E Latency Avg (s) | Throughput (req/s) |
-| --- | --- | --- |
-| 1 | 6.04 | 0.17 |
-| 2 | 5.28 | 0.38 |
-| 4 | 7.37 | 0.54 |
-| 8 | 10.36 | 0.77 |
+Mean seconds per file, concurrency 1.
+
+| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | Off | 0.64 | 25.65 | 145.24 |
+| 2K | 1 | On | 0.45 | 17.96 | 100.01 |
+| 4K | 1 | Off | 1.11 | 53.83 | 327.59 |
+| 4K | 1 | On | 0.65 | 34.63 | 211.47 |
+| 8K | 1 | Off | 2.43 | 114.12 | 712.57 |
+| 8K | 1 | On | 1.4 | 68.2 | 399.94 |
+| 2K | 100 | Off | 3.34 | 40.92 | 228.01 |
+| 2K | 100 | On | 3.15 | 31.48 | 172.28 |
+| 4K | 100 | Off | 3.9 | 82.31 | 490.78 |
+| 4K | 100 | On | 3.41 | 59.64 | 340.5 |
+| 8K | 100 | Off | 5.26 | 171.12 | 1022.38 |
+| 8K | 100 | On | 4.18 | 110.17 | 652.66 |
 
 </Tab>
 <Tab title="AGX Thor">
-**Streaming Mode**
 
-| Use Case | Max Streams | Chunk E2E Avg (s) | p90 (s) | p95 (s) | GPU Core (%) |
+**Cosmos3 Nano Reasoner, NVFP4**
+
+### Reported Maximum Live Streams
+
+| Vision tokens | OSL | Adaptive EVS off | Adaptive EVS on |
+| --- | --- | --- | --- |
+| 2K | 1 | 25 | 33 |
+| 4K | 1 | 9 | 15 |
+| 8K | 1 | 4 | 8 |
+| 2K | 100 | 13 | 21 |
+| 4K | 100 | 5 | 9 |
+| 8K | 100 | 2 | 5 |
+
+### Single-Stream Chunk Latency
+
+Mean and p95 latency in seconds at one live stream.
+
+| Vision tokens | OSL | Off mean | Off p95 | On mean | On p95 |
 | --- | --- | --- | --- | --- | --- |
-| Alerting (OSL=1) | 3 | 6.52 | 8.12 | 8.14 | 81.1 |
-| Captioning (OSL=100) | 1 | 7.62 | 7.65 | 7.65 | 76.6 |
+| 2K | 1 | 0.86 | 0.87 | 0.5 | 0.51 |
+| 4K | 1 | 1.69 | 1.71 | 1.03 | 1.06 |
+| 8K | 1 | 3.3 | 3.33 | 1.75 | 1.8 |
+| 2K | 100 | 4.39 | 4.49 | 4.28 | 4.31 |
+| 4K | 100 | 5.34 | 5.38 | 4.37 | 4.64 |
+| 8K | 100 | 6.78 | 7.1 | 4.86 | 5.16 |
 
-| Use Case | Concurrent Streams | Chunk E2E Avg (s) |
-| --- | --- | --- |
-| Alerting (OSL=1) | 1 | 3.22 |
-| Alerting (OSL=1) | 2 | 5.39 |
-| Captioning (OSL=100) | 1 | 7.19 |
-| Captioning (OSL=100) | 2 | 15.70 |
+### File Throughput
 
-**File Processing Mode**
+Completed 10-second files/s at concurrency 1 and at the best tested concurrency (C).
 
-| Use Case | Video Length | E2E Latency (s) |
-| --- | --- | --- |
-| Alerting (OSL=1) | 10 s | 0.37 |
-| Alerting (OSL=1) | 10 min | 179.6 |
-| Captioning (OSL=100) | 10 s | 6.72 |
-| Captioning (OSL=100) | 10 min | 240.9 |
+| Vision tokens | OSL | Off C=1 | Off peak | Off peak C | On C=1 | On peak | On peak C |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2K | 1 | 1.87 | 2.41 | 16 | 2.66 | 3.1 | 16 |
+| 4K | 1 | 0.79 | 0.94 | 16 | 1.21 | 1.56 | 16 |
+| 8K | 1 | 0.36 | 0.41 | 16 | 0.69 | 0.85 | 16 |
+| 2K | 100 | 0.26 | 1.41 | 16 | 0.28 | 1.8 | 16 |
+| 4K | 100 | 0.22 | 0.63 | 16 | 0.22 | 0.92 | 16 |
+| 8K | 100 | 0.16 | 0.29 | 16 | 0.22 | 0.55 | 16 |
 
-| Concurrency | E2E Latency Avg (s) | Throughput (req/s) |
-| --- | --- | --- |
-| 1 | 0.37 | 2.70 |
-| 2 | 0.47 | 4.26 |
-| 4 | 0.72 | 5.56 |
-| 8 | 0.99 | 8.08 |
+### File Processing Latency
 
-| Concurrency | E2E Latency Avg (s) | Throughput (req/s) |
-| --- | --- | --- |
-| 1 | 6.72 | 0.15 |
-| 2 | 7.34 | 0.27 |
-| 4 | 9.40 | 0.43 |
-| 8 | 9.22 | 0.87 |
+Mean seconds per file, concurrency 1.
+
+| Vision tokens | OSL | Adaptive EVS | 10 s | 10 min | 60 min |
+| --- | --- | --- | --- | --- | --- |
+| 2K | 1 | Off | 0.64 | 25.74 | 146.48 |
+| 2K | 1 | On | 0.47 | 24.53 | 113.61 |
+| 4K | 1 | Off | 1.47 | 65.13 | 387.4 |
+| 4K | 1 | On | 0.97 | 44.41 | 230.12 |
+| 8K | 1 | Off | 3.11 | 148.27 | 899.58 |
+| 8K | 1 | On | 1.62 | 71.06 | 440.79 |
+| 2K | 100 | Off | 4.17 | 40.04 | 221.62 |
+| 2K | 100 | On | 4.09 | 39.42 | 166.71 |
+| 4K | 100 | Off | 5.06 | 89.95 | 544.73 |
+| 4K | 100 | On | 4.18 | 57.14 | 339.09 |
+| 8K | 100 | Off | 6.28 | 198.07 | 1201.42 |
+| 8K | 100 | On | 4.66 | 108.05 | 656.44 |
 
 </Tab>
 </Tabs>
 
-<Note>
-All benchmarks use Cosmos3 Nano Reasoner, FP8, vLLM, 10-second chunks, 80 frames per chunk,
-448×448 resolution, 7,840 vision tokens, and ISL=56 text tokens. For streaming
-deployments, plan for 10–15% headroom below the maximum concurrent stream counts.
-GPU Memory Utilization is not available for DGX Spark and AGX Thor.
-p90/p95 latency is not available for DGX Spark and AGX Thor in file processing mode.
-</Note>
+## Measurement Limitations
+
+- Datacenter fixed-load live-stream tests with stream errors were excluded from
+  latency reporting. The source report records errors at 100 of 359 tested load
+  levels, predominantly at 64 and 128 streams. The single-stream table above uses
+  only error-free measurements.
+- Four datacenter Adaptive EVS-on capacity points use the benchmark harness fix
+  from PR #2712: B200 and GB200 at 2K/OSL=1, and RTX PRO 6000 SE at 2K/OSL=100
+  and 4K/OSL=100. The GB200 2K/OSL=1 on result uses a GB200 NVL4 node; the other
+  GB200 measurements use a different cluster node configuration.
+- Embedded capacity rows marked as reaching a capacity limit in the harness retain
+  their measured stream count; this is distinct from a runtime error. Their workbook
+  records zero dropped chunks at the reported capacity.
+- Source videos, prompt, output length, model, precision, sampling profile, memory
+  budget, and Adaptive EVS setting all affect capacity. Validate the intended
+  application workload rather than treating any one stream count as universal.
