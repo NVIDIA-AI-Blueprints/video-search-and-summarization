@@ -49,7 +49,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -706,15 +705,10 @@ def main() -> int:
 if __name__ == "__main__":
     if importlib.util.find_spec("claude_agent_sdk") is not None:
         sys.exit(main())
-    # Eval hosts may use externally managed Python. Bootstrap once before
-    # parallel checks, without installing into or overriding the host Python.
-    with tempfile.TemporaryDirectory(prefix="vss-judge-") as runtime:
-        subprocess.run(
-            [sys.executable, "-m", "venv", runtime], check=True, timeout=60,
-        )
-        python = str(Path(runtime) / "bin" / "python")
-        subprocess.run(
-            [python, "-m", "pip", "install", "--quiet", "claude-agent-sdk==0.2.128"],
-            check=True, timeout=180,
-        )
-        sys.exit(subprocess.run([python, __file__, *sys.argv[1:]], check=False).returncode)
+    # The eval stack already requires uv. Its isolated runtime also works on
+    # externally managed hosts without pip or the distro's python3-venv package.
+    sys.exit(subprocess.run(
+        ["uv", "run", "--no-project", "--with", "claude-agent-sdk==0.2.128",
+         "--python", sys.executable, "python", __file__, *sys.argv[1:]],
+        check=False,
+    ).returncode)

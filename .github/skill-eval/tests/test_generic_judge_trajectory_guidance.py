@@ -44,11 +44,12 @@ def _load_generic_judge():
 
 
 def test_judge_bootstraps_without_modifying_host_python(tmp_path: Path) -> None:
-    """A Python without pip or the SDK must still produce a verifier result."""
+    """Python without pip, venv support or the SDK still produces a result."""
     host = tmp_path / "host"
     subprocess.run(
         [sys.executable, "-m", "venv", "--without-pip", str(host)], check=True,
     )
+    (tmp_path / "venv.py").write_text("raise RuntimeError('distro venv unavailable')\n")
     wheels = tmp_path / "wheels"
     wheels.mkdir()
     metadata = "claude_agent_sdk-0.2.128.dist-info"
@@ -64,8 +65,8 @@ def test_judge_bootstraps_without_modifying_host_python(tmp_path: Path) -> None:
         wheel.writestr(f"{metadata}/RECORD", "")
     spec = tmp_path / "spec.json"
     spec.write_text(json.dumps({"expects": [{"query": "Bootstrap", "checks": ["Ready"]}]}))
-    env = dict(os.environ, PIP_NO_INDEX="1", PIP_FIND_LINKS=str(wheels),
-               PIP_CONFIG_FILE=os.devnull, PIP_REQUIRE_VIRTUALENV="true")
+    env = dict(os.environ, UV_NO_INDEX="true", UV_FIND_LINKS=str(wheels),
+               UV_CACHE_DIR=str(tmp_path / "uv-cache"), PYTHONPATH=str(tmp_path))
     env.pop("ANTHROPIC_API_KEY", None)
     result = subprocess.run(
         [str(host / "bin/python"), str(GENERIC_JUDGE), "--spec", str(spec),
