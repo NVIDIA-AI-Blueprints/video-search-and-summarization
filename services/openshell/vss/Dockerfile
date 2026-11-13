@@ -13,10 +13,12 @@
 # video by name shells out to `ngc`, and that call fails here; the `ngc` entry
 # in policy.yaml simply never matches.
 #
-# Build context is this directory (services/openshell/vss):
+# Build context is this directory (services/openshell/vss), plus the plugin
+# named context, run from the checkout root:
 #
 #   docker build --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
 #     --build-arg VSS_REF="$VSS_REF" \
+#     --build-context plugin=.hermes/plugin \
 #     -t "openshell-hermes-vss:$TAG" services/openshell/vss
 
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
@@ -32,9 +34,7 @@ FROM ${UV_IMAGE} AS uv
 # ── VSS source checkout: skills + workspace docs + CLI wheels ──────────────────
 # Same selection rules as ../../../.openclaw/Dockerfile's vss-src stage. Built on the
 # harness image rather than the bare base so the wheels are built against the
-# same /usr/bin/python3.13 the runtime resolves. The vss_cli plugin comes from
-# the pinned checkout rather than the build context, since the context here
-# carries the boundary, not harness code.
+# same /usr/bin/python3.13 the runtime resolves.
 FROM ${HARNESS_IMAGE} AS vss-src
 ARG VSS_REPO
 ARG VSS_REF
@@ -62,8 +62,7 @@ RUN mkdir -p /opt/vss-assets/workspace \
 # built: a sandbox operates a deployment through the CLI, it does not run the
 # agent. Building here keeps VSS source out of the runtime image.
 RUN mkdir -p /opt/vss-assets/wheels \
-    && uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-assets/wheels \
-    && cp -R /opt/vss-src/.hermes/plugin /opt/vss-assets/plugin
+    && uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-assets/wheels
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
 FROM ${HARNESS_IMAGE} AS runtime
@@ -71,6 +70,8 @@ USER root
 ENV PATH=/usr/local/vss/bin:/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 COPY --from=uv /uv /usr/local/bin/uv
 COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
+# `plugin` is the named build context: --build-context plugin=.hermes/plugin
+COPY --from=plugin . /opt/vss-assets/plugin/
 RUN set -eux; \
     # The vss CLI, from the wheels built out of the same VSS_REF as the skills.
     # Installed by path, not by name: with --find-links a bare name still

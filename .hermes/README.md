@@ -84,8 +84,7 @@ the OpenClaw plugin's tool exactly — same name, same `{args, cwd, timeoutSec}`
 schema, same no-shell subprocess exec, same `{command, exitCode, signal,
 timedOut, stdout, stderr, truncated}` result shape. See `./plugin/__init__.py`.
 
-The VSS layer reads it from the pinned `VSS_REF` checkout, not from a build
-context, so a local edit reaches the image only once it is pushed.
+The VSS layer takes it as the `plugin` named build context.
 
 ## Skill discovery
 
