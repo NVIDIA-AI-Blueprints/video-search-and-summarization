@@ -1,6 +1,6 @@
 ---
 name: vss-query-analytics
-description: Use this skill for read-only incident, occupancy, speed, place, and analytics-sensor questions through the project-local VSS CLI. Not for live VLM, incident-range narrative reports, deployment, or alert-rule management.
+description: Query read-only video analytics with `vss analytics` for incidents, occupancy metrics, average speed, places, and analytics sensors. Use for video-analytics questions about these records and metrics. Not for live VLM, incident-range narrative reports, deployment, or alert-rule management.
 license: Apache-2.0
 metadata:
   vss-requires: "analytics"
