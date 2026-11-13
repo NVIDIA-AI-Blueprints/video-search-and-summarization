@@ -18,7 +18,7 @@ Both diagrams below show a sandbox with the optional [VSS layer](/vision-agent/a
 
 ## Inside the boundary
 
-The same deployment, one level down. The destinations are the only hosts the sandbox can reach: the policy pair it was created with allows them, and the provider profile supplies the key added to inference calls. VSS HAProxy is among them only under the VSS policy.
+The same deployment, one level down. The destinations are the only hosts the sandbox can reach: the policy file it was created with allows them, and the provider profile adds the inference host and the key injected into calls to it. VSS HAProxy is among them only under the VSS policy.
 
 ![Host clients reach the gateway's API server, which drives the Docker driver and the policy prover; inside the sandbox the workload has no direct egress and the supervisor dials inference, VSS HAProxy, and the package hosts](./assets/images/openshell/vss-openshell-detailed-architecture.png)
 
