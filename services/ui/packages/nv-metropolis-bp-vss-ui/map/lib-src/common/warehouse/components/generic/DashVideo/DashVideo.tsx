@@ -162,6 +162,11 @@ export default class DashVideo extends React.Component {
 
   unbindTimeUpdate = () => {
     this.clearEndWatchdog();
+    if (this._playingNotifyVideo && this._onPlayingNotify) {
+      this._playingNotifyVideo.removeEventListener('playing', this._onPlayingNotify);
+      this._playingNotifyVideo = null;
+      this._onPlayingNotify = null;
+    }
     if (this.boundTimeUpdateVideo) {
       this.boundTimeUpdateVideo.removeEventListener('timeupdate', this.syncTimelineFromVideo);
       this.boundTimeUpdateVideo.removeEventListener('durationchange', this.syncTimelineFromVideo);
@@ -204,6 +209,31 @@ export default class DashVideo extends React.Component {
       isTimelineSeekable: false,
     });
     this.bindTimeUpdate(video);
+    this._startedNotified = false;
+    if (this._playingNotifyVideo && this._onPlayingNotify) {
+      this._playingNotifyVideo.removeEventListener('playing', this._onPlayingNotify);
+    }
+    const notifyStarted = () => {
+      if (generation !== this.startGeneration) return;
+      if (this._startedNotified) return;
+      this._startedNotified = true;
+      this.videoElement?.setState({ showLoader: false, coverMsg: '' });
+      this.videoElement?.switchPlayPauseBtn(this.videoElement.VIDEO_CONTROL_PAUSE_LABEL);
+      const seekable =
+        props.isTimelineSeekable !== undefined ? props.isTimelineSeekable : true;
+      this.setState(
+        {
+          isTimelineSeekable: Boolean(windowMs) && seekable,
+        },
+        () => {
+          this.syncTimelineFromVideo();
+        },
+      );
+      props.streamActionHandlers?.onStart?.(Date.now());
+    };
+    this._onPlayingNotify = notifyStarted;
+    this._playingNotifyVideo = video;
+    video.addEventListener('playing', notifyStarted);
 
     try {
       await this.dash.start({
@@ -214,22 +244,7 @@ export default class DashVideo extends React.Component {
         overlay: info.overlay,
         liveDelaySeconds: info.liveDelaySeconds,
         videoElement: video,
-        onFirstFrame: () => {
-          if (generation !== this.startGeneration) return;
-          this.videoElement?.setState({ showLoader: false, coverMsg: '' });
-          this.videoElement?.switchPlayPauseBtn(this.videoElement.VIDEO_CONTROL_PAUSE_LABEL);
-          const seekable =
-            props.isTimelineSeekable !== undefined ? props.isTimelineSeekable : true;
-          this.setState(
-            {
-              isTimelineSeekable: Boolean(windowMs) && seekable,
-            },
-            () => {
-              this.syncTimelineFromVideo();
-            },
-          );
-          props.streamActionHandlers?.onStart?.(Date.now());
-        },
+        onFirstFrame: notifyStarted,
         onError: (message) => {
           if (generation !== this.startGeneration) return;
           this.setState({ isTimelineSeekable: false });

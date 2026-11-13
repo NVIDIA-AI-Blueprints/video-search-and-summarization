@@ -22,4 +22,5 @@ export { default as NvCameraVideoPresenter } from './jsx/CameraVideoPresenter';
 export { default as ConfigFileActionsPanel } from './jsx/ConfigFileActionsPanel';
 export { default as PlaceHeader } from './jsx/PlaceHeader';
 export { default as PlaceHeaderContent } from './jsx/PlaceHeaderContent';
+export { default as PlaceHeaderLiveControl } from './jsx/PlaceHeaderLiveControl';
 export { default as UploadImagesPanel } from './jsx/UploadImagesPanel';

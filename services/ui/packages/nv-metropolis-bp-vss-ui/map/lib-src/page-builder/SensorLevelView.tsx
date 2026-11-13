@@ -8,6 +8,7 @@ import {
 import {
   PlaceHeader,
   PlaceHeaderContent,
+  PlaceHeaderLiveControl,
   ReduxUtils,
 } from "common/warehouse";
 
@@ -16,7 +17,6 @@ import SensorLevelViewLive from "./sensor-level-views/SensorLevelViewLive";
 import SensorLevelViewReplay from "./sensor-level-views/SensorLevelViewReplay";
 import UiStateReduxUtil from "./../utils/UiStateReduxUtil";
 import { joinPlacePath } from "../utils/joinPlacePath";
-import CssClasses from "./SensorLevelView.module.css";
 
 class SensorLevelView extends React.PureComponent {
   onClickButtonBackToLive = () => {
@@ -37,34 +37,15 @@ class SensorLevelView extends React.PureComponent {
 
     if (this.props.uiState.viewType === "sensor-level-alert") {
       buttonBackToLive = (
-        <span className={CssClasses.headerControl}>
-          <span
-            className={`${CssClasses.liveBadge} ${CssClasses.replayBadge}`}
-            role="button"
-            tabIndex={0}
-            onClick={this.onClickButtonBackToLive.bind(this)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                this.onClickButtonBackToLive();
-              }
-            }}
-          >
-            Go Back Live
-          </span>
-        </span>
+        <PlaceHeaderLiveControl
+          isLive={false}
+          onGoBackLive={this.onClickButtonBackToLive}
+        />
       );
 
       viewContent = <SensorLevelViewReplay />;
     } else if (this.props.uiState.viewType === "sensor-level-live") {
-      buttonBackToLive = (
-        <span className={CssClasses.headerControl}>
-          <span className={CssClasses.liveBadge}>
-            <span className={CssClasses.liveDot} aria-hidden="true" />
-            Live
-          </span>
-        </span>
-      );
+      buttonBackToLive = <PlaceHeaderLiveControl isLive={true} />;
 
       viewContent = (
         <SensorLevelViewLive

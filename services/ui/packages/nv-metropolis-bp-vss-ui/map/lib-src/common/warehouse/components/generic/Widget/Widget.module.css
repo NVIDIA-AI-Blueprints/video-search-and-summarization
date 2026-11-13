@@ -8,6 +8,7 @@
 .widget {
   position: absolute;
   z-index: 10;
+  pointer-events: auto;
   background-color: rgba(254, 254, 254, 0.8);
   color: #1a1a1a;
   box-sizing: border-box;

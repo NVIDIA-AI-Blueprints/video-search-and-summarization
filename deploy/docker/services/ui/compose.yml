@@ -144,10 +144,13 @@ services:
       NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL: ${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}/kibana
       # === End of Dashboard Tab Configuration ===
 
-      # === SMC Map Tab Configuration ===
+      # === Map Tab Configuration ===
       NEXT_PUBLIC_ENABLE_MAP_TAB: ${NEXT_PUBLIC_ENABLE_MAP_TAB:-false}
+      NEXT_PUBLIC_MAP_APP: ${NEXT_PUBLIC_MAP_APP:-warehouse}
       NEXT_PUBLIC_MAP_URL: ${NEXT_PUBLIC_MAP_URL:-http://${EXTERNAL_IP}:3002}
-      # === End of SMC Map Tab Configuration ===
+      NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:-${GOOGLE_MAPS_API_KEY:-}}
+      NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_URL: ${NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_URL:-${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}/vst/api/v1}
+      # === End of Map Tab Configuration ===
 
       # === Video Management Tab Configuration ===
       NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB: ${NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB:-true}

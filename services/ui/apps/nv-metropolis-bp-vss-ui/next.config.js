@@ -3,6 +3,34 @@
 const { configureRuntimeEnv } = require('next-runtime-env/build/configure');
 const { i18n } = require('./next-i18next.config');
 
+/**
+ * Local Next has no haproxy in front. DASH start, the MPD, and segments all
+ * live under `/vst` on the stack origin, which is a different host than the
+ * UI, and `/vst/dash/` GET responses are not CORS-enabled. Same-origin `/vst`
+ * plus this rewrite is how DashStream reaches VST from a dev server.
+ */
+function vstDevRewrites() {
+  const raw = (
+    process.env.NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_URL ||
+    process.env.NEXT_PUBLIC_VST_API_URL ||
+    ''
+  ).trim();
+  if (!raw) return [];
+  let origin;
+  try {
+    origin = new URL(raw).origin;
+  } catch {
+    return [];
+  }
+  if (!origin || origin === 'null') return [];
+  return [
+    {
+      source: '/vst/:path*',
+      destination: `${origin}/vst/:path*`,
+    },
+  ];
+}
+
 const nextConfig = {
   env: {
     ...configureRuntimeEnv(),
@@ -121,6 +149,9 @@ const nextConfig = {
   },
   async redirects() {
     return [];
+  },
+  async rewrites() {
+    return vstDevRewrites();
   },
 };
 

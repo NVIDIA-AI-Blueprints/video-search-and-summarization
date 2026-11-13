@@ -1,0 +1,38 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.speedInfoBox {
+  --speed-info-box-width: 1.5vw;
+  background-color: #2c3e50;
+  border-radius: calc(0.2 * var(--speed-info-box-width));
+  border: calc(0.025 * var(--speed-info-box-width)) solid;
+  cursor: pointer;
+  min-width: var(--speed-info-box-width);
+  max-width: var(--speed-info-box-width);
+  --height: calc(1.5 * var(--speed-info-box-width));
+  min-height: var(--height);
+  max-height: var(--height);
+  /* Translate to anchor the div's center to box's center */
+  transform: translate(
+    calc(-1 * (var(--speed-info-box-width) / 2)),
+    calc(-1 * (var(--height) / 2))
+  );
+}
+
+.speedInfoBoxMainTextContainer {
+  display: block;
+  --font-size: calc(0.8 * var(--speed-info-box-width));
+  font-size: var(--font-size);
+  font-weight: bold;
+  color: white;
+}
+
+.speedInfoBoxFooterTextContainer {
+  display: block;
+  font-size: calc(0.4 * var(--speed-info-box-width));
+  color: white;
+}

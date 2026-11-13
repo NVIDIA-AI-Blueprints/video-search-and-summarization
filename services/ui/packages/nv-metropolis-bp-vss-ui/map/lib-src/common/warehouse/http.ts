@@ -49,13 +49,16 @@ export const isAbortError = (error: unknown): boolean => {
     return error.startsWith('canceled') || error === 'aborted';
   }
   if (!error || typeof error !== 'object') return false;
-  const err = error as { name?: string; code?: string };
+  const err = error as { name?: string; code?: string; message?: string };
+  const message = typeof err.message === 'string' ? err.message : '';
   return Boolean(
     err.name === 'AbortError' ||
       err.name === 'TimeoutError' ||
       err.code === 'ABORT_ERR' ||
       err.code === 'ERR_CANCELED' ||
-      err.code === 'TIMEOUT',
+      err.code === 'TIMEOUT' ||
+      message.startsWith('canceled') ||
+      message === 'aborted',
   );
 };
 

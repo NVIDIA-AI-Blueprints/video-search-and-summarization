@@ -41,6 +41,9 @@ class LastUpdateTimeDisplay extends PureComponent {
         }
       })
       .catch((thrown) => {
+        if (isAbortError(thrown)) {
+          return;
+        }
         this.stoptLastTimeUpdateCycle();
 
         this.setState({
@@ -60,12 +63,7 @@ class LastUpdateTimeDisplay extends PureComponent {
             "Retry",
             () => this.startLastTimeUpdateCycle(props)
           );
-
-          if (isAbortError(thrown)) {
-            console.log(userMessage.getLongString());
-          } else {
-            console.error(userMessage.getLongString());
-          }
+          console.error(userMessage.getLongString());
         } else {
           let userMessage = new UserMessage(
             UserMessage.SRC_TYPE.GENERIC,

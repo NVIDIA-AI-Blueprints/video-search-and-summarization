@@ -1,0 +1,132 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.alerts,
+.alertsHeader,
+.clickableTitle,
+.subtitle,
+.title,
+.list {
+  position: absolute;
+}
+
+.alerts,
+.alertsHeader,
+.title {
+  top: 0;
+}
+
+.alerts,
+.alertsHeader,
+.subtitle,
+.list {
+  width: 15vw;
+  display: block;
+}
+
+.alerts {
+  height: 100%;
+}
+
+.alertsHeader {
+  top: 0;
+}
+
+.subtitle {
+  top: 2.5vw;
+}
+
+.subtitle,
+.title,
+.clickableTitle {
+  padding: 0.25vw;
+}
+
+.title,
+.clickableTitle,
+.returnIcon {
+  font-size: 1.5vw;
+  display: inline-block;
+}
+
+.clickableTitle,
+.returnIcon {
+  cursor: pointer;
+}
+
+.subtitle {
+  font-style: italic;
+  font-size: 0.75vw !important;
+  display: flex;
+  align-items: center;
+}
+/*
+.live {
+    position: absolute;
+    font-size: 30px;
+    margin: 10px 15px 0 15px;
+    right: 0;
+    top: 0;
+    display: inline-block;
+}
+
+.live > a {
+    color: inherit;
+}
+
+.tip > .tooltip-inner {
+    background-color: #fefefe !important;
+    color: inherit;
+}
+*/
+.list {
+  top: 4.5vw;
+  height: 12vw;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4vw;
+  height: 100%;
+  width: 100%;
+  color: #6d6b6a;
+  font-size: 0.8vw;
+  text-align: center;
+  box-sizing: border-box;
+  padding: 0.5vw;
+}
+
+.separator {
+  border: none;
+  border-top: 1px solid #d4d4d8;
+  margin: 0.35vw 0;
+  width: 100%;
+}
+
+/*
+@media (max-width: 900px) {
+    .alerts {
+        height: calc(100% - 17px);
+        overflow: hidden;
+        margin-top: 35px;
+    }
+    
+    .title {
+        font-size: 28px;
+    }
+    
+    .nvidiaList li {
+        font-size: 12px;
+    }
+}
+*/

@@ -13,6 +13,8 @@ describe('joinUrl', () => {
     expect(isAbortError('canceled: card scrolled out of view')).toBe(true);
     expect(isAbortError({ name: 'AbortError' })).toBe(true);
     expect(isAbortError({ name: 'TimeoutError' })).toBe(true);
+    expect(isAbortError({ message: 'canceled' })).toBe(true);
+    expect(isAbortError(new Error('canceled'))).toBe(true);
     expect(isAbortError(new Error('network'))).toBe(false);
   });
 
