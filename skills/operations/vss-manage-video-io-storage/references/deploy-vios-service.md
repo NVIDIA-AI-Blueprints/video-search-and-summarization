@@ -165,7 +165,7 @@ bring-up. It is not a profile-level endpoint setting.
 | Symptom | Root cause | Fix |
 |---|---|---|
 | `invalid spec: :/opt/clip_storage: empty section between colons` (or similar mount-spec error) on dry-run | `CLIP_STORAGE_PATH` empty — `vst.env` not loaded into the include | Ensure the patched VIOS compose has `env_file: [..., vst.env]` on its `include:` directive; this was Finding 1 of the IN-1 first run |
-| Containers loop on restart with `Permission denied` writing to `/opt/clip_storage` | Host bind dir not writable by UID 1001 | `sudo chown -R 1001:1001 ${VSS_DATA_DIR}/data_log/vst` (or use ACL grant) |
+| Containers loop on restart with `Permission denied` writing to `/opt/clip_storage` | Host bind dir not writable by UID 1001 | Follow the scoped host-path setup in **Storage**. For existing data, have the administrator repair ownership within the affected service directory only; preserve the parent tree. |
 | Containers boot but `sensor/version` returns 502 / connection refused | Ingress (`vss-vios-ingress`) ready but `vss-vios-sensor` still booting → 502 from NGINX | Wait for `vss-vios-sensor` healthcheck; the Ingress start_period (`30s`) is shorter than sensor-ms boot — give it 60–120 s on first boot |
 | `vss-vios-postgres` healthcheck fails with `password authentication failed` | `CENTRALIZE_DB_PASSWORD` unset or rotated since last init | Set explicitly in `.env`; on first-time init Postgres adopts whatever was passed; subsequent runs require the same value or a volume reset |
 | Camera RTSP add returns HTTP 500 with `unable to connect to RTSP` | Camera RTSP credentials missing or wrong; or the camera is unreachable from the VIOS host | Provide `username`/`password` in `POST /sensor/add`; confirm L3 reachability from the VIOS host to the camera |
@@ -261,12 +261,12 @@ docker compose -f deploy/docker/services/vios/compose.yml \
 # a patched copy of `services/infra/sdrc/`) — NOT under
 # SDR_CONTROLLER_CONFIG_PATH. Substitute the actual SDRC compose dir below.
 SDRC_DIR=deploy/docker/services/infra/sdrc      # or your patched copy of services/infra/sdrc
-rm -rf "${SDRC_DIR}/log/"* "${SDRC_DIR}/.wdm-env/"*
+rm -rf -- "${SDRC_DIR:?}/log/"* "${SDRC_DIR:?}/.wdm-env/"*
 # And the render-config-rendered siblings under SDR_CONTROLLER_CONFIG_PATH (the *.tmpl
 # source files stay):
-find ${SDR_CONTROLLER_CONFIG_PATH}/configs -type f ! -name '*.tmpl' \
+find "${SDR_CONTROLLER_CONFIG_PATH:?}/configs" -type f ! -name '*.tmpl' \
   \( -name 'config.yml' -o -name 'docker_cluster_config-*.json' \) -delete
 
 # Host-side cleanup (DESTRUCTIVE — removes all recorded video)
-# rm -rf ${VSS_DATA_DIR}/data_log/vst
+# rm -rf -- "${VSS_DATA_DIR:?}/data_log/vst"
 ```
