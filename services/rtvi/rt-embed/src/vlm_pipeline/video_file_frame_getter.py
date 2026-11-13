@@ -3131,6 +3131,7 @@ class VideoFileFrameGetter:
         ipc_frame_copy_enabled: bool | None = None,
         ipc_socket_dir: str | None = None,
         ipc_socket_template: str | None = None,
+        ipc_socket_path: str | None = None,
         on_stream_error_callback: Optional[Callable[[str, str, int], None]] = None,
     ):
         if self._pipeline:
@@ -3163,7 +3164,8 @@ class VideoFileFrameGetter:
             else ipc_frame_copy_enabled
         )
         self._ipc_socket_path = (
-            resolve_ipc_socket_path(
+            ipc_socket_path
+            or resolve_ipc_socket_path(
                 self._ipc_stream_identity,
                 socket_dir=ipc_socket_dir,
                 socket_template=ipc_socket_template,

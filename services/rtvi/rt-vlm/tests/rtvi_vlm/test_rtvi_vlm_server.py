@@ -1956,6 +1956,36 @@ class TestCVStreamEndpoints:
             "status": "removed",
         }
 
+    def test_stream_add_registers_shared_decode_source(self, test_client):
+        """Shared input registers a live asset without a decoder-owned URL."""
+        response = test_client.post(
+            f"{API_PREFIX}/stream/add",
+            json={
+                "key": "sensor",
+                "value": {
+                    "camera_id": "shared-cam-001",
+                    "frame_source": {
+                        "type": "shared_decode",
+                        "protocol_version": "1.0",
+                        "control_socket": "/run/vss/frame-broker/job-123.sock",
+                        "session_token": "ephemeral-token",
+                        "consumer_id": "gpu-vlm",
+                        "transport": "cuda_ipc",
+                        "device_id": 0,
+                    },
+                    "change": "camera_add",
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "camera_id": "shared-cam-001",
+            "asset_id": "shared-cam-001",
+            "status": "added",
+            "inference": False,
+        }
+
     def test_stream_add_rejects_duplicate_camera_id(self, test_client):
         """POST /v1/stream/add must reject duplicate CV camera IDs."""
         body = {
