@@ -40,24 +40,13 @@ network_policies:
       - {host: xfiles.ngc.nvidia.com, port: 443, protocol: tcp}
     binaries: [{path: /usr/local/lib/ngc-cli/ngc}]
 
-  anthropic:
-    name: anthropic
-    endpoints:
-      - host: api.anthropic.com
-        port: 443
-        protocol: rest
-        enforcement: enforce        # audit-mode REST is `unsupported`, not a pass
-        rules:
-          - allow: {method: POST, path: "/v1/**"}
-    binaries: [{path: /usr/bin/python3.13}]
-
   pypi:
     name: pypi
     endpoints:
       - host: pypi.org
         port: 443
         protocol: rest
-        enforcement: enforce
+        enforcement: enforce        # audit-mode REST is `unsupported`, not a pass
         rules:
           - allow: {method: GET, path: "/**"}
       - host: files.pythonhosted.org

@@ -4,8 +4,8 @@
 # The Hermes harness image: Hermes built from its own public source on a
 # standard Ubuntu base.
 #
-# policy.yaml beside this file is the matching policy: the agent's own model
-# endpoint and package access, nothing else. The interpreter keeps its
+# policy.yaml beside this file is the matching policy: package access, nothing
+# else. The interpreter keeps its
 # /usr/bin/python3.13 path and the process its 998:999 identity, both of which
 # that file pins by exact path.
 #

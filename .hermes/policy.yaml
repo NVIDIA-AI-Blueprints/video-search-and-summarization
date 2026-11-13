@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# The Hermes harness policy: the agent's own model endpoint and the package
-# hosts it installs from, and nothing else.
+# The Hermes harness policy: the package hosts the agent installs from, and
+# nothing else. The model host is authorized by the inference provider's
+# profile, not here.
 #
 # Notes:
 #   - `binaries` names /usr/bin/python3.13, the interpreter. Every `hermes`
@@ -24,24 +25,13 @@ landlock: {compatibility: best_effort}
 process: {run_as_user: "998", run_as_group: "999"}
 
 network_policies:
-  anthropic:
-    name: anthropic
-    endpoints:
-      - host: api.anthropic.com
-        port: 443
-        protocol: rest
-        enforcement: enforce        # audit-mode REST is `unsupported`, not a pass
-        rules:
-          - allow: {method: POST, path: "/v1/**"}
-    binaries: [{path: /usr/bin/python3.13}]
-
   pypi:
     name: pypi
     endpoints:
       - host: pypi.org
         port: 443
         protocol: rest
-        enforcement: enforce
+        enforcement: enforce        # audit-mode REST is `unsupported`, not a pass
         rules:
           - allow: {method: GET, path: "/**"}
       - host: files.pythonhosted.org

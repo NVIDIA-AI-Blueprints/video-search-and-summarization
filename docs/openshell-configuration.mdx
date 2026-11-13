@@ -124,7 +124,7 @@ A sandbox takes a single `--policy` file, and the VSS grant cannot be an overlay
 
 | Policy | Ceiling | Grants |
 | --- | --- | --- |
-| `.hermes/policy.yaml` | `.hermes/boundary.yaml` | The agent's own model endpoint and the package hosts |
+| `.hermes/policy.yaml` | `.hermes/boundary.yaml` | The package hosts; the inference provider's profile authorizes the model host |
 | `services/openshell/vss/policy.yaml` | `services/openshell/vss/boundary.yaml` | The same, plus `vss-backend` and `ngc` |
 
 Everything before `network_policies` is identical in the two, by requirement rather than convention — the prover compares those sections verbatim. Each is per-harness, because OpenShell matches a connection on its destination *and* its calling binary:
@@ -137,22 +137,23 @@ filesystem_policy:
 landlock: { compatibility: best_effort }
 process:  { run_as_user: "998", run_as_group: "999" }   # `sandbox` in the image
 network_policies:
-  anthropic:                     # both policies
-    name: anthropic
+  pypi:                          # both policies
+    name: pypi
     endpoints:
-      - host: api.anthropic.com
+      - host: pypi.org
         port: 443
         protocol: rest
         enforcement: enforce     # audit-mode REST is `unsupported`, not a pass
         rules:
-          - allow: { method: POST, path: "/v1/**" }
+          - allow: { method: GET, path: "/**" }
+      # ... files.pythonhosted.org and pypi.nvidia.com the same way
     binaries: [{ path: /usr/bin/python3.13 }]
   vss-backend:                   # vss/policy.yaml only
     name: vss-backend-readwrite
     endpoints:
       - { host: host.openshell.internal, port: 7777, protocol: tcp }
     binaries: [{ path: /usr/bin/python3.13 }]
-  # ... pypi and github in both, ngc in vss/policy.yaml
+  # ... github in both, ngc in vss/policy.yaml
 ```
 
 Three rules decide whether a policy works at all:
@@ -161,7 +162,7 @@ Three rules decide whether a policy works at all:
 * **A plain TCP grant is `protocol: tcp`, not `access: full`, and an L4 grant cannot share a named policy with REST rules.** That is why the VSS port and the harness's REST hosts are separate named entries.
 * **Candidate and ceiling must name the same filesystem paths and the same exact binary paths.** A candidate `/tmp/cache` under a boundary `/tmp`, or `/usr/bin/curl` under a boundary glob `/usr/bin/*`, returns `unsupported` rather than passing, because an image symlink could redirect either.
 
-The ceiling is deliberately wider where it matters — every method on the model host rather than `POST /v1/**`:
+The ceiling is deliberately wider where it matters — every method on each host rather than `GET /**`:
 
 ```bash
 openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
