@@ -51,5 +51,3 @@ deploy/helm/**/charts/*.tgz
 # Dev-loop working-tree snapshot consumed by .openclaw/Dockerfile instead of
 # its pinned VSS_REF fetch.
 .openclaw/.vss-src/
-.cursor/*
-assets/*.mmd
