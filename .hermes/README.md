@@ -52,8 +52,9 @@ values are not known at build time:
   which the policy mounts read-only.
 - **Inference target.** `config.yaml` carries the endpoint, model and key as
   `${env:HARNESS_BASE_URL}`, `${env:HARNESS_MODEL}` and
-  `${env:HARNESS_API_KEY}`; the create command renders the first two and the
-  egress proxy injects the third.
+  `${env:HARNESS_API_KEY}`; Hermes expands all three from the sandbox
+  environment, and the egress proxy swaps the placeholder the third expands to
+  for the real key.
 
 ## The policy pair
 

@@ -18,10 +18,10 @@ a grant to reach VSS.
 | File | Role |
 |---|---|
 | [`openshell.env`](../../deploy/docker/services/openshell/openshell.env), [`compose.yml`](../../deploy/docker/services/openshell/compose.yml), [`gateway.toml`](../../deploy/docker/services/openshell/gateway.toml) | Step 1 — the `openshell-init` and `openshell-gateway` services and their version-2 gateway config |
-| [`.hermes/policy.yaml`](../../.hermes/policy.yaml), [`.hermes/boundary.yaml`](../../.hermes/boundary.yaml) | Step 2 — the sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
-| [`.hermes/Dockerfile`](../../.hermes/Dockerfile) | Step 3 — the harness image. It lives with the harness, not here: each harness owns a top-level directory, and this one carries no OpenShell-only content beyond the baked policy |
-| [`providers/`](providers/) — `agent-inference-profile.yaml`, `agent-inference-build-profile.yaml`, `agent-inference-local-profile.yaml` | Step 4 — provider profiles for the agent's own model: an OpenAI-compatible endpoint, `build.nvidia.com`, or a host-local model server |
-| [`vss/`](vss/) — `Dockerfile`, `policy.yaml`, `boundary.yaml` | Optional — the VSS layer over the step 3 image, and the policy pair adding the `vss-backend` and `ngc` grants |
+| [`.hermes/policy.yaml`](../../.hermes/policy.yaml), [`.hermes/boundary.yaml`](../../.hermes/boundary.yaml) | The sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
+| [`.hermes/Dockerfile`](../../.hermes/Dockerfile) | Step 2 — the harness image. It lives with the harness, not here: each harness owns a top-level directory, and this one carries no OpenShell-only content beyond the baked policy |
+| [`providers/`](providers/) — `agent-inference-profile.yaml`, `agent-inference-build-profile.yaml`, `agent-inference-local-profile.yaml` | Step 3 — provider profiles for the agent's own model: an OpenAI-compatible endpoint, `build.nvidia.com`, or a host-local model server |
+| [`vss/`](vss/) — `Dockerfile`, `policy.yaml`, `boundary.yaml` | Optional — the VSS layer over the step 2 image, and the policy pair adding the `vss-backend` and `ngc` grants |
 
 ---
 
@@ -191,7 +191,7 @@ domain, so a compromised agent cannot switch it off:
 - **Credentials** — the agent sees an `openshell:resolve:env:<KEY>`
   placeholder; the real secret is added at egress for approved endpoints only.
 - **Process** — non-root identity (root is rejected), and the image's
-  `ENTRYPOINT` is replaced by the supervisor.
+  `ENTRYPOINT` is replaced by the sandbox runtime the driver installs as PID 1.
 - **Policy changes** — the prover checks each change before approval and flags
   new credentialed reach, new HTTP methods and cloud-metadata access.
 
@@ -267,11 +267,7 @@ openshell sandbox create \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'chmod 770 /sandbox;
-            trust-supervisor-ca
-            C=/sandbox/.hermes/config.yaml
-            sed -i -e "s#\${env:HARNESS_BASE_URL}#$HARNESS_BASE_URL#g" \
-                   -e "s#\${env:HARNESS_MODEL}#$HARNESS_MODEL#g" "$C"
+  -- sh -c 'trust-supervisor-ca
             E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
@@ -359,11 +355,7 @@ openshell sandbox create \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'chmod 770 /sandbox;
-            trust-supervisor-ca
-            C=/sandbox/.hermes/config.yaml
-            sed -i -e "s#\${env:HARNESS_BASE_URL}#$HARNESS_BASE_URL#g" \
-                   -e "s#\${env:HARNESS_MODEL}#$HARNESS_MODEL#g" "$C"
+  -- sh -c 'trust-supervisor-ca
             E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
@@ -431,11 +423,7 @@ openshell sandbox create \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'chmod 770 /sandbox;
-            trust-supervisor-ca
-            C=/sandbox/.hermes/config.yaml
-            sed -i -e "s#\${env:HARNESS_BASE_URL}#$HARNESS_BASE_URL#g" \
-                   -e "s#\${env:HARNESS_MODEL}#$HARNESS_MODEL#g" "$C"
+  -- sh -c 'trust-supervisor-ca
             E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
@@ -686,7 +674,7 @@ route, declared rather than run by hand, so the image tag, port and mounts stay
 under review with the rest of the stack rather than as host state. The cost is
 the socket mount above.
 
-**2 — Convert the policy and prove it.** Translate the preset to OpenShell policy
+**The policy pair, converted and proved.** Translate the preset to OpenShell policy
 YAML, then verify the result rather than eyeballing it.
 
 There are two candidate/ceiling pairs, because a sandbox takes a single
@@ -746,8 +734,8 @@ address for `host.openshell.internal`, so the `172.17.0.0/16`-style grants
 match nothing.
 
 Each candidate has its own ceiling, written once by hand. Same paths and same
-binaries, deliberately wider where it matters — every method on each host
-rather than `GET /**`:
+binaries, deliberately wider where it matters — `POST` on each host as well as
+the candidate's `GET`:
 
 ```yaml
 version: 1
@@ -794,7 +782,7 @@ The proof covers the policy file only. The provider profile's endpoints, such
 as `inference-api.nvidia.com` where the credential is injected, are merged in
 at create and are not checked.
 
-**3 — Build the image and bake the policy in**, as the image's default for a
+**2 — Build the image and bake the policy in**, as the image's default for a
 create that passes no `--policy`; every create here passes one.
 [`.hermes/Dockerfile`](../../.hermes/Dockerfile) builds it in one pass from upstream
 Hermes on `nvcr.io/nvidia/base/ubuntu:24.04`, with no NemoClaw image
@@ -815,7 +803,7 @@ build arg is what keeps the default image provably free of VSS — there is no
 flag to get wrong, because the content is not in the file.
 
 The images leave the CA bundle and the inference target to the start command in
-step 5, both because of what 0.1.6 changed: the supervisor's CA is mounted only
+step 4, both because of what 0.1.6 changed: the supervisor's CA is mounted only
 once the sandbox exists, and sandbox-scoped provider attachments replaced
 managed inference routes, which makes the base URL and the model the workload's
 to set. What the image ships for each is in
@@ -826,12 +814,11 @@ that resolves a sample video by name fails and the `ngc` entry in
 `vss/policy.yaml` never matches.
 
 Precedence is `--policy` > `OPENSHELL_SANDBOX_POLICY` > image policy > built-in
-default. Keep the runtime-discovered parts — `allowed_ips` from
-`orchestrator_mcp_helper.sandbox_host_cidrs`, the `.invalid` Kubernetes ingress
-placeholder — on `--policy` at create, or accept the documented fallback CIDRs
-for Compose.
+default, so a grant a deployment only knows at runtime — a Kubernetes ingress
+origin in place of the Compose default — goes on `--policy` at create rather
+than into the baked file.
 
-**4 — Register the inference provider:**
+**3 — Register the inference provider:**
 
 ```yaml
 # services/openshell/providers/agent-inference-profile.yaml
@@ -868,7 +855,7 @@ custom profile needs: `--from-existing` has no stored credentials to read. The
 CLI has to be the gateway's own release, since the two speak Protobuf.
 
 The profile is per endpoint family, because it is what authorizes the host.
-One file each covers the three endpoint choices, and step 5 names the one it
+One file each covers the three endpoint choices, and step 4 names the one it
 imported:
 
 | Endpoint | Profile | `HARNESS_API_KEY` |
@@ -878,9 +865,9 @@ imported:
 | (c) build.nvidia.com | `providers/agent-inference-build-profile.yaml` | an `nvapi-` key |
 
 A server on a port (b) does not declare is unreachable until the profile
-declares it. Within a family the model id is free, and step 5 sets it.
+declares it. Within a family the model id is free, and step 4 sets it.
 
-**5 — Create the sandbox and expose the harness API:**
+**4 — Create the sandbox and expose the harness API:**
 
 ```bash
 openshell sandbox create \
@@ -892,11 +879,7 @@ openshell sandbox create \
   --env HARNESS_MODEL=aws/anthropic/bedrock-claude-opus-5 \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'chmod 770 /sandbox;
-            trust-supervisor-ca
-            C=/sandbox/.hermes/config.yaml
-            sed -i -e "s#\${env:HARNESS_BASE_URL}#$HARNESS_BASE_URL#g" \
-                   -e "s#\${env:HARNESS_MODEL}#$HARNESS_MODEL#g" "$C"
+  -- sh -c 'trust-supervisor-ca
             E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
@@ -913,30 +896,29 @@ The [VSS layer](#optional--add-vss-capabilities) recreates this sandbox with
 image nor the policy can be swapped on a live sandbox, which is why it is a
 delete and a create rather than an update.
 
-**The two `--env` values are the model choice, and the `sed` is what makes
-them stick.** `HARNESS_BASE_URL` is the model endpoint's OpenAI-compatible
-base URL and `HARNESS_MODEL` the model id it serves, so a redeploy against a
-different model is a flag rather than a rebuild. Rendering
-them into the file is not redundant: `hermes chat` expands a `${env:}` ref, but
-the API server the UI talks to reads the file as written and sends the
-placeholder as the model id, which the endpoint rejects with `HTTP 403`. The
-model `api_key` ref needs no rendering — the proxy replaces the bearer either
-way.
+**The two `--env` values are the model choice.** `HARNESS_BASE_URL` is the
+model endpoint's OpenAI-compatible base URL and `HARNESS_MODEL` the model id it
+serves, so a redeploy against a different model is a flag rather than a
+rebuild. The image's `config.yaml` carries both as `${env:}` refs, which Hermes
+expands from the sandbox environment on every path, the API server included, so
+nothing renders them into the file. The `api_key` ref is the same mechanism
+doing more: `HARNESS_API_KEY` holds the `openshell:resolve:env:` placeholder
+rather than a key, and expanding the ref is what puts that placeholder in the
+bearer for the proxy to swap at egress. A bearer carrying anything else, the
+unexpanded ref included, is passed through untouched and the endpoint rejects
+it.
 
 **The command after `--` prepares the sandbox, then becomes the harness.** In
 order:
 
-1. `chmod 770 /sandbox` — Hermes's secret-boundary guard requires the
-   directory group-readable, which OpenShell does not leave it.
-2. `trust-supervisor-ca` — the CA it adds to the trust store is mounted only
+1. `trust-supervisor-ca` — the CA it adds to the trust store is mounted only
    once the sandbox exists.
-3. The `sed` renders the two `--env` values into `config.yaml`.
-4. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode
+2. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode
    640 rather than the environment — a file the image deliberately ships
    without, so the key is per sandbox.
-5. `exec hermes gateway run` — the harness itself, not a start script.
+3. `exec hermes gateway run` — the harness itself, not a start script.
 
-None of the first four can move into the image: a root PID 1 is what the
+Neither of the first two can move into the image: a root PID 1 is what the
 gateway's policy validation refuses. The `exec` is what makes Hermes the
 sandbox's canonical main process, whose output OpenShell streams and whose exit
 status it returns, so a dead agent surfaces as `Error` with `MainProcessFailed`
@@ -969,7 +951,7 @@ not move it, so overriding the port means `/sandbox/.hermes/.env`. OpenShell exp
 loopback port from the inside, so `--expose 8642` reaches the API server
 directly, with no forwarder in between.
 
-`--restart-policy` defaults to `no`, which leaves an exited Hermes dead and the
+`--restart-policy` defaults to `never`, which leaves an exited Hermes dead and the
 route silently unanswered; `on-failure` has the driver replace the runtime after
 a nonzero main-process exit.
 
@@ -1043,16 +1025,16 @@ same artifacts — no new code path, because OpenShell has no harness concept to
 teach. For a harness in `services/openshell/<name>/`:
 
 - **`<name>/Dockerfile`** builds its image, with its own config and its policy
-  baked in at `/etc/openshell/policy.yaml`, as step 3 does for Hermes.
-- **`<name>/policy.yaml`**, proven against **`<name>/boundary.yaml`** as in
-  step 2. `binaries` name the interpreter the harness actually runs under —
+  baked in at `/etc/openshell/policy.yaml`, as step 2 does for Hermes.
+- **`<name>/policy.yaml`**, proven against **`<name>/boundary.yaml`** the same
+  way. `binaries` name the interpreter the harness actually runs under —
   `/usr/local/bin/node` for a Node harness — the endpoints add the hosts the
   harness itself calls, and `process` takes the `sandbox` UID and GID of its
   image.
 - **A provider profile** whose `binaries` name that same interpreter, since the
-  step 4 profiles list only `/usr/bin/python3.13`. Its endpoints are merged in
+  step 3 profiles list only `/usr/bin/python3.13`. Its endpoints are merged in
   at create, outside the proof.
-- **The step 5 create**, with `--from` its image, `--policy` its file,
+- **The step 4 create**, with `--from` its image, `--policy` its file,
   `--expose` the port its API listens on, and its own serve command after `--`.
 
 Two properties of the harness decide whether this stays data. How its API

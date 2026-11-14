@@ -125,7 +125,7 @@ docker compose -f deploy/docker/services/openshell/compose.yml --profile openshe
 openshell logs hermes
 ```
 
-A failure in the preparation steps before the `exec` shows up the same way. The usual causes are a `chmod 770 /sandbox` that did not run before Hermes's secret-boundary guard checked the directory, or `trust-supervisor-ca` failing because the supervisor CA was not yet mounted.
+A failure in the preparation steps before the `exec` shows up the same way, the usual cause being `trust-supervisor-ca` failing because the supervisor CA was not yet mounted.
 
 ## Agent Reports a Connection Error
 

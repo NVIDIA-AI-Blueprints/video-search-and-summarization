@@ -356,17 +356,17 @@ own steps, and where each lands:
 
 | `nemoclaw-start` did | Under Option 2 |
 |---|---|
-| Write the harness config (`/sandbox/.hermes`, yaml) | Baked into the image with `${env:…}` placeholders; the create command fills in the base URL and model on each start |
-| Point the harness at managed inference | `--provider` (step 4); the agent sees a placeholder and the supervisor adds the key at egress |
+| Write the harness config (`/sandbox/.hermes`, yaml) | Baked into the image with `${env:…}` refs Hermes expands from the sandbox environment, so `--env` at create carries the base URL and model |
+| Point the harness at managed inference | `--provider` (step 3); the agent sees a placeholder and the supervisor adds the key at egress |
 | Issue the dashboard token / auto-approve pairing | The create command mints `API_SERVER_KEY` into the sandbox (below); the device-pairing helper is OpenClaw-only |
 | socat-forward `:8642` and `:18789` outward | Dropped — `--expose` reaches the loopback ports from inside the namespace |
 | Seed the workspace, fix ownership under the config dir | Image build, under the same `USER sandbox` the sandbox runs as |
 | Clear raw inference keys, tighten rlimits, `setpriv` | Dropped — OpenShell owns this boundary and `no-new-privileges` blocks the `setpriv` step anyway (§1) |
 | `wait` on the gateway process | OpenShell's canonical main process does this |
 
-What remains is step 5's short `sh -c` start command rather than a launcher
-image: it trusts the supervisor CA, renders the base URL and model into
-`config.yaml`, mints `API_SERVER_KEY` into `/sandbox/.hermes/.env` when none is
+What remains is the create command's short `sh -c` rather than a launcher
+image: it trusts the supervisor CA, mints `API_SERVER_KEY` into
+`/sandbox/.hermes/.env` when none is
 there, and ends with `exec hermes gateway run`, so the exit status still
 reaches OpenShell. `hermes gateway run` enrols the API server only when it
 finds a usable key in that file. The UI's token is read out with `sandbox exec`
@@ -382,7 +382,7 @@ Not every step in
 has an Option 2 equivalent. These drop out rather than move:
 
 - **The installer and `onboard`.** Both exist to produce a gateway and a
-  sandbox; step 1 and step 5 do that directly.
+  sandbox; step 1 and step 4 do that directly.
 - **`policy-add` after create.** OpenShell takes the policy at create, so the
   window where a sandbox is up without its boundary never opens.
 - **`dashboard-relay.py` and `dashboard-forward-watchdog.py`.** Both exist to
@@ -756,7 +756,7 @@ its own base URL lives, and everything resolves to `https://inference.local`.
 Harness identity also changes the security posture, not just the plumbing. Pi's
 `policy-additions.yaml` fails Landlock closed where the deployed OpenClaw
 sandbox runs `best_effort`, and its `binaries` list names the Node interpreter
-rather than the package, the same rule `README.md` step 2 hits with Hermes and
+rather than the package, the same rule `README.md`'s policy pair hits with Hermes and
 Python.
 Those binary paths are the only sense in which OpenShell is harness-aware.
 

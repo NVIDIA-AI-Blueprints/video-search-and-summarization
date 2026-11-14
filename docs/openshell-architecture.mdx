@@ -20,7 +20,7 @@ Both diagrams below show a sandbox with the optional [VSS layer](/vision-agent/a
 
 The same deployment, one level down. The destinations are the only hosts the sandbox can reach: the policy file it was created with allows them, and the provider profile adds the inference host and the key injected into calls to it. VSS HAProxy is among them only under the VSS policy.
 
-![Host clients reach the gateway's API server, which drives the Docker driver and the policy prover; inside the sandbox the workload has no direct egress and the supervisor dials inference, VSS HAProxy, and the package hosts](./assets/images/openshell/vss-openshell-detailed-architecture.png)
+![The CLI reaches the gateway directly while the VSS UI chat adapter goes through an openshell forward host process; inside the sandbox the workload has no direct egress and the supervisor dials inference, VSS HAProxy, and the package hosts](./assets/images/openshell/vss-openshell-detailed-architecture.png)
 
 Splitting the sandbox into a workload and a supervisor container is what makes the agent's own compromise survivable. The workload shares the boundary with the agent, so it holds nothing worth stealing — no signing key, no gateway JWT, no provider credential — and decides nothing. It reports what the agent attempted; the supervisor decides.
 
@@ -79,7 +79,7 @@ The security boundary is OpenShell's, and it sits outside the agent's trust doma
 * **Filesystem and syscalls** — Landlock confinement and seccomp filtering, in the kernel.
 * **Network** — default-deny; a connection is allowed only when its destination *and* calling binary match the same policy block. The workload has no network at all and reaches out only through the supervisor.
 * **Credentials** — the agent sees an `openshell:resolve:env:<KEY>` placeholder; the real secret is added at egress for approved endpoints only.
-* **Process** — non-root identity (root is rejected), and the image's `ENTRYPOINT` is replaced by the supervisor.
+* **Process** — non-root identity (root is rejected), and the image's `ENTRYPOINT` is replaced by the sandbox runtime the driver installs as PID 1.
 * **Policy changes** — the prover checks each change before approval and flags new credentialed reach, new HTTP methods, and cloud-metadata access.
 
 ## A chat turn end to end

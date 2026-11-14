@@ -161,7 +161,7 @@ Three rules decide whether a policy works at all:
 * **A plain TCP grant is `protocol: tcp`, not `access: full`, and an L4 grant cannot share a named policy with REST rules.** That is why the VSS port and the harness's REST hosts are separate named entries.
 * **Candidate and ceiling must name the same filesystem paths and the same exact binary paths.** A candidate `/tmp/cache` under a boundary `/tmp`, or `/usr/bin/curl` under a boundary glob `/usr/bin/*`, returns `unsupported` rather than passing, because an image symlink could redirect either.
 
-The ceiling is deliberately wider where it matters — every method on each host rather than `GET /**`:
+The ceiling is deliberately wider where it matters — `POST` on each host as well as the candidate's `GET`:
 
 ```bash
 openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
@@ -175,24 +175,24 @@ The prover refuses policies using GraphQL or MCP rules rather than ignoring them
 
 The proof covers the policy file only. The provider profile's endpoints, such as `inference-api.nvidia.com` where the credential is injected, are merged in at create and are not checked.
 
-Precedence at create is `--policy` > `OPENSHELL_SANDBOX_POLICY` > the image's baked policy > the built-in default. Keep runtime-discovered parts on `--policy` at create.
+Precedence at create is `--policy` > `OPENSHELL_SANDBOX_POLICY` > the image's baked policy > the built-in default, so a grant a deployment only knows at runtime, such as a Kubernetes ingress origin, goes on `--policy` at create rather than into the baked file.
 
 ## What the start command does
 
 The command after `--` in `openshell sandbox create` prepares the sandbox and then becomes the harness. In order:
 
-1. `chmod 770 /sandbox` — Hermes's secret-boundary guard requires the directory group-readable, which OpenShell does not leave it.
-2. `trust-supervisor-ca` — the CA it adds to the trust store is mounted only once the sandbox exists.
-3. The `sed` renders `HARNESS_BASE_URL` and `HARNESS_MODEL` into `config.yaml`. This is not redundant with the `--env` values: `hermes chat` expands a `${env:}` reference, but the API server the UI talks to reads the file as written and would send the placeholder as the model id, which the endpoint rejects with `HTTP 403`. The model `api_key` reference needs no rendering — the supervisor replaces the bearer either way.
-4. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode 640 rather than into the environment — a file the image deliberately ships without, so the key is per sandbox.
-5. `exec hermes gateway run` — the harness itself, not a start script.
+1. `trust-supervisor-ca` — the CA it adds to the trust store is mounted only once the sandbox exists.
+2. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode 640 rather than into the environment — a file the image deliberately ships without, so the key is per sandbox.
+3. `exec hermes gateway run` — the harness itself, not a start script.
 
-None of the first four can move into the image: a root PID 1 is what the gateway's policy validation refuses. The `exec` is what makes Hermes the sandbox's canonical main process, whose output OpenShell streams and whose exit status it returns, so a dead agent surfaces as `Error` with `MainProcessFailed` instead of a healthy-looking container.
+The `--env` values need no rendering into `config.yaml`: the image carries the endpoint, model, and key as `${env:}` references, which Hermes expands from the sandbox environment on every path, the API server included. `HARNESS_API_KEY` holds the `openshell:resolve:env:` placeholder rather than a key, so expanding that reference is what puts the placeholder in the bearer for the supervisor to swap at egress. A bearer carrying anything else is passed through untouched.
+
+Neither of the first two can move into the image: a root PID 1 is what the gateway's policy validation refuses. The `exec` is what makes Hermes the sandbox's canonical main process, whose output OpenShell streams and whose exit status it returns, so a dead agent surfaces as `Error` with `MainProcessFailed` instead of a healthy-looking container.
 
 Two flags on the create are load-bearing:
 
 * **`--expose 8642`** is the API server, which the UI adapter talks to and where Hermes serves `/health`. It binds the sandbox's own loopback at its documented default, because the image ships no `API_SERVER_PORT`; `gateway.api_server.port` in `config.yaml` does not move it, so overriding the port means editing `/sandbox/.hermes/.env`. With `--expose-authorization-mode bearer-passthrough` the application `Authorization` header survives the route, where the default `strip` removes it.
-* **`--restart-policy on-failure`**. The default is `no`, which leaves an exited Hermes dead and the route silently unanswered.
+* **`--restart-policy on-failure`**. The default is `never`, which leaves an exited Hermes dead and the route silently unanswered.
 
 ## The gateway Compose service
 

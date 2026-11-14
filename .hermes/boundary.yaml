@@ -6,8 +6,8 @@
 # as the candidate — the prover returns `unsupported` rather than a pass
 # when either side generalises, because an image symlink could redirect it.
 #
-# Deliberately wider than the candidate where it matters: every method on each
-# host, rather than the candidate's per-path grants.
+# Deliberately wider than the candidate where it matters: POST on each host as
+# well as the candidate's GET.
 
 version: 1
 

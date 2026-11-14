@@ -117,11 +117,7 @@ openshell sandbox create \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'chmod 770 /sandbox;
-            trust-supervisor-ca
-            C=/sandbox/.hermes/config.yaml
-            sed -i -e "s#\${env:HARNESS_BASE_URL}#$HARNESS_BASE_URL#g" \
-                   -e "s#\${env:HARNESS_MODEL}#$HARNESS_MODEL#g" "$C"
+  -- sh -c 'trust-supervisor-ca
             E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
@@ -205,11 +201,7 @@ openshell sandbox create \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'chmod 770 /sandbox;
-            trust-supervisor-ca
-            C=/sandbox/.hermes/config.yaml
-            sed -i -e "s#\${env:HARNESS_BASE_URL}#$HARNESS_BASE_URL#g" \
-                   -e "s#\${env:HARNESS_MODEL}#$HARNESS_MODEL#g" "$C"
+  -- sh -c 'trust-supervisor-ca
             E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
