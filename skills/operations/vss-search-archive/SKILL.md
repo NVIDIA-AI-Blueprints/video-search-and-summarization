@@ -57,7 +57,7 @@ Bootstrap, exit codes, and common CLI rules live in [AGENTS.md](../../../AGENTS.
 
 For an explicit request to ingest or delete a source, use
 `vss-manage-video-io-storage` for `vss vios add` or `vss vios delete`, then
-return to archive search once the source is available. The deployment's mounted
+return to archive search once the source is available only if retrieval was also requested. For ingestion-only or deletion-only requests, finish source management and stop; do not activate search. The deployment's mounted
 notification config owns consumer fan-out; the presence of an Agent tier does
 not change the VIOS registration path. Check the requested receiver as enabled,
 absent, or unknown under source management's policy contract. With an enabled
