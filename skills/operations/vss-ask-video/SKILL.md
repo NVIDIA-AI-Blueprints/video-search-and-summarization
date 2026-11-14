@@ -196,7 +196,7 @@ Valid introspection scope is established by one of:
 - Both `--start-time` and `--end-time`
 - Complete child identity: `--job-id`, `--record-type`, and `--record-id`
 
-Never propose or execute `--record-id` without both `--job-id` and `--record-type`, including in suggested commands. If the user supplies only a child record ID, ask for the missing parent job ID and record type before any child lookup; do not probe with an incomplete command. `--record-type` and `--group` may refine valid scope but do not establish it independently.
+Never pass `--record-id` alone. Never propose or execute it without both `--job-id` and `--record-type`, including in suggested commands. If the user supplies only a child record ID, ask for the missing parent job ID and record type before any child lookup; do not probe with an incomplete command. `--record-type` and `--group` may refine valid scope but do not establish it independently.
 
 A relative expression is not a window. "Last week", "this morning", "recently"
 name no interval the CLI can take, and turning one into concrete timestamps
