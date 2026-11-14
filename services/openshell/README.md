@@ -587,6 +587,9 @@ services:
     environment:
       OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
       OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"  # barred from the TOML
+      # Both must match the gateway's release.
+      OPENSHELL_SUPERVISOR_IMAGE: ghcr.io/nvidia/openshell/supervisor:${OPENSHELL_TAG}
+      OPENSHELL_SANDBOX_RUNTIME_IMAGE: ghcr.io/nvidia/openshell/sandbox:${OPENSHELL_TAG}
       XDG_DATA_HOME: /var/lib/openshell
       HOME: /var/lib/openshell
     volumes:
@@ -602,10 +605,10 @@ volumes:
 with `health_bind_address` on loopback and the
 JWT key paths `init` writes. Three edits VSS has to make to it:
 
-- **Pin `sandbox_runtime_image` and `supervisor_image` to the gateway's
-  release.** Upstream ships both as `latest`. Since 0.1.6 a new sandbox
-  requires matching supervisor and sandbox-runtime binaries, so a drifting tag
-  is a sandbox that refuses to start, not a version-hygiene nicety.
+- **No `sandbox_runtime_image` or `supervisor_image`.** Both must match the
+  gateway's release, so the Compose service sets `OPENSHELL_SUPERVISOR_IMAGE`
+  and `OPENSHELL_SANDBOX_RUNTIME_IMAGE` from `OPENSHELL_TAG`. A key here would
+  override that.
 - **Write the version 2 schema.** 0.1.5 rejects a `version = 1` file:
   `this build requires version 2; migrate legacy fields`. The renames that
   bite, each a separate startup failure: `compute_drivers = ["docker"]` becomes

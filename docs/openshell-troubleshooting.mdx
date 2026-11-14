@@ -93,9 +93,12 @@ docker compose -f deploy/docker/services/openshell/compose.yml --profile openshe
 
 **Solution**:
 
-1. Check that `gateway.toml` pins both images to the gateway's own release rather than `latest`:
+1. Check that the gateway runs both images at its own release, and that `gateway.toml` sets neither (a key there overrides the Compose value):
 
    ```bash
+   docker inspect "$(docker compose -f deploy/docker/services/openshell/compose.yml \
+     --profile openshell ps -q openshell-gateway)" \
+     --format '{{.Config.Image}}{{range .Config.Env}}{{println}}{{.}}{{end}}' | grep -E 'gateway:|_IMAGE='
    grep -E 'sandbox_runtime_image|supervisor_image' \
      deploy/docker/services/openshell/gateway.toml
    ```
