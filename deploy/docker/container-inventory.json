@@ -344,13 +344,6 @@
       "tag_variables": ["CALIBRATION_TOOLKIT_IMAGE_TAG"]
     },
     {
-      "name": "vss-video-analytics-ui",
-      "strategy": "mirror",
-      "platforms": ["linux/amd64"],
-      "compose_image_names": ["vss-video-analytics-ui"],
-      "tag_variables": ["VIDEO_ANALYTICS_UI_IMAGE_TAG"]
-    },
-    {
       "name": "vss-rt-cv-mv3dt-bev-fusion",
       "strategy": "build",
       "ghcr_build": true,
