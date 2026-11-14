@@ -38,8 +38,8 @@
     {
       "query": "Ask that again: was the worker wearing a safety helmet in the first 10 seconds of warehouse_sample?",
       "checks": [
-        "It answers from what VSS unified memory already holds for warehouse_sample, using a vss memory command.",
-        "It does not run vss vlm run a second time."
+        "It answers from what VSS unified memory already holds for warehouse_sample, using a vss memory command. If the memory command fails, report its exit code and the sanitized CLI-reported reason in the failure explanation, distinguishing disabled memory or introspection, missing judge configuration, and unreachable storage or judge only when the output establishes that cause. Do not print credentials, endpoint URLs, or raw record content. If the reason is absent, say it is unknown. Do not repair configuration, retry inference, or turn a failed read into PASS.",
+        "It does not invoke vss vlm run anywhere in this task's trajectory; the stored analysis already exists from the earlier task."
       ]
     },
     {
