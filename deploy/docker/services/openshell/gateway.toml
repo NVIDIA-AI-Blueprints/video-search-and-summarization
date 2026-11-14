@@ -34,11 +34,6 @@ gateway_id       = "openshell-docker"
 
 [openshell.drivers.docker]
 default_image     = "nvcr.io/nvidia/base/ubuntu:24.04"
-# Pinned to the gateway release: since 0.1.6 a new sandbox requires matching
-# supervisor and sandbox-runtime binaries, so `latest` is a sandbox that
-# refuses to start.
-sandbox_runtime_image = "ghcr.io/nvidia/openshell/sandbox:0.1.6"
-supervisor_image  = "ghcr.io/nvidia/openshell/supervisor:0.1.6"
 image_pull_policy = "if_not_present"
 sandbox_label     = "openshell"
 app_armor_profile = "Unconfined"

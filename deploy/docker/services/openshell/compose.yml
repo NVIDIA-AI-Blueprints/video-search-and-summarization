@@ -24,6 +24,9 @@ services:
     environment:
       OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
       OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"  # barred from the TOML
+      # Both must match the gateway's release.
+      OPENSHELL_SUPERVISOR_IMAGE: ghcr.io/nvidia/openshell/supervisor:${OPENSHELL_TAG}
+      OPENSHELL_SANDBOX_RUNTIME_IMAGE: ghcr.io/nvidia/openshell/sandbox:${OPENSHELL_TAG}
       XDG_DATA_HOME: /var/lib/openshell
       HOME: /var/lib/openshell
     volumes:

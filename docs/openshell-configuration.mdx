@@ -209,7 +209,7 @@ Three constraints the service has to respect:
 
 `deploy/docker/services/openshell/gateway.toml` is derived from upstream's `deploy/docker/gateway.toml` at v0.1.6, with four changes VSS has to make:
 
-* **Pin `sandbox_runtime_image` and `supervisor_image` to the gateway's release.** Upstream ships both as `latest`. Since 0.1.6 a new sandbox requires matching supervisor and sandbox-runtime binaries, so a drifting tag is a sandbox that refuses to start, not a version-hygiene nicety.
+* **No `sandbox_runtime_image` or `supervisor_image`.** Both must match the gateway's release, so the Compose service sets `OPENSHELL_SUPERVISOR_IMAGE` and `OPENSHELL_SANDBOX_RUNTIME_IMAGE` from `OPENSHELL_TAG`. A key here would override that.
 * **Write the version 2 schema.** A `version = 1` file is rejected. The renames that bite, each a separate startup failure: `compute_drivers = ["docker"]` becomes `compute_driver = "docker"`, `[openshell.drivers.docker].sandbox_namespace` is gone, and `gateway_jwt.ttl_secs = 0` is refused as "expected a nonzero u64".
 * **Configure the sandbox JWT.** Without a `[openshell.gateway.gateway_jwt]` block the gateway starts and serves happily, then fails every `sandbox create` with `docker sandboxes require launch-scoped gateway authentication`. That is what the `openshell-init` service writes the keys for.
 * **Move the health listener off `:8081`.** VSS already publishes the Video Analytics API there on the alerts and search profiles, so the gateway health endpoint is on `127.0.0.1:8082`.
