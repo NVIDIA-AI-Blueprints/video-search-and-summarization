@@ -64,9 +64,12 @@ Direct VLM requires:
 - VIOS when using sensor-based media.
 
 Directly scoped URL and file requests go straight to `vss vlm run`. A named
-sensor goes there only for an explicit fresh visual inspection of a grounded
-time window. Naming a sensor or asking another detail about an analyzed video
-does not itself request fresh inference: use the memory routing below.
+sensor goes there for an explicit fresh visual inspection of a grounded time
+window, or a request to inspect its whole recording when it is under 120 s.
+Resolve whole-recording bounds with `vss vios timeline` and follow the existing
+segmentation policy below; do not ask for timestamps VIOS can provide. Merely
+naming a sensor or asking another detail about an analyzed video does not itself
+request fresh inference: use the memory routing below.
 The checks below are for requested readiness diagnostics, not mandatory preflight.
 
 Introspection requires:
@@ -141,6 +144,9 @@ it.
 - An explicit fresh visual inspection of a grounded sensor and time window ->
   `vss vlm run`. "Freshly verify" means the recall layers are already ruled
   out, not that they should be tried first.
+- A request to inspect a named sensor's whole recording under 120 s -> resolve
+  its bounds with `vss vios timeline`, then follow the whole-recording inspection
+  policy below. A recording of 120 s or longer routes to `vss-summarize-video`.
 - A pre-resolved bounded `VIDEO_URL` from a search skill ->
   `vss vlm run --media-url`.
 - A named local file with configured VSS -> `vss vlm run --file`, resolving the
