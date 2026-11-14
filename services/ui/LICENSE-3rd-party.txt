@@ -13,87 +13,65 @@ project are distributed under the MIT License. The full text of the MIT License 
 below.
 
 Packages under the MIT License:
-  - @datadog/browser-rum     @ 5.35.1
-  - @dqbd/tiktoken           @ 1.0.22
-  - @radix-ui/react-select   @ 2.3.7
-  - @tabler/icons-react      @ 3.46.0
-  - @tanstack/react-query    @ 5.102.8
-  - chart.js                 @ 4.5.1
-  - eventsource-parser       @ 0.1.0
-  - file-saver               @ 2.0.5
-  - form-data                @ 4.0.6
-  - html-to-image            @ 1.11.13
-  - http-proxy               @ 1.18.1
-  - i18next                  @ 26.4.0
-  - isomorphic-dompurify     @ 2.36.0
-  - jsonwebtoken             @ 9.0.3
-  - jwt-decode               @ 4.0.0
-  - konva                    @ 9.3.22
-  - lodash                   @ 4.18.1
-  - lucide-react             @ 0.577.0
-  - next                     @ 16.4.2
-  - next-auth                @ 4.24.15
-  - next-i18next             @ 16.0.11
-  - react-konva              @ 19.2.5
-  - react-konva-utils        @ 1.1.3
-  - next-runtime-env         @ 1.8.0
-  - react                    @ 19.2.8
-  - react-bootstrap-modal    @ 4.2.0
-  - react-chartjs-2          @ 5.3.1
-  - react-dom                @ 19.2.8
-  - react-force-graph-2d     @ 1.29.1
-  - react-hot-toast          @ 2.6.0
-  - react-i18next            @ 17.0.12
-  - react-markdown           @ 10.1.0
-  - react-syntax-highlighter @ 16.1.1
-  - recharts                 @ 2.15.4
-  - rehype-mathjax           @ 7.1.0
-  - rehype-raw               @ 7.0.0
-  - remark-gfm               @ 4.0.1
-  - remark-math              @ 6.0.0
-  - undici                   @ 7.30.1
-  - uuid                     @ 11.1.1
+  - @react-google-maps/api          @ 2.20.8
+  - @tabler/icons-react             @ 3.46.0
+  - @tanstack/react-query           @ 5.102.8
+  - html-to-image                   @ 1.11.13
+  - i18next                         @ 26.4.0
+  - isomorphic-dompurify            @ 2.36.0
+  - konva                           @ 9.3.22
+  - lodash                          @ 4.18.1
+  - next                            @ 16.4.2
+  - next-i18next                    @ 16.0.11
+  - next-runtime-env                @ 1.8.0
+  - react                           @ 19.2.8
+  - react-dom                       @ 19.2.8
+  - react-hot-toast                 @ 2.6.0
+  - react-i18next                   @ 17.0.12
+  - react-konva                     @ 19.2.5
+  - react-konva-utils               @ 1.1.3
+  - react-markdown                  @ 10.1.0
+  - react-syntax-highlighter        @ 16.1.1
+  - recharts                        @ 2.15.4
+  - rehype-raw                      @ 7.0.0
+  - remark-gfm                      @ 4.0.1
+  - remark-math                     @ 6.0.0
+  - rsuite                          @ 6.2.4
+  - ts-overlapping-marker-spiderfier @ 1.0.3
+  - undici                          @ 7.30.1
 
   Dev Dependencies under the MIT License:
-  - @mozilla/readability                  @ 0.6.0
-  - @swc/cli                              @ 0.8.1
-  - @swc/core                             @ 1.16.1
-  - @tailwindcss/postcss                  @ 4.3.3
-  - @tailwindcss/typography               @ 0.5.20
-  - @testing-library/jest-dom             @ 6.9.1
-  - @testing-library/react                @ 16.3.3
-  - @testing-library/user-event           @ 14.6.6
-  - @trivago/prettier-plugin-sort-imports @ 1.4.4
-  - @types/http-proxy                     @ 1.17.17
-  - @types/jest                           @ 30.0.0
-  - @types/jsdom                          @ 21.1.7
-  - @types/node                           @ 22.18.12
-  - @types/react                          @ 19.2.18
-  - @types/react-dom                      @ 19.2.5
-  - @types/react-syntax-highlighter       @ 15.5.13
-  - @typescript-eslint/eslint-plugin      @ 8.68.0
-  - @typescript-eslint/parser             @ 8.68.0
-  - concurrently                          @ 8.2.2
-  - detect-port                           @ 2.1.0
-  - dotenv                                @ 17.4.2
-  - endent                                @ 2.1.0
-  - eslint                                @ 9.39.5
-  - eslint-config-next                    @ 16.3.3
-  - gpt-3-encoder                         @ 1.1.4
-  - identity-obj-proxy                    @ 3.0.0
-  - jest                                  @ 30.4.2
-  - jest-environment-jsdom                @ 30.4.1
-  - jsdom                                 @ 27.4.0
-  - node-fetch                            @ 2.7.0
-  - postcss                               @ 8.5.26
-  - prettier                              @ 2.8.8
-  - prettier-plugin-tailwindcss           @ 0.4.1
-  - tailwindcss                           @ 4.3.3
-  - ts-jest                               @ 29.4.12
-  - turbo                                 @ 2.11.10
-  - typescript                            @ 5.9.3
-  - whatwg-fetch                          @ 3.6.20
-  - ws                                    @ 8.21.3
+  - @eslint/js                       @ 9.39.5
+  - @swc/cli                         @ 0.8.1
+  - @swc/core                        @ 1.16.1
+  - @tailwindcss/postcss             @ 4.3.3
+  - @testing-library/jest-dom        @ 6.9.1
+  - @testing-library/react           @ 16.3.3
+  - @types/jest                      @ 30.0.0
+  - @types/jsdom                     @ 21.1.7
+  - @types/lodash                    @ 4.17.25
+  - @types/node                      @ 22.18.12
+  - @types/react                     @ 19.2.18
+  - @types/react-dom                 @ 19.2.5
+  - @types/react-syntax-highlighter  @ 15.5.13
+  - @types/wellknown                 @ 0.5.8
+  - @typescript-eslint/eslint-plugin @ 8.66.0
+  - @typescript-eslint/parser        @ 8.66.0
+  - eslint                           @ 9.39.5
+  - eslint-plugin-react              @ 7.37.5
+  - eslint-plugin-react-hooks        @ 5.2.0
+  - globals                          @ 15.15.0
+  - identity-obj-proxy               @ 3.0.0
+  - jest                             @ 30.4.2
+  - jest-environment-jsdom           @ 30.4.1
+  - jsdom                            @ 27.4.0
+  - postcss                          @ 8.5.26
+  - tailwindcss                      @ 4.3.3
+  - ts-jest                          @ 29.4.12
+  - turbo                            @ 2.11.10
+  - typescript-eslint                @ 8.66.0
+  - whatwg-fetch                     @ 3.6.20
+  - ws                               @ 8.21.3
 
 Packages under the ISC License:
   - idb                      @ 8.0.3
@@ -151,9 +129,8 @@ Apache License, Version 2.0
 The Apache License, Version 2.0 is a permissive license that also provides an express grant of patent rights. 
 
 Packages under the Apache License, Version 2.0:
-  - @datadog/browser-rum           @ 5.35.1
-  - @mozilla/readability           @ 0.6.0
   - @nvidia/foundations-react-core @ 1.17.0
+  - mathjs                         @ 14.9.1
   - typescript                     @ 5.9.3
 
   Note: The dompurify package (transitive via isomorphic-dompurify) is dual-licensed under
@@ -584,6 +561,82 @@ Exhibit B - “Incompatible With Secondary Licenses” Notice
       the Mozilla Public License, v. 2.0.
 
 
+--------------------------------------------------
+
+------------------------------------------------------------
+BSD 3-Clause License
+------------------------------------------------------------
+The BSD 3-Clause License applies to the package listed below. The text is the
+license shipped with dashjs.
+
+Packages under the BSD 3-Clause License:
+  - dashjs                     @ 5.3.0
+
+Full BSD 3-Clause License Text (dashjs LICENSE.md):
+--------------------------------------------------
+The copyright in this software is being made available under the BSD License,
+included below. This software may be subject to other third party and
+contributor rights, including patent rights, and no such rights are granted
+under this license.
+
+Copyright (c) 2015, Dash Industry Forum.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+* Neither the name of the Dash Industry Forum nor the names of its
+  contributors may be used to endorse or promote products derived from this
+  software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+--------------------------------------------------
+
+------------------------------------------------------------
+Do What The Fuck You Want To Public License, Version 2
+------------------------------------------------------------
+wellknown@0.5.0 declares "BSD" in package.json. The LICENSE file shipped in
+that package is the Do What The Fuck You Want To Public License, Version 2.
+The text below is that file.
+
+Packages under the WTFPL, Version 2:
+  - wellknown                  @ 0.5.0
+
+Full WTFPL Version 2 Text (wellknown LICENSE):
+--------------------------------------------------
+Copyright (C) 2013 Tom MacWright <tom@macwright.org>
+
+This work is free. You can redistribute it and/or modify it under the
+terms of the Do What The Fuck You Want To Public License, Version 2,
+as published by Sam Hocevar:
+
+            DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+                    Version 2, December 2004
+
+ Copyright (C) 2004 Sam Hocevar <sam@hocevar.net>
+
+ Everyone is permitted to copy and distribute verbatim or modified
+ copies of this license document, and changing it is allowed as long
+ as the name is changed.
+
+            DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+
+  0. You just DO WHAT THE FUCK YOU WANT TO.
 --------------------------------------------------
 
 END OF THIRD-PARTY LICENSES
