@@ -15,7 +15,6 @@ Every command in the setup sources `deploy/docker/services/openshell/openshell.e
 | `HERMES_REF` | `v2026.9.14` | Upstream Hermes tag the harness image is built from, and the image's own tag, so a Hermes bump renames the image rather than overwriting it. |
 | `HARNESS_BASE_URL` | `https://inference-api.nvidia.com/v1` | The agent model endpoint's OpenAI-compatible base URL, including its `/v1`. Unrelated to any VLM a VSS deployment serves. |
 | `HARNESS_MODEL` | `aws/anthropic/bedrock-claude-opus-5` | A model id that endpoint serves. |
-| `HARNESS_PROVIDER` | `agent-inference` | The `providers/<name>-profile.yaml` that authorizes `HARNESS_BASE_URL`'s host. |
 | `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` | VSS layer only. The deployment's origin as the sandbox reaches it. The default is a deployment on this host. |
 
 ## Agent model versus VSS models

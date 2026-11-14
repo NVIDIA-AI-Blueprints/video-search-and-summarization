@@ -326,14 +326,14 @@ request for a different *endpoint* changes the provider profile.
 |---|---|---|
 | `HARNESS_MODEL` | `aws/anthropic/bedrock-claude-opus-5` | Claude Opus 5 as the Inference Hub routes it. The id is **the endpoint's, not the model's**: `azure/anthropic/claude-opus-5` is the same model over another route, a provider's public API serves the bare `claude-opus-5`, and a model router takes a **route id**. Replace it whenever the endpoint changes |
 | `HARNESS_BASE_URL` | `https://inference-api.nvidia.com/v1` | the NVIDIA Inference Hub gateway, reachable from NVIDIA infrastructure. Any OpenAI-compatible base URL replaces it: another gateway, a model router, a self-hosted server, or a provider's public API |
-| `HARNESS_PROVIDER` | `agent-inference` | the profile below that authorizes `HARNESS_BASE_URL`'s host, and the name of the provider created from it |
+| `PROVIDER` | `agent-inference` | a shell variable, not in `openshell.env`: the profile below that authorizes `HARNESS_BASE_URL`'s host, and the name of the provider created from it |
 | `HARNESS_API_KEY` | **no default** | the one credential name every provider profile declares; a real bearer token is required for a public endpoint. Take it from the environment or the platform secret store — never a literal in a command, a file, or skill output. Pass it **unquoted**: quotes are sealed into the credential |
 
 **The profile is what authorizes the endpoint's host**, so an endpoint outside
 the imported profile is unreachable however correct the URL is. One file each
 covers the three choices, and only one is imported:
 
-| Endpoint | `HARNESS_PROVIDER` (profile under `services/openshell/providers/`) | `HARNESS_API_KEY` |
+| Endpoint | `PROVIDER` (profile under `services/openshell/providers/`) | `HARNESS_API_KEY` |
 |---|---|---|
 | (a) OpenAI-compatible endpoint — the skill default | `agent-inference` | the endpoint's key |
 | (b) a model served on this host, including the build's own LLM NIM | `agent-inference-local` | optional |
@@ -408,7 +408,7 @@ then apply this build's values over them:
 | Value | For a build | Why |
 |---|---|---|
 | `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` — the `openshell.env` default, unchanged for a Compose build | the origin as **the sandbox** sees it, not `HOST_IP`. Set it only for a Kubernetes deployment, to that cluster's Ingress origin, which then also needs a policy entry |
-| `HARNESS_BASE_URL`, `HARNESS_MODEL`, `HARNESS_PROVIDER` | the Q3a answers | the model values and the profile that authorizes them; a model change is a re-create, not a rebuild |
+| `HARNESS_BASE_URL`, `HARNESS_MODEL`, `PROVIDER` | the Q3a answers | the model values and the profile that authorizes them; a model change is a re-create, not a rebuild |
 | `HARNESS_API_KEY` | from the environment or the secret store | the selected provider's credential, unquoted. Never into `openshell.env`, `override.env`, a transcript, or a summary |
 | sandbox name | `vss-harness-hermes` unless this host already holds that name | in place of the README's `hermes` on `sandbox create`, `sandbox delete` and `sandbox exec`; settled at Q3, per [Sandbox names on a shared host](#sandbox-names-on-a-shared-host) |
 

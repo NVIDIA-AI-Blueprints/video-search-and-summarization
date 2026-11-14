@@ -378,7 +378,7 @@ Otherwise ask **Q3a-default** through one single-select `AskUserQuestion`: *"Whi
 
 | Choice | Result |
 | --- | --- |
-| **The default endpoint and model** *(default)* | Provider profile (a): `HARNESS_PROVIDER=agent-inference`, `HARNESS_BASE_URL=https://inference-api.nvidia.com/v1`, `HARNESS_MODEL=aws/anthropic/bedrock-claude-opus-5`, plus `HARNESS_API_KEY`. |
+| **The default endpoint and model** *(default)* | Provider profile (a): `PROVIDER=agent-inference`, `HARNESS_BASE_URL=https://inference-api.nvidia.com/v1`, `HARNESS_MODEL=aws/anthropic/bedrock-claude-opus-5`, plus `HARNESS_API_KEY`. |
 | **The default endpoint, a different model** | The same settings, except collect `HARNESS_MODEL` as a route id that endpoint serves (listed at <https://inference.nvidia.com/?new=0>). Do not ask for the endpoint and do not re-select a provider. |
 | **A different provider** | Ask **Q3a-provider** below. |
 
@@ -386,9 +386,9 @@ On **a different provider**, show the three shipped provider profiles through on
 
 | Choice | What to set |
 | --- | --- |
-| **(a) OpenAI-compatible endpoint** | `HARNESS_PROVIDER=agent-inference`; collect required `HARNESS_BASE_URL` and `HARNESS_MODEL`; require `HARNESS_API_KEY` for a public endpoint. A host other than the profile's needs that host in a copy of it. |
-| **(b) a model served on this host** | `HARNESS_PROVIDER=agent-inference-local`; collect `HARNESS_BASE_URL` and `HARNESS_MODEL`; the key is optional. The profile declares `8000` and `11434` only, so any other port — the build's own NIM on `30081` included — needs an entry added to a copy of it. |
-| **(c) build.nvidia.com NVIDIA-hosted model** | `HARNESS_PROVIDER=agent-inference-build`; require `HARNESS_API_KEY`, an `nvapi-…` key; collect `HARNESS_BASE_URL=https://integrate.api.nvidia.com/v1` and `HARNESS_MODEL`. |
+| **(a) OpenAI-compatible endpoint** | `PROVIDER=agent-inference`; collect required `HARNESS_BASE_URL` and `HARNESS_MODEL`; require `HARNESS_API_KEY` for a public endpoint. A host other than the profile's needs that host in a copy of it. |
+| **(b) a model served on this host** | `PROVIDER=agent-inference-local`; collect `HARNESS_BASE_URL` and `HARNESS_MODEL`; the key is optional. The profile declares `8000` and `11434` only, so any other port — the build's own NIM on `30081` included — needs an entry added to a copy of it. |
+| **(c) build.nvidia.com NVIDIA-hosted model** | `PROVIDER=agent-inference-build`; require `HARNESS_API_KEY`, an `nvapi-…` key; collect `HARNESS_BASE_URL=https://integrate.api.nvidia.com/v1` and `HARNESS_MODEL`. |
 
 After the selection, ask in one typed-values message only for that provider's still-missing non-secret settings. Tell the user which credentials are found or missing, never their values.
 
