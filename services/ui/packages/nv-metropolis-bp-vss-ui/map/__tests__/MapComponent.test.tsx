@@ -3,11 +3,11 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { MapComponent } from '../lib-src/MapComponent';
-import { getMapApp, MAP_APP_TRAFFIC_LIGHT } from '../lib-src/mapApp';
+import { getMapTabApp, MAP_TAB_APP_TRAFFIC_LIGHT } from '../lib-src/mapTabApp';
 
-jest.mock('../lib-src/mapApp', () => ({
-  MAP_APP_TRAFFIC_LIGHT: 'traffic-light',
-  getMapApp: jest.fn(() => 'warehouse'),
+jest.mock('../lib-src/mapTabApp', () => ({
+  MAP_TAB_APP_TRAFFIC_LIGHT: 'traffic-light',
+  getMapTabApp: jest.fn(() => 'warehouse'),
 }));
 
 jest.mock('../lib-src/warehouse/WarehouseAnalyticsComponent', () => ({
@@ -49,11 +49,11 @@ jest.mock('../lib-src/traffic-light/TrafficLightComponent', () => ({
   ),
 }));
 
-const mockedGetMapApp = getMapApp as jest.MockedFunction<typeof getMapApp>;
+const mockedGetMapTabApp = getMapTabApp as jest.MockedFunction<typeof getMapTabApp>;
 
 describe('MapComponent', () => {
   beforeEach(() => {
-    mockedGetMapApp.mockReturnValue('warehouse');
+    mockedGetMapTabApp.mockReturnValue('warehouse');
   });
 
   it('renders warehouse analytics natively by default', () => {
@@ -68,8 +68,8 @@ describe('MapComponent', () => {
     );
   });
 
-  it('renders traffic-light when NEXT_PUBLIC_MAP_APP selects it', () => {
-    mockedGetMapApp.mockReturnValue(MAP_APP_TRAFFIC_LIGHT);
+  it('renders traffic-light when NEXT_PUBLIC_MAP_TAB_APP selects it', () => {
+    mockedGetMapTabApp.mockReturnValue(MAP_TAB_APP_TRAFFIC_LIGHT);
     render(
       <MapComponent mapData={{ apiUrl: 'http://example.test/video-analytics-api' }} />,
     );

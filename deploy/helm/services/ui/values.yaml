@@ -155,7 +155,7 @@ env:
     value: '{}'
   - name: NEXT_PUBLIC_ENABLE_MAP_TAB
     value: "false"
-  - name: NEXT_PUBLIC_MAP_APP
+  - name: NEXT_PUBLIC_MAP_TAB_APP
     value: "warehouse"
   - name: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
     value: ""

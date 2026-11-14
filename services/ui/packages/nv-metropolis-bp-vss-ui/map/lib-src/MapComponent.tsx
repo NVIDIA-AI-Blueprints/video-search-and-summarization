@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Map tab surface. Renders warehouse analytics or the traffic-light (ITS)
- * app natively, selected by NEXT_PUBLIC_MAP_APP (smartcities vs warehouse).
+ * app natively, selected by NEXT_PUBLIC_MAP_TAB_APP (smartcities vs warehouse).
  */
 import React from 'react';
 import {
@@ -11,13 +11,13 @@ import {
   type WarehouseAnalyticsSidebarControlHandlers,
 } from './warehouse/WarehouseAnalyticsComponent';
 import { TrafficLightComponent } from './traffic-light/TrafficLightComponent';
-import { getMapApp, MAP_APP_TRAFFIC_LIGHT } from './mapApp';
+import { getMapTabApp, MAP_TAB_APP_TRAFFIC_LIGHT } from './mapTabApp';
 
 export type MapSidebarControlHandlers = WarehouseAnalyticsSidebarControlHandlers;
 export type MapComponentProps = WarehouseAnalyticsComponentProps;
 
 export const MapComponent: React.FC<MapComponentProps> = (props) =>
-  getMapApp() === MAP_APP_TRAFFIC_LIGHT ? (
+  getMapTabApp() === MAP_TAB_APP_TRAFFIC_LIGHT ? (
     <TrafficLightComponent {...props} />
   ) : (
     <WarehouseAnalyticsComponent {...props} />

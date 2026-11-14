@@ -1,19 +1,19 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import { env } from 'next-runtime-env';
-import { MAP_APP_TRAFFIC_LIGHT, MAP_APP_WAREHOUSE } from './mapAppConstants';
+import { MAP_TAB_APP_TRAFFIC_LIGHT, MAP_TAB_APP_WAREHOUSE } from './mapTabAppConstants';
 
 const read = (key: string) => env(key) || process?.env?.[key];
 
-const mapAppFromEnv = () =>
-  (read('NEXT_PUBLIC_MAP_APP') || MAP_APP_WAREHOUSE).trim();
+const mapTabAppFromEnv = () =>
+  (read('NEXT_PUBLIC_MAP_TAB_APP') || MAP_TAB_APP_WAREHOUSE).trim();
 
 export async function fetchWarehouseAnalyticsData() {
   await new Promise((resolve) => setTimeout(resolve, 100));
 
   return {
     systemStatus: 'operational',
-    mapApp: MAP_APP_WAREHOUSE,
+    mapTabApp: MAP_TAB_APP_WAREHOUSE,
     apiUrl:
       read('NEXT_PUBLIC_WAREHOUSE_ANALYTICS_API_URL') ||
       read('NEXT_PUBLIC_MDX_WEB_API_URL') ||
@@ -31,7 +31,7 @@ export async function fetchTrafficLightData() {
 
   return {
     systemStatus: 'operational',
-    mapApp: MAP_APP_TRAFFIC_LIGHT,
+    mapTabApp: MAP_TAB_APP_TRAFFIC_LIGHT,
     apiUrl:
       read('NEXT_PUBLIC_WAREHOUSE_ANALYTICS_API_URL') ||
       read('NEXT_PUBLIC_MDX_WEB_API_URL') ||
@@ -45,7 +45,7 @@ export async function fetchTrafficLightData() {
 }
 
 export async function fetchMapData() {
-  return mapAppFromEnv() === MAP_APP_TRAFFIC_LIGHT
+  return mapTabAppFromEnv() === MAP_TAB_APP_TRAFFIC_LIGHT
     ? fetchTrafficLightData()
     : fetchWarehouseAnalyticsData();
 }
