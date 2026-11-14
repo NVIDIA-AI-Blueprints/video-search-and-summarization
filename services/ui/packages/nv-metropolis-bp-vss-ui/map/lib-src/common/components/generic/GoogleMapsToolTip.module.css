@@ -1,0 +1,16 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.toolTip {
+  display: inline-block;
+  background-color: black;
+  color: lightgray;
+  font-size: 0.75vw;
+  padding: 4px;
+  /* Translate beyond mouse pointer. Assuming mouse size below */
+  transform: translate(0.5vw, 0.5vw);
+}

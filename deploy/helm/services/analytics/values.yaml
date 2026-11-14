@@ -25,3 +25,7 @@ vss-behavior-analytics:
 
 vss-video-analytics-api:
   enabled: false
+
+# Legacy ITS iframe UI. Off: Agent UI renders the Map tab natively.
+video-analytics-ui:
+  enabled: false

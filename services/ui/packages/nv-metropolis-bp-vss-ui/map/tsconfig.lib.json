@@ -1,11 +1,14 @@
 {
-    "extends": "./tsconfig.json",
-    "compilerOptions": {
-      "noEmit": false,
-      "declaration": true,
-      "declarationMap": true,
-      "emitDeclarationOnly": true,
-      "outDir": "./lib"
-    },
-    "include": ["lib-src/**/*"]
-  }
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": true,
+    "noCheck": true,
+    "rootDir": "./lib-src",
+    "outDir": "./lib"
+  },
+  "include": ["lib-src/**/*"],
+  "exclude": ["node_modules", "lib", "**/__tests__/**", "**/*.test.ts", "**/*.test.tsx"]
+}

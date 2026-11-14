@@ -5,7 +5,13 @@ module.exports = {
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
+    '^common/map/mui$': '<rootDir>/lib-src/common/mui.tsx',
+    '^common/map/mui-icons$': '<rootDir>/lib-src/common/mui-icons.tsx',
+    '^common/map/shell(.*)$': '<rootDir>/lib-src/common/shell$1',
+    '^common/map$': '<rootDir>/lib-src/common/index.ts',
+    '^@nvidia/foundations-react-core$': '<rootDir>/../__mocks__/@nvidia-foundations-react-core.js',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    '\\.(png|jpg|jpeg|gif|svg)$': '<rootDir>/__mocks__/fileMock.js',
   },
   testMatch: [
     '**/__tests__/**/*.(ts|tsx|js)',
@@ -15,7 +21,8 @@ module.exports = {
   transform: {
     '^.+\\.(ts|tsx)$': ['ts-jest', {
       tsconfig: {
-        jsx: 'react-jsx',
+        jsx: 'react',
+        allowJs: true,
       },
     }],
   },

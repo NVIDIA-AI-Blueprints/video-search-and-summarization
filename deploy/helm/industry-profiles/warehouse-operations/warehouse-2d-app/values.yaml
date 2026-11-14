@@ -657,6 +657,10 @@ vss-agent-ui:
   envOverrides:
     - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
       value: "true"
+    - name: NEXT_PUBLIC_ENABLE_MAP_TAB
+      value: "true"
+    - name: NEXT_PUBLIC_MAP_TAB_APP
+      value: "warehouse"
 
 # Prometheus + Grafana (K8s port of deploy/docker/services/monitoring).
 # dcgmExporter stays off because the NVIDIA GPU operator already runs

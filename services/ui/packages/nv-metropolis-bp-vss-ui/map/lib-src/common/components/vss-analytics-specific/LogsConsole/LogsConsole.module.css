@@ -1,0 +1,49 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.container {
+  border: 4px double silver;
+  background-color: white;
+  height: 100%;
+}
+
+.buttonsBar {
+  height: 30px;
+  border-bottom: 6px solid #d7d7d7;
+  margin: 3px;
+}
+
+.clearConsoleBtn {
+  float: right;
+  cursor: pointer;
+  color: #85929e;
+}
+
+.closeBtn {
+  float: right;
+  cursor: pointer;
+  color: #85929e;
+}
+
+.clearConsoleBtn:hover,
+.closeBtn:hover {
+  color: black;
+}
+
+.list {
+  overflow-y: auto;
+  height: 85%;
+  margin: 3px 3px;
+}
+
+.listItem {
+  display: block;
+  border-bottom: 3px solid #d7d7d7;
+  margin: 0.5vw 6px;
+  padding: 1px;
+  word-wrap: break-word;
+}

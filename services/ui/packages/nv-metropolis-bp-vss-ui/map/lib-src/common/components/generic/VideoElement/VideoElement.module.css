@@ -1,0 +1,111 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.videoContainer,
+.videoFrame {
+  position: absolute;
+  display: block;
+}
+
+.videoContainer {
+  inset: 0;
+  overflow: hidden;
+}
+
+.videoFrame {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-sizing: border-box;
+}
+
+.videoControls {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  width: auto;
+  height: auto;
+}
+
+.controlsButton,
+.controlsButton:global(.nv-button.nv-button--kind-tertiary),
+:global(.dark .nv-light) .controlsButton:global(.nv-button.nv-button--kind-tertiary),
+:global(.nv-dark .nv-light) .controlsButton:global(.nv-button.nv-button--kind-tertiary) {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  max-width: 28px;
+  max-height: 28px;
+  padding: 0;
+  margin: 0;
+  aspect-ratio: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  /* Same translucent light frost as the seek bar (DashVideo.module.css). */
+  color: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.32);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-size: 0;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.controlsButton:global(.nv-button.nv-button--kind-tertiary):hover:not(:disabled),
+:global(.dark .nv-light) .controlsButton:global(.nv-button.nv-button--kind-tertiary):hover:not(:disabled),
+:global(.nv-dark .nv-light) .controlsButton:global(.nv-button.nv-button--kind-tertiary):hover:not(:disabled) {
+  color: #1a1a1a;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.controlsButton > span {
+  display: flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinnerContainer {
+  min-width: 100%;
+  min-height: 100%;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+}
+
+.cover {
+  width: 100%;
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  color: #fff;
+  display: flex;
+  justify-content: center;
+  align-content: center;
+  vertical-align: middle;
+  text-align: center;
+  align-items: center;
+  font-size: large;
+  background: #333333;
+  opacity: .5;
+}

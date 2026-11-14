@@ -45,4 +45,43 @@ const Switch = ({ slotLabel, labelSide, checked, onCheckedChange, disabled, ...r
     slotLabel
   );
 
-module.exports = { Button, TextInput, Select, Tag, Switch };
+const ThemeProvider = ({ children, asChild, className, theme: _theme, ...rest }) => {
+  const merged = ['nv-light', className].filter(Boolean).join(' ');
+  if (asChild && React.isValidElement(children)) {
+    return React.cloneElement(children, {
+      className: [children.props.className, merged].filter(Boolean).join(' '),
+      ...rest,
+    });
+  }
+  return React.createElement('div', { className: merged, ...rest }, children);
+};
+
+const DatePicker = ({ children, ...rest }) =>
+  React.createElement('div', rest, children);
+const TimeInput = TextInput;
+const Spinner = (props) => React.createElement('div', { role: 'status', ...props });
+const Tooltip = ({ children, slotContent, ...rest }) =>
+  React.createElement('span', rest, children, slotContent);
+const Checkbox = ({ checked, onCheckedChange, ...rest }) =>
+  React.createElement('input', {
+    type: 'checkbox',
+    checked,
+    onChange: (e) => onCheckedChange?.(e.target.checked),
+    ...rest,
+  });
+const Divider = (props) => React.createElement('hr', props);
+
+module.exports = {
+  Button,
+  TextInput,
+  Select,
+  Tag,
+  Switch,
+  ThemeProvider,
+  DatePicker,
+  TimeInput,
+  Spinner,
+  Tooltip,
+  Checkbox,
+  Divider,
+};

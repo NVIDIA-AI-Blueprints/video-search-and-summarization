@@ -7,5 +7,6 @@
     "emitDeclarationOnly": true,
     "outDir": "./lib"
   },
-  "include": ["lib-src/**/*"]
+  "include": ["lib-src/**/*"],
+  "exclude": ["node_modules", "lib", "**/__tests__/**", "**/*.test.ts", "**/*.test.tsx"]
 }

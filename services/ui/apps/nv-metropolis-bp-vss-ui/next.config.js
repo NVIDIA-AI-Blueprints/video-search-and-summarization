@@ -3,6 +3,34 @@
 const { configureRuntimeEnv } = require('next-runtime-env/build/configure');
 const { i18n } = require('./next-i18next.config');
 
+/**
+ * Local Next has no haproxy in front. DASH start, the MPD, and segments all
+ * live under `/vst` on the stack origin, which is a different host than the
+ * UI, and `/vst/dash/` GET responses are not CORS-enabled. Same-origin `/vst`
+ * plus this rewrite is how DashStream reaches VST from a dev server.
+ */
+function vstDevRewrites() {
+  const raw = (
+    process.env.NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_URL ||
+    process.env.NEXT_PUBLIC_VST_API_URL ||
+    ''
+  ).trim();
+  if (!raw) return [];
+  let origin;
+  try {
+    origin = new URL(raw).origin;
+  } catch {
+    return [];
+  }
+  if (!origin || origin === 'null') return [];
+  return [
+    {
+      source: '/vst/:path*',
+      destination: `${origin}/vst/:path*`,
+    },
+  ];
+}
+
 const nextConfig = {
   env: {
     ...configureRuntimeEnv(),
@@ -29,6 +57,7 @@ const nextConfig = {
     '@nv-metropolis-bp-vss-ui/dashboard',
     '@nv-metropolis-bp-vss-ui/map',
     '@nv-metropolis-bp-vss-ui/video-management',
+    'vst-streaming-lib',
   ],
   typescript: {
     // !! WARN !!
@@ -38,23 +67,71 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   experimental: {
+    esmExternals: 'loose',
     serverActions: {
       bodySizeLimit: '5mb',
     },
   },
   webpack(config, { isServer, dev }) {
+    const path = require('path');
+    const packagesPath = path.resolve(__dirname, '../../packages');
+    const mapCommonSrc = path.join(
+      packagesPath,
+      'nv-metropolis-bp-vss-ui/map/lib-src/common',
+    );
+    const streamingLibDash = path.resolve(
+      __dirname,
+      '../../../vios/ui/streaming-lib/src/dash/DashStream.ts',
+    );
+    // Webpack prefers dashjs' "browser" export (UMD). That module is
+    // `{ default: { MediaPlayer } }`, so `import dashjs from 'dashjs'` has no
+    // MediaPlayer. The ESM build matches VIOS/Vite (`export { MediaPlayer, default }`).
+    const dashjsEntry = path.resolve(
+      __dirname,
+      '../../node_modules/dashjs/dist/modern/esm/dash.all.min.js',
+    );
+
     config.experiments = {
       asyncWebAssembly: true,
       layers: true,
     };
 
+    config.resolve.fallback = {
+      ...(config.resolve.fallback || {}),
+      canvas: false,
+      fs: false,
+      net: false,
+      tls: false,
+    };
+
+    // Konva's Node entry requires the native `canvas` package. Warehouse
+    // analytics is client-only, so always resolve the browser build.
+    // Warehouse DASH imports DashStream only, not StreamManager/WebRTC.
+    try {
+      config.resolve.alias = {
+        ...(config.resolve.alias || {}),
+        canvas: false,
+        'common/map': mapCommonSrc,
+        'konva/lib/index-node': require.resolve('konva/lib/index.js'),
+        'konva/lib/index-node.js': require.resolve('konva/lib/index.js'),
+        'vst-streaming-lib/dash$': streamingLibDash,
+        dashjs: dashjsEntry,
+      };
+    } catch {
+      config.resolve.alias = {
+        ...(config.resolve.alias || {}),
+        canvas: false,
+        'common/map': mapCommonSrc,
+        'vst-streaming-lib/dash$': streamingLibDash,
+        dashjs: dashjsEntry,
+      };
+    }
+
     // In development, resolve packages to their source code for hot reload
     if (dev) {
-      const path = require('path');
-      const packagesPath = path.resolve(__dirname, '../../packages');
-
       config.resolve.alias = {
         ...config.resolve.alias,
+        'common/map': mapCommonSrc,
         'common': path.join(packagesPath, 'common/lib-src'),
         '@nv-metropolis-bp-vss-ui/alerts': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/alerts/lib-src'),
         // Exact match only: the '/styles' subpath has no lib-src equivalent and
@@ -72,6 +149,9 @@ const nextConfig = {
   },
   async redirects() {
     return [];
+  },
+  async rewrites() {
+    return vstDevRewrites();
   },
 };
 

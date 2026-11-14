@@ -854,8 +854,7 @@ agent:
 
 vss-agent-ui:
   enabled: true
-  # Set global.externalHost to vss-search.$NODE_IP.nip.io (e.g. --set) so public URLs and ws:// use that host. Video Analytics and Map match Search ingress.
-  mapAppPath: /ui/smartcities
+  # Set global.externalHost to vss-search.$NODE_IP.nip.io (e.g. --set) so public URLs and ws:// use that host. Video Analytics matches Search ingress.
   global:
     externalHost: ''
     imagePullPolicy: IfNotPresent
