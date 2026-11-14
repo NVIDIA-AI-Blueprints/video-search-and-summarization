@@ -63,7 +63,10 @@ Direct VLM requires:
 - Reachable RT-VLM.
 - VIOS when using sensor-based media.
 
-Directly scoped URL, file, and sensor requests go straight to `vss vlm run`.
+Directly scoped URL and file requests go straight to `vss vlm run`. A named
+sensor goes there only for an explicit fresh visual inspection of a grounded
+time window. Naming a sensor or asking another detail about an analyzed video
+does not itself request fresh inference: use the memory routing below.
 The checks below are for requested readiness diagnostics, not mandatory preflight.
 
 Introspection requires:
@@ -126,8 +129,8 @@ For a general question about previously analyzed video, use this exact order:
    and ask the user for the selectors that would make it answerable. The
    question stays open until they arrive.
 
-When the request already names its own scope, that order does not apply. Skip
-it and make the matching command below the first thing you run: do not search
+When the request matches one of the explicit exceptions below, that order does
+not apply. Skip it and make the matching command below the first thing you run: do not search
 Markdown, do not check the introspection state, and do not probe the deployment
 first. Confirming readiness is a step of its own only when the request asks for
 it.
