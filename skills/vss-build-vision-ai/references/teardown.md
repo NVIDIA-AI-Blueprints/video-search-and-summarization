@@ -51,16 +51,11 @@ recorded by a run that failed *before* `sandbox create` belongs to a sandbox
 that was never created, so `delete` reports it as not found. That is the one
 non-zero here to accept and move on from; any other failure is a blocker.
 
-The gateway, the harness image and the inference provider deliberately survive:
-they are one per host, shared by every build, and the next bring-up reuses all
-three. Bring the gateway down only when `openshell sandbox list` is empty, and
-keep its `openshell-data` volume unless every sandbox record and the sealed
-provider credentials are meant to go with it:
-
-```bash
-docker compose --env-file "$REPO/deploy/docker/services/openshell/openshell.env" \
-  -f "$REPO/deploy/docker/services/openshell/compose.yml" --profile openshell down
-```
+The harness image survives. The gateway is a service of the `vss` project, so
+either teardown below removes it and its `openshell-data` volume, and with them
+the inference provider and every other sandbox's gateway record on the host;
+check `openshell sandbox list` before running one. The next bring-up starts the
+gateway and provider again.
 
 The name comes from the build's `sandbox` file and nowhere else: a sandbox
 carries no Compose project label, so neither the build directory nor the
@@ -167,7 +162,7 @@ docker network rm "${COMPOSE_PROJECT_NAME}_default" 2>/dev/null || true
 # Names are <project>_<vol>; match on the volume-name suffix.
 docker volume ls -q \
   --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
-  | grep -E '(elastic-(data|logs)|kafka-data|logstash-libs|phoenix-data|vios_pg_data)$' \
+  | grep -E '(elastic-(data|logs)|kafka-data|logstash-libs|phoenix-data|vios_pg_data|openshell-data)$' \
   | xargs -r docker volume rm
 ```
 

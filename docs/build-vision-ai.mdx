@@ -289,8 +289,9 @@ removed.
 <Note>
 A harness is not a Docker Compose service of the build. The Skill never adds it
 to `COMPOSE_PROFILES`; it brings up the sandbox only after the VSS stack passes
-readiness checks. The OpenShell gateway is one per host and survives the
-build's own teardown, which deletes the sandbox before Compose.
+readiness checks. The OpenShell gateway is one per host, in the `vss` Compose
+project, so the build's own teardown deletes the sandbox first and then removes
+the gateway and its state with the rest of the project.
 </Note>
 
 Warehouse deployments do not enter the harness flow. The Skill deploys

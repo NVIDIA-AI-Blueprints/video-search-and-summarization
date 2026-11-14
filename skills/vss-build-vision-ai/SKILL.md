@@ -364,7 +364,7 @@ Apply these on a **yes** only:
 - `vss-haproxy-ingress` is **required** — the sandbox reaches the build only through one origin, and there is no ingress-less host-CLI read path. The sandbox paired with "no ingress" is a capability contradiction for the clarification gate, not something to settle by dropping a side.
 - On `alerts`, a sandbox build **must** carry the curated `haproxy.cfg` that admits `host.openshell.internal`; do not reach the sandbox by repointing `EXTERNAL_IP`, which Alert Bridge uses to rewrite clip URLs and would leave alert evidence unopenable.
 
-The harness is a label, never a service of the build: it must not appear in `COMPOSE_PROFILES`, `compose.yml`, or `patches/`. The OpenShell gateway is a Compose service of its own `openshell` project, brought up once per host and untouched by the build's own `compose down`.
+The harness is a label, never a service of the build: it must not appear in `COMPOSE_PROFILES`, `compose.yml`, or `patches/`. The OpenShell gateway is a Compose service of the `vss` project behind the `openshell` profile, so tearing that project down removes the gateway and its state; delete the sandbox first.
 
 ### Harness model — Q3a
 

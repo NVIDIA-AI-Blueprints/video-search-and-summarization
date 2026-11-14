@@ -228,7 +228,7 @@ Two properties of the harness decide whether this stays data. How its API authen
 
 ## Artifacts and state
 
-* **`openshell-data` volume** — `gateway.db`, the JWT signing key, and the key-encryption key that seals provider credentials. Back it up; keeping it across a `docker compose down` is what keeps sandboxes' gateway records.
+* **`openshell-data` volume** — `gateway.db`, the JWT signing key, and the key-encryption key that seals provider credentials. Back it up; keeping it across a `docker compose down` is what keeps sandboxes' gateway records. A VSS reset (`dev-profile.sh down`, or `down -v` on the project) removes it with the gateway, so delete the sandboxes first.
 * **Sandbox logs** — `openshell logs` for the gateway's view, and the supervisor container's own log for the host and reason behind a refused connection.
 * **`~/.config/openshell`** — the CLI's gateway registrations, written by `openshell gateway add`.
 * **Per-sandbox state** — the workload's `/sandbox` directory, including `.hermes/.env` with the minted `API_SERVER_KEY` and, under the VSS layer, `.vss/config.json` written by `vss configure`.

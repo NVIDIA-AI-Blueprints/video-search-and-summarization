@@ -105,11 +105,11 @@ The harness is **not** a Compose service of the build and **must not** enter
 on the invented key. Treat it exactly as `<name>` is treated in the artifact
 contract: a label outside the Compose model.
 
-The OpenShell **gateway** is a Compose service, but of its own pinned `openshell`
-project ([`deploy/docker/services/openshell/compose.yml`](../../../deploy/docker/services/openshell/compose.yml),
-behind the `openshell` profile), not of the build. It is one per host and survives
-any number of builds, so it is brought up once and left alone — the build's own
-`docker compose down` neither reaches it nor should.
+The OpenShell **gateway** is a Compose service of the `vss` project
+([`deploy/docker/services/openshell/compose.yml`](../../../deploy/docker/services/openshell/compose.yml),
+behind the `openshell` profile), started by the bring-up rather than by the
+build's `COMPOSE_PROFILES`. It is one per host, and a teardown of the `vss`
+project removes it and its `openshell-data` volume.
 
 Selecting the sandbox therefore never *adds* a key to the build. All it adds is
 a host-side step after deployment (below).
@@ -508,9 +508,9 @@ the build's containers alone leaves a healthy sandbox with a dead origin, which
 reports as a skill failure rather than a missing deployment.
 
 The gateway, the image and the provider survive a sandbox delete by design, and
-a later build reuses all three. Bring the gateway down only when no sandbox is
-left on the host, and keep its `openshell-data` volume unless every sandbox
-record and the sealed provider credentials are meant to go with it.
+a later build reuses all three. A teardown of the `vss` project removes the
+gateway and its `openshell-data` volume, provider included, so the next
+bring-up starts both again.
 
 ## Sources
 

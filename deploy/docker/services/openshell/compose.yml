@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Pinned so the project, and its openshell-data volume, keep their name
-# rather than taking this directory's.
-name: openshell
+# The VSS project, which an include gives it regardless, so starting this file
+# on its own reaches the same gateway and volume as a developer profile does.
+name: vss
 
 services:
   openshell-init:                # one-shot: writes the sandbox JWT signing

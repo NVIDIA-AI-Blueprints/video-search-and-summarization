@@ -393,8 +393,10 @@ in [`openshell.env`](../../deploy/docker/services/openshell/openshell.env), whic
 |---|---|
 | `VSS_PUBLIC_URL` | The deployment's origin as the sandbox reaches it. The default, `http://host.openshell.internal:7777`, is a deployment on this host |
 
-A VSS developer profile starts the gateway itself — append `openshell` to its
-`COMPOSE_PROFILES` — which covers the Quickstart's step 1 and nothing else.
+A VSS developer profile starts the gateway itself — append `openshell` to
+`COMPOSE_PROFILES` in its `overrides.env`, or for alerts to both
+`COMPOSE_PROFILES_CV` and `COMPOSE_PROFILES_VLM` — which covers the
+Quickstart's step 1 and nothing else.
 
 Both halves are needed. The image alone leaves a `vss` CLI the policy refuses
 to let out; the policy alone grants reach to a sandbox with no CLI to use it.
@@ -664,7 +666,10 @@ Three constraints the service has to respect:
 The data directory is a named volume, and needs backups rather than being
 treated as cache: it holds the SQLite record of every sandbox, the JWT signing
 key, and the key-encryption key that provider credentials are sealed with.
-Keeping it across `compose down` is what keeps sandboxes' gateway records.
+Keeping it across `compose down` is what keeps sandboxes' gateway records. A
+VSS reset (`dev-profile.sh down`, or `down -v` on the project) removes the
+gateway and this volume with it, so run `openshell sandbox delete` on each
+sandbox first; otherwise its containers keep running with no gateway record.
 
 **One project, one profile.** The gateway sits in the VSS project behind the
 `openshell` profile, so a deployment stays one `compose up` and one `compose
