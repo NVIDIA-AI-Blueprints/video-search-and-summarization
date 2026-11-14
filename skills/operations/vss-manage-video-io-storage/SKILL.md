@@ -1,6 +1,6 @@
 ---
 name: vss-manage-video-io-storage
-description: Use to drive `vss vios` for sensor list, timelines, clips, snapshots, and add/delete of video or stream sources, and the VIOS REST API only for what that CLI does not cover (sensor info/status/settings, storage and recorder status, WebRTC, the RTSP proxy, network scan, device settings, bytes to disk, the NvStreamer API), when the caller names a REST endpoint, or to debug VIOS. Also provisions a source into an Agent-backed or headless deployment, which the deployment fans out to the perception consumers (RT-CV/RT-Embed/RT-VLM). Not for VLM inference, semantic search.
+description: Use to drive `vss vios` for sensor list, timelines, clips, snapshots, and add/delete of video or stream sources, and the VIOS REST API only for what that CLI does not cover (sensor info/status/settings, storage and recorder status, WebRTC, the RTSP proxy, network scan, device settings, bytes to disk, the NvStreamer API), when the caller names a REST endpoint, or to debug VIOS. Also provisions a source into an Agent-backed or headless deployment, which the deployment fans out to the perception consumers (RT-CV/RT-Embed/RT-VLM). Not for video-content questions or VLM inference (use vss-ask-video), or semantic search (use vss-search-archive).
 license: Apache-2.0
 metadata:
   version: "3.3.0-rc0"
@@ -229,6 +229,13 @@ When the user has a sensor name or IP but needs a clip or snapshot:
 
 ## Responses
 
+**Complete the requested delivery:**
+
+- After registering or uploading a source, return the actual `name`, `sensor_id`, and `type` from `vss vios add`; include `stream_id` when returned. Report a nonzero exit instead of claiming registration or indexing succeeded.
+- For a clip or snapshot URL request, return the CLI's `media_url` and resolved time window when present. Report `warmed: false` if returned.
+- For a download-to-disk request, a URL alone is not completion: fetch the returned `media_url` as given, save the bytes to the requested local path, check the transfer succeeded and the file is nonempty, and report that path. Do not reconstruct an endpoint or claim a failed transfer produced a clip.
+- For an explicit NvStreamer request, return its actual RTSP URL and, when registration with VIOS was requested, the resulting VIOS sensor identifier.
+
 Covered operations return CLI JSON on stdout and a typed exit code. Branch on the exit code ([`AGENTS.md`](../../../AGENTS.md)). An empty sensor list at exit 0 is an answer. Do not retry it.
 
 A direct REST call returns the service's own shapes. **Success with data:** JSON object or array. **Success with no data:** `null` — the call succeeded but there is nothing to return (for example a scan found nothing). It is not an error. **Error:** JSON object with `error_code` and `error_message`:
@@ -283,3 +290,5 @@ Example operation prompts:
 - **Sensor name:** Address media by sensor name. `video` is a file-backed sensor; `stream` is RTSP. Read the type from `vss vios list`, then delete with `vss vios delete --type <that type> --sensor NAME`; a mismatch is refused.
 - **Recorded timeline after upload:** `vss vios add --type video` records the file. Read the anchored range with `vss vios timeline --sensor NAME` before a later clip or snapshot. Do not hand-build an upload request.
 - **Endpoints:** CLI examples take no endpoint. The origin is whatever `vss configure` recorded.
+
+

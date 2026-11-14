@@ -279,7 +279,11 @@ def generate_platform_mode(
         # static host context lives in the leading paragraph below.
         if idx == 1:
             leading = [
-                f"Use the `/vss-manage-alerts` skill (and `/vss-build-vision-ai` as needed) on this bare `{platform}` host.",
+                f"Use `/vss-build-vision-ai` to deploy the backend on this bare `{platform}` host; "
+                "use `/vss-manage-alerts` for its operational contract.",
+                "Follow the build skill's current resolved-Compose lifecycle: generate the "
+                "`_builds/<name>/` artifacts, validate `_builds/<name>/resolved.yml`, and deploy "
+                "that exact file. Do not substitute a direct legacy `dev-profile.sh` deployment.",
                 "Docker + NVIDIA Container Toolkit are available, `NGC_CLI_API_KEY` is set,",
                 "and the remote LLM/VLM endpoints are configured via "
                 "`LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` / `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL`.",

@@ -73,7 +73,7 @@ This makes VIOS a light-weight GPU consumer: only `streamprocessing-ms` contends
 
 | Mount Path (host → container) | Purpose | Type | Size estimate | Required permissions |
 |---|---|---|---|---|
-| `${CLIP_STORAGE_PATH}` → `/opt/clip_storage` | Clip storage; **shared bind mount with RT-VLM** for IN-1 on-demand path | bind | grows with on-demand uploads (typical: 10–50 GB) | writable by UID 1001 — `chmod 777` on the leaf dir (not recursive on the parent); `chown -R 1001:1001` is the cleanest approach |
+| `${CLIP_STORAGE_PATH}` → `/opt/clip_storage` | Clip storage; **shared bind mount with RT-VLM** for IN-1 on-demand path | bind | grows with on-demand uploads (typical: 10–50 GB) | owned and writable by UID/GID 1001:1001; mode 0755 on the leaf dir, without granting other users write access |
 | `${VST_VIDEO_STORAGE_PATH}` → `/opt/vst_video` | Long-term continuous recording storage | bind | capped at `${VST_VIDEO_STORAGE_SIZE_MB}` (default 100 GB) | writable by UID 1001 |
 | `${VST_TEMP_FILES_PATH}` → `/opt/temp_files` | Temp files (transcode scratch, etc.) | bind | low (< 5 GB) | writable by UID 1001 |
 | `${VST_DATA_PATH}` → `/opt/vst_data` | Internal data + DB seed + logs | bind | < 5 GB | writable by UID 1001 |
@@ -92,10 +92,9 @@ This makes VIOS a light-weight GPU consumer: only `streamprocessing-ms` contends
 **Required host-path setup before first `up`:**
 
 ```bash
-mkdir -p ${VSS_DATA_DIR}/data_log/vst/{clip_storage,vst_video,temp_files,vst_data}
-sudo chown -R 1001:1001 ${VSS_DATA_DIR}/data_log/vst
-# Alternatively, if sudo unavailable:
-# sudo setfacl -R -m u:1001:rwx ${VSS_DATA_DIR}/data_log/vst
+sudo install -d -o 1001 -g 1001 -m 0755 "${VSS_DATA_DIR:?}/data_log/vst/"{clip_storage,vst_video,temp_files,vst_data}
+# For existing data, have the host administrator repair ownership only within
+# these four service directories; preserve unrelated data and parent ownership.
 
 # SDRC workload-definition templates — minimum set for standalone VIOS
 # (model after deploy/docker/developer-profiles/dev-profile-lvs/sdrc/2d/configs/).
@@ -166,7 +165,7 @@ bring-up. It is not a profile-level endpoint setting.
 | Symptom | Root cause | Fix |
 |---|---|---|
 | `invalid spec: :/opt/clip_storage: empty section between colons` (or similar mount-spec error) on dry-run | `CLIP_STORAGE_PATH` empty — `vst.env` not loaded into the include | Ensure the patched VIOS compose has `env_file: [..., vst.env]` on its `include:` directive; this was Finding 1 of the IN-1 first run |
-| Containers loop on restart with `Permission denied` writing to `/opt/clip_storage` | Host bind dir not writable by UID 1001 | `sudo chown -R 1001:1001 ${VSS_DATA_DIR}/data_log/vst` (or use ACL grant) |
+| Containers loop on restart with `Permission denied` writing to `/opt/clip_storage` | Host bind dir not writable by UID 1001 | Follow the scoped host-path setup in **Storage**. For existing data, have the administrator repair ownership within the affected service directory only; preserve the parent tree. |
 | Containers boot but `sensor/version` returns 502 / connection refused | Ingress (`vss-vios-ingress`) ready but `vss-vios-sensor` still booting → 502 from NGINX | Wait for `vss-vios-sensor` healthcheck; the Ingress start_period (`30s`) is shorter than sensor-ms boot — give it 60–120 s on first boot |
 | `vss-vios-postgres` healthcheck fails with `password authentication failed` | `CENTRALIZE_DB_PASSWORD` unset or rotated since last init | Set explicitly in `.env`; on first-time init Postgres adopts whatever was passed; subsequent runs require the same value or a volume reset |
 | Camera RTSP add returns HTTP 500 with `unable to connect to RTSP` | Camera RTSP credentials missing or wrong; or the camera is unreachable from the VIOS host | Provide `username`/`password` in `POST /sensor/add`; confirm L3 reachability from the VIOS host to the camera |
@@ -262,12 +261,12 @@ docker compose -f deploy/docker/services/vios/compose.yml \
 # a patched copy of `services/infra/sdrc/`) — NOT under
 # SDR_CONTROLLER_CONFIG_PATH. Substitute the actual SDRC compose dir below.
 SDRC_DIR=deploy/docker/services/infra/sdrc      # or your patched copy of services/infra/sdrc
-rm -rf "${SDRC_DIR}/log/"* "${SDRC_DIR}/.wdm-env/"*
+rm -rf -- "${SDRC_DIR:?}/log/"* "${SDRC_DIR:?}/.wdm-env/"*
 # And the render-config-rendered siblings under SDR_CONTROLLER_CONFIG_PATH (the *.tmpl
 # source files stay):
-find ${SDR_CONTROLLER_CONFIG_PATH}/configs -type f ! -name '*.tmpl' \
+find "${SDR_CONTROLLER_CONFIG_PATH:?}/configs" -type f ! -name '*.tmpl' \
   \( -name 'config.yml' -o -name 'docker_cluster_config-*.json' \) -delete
 
 # Host-side cleanup (DESTRUCTIVE — removes all recorded video)
-# rm -rf ${VSS_DATA_DIR}/data_log/vst
+# rm -rf -- "${VSS_DATA_DIR:?}/data_log/vst"
 ```

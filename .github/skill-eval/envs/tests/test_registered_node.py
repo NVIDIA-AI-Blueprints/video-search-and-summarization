@@ -350,6 +350,20 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
                 result = brev_env.ExecResult(return_code=1, stderr=detail)
                 self.assertEqual(brev_env._transport_failure_category(result), expected)
 
+    async def test_repo_sync_stages_current_sources_only_for_nemoclaw(self):
+        env = object.__new__(brev_env.BrevEnvironment)
+        env._instance_name = "vss-eval-l40s"
+        for harness in ("nemoclaw", "codex", ""):
+            with self.subTest(harness=harness), \
+                 mock.patch.dict(os.environ, {"SKILLS_EVAL_OPERATIONAL_HARNESS": harness}), \
+                 mock.patch.object(brev_env, "_run_brev_exec_retry", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=0))) as execute:
+                await env._sync_repo_to_pr_head()
+                command = execute.await_args_list[-1].args[1]
+                self.assertEqual("stage_vss_src.py" in command, harness == "nemoclaw")
+                if harness == "nemoclaw":
+                    self.assertLess(command.index("git clean"), command.index("stage_vss_src.py"))
+                    self.assertIn('--repo-root "$REPO" .openclaw .hermes', command)
+
     async def test_repo_sync_recovers_after_transport_timeout(self):
         env = object.__new__(brev_env.BrevEnvironment)
         env._instance_name = "vss-eval-l40s"
@@ -392,7 +406,7 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
                 pause.assert_not_awaited()
 
     async def test_transfer_recovers_from_transient_failures(self):
-        for message in ("Too many requests", "Connection closed by remote host", "client_loop: send disconnect: Broken pipe", "Timeout, server worker.example not responding."):
+        for message in ("Too many requests", "Connection closed by remote host", "client_loop: send disconnect: Broken pipe", "Timeout, server worker.example not responding.", "resource exhausted", "rpc error: code = ResourceExhausted"):
             with self.subTest(message=message):
                 failure = brev_env.ExecResult(stderr=message, return_code=1)
                 success = brev_env.ExecResult(return_code=0)

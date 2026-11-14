@@ -1,9 +1,9 @@
 ---
 name: vss-query-analytics
-description: Use this skill for read-only incident, occupancy, speed, place, and analytics-sensor questions through the project-local VSS CLI. Not for live VLM, incident-range narrative reports, deployment, or alert-rule management.
+description: Query read-only video analytics with `vss analytics` for incidents, occupancy metrics, average speed, places, and analytics sensors. Use for video-analytics questions about these records and metrics. Not for live VLM, incident-range narrative reports, deployment, or alert-rule management.
 license: Apache-2.0
-vss-requires: "analytics"
 metadata:
+  vss-requires: "analytics"
   author: "NVIDIA Video Search and Summarization team"
   version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
@@ -209,3 +209,5 @@ a memory record.
 - Exit 0 with empty arrays/counts: report that the queried scope has no
   matching records (for incidents, after the empty-incident-list step); do not
   suggest that the pipeline or event generation is broken.
+
+

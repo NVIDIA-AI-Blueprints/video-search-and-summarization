@@ -924,6 +924,10 @@ if command -v uv >/dev/null 2>&1; then
 fi
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
+        # Harness Dockerfiles otherwise fetch develop, independently of this
+        # PR checkout. Stage its existing source overlay before sandbox setup.
+        if os.environ.get("SKILLS_EVAL_OPERATIONAL_HARNESS") == "nemoclaw":
+            cmd += '\npython3 "$REPO/skills/vss-build-vision-ai/scripts/stage_vss_src.py" --repo-root "$REPO" .openclaw .hermes\n'
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
         probe = await _run_brev_exec_retry(
             self._instance_name, "printf 'skill-eval-worker-ready\\n'", timeout=45,
@@ -2212,6 +2216,7 @@ def _transient_transport_failure(result: ExecResult) -> bool:
     ssh_liveness_timeout = "timeout, server " in detail and " not responding" in detail
     return result.return_code == 124 or ssh_liveness_timeout or any(term in detail for term in (
         "deadline_exceeded", "context deadline exceeded", "rate limit", "too many requests",
+        "resource exhausted", "resourceexhausted",
         "connection reset", "connection refused", "connection timed out",
         "connection closed", "connection lost", "broken pipe",
         "connection failed", "connection corrupted", "bad packet length",

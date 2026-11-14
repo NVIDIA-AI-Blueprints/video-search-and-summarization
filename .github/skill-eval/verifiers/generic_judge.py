@@ -43,13 +43,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # Trajectory discovery (Harbor conventions) — the judge agent will Read
@@ -327,26 +327,13 @@ async def _judge_llm_agent(
     query: str | None = None, step: int | None = None,
 ) -> dict:
     """Run one check through a claude-agent-sdk judge agent."""
-    try:
-        from claude_agent_sdk import (
-            AssistantMessage,
-            ClaudeAgentOptions,
-            ClaudeSDKClient,
-            ResultMessage,
-            TextBlock,
-        )
-    except ImportError:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "claude-agent-sdk>=0.0.5"],
-            check=False, timeout=180,
-        )
-        from claude_agent_sdk import (  # noqa: F811
-            AssistantMessage,
-            ClaudeAgentOptions,
-            ClaudeSDKClient,
-            ResultMessage,
-            TextBlock,
-        )
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ClaudeSDKClient,
+        ResultMessage,
+        TextBlock,
+    )
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return {
@@ -535,7 +522,9 @@ def _parse_verdict_json(text: str) -> dict | None:
     snippets, API bodies) and discarded — no fallback. None means the
     judge did not emit a compliant verdict; caller should surface raw
     text for triage."""
-    decoder = json.JSONDecoder()
+    # The judge may quote literal tabs/newlines from command output inside a
+    # JSON string. Accept those characters without changing the verdict value.
+    decoder = json.JSONDecoder(strict=False)
     candidates: list[dict] = []
     idx = 0
     while True:
@@ -716,4 +705,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    if importlib.util.find_spec("claude_agent_sdk") is not None:
+        sys.exit(main())
+    # The eval stack already requires uv. Its isolated runtime also works on
+    # externally managed hosts without pip or the distro's python3-venv package.
+    sys.exit(subprocess.run(
+        ["uv", "run", "--no-project", "--with", "claude-agent-sdk==0.2.128",
+         "--python", sys.executable, "python", __file__, *sys.argv[1:]],
+        check=False,
+    ).returncode)
