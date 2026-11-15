@@ -438,7 +438,7 @@ All errors must be translated into plain language. Never show raw HTTP responses
 | Alert Bridge 404 `not_found` (stop) | "That rule is no longer active — nothing to stop." |
 | Alert Bridge 502 `rtvi_vlm_unavailable` (stop) | "The rule was found but the video intelligence service failed to stop the stream. Please try again later." |
 | Alert Bridge 5xx (other) | "The alert service is experiencing issues. Please try again later." |
-| Reverse-resolve failed | Display the raw RTSP URL as fallback — do not fail the entire list because one sensor name could not be resolved. |
+| Reverse-resolve failed | Display the returned `sensor_id`, or `(unresolved sensor)` if no ID was returned; never display the RTSP / `live_stream_url`. Continue listing the other rules. |
 
 ---
 
