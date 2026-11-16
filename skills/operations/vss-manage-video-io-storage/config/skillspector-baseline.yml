@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 version: 2
 
 # SkillSpector suppression baseline for skills/operations/vss-manage-video-io-storage.
@@ -122,85 +119,5 @@ rules:
     path: "references/integrate-vios-service.md"
     message: "chmod *777*"
     reason: *chmod_sdrc
-
-  # --- Added for NVSkills Tier 1 signing (#2856) ---------------------------
-  - id: "TM1"
-    path: "references/api-reference.md"
-    message: "*DELETE /*"
-    reason: >-
-      Reviewed false positive (temporary until the SkillSpector TM1 fix
-      ships). These are VIOS, NvStreamer, and RT-VLM REST routes (DELETE
-      /sensor/<id>, DELETE /storage/file/<id>, DELETE /proxy/..., DELETE
-      /v1/streams/..., DELETE /v1/generate_captions/...), not file
-      deletion commands.
-
-  - id: "TM1"
-    path: "references/integrate-vios-service.md"
-    message: "*DELETE /*"
-    reason: >-
-      Reviewed false positive (temporary until the SkillSpector TM1 fix
-      ships). These are VIOS, NvStreamer, and RT-VLM REST routes (DELETE
-      /sensor/<id>, DELETE /storage/file/<id>, DELETE /proxy/..., DELETE
-      /v1/streams/..., DELETE /v1/generate_captions/...), not file
-      deletion commands.
-
-  - id: "TM1"
-    path: "references/nvstreamer-api-reference.md"
-    message: "*DELETE /*"
-    reason: >-
-      Reviewed false positive (temporary until the SkillSpector TM1 fix
-      ships). These are VIOS, NvStreamer, and RT-VLM REST routes (DELETE
-      /sensor/<id>, DELETE /storage/file/<id>, DELETE /proxy/..., DELETE
-      /v1/streams/..., DELETE /v1/generate_captions/...), not file
-      deletion commands.
-
-  - id: "TM1"
-    path: "references/provision-vios-source.md"
-    message: "*DELETE /*"
-    reason: >-
-      Reviewed false positive (temporary until the SkillSpector TM1 fix
-      ships). These are VIOS, NvStreamer, and RT-VLM REST routes (DELETE
-      /sensor/<id>, DELETE /storage/file/<id>, DELETE /proxy/..., DELETE
-      /v1/streams/..., DELETE /v1/generate_captions/...), not file
-      deletion commands.
-
-  - id: "TM1"
-    path: "references/deploy-vios-service.md"
-    message: '*rm -rf -- "${SDRC_DIR:?}/log/"*'
-    reason: >-
-      Accepted: teardown clears SDRC runtime artifacts under the SDRC
-      compose directory's own log/ and .wdm-env/ folders, which the
-      container writes as root. ${SDRC_DIR:?} aborts on an unset
-      directory.
-
-  - id: "TM1"
-    path: "references/deploy-vios-service.md"
-    message: '*rm -rf -- "${VSS_DATA_DIR:?}/data_log/vst"*'
-    reason: >-
-      Accepted risk, to revisit: an optional, commented-out host cleanup
-      that deletes all recorded video under ${VSS_DATA_DIR}/data_log/vst.
-      The line is labelled DESTRUCTIVE and is not run by default.
-
-  - id: "TM1"
-    path: "references/deploy-vios-service.md"
-    message: "*chmod 0777*"
-    reason: >-
-      Accepted risk, to revisit: documents the Blueprint's SDRC init-dirs
-      one-shot (deploy/docker/services/infra/sdrc/docker-compose.yaml),
-      which makes ./log and ./.wdm-env world-writable so root-owned writes
-      can be cleaned up without sudo. The skill does not run chmod itself.
-      Preferred fix, in the compose file: chown to the container UID or a
-      shared group instead of 0777.
-
-  - id: "TM1"
-    path: "references/integrate-vios-service.md"
-    message: "*chmod 0777*"
-    reason: >-
-      Accepted risk, to revisit: documents the Blueprint's SDRC init-dirs
-      one-shot (deploy/docker/services/infra/sdrc/docker-compose.yaml),
-      which makes ./log and ./.wdm-env world-writable so root-owned writes
-      can be cleaned up without sudo. The skill does not run chmod itself.
-      Preferred fix, in the compose file: chown to the container UID or a
-      shared group instead of 0777.
 
 fingerprints: []

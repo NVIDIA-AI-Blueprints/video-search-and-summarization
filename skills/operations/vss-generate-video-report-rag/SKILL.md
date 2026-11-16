@@ -263,4 +263,3 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
   `HITL_ENABLED=true` explicitly when that harness needs HITL.
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
 
-

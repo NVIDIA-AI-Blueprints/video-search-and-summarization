@@ -1,112 +1,44 @@
 [
   {
     "id": "video-io-storage-vios-routing",
-    "question": "List VIOS sensors, find the stream for the camera dock_cam, and save a 10-second clip from its recording to /tmp/dock_cam_clip.mp4. Mocked fixtures: `vss configure show` records a deployment with services.vst present; `vss vios list --sensor dock_cam` returns {\"sensors\": [{\"name\": \"dock_cam\", \"sensor_id\": \"sen-dock-01\", \"type\": \"stream\"}]}; `vss vios timeline --sensor dock_cam` returns {\"segments\": [{\"start_time\": \"2026-10-06T12:00:00Z\", \"end_time\": \"2026-10-06T12:30:00Z\"}]}. Treat these as deterministic fixtures. Give the ordered commands and say what completes the task.",
+    "question": "List VIOS sensors, find the stream for a named camera, and download a short clip from its recording timeline.",
     "expected_skill": "vss-manage-video-io-storage",
     "should_trigger": true,
     "expected_script": null,
-    "ground_truth": "Use the vss CLI, not hand-built REST: `vss vios list --sensor dock_cam`, then `vss vios timeline --sensor dock_cam`, then `vss vios clip --sensor dock_cam --start-time 2026-10-06T12:00:00Z --end-time 2026-10-06T12:00:10Z` (a stream clip needs both bounds inside a recorded segment). Fetch the returned media_url as given, save it to /tmp/dock_cam_clip.mp4, and confirm the transfer succeeded and the file is nonempty; a URL alone does not complete the download.",
+    "ground_truth": "The agent should load vss-manage-video-io-storage, verify the VST endpoint is reachable, use the VIOS REST API directly, resolve sensorId and streamId from sensor/list and sensor/<sensorId>/streams, fetch timelines before choosing clip timestamps, and use a binary direct storage endpoint for clip download.",
     "expected_behavior": [
-      "Uses `vss vios list`, `vss vios timeline`, and `vss vios clip` addressed by the sensor name, without building a sensorId or a REST endpoint.",
-      "Chooses both clip bounds for the stream sensor from the recorded segment rather than inventing timestamps.",
-      "Downloads the returned media_url as given to /tmp/dock_cam_clip.mp4 and checks it is nonempty before reporting the path, without port-forwarding or constructing a URL."
+      "Loads vss-manage-video-io-storage rather than vss-search-archive, vss-ask-video, or vss-summarize-video.",
+      "Resolves VST_ENDPOINT from VSS_PUBLIC_URL for Kubernetes or HOST_IP for Docker Compose, then checks <VST_ENDPOINT>/vst/api/v1/sensor/version before issuing operational calls; it never uses kubectl port-forward, Service DNS, or a guessed NodePort.",
+      "Resolves missing sensorId or streamId from the VIOS API instead of fabricating identifiers.",
+      "Fetches the stream timeline before selecting startTime and endTime.",
+      "Uses direct binary endpoints for clip or snapshot downloads when possible and avoids printing credentials."
     ]
   },
   {
     "id": "video-io-storage-nvstreamer-upload",
-    "question": "Upload /data/sample.mp4 to NvStreamer, get the generated RTSP URL, and register that stream with VIOS. Mocked fixtures: VSS_STREAMER_URL=http://10.0.0.5:31000 was supplied; the NvStreamer PUT upload returned {\"sensorId\": \"3f2a9c1e-uuid\", \"name\": \"sample\"}; `GET /api/v1/sensor/3f2a9c1e-uuid/streams` returned [{\"url\": \"rtsp://10.0.0.5:31554/nvstream/home/vst/vst_release/streamer_videos/sample.mp4\"}]. Give the steps and commands, and what you report.",
+    "question": "Upload a sample MP4 to NvStreamer, get the generated RTSP URL, and explain how to register that stream with VIOS.",
     "expected_skill": "vss-manage-video-io-storage",
     "should_trigger": true,
     "expected_script": null,
-    "ground_truth": "NvStreamer is a separate direct API on the supplied VSS_STREAMER_URL. Upload there, read the RTSP URL from /sensor/3f2a9c1e-uuid/streams using the UUID from the upload response, and register it with `vss vios add --type stream rtsp://10.0.0.5:31554/nvstream/home/vst/vst_release/streamer_videos/sample.mp4`. Report the actual RTSP URL and the VIOS name, sensor_id, and type that `vss vios add` returns.",
+    "ground_truth": "The agent should load vss-manage-video-io-storage, distinguish NvStreamer from the VIOS gateway by endpoint and port, upload through the NvStreamer API, read the generated RTSP URL from /sensor/<id>/streams, and use sensorUrl when registering that RTSP URL with VIOS.",
     "expected_behavior": [
-      "Uses the supplied VSS_STREAMER_URL for NvStreamer and does not derive a streamer host or port or use kubectl port-forward.",
-      "Reads the RTSP URL from NvStreamer's /sensor/<sensorId>/streams with the UUID from the upload response instead of constructing it.",
-      "Registers the RTSP URL with `vss vios add --type stream` and reports the RTSP URL plus the returned VIOS sensor identity."
-    ]
-  },
-  {
-    "id": "video-io-storage-nvstreamer-missing-url",
-    "question": "Serve /data/sample.mp4 as a synthetic RTSP camera through NvStreamer. Mocked state: VSS_STREAMER_URL is unset and VSS_PUBLIC_URL=https://vss.example.com is set. What do you do?",
-    "expected_skill": "vss-manage-video-io-storage",
-    "should_trigger": true,
-    "expected_script": null,
-    "ground_truth": "The NvStreamer direct API is allowed only when the caller supplied VSS_STREAMER_URL. It is unset, so stop and ask for the NvStreamer URL; do not derive a host or port from VSS_PUBLIC_URL or guess one.",
-    "expected_behavior": [
-      "Stops and asks for VSS_STREAMER_URL before any NvStreamer call.",
-      "Does not derive a streamer host or port from VSS_PUBLIC_URL, guess a NodePort, or port-forward."
-    ]
-  },
-  {
-    "id": "video-io-storage-plain-upload",
-    "question": "Upload /data/warehouse_sample.mp4 to VIOS. Mocked fixture: `vss vios add --type video /data/warehouse_sample.mp4` exits 0 with {\"name\": \"warehouse_sample\", \"sensor_id\": \"sen-ws-02\", \"type\": \"video\"}. Which command do you use and what do you report?",
-    "expected_skill": "vss-manage-video-io-storage",
-    "should_trigger": true,
-    "expected_script": null,
-    "ground_truth": "A plain VIOS MP4 upload uses `vss vios add --type video /data/warehouse_sample.mp4`, not the NvStreamer RTSP handoff. Report the returned name warehouse_sample, sensor_id sen-ws-02, and type video.",
-    "expected_behavior": [
-      "Uses `vss vios add --type video` for the file and does not route it through NvStreamer or a hand-built upload request.",
-      "Reports the returned name, sensor_id, and type without claiming that search indexing has completed."
-    ]
-  },
-  {
-    "id": "video-io-storage-delete-stream",
-    "question": "Delete the gate_cam source but keep its recordings. Mocked `vss vios list` fixture: {\"sensors\": [{\"name\": \"gate_cam\", \"sensor_id\": \"sen-gate-03\", \"type\": \"stream\"}]}. Give the command.",
-    "expected_skill": "vss-manage-video-io-storage",
-    "should_trigger": true,
-    "expected_script": null,
-    "ground_truth": "Read the type from the listing and run `vss vios delete --type stream --sensor gate_cam --keep-recordings`; --keep-recordings applies to stream sensors.",
-    "expected_behavior": [
-      "Uses `vss vios delete` with --type stream read from the listing and --sensor gate_cam.",
-      "Adds --keep-recordings and does not fall back to a raw REST delete."
-    ]
-  },
-  {
-    "id": "video-io-storage-not-configured",
-    "question": "List the VIOS sensors. Mocked state: `vss vios list` exits 4, and VSS_PUBLIC_URL=https://vss.example.com is set in the environment. What do you run next?",
-    "expected_skill": "vss-manage-video-io-storage",
-    "should_trigger": true,
-    "expected_script": null,
-    "ground_truth": "Exit 4 means no deployment is recorded or it does not expose vst. Record the operator's ingress origin with `vss configure --base-url \"${VSS_PUBLIC_URL}\"`, then rerun `vss vios list`. Do not curl a constructed URL, port-forward, or guess a host or port.",
-    "expected_behavior": [
-      "Treats exit 4 as a missing or incomplete recorded deployment and runs `vss configure --base-url \"${VSS_PUBLIC_URL}\"` before rerunning `vss vios list`.",
-      "Does not curl a constructed URL, use kubectl port-forward, or default a host or port."
-    ]
-  },
-  {
-    "id": "video-io-storage-libav-failure",
-    "question": "`vss vios add --type video /data/forklift.mp4` exited 3 with 'Failed to get media information'. What does that mean and what should happen next?",
-    "expected_skill": "vss-manage-video-io-storage",
-    "should_trigger": true,
-    "expected_script": null,
-    "ground_truth": "This is the known libav-missing deployment failure: VIOS was deployed without VST_INSTALL_ADDITIONAL_PACKAGES=true. Report it and fix the deployment by setting that variable and redeploying VIOS; do not bypass the CLI with a raw upload.",
-    "expected_behavior": [
-      "Identifies the libav-missing failure and the VST_INSTALL_ADDITIONAL_PACKAGES=true redeploy fix.",
-      "Reports the failure instead of bypassing the CLI with a hand-built REST upload."
+      "Uses explicit VSS_STREAMER_URL for Kubernetes NvStreamer file-to-RTSP operations and the VSS_PUBLIC_URL /vst route for VIOS sensor registration or recording operations; it never derives a streamer host or uses kubectl port-forward.",
+      "Does not invoke vss-build-vision-ai or a search, Q&A, or summarization skill for API-only VIOS operations.",
+      "Reads generated RTSP URLs from NvStreamer instead of constructing them from hardcoded container paths.",
+      "Uses the sensorUrl field for VIOS POST /sensor/add, not url.",
+      "Cleans up or reports any temporary test sensors or files it creates."
     ]
   },
   {
     "id": "video-question-non-activation",
-    "question": "I have a recorded clip and want to know whether the worker wore PPE. Which VSS skill should answer this?",
+    "question": "Watch this recorded clip and tell me whether the worker wore PPE.",
     "expected_skill": null,
     "should_trigger": false,
     "expected_script": null,
-    "ground_truth": "This is a content question about a specified video. It belongs to vss-ask-video, not VIOS or NvStreamer management.",
+    "ground_truth": "This is a content question about a specified video for vss-ask-video, not a VIOS or NvStreamer management request.",
     "expected_behavior": [
       "Does not activate vss-manage-video-io-storage for a question about video content.",
-      "Names vss-ask-video as the workflow for the question."
-    ]
-  },
-  {
-    "id": "archive-search-non-activation",
-    "question": "I want to find every clip in the archive that shows a forklift near a worker. Which VSS skill should handle that?",
-    "expected_skill": null,
-    "should_trigger": false,
-    "expected_script": null,
-    "ground_truth": "Semantic search across the archive belongs to vss-search-archive, not VIOS management.",
-    "expected_behavior": [
-      "Does not activate vss-manage-video-io-storage for an archive search request.",
-      "Names vss-search-archive as the workflow for the search."
+      "Routes the request to vss-ask-video."
     ]
   }
 ]
