@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 version: 2
 
 # SkillSpector suppression baseline for skills/operations/vss-manage-alerts.
@@ -67,5 +70,26 @@ rules:
     path: "references/deploy-alerts.md"
     message: "*&& chmod -R*"
     reason: *chmod_engines
+
+  # --- Added for NVSkills Tier 1 signing (#2856) ---------------------------
+  - id: "TM1"
+    path: "references/integrate-alerts.md"
+    message: "*DELETE /api/v1/*"
+    reason: >-
+      Reviewed false positive (temporary until the SkillSpector TM1 fix
+      ships). These are Alert Bridge REST routes (DELETE
+      /api/v1/realtime/{id}, DELETE
+      /api/v1/verification/config/{alert_type}) listed in the API surface
+      table, not file deletion commands. The skill confirms the rule with
+      the user before deleting it.
+
+  - id: "TM2"
+    path: "references/verification.md"
+    message: "*; rm -*"
+    reason: >-
+      Accepted: the all-pages incidents recipe removes only its own
+      scratch file ($PAGES, created by mktemp in the same block) on error
+      and after the merge. No other path is deleted. Revisit if the recipe
+      stops using a mktemp-created file.
 
 fingerprints: []
