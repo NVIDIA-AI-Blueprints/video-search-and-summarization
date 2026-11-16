@@ -398,5 +398,3 @@ restart, teardown, backend selection, or service logs, prefer
 - `vss-search-archive`: search archived video.
 - `vss-query-analytics`: query stored incidents and events.
 - `vss-generate-video-report` and `vss-ask-video`: hand off here for recordings of 120 s or longer.
-
-bump:3
