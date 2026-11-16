@@ -294,16 +294,19 @@ The resolved RTSP URL(s) are used **only for client-side filtering** — to matc
 ### Step 3 — Fetch Rules from Alert Bridge
 
 ```bash
-curl -s "$AB/api/v1/realtime" | jq .
+RULES_JSON="$(curl -fsS "$AB/api/v1/realtime")" || { echo "Cannot fetch alert rules" >&2; exit 1; }
 ```
 
 If the user specified an `alert_type` tag, add it as a query parameter:
 ```bash
-curl -s "$AB/api/v1/realtime?alert_type=<TAG>" | jq .
+RULES_JSON="$(curl -fsSG "$AB/api/v1/realtime" --data-urlencode "alert_type=<TAG>")" || { echo "Cannot fetch alert rules" >&2; exit 1; }
 ```
 
 The response is an envelope: `{ "status", "rules": [...], "count", "total" }`.
-Iterate rule records with `.rules[]`, not `.[]`.
+Iterate rule records with `.rules[]`, not `.[]`. Keep the raw envelope internal;
+apply the filters and resolved names below to `RULES_JSON` before rendering.
+Fetch, filter, resolve and render in the same shell; do not assume this variable
+survives a separate tool invocation.
 
 **Client-side filtering on the response:**
 - If **sensor filter** is active: compare each rule's `live_stream_url` against the RTSP URL(s) resolved in Step 2. Remove rules that do not match.
@@ -322,6 +325,19 @@ For each rule remaining after filtering, determine the human-readable sensor nam
 ---
 
 ### Step 5 — Render the List
+
+After filtering and updating missing `sensor_name` values in `RULES_JSON`, render
+only the display fields. Do not paste the raw response or append stream URLs as
+a diagnostic column, even with their tails shortened:
+
+```bash
+printf '%s\n' "${RULES_JSON:?Fetch, filter and resolve rules first}" | jq -rc '
+if (.rules | type) != "array" then error("Invalid alert rule envelope")
+else .rules | if length == 0 then "No realtime alert rules are currently running."
+else .[] | {sensor: (.sensor_name // .sensor_id // "(unresolved sensor)"),
+  tag: .alert_type, prompt: ((.prompt // "")[:80]),
+  created: .created_at, rule_id: .id} end end'
+```
 
 Display one line per rule with these fields:
 
@@ -445,7 +461,7 @@ All errors must be translated into plain language. Never show raw HTTP responses
 ## Tips
 
 - **RTSP streams only:** Realtime alerts require a live RTSP stream. When resolving a sensor in Step 2, verify the stream `url` starts with `rtsp://`. If the `url` is a file path (e.g. `"/data/vst/streamer_videos/video.mp4"`), the sensor is a file-based upload and cannot be used for realtime monitoring. Report: "Sensor '`<name>`' is a file-based sensor, not a live camera. Realtime alerts require a live RTSP stream."
-- **jq:** All JSON responses are piped through `jq .` for readability.
+- **jq:** Parse raw responses internally. Rule listings use Step 5's display-field allowlist; never copy a raw rule response into the reply.
 - **Endpoint resolution:** Re-derive `$AB` and `$VST` in this playbook's Setup block (Kubernetes `${VSS_PUBLIC_URL}/alert-bridge` + `${VSS_PUBLIC_URL}`; Docker `:9080` + `:30888`). Do not prompt for host/ports; do not keep Docker host ports when `VSS_PUBLIC_URL` is set.
 - **Prompt passthrough:** The user's prompt is sent verbatim to the Alert Bridge `prompt` field. Do not rephrase, summarize, or alter it — the vision model needs the user's original intent.
 
