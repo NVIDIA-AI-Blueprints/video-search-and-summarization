@@ -39,7 +39,7 @@
       "query": "Ask that again: was the worker wearing a safety helmet in the first 10 seconds of warehouse_sample?",
       "checks": [
         "It answers from what VSS unified memory already holds for warehouse_sample, using a vss memory command. If this answer-from-memory check fails, the verifier should include the CLI exit code and sanitized CLI-reported reason in its failure explanation, distinguishing disabled memory or introspection, missing judge configuration or credentials, and unreachable storage or judge only when the output establishes that cause. Redact credentials, endpoint URLs, and raw record content from the verifier explanation; these diagnostic instructions do not add output constraints to the operational agent reply. If the reason is absent, say it is unknown. Do not repair configuration, retry inference, or turn a failed read into PASS.",
-        "It does not invoke vss vlm run anywhere in this task's trajectory; the stored analysis already exists from the earlier task."
+        "It does not run vss vlm run a second time."
       ]
     },
     {
