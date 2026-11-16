@@ -9,9 +9,10 @@ Recommended for publication based on the completed evaluation evidence in this r
 ## Evaluation Metadata
 
 - Skill: `vss-generate-video-report-rag`
-- Evaluation date: 2026-10-15
-- Evaluator version: `1.5.6`
-- Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
+- Validation status: `passed`
+- Evaluation date: 2026-11-16
+- Evaluator version: `1.6.9`
+- Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-5-5`), Codex (`openai/openai/gpt-6.1-sol`)
 - Tasks: 3 evaluation tasks (2 positive, 1 negative)
 - Dataset digest: `sha256:f91e7a51aeca96528dda454c2c82f368bbefbfaaea8558971605461d1415fa00` (skill-evaluator-dataset-snapshot/1)
 - Attempts per task: 1
@@ -20,6 +21,20 @@ Recommended for publication based on the completed evaluation evidence in this r
 - Tier 3 evidence: required for publication
 
 Each task attempt ran in its own isolated sandbox pod.
+
+## Tier 1 LLM Provenance
+
+SkillSpector provider, model, analyzer revision, and determinism evidence retained for this scan.
+
+| Skill | Provider | Adapter | Analyzer | Model | Revision | Determinism |
+| --- | --- | --- | --- | --- | --- | --- |
+| vss-generate-video-report-rag | nv_inference | openai | mcp_tool_poisoning | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-generate-video-report-rag | nv_inference | openai | semantic_developer_intent | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-generate-video-report-rag | nv_inference | openai | semantic_quality_policy | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-generate-video-report-rag | nv_inference | openai | semantic_security_discovery | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-generate-video-report-rag | nv_inference | openai | meta_analyzer | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+
+- Controls for `vss-generate-video-report-rag`: temperature=not set (source=provider_default, forwarded=no); seed=not set (source=unset, forwarded=no); reasoning_effort=not set (source=provider_default, forwarded=no)
 
 ## What This Report Answers
 
@@ -35,12 +50,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 72.3% — baseline ran, but no comparable score was available; uplift unavailable | 73.0% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 100.0% → 83.3% (-16.7 points) | 100.0% → 83.3% (-16.7 points) |
-| Correctness | 0.0% → 86.7% (+86.7 points) | 53.3% → 73.3% (+20.0 points) |
-| Discoverability | 40.0% — baseline ran, but no comparable score was available; uplift unavailable | 47.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 21.4% → 53.3% (+31.9 points) | 26.2% → 61.9% (+35.7 points) |
-| Efficiency | 98.4% — baseline ran, but no comparable score was available; uplift unavailable | 98.8% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 75.1% — baseline ran, but no comparable score was available; uplift unavailable | 81.0% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 100.0% → 100.0% (±0.0 points) | 100.0% → 83.3% (-16.7 points) |
+| Correctness | 20.0% → 86.7% (+66.7 points) | 53.3% → 86.7% (+33.4 points) |
+| Discoverability | 50.0% — baseline ran, but no comparable score was available; uplift unavailable | 95.0% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 16.4% → 65.0% (+48.6 points) | 37.9% → 56.7% (+18.8 points) |
+| Efficiency | 73.6% — baseline ran, but no comparable score was available; uplift unavailable | 83.4% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -48,29 +63,40 @@ Example: `47.0% → 92.0% (+45.0 points)` means the skill-assisted run scored 92
 
 A partial dimension was calculated from only the available configured signals; review the detailed report before relying on it.
 
+### Comparison details
+
+Shared-source comparisons use the same signals and weights on both conditions. They do not replace the full dimension scores above or change the publication verdict.
+
+| Agent | Dimension | Basis | Baseline → With skill (uplift) | Explanation |
+| --- | --- | --- | --- | --- |
+| claude-code | Discoverability | Dimension comparison | N/A | Discoverability is not applicable to the no-skill baseline; there is no installed skill to discover. |
+| claude-code | Efficiency | Token-only comparison | 98.9% → 97.2% (-1.7 points) | Only Token Efficiency is comparable; the full dimension scores use different evaluator sources. |
+| codex | Discoverability | Dimension comparison | N/A | Discoverability is not applicable to the no-skill baseline; there is no installed skill to discover. |
+| codex | Efficiency | Token-only comparison | 91.7% → 91.8% (+0.1 points) | Only Token Efficiency is comparable; the full dimension scores use different evaluator sources. |
+
 ## Token Usage
 
 Actual Tier 3 execution usage is reported for every observed agent/case pair and both conditions.
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 397,496 | 363,259 | +34,237 | +9.42% | skill 3/3; base 3/3 |
-| claude-code | rag-config-deploy | 126,664 | 150,151 | -23,487 | -15.64% | skill 1/1; base 1/1 |
-| claude-code | rag-report-routing | 29,195 | 29,575 | -380 | -1.28% | skill 1/1; base 1/1 |
-| claude-code | standard-report-non-activation | 241,637 | 183,533 | +58,104 | +31.66% | skill 1/1; base 1/1 |
-| codex | All cases | 107,657 | 135,035 | -27,378 | -20.27% | skill 3/3; base 3/3 |
-| codex | rag-config-deploy | 29,747 | 61,127 | -31,380 | -51.34% | skill 1/1; base 1/1 |
-| codex | rag-report-routing | 13,330 | 32,543 | -19,213 | -59.04% | skill 1/1; base 1/1 |
-| codex | standard-report-non-activation | 64,580 | 41,365 | +23,215 | +56.12% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 505,153 | 498,294 | +6,859 | +1.38% | skill 6/6; base 6/6 |
+| claude-code | All cases | 341,547 | 360,873 | -19,326 | -5.36% | skill 3/3; base 3/3 |
+| claude-code | rag-config-deploy | 114,980 | 142,418 | -27,438 | -19.27% | skill 1/1; base 1/1 |
+| claude-code | rag-report-routing | 35,096 | 35,144 | -48 | -0.14% | skill 1/1; base 1/1 |
+| claude-code | standard-report-non-activation | 191,471 | 183,311 | +8,160 | +4.45% | skill 1/1; base 1/1 |
+| codex | All cases | 125,794 | 134,890 | -9,096 | -6.74% | skill 3/3; base 3/3 |
+| codex | rag-config-deploy | 33,746 | 53,124 | -19,378 | -36.48% | skill 1/1; base 1/1 |
+| codex | rag-report-routing | 29,412 | 55,122 | -25,710 | -46.64% | skill 1/1; base 1/1 |
+| codex | standard-report-non-activation | 62,636 | 26,644 | +35,992 | +135.08% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 467,341 | 495,763 | -28,422 | -5.73% | skill 6/6; base 6/6 |
 
-Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
+Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. Change is `100 * (with - without) / without`; negative means fewer tokens. N/A comparisons include their reason in the coverage column; coverage is never estimated.
 
 ## Tier Status
 
 | Tier | Purpose | Status | Evidence |
 |---|---|---|---|
-| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 14 finding(s) |
+| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 13 finding(s) |
 | Tier 2 | Semantic deduplication | **PASSED** | 2 validator(s); 0 finding(s) |
 | Tier 3 | Live agent evaluation | **PASS** | 2 agent(s); 3 task(s) |
 
@@ -84,7 +110,7 @@ Prompt tokens include cached reads, so total tokens are `prompt + completion` (c
 - **MEDIUM** SCHEMA/body_recommended_section: Missing recommended section: '## Instructions' (`skills/operations/vss-generate-video-report-rag/SKILL.md`)
 - **MEDIUM** SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/operations/vss-generate-video-report-rag/SKILL.md`)
 - **MEDIUM** SCHEMA/author_missing: Author not specified in metadata (`skills/operations/vss-generate-video-report-rag/SKILL.md`)
-- 9 additional finding(s) are available in the full evaluation artifacts.
+- 8 additional finding(s) are available in the full evaluation artifacts.
 
 </details>
 
