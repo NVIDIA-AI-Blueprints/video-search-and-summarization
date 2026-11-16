@@ -9,9 +9,10 @@ Recommended for publication based on the completed evaluation evidence in this r
 ## Evaluation Metadata
 
 - Skill: `vss-query-analytics`
-- Evaluation date: 2026-10-02
-- Evaluator version: `1.5.6`
-- Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
+- Validation status: `passed`
+- Evaluation date: 2026-11-16
+- Evaluator version: `1.6.9`
+- Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-5-5`), Codex (`openai/openai/gpt-6.1-sol`)
 - Tasks: 2 evaluation tasks (1 positive, 1 negative)
 - Dataset digest: `sha256:3af12be3300a761f5bd46d2c88a850c801af66211ba765a37a0add2186563560` (skill-evaluator-dataset-snapshot/1)
 - Attempts per task: 1
@@ -20,6 +21,20 @@ Recommended for publication based on the completed evaluation evidence in this r
 - Tier 3 evidence: required for publication
 
 Each task attempt ran in its own isolated sandbox pod.
+
+## Tier 1 LLM Provenance
+
+SkillSpector provider, model, analyzer revision, and determinism evidence retained for this scan.
+
+| Skill | Provider | Adapter | Analyzer | Model | Revision | Determinism |
+| --- | --- | --- | --- | --- | --- | --- |
+| vss-query-analytics | nv_inference | openai | mcp_tool_poisoning | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-query-analytics | nv_inference | openai | semantic_developer_intent | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-query-analytics | nv_inference | openai | semantic_quality_policy | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-query-analytics | nv_inference | openai | semantic_security_discovery | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-query-analytics | nv_inference | openai | meta_analyzer | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+
+- Controls for `vss-query-analytics`: temperature=not set (source=provider_default, forwarded=no); seed=not set (source=unset, forwarded=no); reasoning_effort=not set (source=provider_default, forwarded=no)
 
 ## What This Report Answers
 
@@ -35,12 +50,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 71.2% — baseline ran, but no comparable score was available; uplift unavailable | 59.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 100.0% → 100.0% (±0.0 points) | 50.0% → 50.0% (±0.0 points) |
-| Correctness | 20.0% → 100.0% (+80.0 points) | 30.0% → 100.0% (+70.0 points) |
-| Discoverability | 0.0% — baseline ran, but no comparable score was available; uplift unavailable | 0.0% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 12.5% → 60.0% (+47.5 points) | 20.0% → 67.5% (+47.5 points) |
-| Efficiency | 98.6% → 96.1% (-2.5 points) | 98.1% → 80.0% (-18.1 points) |
+| Overall | 99.3% — baseline ran, but no comparable score was available; uplift unavailable | 93.8% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 100.0% → 100.0% (±0.0 points) | 100.0% → 100.0% (±0.0 points) |
+| Correctness | 80.0% → 100.0% (+20.0 points) | 70.0% → 90.0% (+20.0 points) |
+| Discoverability | 100.0% — baseline ran, but no comparable score was available; uplift unavailable | 95.0% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 40.0% → 100.0% (+60.0 points) | 45.0% → 87.5% (+42.5 points) |
+| Efficiency | 96.7% — baseline ran, but no comparable score was available; uplift unavailable | 96.3% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -48,21 +63,32 @@ Example: `47.0% → 92.0% (+45.0 points)` means the skill-assisted run scored 92
 
 A partial dimension was calculated from only the available configured signals; review the detailed report before relying on it.
 
+### Comparison details
+
+Shared-source comparisons use the same signals and weights on both conditions. They do not replace the full dimension scores above or change the publication verdict.
+
+| Agent | Dimension | Basis | Baseline → With skill (uplift) | Explanation |
+| --- | --- | --- | --- | --- |
+| claude-code | Discoverability | Dimension comparison | N/A | Discoverability is not applicable to the no-skill baseline; there is no installed skill to discover. |
+| claude-code | Efficiency | Token-only comparison | 94.1% → 93.4% (-0.7 points) | Only Token Efficiency is comparable; the full dimension scores use different evaluator sources. |
+| codex | Discoverability | Dimension comparison | N/A | Discoverability is not applicable to the no-skill baseline; there is no installed skill to discover. |
+| codex | Efficiency | Token-only comparison | 92.7% → 92.6% (-0.1 points) | Only Token Efficiency is comparable; the full dimension scores use different evaluator sources. |
+
 ## Token Usage
 
 Actual Tier 3 execution usage is reported for every observed agent/case pair and both conditions.
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 373,350 | 181,397 | +191,953 | +105.82% | skill 2/2; base 2/2 |
-| claude-code | deploy-analytics-api-non-activation | 344,006 | 151,980 | +192,026 | +126.35% | skill 1/1; base 1/1 |
-| claude-code | query-analytics-routing | 29,344 | 29,417 | -73 | -0.25% | skill 1/1; base 1/1 |
-| codex | All cases | 2,757,698 | 129,293 | +2,628,405 | +2032.91% | skill 2/2; base 2/2 |
-| codex | deploy-analytics-api-non-activation | 2,744,327 | 115,896 | +2,628,431 | +2267.92% | skill 1/1; base 1/1 |
-| codex | query-analytics-routing | 13,371 | 13,397 | -26 | -0.19% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 3,131,048 | 310,690 | +2,820,358 | +907.77% | skill 4/4; base 4/4 |
+| claude-code | All cases | 186,545 | 218,111 | -31,566 | -14.47% | skill 2/2; base 2/2 |
+| claude-code | deploy-analytics-api-non-activation | 112,589 | 110,718 | +1,871 | +1.69% | skill 1/1; base 1/1 |
+| claude-code | query-analytics-routing | 73,956 | 107,393 | -33,437 | -31.14% | skill 1/1; base 1/1 |
+| codex | All cases | 89,219 | 86,401 | +2,818 | +3.26% | skill 2/2; base 2/2 |
+| codex | deploy-analytics-api-non-activation | 59,786 | 44,562 | +15,224 | +34.16% | skill 1/1; base 1/1 |
+| codex | query-analytics-routing | 29,433 | 41,839 | -12,406 | -29.65% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 275,764 | 304,512 | -28,748 | -9.44% | skill 4/4; base 4/4 |
 
-Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
+Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. Change is `100 * (with - without) / without`; negative means fewer tokens. N/A comparisons include their reason in the coverage column; coverage is never estimated.
 
 ## Tier Status
 
@@ -80,7 +106,7 @@ Prompt tokens include cached reads, so total tokens are `prompt + completion` (c
 - **MEDIUM** SCHEMA/folder_hierarchy: Unexpected nesting depth for general skill (`skills/operations/vss-query-analytics`)
 - **MEDIUM** SCHEMA/body_recommended_section: Missing recommended section: '## Instructions' (`skills/operations/vss-query-analytics/SKILL.md`)
 - **MEDIUM** SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/operations/vss-query-analytics/SKILL.md`)
-- **LOW** QUALITY/quality_discoverability: Description very long (219 chars, recommend 50-150) (`skills/operations/vss-query-analytics/SKILL.md`)
+- **LOW** QUALITY/quality_discoverability: Description very long (361 chars, recommend 50-150) (`skills/operations/vss-query-analytics/SKILL.md`)
 - **LOW** QUALITY/quality_reliability: No prerequisites/requirements documented (`skills/operations/vss-query-analytics/SKILL.md`)
 - 3 additional finding(s) are available in the full evaluation artifacts.
 
@@ -110,6 +136,7 @@ Signals present in this run:
 
 - `security` (Security): unsafe operations, secret leakage, and unauthorized access.
 - `skill_execution` (Skill Execution): whether the expected skill was selected, decoys were avoided, and the workflow executed.
+- `skill_efficiency` (Tool Productivity): tool-call productivity (legacy wire id; routing is scored under Discoverability).
 - `accuracy` (Accuracy): final-answer correctness against the reference answer.
 - `goal_accuracy` (Goal Accuracy): whether the user's goal was achieved.
 - `behavior_check` (Behavior Check): whether the expected workflow behavior was followed.
