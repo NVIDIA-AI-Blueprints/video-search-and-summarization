@@ -8,7 +8,8 @@ isolated ablations. Base: `529858777` on `feat/agent-introspection-loop`.
 - One coordinator; Python threads execute parallel VLM **tools**, not inspector
   agents. The coordinator still plans, evaluates evidence and answers.
 - Fixed versioned prompt plus four bounded focus fields; code selects the
-  configured FPS preset and splits at a 48-frame cap for 50-image backends.
+  configured FPS preset and splits at a 48-frame planning cap. The CLI/backend
+  path still requires actual submitted-image verification for 50-image backends.
 - Up to two normal rounds, two concurrent tasks, four calls per task and eight
   normal calls total. A first empty-evidence round may refine once; identical
   requests are rejected. Tool failure proceeds to final checking.
@@ -31,7 +32,7 @@ isolated ablations. Base: `529858777` on `feat/agent-introspection-loop`.
 Build the harness image with `VSS_REF` pinned to this branch's committed SHA.
 Both OpenClaw and Hermes copy the entire skill directory; no new manual COPY is
 required for these scripts/config files. Verify the **running** image contains
-`scripts/inspection_workflow.py` and skill version `4.0.0-experimental`.
+`scripts/inspection_workflow.py` and skill version `4.0.1-experimental`.
 
 Configure the ordinary VSS CLI and model routing as for the control run. Do not
 change the VLM/LLM models, reasoning settings, dataset, memory or seed prompts
@@ -44,6 +45,9 @@ Run one UI smoke question before the overnight benchmark. Confirm batch artifact
 the final-check receipt and a non-provisional terminal marker exist, then inspect
 the final normal/check call counts. An old image/skill override would not exercise
 this workflow. Do not interpret helper unit tests as live-model accuracy evidence.
+Check any harness-installed skill overrides as well: the loaded `vss-ask-video`
+must delegate to this batched skill, not retain an older inline-inspection profile.
+An image commit alone does not establish which overridden skills were executed.
 
 ## Suggested report columns
 
@@ -64,12 +68,36 @@ denominator. Separate completed/scored accuracy from operational success rate.
   skim/locate/detail presets). It cannot certify an exhaustive long-video count.
 - Frame timestamps on the remote path are nominal ffmpeg sampling-grid offsets,
   not measured source presentation timestamps. Sparse samples can miss events.
+- A requested 48-frame window is not an end-to-end image-cap guarantee on the
+  CLI/backend path. Capture the actual decoded/submitted images when diagnosing
+  an image-limit rejection; do not assume the planned count was delivered.
+- A failed final check consumes the single reserved call and remains immutable.
+  Publish an unresolved result from its receipt. Adding a bounded infrastructure
+  retry would be a separate policy change, not a cleanup or receipt overwrite.
 - A second VLM check can share the first model's errors and is not ground truth.
 - The code cannot prove a quote's semantic applicability. Manual ledger labels
   remain useful to measure false closure.
 - No live VLM call, deployment or benchmark was performed during implementation.
 
-## Validation and independent review
+## Shareable cleanup (4.0.1)
+
+The read-only `inspection_workflow.py contract [--ledger PATH]` command reports
+the runtime enum values, field limits, sampling windows and eligible claim IDs.
+Invalid plan enums now list allowed values, and a batch targeting settled claims
+is rejected before round artifacts are created. The skill explicitly documents
+one task per claim, compact assessment limits and failed-check publication.
+
+This cleanup does not change visual prompts, models, FPS presets, budgets,
+semantic closure decisions or retry policy. Existing run results belong to their
+original commit; they are not measurements of this cleanup. No live backend test
+or new accuracy result is claimed. Run the tests below before sharing or building.
+
+Cleanup validation: **157 tests passed**, targeted Ruff checks and
+`git diff --check` passed, and skill frontmatter validation passed. All model
+transports in the regression tests are mocked; backend image-limit behavior
+still needs a live smoke test.
+
+## Historical validation and independent review
 
 48-frame compatibility fix: **150 tests passed**. Additional tests cover the
 workflow's three FPS presets, final-check acceptance at 48 frames and rejection

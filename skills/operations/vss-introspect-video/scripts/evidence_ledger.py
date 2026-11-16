@@ -225,9 +225,15 @@ def _validate_claim(claim: Any, path: str) -> None:
     for field in ("requirement", "support_test", "falsification_test"):
         _nonempty(claim[field], f"{path}.{field}")
     if claim["evidence_type"] not in EVIDENCE_TYPES:
-        _fail(f"{path}.evidence_type", "unknown evidence type")
+        _fail(
+            f"{path}.evidence_type",
+            f"unknown evidence type; choose one of: {', '.join(EVIDENCE_TYPES)}",
+        )
     if claim["coverage_requirement"] not in COVERAGE_REQUIREMENTS:
-        _fail(f"{path}.coverage_requirement", "unknown coverage requirement")
+        _fail(
+            f"{path}.coverage_requirement",
+            f"unknown coverage requirement; choose one of: {', '.join(COVERAGE_REQUIREMENTS)}",
+        )
 
 
 def validate_plan(plan: Any, expected_mode: str | None = None) -> None:
@@ -314,7 +320,9 @@ def canonicalize_memory_update_observation_ids(updates: Any) -> Any:
         return copy.deepcopy(updates)
     repaired = copy.deepcopy(list(updates))
     for update in repaired:
-        if not isinstance(update, dict) or not isinstance(update.get("observations"), list):
+        if not isinstance(update, dict) or not isinstance(
+            update.get("observations"), list
+        ):
             continue
         for item in update["observations"]:
             if isinstance(item, dict):
@@ -581,9 +589,9 @@ def initialize_ledger(
 ) -> dict[str, Any]:
     """Initialize a canonical ledger from a valid initial evidence plan."""
     validate_plan(plan, "initial")
-    detected = question_requires_choice(plan.get("question_text")) or question_requires_choice(
-        original_question
-    )
+    detected = question_requires_choice(
+        plan.get("question_text")
+    ) or question_requires_choice(original_question)
     if requires_choice is None:
         flag = detected or policy_requires_choice()
     else:
@@ -1046,8 +1054,10 @@ def collect_inspection_results(
     for task_id in sorted(task_map):
         claim_id = task_map[task_id]["claim"]["claim_id"]
         exact = directory / f"result-{claim_id}.json"
-        candidates = [exact] if exact.is_file() else sorted(
-            directory.glob(f"*-result-{claim_id}.json")
+        candidates = (
+            [exact]
+            if exact.is_file()
+            else sorted(directory.glob(f"*-result-{claim_id}.json"))
         )
         if not candidates:
             missing.append(task_id)
@@ -1238,7 +1248,9 @@ def final_result(
     if ledger["status"] == "answered":
         answer_text = _nonempty(answer_text, "answer")
         if not cited:
-            _fail("evidence_ids", "an answer must cite the observations that support it")
+            _fail(
+                "evidence_ids", "an answer must cite the observations that support it"
+            )
         return {
             "status": "answered",
             "evidence_status": "resolved",
@@ -1347,7 +1359,10 @@ def validate_terminal_pair(
             "must reflect the terminal ledger evidence status",
         )
     if "answer_label" in terminal_result or "answer_explanation" in terminal_result:
-        _fail("final_result", "use answer; answer_label and answer_explanation are removed")
+        _fail(
+            "final_result",
+            "use answer; answer_label and answer_explanation are removed",
+        )
     status = terminal_result.get("status")
     answer = terminal_result.get("answer")
     if status == "answered":
@@ -1368,7 +1383,9 @@ def validate_terminal_pair(
         if ledger["status"] != "unresolved" and not downgraded:
             _fail("final_result.status", "a resolved ledger must produce an answer")
         if answer is not None:
-            _fail("final_result.answer", "an unresolved result cannot contain an answer")
+            _fail(
+                "final_result.answer", "an unresolved result cannot contain an answer"
+            )
         if terminal_result.get("decision_source") != "abstention":
             _fail("final_result.decision_source", "an omitted answer is an abstention")
     else:
@@ -1396,7 +1413,10 @@ def atomic_commit_terminal(
                 "terminal-commit",
                 "choice questions cannot publish a harvestable abstention",
             )
-        if terminal_result.get("status") != "unresolved" or terminal_result.get("answer") is not None:
+        if (
+            terminal_result.get("status") != "unresolved"
+            or terminal_result.get("answer") is not None
+        ):
             _fail(
                 "terminal-commit",
                 "only an unanswered unresolved result may be marked provisional",
@@ -1404,7 +1424,9 @@ def atomic_commit_terminal(
     ledger_destination = Path(ledger_path)
     final_destination = Path(final_path)
     if ledger_destination.resolve().parent != final_destination.resolve().parent:
-        _fail("final_result", "ledger and final result must share an artifact directory")
+        _fail(
+            "final_result", "ledger and final result must share an artifact directory"
+        )
     atomic_write(ledger_destination, ledger)
     atomic_write(final_destination, terminal_result)
     marker = {

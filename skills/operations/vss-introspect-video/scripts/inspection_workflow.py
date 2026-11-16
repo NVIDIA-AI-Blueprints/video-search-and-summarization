@@ -134,6 +134,74 @@ def sampling(name):
     return POLICY["sampling_presets"][name]
 
 
+def workflow_contract(current=None):
+    """Read-only authoring constraints, derived from the runtime validators.
+
+    This is not an assessment of visual evidence. It exposes eligibility and
+    limits without consuming calls, creating receipts or changing the ledger.
+    """
+    result = {
+        "plan": {
+            "required_fields": sorted(ledger.PLAN_KEYS),
+            "claim_fields": sorted(ledger.PLAN_CLAIM_KEYS),
+            "plan_version": "2.0",
+            "mode": "initial",
+            "evidence_type": list(ledger.EVIDENCE_TYPES),
+            "coverage_requirement": list(ledger.COVERAGE_REQUIREMENTS),
+            "max_initial_claims": ledger.BUDGETS["max_initial_claims"],
+            "expansion_allowed": False,
+        },
+        "inspection_fields": sorted(SPEC_KEYS),
+        "one_task_per_claim_per_batch": True,
+        "assessment_fields": sorted(ASSESSMENT_KEYS),
+        "relations": list(ledger.RELATIONS),
+        "memory_coverage": list(ledger.COVERAGES),
+        "limits": copy.deepcopy(POLICY),
+        "max_quote_chars": 1600,
+        "max_missing_evidence_items": 8,
+        "max_planned_frames_per_call": vlm.MAX_VLM_FRAMES,
+        "single_call_seconds": {
+            name: vlm.MAX_VLM_FRAMES / fps
+            for name, fps in POLICY["sampling_presets"].items()
+        },
+        "frame_limit_note": (
+            "Planned frames are not measured submitted images on the CLI/backend "
+            "path. Verify actual backend sampling before claiming image-limit safety."
+        ),
+        "final_check_retry_allowed": False,
+    }
+    if current is not None:
+        ledger.validate_ledger(current)
+        rounds_remaining = max(
+            0,
+            min(POLICY["max_rounds"], current["budgets"]["max_inspection_rounds"])
+            - current["round"],
+        )
+        calls_remaining = max(
+            0,
+            min(POLICY["max_normal_calls"], current["budgets"]["max_total_vlm_calls"])
+            - current["vlm_calls_used"],
+        )
+        available = (
+            current["status"] == "in_progress"
+            and rounds_remaining > 0
+            and calls_remaining > 0
+        )
+        result["ledger"] = {
+            "revision": current["revision"],
+            "status": current["status"],
+            "stop_reason": current["stop_reason"],
+            "normal_rounds_remaining": rounds_remaining,
+            "normal_calls_remaining": calls_remaining,
+            "eligible_claim_ids": [
+                state["claim_id"]
+                for state in current["claims"]
+                if available and ledger._needs_inspection(state)
+            ],
+        }
+    return result
+
+
 def validate_specs(current, specs):
     ledger.validate_ledger(current)
     if not isinstance(specs, list) or not specs:
@@ -148,7 +216,9 @@ def validate_specs(current, specs):
         sampling(spec["sampling"])
         ledger._claim(current, spec["claim_id"])
     if len({s["claim_id"] for s in specs}) != len(specs):
-        raise ValueError("duplicate claim in batch")
+        raise ValueError(
+            "duplicate claim in batch; submit one task per claim, not one task per window"
+        )
 
 
 @contextmanager
@@ -289,6 +359,12 @@ def run_batch(ledger_path, specs, project):
         )
         if remaining < len(specs):
             raise ValueError("Insufficient remaining calls for this batch")
+        eligible = workflow_contract(current)["ledger"]["eligible_claim_ids"]
+        if any(spec["claim_id"] not in eligible for spec in specs):
+            raise ValueError(
+                "Batch targets claims that no longer need evidence; eligible claim IDs: "
+                + json.dumps(eligible)
+            )
         directory = root / "rounds" / f"round-{current['round'] + 1}"
         directory.mkdir(parents=True, exist_ok=True)
         binding = ledger._digest(
@@ -648,6 +724,12 @@ def checked_final_result(current, artifact_dir, answer, evidence_ids=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    contract = sub.add_parser(
+        "contract", help="Print authoring constraints without running tools"
+    )
+    contract.add_argument(
+        "--ledger", help="Optionally include current claim eligibility"
+    )
     for name in ("batch", "merge", "final-check"):
         p = sub.add_parser(name)
         p.add_argument("--ledger", required=True)
@@ -661,7 +743,9 @@ def main(argv=None):
                 help="Optional source checkout; defaults to installed vss",
             )
     args = parser.parse_args(argv)
-    if args.command == "batch":
+    if args.command == "contract":
+        print(json.dumps(workflow_contract(read(args.ledger) if args.ledger else None)))
+    elif args.command == "batch":
         result = run_batch(args.ledger, read(args.spec), args.vss_project)
         print(
             json.dumps(

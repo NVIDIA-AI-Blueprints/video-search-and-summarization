@@ -3,7 +3,7 @@ name: vss-introspect-video
 description: Run a single-coordinator evidence loop using fixed-format parallel VLM tool calls, compact claim assessments, and a mandatory reserved final visual check. Delegate here from vss-ask-video for evidence-intensive questions.
 license: Apache-2.0
 metadata:
-  version: "4.0.0-experimental"
+  version: "4.0.1-experimental"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
   vss-requires: "vlm"
@@ -60,8 +60,13 @@ prerequisites in tests and missing-evidence fields.
 Plan fields: `plan_version: "2.0"`, `mode: "initial"`, `question_id`,
 `question_text` (option-blind), `asset_id` (string/null), `claims`.
 Each claim has `claim_id: "claim-<slug>"`, `requirement`, `evidence_type`,
-`coverage_requirement`, `support_test`, `falsification_test`. Use the planner's
-existing enums. Falsification requires visible incompatible evidence, not a
+`coverage_requirement`, `support_test`, `falsification_test`.
+`evidence_type` must be one of `attribute`, `object`, `count`, `action`,
+`state_change`, `order`, `duration`, `trajectory`, `identity`, `spatial`, `cause`,
+`prediction`, `counterfactual`, `negative`. `coverage_requirement` must be
+`local_window`, `before_after`, `repeated_observation`, or `whole_video`.
+These are different from the memory update's `none/partial/sufficient` values.
+Falsification requires visible incompatible evidence, not a
 retrieval miss or uncertainty. Counts/absence need complete scoped coverage;
 motion, identity and order need linked observations.
 
@@ -70,6 +75,8 @@ motion, identity and order need linked observations.
 # Installed harness skills are flattened; do not assume a repository checkout.
 LEDGER_TOOL="$SKILL_DIR/scripts/evidence_ledger.py"
 WORKFLOW="$SKILL_DIR/scripts/inspection_workflow.py"
+# Optional read-only authoring reference: no model call or artifact write.
+python3 "$WORKFLOW" contract
 python3 "$LEDGER_TOOL" init --plan "$RUN_DIR/plan.json" --output "$RUN_DIR/ledger.json"
 # Explicit option-selection question: also pass --requires-choice and
 # --original-question "$ORIGINAL_QUESTION" to init.
@@ -100,6 +107,13 @@ If memory resolves the ledger, skip normal batches **but not the final check**.
 
 ## 3. Submit a structured batch
 
+Before writing a batch, check `python3 "$WORKFLOW" contract --ledger
+"$RUN_DIR/ledger.json"` for eligible claim IDs and remaining budget. Submit at
+most one task per eligible claim, at most two tasks total. Do not submit two
+windows for the same claim in one batch; choose one grounded scope and let the
+helper split it, or use a materially different scope in the allowed refinement.
+Do not target a claim already settled by memory or a previous merge.
+
 Write `inspection-specs.json`, a JSON array with exactly these fields per task:
 
 ```json
@@ -124,10 +138,13 @@ Select `skim/locate/detail` from the policy based on the missing fact, not alway
 the densest. Code splits scopes at the frame cap and records uncovered windows.
 Sampling a scope does not guarantee observing every event in it.
 
-The workflow uses the helper's 48-frame default to stay below 50-image backend
-limits. A single call spans at most 96 seconds at skim, 48 at locate, or 24 at
+The workflow uses the helper's 48-frame planning limit. A single call spans
+at most 96 seconds at skim, 48 at locate, or 24 at
 detail. Longer normal scopes split and consume additional calls within the same
 budget; inspect the recorded uncovered windows if the allocation runs out.
+This is not proof of the actual image count sent by the CLI/backend. A backend
+may decode or sample the requested clip differently. Preserve image-limit errors
+as tool failures; do not claim a successful inspection or silently change routing.
 
 ```bash
 python3 "$WORKFLOW" batch --ledger "$RUN_DIR/ledger.json" \
@@ -145,6 +162,11 @@ clip and limitations. Imperfect caption syntax does not trigger a retry.
 ## 4. Assess compactly and merge once
 
 Write one assessment per returned task:
+
+Keep `rationale` and each missing-evidence entry at most 400 characters, with
+at most eight missing-evidence entries and eight quoted observations per task.
+Each quote must be a verbatim substring of at most 1,600 characters. Preserve
+the full output in the receipt; do not copy it into the rationale.
 
 ```json
 [{
@@ -220,6 +242,10 @@ one `CHECK: supported/contradicted/inconclusive` line. Malformed verdicts remain
 inconclusive; useful raw text is retained. Tool failure remains failed.
 Do not loop after this call. You may revise the answer, but the revised answer
 is explicitly not rechecked. Do not modify the ledger to make the check agree.
+If the check fails, keep its receipt and proceed to final publication with
+unresolved evidence. Re-running the identical command only reads the receipt;
+changing the scope or candidate cannot obtain a second final call. Do not delete
+or overwrite receipts. This experiment has no extra infrastructure-retry budget.
 
 ## 6. Publish answer and artifacts
 

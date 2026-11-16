@@ -3,6 +3,7 @@
 """Executable smoke coverage with mocked VLM transport; no paid inference."""
 
 import copy
+import json
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -116,6 +117,127 @@ def check(path, answer="Blue"):
         {"scope": SCOPE, "sampling": "detail", "candidate_answer": answer},
         "unused",
     )
+
+
+def test_contract_cli_is_read_only_and_uses_runtime_constraints(
+    tmp_path, capsys, monkeypatch
+):
+    path = initialize(tmp_path)
+    before = path.read_bytes()
+    monkeypatch.setattr(
+        vlm, "_run_vlm", lambda **kw: pytest.fail("No inference expected")
+    )
+    assert workflow.main(["contract", "--ledger", str(path)]) == 0
+    contract = json.loads(capsys.readouterr().out)
+    assert contract["plan"]["evidence_type"] == list(ledger.EVIDENCE_TYPES)
+    assert contract["plan"]["coverage_requirement"] == list(
+        ledger.COVERAGE_REQUIREMENTS
+    )
+    assert contract["limits"] == workflow.POLICY
+    assert contract["single_call_seconds"] == {"skim": 96, "locate": 48, "detail": 24}
+    assert contract["ledger"]["eligible_claim_ids"] == ["claim-color"]
+    assert path.read_bytes() == before
+    assert set(tmp_path.iterdir()) == {path}
+    assert workflow.main(["contract"]) == 0
+    assert "ledger" not in json.loads(capsys.readouterr().out)
+
+
+def test_contract_filters_settled_claims_and_batch_rejects_before_artifacts(tmp_path):
+    path = initialize(tmp_path, ("claim-color", "claim-other"))
+    current = ledger.merge_memory(
+        workflow.read(path),
+        [
+            {
+                "claim_id": "claim-color",
+                "observations": [
+                    {
+                        "observation_id": "",
+                        "claim_id": "claim-color",
+                        "relation": "supports",
+                        "text": "The vehicle is blue.",
+                        "source": {"type": "memory", "record_id": "record-1"},
+                    }
+                ],
+                "coverage": "sufficient",
+                "gap": None,
+            }
+        ],
+    )
+    ledger.atomic_write(path, current)
+    assert workflow.workflow_contract(current)["ledger"]["eligible_claim_ids"] == [
+        "claim-other"
+    ]
+    with pytest.raises(ValueError, match='eligible claim IDs: \\["claim-other"\\]'):
+        workflow.run_batch(path, [spec()], None)
+    assert not (tmp_path / "rounds").exists()
+    assert workflow.read(path) == current
+
+
+def test_contract_keeps_partial_claims_eligible_and_terminal_claims_ineligible(
+    tmp_path,
+):
+    path = initialize(tmp_path)
+    current, _, _ = run_and_merge(
+        path, coverage_sufficient=False, missing_evidence=["Need another view"]
+    )
+    info = workflow.workflow_contract(current)["ledger"]
+    assert info["eligible_claim_ids"] == ["claim-color"]
+    assert info["normal_rounds_remaining"] == 1
+    assert info["normal_calls_remaining"] == 7
+    current.update(status="unresolved", stop_reason="tool_failure")
+    assert workflow.workflow_contract(current)["ledger"]["eligible_claim_ids"] == []
+
+
+@pytest.mark.parametrize(
+    "field,value,allowed",
+    [
+        ("evidence_type", "temporal", ledger.EVIDENCE_TYPES),
+        ("coverage_requirement", "sufficient", ledger.COVERAGE_REQUIREMENTS),
+    ],
+)
+def test_invalid_plan_enum_explains_allowed_values(tmp_path, field, value, allowed):
+    path = initialize(tmp_path)
+    plan = workflow.read(path)["plan"]
+    plan["claims"][0][field] = value
+    with pytest.raises(ValueError) as error:
+        ledger.validate_plan(plan)
+    assert field in str(error.value)
+    assert ", ".join(allowed) in str(error.value)
+
+
+def test_duplicate_claim_batch_is_rejected_without_receipts(tmp_path):
+    path = initialize(tmp_path)
+    with pytest.raises(ValueError, match="one task per claim"):
+        workflow.run_batch(path, [spec(), spec()], None)
+    assert not (tmp_path / "rounds").exists()
+
+
+def test_image_limit_failure_can_publish_unresolved_without_retry(
+    tmp_path, monkeypatch
+):
+    path = initialize(tmp_path, choice=True)
+    current, _, _ = run_and_merge(path)
+    calls = []
+
+    def rejected(**kwargs):
+        calls.append(kwargs)
+        result = response("", success=False)
+        result["error"] = "HTTP 400: Exceeded maximum number of images (50)"
+        return result
+
+    monkeypatch.setattr(vlm, "_run_vlm", rejected)
+    receipt = check(path)
+    assert receipt["verdict"] == "failed"
+    assert check(path) == receipt
+    with pytest.raises(ValueError, match="different request/ledger"):
+        check(path, "Red")
+    assert len(calls) == 1
+    result = workflow.checked_final_result(current, str(tmp_path), "Blue")
+    assert result["evidence_status"] == "unresolved"
+    assert result["final_check_vlm_calls_used"] == 1
+    ledger.atomic_commit_terminal(path, current, tmp_path / "final-result.json", result)
+    assert (tmp_path / "terminal-commit.json").exists()
+    assert workflow.read(tmp_path / "final-check.json") == receipt
 
 
 def test_end_to_end_parallel_batch_merge_finalization_and_no_duplicate_calls(
