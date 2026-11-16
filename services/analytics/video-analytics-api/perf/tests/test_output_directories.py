@@ -102,3 +102,48 @@ def test_shell_output_validation(tmp_path, kind):
     assert (result.returncode == 0) == (kind == "prepared"), result.stderr
     if kind == "missing":
         assert not output.exists()
+
+
+@pytest.mark.parametrize("native_exit, expected_exit", [(1, 0), (2, 1), (143, 1)])
+def test_completed_kpi_failure_is_reported_without_hiding_execution_errors(tmp_path, native_exit, expected_exit):
+    output = tmp_path / "run"
+    measured = {"count": 1000, "ok_count": 1000, "ok_ratio": 1.0, "p50_s": .1, "p99_s": .15}
+    violation = 'frames.p50_s 0.1 > 0.05'
+    payload = {"success": False, "raw": {"count": 1000},
+               "scenario": "quick_test", "config_id": "hardware-test",
+               "duration_seconds": 60, "warmup_seconds": 10,
+               "kpis": {"passed": False, "violations": [violation]},
+               "error": "KPI violations: " + violation,
+               'endpoints': {"frames": {"present": True, **measured}}}
+
+    def native(*args, **kwargs):
+        if args[0][0] == "bash":
+            (output / "execution_summary.json").write_text(json.dumps(payload))
+            return subprocess.CompletedProcess(args[0], native_exit)
+        return subprocess.CompletedProcess(args[0], 1, stdout="", stderr="")
+
+    with patch.dict(os.environ, {"UPLOAD_TO_MINIO": "false"}), patch.object(core.subprocess, "run", side_effect=native):
+        assert core.main(["--output-json", str(output)]) == expected_exit
+    report = json.loads(next((output / "vss-perf-results").glob("*.json")).read_text())
+    assert report["summary"]["failed"] >= 1
+    assert report["summary"]["overall_status"] in ("FAIL", "PARTIAL")
+    assert "p50_s" in json.dumps(report["test_cases"])
+
+
+@pytest.mark.parametrize("measurement_exit", [0, 1])
+def test_native_wrapper_does_not_hide_teardown_failure(tmp_path, measurement_exit):
+    import shutil
+    root = tmp_path / "perf"
+    scripts = root / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copyfile(PERF_ROOT / "scripts/run_benchmark.sh", scripts / "run_benchmark.sh")
+    (scripts / "common.sh").write_text('set -euo pipefail\nPERF_DIR="' + str(root) + '"\ncollect_perf_diagnostics() { :; }\n')
+    for name in ["pre_flight", "deploy", "post_deploy", "measure", "teardown"]:
+        status = 1 if name == "teardown" else measurement_exit if name == "measure" else 0
+        target = scripts / (name + ".sh")
+        target.write_text("#!/bin/bash\nexit " + str(status) + "\n")
+        target.chmod(0o755)
+    result = subprocess.run(["bash", str(scripts / "run_benchmark.sh")],
+                            env=dict(os.environ, PERF_NATIVE_ONLY="true"), capture_output=True, text=True)
+    assert result.returncode == 2
+    assert "Teardown failed" in result.stderr

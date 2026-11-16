@@ -170,3 +170,13 @@ helper images natively, install `setup/uv.lock`, and complete a smoke run plus
 cleanup and report verification. An ARM tag or multi-platform manifest must
 actually exist; changing the architecture field does not create one. The `arm64-igpu` image variant is selected for DGX-SPARK, IGX-THOR and GB300;
 validate the actual image on each native worker.
+
+## Execution status and latency KPIs
+
+A completed measurement with only latency-limit violations exits successfully
+from `scripts/run_benchmark.sh`. The canonical report still records the failed
+KPIs, original measured values and FAIL/PARTIAL result; thresholds are unchanged.
+Setup/deployment failures, missing or malformed measurements, insufficient
+samples, request errors, missing KPI definitions, interruption and failed
+teardown remain execution failures. The native measurement scripts keep their
+existing exit conventions; the canonical entrypoint separates those outcomes.

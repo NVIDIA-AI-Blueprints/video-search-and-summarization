@@ -53,3 +53,135 @@ scenarios:
         min_count: 10
         max_p50_s: 0.06
         max_p99_s: 0.12
+
+    # Explicit hardware mappings also support the native stdlib YAML reader.
+    # Matrix tests keep these thresholds identical to the baseline above.
+    warehouse_2d-kafka-playback-h100:
+      required_topics:
+        - raw
+        - frames
+        - behavior
+        - events
+        - incidents
+      raw:
+        min_count: 1000
+      frames:
+        min_count: 1000
+        max_p50_s: 0.02
+        max_p99_s: 0.05
+      incidents:
+        min_count: 1000
+        max_p50_s: 0.03
+        max_p99_s: 0.06
+      behavior:
+        min_count: 1
+        max_p50_s: 0.06
+        max_p99_s: 0.12
+      events:
+        min_count: 10
+        max_p50_s: 0.06
+        max_p99_s: 0.12
+
+    warehouse_2d-kafka-playback-rtxpro4500bw:
+      required_topics:
+        - raw
+        - frames
+        - behavior
+        - events
+        - incidents
+      raw:
+        min_count: 1000
+      frames:
+        min_count: 1000
+        max_p50_s: 0.02
+        max_p99_s: 0.05
+      incidents:
+        min_count: 1000
+        max_p50_s: 0.03
+        max_p99_s: 0.06
+      behavior:
+        min_count: 1
+        max_p50_s: 0.06
+        max_p99_s: 0.12
+      events:
+        min_count: 10
+        max_p50_s: 0.06
+        max_p99_s: 0.12
+
+    warehouse_2d-kafka-playback-dgx-spark:
+      required_topics:
+        - raw
+        - frames
+        - behavior
+        - events
+        - incidents
+      raw:
+        min_count: 1000
+      frames:
+        min_count: 1000
+        max_p50_s: 0.02
+        max_p99_s: 0.05
+      incidents:
+        min_count: 1000
+        max_p50_s: 0.03
+        max_p99_s: 0.06
+      behavior:
+        min_count: 1
+        max_p50_s: 0.06
+        max_p99_s: 0.12
+      events:
+        min_count: 10
+        max_p50_s: 0.06
+        max_p99_s: 0.12
+
+    warehouse_2d-kafka-playback-igx-thor:
+      required_topics:
+        - raw
+        - frames
+        - behavior
+        - events
+        - incidents
+      raw:
+        min_count: 1000
+      frames:
+        min_count: 1000
+        max_p50_s: 0.02
+        max_p99_s: 0.05
+      incidents:
+        min_count: 1000
+        max_p50_s: 0.03
+        max_p99_s: 0.06
+      behavior:
+        min_count: 1
+        max_p50_s: 0.06
+        max_p99_s: 0.12
+      events:
+        min_count: 10
+        max_p50_s: 0.06
+        max_p99_s: 0.12
+
+    warehouse_2d-kafka-playback-gb300:
+      required_topics:
+        - raw
+        - frames
+        - behavior
+        - events
+        - incidents
+      raw:
+        min_count: 1000
+      frames:
+        min_count: 1000
+        max_p50_s: 0.02
+        max_p99_s: 0.05
+      incidents:
+        min_count: 1000
+        max_p50_s: 0.03
+        max_p99_s: 0.06
+      behavior:
+        min_count: 1
+        max_p50_s: 0.06
+        max_p99_s: 0.12
+      events:
+        min_count: 10
+        max_p50_s: 0.06
+        max_p99_s: 0.12

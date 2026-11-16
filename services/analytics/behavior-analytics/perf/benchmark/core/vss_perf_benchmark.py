@@ -25,6 +25,7 @@ from minio_upload import minio_settings  # noqa: E402
 from vss_perf_ba_adapter import failure_payload, to_test_cases  # noqa: E402
 sys.path.insert(0, str(REPO_ROOT / "libs/vss-perf-tools"))
 from support_images import load as load_images, environment as image_environment, save_snapshot  # noqa: E402
+from evaluation_outcome import latency_kpi_failure  # noqa: E402
 
 from vss_perf_reporting import (  # noqa: E402
     build_and_save,
@@ -145,13 +146,14 @@ def finish_result(
     success: bool,
     should_upload: bool,
     args: argparse.Namespace,
+    evaluation_complete: bool = False,
 ) -> int:
     extra: dict[str, object] = {}
     if should_upload:
         extra["minio"] = _upload(dest, args)
     status = "PASS" if success else "FAIL"
     print(json.dumps({"result_file": str(dest), "status": status, **extra}))
-    return 0 if success else 1
+    return 0 if success or evaluation_complete else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -205,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         return finish_result(
             dest,
             success=bool(payload["success"]),
+            evaluation_complete=latency_kpi_failure(payload, "topics"),
             should_upload=should_upload,
             args=args,
         )
@@ -244,7 +247,8 @@ def main(argv: list[str] | None = None) -> int:
         payload["failure_stage"] = "benchmark"
         payload["error"] = f"run_benchmark.sh exited {completed.returncode}"
     dest = _write_canonical_result(payload, args)
-    return finish_result(dest, success=success, should_upload=should_upload, args=args)
+    return finish_result(dest, success=success, should_upload=should_upload, args=args,
+                         evaluation_complete=latency_kpi_failure(payload, "topics", completed.returncode))
 
 
 def _upload(dest: Path, args: argparse.Namespace) -> dict[str, str]:

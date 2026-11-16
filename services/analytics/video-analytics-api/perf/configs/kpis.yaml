@@ -67,3 +67,225 @@ scenarios:
         min_ok_ratio: 1.0
         max_p50_s: 0.50
         max_p99_s: 1.00
+
+    # Explicit hardware mappings also support the native stdlib YAML reader.
+    # Matrix tests keep these thresholds identical to the baseline above.
+    warehouse-es-dump-h100:
+      required_endpoints:
+        - spec_gets
+      default:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.10
+        max_p99_s: 0.20
+      livez:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.005
+        max_p99_s: 0.02
+      frames:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.05
+        max_p99_s: 0.10
+      behavior:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      events:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      incidents:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      config_upload_file_calibration:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+      config_calibration_images:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+
+    warehouse-es-dump-rtxpro4500bw:
+      required_endpoints:
+        - spec_gets
+      default:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.10
+        max_p99_s: 0.20
+      livez:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.005
+        max_p99_s: 0.02
+      frames:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.05
+        max_p99_s: 0.10
+      behavior:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      events:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      incidents:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      config_upload_file_calibration:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+      config_calibration_images:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+
+    warehouse-es-dump-dgx-spark:
+      required_endpoints:
+        - spec_gets
+      default:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.10
+        max_p99_s: 0.20
+      livez:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.005
+        max_p99_s: 0.02
+      frames:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.05
+        max_p99_s: 0.10
+      behavior:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      events:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      incidents:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      config_upload_file_calibration:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+      config_calibration_images:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+
+    warehouse-es-dump-igx-thor:
+      required_endpoints:
+        - spec_gets
+      default:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.10
+        max_p99_s: 0.20
+      livez:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.005
+        max_p99_s: 0.02
+      frames:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.05
+        max_p99_s: 0.10
+      behavior:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      events:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      incidents:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      config_upload_file_calibration:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+      config_calibration_images:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+
+    warehouse-es-dump-gb300:
+      required_endpoints:
+        - spec_gets
+      default:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.10
+        max_p99_s: 0.20
+      livez:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.005
+        max_p99_s: 0.02
+      frames:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.05
+        max_p99_s: 0.10
+      behavior:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      events:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      incidents:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.04
+        max_p99_s: 0.08
+      config_upload_file_calibration:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00
+      config_calibration_images:
+        min_count: 10
+        min_ok_ratio: 1.0
+        max_p50_s: 0.50
+        max_p99_s: 1.00

@@ -19,7 +19,12 @@ cleanup() {
     trap - EXIT INT TERM
     set +e
     collect_perf_diagnostics "$exit_code"
-    "$PERF_DIR/scripts/teardown.sh" || true
+    local teardown_status=0
+    "$PERF_DIR/scripts/teardown.sh" || teardown_status=$?
+    if [[ "$teardown_status" -ne 0 ]]; then
+        echo "[PERF] Teardown failed (exit $teardown_status)." >&2
+        exit 2
+    fi
     exit "$exit_code"
 }
 trap cleanup EXIT

@@ -22,6 +22,7 @@ for path in (PERF_ROOT / "benchmark", SHARED_REPORTING_SRC):
 
 sys.path.insert(0, str(REPO_ROOT / "libs/vss-perf-tools"))
 from support_images import load as load_images, environment as image_environment, save_snapshot  # noqa: E402
+from evaluation_outcome import latency_kpi_failure  # noqa: E402
 
 from vss_perf_reporting import build_and_save, discover_platform  # noqa: E402
 from vss_perf_va_api_adapter import failure_payload, to_test_cases  # noqa: E402
@@ -132,9 +133,9 @@ def _write_canonical_result(payload: dict[str, Any], args: argparse.Namespace) -
     )
 
 
-def _finish(dest: Path, success: bool) -> int:
+def _finish(dest: Path, success: bool, *, evaluation_complete: bool = False) -> int:
     print(json.dumps({"result_file": str(dest), "status": "PASS" if success else "FAIL"}))
-    return 0 if success else 1
+    return 0 if success or evaluation_complete else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -182,7 +183,8 @@ def main(argv: list[str] | None = None) -> int:
                 message=f"invalid native result: {error}",
             )
         success = bool(payload.get("success"))
-        return _finish(_write_canonical_result(payload, args), success)
+        return _finish(_write_canonical_result(payload, args), success,
+                       evaluation_complete=latency_kpi_failure(payload, "endpoints"))
 
     supporting = image_environment(load_images(PERF_ROOT / "setup/configs/images.yaml"), env)
     env.update(supporting)
@@ -224,7 +226,8 @@ def main(argv: list[str] | None = None) -> int:
             stage="benchmark",
             message=f"run_benchmark.sh exited {completed.returncode}",
         )
-    return _finish(_write_canonical_result(payload, args), success)
+    return _finish(_write_canonical_result(payload, args), success,
+                   evaluation_complete=latency_kpi_failure(payload, "endpoints", completed.returncode))
 
 
 if __name__ == "__main__":
