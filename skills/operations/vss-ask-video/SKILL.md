@@ -63,13 +63,7 @@ Direct VLM requires:
 - Reachable RT-VLM.
 - VIOS when using sensor-based media.
 
-Directly scoped URL and file requests go straight to `vss vlm run`. A named
-sensor goes there for an explicit fresh visual inspection of a grounded time
-window, or a request to inspect its whole recording when it is under 120 s.
-Resolve whole-recording bounds with `vss vios timeline` and follow the existing
-segmentation policy below; do not ask for timestamps VIOS can provide. Merely
-naming a sensor or asking another detail about an analyzed video does not itself
-request fresh inference: use the memory routing below.
+Directly scoped URL, file, and sensor requests go straight to `vss vlm run`.
 The checks below are for requested readiness diagnostics, not mandatory preflight.
 
 Introspection requires:
@@ -132,8 +126,8 @@ For a general question about previously analyzed video, use this exact order:
    and ask the user for the selectors that would make it answerable. The
    question stays open until they arrive.
 
-When the request matches one of the explicit exceptions below, that order does
-not apply. Skip it and make the matching command below the first thing you run: do not search
+When the request already names its own scope, that order does not apply. Skip
+it and make the matching command below the first thing you run: do not search
 Markdown, do not check the introspection state, and do not probe the deployment
 first. Confirming readiness is a step of its own only when the request asks for
 it.
@@ -144,9 +138,6 @@ it.
 - An explicit fresh visual inspection of a grounded sensor and time window ->
   `vss vlm run`. "Freshly verify" means the recall layers are already ruled
   out, not that they should be tried first.
-- A request to inspect a named sensor's whole recording under 120 s -> resolve
-  its bounds with `vss vios timeline`, then follow the whole-recording inspection
-  policy below. A recording of 120 s or longer routes to `vss-summarize-video`.
 - A pre-resolved bounded `VIDEO_URL` from a search skill ->
   `vss vlm run --media-url`.
 - A named local file with configured VSS -> `vss vlm run --file`, resolving the
@@ -205,7 +196,8 @@ Valid introspection scope is established by one of:
 - Both `--start-time` and `--end-time`
 - Complete child identity: `--job-id`, `--record-type`, and `--record-id`
 
-Never pass `--record-id` alone. Never propose or execute it without both `--job-id` and `--record-type`, including in suggested commands. If the user supplies only a child record ID, ask for the missing parent job ID and record type before any child lookup; do not probe with an incomplete command. `--record-type` and `--group` may refine valid scope but do not establish it independently.
+Never pass `--record-id` alone. `--record-type` and `--group` may refine valid
+scope but do not establish it independently.
 
 A relative expression is not a window. "Last week", "this morning", "recently"
 name no interval the CLI can take, and turning one into concrete timestamps

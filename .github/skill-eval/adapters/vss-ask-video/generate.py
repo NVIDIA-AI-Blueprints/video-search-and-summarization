@@ -88,11 +88,7 @@ PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
     "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
-    "setup action the trial requires. For deployment requests, follow the currently "
-    "checked-in Build Vision AI workflow: generate the `_builds/<name>/` artifacts, "
-    "validate `resolved.yml`, and deploy that exact file. Commands from archived "
-    "runs or a direct legacy `dev-profile.sh` deployment are not substitutes for "
-    "the current build workflow."
+    "setup action the trial requires."
 )
 
 # Appended only to specs whose checks require the clip URL to come from

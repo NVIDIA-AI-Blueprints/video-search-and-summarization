@@ -200,7 +200,7 @@ curl -sS -X POST \
 Then poll for the next prompt:
 
 ```bash
-curl -sS "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/executions/EXECUTION_ID"
+curl -sS "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/executions/EXECUTION_ID" | python3 -m json.tool
 ```
 
 The HITL prompts come in this order:
@@ -217,7 +217,7 @@ After the confirmation prompt, the system processes the video. This takes 3-5 mi
 Keep polling until the status changes from "running" to "completed":
 
 ```bash
-curl -sS "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/executions/EXECUTION_ID"
+curl -sS "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/executions/EXECUTION_ID" | python3 -m json.tool
 ```
 
 Set the expectation that processing usually takes 3-5 minutes, then poll every 30 seconds.
