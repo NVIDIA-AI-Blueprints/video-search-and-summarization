@@ -142,3 +142,31 @@ The service under test still uses the artifact selected for the run.
 `support-images.json` records the effective support image variables alongside the
 run output. Image values preserve existing references and do not certify OSRB
 approval or record the immutable digests pulled by Docker.
+
+## Hardware configurations
+
+`configs/perf-configs.yaml` declares one row per hardware target. The existing
+RTX PRO 6000 Blackwell SE row and its configuration ID remain enabled and
+unchanged. New rows reuse the same Compose deployment, workload and fixtures:
+
+| Target | Image architecture | State |
+|---|---|---|
+| RTXPRO6000BW-SE | `amd64` | Enabled baseline |
+| H100-SXM | `amd64` | Disabled; native smoke validation pending |
+| RTXPRO4500BW | `amd64` | Disabled; native smoke validation pending |
+| DGX-SPARK | `arm64-igpu` | Disabled; image/setup and native smoke validation pending |
+| IGX-THOR | `arm64-igpu` | Disabled; worker/image and native smoke validation pending |
+| GB300 | `arm64-igpu` | Disabled; image/setup and native smoke validation pending |
+
+The candidate rows have hardware-specific IDs. Select a row through the existing
+`--config-id` argument; this records its identity and does not provision a host
+or choose a container architecture. Run on the matching native worker with a
+compatible service image. The measurement scenario and latency calculations
+remain the same on every target.
+
+Before enabling a candidate, verify the service image and all supporting images
+in `setup/configs/images.yaml` for that worker architecture, build the existing
+helper images natively, install `setup/uv.lock`, and complete a smoke run plus
+cleanup and report verification. An ARM tag or multi-platform manifest must
+actually exist; changing the architecture field does not create one. The `arm64-igpu` image variant is selected for DGX-SPARK, IGX-THOR and GB300;
+validate the actual image on each native worker before enabling the row.

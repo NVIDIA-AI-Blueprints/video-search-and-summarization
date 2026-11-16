@@ -1,5 +1,6 @@
 perf_configs:
-  - id: warehouse_2d-kafka-playback
+  - &ba_playback
+    id: warehouse_2d-kafka-playback
     nodeLabel: RTXPRO6000BW-SE
     imageArch: amd64
     enabled: true
@@ -27,3 +28,36 @@ perf_configs:
     vlmModel: "unused"
     llmModel: "unused"
     vision_input_tokens: "unused"
+
+  # Candidate platforms: keep disabled until native image/setup and smoke validation pass.
+  # These rows inherit the same workload, supporting files and fixtures as the baseline.
+  - <<: *ba_playback
+    id: warehouse_2d-kafka-playback-h100
+    nodeLabel: H100-SXM
+    imageArch: amd64
+    enabled: false
+
+  - <<: *ba_playback
+    id: warehouse_2d-kafka-playback-rtxpro4500bw
+    nodeLabel: RTXPRO4500BW
+    imageArch: amd64
+    enabled: false
+
+  - <<: *ba_playback
+    id: warehouse_2d-kafka-playback-dgx-spark
+    nodeLabel: DGX-SPARK
+    imageArch: arm64-igpu
+    enabled: false
+
+  - <<: *ba_playback
+    id: warehouse_2d-kafka-playback-igx-thor
+    nodeLabel: IGX-THOR
+    # Owner-selected image variant; native worker validation is still pending.
+    imageArch: arm64-igpu
+    enabled: false
+
+  - <<: *ba_playback
+    id: warehouse_2d-kafka-playback-gb300
+    nodeLabel: GB300
+    imageArch: arm64-igpu
+    enabled: false
