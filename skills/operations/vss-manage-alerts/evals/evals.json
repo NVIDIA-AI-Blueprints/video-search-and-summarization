@@ -1,76 +1,58 @@
 [
   {
     "id": "alerts-create-realtime-rule",
-    "question": "Watch warehouse_sample for anyone without a safety vest.",
+    "question": "Watch warehouse_sample for anyone without a safety vest. Mocked deployment: Docker Compose with HOST_IP=10.0.0.5 and VSS_PUBLIC_URL unset, so Alert Bridge is http://10.0.0.5:9080 and `GET /health` returns 200. The deployment is VLM real-time mode. `vss vios list --type stream --sensor warehouse_sample` returns {\"count\": 1, \"sensors\": [{\"name\": \"warehouse_sample\", \"sensor_id\": \"b7e1c2d4-0001\", \"is_main\": true, \"url\": \"rtsp://10.0.0.5:8554/live/warehouse_sample\"}]}. The create call returns {\"id\": \"496aebd1-0002\"}. Treat the supplied values as deterministic fixtures; do not run anything. Give the request you send and your reply to the user.",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent routes to Workflow D for Alert Bridge realtime subscriptions in VLM real-time mode. It resolves warehouse_sample through VIOS, fetches its RTSP stream, derives a PPE/safety-vest alert_type, and creates the rule by POSTing directly to Alert Bridge at http://${HOST_IP}:9080/api/v1/realtime.",
+    "ground_truth": "This is Workflow D on VLM real-time. POST http://10.0.0.5:9080/api/v1/realtime with live_stream_url rtsp://10.0.0.5:8554/live/warehouse_sample, sensor_id b7e1c2d4-0001, sensor_name warehouse_sample, the condition verbatim as prompt, system_prompt \"Answer yes or no\", chunk_duration 30, chunk_overlap_duration 5, and a snake_case alert_type such as ppe_vest_violation. Reply with the rule ID 496aebd1-0002, the sensor name, and the tag, without raw JSON.",
     "expected_behavior": [
-      "Loads vss-manage-alerts and uses the Alert Subscriptions workflow, not the generic VSS Agent /generate flow.",
-      "Checks that the deployment is VLM real-time mode or otherwise applies the skill's mode gate before creating a subscription.",
-      "Calls VIOS at http://${HOST_IP}:30888/vst/api/v1/sensor/list to resolve warehouse_sample to its sensorId and name.",
-      "Fetches the sensor's stream URL from http://${HOST_IP}:30888/vst/api/v1/sensor/<sensorId>/streams and uses a live RTSP URL in the payload.",
-      "POSTs to http://${HOST_IP}:9080/api/v1/realtime with live_stream_url, sensor_id, sensor_name, prompt, system_prompt set to a yes/no instruction, chunk_duration 30, and a condition-specific snake_case alert_type such as ppe_vest_violation.",
-      "Does not call rtvi-vlm microservice endpoints directly and does not send this subscription request through POST /generate.",
-      "Reports the returned rule UUID and sensor name to the user without dumping raw JSON."
+      "Routes to Workflow D and confirms VLM real-time mode before creating the rule.",
+      "Uses the VIOS UUID b7e1c2d4-0001 and the listed main-stream RTSP URL rather than constructing either.",
+      "Sends the POST to /api/v1/realtime with the verbatim condition as prompt, system_prompt \"Answer yes or no\", chunk_duration 30, and a condition-specific snake_case alert_type; never POST /generate or rtvi-vlm directly.",
+      "Reports rule ID 496aebd1-0002, sensor warehouse_sample, and the tag without dumping raw JSON."
     ]
   },
   {
     "id": "alerts-list-active-rules",
-    "question": "Show me all active realtime rules on warehouse_sample.",
+    "question": "Show me all active realtime rules on warehouse_sample. Mocked deployment: Docker Compose with HOST_IP=10.0.0.5 and VSS_PUBLIC_URL unset, so Alert Bridge is http://10.0.0.5:9080 and `GET /health` returns 200. VLM real-time mode. `GET /api/v1/realtime` returns [{\"id\": \"496aebd1-0002\", \"sensor_name\": \"warehouse_sample\", \"alert_type\": \"ppe_vest_violation\", \"prompt\": \"anyone without a safety vest\", \"created_at\": \"2026-11-16T09:00:00Z\", \"live_stream_url\": \"rtsp://10.0.0.5:8554/live/warehouse_sample\"}, {\"id\": \"7c9d0e11-0003\", \"sensor_name\": \"dock_cam\", \"alert_type\": \"forklift_collision\", \"prompt\": \"forklift hits a person\", \"created_at\": \"2026-11-16T09:05:00Z\", \"live_stream_url\": \"rtsp://10.0.0.5:8554/live/dock_cam\"}]. Treat the supplied values as deterministic fixtures; do not run anything. Write your reply.",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent routes to Workflow D list behavior. It fetches rules from Alert Bridge, optionally filters to warehouse_sample by resolving the sensor/stream via VIOS, and renders a readable summary of active rules. An empty result is a successful 'no rules running' response.",
+    "ground_truth": "Active rules are subscription inventory (Workflow D list), read from GET /api/v1/realtime. Filtered to warehouse_sample there is one rule: sensor warehouse_sample, tag ppe_vest_violation, prompt 'anyone without a safety vest', created 2026-11-16T09:00:00Z, rule ID 496aebd1-0002. The dock_cam rule is excluded, and no RTSP URL or raw JSON is shown.",
     "expected_behavior": [
-      "Loads vss-manage-alerts and treats 'active realtime rules' as subscription inventory, not historical incidents.",
-      "Calls Alert Bridge GET http://${HOST_IP}:9080/api/v1/realtime to retrieve active rules.",
-      "Resolves warehouse_sample through VIOS and filters the returned rules by the matching live_stream_url when a sensor filter is present.",
-      "Reverse-resolves RTSP URLs to human-readable sensor names when rendering results.",
-      "Includes sensor, alert_type/tag, prompt, created_at, and rule ID in a readable list or table when rules exist.",
-      "Responds that no realtime alert rules are currently running when the filtered list is empty, rather than treating the empty list as an error.",
-      "Does not route this request to POST /generate or query historical incidents."
+      "Treats active realtime rules as Workflow D inventory, not historical incidents, and does not use POST /generate.",
+      "Filters to warehouse_sample and excludes the dock_cam rule.",
+      "Shows only sensor, tag, prompt, created time, and rule ID, and never prints the live_stream_url, an rtsp:// URL, or raw rule JSON."
     ]
   },
   {
     "id": "alerts-stop-rule-confirmation",
-    "question": "Stop the PPE alert on warehouse_sample.",
+    "question": "Stop the PPE alert on warehouse_sample. Mocked deployment: Docker Compose with HOST_IP=10.0.0.5 and VSS_PUBLIC_URL unset, so Alert Bridge is http://10.0.0.5:9080 and `GET /health` returns 200. VLM real-time mode. `GET /api/v1/realtime` returns one matching rule: {\"id\": \"496aebd1-0002\", \"sensor_name\": \"warehouse_sample\", \"alert_type\": \"ppe_vest_violation\"}. You are running non-interactively. Treat the supplied values as deterministic fixtures; do not run anything. What is your reply, and do you send any DELETE?",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent treats this as the first step of the stop workflow: find the matching realtime rule, then ask for confirmation. It does not DELETE the rule until the user replies yes to the confirmation question.",
+    "ground_truth": "Stop is a two-step, user-confirmed gate even when non-interactive. With exactly one match, the reply is only: Stop alert `ppe_vest_violation` on **warehouse_sample**? (rule ID: `496aebd1-0002`) — yes/no. No DELETE is sent until the user explicitly answers yes.",
     "expected_behavior": [
-      "Loads vss-manage-alerts and routes to Workflow D stop behavior.",
-      "Fetches active rules from Alert Bridge with GET http://${HOST_IP}:9080/api/v1/realtime.",
-      "Resolves warehouse_sample through VIOS and filters rules by sensor stream plus a PPE-related alert_type match.",
-      "If exactly one matching rule exists, asks a yes/no confirmation question that includes the alert_type, sensor name, and rule ID.",
-      "Does not call DELETE http://${HOST_IP}:9080/api/v1/realtime/<id> in response to the initial stop request.",
-      "If no matching rule exists, reports that no matching rule was found and offers to list currently running rules.",
-      "If multiple rules match, asks the user to be more specific rather than guessing which rule to delete."
+      "Routes to Workflow D stop and resolves the rule from GET /api/v1/realtime by sensor and PPE alert_type.",
+      "Asks a yes/no confirmation naming ppe_vest_violation, warehouse_sample, and rule ID 496aebd1-0002, then stops.",
+      "Does not send a delete request for rule 496aebd1-0002, even under non-interactive execution."
     ]
   },
   {
     "id": "alerts-incident-query-routing",
-    "question": "What alerts have been triggered today for Camera_02?",
+    "question": "What alerts have been triggered today for Camera_02? Mocked deployment: Docker Compose with HOST_IP=10.0.0.5 and VSS_PUBLIC_URL unset, so Alert Bridge is http://10.0.0.5:9080 and `GET /health` returns 200. VLM real-time mode; today is 2026-11-16 UTC. `vss vios list --type stream` lists {\"name\": \"Camera_02\", \"sensor_id\": \"c02a0000-0004\"}. The incidents query returns {\"total\": 2, \"count\": 2, \"incidents\": [{\"timestamp\": \"2026-11-16T08:14:00Z\", \"category\": \"ppe_vest_violation\", \"info\": {\"verdict\": \"confirmed\"}}, {\"timestamp\": \"2026-11-16T11:02:00Z\", \"category\": \"forklift_collision\", \"info\": {\"verdict\": \"confirmed\"}}]}. Treat the supplied values as deterministic fixtures; do not run anything. Give the query you send and your answer.",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent routes this as Workflow C, a historical incident query. It queries the Alert Bridge incidents endpoint (GET /api/v1/realtime/incidents) directly rather than listing active subscription rules, and never uses the VSS Agent /generate endpoint.",
+    "ground_truth": "This is Workflow C, a raw incident lookup. Query GET http://10.0.0.5:9080/api/v1/realtime/incidents with sensor_id=Camera_02 (the stored name, not the UUID), start_time=2026-11-16T00:00:00Z, and end_time at or before now, using --data-urlencode. Report total 2: a ppe_vest_violation at 08:14 UTC and a forklift_collision at 11:02 UTC.",
     "expected_behavior": [
-      "Loads vss-manage-alerts and recognizes 'triggered today' as a past-incident query.",
-      "Queries Alert Bridge directly with GET http://localhost:9080/api/v1/realtime/incidents (resolving Camera_02 to its stored sensor name via VIOS when scoping — the incidents endpoint filters on the name, not the VIOS UUID) — it does not use the VSS Agent POST /generate.",
-      "Scopes the query to Camera_02 and today's time window when forming the request.",
-      "Summarizes returned incidents with readable details such as timestamp, sensor, category, verdict, or description.",
-      "Does not call Alert Bridge GET /api/v1/realtime because that endpoint lists active rules, not historical alerts.",
-      "Does not fabricate incidents if the agent response contains none."
+      "Routes to Workflow C and queries /api/v1/realtime/incidents, not the rules list GET /api/v1/realtime or POST /generate.",
+      "Scopes with sensor_id=Camera_02 (the stored name, not c02a0000-0004) and start_time/end_time for today in ISO-8601 UTC.",
+      "Reports the total of 2 and both incidents with timestamp and category, without fabricating more."
     ]
   },
   {
     "id": "alerts-slack-webhook-status",
-    "question": "Check if the alert Slack webhook is running.",
+    "question": "Check if the alert Slack webhook is running. Mocked state: the deployment is VLM real-time mode; `curl -sf http://localhost:9090/webhook/alert-notify/status` fails with connection refused; SLACK_BOT_TOKEN and SLACK_CHANNEL_ID are unset. Treat these as deterministic fixtures; do not run anything. What do you tell the user?",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent routes Slack-specific webhook requests to Workflow E. It inspects the local alert-notify service on port 9090, not Alert Bridge, and reports status or asks whether to start the webhook if it is down.",
+    "ground_truth": "Slack webhook status is Workflow E on the alert-notify service at :9090, not Alert Bridge. The status probe was refused, so report that the alert Slack webhook is not running and ask whether to start it. A status check needs no credentials, so do not ask for the Slack token or channel.",
     "expected_behavior": [
-      "Loads vss-manage-alerts and routes explicit Slack/webhook language to Workflow E.",
-      "Applies the VLM real-time mode gate before using the Slack notification workflow.",
-      "Uses the alert-notify service endpoints such as GET http://localhost:9090/webhook/alert-notify/status or /health.",
-      "Does not touch vss-alert-bridge /api/v1/realtime for Slack webhook operations.",
-      "If the webhook is running, reports running status, active backend details, and relevant notification stats without exposing secrets.",
-      "If the webhook is not reachable, says the alert Slack webhook is not running and asks whether the user wants it started.",
-      "Does not ask for Slack credentials unless it is actually starting or testing the webhook and required values are missing."
+      "Routes to Workflow E and uses the alert-notify :9090 status endpoint, not Alert Bridge /api/v1/realtime.",
+      "Reports that the webhook is not running and asks whether the user wants it started.",
+      "Does not ask for Slack credentials, start the server, or use a mock to fake a running status."
     ]
   },
   {
@@ -101,60 +83,46 @@
   },
   {
     "id": "alerts-verification-verdict-routing",
-    "question": "The alerts deployment is in CV verification mode. Was the ladder-safety alert on sample-warehouse-ladder confirmed?",
+    "question": "The alerts deployment is in CV verification mode. Was the ladder-safety alert on sample-warehouse-ladder confirmed? Mocked state: Docker Compose with HOST_IP=10.0.0.5; `curl -sf \"http://10.0.0.5:9200/mdx-vlm-alerts-*/_search?size=10\"` returns {\"hits\": {\"hits\": []}}; `GET /api/v1/realtime/incidents` would return two RT-VLM documents with info.verdict \"confirmed\". No on-demand verification was run earlier. Treat these as deterministic fixtures; do not run anything. What do you answer?",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent routes a 'was it confirmed / show verdicts' ask to Workflow B (Verification Results & Verdicts) on a CV verification deployment. It reads verdicts from the mdx-vlm-alerts-* Elasticsearch store via the interim :9200 probe (that store has no REST query endpoint yet), never from the active-rules list, the /incidents endpoint, or the mdx-vlm-incidents-* incident store. An empty hit list is a valid 'no verification results yet' answer.",
+    "ground_truth": "A 'was it confirmed' ask on CV is Workflow B, sourced only from mdx-vlm-alerts-*. That store is empty, so the answer is that there are no verification results yet. The incidents endpoint, the rules list, and mdx-vlm-incidents-* carry no verifier verdicts and must not be used to answer.",
     "expected_behavior": [
-      "Loads vss-manage-alerts and recognizes a 'was it confirmed / show verdicts' ask as Workflow B verification, not a rules-list or historical-incident query.",
-      "Sources the verdict answer from Elasticsearch mdx-vlm-alerts-* (e.g. GET http://${HOST_IP}:9200/mdx-vlm-alerts-*/_search), the store CV verification writes to.",
-      "Does not answer the verdict question from Alert Bridge GET /api/v1/realtime (active rules), from GET /api/v1/realtime/incidents, or from the mdx-vlm-incidents-* incident store — those carry no verification verdicts.",
-      "Reports info.verdict and info.reasoning grounded in returned documents, accepting camelCase or snake_case on the verification response-code field.",
-      "Treats an empty result as a valid 'no verification results yet' answer and does not fabricate a verdict.",
-      "Does not route this request to the VSS Agent POST /generate."
+      "Routes to Workflow B and sources the verdict from mdx-vlm-alerts-*.",
+      "Reports 'no verification results yet' for the empty hit list without fabricating a verdict.",
+      "Does not answer from /api/v1/realtime/incidents, the rules list, or mdx-vlm-incidents-*, and does not use POST /generate."
     ]
   },
   {
     "id": "alerts-ondemand-verify-clip-routing",
-    "question": "The alerts deployment is in CV verification mode. Verify this specific clip for a ladder-safety violation right now: https://example.com/clips/ladder.mp4",
+    "question": "The alerts deployment is in CV verification mode. Verify this specific clip for a ladder-safety violation right now: https://example.com/clips/ladder.mp4. Mocked deployment: Docker Compose with HOST_IP=10.0.0.5 and VSS_PUBLIC_URL unset, so Alert Bridge is http://10.0.0.5:9080 and `GET /health` returns 200. `GET /api/v1/verification/config` lists alert_type values [\"ladder_safety_violation\", \"ppe_violation\"]. The submission returns HTTP 202 {\"status\": \"accepted\", \"correlationId\": \"ondemand-5f3e\"}. Treat the supplied values as deterministic fixtures; do not run anything. Give the request you send and what you report.",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent routes a one-shot 'verify this specific clip/URL' request to Workflow F (On-Demand Verification) on a CV deployment, not to Workflow D (continuous realtime rules). It resolves an existing verifier category, POSTs to Alert Bridge /api/v1/verification/ondemand, and reports the returned correlationId from the accepted async response without claiming a verdict at submit time.",
+    "ground_truth": "A one-shot clip check is Workflow F. Use the existing category ladder_safety_violation and POST http://10.0.0.5:9080/api/v1/verification/ondemand with {\"category\": \"ladder_safety_violation\", \"info\": {\"media_urls\": [\"https://example.com/clips/ladder.mp4\"], \"media_type\": \"video\"}}. Report that the request was accepted with correlationId ondemand-5f3e, that the result arrives asynchronously through GET /api/v1/realtime/incidents by that correlationId, and that no verdict exists at submit time; verdict may be absent on the default deploy.",
     "expected_behavior": [
-      "Loads vss-manage-alerts and treats a one-shot 'verify this clip/URL' ask as Workflow F on-demand verification, not a continuous Workflow D subscription.",
-      "Resolves the category first via GET http://${HOST_IP}:9080/api/v1/verification/config and reuses an existing alert_type rather than inventing one (an unknown category is a 400).",
-      "POSTs to http://${HOST_IP}:9080/api/v1/verification/ondemand with category plus info.media_urls and info.media_type.",
-      "Does not create a realtime rule via POST /api/v1/realtime, and does not use the VSS Agent POST /generate or a nonexistent /verification/verify route.",
-      "Reports the returned correlationId from the accepted async response and does not report a verdict or confirmation at submit time.",
-      "Notes the default minimal submission is incident-kind and surfaces via GET /api/v1/realtime/incidents by correlationId, not the mdx-vlm-alerts-* store."
+      "Routes to Workflow F, not a continuous Workflow D rule, and reuses the existing ladder_safety_violation category instead of inventing one.",
+      "POSTs to /api/v1/verification/ondemand with category, info.media_urls, and info.media_type video; never /verification/verify, POST /api/v1/realtime, or POST /generate.",
+      "Reports correlationId ondemand-5f3e as accepted, not verified, and says the result surfaces through /api/v1/realtime/incidents."
     ]
   },
   {
     "id": "alerts-always-on-status-routing",
-    "question": "The alerts deployment is in VLM real-time mode. Is always-on alerting active?",
+    "question": "The alerts deployment is in VLM real-time mode. Is always-on alerting active? Mocked state: the Alert Bridge config has alert_agent.always_on: true (ALERT_AGENT_ALWAYS_ON=true) and ALWAYS_ON_RULES_CONFIG points at the loaded rules YAML. Treat these as deterministic fixtures; do not run anything. What do you answer?",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent routes an always-on status question to Workflow G (Always-On Operation), operate-only. It checks the alert_agent.always_on config gate (default false) with a zero-side-effect probe, never invents an /always-on/health endpoint, and treats a 503 {\"reason\":\"ALWAYS_ON_DISABLED\"} response or a false config gate as 'not active'.",
+    "ground_truth": "This is Workflow G, operate-only. The config gate is true, so always-on is active. Explain the three links: the alert_agent.always_on gate, the rules YAML loaded from ALWAYS_ON_RULES_CONFIG, and VIOS camera webhooks to POST /api/v1/realtime/always-on that start one rule per entry per camera. Its incidents come through Workflow C, and its in-memory rules may not appear in the Workflow D rules list. There is no /always-on/health endpoint.",
     "expected_behavior": [
-      "Loads vss-manage-alerts and recognizes an always-on status ask as Workflow G, operate-only (never authoring or enabling the feature).",
-      "Checks the alert_agent.always_on config gate (default false) or uses a zero-side-effect probe of POST /api/v1/realtime/always-on rather than inventing an /always-on/health endpoint.",
-      "Interprets a 503 {\"reason\":\"ALWAYS_ON_DISABLED\"} response or a false/absent config gate as 'always-on is not active'.",
-      "For always-on incident results, queries via Workflow C (GET /api/v1/realtime/incidents), noting always-on rules live in an in-memory sidecar and may not appear in the Workflow D rules list.",
-      "Does not create or edit always-on rule configuration and does not enable the feature on the user's behalf.",
-      "Does not route this request to the VSS Agent POST /generate."
+      "Routes to Workflow G and reports always-on as active from the true config gate.",
+      "Explains the gate, the ALWAYS_ON_RULES_CONFIG rules file, and the VIOS camera webhook fan-out.",
+      "Notes incidents come through /api/v1/realtime/incidents and the rules may be absent from the Workflow D list, without inventing /always-on/health or editing rule config."
     ]
   },
   {
     "id": "alerts-consolidated-event-count",
-    "question": "How many intrusion events were there on warehouse_sample between 10:00 and 10:30 UTC today?",
+    "question": "How many intrusion events were there on warehouse_sample between 10:00 and 10:30 UTC today? Mocked deployment: Docker Compose with HOST_IP=10.0.0.5 and VSS_PUBLIC_URL unset, so Alert Bridge is http://10.0.0.5:9080 and `GET /health` returns 200. VLM real-time mode; today is 2026-11-16. `vss vios list --type stream` lists {\"name\": \"warehouse_sample\", \"sensor_id\": \"b7e1c2d4-0001\"}. A raw incidents page for that sensor and window shows the stored categories [\"intrusion_detected\", \"ppe_vest_violation\"]. The consolidated query returns {\"total\": 3, \"count\": 3, \"truncated\": false}. Treat the supplied values as deterministic fixtures; do not run anything. Give the consolidated query and your answer.",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent routes this as Workflow C in its consolidated view: a 'how many events' ask bounded to a stated period. It resolves warehouse_sample's stored name (VIOS), reads the stored category strings for that sensor and window off a raw incidents page and matches 'intrusion' against them (exactly one match → use it verbatim; a non-empty page with no match → repeat the lookup under the VIOS UUID identity, still nothing under either identity → report 0 events for that wording and list the stored categories (no consolidated call, no guessing); several matches → ask which one; an EMPTY page → 0 events for the window, reported after the consolidated call and the UUID identity check, if that check finds chunks of other categories only, still 0 for the asked wording plus the list of what exists), then calls GET /api/v1/realtime/incidents with sensor_id set to the identity the category matched under (warehouse_sample, or its VIOS UUID when it matched only there), category=<stored category>, start_time/end_time for the stated window and consolidate=true, and reports the response's `total` as events (consecutive confirmed chunks folded by sensorId + category), never as a chunk count.",
+    "ground_truth": "A period-bounded 'how many events' ask is Workflow C's consolidated view. 'intrusion' matches exactly one stored category, intrusion_detected. Query GET http://10.0.0.5:9080/api/v1/realtime/incidents with sensor_id=warehouse_sample, category=intrusion_detected, start_time=2026-11-16T10:00:00Z, end_time=2026-11-16T10:30:00Z, and consolidate=true. Report total 3 as events on warehouse_sample, not as chunks.",
     "expected_behavior": [
-      "Loads vss-manage-alerts and treats a period-bounded 'how many events' question as Workflow C's consolidated view, not a raw chunk count and not a rules listing.",
-      "Resolves warehouse_sample through VIOS (the skill's `vss vios list` CLI or GET http://${HOST_IP}:30888/vst/api/v1/sensor/list) and passes the stored sensor NAME as sensor_id for the primary query (the VIOS UUID only after the name identity yielded nothing usable: a name-scoped zero — the step-3 alternate-identity check — or a non-empty name-scoped page with no category matching the ask — the lookup's UUID retry).",
-      "Reads the stored `category` strings from a raw windowed incidents page (GET /api/v1/realtime/incidents with the window, no consolidate) and matches 'intrusion' against them instead of guessing the string from the phrasing; when the page is non-empty but nothing matches, repeats the lookup under the sensor's VIOS UUID identity before giving up (a rule created without sensor_name stores its chunks under the UUID); when still nothing matches under either identity, reports 0 events for that wording and lists the stored categories the window holds (no consolidated call, no guessing); when several match, asks which one; when the page is empty (no chunks in the window), reports 0 events after the consolidated call and the UUID identity check — an empty name-scoped page is never by itself a reason to ask (if the UUID page holds chunks but none of the named category, it reports 0 for that wording and lists those categories).",
-      "When exactly one stored category matches, calls GET http://${HOST_IP}:9080/api/v1/realtime/incidents with consolidate=true, that category, sensor_id set to the identity the category matched under (the stored name warehouse_sample, or the VIOS UUID when it matched only there), and both start_time and end_time as ISO-8601 UTC values for the stated 10:00-10:30 window; never invents or widens the window.",
-      "Reports the response's `total` as the number of intrusion events in that window, says which sensor and window it covers, and does not quote a raw page `count` or a chunk count as the event count.",
-      "If the response carries `truncated: true`, reports the total as a lower bound and says the window is too dense.",
-      "Treats an HTTP 400 `validation_failed` as a missing time window (fix the request), not as Alert Bridge being unreachable, and never falls back to the unfiltered incidents list for it.",
-      "Does not route this request to POST /generate and does not call the bare GET /api/v1/realtime (rules inventory)."
+      "Uses Workflow C's consolidated view for a period-bounded event count, not the rules list or a raw chunk count.",
+      "Uses the stored category intrusion_detected verbatim and sensor_id=warehouse_sample with start_time, end_time, and consolidate=true.",
+      "Reports the response total of 3 as events for warehouse_sample without folding chunks by hand."
     ]
   }
 ]
