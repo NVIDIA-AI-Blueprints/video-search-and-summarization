@@ -2615,6 +2615,25 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                  ):
                 self.assertEqual(run_leg.main(self._argv(tmp)), 42)
 
+    def test_shared_judge_preflight_runs_under_lock_before_harbor(self):
+        events = []
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            tests = Path(tmp) / "dataset" / "chain" / "l40s" / "tests"
+            tests.mkdir()
+            (tests / "generic_judge.py").touch()
+            with self._held_lock(), \
+                 mock.patch.object(
+                     run_leg, "prepare_judge_verifier_runtime",
+                     side_effect=lambda *_: events.append("preflight"),
+                 ), \
+                 mock.patch.object(
+                     run_leg, "run_invocations",
+                     side_effect=lambda *_: events.append("harbor") or 0,
+                 ):
+                self.assertEqual(run_leg.main(self._argv(tmp)), 0)
+        self.assertEqual(events, ["preflight", "harbor"])
+
     def test_failed_nemoclaw_leg_cleans_worker_and_gateway(self):
         events = []
         routes = mock.Mock()
@@ -2626,7 +2645,7 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                 run_leg.CLEAN_WORKER_AFTER_LEG_ENV: "true",
             }), self._held_lock(), \
                  mock.patch.object(run_leg, "resolve_model_routes", return_value=routes), \
-                 mock.patch.object(run_leg, "prepare_canary_verifier_runtime"), \
+                 mock.patch.object(run_leg, "prepare_judge_verifier_runtime"), \
                  mock.patch.object(run_leg, "run_invocations", return_value=1), \
                  mock.patch.object(run_leg, "cleanup_worker_after_leg",
                                    side_effect=lambda *args: events.append("cleanup")), \

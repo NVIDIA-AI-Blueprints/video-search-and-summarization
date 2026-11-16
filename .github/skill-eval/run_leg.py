@@ -1710,16 +1710,13 @@ def cleanup_gateway_network_policy(instance: str, results_root: Path, *, timeout
         print(f"[run-leg] owned gateway network policy cleanup failed: {type(exc).__name__}", file=sys.stderr)
 
 
-def needs_canary_verifier_runtime(operational_runtime: str, spec_path: str) -> bool:
-    """The NemoClaw Alerts verifier is independent of post-run cleanup."""
-    return (
-        operational_runtime == "nemoclaw"
-        and spec_path.startswith("skills/operations/vss-manage-alerts/evals/")
-    )
+def needs_judge_verifier_runtime(dataset_root: Path) -> bool:
+    """Any dataset containing the shared judge needs its worker-side runtime."""
+    return next(dataset_root.rglob("generic_judge.py"), None) is not None
 
 
-def prepare_canary_verifier_runtime(instance: str, *, timeout_sec: int = 300) -> None:
-    """Ensure the NemoClaw Alerts canary has a pinned worker-side judge.
+def prepare_judge_verifier_runtime(instance: str, *, timeout_sec: int = 300) -> None:
+    """Ensure judge-based legs have a pinned worker-side Python runtime.
 
     The coordinator's Python 3.12 venv is not available over Brev SSH. Keep
     this runtime outside the checkout and trial scratch so normal worker
@@ -1738,7 +1735,7 @@ if ! check_runtime; then
   uv pip install --python "$venv/bin/python" 'claude-agent-sdk==0.2.128'
   check_runtime
 fi
-echo "canary verifier runtime ready: $venv"
+echo "judge verifier runtime ready: $venv"
 """
     result = subprocess.run(
         [
@@ -1759,7 +1756,7 @@ echo "canary verifier runtime ready: $venv"
     detail = "\n".join(filter(None, (result.stdout, result.stderr))).strip()[-1500:]
     if result.returncode != 0:
         raise RuntimeError(
-            f"canary verifier bootstrap failed on {instance} "
+            f"judge verifier bootstrap failed on {instance} "
             f"(exit {result.returncode}): {detail}"
         )
     print(f"[run-leg] {detail}", flush=True)
@@ -2629,11 +2626,8 @@ def main(argv: list[str] | None = None) -> int:
                     # phases below set their own labels.
                     leg_timing.set_phase(outer_phase)
                     dispatch_started = time.time()
-                    if needs_canary_verifier_runtime(
-                        model_routes.operational.runtime,
-                        os.environ.get("EVAL_SPEC_PATH", ""),
-                    ):
-                        prepare_canary_verifier_runtime(instance)
+                    if needs_judge_verifier_runtime(args.dataset_root):
+                        prepare_judge_verifier_runtime(instance)
                     try:
                         rc = run_invocations(
                             invocations,

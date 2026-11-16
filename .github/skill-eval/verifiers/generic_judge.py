@@ -46,9 +46,20 @@ import asyncio
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+
+def _use_isolated_runtime() -> None:
+    """Use the worker runtime prepared by run_leg, regardless of adapter.
+
+    Local invocations without a prepared runtime keep their current Python.
+    The worker preflight guarantees this path exists before Harbor starts.
+    """
+    python = Path.home() / ".cache/vss-skill-eval/verifier-py312-sdk-0.2.128/bin/python"
+    if python.is_file() and python.absolute() != Path(sys.executable).absolute():
+        print(f"[judge] using isolated verifier Python: {python}", flush=True)
+        os.execv(str(python), [str(python), *sys.argv])
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +273,8 @@ and cannot replace a required decode. Never infer format from a suffix alone.
 
 When done, output a single JSON object on its own line:
 {"pass": bool, "matched": "<exact-snippet-or-grep-count>", "rationale": "<one or two sentences>"}
+Escape tabs, newlines, and other control characters inside JSON strings
+(for example, write \\t instead of a literal tab in `matched`).
 """
 
 
@@ -279,6 +292,8 @@ _VERDICT_NUDGE = (
     "JSON object and nothing else:\n"
     '{"pass": <true|false>, "matched": "<evidence-snippet-or-null>", '
     '"rationale": "<one or two sentences>"}\n'
+    "Escape tabs, newlines, and other control characters inside JSON strings. "
+    "Write \\t rather than a literal tab in `matched`.\n"
     "If your prior analysis was inconclusive, emit pass=false with that "
     "as the rationale. Negative checks require inspection of the entire relevant "
     "evidence scope; an incomplete search is inconclusive and must yield pass=false."
@@ -335,18 +350,11 @@ async def _judge_llm_agent(
             ResultMessage,
             TextBlock,
         )
-    except ImportError:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "claude-agent-sdk>=0.0.5"],
-            check=False, timeout=180,
-        )
-        from claude_agent_sdk import (  # noqa: F811
-            AssistantMessage,
-            ClaudeAgentOptions,
-            ClaudeSDKClient,
-            ResultMessage,
-            TextBlock,
-        )
+    except ImportError as exc:
+        raise RuntimeError(
+            "claude-agent-sdk missing from verifier Python; "
+            "run the worker judge-runtime preflight before Harbor"
+        ) from exc
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return {
@@ -535,7 +543,10 @@ def _parse_verdict_json(text: str) -> dict | None:
     snippets, API bodies) and discarded — no fallback. None means the
     judge did not emit a compliant verdict; caller should surface raw
     text for triage."""
-    decoder = json.JSONDecoder()
+    # Judge evidence can contain literal control characters copied from tool
+    # output (for example, a tab between a container name and status). Keep
+    # normal JSON syntax checks, but permit those characters inside strings.
+    decoder = json.JSONDecoder(strict=False)
     candidates: list[dict] = []
     idx = 0
     while True:
@@ -716,4 +727,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    _use_isolated_runtime()
     sys.exit(main())

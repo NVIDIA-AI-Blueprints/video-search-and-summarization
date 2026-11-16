@@ -168,7 +168,7 @@ def _test_sh(step_idx: int, spec_name: str) -> str:
         )
         python_command = '"$VERIFIER_PYTHON"'
     else:
-        python_setup = "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+        python_setup = ""
         python_command = "python3"
     shell_options = "set -euo pipefail" if nemoclaw_verifier else "set -uo pipefail"
     return (

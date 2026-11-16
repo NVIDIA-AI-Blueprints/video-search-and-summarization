@@ -110,7 +110,6 @@ def generate_test_script(step: int, spec_name: str) -> str:
         "set -uo pipefail\n"
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
-        "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
