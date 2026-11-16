@@ -1,16 +1,15 @@
 # Skill Benchmark: vss-manage-alerts
 
-> ⚠️ **Overall verdict: INCOMPLETE — Required evidence is missing**
+> ❌ **Overall verdict: FAIL — Publication blocked**
 
-One or more required evaluation tiers did not complete, so this benchmark is not publication-complete.
+The skill should be reviewed before publication. Address the blocking findings below, then rerun Skill Evaluator.
 
 ## Evaluation Metadata
 
 - Skill: `vss-manage-alerts`
-- Validation status: `incomplete`
-- Evaluation date: 2026-11-16
-- Evaluator version: `1.6.9`
-- Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-5-5`), Codex (`openai/openai/gpt-6.1-sol`)
+- Evaluation date: 2026-10-15
+- Evaluator version: `1.5.6`
+- Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
 - Tasks: 11 evaluation tasks (10 positive, 1 negative)
 - Dataset digest: `sha256:2b5bf7deee2ba610968002c68c2365d6b4caef09ec9d3c359932dc32a2a099bb` (skill-evaluator-dataset-snapshot/1)
 - Attempts per task: 1
@@ -19,20 +18,6 @@ One or more required evaluation tiers did not complete, so this benchmark is not
 - Tier 3 evidence: required for publication
 
 Each task attempt ran in its own isolated sandbox pod.
-
-## Tier 1 LLM Provenance
-
-SkillSpector provider, model, analyzer revision, and determinism evidence retained for this scan.
-
-| Skill | Provider | Adapter | Analyzer | Model | Revision | Determinism |
-| --- | --- | --- | --- | --- | --- | --- |
-| vss-manage-alerts | nv_inference | openai | mcp_tool_poisoning | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
-| vss-manage-alerts | nv_inference | openai | semantic_developer_intent | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
-| vss-manage-alerts | nv_inference | openai | semantic_quality_policy | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
-| vss-manage-alerts | nv_inference | openai | semantic_security_discovery | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
-| vss-manage-alerts | nv_inference | openai | meta_analyzer | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
-
-- Controls for `vss-manage-alerts`: temperature=not set (source=provider_default, forwarded=no); seed=not set (source=unset, forwarded=no); reasoning_effort=not set (source=provider_default, forwarded=no)
 
 ## What This Report Answers
 
@@ -48,12 +33,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 83.0% — baseline ran, but no comparable score was available; uplift unavailable | 68.9% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 90.9% → 86.4% (-4.5 points) | 54.6% → 72.7% (+18.1 points) |
-| Correctness | 25.5% → 92.7% (+67.2 points) | 10.9% → 52.7% (+41.8 points) |
-| Discoverability | 97.2% — baseline ran, but no comparable score was available; uplift unavailable | 87.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 22.4% → 55.4% (+33.0 points) | 21.2% → 39.5% (+18.3 points) |
-| Efficiency | 83.4% — baseline ran, but no comparable score was available; uplift unavailable | 91.8% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 89.1% — baseline ran, but no comparable score was available; uplift unavailable | 69.6% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 100.0% → 95.5% (-4.5 points) | 45.5% → 45.5% (±0.0 points) |
+| Correctness | 9.1% → 96.4% (+87.3 points) | 36.4% → 83.6% (+47.2 points) |
+| Discoverability | 98.5% — baseline ran, but no comparable score was available; uplift unavailable | 80.0% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 23.2% → 66.3% (+43.1 points) | 28.8% → 55.2% (+26.4 points) |
+| Efficiency | 89.0% — baseline ran, but no comparable score was available; uplift unavailable | 83.7% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -61,74 +46,63 @@ Example: `47.0% → 92.0% (+45.0 points)` means the skill-assisted run scored 92
 
 A partial dimension was calculated from only the available configured signals; review the detailed report before relying on it.
 
-### Comparison details
-
-Shared-source comparisons use the same signals and weights on both conditions. They do not replace the full dimension scores above or change the publication verdict.
-
-| Agent | Dimension | Basis | Baseline → With skill (uplift) | Explanation |
-| --- | --- | --- | --- | --- |
-| claude-code | Discoverability | Dimension comparison | N/A | Discoverability is not applicable to the no-skill baseline; there is no installed skill to discover. |
-| claude-code | Efficiency | Token-only comparison | 98.1% → 89.6% (-8.5 points) | Only Token Efficiency is comparable; the full dimension scores use different evaluator sources. |
-| codex | Discoverability | Dimension comparison | N/A | Discoverability is not applicable to the no-skill baseline; there is no installed skill to discover. |
-| codex | Efficiency | Token-only comparison | 92.5% → 88.2% (-4.3 points) | Only Token Efficiency is comparable; the full dimension scores use different evaluator sources. |
-
 ## Token Usage
 
 Actual Tier 3 execution usage is reported for every observed agent/case pair and both conditions.
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 2,672,515 | 1,510,345 | +1,162,170 | +76.95% | skill 11/11; base 11/11 |
-| claude-code | alerts-always-on-status-routing | 263,490 | 106,639 | +156,851 | +147.09% | skill 1/1; base 1/1 |
-| claude-code | alerts-consolidated-event-count | 348,264 | 179,552 | +168,712 | +93.96% | skill 1/1; base 1/1 |
-| claude-code | alerts-create-realtime-rule | 250,762 | 106,912 | +143,850 | +134.55% | skill 1/1; base 1/1 |
-| claude-code | alerts-cv-mode-subscription-refusal | 88,620 | 143,459 | -54,839 | -38.23% | skill 1/1; base 1/1 |
-| claude-code | alerts-incident-query-routing | 216,148 | 106,701 | +109,447 | +102.57% | skill 1/1; base 1/1 |
-| claude-code | alerts-list-active-rules | 262,487 | 144,007 | +118,480 | +82.27% | skill 1/1; base 1/1 |
-| claude-code | alerts-negative-non-alert-analytics | 230,890 | 108,287 | +122,603 | +113.22% | skill 1/1; base 1/1 |
-| claude-code | alerts-ondemand-verify-clip-routing | 256,548 | 143,429 | +113,119 | +78.87% | skill 1/1; base 1/1 |
-| claude-code | alerts-slack-webhook-status | 252,719 | 184,263 | +68,456 | +37.15% | skill 1/1; base 1/1 |
-| claude-code | alerts-stop-rule-confirmation | 250,818 | 179,925 | +70,893 | +39.40% | skill 1/1; base 1/1 |
-| claude-code | alerts-verification-verdict-routing | 251,769 | 107,171 | +144,598 | +134.92% | skill 1/1; base 1/1 |
-| codex | All cases | 1,581,482 | 644,969 | +936,513 | +145.20% | skill 11/11; base 11/11 |
-| codex | alerts-always-on-status-routing | 135,560 | 49,018 | +86,542 | +176.55% | skill 1/1; base 1/1 |
-| codex | alerts-consolidated-event-count | 171,622 | 40,540 | +131,082 | +323.34% | skill 1/1; base 1/1 |
-| codex | alerts-create-realtime-rule | 200,322 | 71,316 | +129,006 | +180.89% | skill 1/1; base 1/1 |
-| codex | alerts-cv-mode-subscription-refusal | 84,918 | 126,252 | -41,334 | -32.74% | skill 1/1; base 1/1 |
-| codex | alerts-incident-query-routing | 146,959 | 40,551 | +106,408 | +262.41% | skill 1/1; base 1/1 |
-| codex | alerts-list-active-rules | 145,778 | 41,349 | +104,429 | +252.56% | skill 1/1; base 1/1 |
-| codex | alerts-negative-non-alert-analytics | 65,447 | 59,683 | +5,764 | +9.66% | skill 1/1; base 1/1 |
-| codex | alerts-ondemand-verify-clip-routing | 164,903 | 13,557 | +151,346 | +1116.37% | skill 1/1; base 1/1 |
-| codex | alerts-slack-webhook-status | 94,881 | 56,898 | +37,983 | +66.76% | skill 1/1; base 1/1 |
-| codex | alerts-stop-rule-confirmation | 228,060 | 89,961 | +138,099 | +153.51% | skill 1/1; base 1/1 |
-| codex | alerts-verification-verdict-routing | 143,032 | 55,844 | +87,188 | +156.13% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 4,253,997 | 2,155,314 | +2,098,683 | +97.37% | skill 22/22; base 22/22 |
+| claude-code | All cases | 3,493,802 | 1,805,708 | +1,688,094 | +93.49% | skill 11/11; base 11/11 |
+| claude-code | alerts-always-on-status-routing | 235,916 | 120,528 | +115,388 | +95.74% | skill 1/1; base 1/1 |
+| claude-code | alerts-consolidated-event-count | 368,496 | 182,148 | +186,348 | +102.31% | skill 1/1; base 1/1 |
+| claude-code | alerts-create-realtime-rule | 372,758 | 183,981 | +188,777 | +102.61% | skill 1/1; base 1/1 |
+| claude-code | alerts-cv-mode-subscription-refusal | 77,197 | 216,544 | -139,347 | -64.35% | skill 1/1; base 1/1 |
+| claude-code | alerts-incident-query-routing | 310,211 | 150,467 | +159,744 | +106.17% | skill 1/1; base 1/1 |
+| claude-code | alerts-list-active-rules | 372,918 | 120,803 | +252,115 | +208.70% | skill 1/1; base 1/1 |
+| claude-code | alerts-negative-non-alert-analytics | 333,939 | 156,222 | +177,717 | +113.76% | skill 1/1; base 1/1 |
+| claude-code | alerts-ondemand-verify-clip-routing | 322,022 | 30,085 | +291,937 | +970.37% | skill 1/1; base 1/1 |
+| claude-code | alerts-slack-webhook-status | 251,300 | 119,150 | +132,150 | +110.91% | skill 1/1; base 1/1 |
+| claude-code | alerts-stop-rule-confirmation | 424,641 | 184,827 | +239,814 | +129.75% | skill 1/1; base 1/1 |
+| claude-code | alerts-verification-verdict-routing | 424,404 | 340,953 | +83,451 | +24.48% | skill 1/1; base 1/1 |
+| codex | All cases | 6,148,994 | 3,974,843 | +2,174,151 | +54.70% | skill 11/11; base 11/11 |
+| codex | alerts-always-on-status-routing | 447,016 | 110,328 | +336,688 | +305.17% | skill 1/1; base 1/1 |
+| codex | alerts-consolidated-event-count | 729,906 | 626,297 | +103,609 | +16.54% | skill 1/1; base 1/1 |
+| codex | alerts-create-realtime-rule | 1,143,464 | 41,298 | +1,102,166 | +2668.81% | skill 1/1; base 1/1 |
+| codex | alerts-cv-mode-subscription-refusal | 97,348 | 565,447 | -468,099 | -82.78% | skill 1/1; base 1/1 |
+| codex | alerts-incident-query-routing | 306,367 | 69,735 | +236,632 | +339.33% | skill 1/1; base 1/1 |
+| codex | alerts-list-active-rules | 1,017,415 | 577,964 | +439,451 | +76.03% | skill 1/1; base 1/1 |
+| codex | alerts-negative-non-alert-analytics | 388,300 | 84,838 | +303,462 | +357.70% | skill 1/1; base 1/1 |
+| codex | alerts-ondemand-verify-clip-routing | 296,786 | 71,977 | +224,809 | +312.33% | skill 1/1; base 1/1 |
+| codex | alerts-slack-webhook-status | 114,185 | 75,600 | +38,585 | +51.04% | skill 1/1; base 1/1 |
+| codex | alerts-stop-rule-confirmation | 654,405 | 988,970 | -334,565 | -33.83% | skill 1/1; base 1/1 |
+| codex | alerts-verification-verdict-routing | 953,802 | 762,389 | +191,413 | +25.11% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 9,642,796 | 5,780,551 | +3,862,245 | +66.81% | skill 22/22; base 22/22 |
 
-Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. Change is `100 * (with - without) / without`; negative means fewer tokens. N/A comparisons include their reason in the coverage column; coverage is never estimated.
+Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
 
 ## Tier Status
 
 | Tier | Purpose | Status | Evidence |
 |---|---|---|---|
-| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 43 finding(s) |
-| Tier 2 | Semantic deduplication | **INCOMPLETE** | Tier 2 scan incomplete: a content cluster exceeds the LLM prompt character limit. |
+| Tier 1 | Static validation | **FAILED** | 11 validator(s); 44 finding(s) |
+| Tier 2 | Semantic deduplication | **PASSED WITH OBSERVATIONS** | 2 validator(s); 1 finding(s) |
 | Tier 3 | Live agent evaluation | **PASS** | 2 agent(s); 11 task(s) |
 
-## Incomplete Coverage
+## Blocking Findings
 
-- **Context Deduplication:** Tier 2 scan incomplete: a content cluster exceeds the LLM prompt character limit.
+- **MEDIUM** BANDIT/B104:hardcoded_bind_all_interfaces: Possible binding to all interfaces. (CWE-605) (`skills/operations/vss-manage-alerts/scripts/alert-notify/server.py:485`)
 
 ## Findings and Observations
 
 <details>
 <summary>Show detailed findings and successful checks</summary>
 
+- **CRITICAL** CONTENT_DEDUP/llm_prompt_size_limit: A Tier 2 cluster exceeds the LLM prompt character limit. (`skills/operations/vss-manage-alerts`)
+- **MEDIUM** BANDIT/B104:hardcoded_bind_all_interfaces: Possible binding to all interfaces. (CWE-605) (`skills/operations/vss-manage-alerts/scripts/alert-notify/server.py:485`)
 - **MEDIUM** QUALITY/quality_reliability: MCP skill lacks connection/error guidance (`skills/operations/vss-manage-alerts/SKILL.md`)
-- **MEDIUM** QUALITY/quality_efficiency: Large skill (11139 tokens, recommended max <5000). Per agentskills.io, SKILL.md should be concise (~500 lines) — large skill bodies increase token cost after invocation; long or unfocused top-level descriptions can degrade agent routing accuracy (`skills/operations/vss-manage-alerts/SKILL.md`)
-- **MEDIUM** QUALITY/quality_efficiency: Deeply nested references in deploy-alerts.md (`skills/operations/vss-manage-alerts/SKILL.md`)
+- **MEDIUM** QUALITY/quality_efficiency: Large skill (11044 tokens, recommended max <5000). Per agentskills.io, SKILL.md should be concise (~500 lines) — large skill bodies increase token cost after invocation; long or unfocused top-level descriptions can degrade agent routing accuracy (`skills/operations/vss-manage-alerts/SKILL.md`)
 - **MEDIUM** SCHEMA/folder_hierarchy: Unexpected nesting depth for general skill (`skills/operations/vss-manage-alerts`)
-- **MEDIUM** SECURITY/skillspector_execution_failure: skillspector scan did not execute reliably (agent-control analysis limitation): SKILL.md [static; obfuscated_instruction_text; analyzers=static_patterns_agent_snooping,static_patterns_anti_refusal,static_patterns_deserialization,static_patterns_excessive_agency,static_patterns_harmful_content,static_patterns_memory_poisoning,static_patterns_privilege_escalation,static_patterns_prompt_injection,static_patterns_rogue_agent,static_patterns_ssrf,static_patterns_supply_chain,static_patterns_system_prompt_leakage]: Obfuscated instruction text could not be fully evaluated by the deterministic layer.; SKILL.md [static; static_parse_limit; analyzers=static_patterns_tool_misuse]: A security-relevant expression could not be fully resolved by the bounded static parser. SkillSpector could not determine this command or code fragment's boundaries. Check: expansion boundary; location: reported source range; unchecked scope: expression. Relevant parser input not fully checked.; references/alert-notify.md [static; static_parse_limit; analyzers=static_patterns_tool_misuse]: A security-relevant expression could not be fully resolved by the bounded static parser. SkillSpector could not determine this command or code fragment's boundaries. Check: expansion boundary; location: reported source range; unchecked scope: expression. Relevant parser input not fully checked.; and 5 more (`.`)
-- 38 additional finding(s) are available in the full evaluation artifacts.
+- 40 additional finding(s) are available in the full evaluation artifacts.
 
 </details>
 

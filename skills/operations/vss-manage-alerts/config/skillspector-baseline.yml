@@ -68,13 +68,4 @@ rules:
     message: "*&& chmod -R*"
     reason: *chmod_engines
 
-  - id: "TM2"
-    path: "references/verification.md"
-    message: "*; rm -*"
-    reason: >-
-      Accepted: the all-pages incidents recipe removes only its own scratch
-      file ($PAGES, created by mktemp in the same block) on error and after
-      the merge. No other path is deleted. Revisit if the recipe stops using
-      a mktemp-created file.
-
 fingerprints: []
