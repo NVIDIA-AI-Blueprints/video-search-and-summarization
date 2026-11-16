@@ -41,7 +41,7 @@ fall back to raw REST when a CLI command fails.
 > - a named source is resolved with `vss vios list` before search — never
 >   inferred from a display name, and never substituted when missing;
 > - capture stdout and the exit status separately — never put the command
->   behind `if !`, which hides the real exit code, and never discard usable
+>   behind `if ! command`, which hides the real exit code, and never discard usable
 >   exit-6 results;
 > - a failing command is a finding: report the exit code rather than routing
 >   around it, repairing the deployment, or retrying with broadened scope.
@@ -144,7 +144,7 @@ the requested time bounds and `--top-k`, and
 run `vss search run <path>` with no endpoint, index, model, or profile flag —
 `vss configure` owns those. Build the invocation as a Bash array and capture
 stdout and the exit status separately; never clear a previously resolved source
-array or hide the exit code behind `if !`:
+array or hide the exit code behind `if ! command`:
 
 ```bash
 : "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"
