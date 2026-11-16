@@ -29,35 +29,35 @@ perf_configs:
     llmModel: "unused"
     vision_input_tokens: "unused"
 
-  # Candidate platforms: keep disabled until native image/setup and smoke validation pass.
+  # Additional platforms enabled for native benchmark validation.
   # These rows inherit the same workload, supporting files and fixtures as the baseline.
   - <<: *ba_playback
     id: warehouse_2d-kafka-playback-h100
     nodeLabel: H100-SXM
     imageArch: amd64
-    enabled: false
+    enabled: true
 
   - <<: *ba_playback
     id: warehouse_2d-kafka-playback-rtxpro4500bw
     nodeLabel: RTXPRO4500BW
     imageArch: amd64
-    enabled: false
+    enabled: true
 
   - <<: *ba_playback
     id: warehouse_2d-kafka-playback-dgx-spark
     nodeLabel: DGX-SPARK
     imageArch: arm64-igpu
-    enabled: false
+    enabled: true
 
   - <<: *ba_playback
     id: warehouse_2d-kafka-playback-igx-thor
     nodeLabel: IGX-THOR
     # Owner-selected image variant; native worker validation is still pending.
     imageArch: arm64-igpu
-    enabled: false
+    enabled: true
 
   - <<: *ba_playback
     id: warehouse_2d-kafka-playback-gb300
     nodeLabel: GB300
     imageArch: arm64-igpu
-    enabled: false
+    enabled: true

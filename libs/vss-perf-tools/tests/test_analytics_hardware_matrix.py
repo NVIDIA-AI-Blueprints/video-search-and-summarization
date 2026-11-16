@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Hardware expansion must preserve the native workload and safe rollout defaults."""
+"""Hardware expansion must preserve the native workload and enable all requested targets."""
 from pathlib import Path
 import unittest
 import yaml
@@ -28,8 +28,7 @@ class AnalyticsHardwareMatrixTests(unittest.TestCase):
                 for cfg in configs:
                     self.assertEqual(cfg['imageArch'], ARCHITECTURES[cfg['nodeLabel']])
                     self.assertEqual(workload(cfg), workload(baseline))
-                    if cfg['id'] != baseline_id:
-                        self.assertFalse(cfg['enabled'], 'Candidate hardware must be validated before it becomes automatic')
+                    self.assertTrue(cfg['enabled'], 'All requested hardware targets must be enabled')
                     self.assertTrue((service_root / cfg['composePath']).is_file())
                     for path in cfg['checkoutPaths']:
                         self.assertTrue((ROOT / path).exists(), path)
