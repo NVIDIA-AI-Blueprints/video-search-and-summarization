@@ -824,21 +824,13 @@ if [[ "${_needs_lvs_generation}" == "true" ]]; then
     [[ -f "${LVS_VIDEO_FETCH_SCRIPT}" ]] || die "LVS video fetch script not found: ${LVS_VIDEO_FETCH_SCRIPT}"
 fi
 
-# Check that the current user can run docker without sudo.
-# Running docker commands as root (via sudo) causes containers and volumes to be
-# owned by root, which can cause permission errors in subsequent steps.
-if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
-    echo "" >&2
-    echo -e "${_C_RED}[setup_perf_env] ERROR: User '${USER}' is not in the 'docker' group.${_C_RESET}" >&2
-    echo "" >&2
-    echo "  Add your user to the docker group and re-login:" >&2
-    echo -e "    ${_C_YELLOW}sudo usermod -aG docker \${USER}${_C_RESET}" >&2
-    echo -e "    ${_C_YELLOW}newgrp docker${_C_RESET}   # apply without full re-login (current shell only)" >&2
-    echo "  Or log out and log back in for the group change to take effect." >&2
-    echo "" >&2
-    die "Docker group membership required."
+# Check Docker access through the current PATH. Jenkins supplies a guarded Docker
+# wrapper that may use passwordless sudo; group names do not establish access.
+# Keep Docker stderr visible so daemon/permission failures can be diagnosed.
+if ! docker info >/dev/null; then
+    die "Docker daemon is not accessible from this execution context. Verify Docker access for the current process."
 fi
-log "  ${_C_GREEN}User '${USER}' is in the 'docker' group.${_C_RESET}"
+log "  ${_C_GREEN}Docker daemon is accessible.${_C_RESET}"
 
 # Check that the 'nvidia' runtime is registered with the Docker daemon.
 # VST containers (stream-processing, nvstreamer) specify runtime: nvidia in their
