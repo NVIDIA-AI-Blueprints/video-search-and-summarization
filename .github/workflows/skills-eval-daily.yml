@@ -318,13 +318,15 @@ jobs:
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
-          CODING_HARNESS_INPUT: ${{ inputs.coding_harness || inputs.agent || 'claude-code' }}
-          OPERATIONAL_HARNESS_INPUT: ${{ inputs.operational_harness || inputs.agent || 'claude-code' }}
+          # The scheduled Daily is the authoritative NemoClaw nightly. Manual
+          # runs and reusable callers keep their explicit harness selectors.
+          CODING_HARNESS_INPUT: ${{ github.event_name == 'schedule' && 'codex' || inputs.coding_harness || inputs.agent || 'claude-code' }}
+          OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'schedule' && 'nemoclaw' || inputs.operational_harness || inputs.agent || 'claude-code' }}
           CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
           OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
           CODING_MODEL_INPUT: ${{ inputs.coding_model || '' }}
           OPERATIONAL_MODEL_INPUT: ${{ inputs.operational_model || '' }}
-          CLEANUP_WORKER_INPUT: ${{ inputs.cleanup_worker && 'true' || 'false' }}
+          CLEANUP_WORKER_INPUT: ${{ github.event_name == 'schedule' && 'true' || (inputs.cleanup_worker && 'true' || 'false') }}
           TARGET_INSTANCE_INPUT: ${{ inputs.target_instance || '' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
@@ -445,9 +447,9 @@ jobs:
         env:
           EVAL_SLUG: ${{ matrix.slug }}
           EVAL_SPEC_PATH: ${{ matrix.spec_path }}
-          OPERATIONAL_HARNESS: ${{ inputs.operational_harness || inputs.agent || 'claude-code' }}
+          OPERATIONAL_HARNESS: ${{ github.event_name == 'schedule' && 'nemoclaw' || inputs.operational_harness || inputs.agent || 'claude-code' }}
           CLEANUP_JOB_STATUS: ${{ job.status }}
-          CLEANUP_WORKER: ${{ inputs.cleanup_worker && 'true' || 'false' }}
+          CLEANUP_WORKER: ${{ github.event_name == 'schedule' && 'true' || (inputs.cleanup_worker && 'true' || 'false') }}
           ARTIFACT_PREFIX: ${{ inputs.artifact_prefix || 'skills-eval-daily-results' }}
         run: |
           # This leg's harbor output lives under its own scratch scope,
