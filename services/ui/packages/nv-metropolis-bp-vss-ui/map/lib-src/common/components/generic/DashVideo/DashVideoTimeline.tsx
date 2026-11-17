@@ -153,7 +153,12 @@ export default function DashVideoTimeline({
           }}
           onChange={(event) => {
             if (!seekable) return;
+            setIsControlled(true);
             setScrubMs(Number(event.target.value));
+          }}
+          onPointerCancel={() => {
+            dragOriginMs.current = null;
+            setIsControlled(false);
           }}
           onPointerUp={(event) => commit(event.currentTarget.value)}
           onKeyUp={(event) => {

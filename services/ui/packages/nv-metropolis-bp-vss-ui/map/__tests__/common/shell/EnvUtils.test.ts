@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { getEnv, isDevelopment, isProduction, isObtainDynamicServiceUrls, vstApiV1Base } from '../../../lib-src/common/shell/js/EnvUtils';
+import { applyMapServiceEndpoints, getEnv, isDevelopment, isProduction, isObtainDynamicServiceUrls, vstApiV1Base } from '../../../lib-src/common/shell/js/EnvUtils';
 
 describe('getEnv', () => {
   afterEach(() => {
@@ -98,6 +98,25 @@ describe('getEnv with defaultValue', () => {
   it('returns runtime value even when defaultValue is provided', () => {
     window.__ENV = { TEST_DEFAULT: 'runtime' };
     expect(getEnv('TEST_DEFAULT', 'fallback')).toBe('runtime');
+  });
+});
+
+describe('applyMapServiceEndpoints', () => {
+  afterEach(() => {
+    delete window.__ENV;
+  });
+
+  it('copies analytics and VIOS props into the runtime env the map reads', () => {
+    window.__ENV = { NEXT_PUBLIC_ENABLE_MAP_TAB: 'true' };
+    applyMapServiceEndpoints({
+      apiUrl: 'http://host:7777/video-analytics-api',
+      mediaStreamingUrl: 'http://host:7777/vst/api/v1',
+      googleMapsApiKey: 'maps-key',
+    });
+    expect(getEnv('REACT_APP_API_URL_BASE')).toBe('http://host:7777/video-analytics-api');
+    expect(getEnv('REACT_APP_MEDIA_STREAMING_URL_BASE')).toBe('http://host:7777/vst/api');
+    expect(getEnv('REACT_APP_GOOGLE_MAPS_API_KEY')).toBe('maps-key');
+    expect(window.__ENV.NEXT_PUBLIC_ENABLE_MAP_TAB).toBe('true');
   });
 });
 

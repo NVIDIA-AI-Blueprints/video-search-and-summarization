@@ -115,16 +115,20 @@ export default class ConfigFileActionsPanel extends React.PureComponent {
     }
   };
 
+  _configTypesKey = (types) =>
+    Array.isArray(types) ? types.join("\0") : "";
+
   _processConfigTypes = (props) => {
-    if (
-      props.configTypes &&
-      Array.isArray(props.configTypes) &&
-      props.configTypes.length > 0
-    ) {
-      this.setState({ selectedConfigType: props.configTypes[0] });
-    } else {
+    const types = Array.isArray(props.configTypes) ? props.configTypes : [];
+    if (types.length === 0) {
       this.setState({ selectedConfigType: undefined });
+      return;
     }
+    this.setState((prev) => ({
+      selectedConfigType: types.includes(prev.selectedConfigType)
+        ? prev.selectedConfigType
+        : types[0],
+    }));
   };
 
   UNSAFE_componentWillMount() {
@@ -136,7 +140,10 @@ export default class ConfigFileActionsPanel extends React.PureComponent {
   }
 
   UNSAFE_componentWillReceiveProps(nextProps) {
-    if (this.props !== nextProps) {
+    if (
+      this._configTypesKey(this.props.configTypes) !==
+      this._configTypesKey(nextProps.configTypes)
+    ) {
       this._processConfigTypes(nextProps);
     }
   }
@@ -239,11 +246,7 @@ export default class ConfigFileActionsPanel extends React.PureComponent {
           <span className={Styles.label}>Config type</span>
           <select
             className={Styles.select}
-            defaultValue={
-              this.state.selectedConfigType
-                ? this.state.selectedConfigType
-                : "(No types available)"
-            }
+            value={this.state.selectedConfigType || ""}
             required
             onChange={(event) => {
               this.setState({ selectedConfigType: event.target.value });
@@ -255,12 +258,13 @@ export default class ConfigFileActionsPanel extends React.PureComponent {
               this.props.configTypes.map((type, key) => (
                 <option
                   key={`configfile-actions-panel-config-type-select-${key}`}
+                  value={type}
                 >
                   {type}
                 </option>
               ))
             ) : (
-              <option disabled>(No types available)</option>
+              <option value="" disabled>(No types available)</option>
             )}
           </select>
         </label>

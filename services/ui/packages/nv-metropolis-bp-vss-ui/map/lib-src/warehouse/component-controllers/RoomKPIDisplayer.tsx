@@ -220,6 +220,15 @@ class RoomKPIDisplayer extends React.PureComponent {
   }
 
   UNSAFE_componentWillReceiveProps(nextProps) {
+    if (
+      nextProps.uiState?.selectedRoom === this.props.uiState?.selectedRoom &&
+      nextProps.metadata === this.props.metadata &&
+      nextProps.appConfig?.apiRefreshIntervalSeconds ===
+        this.props.appConfig?.apiRefreshIntervalSeconds &&
+      nextProps.appConfig?.uiDelaySeconds === this.props.appConfig?.uiDelaySeconds
+    ) {
+      return;
+    }
     this.startRequestCyclePeopleDataForRoom(nextProps);
   }
 

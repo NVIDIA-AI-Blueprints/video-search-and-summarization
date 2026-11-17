@@ -95,3 +95,35 @@ export function vstApiV1Base(url: string | undefined): string | undefined {
   if (/\/v\d+$/i.test(trimmed)) return trimmed;
   return `${trimmed}/v1`;
 }
+
+type MapServiceEndpoints = {
+  apiUrl?: string | null;
+  mediaStreamingUrl?: string | null;
+  googleMapsApiKey?: string | null;
+};
+
+/**
+ * Map callers pass analytics and VIOS URLs as props. Calibration and playback
+ * still read them through getEnv, so copy the props into the runtime env
+ * before those requests run. A playback URL that already ends in a version
+ * segment is stored as the VIOS root; vstApiV1Base appends the version.
+ */
+export function applyMapServiceEndpoints(data?: MapServiceEndpoints | null): void {
+  if (typeof window === 'undefined' || !data) return;
+  const current =
+    (window as unknown as { __ENV?: Record<string, string> }).__ENV || {};
+  const next = { ...current };
+  if (data.apiUrl) {
+    next.NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL = data.apiUrl;
+  }
+  if (data.mediaStreamingUrl) {
+    next.NEXT_PUBLIC_VIOS_API_URL = data.mediaStreamingUrl
+      .trim()
+      .replace(/\/+$/, '')
+      .replace(/\/v\d+$/i, '');
+  }
+  if (data.googleMapsApiKey) {
+    next.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY = data.googleMapsApiKey;
+  }
+  (window as unknown as { __ENV?: Record<string, string> }).__ENV = next;
+}

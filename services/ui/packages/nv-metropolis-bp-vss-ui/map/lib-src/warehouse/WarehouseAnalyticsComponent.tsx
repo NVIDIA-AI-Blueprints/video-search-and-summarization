@@ -8,6 +8,7 @@ import {
   AppConstants,
   AppLogsConsoleReduxUtil,
   CalibrationUrl,
+  applyMapServiceEndpoints,
   getEnv,
   CONFIG_PANEL_ALLOWED_CONFIG_TYPES_DEFAULT,
   LoaderDisplay,
@@ -95,6 +96,7 @@ const selectInitialView = (metadata: {
 
 type AppInnerProps = WarehouseAnalyticsComponentProps & {
   sidebarControls: React.ReactNode;
+  store: { getState: () => { metadata?: unknown } };
   updateAppConfig: (config: unknown) => void;
   updateMetaData: (data: unknown) => void;
   updateUiState: (state: unknown) => void;
@@ -110,6 +112,7 @@ const WarehouseAnalyticsAppInner: React.FC<AppInnerProps> = ({
   renderControlsInLeftSidebar = false,
   onControlsReady,
   sidebarControls,
+  store,
   updateAppConfig,
   updateMetaData,
   updateUiState,
@@ -140,6 +143,7 @@ const WarehouseAnalyticsAppInner: React.FC<AppInnerProps> = ({
   }, [data?.googleMapsApiKey]);
 
   useEffect(() => {
+    applyMapServiceEndpoints(data);
     let cancelled = false;
     const fail = (purpose: string, error: unknown) => {
       const message = new UserMessage(
@@ -175,7 +179,7 @@ const WarehouseAnalyticsAppInner: React.FC<AppInnerProps> = ({
         const calibrationData = await readJson(calibrationResponse);
         if (cancelled) return;
         updateMetaData(calibrationData);
-        updateUiState(selectInitialView(calibrationData as never));
+        updateUiState(selectInitialView(store.getState().metadata as never));
         setUserMessage(null);
         setLoadState(LoaderDisplay.TYPE.LOAD_SUCCESS);
       } catch (error) {
@@ -187,7 +191,17 @@ const WarehouseAnalyticsAppInner: React.FC<AppInnerProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [addLogToAppLogs, data?.uiConfigUrl, updateAppConfig, updateMetaData, updateUiState]);
+  }, [
+    addLogToAppLogs,
+    data?.apiUrl,
+    data?.googleMapsApiKey,
+    data?.mediaStreamingUrl,
+    data?.uiConfigUrl,
+    store,
+    updateAppConfig,
+    updateMetaData,
+    updateUiState,
+  ]);
 
   return (
     <ThemeProvider theme="light" asChild>
@@ -238,7 +252,7 @@ export const WarehouseAnalyticsComponent: React.FC<WarehouseAnalyticsComponentPr
   );
   return (
     <Provider store={store}>
-      <ConnectedWarehouseAnalyticsApp {...props} sidebarControls={sidebarControls} />
+      <ConnectedWarehouseAnalyticsApp {...props} store={store} sidebarControls={sidebarControls} />
     </Provider>
   );
 };

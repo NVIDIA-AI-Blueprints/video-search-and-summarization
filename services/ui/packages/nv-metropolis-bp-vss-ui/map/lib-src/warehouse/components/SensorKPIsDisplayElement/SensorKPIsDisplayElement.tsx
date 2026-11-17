@@ -6,6 +6,13 @@ import React from "react";
 import classes from "./SensorKPIsDisplayElement.module.css";
 import sharedClasses from "./../KPIShared/KPIAnimations.module.css";
 
+const objectTypeAt = (objectTypes, index) => {
+  if (!objectTypes || objectTypes.length === 0 || index == null || index < 0) {
+    return undefined;
+  }
+  return objectTypes[Math.min(index, objectTypes.length - 1)];
+};
+
 /**
  * Display Panel for KPIs for a location
  */
@@ -82,7 +89,12 @@ class SensorKPIsDisplayElement extends React.PureComponent {
 
   startRollingAnimation = () => {
     this.rollingInterval = setInterval(() => {
-      const nextIndex = (this.state.currentObjectTypeIndex + 1) % this.props.kpiData.objectTypes.length;
+      const types = this.props.kpiData?.objectTypes;
+      if (!types || types.length === 0) {
+        return;
+      }
+      const currentIndex = Math.min(this.state.currentObjectTypeIndex, types.length - 1);
+      const nextIndex = (currentIndex + 1) % types.length;
       
       // Start animation: set previous index and trigger animation
       this.setState({
@@ -149,18 +161,17 @@ class SensorKPIsDisplayElement extends React.PureComponent {
 
     // Get current and previous object types
     // Use ?? instead of || to allow 0 as a valid value
-    const currentObjectType = objectTypes && objectTypes.length > 0
+    const currentSource = objectTypeAt(objectTypes, currentObjectTypeIndex);
+    const currentObjectType = currentSource
       ? {
-          ...objectTypes[currentObjectTypeIndex],
-          type: objectTypes[currentObjectTypeIndex].type || "UNKNOWN",
-          inCount: objectTypes[currentObjectTypeIndex].inCount ?? "N/A",
-          outCount: objectTypes[currentObjectTypeIndex].outCount ?? "N/A",
+          ...currentSource,
+          type: currentSource.type || "UNKNOWN",
+          inCount: currentSource.inCount ?? "N/A",
+          outCount: currentSource.outCount ?? "N/A",
         }
       : { type: type || "UNKNOWN", inCount: inCount ?? "N/A", outCount: outCount ?? "N/A" };
 
-    const previousObjectType = previousObjectTypeIndex !== null && objectTypes
-      ? objectTypes[previousObjectTypeIndex]
-      : null;
+    const previousObjectType = objectTypeAt(objectTypes, previousObjectTypeIndex) || null;
 
     // Get interval in minutes (default to 0 if not available)
     const displayIntervalMinutes = intervalMinutes || 0;

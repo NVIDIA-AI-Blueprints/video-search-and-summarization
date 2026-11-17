@@ -76,11 +76,11 @@ class KPIsDisplayElement extends Component {
         this.setState({ kpis: data.metrics || [] });
       })
       .catch((thrown) => {
-        clearInterval(this.interval);
-
         if (isAbortError(thrown)) {
           return;
         }
+
+        clearInterval(this.interval);
 
         let userMessage = new UserMessage(
           thrown.config

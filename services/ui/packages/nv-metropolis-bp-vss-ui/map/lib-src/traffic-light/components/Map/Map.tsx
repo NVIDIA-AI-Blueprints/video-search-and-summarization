@@ -4,12 +4,39 @@
 import React, { Component } from "react";
 
 import { LoaderDisplay, Map, getEnv, connect } from "common/map";
+import { Button } from "common/map/mui";
 
 import AnomalyTrajectory from "./AnomalyTrajectory/AnomalyTrajectory";
 import CameraMarkersOverlay from "./CameraMarkersOverlay/CameraMarkersOverlay";
 import RoadNetworkOverlay from "./RoadNetworkOverlay/RoadNetworkOverlay";
 import IntersectionMarkersOverlay from "./IntersectionMarkersOverlay/IntersectionMarkersOverlay";
 import { SpeedLegendsStripComponent } from "../../utils/SpeedLegendsStripComponent";
+
+function IntersectionFallback({ intersectionsMap, onSelect }) {
+  const names = intersectionsMap ? [...intersectionsMap.keys()] : [];
+  return (
+    <div className="flex h-full w-full flex-col gap-3 overflow-auto bg-neutral-100 p-4">
+      <p className="text-sm text-neutral-600">
+        Google Maps is unavailable without NEXT_PUBLIC_GOOGLE_MAPS_API_KEY.
+        {names.length > 0
+          ? " Select an intersection to continue."
+          : " Calibration has no intersections to select."}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {names.map((name) => (
+          <Button
+            key={name}
+            variant="outlined"
+            className="rounded border border-neutral-400 bg-white px-3 py-2 text-left text-sm text-neutral-900"
+            onClick={() => onSelect?.(name)}
+          >
+            {name}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Component wrapped around @react-google-maps/api GoogleMap component.
@@ -151,6 +178,7 @@ class MyMap extends Component {
             minHeight: 0,
           }}
         >
+          {getEnv("REACT_APP_GOOGLE_MAPS_API_KEY") ? (
           <Map
             apiKey={getEnv("REACT_APP_GOOGLE_MAPS_API_KEY")}
             options={{
@@ -179,6 +207,12 @@ class MyMap extends Component {
               lineStrokeWeight={polylineStrokeWeight}
             />
           </Map>
+          ) : (
+            <IntersectionFallback
+              intersectionsMap={this.props.metadata?.intersectionsMap}
+              onSelect={this.props.intersectionMarkerOnClickCallback}
+            />
+          )}
           {showStartingReplayOverlay && (
             <div
               style={{

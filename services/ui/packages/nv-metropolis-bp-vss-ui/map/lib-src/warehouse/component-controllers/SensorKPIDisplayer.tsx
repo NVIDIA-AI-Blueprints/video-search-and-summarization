@@ -179,6 +179,15 @@ class SensorKPIDisplayer extends React.PureComponent {
   }
 
   UNSAFE_componentWillReceiveProps(nextProps) {
+    if (
+      nextProps.uiState?.selectedSensorId === this.props.uiState?.selectedSensorId &&
+      nextProps.uiState?.appStartTimeMs === this.props.uiState?.appStartTimeMs &&
+      nextProps.appConfig?.apiRefreshIntervalSeconds ===
+        this.props.appConfig?.apiRefreshIntervalSeconds &&
+      nextProps.appConfig?.uiDelaySeconds === this.props.appConfig?.uiDelaySeconds
+    ) {
+      return;
+    }
     this.startRequestCyclePeopleDataForSensor(nextProps);
   }
 

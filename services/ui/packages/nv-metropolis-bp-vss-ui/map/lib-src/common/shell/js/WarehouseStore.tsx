@@ -4,6 +4,7 @@ import React, {
   createContext,
   useContext,
   useMemo,
+  useRef,
   useSyncExternalStore,
 } from 'react';
 
@@ -111,6 +112,35 @@ export const Provider = ({
   <StoreContext.Provider value={store}>{children}</StoreContext.Provider>
 );
 
+const EMPTY_MAPPED_PROPS = {};
+
+const shallowEqual = (left: object, right: object) => {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) =>
+    Object.is(
+      (left as Record<string, unknown>)[key],
+      (right as Record<string, unknown>)[key],
+    ),
+  );
+};
+
+const mappedProps = (
+  store: WarehouseStore,
+  mapStateToProps: ((state: Record<string, unknown>, ownProps?: object) => object) | null | undefined,
+  ownProps: object,
+  cached: { current: object | null },
+) => {
+  const next = mapStateToProps ? mapStateToProps(store.getState(), ownProps) : EMPTY_MAPPED_PROPS;
+  if (cached.current && shallowEqual(cached.current, next)) {
+    return cached.current;
+  }
+  cached.current = next;
+  return next;
+};
+
 export const connect = (
   mapStateToProps?: ((state: Record<string, unknown>, ownProps?: object) => object) | null,
   mapDispatchToProps?: object | ((dispatch: WarehouseStore['dispatch']) => object) | null,
@@ -121,12 +151,16 @@ export const connect = (
       if (!store) {
         throw new Error('Warehouse store Provider is missing');
       }
-      const state = useSyncExternalStore(
+      const ownPropsRef = useRef(props);
+      ownPropsRef.current = props;
+      const mappedRef = useRef<object | null>(null);
+      const readMapped = () =>
+        mappedProps(store, mapStateToProps, ownPropsRef.current, mappedRef);
+      const stateProps = useSyncExternalStore(
         store.subscribe,
-        store.getState,
-        store.getState,
+        readMapped,
+        readMapped,
       );
-      const stateProps = mapStateToProps ? mapStateToProps(state, props) : {};
       const dispatchProps = useMemo(
         () => bindDispatch(mapDispatchToProps, store.dispatch),
         [store],

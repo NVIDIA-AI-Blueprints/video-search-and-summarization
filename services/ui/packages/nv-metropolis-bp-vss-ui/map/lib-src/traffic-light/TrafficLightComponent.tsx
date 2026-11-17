@@ -8,6 +8,7 @@ import {
   AppConstants,
   AppLogsConsoleReduxUtil,
   CalibrationUrl,
+  applyMapServiceEndpoints,
   getEnv,
   CONFIG_PANEL_ALLOWED_CONFIG_TYPES_ITS,
   LoaderDisplay,
@@ -117,6 +118,7 @@ const TrafficLightAppInner: React.FC<AppInnerProps> = ({
   }, [data?.googleMapsApiKey]);
 
   useEffect(() => {
+    applyMapServiceEndpoints(data);
     let cancelled = false;
     const fail = (purpose: string, error: unknown) => {
       const message = new UserMessage(
@@ -171,7 +173,16 @@ const TrafficLightAppInner: React.FC<AppInnerProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [addLogToAppLogs, data?.uiConfigUrl, updateAppConfig, updateMetaData, updateUiState]);
+  }, [
+    addLogToAppLogs,
+    data?.apiUrl,
+    data?.googleMapsApiKey,
+    data?.mediaStreamingUrl,
+    data?.uiConfigUrl,
+    updateAppConfig,
+    updateMetaData,
+    updateUiState,
+  ]);
 
   return (
     <ThemeProvider theme="light" asChild>

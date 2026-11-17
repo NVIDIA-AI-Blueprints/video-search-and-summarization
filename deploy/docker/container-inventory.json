@@ -63,7 +63,7 @@
       "name": "vss-agent-ui",
       "strategy": "build",
       "ghcr_build": true,
-      "source_path": ["services/ui", "LICENSE"],
+      "source_path": ["services/ui", "LICENSE", "services/vios/ui/streaming-lib"],
       "context": ".",
       "dockerfile": "services/ui/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],

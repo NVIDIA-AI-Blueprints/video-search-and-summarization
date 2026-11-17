@@ -60,6 +60,7 @@ jest.mock('common/map', () => {
   return {
     readJson: jest.fn(),
     getEnv: jest.fn(),
+    applyMapServiceEndpoints: jest.fn(),
     CalibrationUrl: 'http://example.test/config/calibration',
     CONFIG_PANEL_ALLOWED_CONFIG_TYPES_DEFAULT: ['calibration'],
     ConfigFileActionsPanel: () => null,

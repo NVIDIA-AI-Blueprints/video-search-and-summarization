@@ -27,7 +27,9 @@ ARG GROUP_ID
 
 WORKDIR /repo
 
-# Copy source files
+# Copy source files. The map package links vst-streaming-lib with a file:
+# dependency outside services/ui, so that tree has to be in the build context.
+COPY services/vios/ui/streaming-lib/ services/vios/ui/streaming-lib/
 COPY services/ui/ services/ui/
 
 ENV NEXT_TELEMETRY_DISABLED=1

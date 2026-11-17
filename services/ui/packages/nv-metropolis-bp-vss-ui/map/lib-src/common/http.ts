@@ -26,17 +26,23 @@ const toParamEntries = (
   return Object.entries(params);
 };
 
+const parseUrl = (href: string, base?: string): URL => {
+  try {
+    return new URL(href);
+  } catch (error) {
+    if (!base) throw error;
+    return new URL(href, base);
+  }
+};
+
 export const joinUrl = (
   url: string,
   params?: Record<string, unknown> | URLSearchParams,
 ): string => {
   const href = String(url);
   if (!params) return href;
-  const origin =
-    typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
-  const parsed = href.startsWith('http://') || href.startsWith('https://')
-    ? new URL(href)
-    : new URL(href, origin);
+  const origin = typeof window !== 'undefined' ? window.location.origin : undefined;
+  const parsed = parseUrl(href, origin);
   for (const [key, value] of toParamEntries(params)) {
     if (value === undefined || value === null) continue;
     parsed.searchParams.append(key, String(value));

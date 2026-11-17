@@ -7,4 +7,5 @@ export {
   isObtainDynamicServiceUrls,
   stripTrailingSlash,
   vstApiV1Base,
+  applyMapServiceEndpoints,
 } from '../../env';

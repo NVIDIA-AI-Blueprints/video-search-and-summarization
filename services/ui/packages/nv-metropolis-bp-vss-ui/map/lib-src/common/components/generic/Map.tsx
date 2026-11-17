@@ -50,59 +50,6 @@ function MapPlacesFallback({ children }) {
   );
 }
 
-// Global flag to track if any Map component is mounted
-let mapMountCount = 0;
-let globalContextMenuHandler = null;
-let globalMouseUpHandler = null;
-
-// Set up global context menu prevention when first Map mounts
-const setupGlobalContextMenuPrevention = () => {
-  if (mapMountCount === 0) {
-    if (!globalContextMenuHandler) {
-      globalContextMenuHandler = (e) => {
-        // Prevent context menu while any map is mounted
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        return false;
-      };
-      document.addEventListener('contextmenu', globalContextMenuHandler, { capture: true });
-      window.addEventListener('contextmenu', globalContextMenuHandler, { capture: true });
-    }
-    
-    if (!globalMouseUpHandler) {
-      globalMouseUpHandler = (e) => {
-        // Prevent default on right-click mouseup (button 2)
-        if (e.button === 2) {
-          e.preventDefault();
-        }
-      };
-      document.addEventListener('mouseup', globalMouseUpHandler, { capture: true });
-    }
-  }
-  mapMountCount++;
-};
-
-const teardownGlobalContextMenuPrevention = () => {
-  mapMountCount--;
-  if (mapMountCount === 0) {
-    // Delay removal to ensure context menu is blocked even during view transitions
-    setTimeout(() => {
-      // Only remove if still at 0 (no new maps mounted)
-      if (mapMountCount === 0) {
-        if (globalContextMenuHandler) {
-          document.removeEventListener('contextmenu', globalContextMenuHandler, { capture: true });
-          window.removeEventListener('contextmenu', globalContextMenuHandler, { capture: true });
-          globalContextMenuHandler = null;
-        }
-        if (globalMouseUpHandler) {
-          document.removeEventListener('mouseup', globalMouseUpHandler, { capture: true });
-          globalMouseUpHandler = null;
-        }
-      }
-    }, 500); // 500ms delay to cover view transition
-  }
-};
 /**
  * Wrap marker's setPosition and setOptions to prevent React re-renders from
  * resetting the position that OMS assigned during spiderfying. Icon/title/other
@@ -322,11 +269,25 @@ function LoadedGoogleMap(props) {
     });
   }, []);
 
-  // Prevent browser's default context menu - use global handler
+  // Block the browser menu on this map only. Home keeps other tabs mounted,
+  // so a document-level listener would disable their menus too.
   React.useEffect(() => {
-    setupGlobalContextMenuPrevention();
+    const node = containerRef.current;
+    if (!node) return undefined;
+    const preventContextMenu = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const preventRightMouseUp = (event) => {
+      if (event.button === 2) {
+        event.preventDefault();
+      }
+    };
+    node.addEventListener('contextmenu', preventContextMenu);
+    node.addEventListener('mouseup', preventRightMouseUp);
     return () => {
-      teardownGlobalContextMenuPrevention();
+      node.removeEventListener('contextmenu', preventContextMenu);
+      node.removeEventListener('mouseup', preventRightMouseUp);
     };
   }, []);
 

@@ -235,11 +235,6 @@ export default class EventThumbnail extends React.Component {
           return;
         }
 
-        if (!thrown.config) {
-          this.setState({ pictureLoadState: "erred" });
-          return;
-        }
-
         const retry = (userMessage) => {
           if (this._getPictureTryCount-- > 0) {
             console.warn(userMessage.getLongString());
