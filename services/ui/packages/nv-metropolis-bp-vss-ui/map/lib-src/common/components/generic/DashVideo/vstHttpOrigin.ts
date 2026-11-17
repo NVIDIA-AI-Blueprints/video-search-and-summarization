@@ -12,6 +12,17 @@
  * origin differs, return it instead so DashStream talks same-origin `/vst`
  * and Next can rewrite those paths to the configured VST origin.
  */
+function stripPlaybackOrigin(href: string): string {
+  const marker = '/vst/api/v1';
+  const index = href.toLowerCase().indexOf(marker);
+  const cut = index >= 0 ? href.slice(0, index) : href;
+  let end = cut.length;
+  while (end > 0 && cut.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+  return end === cut.length ? cut : cut.slice(0, end);
+}
+
 export function vstHttpOrigin(
   mediaServiceBaseUrl: string,
   pageOrigin: string = typeof window !== 'undefined' ? window.location.origin : '',
@@ -32,6 +43,6 @@ export function vstHttpOrigin(
     }
     return parsed.origin;
   } catch {
-    return href.replace(/\/vst\/api\/v1\/?.*$/i, '').replace(/\/+$/, '');
+    return stripPlaybackOrigin(href);
   }
 }
