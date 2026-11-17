@@ -44,10 +44,11 @@ A base URL on another host needs that host's own provider profile. [Change the m
 
 ## Step 0. Install the CLI
 
-Install the `openshell` CLI and `openshell-prover` at the gateway's own release into `~/.local/bin`, from the checksum-verified release tarballs. The CLI has to match the gateway, since the two speak Protobuf.
+Install the `openshell` CLI and `openshell-prover` at the gateway's own release into `~/.local/bin`, from the checksum-verified release tarballs. The CLI has to match the gateway, since the two speak Protobuf. Step 2 also needs `uv`, which installs to the same directory.
 
 ```bash
 mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
+command -v uvx >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 ( cd "$(mktemp -d)" && V=0.1.6 A=$(uname -m) &&
   for p in openshell openshell-prover; do
     curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-$A-unknown-linux-musl.tar.gz"

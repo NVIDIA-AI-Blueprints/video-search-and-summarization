@@ -223,8 +223,10 @@ Then run from the repository root.
 
 ```bash
 # 0. Install the openshell CLI and openshell-prover 0.1.6, the gateway's
-#    release, into ~/.local/bin from the checksum-verified release tarballs.
+#    release, into ~/.local/bin from the checksum-verified release tarballs,
+#    and uv, which step 2 runs.
 mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
+command -v uvx >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 ( cd "$(mktemp -d)" && V=0.1.6 A=$(uname -m) &&
   for p in openshell openshell-prover; do
     curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-$A-unknown-linux-musl.tar.gz"
