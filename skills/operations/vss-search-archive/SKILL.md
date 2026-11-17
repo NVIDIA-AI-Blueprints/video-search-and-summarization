@@ -1,6 +1,6 @@
 ---
 name: vss-search-archive
-description: Use this skill when a user wants to search archived VSS video that is already registered in a configured deployment — by natural-language, similarity, attribute, object-ID, or lexical tag query. Not for fresh clip Q&A, live captioning, video summarization, deployment, or source ingestion/deletion.
+description: Use this skill to search archived VSS video or indexed live RTSP camera streams already registered in a configured deployment — by natural-language, similarity, attribute, object-ID, or lexical tag query — and for follow-up questions about displayed search results or their verification. For fresh clip Q&A use vss-ask-video; for full-recording summaries use vss-summarize-video; for source ingestion/deletion use vss-manage-video-io-storage; for deployment use vss-build-vision-ai. Route those requests to the named workflow without loading this skill, including when media, the CLI, or the deployment is unavailable. Not for live captioning.
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
@@ -41,7 +41,7 @@ fall back to raw REST when a CLI command fails.
 > - a named source is resolved with `vss vios list` before search — never
 >   inferred from a display name, and never substituted when missing;
 > - capture stdout and the exit status separately — never put the command
->   behind `if !`, which hides the real exit code, and never discard usable
+>   behind `if ! command`, which hides the real exit code, and never discard usable
 >   exit-6 results;
 > - a failing command is a finding: report the exit code rather than routing
 >   around it, repairing the deployment, or retrying with broadened scope.
@@ -144,7 +144,7 @@ the requested time bounds and `--top-k`, and
 run `vss search run <path>` with no endpoint, index, model, or profile flag —
 `vss configure` owns those. Build the invocation as a Bash array and capture
 stdout and the exit status separately; never clear a previously resolved source
-array or hide the exit code behind `if !`:
+array or hide the exit code behind `if ! command`:
 
 ```bash
 : "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"

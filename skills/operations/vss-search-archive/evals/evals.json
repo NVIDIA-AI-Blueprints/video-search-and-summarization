@@ -13,10 +13,10 @@
   },
   {
     "id": "search-archive-implicit",
-    "question": "Find up to three clips in dock_cam where a forklift crosses in front of a worker.",
+    "question": "Find up to three clips in dock_cam where a forklift crosses in front of a worker. Fixture: `vss vios list` maps uploaded recording `dock_cam` to `sen-dock-01`; give the exact search command and how returned hits are treated.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
-    "ground_truth": "The agent resolves dock_cam, performs bounded archive retrieval for the requested forklift-and-worker action, and reports the returned candidates as retrieval evidence.",
+    "ground_truth": "Resolve `dock_cam` to `sen-dock-01` and run `vss search run embed --source-type video_file --top-k 3 --video-source sen-dock-01` with `--original-query` and `--query \"forklift crosses in front of a worker\"`; returned hits are retrieval candidates, not visual confirmation.",
     "expected_behavior": [
       "The agent loads vss-search-archive without requiring the user to name the skill.",
       "The agent resolves dock_cam before search and preserves the action and three-result limit.",
@@ -37,7 +37,7 @@
   },
   {
     "id": "search-archive-results-first",
-    "question": "Search warehouse-ladder for someone climbing a ladder and verify whatever you find.",
+    "question": "Search warehouse-ladder for someone climbing a ladder and verify whatever you find. Fixture: uploaded `warehouse-ladder` resolves to `sen-ladder-01`, and `vss search run embed` exited 0 with two hits (`12:01:10Z-12:01:20Z` score 0.82 `critic_result: unverified`, `12:04:00Z-12:04:12Z` score 0.77 `critic_result: null`); show the search command and write the reply for this turn.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
     "ground_truth": "The agent performs archive retrieval, reports the CLI critic verdict for every candidate, and asks about delegated verification only when every displayed hit remains unverified.",
@@ -61,7 +61,7 @@
   },
   {
     "id": "search-archive-missing-source",
-    "question": "Search the airport video for forklifts.",
+    "question": "Search the airport video for forklifts. Fixture: `vss vios list` returns only `dock_cam` and `warehouse-ladder`; what do you reply?",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
     "ground_truth": "The agent lists registered sources and, when no airport source exists, reports the missing source and asks for clarification or explicit ingestion instead of substituting another video.",
@@ -73,10 +73,10 @@
   },
   {
     "id": "search-archive-rtsp-live-stream",
-    "question": "Search the live camera stream dock_cam_live for a person entering the restricted zone.",
+    "question": "Search the live camera stream dock_cam_live for a person entering the restricted zone. Fixture: `vss vios list` maps RTSP stream `dock_cam_live` to `sen-live-07` and uploaded `dock_cam` to `sen-dock-01`; give the exact command.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
-    "ground_truth": "The agent resolves the live stream, runs archive retrieval scoped to it with the rtsp source type, and does not conflate live-stream documents with the uploads anchor.",
+    "ground_truth": "Resolve `dock_cam_live` to `sen-live-07` and run `vss search run embed --source-type rtsp --video-source sen-live-07` with `--original-query`, without selecting the uploads partition or a date-stamped anchor index.",
     "expected_behavior": [
       "The agent loads vss-search-archive and resolves dock_cam_live to its registered live-stream identity before search.",
       "The agent selects --source-type rtsp and scopes retrieval to the resolved live-stream identifier.",
@@ -85,10 +85,10 @@
   },
   {
     "id": "search-archive-mixed-upload-and-stream",
-    "question": "This deployment has both uploaded clips and a live camera gate_cam. Find forklifts only in the live camera feed.",
+    "question": "This deployment has both uploaded clips and a live camera gate_cam. Find forklifts only in the live camera feed. Fixture: `vss vios list` maps RTSP stream `gate_cam` to `sen-gate-03` and uploaded `warehouse_sample` to `sen-ws-02`; give the exact command.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
-    "ground_truth": "The agent restricts retrieval to the live camera by selecting the rtsp source type and the resolved stream identity, so uploaded-file documents are excluded regardless of ingestion order.",
+    "ground_truth": "Restrict retrieval to the live camera with `vss search run embed --source-type rtsp --video-source sen-gate-03` so uploaded-file documents are excluded regardless of ingestion order.",
     "expected_behavior": [
       "The agent loads vss-search-archive and resolves gate_cam to its live-stream identity.",
       "The agent runs retrieval with --source-type rtsp scoped to that identity so uploaded-file hits are excluded.",
@@ -97,10 +97,10 @@
   },
   {
     "id": "search-archive-fusion-decompose",
-    "question": "In dock_cam, find up to three clips of a worker in a hard hat carrying a cone.",
+    "question": "In dock_cam, find up to three clips of a worker in a hard hat carrying a cone. Fixture: `vss vios list` maps uploaded `dock_cam` to `sen-dock-01` and `vss configure show` includes `mdx-raw-2026-10-06`; give the exact command.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
-    "ground_truth": "The agent decomposes the single sentence into a detectable property and an action, so it routes to fusion rather than defaulting to embed on the sentence's surface form.",
+    "ground_truth": "Decompose the single sentence into detectable property (`hard hat`) and action (`carrying a cone`) on the `fusion` path: `vss search run fusion --source-type video_file --top-k 3 --query \"carrying a cone\" --attribute \"hard hat\" --video-source sen-dock-01`.",
     "expected_behavior": [
       "The agent loads vss-search-archive and resolves dock_cam before search.",
       "The agent recognizes the embedded detectable property (hard hat) and routes to fusion, not embed, even though the request arrived as one sentence.",
@@ -145,11 +145,11 @@
   },
   {
     "id": "search-archive-negative-direct-video-qa",
-    "question": "Watch /workspace/input/forklift.mp4 and tell me whether the driver is wearing a helmet.",
+    "question": "Watch /workspace/input/forklift.mp4 and tell me whether the driver is wearing a helmet. Which VSS skill should handle this?",
     "expected_skill": null,
     "expected_script": null,
     "should_trigger": false,
-    "ground_truth": "The agent answers the fresh visual question using a video-Q&A capability against the supplied local clip.",
+    "ground_truth": "A fresh visual question against the supplied local clip belongs to `vss-ask-video` (video-Q&A workflow), not `vss-search-archive`.",
     "expected_behavior": [
       "The agent does not load or activate vss-search-archive.",
       "The agent routes the local-video visual question to vss-ask-video or an equivalent video-Q&A workflow."
@@ -157,11 +157,11 @@
   },
   {
     "id": "search-archive-negative-summary",
-    "question": "Summarize the full hour-long recording from loading_dock_2.",
+    "question": "Summarize the full hour-long recording from loading_dock_2. Which VSS skill should handle this?",
     "expected_skill": null,
     "expected_script": null,
     "should_trigger": false,
-    "ground_truth": "The agent uses the video summarization workflow to summarize the requested full recording.",
+    "ground_truth": "Summarizing a full recording belongs to `vss-summarize-video` (video summarization workflow), not `vss-search-archive`.",
     "expected_behavior": [
       "The agent does not load or activate vss-search-archive.",
       "The agent routes the long-recording summary request to vss-summarize-video or an equivalent summarization workflow."
@@ -192,7 +192,7 @@
   },
   {
     "id": "search-archive-object-flags",
-    "question": "Find tracked object 42 in warehouse-ladder.",
+    "question": "Find tracked object 42 in warehouse-ladder. Fixture: `vss vios list` maps `warehouse-ladder` to `sen-ladder-01`; show the command.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
     "ground_truth": "An explicit tracked-object request selects vss search run object with --object-id 42 and the exact registered source name.",
