@@ -101,9 +101,12 @@ RUN mkdir -p /opt/vss-assets/skills \
        done \
     && test "$(ls /opt/vss-assets/skills | wc -l)" -gt 0 \
     && cp /opt/vss-src/skills/vss-build-vision-ai/scripts/sync_skills.py /opt/vss-assets/sync_skills.py
-# Workspace docs: the shared set only.
+# Workspace docs: the shared set, less BOOTSTRAP.md. AGENTS.md follows that
+# file on first run, and it probes for a repository, a GPU and the NGC CLI,
+# none of which a sandbox that only operates a deployment has.
 RUN mkdir -p /opt/vss-assets/workspace \
     && cp /opt/vss-src/.openclaw/workspace/*.md /opt/vss-assets/workspace/ \
+    && rm -f /opt/vss-assets/workspace/BOOTSTRAP.md \
     && test -f /opt/vss-assets/workspace/AGENTS.md
 # Only the CLI library workspace (libs/vss). services/agent is deliberately not
 # built: a sandbox operates a deployment through the CLI, it does not run the
