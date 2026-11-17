@@ -39,7 +39,7 @@ rules:
 
   - id: "TM1"
     path: "references/integrate-alerts.md"
-    message: "DELETE /api/v1/*"
+    message: "*DELETE /api/v1/*"
     reason: &tm1_rest >-
       Reviewed false positive (temporary until the SkillSpector TM1 fix ships).
       These are Alert Bridge REST routes (DELETE /api/v1/realtime/{id},
@@ -48,7 +48,7 @@ rules:
 
   - id: "TM1"
     path: "evals/subscriptions_lifecycle.json"
-    message: "DELETE /api/v1/*"
+    message: "*DELETE /api/v1/*"
     reason: *tm1_rest
 
   # --- C. Accurate findings for risky steps kept for now ---------------------
