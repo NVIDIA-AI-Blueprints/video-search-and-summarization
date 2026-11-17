@@ -30,6 +30,8 @@ from support_images import load as load_images, environment as image_environment
 from vss_perf_reporting import build_and_save, discover_platform  # noqa: E402
 from alert_results_adapter import to_test_cases  # noqa: E402
 
+from hardware_config import profile_for_config, remote_llm_arguments
+
 SERVICE = "Alerts-Verification"
 # Both the native runner and report collector execute on the Compose host.
 LOCAL_EVAL_HOST = "127.0.0.1"
@@ -446,7 +448,12 @@ def main(argv=None):
             raise ValueError(
                 "Native alerts evaluation requires exclusive access: existing vss Compose containers detected"
             )
-        profile = hardware_profile()
+        profile = profile_for_config(args.config_id, hardware_profile())
+        metadata_config["hardware_profile"] = profile
+        remote_llm_args = remote_llm_arguments(profile, env)
+        if remote_llm_args:
+            metadata_config["llm_mode"] = "remote"
+            metadata_config["llm_endpoint"] = remote_llm_args[-1]
         dataset_root = prepare_dataset(dataset, env)
         if not (
             dataset_root / dataset["videos_subpath"] / workload["latency_source_video"]
@@ -522,6 +529,7 @@ def main(argv=None):
         command = native_arguments(
             work, scenario, workload, dataset_root, dataset, profile, env_file
         )
+        command += remote_llm_args
         for flag, value in (
             ("--vlm-device-id", args.vlm_gpus),
             ("--llm-device-id", args.llm_gpus),

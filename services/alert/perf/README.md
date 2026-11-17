@@ -120,3 +120,9 @@ image is required. Actual Alerts and support services still run through Compose.
 The entrypoint and output-directory option are unchanged. Native evaluation JSON
 and diagnostic CSV files are saved under the selected output's `native/ab-eval/`
 directory; canonical benchmark reports retain the existing shared format.
+
+## Hardware coverage
+
+See [HARDWARE.md](HARDWARE.md) for the six-platform matrix, native deployment
+requirements and validation steps. ARM artifact selection uses `arm64-igpu`.
+New hardware rows remain disabled until individually smoke-tested.
