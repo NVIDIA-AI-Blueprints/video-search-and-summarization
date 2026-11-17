@@ -128,23 +128,31 @@ class SubprocessCancellationTest(unittest.IsolatedAsyncioTestCase):
             (brev_env._run_brev_copy_once, ("vss-eval-test:/source", "/destination")),
             (brev_env._run_brev, ("ls",)),
         )
-        for command, args in calls:
-            with self.subTest(command=command.__name__):
-                proc = _StuckPipesProcess()
-                with (
-                    mock.patch.object(brev_env.asyncio, "create_subprocess_exec", new=mock.AsyncMock(return_value=proc)),
-                    mock.patch.object(brev_env, "_is_registered_node", new=mock.AsyncMock(return_value=False)),
-                    mock.patch.object(brev_env, "_register_transport_process"),
-                    mock.patch.object(brev_env, "_kill_proc_group") as kill_group,
-                    mock.patch.object(brev_env, "TRANSPORT_REAP_TIMEOUT_SEC", 0.01),
-                    mock.patch.object(brev_env, "TRANSPORT_WAIT_TIMEOUT_SEC", 0.01),
-                ):
-                    result = await asyncio.wait_for(command(*args, timeout=0.01), timeout=1)
-                self.assertEqual(result.return_code, 124)
-                self.assertIn("timed out", result.stderr)
-                self.assertEqual(proc.communicate_calls, 2)
-                self.assertEqual(proc.wait_calls, 1)
-                kill_group.assert_called_once_with(proc)
+        with tempfile.TemporaryDirectory() as home_dir:
+            key = Path(home_dir) / ".brev" / "brev.pem"
+            key.parent.mkdir()
+            key.touch()
+            for command, args in calls:
+                with self.subTest(command=command.__name__):
+                    proc = _StuckPipesProcess()
+                    with (
+                        mock.patch.object(brev_env.asyncio, "create_subprocess_exec", new=mock.AsyncMock(return_value=proc)),
+                        mock.patch.object(brev_env, "_is_registered_node", new=mock.AsyncMock(return_value=False)),
+                        mock.patch.object(brev_env, "_get_brev_ssh_endpoint", new=mock.AsyncMock(return_value=("example.invalid", 2222))),
+                        mock.patch.object(brev_env, "_which", return_value=True),
+                        mock.patch.object(brev_env.Path, "home", return_value=Path(home_dir)),
+                        mock.patch.dict(os.environ, {"BREV_COPY_TRANSPORT": ""}),
+                        mock.patch.object(brev_env, "_register_transport_process"),
+                        mock.patch.object(brev_env, "_kill_proc_group") as kill_group,
+                        mock.patch.object(brev_env, "TRANSPORT_REAP_TIMEOUT_SEC", 0.01),
+                        mock.patch.object(brev_env, "TRANSPORT_WAIT_TIMEOUT_SEC", 0.01),
+                    ):
+                        result = await asyncio.wait_for(command(*args, timeout=0.01), timeout=1)
+                    self.assertEqual(result.return_code, 124)
+                    self.assertIn("timed out", result.stderr)
+                    self.assertEqual(proc.communicate_calls, 2)
+                    self.assertEqual(proc.wait_calls, 1)
+                    kill_group.assert_called_once_with(proc)
 
     async def test_timed_out_brev_command_cannot_pass_on_partial_output(self):
         proc = _BlockingProcess()

@@ -35,16 +35,18 @@ def test_ci_executes_harness_contracts_on_production_python() -> None:
     assert f'uvx --python {PYTHON_VERSION} --from "pytest==9.1.1" pytest' in workflow
 
 
-def test_daily_agent_input_configures_both_model_routes() -> None:
+def test_daily_harness_inputs_configure_both_model_routes() -> None:
     workflow = (
         REPO_ROOT / ".github/workflows/skills-eval-daily.yml"
     ).read_text()
 
-    assert "DAILY_HARNESS_INPUT: ${{ inputs.agent || 'claude-code' }}" in workflow
-    assert 'daily_harness="$DAILY_HARNESS_INPUT"' in workflow
-    assert 'export EVAL_AGENT="$daily_harness"' in workflow
-    assert 'export SKILLS_EVAL_CODING_HARNESS="$daily_harness"' in workflow
-    assert 'export SKILLS_EVAL_OPERATIONAL_HARNESS="$daily_harness"' in workflow
+    assert "CODING_HARNESS_INPUT: ${{ github.event_name == 'schedule' && 'codex' || inputs.coding_harness || inputs.agent || 'claude-code' }}" in workflow
+    assert "OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'schedule' && 'nemoclaw' || inputs.operational_harness || inputs.agent || 'claude-code' }}" in workflow
+    assert 'coding_harness="$CODING_HARNESS_INPUT"' in workflow
+    assert 'operational_harness="$OPERATIONAL_HARNESS_INPUT"' in workflow
+    assert 'export EVAL_AGENT="$operational_harness"' in workflow
+    assert 'export SKILLS_EVAL_CODING_HARNESS="$coding_harness"' in workflow
+    assert 'export SKILLS_EVAL_OPERATIONAL_HARNESS="$operational_harness"' in workflow
     assert "python3 .github/skill-eval/model_config.py" in workflow
 
 
