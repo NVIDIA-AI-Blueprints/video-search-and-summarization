@@ -14,8 +14,8 @@
 # INSTEAD of the pinned fetch when present. `--clean` removes the snapshots,
 # returning builds to the pin.
 #
-# The OpenShell harness needs none of this: services/openshell/vss/Dockerfile
-# builds from the repo root, so a local edit reaches that image directly.
+# The OpenShell harness needs none of this: .hermes/Dockerfile builds from the
+# repo root, so a local edit reaches that image directly.
 #
 # The snapshot is the working tree as git sees it: tracked files plus
 # untracked-but-not-ignored ones (`git ls-files --cached --others

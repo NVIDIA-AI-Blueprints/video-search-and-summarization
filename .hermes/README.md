@@ -6,13 +6,13 @@ SPDX-License-Identifier: Apache-2.0
 # Hermes harness
 
 The Hermes agent harness and the access boundary it runs under. Each harness
-owns a top-level directory (`.openclaw/`, `.hermes/`). This one packages no
-skills: the harness-neutral `skills/` tree reaches a Hermes sandbox through
-[`../services/openshell/vss/`](../services/openshell/vss/).
+owns a top-level directory (`.openclaw/`, `.hermes/`); the `SKILL.md` tree at
+the repo root (`skills/`) stays harness-neutral, and each directory packages it
+the way that harness loads skills.
 
 | Path | What it is |
 |---|---|
-| `Dockerfile` | The sandbox image: Hermes built from its own public source on a standard Ubuntu base, with `policy.yaml` baked in. No VSS content — see [Adding VSS](#adding-vss) |
+| `Dockerfile` | The sandbox image: Hermes built from its own public source on a standard Ubuntu base, plus the `vss` CLI, the operation skills and the plugin below, with `policy.yaml` baked in |
 | `policy.yaml`, `boundary.yaml` | The OpenShell policy this image is built against, and the ceiling `openshell-prover check` proves it stays inside |
 | `plugin/` | The VSS Hermes plugin: `plugin.yaml`, `__init__.py` (the `vss_cli` tool, registered via `ctx.register_tool`) |
 
@@ -23,20 +23,22 @@ covers the image and the plugin only.
 ## Building
 
 ```
-docker build --build-arg HERMES_REF=v2026.9.14 \
-  -t openshell-hermes:v2026.9.14 .hermes
+docker build -f .hermes/Dockerfile --build-arg HERMES_REF=v2026.9.14 \
+  --build-arg VSS_PACKAGE_VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)" \
+  -t openshell-hermes-vss:local .
 ```
 
-`HERMES_REF` has to be passed as well as named in the tag: Docker does not read
-the environment for build args, so naming it only in `-t` builds the
-Dockerfile's default ref under a tag claiming a different one. Keep it on a
-Hermes release tag rather than a branch.
+The build context is the checkout root, since the image carries this tree's
+skills, CLI and plugin. `HERMES_REF` has to be passed rather than left to the
+tag: Docker does not read the environment for build args. Keep it on a Hermes
+release tag rather than a branch.
 
 | Build arg | Default | What it pins |
 |---|---|---|
 | `BASE_IMAGE` | `nvcr.io/nvidia/base/ubuntu:24.04` | the OS layer |
 | `HERMES_REPO`, `HERMES_REF` | upstream Hermes, `v2026.9.14` (0.21.3) | the agent |
 | `UV_IMAGE` | `ghcr.io/astral-sh/uv:0.11.6` | the Python 3.13 install and the venv build |
+| `VSS_PACKAGE_VERSION` | `0.0.0+local` | the version the `vss` CLI wheels report, since a build context has no `.git` |
 
 The toolchain purge is by construction rather than by removal: the runtime
 stage installs no compiler, no node and no network client beyond `git`, so
@@ -61,8 +63,8 @@ are not known at build time:
 
 `policy.yaml` is baked to `/etc/openshell/policy.yaml` as the image's default
 for a create that passes no `--policy`; every create in this repository passes
-one. It grants the package hosts and nothing else; the inference provider's
-profile authorizes the model host.
+one. It grants the package hosts and the VSS deployment the `vss` CLI reaches;
+the inference provider's profile authorizes the model host.
 
 ```
 openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
@@ -78,15 +80,14 @@ both pinned by the image. Why those values, and what makes the prover return
 `unsupported` rather than a pass, is in
 [`../services/openshell/README.md`](../services/openshell/README.md#4-quickstart-steps-explained).
 
-## Adding VSS
+## VSS in the image
 
-The image here has no `vss` CLI, no operation skills and no grant to reach a
-deployment. [`../services/openshell/vss/`](../services/openshell/vss/) is the optional layer
-that adds all three: it installs the CLI, the skills, the workspace docs and
-the plugin from `plugin/`, and bakes a policy carrying the `vss-backend` and
-`ngc` grants.
+The build installs the `vss` CLI from `libs/vss`, the operation skills, the
+workspace docs and the plugin from `plugin/`, and `policy.yaml` carries the
+`vss-backend` and `ngc` grants they need. The NGC CLI is not installed, so the
+`ngc` grant never matches today.
 
-The plugin lives here rather than there because it is Hermes code: it mirrors
+The plugin is Hermes code: it mirrors
 the OpenClaw plugin's tool exactly — same name, same `{args, cwd, timeoutSec}`
 schema, same no-shell subprocess exec, same `{command, exitCode, signal,
 timedOut, stdout, stderr, truncated}` result shape. See `./plugin/__init__.py`.
@@ -95,7 +96,7 @@ timedOut, stdout, stderr, truncated}` result shape. See `./plugin/__init__.py`.
 
 Hermes loads skills from `$HERMES_HOME/skills` only, and seeds that directory
 from its bundled library (`/opt/hermes/skills`) on every launch, tracking what
-it copied in `.bundled_manifest`. The VSS layer fills `/opt/hermes/skills/vss/`
+it copied in `.bundled_manifest`. The build fills `/opt/hermes/skills/vss/`
 from the shipped set, so no caller has to run anything first, whichever
 `HERMES_HOME` it picks.
 
@@ -116,13 +117,13 @@ serves the OpenClaw plugin and host tooling.
 and `WORKDIR /sandbox`. `LABEL harness.agent=hermes`.
 
 `LABEL harness.contract=harbor-trial-v1`: Harbor and its agent adapters address
-`/task /output /logs /tests /solution` by name, and both images pre-create them
+`/task /output /logs /tests /solution` by name, and the image pre-creates them
 as real, world-writable directories. They cannot be symlinks into the
 workspace: OpenShell chowns every `read_write` policy path at sandbox start and
 refuses a symlink. The eval harness moves files in and out with exec + tar, so
 they do not need to live in the workspace.
 
-`vss vlm run` request defaults are runtime variables the VSS layer declares:
+`vss vlm run` request defaults are runtime variables the image declares:
 every `VSS_VLM_*` setting (`VSS_VLM_BACKEND`, `VSS_VLM_MODEL`, `VSS_VLM_FPS`,
 `VSS_VLM_MAX_FRAMES`, `VSS_VLM_TOTAL_PIXELS`, …; full list in
 [the CLI README](../libs/vss/cli/README.md#configure-vlm-requests)) is empty,

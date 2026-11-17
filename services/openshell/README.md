@@ -5,11 +5,11 @@ Runs an agent harness inside an
 gateway declared as a Compose service. Brought up with the `openshell` CLI
 from this checkout; no skill deploys it.
 
-Sections 2 to 5 build a plain Hermes harness that reaches its own model and
-the package hosts. [Adding VSS capabilities](#optional--add-vss-capabilities)
-is optional, and for an operator who has a deployment to drive: a second image
-layer and policy pair giving the agent the `vss` CLI, the operation skills and
-a grant to reach VSS.
+Sections 2 to 5 build the Hermes harness — the agent, the `vss` CLI, the
+operation skills and a policy granting all three the hosts they call — and
+bring up a sandbox on it. Only the last Quickstart step,
+[pointing the sandbox at a VSS deployment](#point-the-sandbox-at-a-vss-deployment),
+needs a deployment to be up.
 
 > **Note:** For why VSS drives OpenShell directly rather than through NemoClaw
 > V1, see
@@ -19,18 +19,16 @@ a grant to reach VSS.
 |---|---|
 | [`openshell.env`](../../deploy/docker/services/openshell/openshell.env), [`compose.yml`](../../deploy/docker/services/openshell/compose.yml), [`gateway.toml`](../../deploy/docker/services/openshell/gateway.toml) | Step 1 — the `openshell-init` and `openshell-gateway` services and their version-2 gateway config |
 | [`.hermes/policy.yaml`](../../.hermes/policy.yaml), [`.hermes/boundary.yaml`](../../.hermes/boundary.yaml) | The sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
-| [`.hermes/Dockerfile`](../../.hermes/Dockerfile) | Step 2 — the harness image. It lives with the harness, not here: each harness owns a top-level directory, and this one carries no OpenShell-only content beyond the baked policy |
+| [`.hermes/Dockerfile`](../../.hermes/Dockerfile) | Step 2 — the harness image, with the `vss` CLI, the operation skills and the `vss_cli` plugin in it. It lives with the harness, not here: each harness owns a top-level directory, and this one carries no OpenShell-only content beyond the baked policy |
 | [`providers/`](providers/) — `agent-inference-profile.yaml`, `agent-inference-build-profile.yaml`, `agent-inference-local-profile.yaml` | Step 3 — provider profiles for the agent's own model: an OpenAI-compatible endpoint, `build.nvidia.com`, or a host-local model server |
-| [`vss/`](vss/) — `Dockerfile`, `policy.yaml`, `boundary.yaml` | Optional — the step 2 harness built end to end with VSS in it, and the policy pair adding the `vss-backend` and `ngc` grants |
 
 ---
 
 ## 1. Architecture
 
 Drawn for OpenShell 0.1.6, the release everything below was tested on. Both
-diagrams show a sandbox with the optional VSS layer added, since that is the
-arrangement with the most moving parts; the default sandbox is the same
-picture with the VSS column and the `:7777` arrow removed.
+diagrams show the sandbox the Quickstart creates, driving a VSS deployment on
+the same host.
 
 ![VSS on OpenShell](docs/assets/vss-openshell-high-level-architecture.png)
 
@@ -39,15 +37,15 @@ picture with the VSS column and the `:7777` arrow removed.
   signs the only credentials in the system, delivers policy and provider
   credentials, and runs the policy prover. Its **compute driver** provisions
   each sandbox as two containers and builds the isolation boundary.
-- **Workload** runs the harness image (Hermes and the baked policy, plus the
-  skills and `vss` CLI when the VSS layer is built in)
+- **Workload** runs the harness image (Hermes, the `vss` CLI, the skills and
+  the baked policy)
   with networking turned off. Its only path out is the
   supervisor; if the supervisor exits, the agent is stopped rather than running
   unchecked.
 - **Supervisor** is the trusted half and the only decision point. It checks every
   connection against the policy, then opens it: to the inference endpoint with
-  the real credential added at egress, and — only where the VSS policy pair is
-  in force — to HAProxy `:7777`. The agent never holds a key.
+  the real credential added at egress, and to HAProxy `:7777`. The agent never
+  holds a key.
 - **Gateway link** delivers policy and credentials to the supervisor and
   carries logs, exec sessions and the exposed harness API, whose `:8642` is the
   loopback target inside the sandbox; the URL itself is served on the gateway's
@@ -58,7 +56,6 @@ picture with the VSS column and the `:7777` arrow removed.
 The same deployment, one level down. The destinations are the only hosts the
 sandbox can reach: the policy file it was created with allows them, and the
 provider profile adds the inference host and the key injected into calls to it.
-VSS HAProxy is among them only under `vss/policy.yaml`.
 
 ![Inside the OpenShell sandbox boundary](docs/assets/vss-openshell-detailed-architecture.png)
 
@@ -69,8 +66,7 @@ JWT, no provider credential — and decides nothing. It reports what the agent
 attempted; the supervisor decides. When the agent opens a connection, the
 kernel stops the call and the runtime forwards it to the supervisor as
 "`/usr/bin/python3.13` wants `host.openshell.internal:7777`". The supervisor
-checks it against the `vss-backend` grant — present only in `vss/policy.yaml`,
-so the default sandbox is refused here — and, if allowed, opens the connection
+checks it against the `vss-backend` grant and, if allowed, opens the connection
 itself on the agent's behalf. An inference call takes the same path
 and additionally gets the provider key added at egress, which is why VSS ships
 the model's `api_key` as a placeholder. The runtime band of the [deploy
@@ -89,9 +85,8 @@ measured against the harness image.
 
 ![Request path from the VSS UI to the harness](docs/assets/vss-openshell-request-path.png)
 
-**Deployed from the host.** This path assumes a VSS deployment, so the sandbox
-is the one on the [VSS layer](#optional--add-vss-capabilities). Both are
-deployed from the host and in that order: VSS by
+**Deployed from the host.** This path assumes a VSS deployment. Both it and
+the harness are deployed from the host, in that order: VSS by
 [`vss-build-vision-ai`](../../skills/vss-build-vision-ai/SKILL.md) or Compose,
 then the harness against the running build with the `openshell` CLI. The agent
 inside the sandbox drives VSS but never deploys or tears it down.
@@ -200,8 +195,8 @@ domain, so a compromised agent cannot switch it off:
 
 ## 3. Quickstart
 
-Brings up a Hermes sandbox against its own model; no VSS deployment needed.
-Every file in the table above is pre-created: the Compose services and the
+Brings up a Hermes sandbox against its own model; only the last step needs a
+VSS deployment. Every file in the table above is pre-created: the Compose services and the
 `OPENSHELL_TAG` they read, the version-2 gateway config, the policy and the
 boundary it is proven against, the harness Dockerfile, and the provider
 profiles. Section 4 is the same ground with the reasoning; §5 is how to check
@@ -214,6 +209,7 @@ its values replace any of the same name exported in the shell:
 |---|---|
 | `HARNESS_BASE_URL` | The endpoint's OpenAI-compatible base URL, including its `/v1`. The default is the host `providers/agent-inference-profile.yaml` authorizes |
 | `HARNESS_MODEL` | A model id that endpoint serves |
+| `VSS_PUBLIC_URL` | The deployment's origin as the sandbox reaches it. The default, `http://host.openshell.internal:7777`, is a deployment on this host |
 
 Export `HARNESS_API_KEY`, the endpoint's key, unquoted, or put it in the
 gitignored `harness.env` at the repository root, which the commands source
@@ -247,9 +243,15 @@ docker compose --env-file deploy/docker/services/openshell/openshell.env \
 openshell gateway list | grep -q ' http://127.0.0.1:8080 ' ||
   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
 
-# 2. Harness image: upstream Hermes and the baked policy.
-docker build --build-arg HERMES_REF="$HERMES_REF" \
-  -t "openshell-hermes:$HERMES_REF" .hermes
+# 2. Harness image: upstream Hermes, VSS and the baked policy. The CLI's
+#    reported version tags it, naming the tree the image carries, so two
+#    checkouts never collide on one tag. A Docker tag cannot hold the `+`.
+VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
+TAG="${VERSION//+/-}-from-source"
+docker build -f .hermes/Dockerfile \
+  --build-arg HERMES_REF="$HERMES_REF" \
+  --build-arg VSS_PACKAGE_VERSION="$VERSION" \
+  -t "openshell-hermes-vss:$TAG" .
 
 # 3. Inference provider. The profile authorizes the host; the provider seals the
 #    key, which the proxy injects at egress so the agent never holds it.
@@ -260,11 +262,12 @@ openshell provider create --name agent-inference --type agent-inference \
 # 4. Sandbox. The trailing command is the harness itself.
 openshell sandbox create \
   --name hermes \
-  --from "openshell-hermes:$HERMES_REF" \
+  --from "openshell-hermes-vss:$TAG" \
   --policy .hermes/policy.yaml \
   --provider agent-inference \
   --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
+  --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
   -- sh -c 'E=/sandbox/.hermes/.env
@@ -316,6 +319,8 @@ First re-read the settings:
 ```bash
 PROVIDER=agent-inference          # the Quickstart's provider
 set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
+# The tag step 2 built, recomputed from the same checkout.
+VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"; TAG="${VERSION//+/-}-from-source"
 ```
 
 Then register the change with the gateway, by which one you made:
@@ -347,11 +352,12 @@ Quickstart's step 4 with `$PROVIDER`.
 openshell sandbox delete hermes
 openshell sandbox create \
   --name hermes \
-  --from "openshell-hermes:$HERMES_REF" \
+  --from "openshell-hermes-vss:$TAG" \
   --policy .hermes/policy.yaml \
   --provider "$PROVIDER" \
   --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
+  --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
   -- sh -c 'E=/sandbox/.hermes/.env
@@ -369,79 +375,37 @@ curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Which model are you running?"}]}'
 ```
 
-### Optional — add VSS capabilities
+### Point the sandbox at a VSS deployment
 
-Gives the agent the `vss` CLI, the operation skills and the `vss_cli` tool
-plugin, and the one grant that lets it reach a VSS deployment. Take it only
-against a deployment that is already up.
+The last Quickstart step, and the only one that needs a deployment already up.
+The `vss` CLI, the operation skills and the `vss_cli` tool plugin are in the
+image, and the policy already grants the deployment's origin; what remains is
+recording which deployment, and selecting the skills it can serve.
 
-The image carries this checkout's skills, workspace docs, `vss` CLI and
-`vss_cli` plugin, so it is rebuilt to pick up an edit to any of them. One value
-in [`openshell.env`](../../deploy/docker/services/openshell/openshell.env), which likewise replaces any shell export of it:
+```bash
+# 5. Point the CLI at VSS, then re-select the skills those services can serve.
+openshell sandbox exec -n hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
+openshell sandbox exec -n hermes -- vss-hermes-sync
+```
 
-| Variable | Set it to |
-|---|---|
-| `VSS_PUBLIC_URL` | The deployment's origin as the sandbox reaches it. The default, `http://host.openshell.internal:7777`, is a deployment on this host |
+The two commands print which command groups the deployment can serve and which
+skills went active; a partial deployment is normal, and the inactive skills
+name the service they wanted. [Section 5](#5-verification) has the two checks
+that need a deployment.
 
 A VSS developer profile starts the gateway itself — append `openshell` to
 `COMPOSE_PROFILES` in its `overrides.env`, or for alerts to both
 `COMPOSE_PROFILES_CV` and `COMPOSE_PROFILES_VLM` — which covers the
 Quickstart's step 1 and nothing else.
 
-Both halves are needed. The image alone leaves a `vss` CLI the policy refuses
-to let out; the policy alone grants reach to a sandbox with no CLI to use it.
-Neither the image nor the policy can be swapped on a running sandbox, so this
-replaces the sandbox from the Quickstart's step 4 rather than modifying it.
-
-```bash
-set -a; . deploy/docker/services/openshell/openshell.env; set +a
-PROVIDER="${PROVIDER:-agent-inference}"  # the Quickstart's provider, unless changed above
-# The CLI's reported version, and a tag naming the tree the image carries, so
-# two checkouts never collide on one tag. A Docker tag cannot hold the `+`.
-VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
-TAG="${VERSION//+/-}-from-source"
-
-# 1. The harness with VSS in it, built end to end at the same HERMES_REF as the
-#    Quickstart's step 2.
-docker build -f services/openshell/vss/Dockerfile \
-  --build-arg HERMES_REF="$HERMES_REF" \
-  --build-arg VSS_PACKAGE_VERSION="$VERSION" \
-  -t "openshell-hermes-vss:$TAG" .
-
-# 2. Replace the sandbox with one on the VSS image and the VSS policy. Same
-#    create command as the Quickstart's step 4 otherwise, plus VSS_PUBLIC_URL.
-openshell sandbox delete hermes
-openshell sandbox create \
-  --name hermes \
-  --from "openshell-hermes-vss:$TAG" \
-  --policy services/openshell/vss/policy.yaml \
-  --provider "$PROVIDER" \
-  --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
-  --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
-  --env HARNESS_MODEL="$HARNESS_MODEL" \
-  --restart-policy on-failure \
-  --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'E=/sandbox/.hermes/.env
-            grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
-              K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
-              printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
-            chmod 640 "$E"
-            exec hermes gateway run'
-
-# 3. Point the CLI at VSS, then re-select the skills those services can serve.
-openshell sandbox exec -n hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
-openshell sandbox exec -n hermes -- vss-hermes-sync
-```
-
-Step 3 prints which command groups the deployment can serve and which skills
-went active; a partial deployment is normal, and the inactive skills name the
-service they wanted. [Section 5](#5-verification) has the two extra checks
-this layer adds.
+`VSS_PUBLIC_URL` is fixed at create like the model settings, so pointing the
+sandbox at another deployment is the [recreate above](#change-the-model-endpoint-or-key)
+with that value changed.
 
 ### Optional — answer from the VSS UI
 
-Builds on the VSS layer above, so take that one first: this points a VSS
-deployment's own UI at the sandbox, and a deployment is what supplies the UI.
+Points a VSS deployment's own UI at the sandbox, so it needs the step above:
+a deployment is what supplies the UI.
 Skip it to reach the agent through `hermes chat` or the API server instead.
 Deploying VSS itself is
 [`vss-build-vision-ai`](../../skills/vss-build-vision-ai/SKILL.md)'s job;
@@ -674,15 +638,14 @@ the socket mount above.
 **The policy pair, converted and proved.** Translate the preset to OpenShell policy
 YAML, then verify the result rather than eyeballing it.
 
-There are two candidate/ceiling pairs, because a sandbox takes a single
-`--policy` file and the VSS grant cannot be an overlay on one.
-`.hermes/policy.yaml` is the default: the package hosts; the inference
-provider's profile authorizes the model host. `vss/policy.yaml` is that file plus `vss-backend` and `ngc`,
-and is what the [VSS layer](#optional--add-vss-capabilities) creates against.
-Everything before `network_policies` is identical in the two, by requirement
-rather than convention — the prover compares those sections verbatim.
+One candidate/ceiling pair covers the harness, because a sandbox takes a
+single `--policy` file: `.hermes/policy.yaml` names the package hosts and the
+VSS deployment, and the inference provider's profile authorizes the model
+host. Everything before `network_policies` is identical in the pair, by
+requirement rather than convention — the prover compares those sections
+verbatim.
 
-Each is per-harness because OpenShell matches a connection on its destination
+The pair is per-harness because OpenShell matches a connection on its destination
 *and* its calling binary, so the `binaries` lists below are what tie these
 policies to Hermes:
 
@@ -694,7 +657,7 @@ filesystem_policy:
 landlock: { compatibility: best_effort }
 process:  { run_as_user: "998", run_as_group: "999" }   # `sandbox` in the image
 network_policies:
-  pypi:                          # .hermes/policy.yaml and vss/policy.yaml
+  pypi:
     name: pypi
     endpoints:
       - host: pypi.org
@@ -705,12 +668,12 @@ network_policies:
           - allow: { method: GET, path: "/**" }
       # ... files.pythonhosted.org and pypi.nvidia.com the same way
     binaries: [{ path: /usr/bin/python3.13 }]
-  vss-backend:                   # vss/policy.yaml only
+  vss-backend:                   # the deployment, as the sandbox addresses it
     name: vss-backend-readwrite
     endpoints:
       - { host: host.openshell.internal, port: 7777, protocol: tcp }
     binaries: [{ path: /usr/bin/python3.13 }]
-  # ... github in both, ngc in vss/policy.yaml
+  # ... github and ngc the same way
 ```
 
 **`binaries` must name the interpreter, not the launcher.** OpenShell matches a
@@ -730,9 +693,9 @@ default host-mode supervisor the driver publishes host loopback as the backend
 address for `host.openshell.internal`, so the `172.17.0.0/16`-style grants
 match nothing.
 
-Each candidate has its own ceiling, written once by hand. Same paths and same
-binaries, deliberately wider where it matters — `POST` on each host as well as
-the candidate's `GET`:
+The ceiling is written once by hand. Same paths and same binaries,
+deliberately wider where it matters — `POST` on each host as well as the
+candidate's `GET`:
 
 ```yaml
 version: 1
@@ -742,7 +705,7 @@ filesystem_policy:
 landlock: { compatibility: best_effort }
 process:  { run_as_user: "998", run_as_group: "999" }
 network_policies:
-  harness-rest-max:              # .hermes/boundary.yaml and vss/boundary.yaml
+  harness-rest-max:
     name: harness-rest-max
     endpoints:
       - host: pypi.org
@@ -754,8 +717,8 @@ network_policies:
           - allow: { method: POST, path: "/**" }
       # ... and the policy's other REST hosts the same way
     binaries: [{ path: /usr/bin/python3.13 }]
-  vss-backend-max:               # vss/boundary.yaml only. L4 only; mixing
-    name: vss-backend-max        # REST in here is `unsupported`
+  vss-backend-max:               # L4 only; mixing REST in here is
+    name: vss-backend-max        # `unsupported`
     endpoints:
       - { host: host.openshell.internal, port: 7777, protocol: tcp }
     binaries: [{ path: /usr/bin/python3.13 }]
@@ -763,7 +726,6 @@ network_policies:
 
 ```bash
 openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
-openshell-prover check services/openshell/vss/policy.yaml --boundary services/openshell/vss/boundary.yaml
 # result: within_boundary
 # coverage: domains=filesystem,network_l4,network_rest,process,landlock
 ```
@@ -788,27 +750,21 @@ underneath; why that rather than deriving from `hermes-sandbox` is in
 The command and its build args are in
 [`.hermes/README.md`](../../.hermes/README.md#building).
 
-The image is tagged by `HERMES_REF` rather than a VSS ref because nothing in
-it comes from VSS: a Hermes bump produces a new tag instead of overwriting the
-old one, and a VSS commit does not invalidate it at all.
+The same build adds the `vss` CLI, the operation skills, the workspace docs
+and the `vss_cli` plugin from this checkout, which is why the build context is
+the checkout root and the tag names the CLI's version rather than
+`HERMES_REF`: an edit to a skill or the CLI produces a new image, and a Hermes
+bump produces one too.
 
-[`vss/Dockerfile`](vss/Dockerfile) is the optional second build. It takes this
-image as its base and adds the `vss` CLI, the operation skills, the
-workspace docs and the `vss_cli` plugin from this checkout, then replaces the baked policy
-with `vss/policy.yaml`. Layering rather than branching one Dockerfile on a
-build arg is what keeps the default image provably free of VSS — there is no
-flag to get wrong, because the content is not in the file.
-
-The images leave the CA bundle and the inference target to the start command in
+The image leaves the CA bundle and the inference target to the start command in
 step 4, both because of what 0.1.6 changed: the supervisor's CA is mounted only
 once the sandbox exists, and sandbox-scoped provider attachments replaced
 managed inference routes, which makes the base URL and the model the workload's
 to set. What the image ships for each is in
 [`.hermes/README.md`](../../.hermes/README.md#building).
 
-The NGC CLI is in neither image, so under the VSS layer an operation skill
-that resolves a sample video by name fails and the `ngc` entry in
-`vss/policy.yaml` never matches.
+The NGC CLI is not in the image, so an operation skill that resolves a sample
+video by name fails and the `ngc` entry in `.hermes/policy.yaml` never matches.
 
 Precedence is `--policy` > `OPENSHELL_SANDBOX_POLICY` > image policy > built-in
 default, so a grant a deployment only knows at runtime — a Kubernetes ingress
@@ -869,11 +825,12 @@ declares it. Within a family the model id is free, and step 4 sets it.
 ```bash
 openshell sandbox create \
   --name hermes \
-  --from openshell-hermes:$HERMES_REF \
+  --from openshell-hermes-vss:$TAG \
   --policy .hermes/policy.yaml \
   --provider agent-inference \
   --env HARNESS_BASE_URL=https://inference-api.nvidia.com/v1 \
   --env HARNESS_MODEL=aws/anthropic/bedrock-claude-opus-5 \
+  --env VSS_PUBLIC_URL=http://host.openshell.internal:7777 \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
   -- sh -c 'E=/sandbox/.hermes/.env
@@ -886,13 +843,11 @@ openshell sandbox create \
 openshell policy get hermes --full         # verify effective policy
 ```
 
-The [VSS layer](#optional--add-vss-capabilities) recreates this sandbox with
-`--from openshell-hermes-vss:$TAG`, `--policy services/openshell/vss/policy.yaml` and one more
-`--env VSS_PUBLIC_URL`; nothing else about the command changes. Neither the
-image nor the policy can be swapped on a live sandbox, which is why it is a
-delete and a create rather than an update.
+Neither the image nor the policy can be swapped on a live sandbox, so a
+change to either — or to any `--env` above — is a delete and a create rather
+than an update.
 
-**The two `--env` values are the model choice.** `HARNESS_BASE_URL` is the
+**Two of the `--env` values are the model choice.** `HARNESS_BASE_URL` is the
 model endpoint's OpenAI-compatible base URL and `HARNESS_MODEL` the model id it
 serves, so a redeploy against a different model is a flag rather than a
 rebuild. The image's `config.yaml` carries both as `${env:}` refs, which Hermes
@@ -1045,7 +1000,7 @@ OpenAI Responses server.
 
 ## 5. Verification
 
-Four checks cover the default sandbox — the prover, the gateway, the exposed
+Four checks cover the sandbox itself — the prover, the gateway, the exposed
 route and the inference provider:
 
 ```bash
@@ -1077,9 +1032,8 @@ openshell sandbox exec -n hermes -- \
   hermes chat -q "Reply with the single word: pong"
 ```
 
-Check 1 is the only one that differs by path: a sandbox on the [VSS
-layer](#optional--add-vss-capabilities) is proven against `vss/policy.yaml`
-and `vss/boundary.yaml` instead. That layer also adds two checks of its own:
+Two more need a deployment behind `VSS_PUBLIC_URL`, configured by the
+[last Quickstart step](#point-the-sandbox-at-a-vss-deployment):
 
 ```bash
 # 5. The CLI is present and the sandbox reaches VSS over the vss-backend grant
@@ -1091,7 +1045,6 @@ openshell sandbox exec -n hermes -- \
   hermes chat -q "Run vss configure check and report which services are ok."
 ```
 
-On the default sandbox both fail by design, and the two failures look
-different: `vss` is not on `PATH` at all, where a sandbox built from the VSS
-image but created with `.hermes/policy.yaml` instead reports a connection
-error, with the supervisor's log naming the refused host.
+With no deployment there, both report a connection error rather than a missing
+command, and the supervisor's log names the host that was refused or
+unreachable.

@@ -756,21 +756,19 @@ class StaleReleaseLineTest(unittest.TestCase):
         }
         self.assertLessEqual({"vss-agent", "vss-harness-openclaw", "openshell-hermes-vss"}, baking)
         self.assertNotIn("vss-agent-ui", baking)
-        self.assertNotIn("openshell-hermes", baking)
 
 
 class HermesHarnessSelectionTest(unittest.TestCase):
-    """The pure harness rebuilds on its Dockerfile and policy alone; VSS content
-    rebuilds only the VSS image (the real inventory)."""
+    """Harness, policy and VSS content all live in the one Hermes image, so
+    each of them rebuilds it (the real inventory)."""
 
     def test_each_change_selects_exactly_its_harness_image(self):
         inventory = dci.load_inventory(Path(__file__).resolve().parents[2])
-        harness = {"openshell-hermes", "openshell-hermes-vss"}
+        harness = {"openshell-hermes-vss"}
         cases = {
-            ".hermes/Dockerfile": {"openshell-hermes"},
-            ".hermes/policy.yaml": {"openshell-hermes"},
+            ".hermes/Dockerfile": {"openshell-hermes-vss"},
+            ".hermes/policy.yaml": {"openshell-hermes-vss"},
             ".hermes/plugin/__init__.py": {"openshell-hermes-vss"},
-            "services/openshell/vss/policy.yaml": {"openshell-hermes-vss"},
             "skills/vss-ask-video/SKILL.md": {"openshell-hermes-vss"},
             "libs/vss/cli/src/vss_cli/configure.py": {"openshell-hermes-vss"},
             ".openclaw/workspace/AGENTS.md": {"openshell-hermes-vss"},

@@ -570,9 +570,8 @@ once. Pin it by digest.
 **Building Hermes from source removes the artifact instead of trading it.**
 [`.hermes/Dockerfile`](../../../.hermes/Dockerfile) is the built
 and verified form: upstream Hermes at tag `v2026.9.14` (0.21.3) installed onto
-`nvcr.io/nvidia/base/ubuntu:24.04`, with the policy baked in. The `vss` CLI,
-skills, workspace docs and plugin come from the VSS layer,
-[`services/openshell/vss/Dockerfile`](../vss/Dockerfile).
+`nvcr.io/nvidia/base/ubuntu:24.04`, with the `vss` CLI, the skills, the
+workspace docs, the plugin and the policy in the same build.
 
 - **Hermes comes from source, not PyPI.** The PyPI package stops at `0.19.0`
   (§4), so the build clones the GitHub repo at a release tag.
@@ -629,7 +628,7 @@ same checks as the current sandbox ([README §5](../README.md#5-verification)).
 What it costs: VSS owns a Hermes build it did not own before, so `HERMES_REF`
 joins `VSS_REF` as a pin to move, and upstream's weekly tags are the cadence to
 track. The NGC CLI is also absent, so an operation skill that resolves a sample
-video by name fails and the `ngc` entry in `services/openshell/vss/policy.yaml`
+video by name fails and the `ngc` entry in `.hermes/policy.yaml`
 never matches.
 
 ---

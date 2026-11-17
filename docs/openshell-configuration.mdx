@@ -12,10 +12,10 @@ Every command in the setup sources `deploy/docker/services/openshell/openshell.e
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OPENSHELL_TAG` | `0.1.6` | Gateway image tag. The `openshell` CLI and `openshell-prover` must be the same release, since the CLI and gateway speak Protobuf. |
-| `HERMES_REF` | `v2026.9.14` | Upstream Hermes tag the harness image is built from, and the image's own tag, so a Hermes bump renames the image rather than overwriting it. |
+| `HERMES_REF` | `v2026.9.14` | Upstream Hermes tag the harness image is built from. The image is tagged by the `vss` CLI's version, so this only pins what the build fetches. |
 | `HARNESS_BASE_URL` | `https://inference-api.nvidia.com/v1` | The agent model endpoint's OpenAI-compatible base URL, including its `/v1`. Unrelated to any VLM a VSS deployment serves. |
 | `HARNESS_MODEL` | `aws/anthropic/bedrock-claude-opus-5` | A model id that endpoint serves. |
-| `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` | VSS layer only. The deployment's origin as the sandbox reaches it. The default is a deployment on this host. |
+| `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` | The deployment's origin as the sandbox reaches it, read only once a deployment is up, by `vss configure` inside the sandbox. The default is a deployment on this host. |
 
 ## Agent model versus VSS models
 
@@ -89,6 +89,8 @@ First re-read the settings:
 ```bash
 PROVIDER=agent-inference          # the provider from the setup
 set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
+# The tag step 2 built, recomputed from the same checkout.
+VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"; TAG="${VERSION//+/-}-from-source"
 ```
 
 Then register the change with the gateway, by which one you made:
@@ -119,14 +121,9 @@ Then re-run the `openshell sandbox create` command from [step 4](/vision-agent/a
 
 ## The policy and the boundary
 
-A sandbox takes a single `--policy` file, and the VSS grant cannot be an overlay on one, so there are two candidate and ceiling pairs:
+A sandbox takes a single `--policy` file, so one candidate and ceiling pair covers the harness: `.hermes/policy.yaml` against `.hermes/boundary.yaml`. It grants the package hosts, plus `vss-backend` and `ngc`; the inference provider's profile authorizes the model host.
 
-| Policy | Ceiling | Grants |
-| --- | --- | --- |
-| `.hermes/policy.yaml` | `.hermes/boundary.yaml` | The package hosts; the inference provider's profile authorizes the model host |
-| `services/openshell/vss/policy.yaml` | `services/openshell/vss/boundary.yaml` | The same, plus `vss-backend` and `ngc` |
-
-Everything before `network_policies` is identical in the two, by requirement rather than convention — the prover compares those sections verbatim. Each is per-harness, because OpenShell matches a connection on its destination *and* its calling binary:
+Everything before `network_policies` is identical in the two files, by requirement rather than convention — the prover compares those sections verbatim. The pair is per-harness, because OpenShell matches a connection on its destination *and* its calling binary:
 
 ```yaml
 version: 1
@@ -136,7 +133,7 @@ filesystem_policy:
 landlock: { compatibility: best_effort }
 process:  { run_as_user: "998", run_as_group: "999" }   # `sandbox` in the image
 network_policies:
-  pypi:                          # both policies
+  pypi:
     name: pypi
     endpoints:
       - host: pypi.org
@@ -147,12 +144,12 @@ network_policies:
           - allow: { method: GET, path: "/**" }
       # ... files.pythonhosted.org and pypi.nvidia.com the same way
     binaries: [{ path: /usr/bin/python3.13 }]
-  vss-backend:                   # vss/policy.yaml only
+  vss-backend:
     name: vss-backend-readwrite
     endpoints:
       - { host: host.openshell.internal, port: 7777, protocol: tcp }
     binaries: [{ path: /usr/bin/python3.13 }]
-  # ... github in both, ngc in vss/policy.yaml
+  # ... github and ngc the same way
 ```
 
 Three rules decide whether a policy works at all:
@@ -165,8 +162,6 @@ The ceiling is deliberately wider where it matters — `POST` on each host as we
 
 ```bash
 openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
-openshell-prover check services/openshell/vss/policy.yaml \
-  --boundary services/openshell/vss/boundary.yaml
 # result: within_boundary
 # coverage: domains=filesystem,network_l4,network_rest,process,landlock
 ```
@@ -230,4 +225,4 @@ Two properties of the harness decide whether this stays data. How its API authen
 * **`openshell-data` volume** — `gateway.db`, the JWT signing key, and the key-encryption key that seals provider credentials. Back it up; keeping it across a `docker compose down` is what keeps sandboxes' gateway records. A VSS reset (`dev-profile.sh down`, or `down -v` on the project) removes it with the gateway, so delete the sandboxes first.
 * **Sandbox logs** — `openshell logs` for the gateway's view, and the supervisor container's own log for the host and reason behind a refused connection.
 * **`~/.config/openshell`** — the CLI's gateway registrations, written by `openshell gateway add`.
-* **Per-sandbox state** — the workload's `/sandbox` directory, including `.hermes/.env` with the minted `API_SERVER_KEY` and, under the VSS layer, `.vss/config.json` written by `vss configure`.
+* **Per-sandbox state** — the workload's `/sandbox` directory, including `.hermes/.env` with the minted `API_SERVER_KEY` and `.vss/config.json` written by `vss configure`.

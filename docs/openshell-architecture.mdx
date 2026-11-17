@@ -5,26 +5,26 @@ position: 1
 ---
 How OpenShell is put together, what a VSS deployment adds to it, and where the security boundary falls. Drawn for OpenShell 0.1.6, the release the integration was tested on.
 
-Both diagrams below show a sandbox with the optional [VSS layer](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#optional-add-vss-capabilities) added, since that is the arrangement with the most moving parts. The default sandbox is the same picture with the VSS column and the `:7777` arrow removed.
+Both diagrams below show the sandbox the [setup](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills) creates, driving a VSS deployment on the same host.
 
 ## Components
 
 ![The operator builds the harness image and brings up the gateway with Compose; the gateway creates the sandbox, delivers policy and provider credentials to the supervisor, and the supervisor reaches inference and VSS HAProxy on the workload's behalf](./assets/images/openshell/vss-openshell-high-level-architecture.png)
 
 * **Gateway** is the control plane, a Compose service behind the `openshell` profile. It owns sandbox lifecycle and state, signs the only credentials in the system, delivers policy and provider credentials, and runs the policy prover. Its **compute driver** provisions each sandbox as two containers and builds the isolation boundary.
-* **Workload** runs the harness image — Hermes and the baked policy, plus the Skills and `vss` CLI when the VSS layer is built in — with networking turned off. Its only path out is the supervisor; if the supervisor exits, the agent is stopped rather than left running unchecked.
+* **Workload** runs the harness image — Hermes, the `vss` CLI, the Skills and the baked policy — with networking turned off. Its only path out is the supervisor; if the supervisor exits, the agent is stopped rather than left running unchecked.
 * **Supervisor** is the trusted half and the only decision point. It checks every connection against the policy, then opens it: to the inference endpoint with the real credential added at egress, and — only where the VSS policy pair is in force — to VSS HAProxy on `:7777`. The agent never holds a key.
 * **Gateway link** delivers policy and credentials to the supervisor and carries logs, exec sessions, and the exposed harness API, whose `:8642` is the loopback target inside the sandbox. The URL itself is served on the gateway's own port under a per-sandbox hostname.
 
 ## Inside the boundary
 
-The same deployment, one level down. The destinations are the only hosts the sandbox can reach: the policy file it was created with allows them, and the provider profile adds the inference host and the key injected into calls to it. VSS HAProxy is among them only under the VSS policy.
+The same deployment, one level down. The destinations are the only hosts the sandbox can reach: the policy file it was created with allows them, and the provider profile adds the inference host and the key injected into calls to it.
 
 ![The CLI reaches the gateway directly while the VSS UI chat adapter goes through an openshell forward host process; inside the sandbox the workload has no direct egress and the supervisor dials inference, VSS HAProxy, and the package hosts](./assets/images/openshell/vss-openshell-detailed-architecture.png)
 
 Splitting the sandbox into a workload and a supervisor container is what makes the agent's own compromise survivable. The workload shares the boundary with the agent, so it holds nothing worth stealing — no signing key, no gateway JWT, no provider credential — and decides nothing. It reports what the agent attempted; the supervisor decides.
 
-When the agent opens a connection, the kernel stops the call and the runtime forwards it to the supervisor as "`/usr/bin/python3.13` wants `host.openshell.internal:7777`". The supervisor checks it against the `vss-backend` grant — present only in the VSS policy, so the default sandbox is refused here — and, if allowed, opens the connection itself on the agent's behalf. An inference call takes the same path and additionally gets the provider key added at egress, which is why VSS ships the model's `api_key` as a placeholder.
+When the agent opens a connection, the kernel stops the call and the runtime forwards it to the supervisor as "`/usr/bin/python3.13` wants `host.openshell.internal:7777`". The supervisor checks it against the `vss-backend` grant and, if allowed, opens the connection itself on the agent's behalf. An inference call takes the same path and additionally gets the provider key added at egress, which is why VSS ships the model's `api_key` as a placeholder.
 
 Each connection is a separate stream on one mutually authenticated HTTP/2 channel, so a slow download cannot block exec or process control, and the workload freezes if that channel drops. The two JWTs are issued per sandbox and per *generation*: restarting a sandbox mints fresh tokens and certificates and invalidates the old ones.
 
@@ -88,4 +88,4 @@ The security boundary is OpenShell's, and it sits outside the agent's trust doma
 
 Both halves are deployed from the host, and in that order: VSS by the [Build Vision AI Skill](/vision-agent/build-vision-ai-skill) or Docker Compose, then the harness against the running build with the `openshell` CLI. The agent inside the sandbox drives VSS but never deploys or tears it down.
 
-This path assumes a VSS deployment, so the sandbox is the one on the [VSS layer](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#optional-add-vss-capabilities). It is drawn for the Compose deployment, where the gateway, the sandbox, and the VSS services share one Docker host. On Kubernetes the shape is the same with the Kubernetes compute driver: the supervisor runs in its own pod, reaches the workload over mutual TLS on a private Service, and a NetworkPolicy replaces Docker's networking-off as the outer fence.
+This path assumes a VSS deployment, pointed at by the setup's [last step](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-5-point-the-sandbox-at-a-vss-deployment). It is drawn for the Compose deployment, where the gateway, the sandbox, and the VSS services share one Docker host. On Kubernetes the shape is the same with the Kubernetes compute driver: the supervisor runs in its own pod, reaches the workload over mutual TLS on a private Service, and a NetworkPolicy replaces Docker's networking-off as the outer fence.

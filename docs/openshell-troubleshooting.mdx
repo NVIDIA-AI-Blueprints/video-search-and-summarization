@@ -3,7 +3,7 @@ title: "Troubleshooting"
 description: ""
 position: 5
 ---
-Recovery steps for common OpenShell gateway, sandbox, and VSS layer issues. Substitute your sandbox name wherever `hermes` appears. Every command assumes `~/.local/bin` is on `PATH` and that you are in the repository root.
+Recovery steps for common OpenShell gateway, sandbox, and VSS issues. Substitute your sandbox name wherever `hermes` appears. Every command assumes `~/.local/bin` is on `PATH` and that you are in the repository root.
 
 Two commands answer most questions before anything else:
 
@@ -185,14 +185,14 @@ The prover also refuses policies using GraphQL or MCP rules rather than ignoring
 
 **Symptom**: `openshell sandbox exec -n hermes -- vss configure check` fails, or the agent reports it has no VSS Skills.
 
-**Cause**: The two halves of the VSS layer are separate and both are needed. The image alone leaves a `vss` CLI the policy refuses to let out; the policy alone grants reach to a sandbox with no CLI to use it.
+**Cause**: The sandbox was created from an image or a policy that is not the harness's own. The CLI, the Skills and the plugin come from `.hermes/Dockerfile`, and the grant that lets them out comes from `.hermes/policy.yaml`.
 
-**Solution**: The two failures look different, which tells you which half is missing:
+**Solution**: The two failures look different, which tells you which one is wrong:
 
-* **`vss: not found`** — the sandbox is on the plain harness image. Rebuild with `services/openshell/vss/Dockerfile` and recreate the sandbox from `openshell-hermes-vss:<tag>`.
-* **A connection error from `vss`** — the sandbox is on the VSS image but was created with `.hermes/policy.yaml`. Recreate it with `--policy services/openshell/vss/policy.yaml`. The supervisor's log names the refused host.
+* **`vss: not found`** — the sandbox is on some other image. Rebuild with `.hermes/Dockerfile` and recreate the sandbox from `openshell-hermes-vss:<tag>`.
+* **A connection error from `vss`** — the sandbox was created with another policy. Recreate it with `--policy .hermes/policy.yaml`. The supervisor's log names the refused host.
 
-If both halves are right and `vss configure check` reports services as unavailable, that is usually the deployment rather than the sandbox. A partial deployment is normal: the command names which groups it can serve, and `vss-hermes-sync` marks the matching Skills inactive with the service they wanted.
+If both are right and `vss configure check` reports services as unavailable, that is usually the deployment rather than the sandbox. A partial deployment is normal: the command names which groups it can serve, and `vss-hermes-sync` marks the matching Skills inactive with the service they wanted.
 
 ```bash
 openshell sandbox exec -n hermes -- vss configure show
@@ -257,4 +257,4 @@ docker compose -f deploy/docker/services/openshell/compose.yml --profile openshe
 
 That keeps the `openshell-data` volume, and with it the gateway's record of every sandbox, its JWT signing key, and the key-encryption key that provider credentials are sealed with. Add `-v` only when you intend to discard all of it — every provider has to be created again afterwards.
 
-Then re-run the setup from [step 1](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-1-start-the-gateway). The harness image survives a teardown, so a rebuild is needed only when `HERMES_REF` changed, or when the VSS layer's Skills, CLI, or plugin did.
+Then re-run the setup from [step 1](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-1-start-the-gateway). The harness image survives a teardown, so a rebuild is needed only when `HERMES_REF` changed, or when the Skills, the CLI, or the plugin did.

@@ -395,10 +395,9 @@ Do not reimplement any of this.
 [`services/openshell/README.md`](../../../services/openshell/README.md#3-quickstart) §3 is the
 single source of host-side harness logic — CLI install, gateway, policy, image,
 provider, sandbox, skill activation — and §4 is the same steps with the
-reasoning. From the checkout root, run the Quickstart's steps 0–3, then
-[Optional — add VSS capabilities](../../../services/openshell/README.md#optional--add-vss-capabilities)
-steps 1–3 in place of the Quickstart's step 4, so the one sandbox is created on
-the VSS image and policy. This section says only what a *build* changes about
+reasoning. From the checkout root, run the Quickstart's steps 0–4, then
+[Point the sandbox at a VSS deployment](../../../services/openshell/README.md#point-the-sandbox-at-a-vss-deployment)
+against the build's origin. This section says only what a *build* changes about
 them.
 
 The commands source `openshell.env`, whose values replace any of the same name
@@ -440,7 +439,7 @@ REPO="$(git rev-parse --show-toplevel)"
 SRC="$REPO/_builds/<name>/harness-src"
 git -C "$REPO" fetch -q origin "$REF" && git -C "$REPO" worktree add -q --detach "$SRC" FETCH_HEAD
 VERSION="$(cd "$SRC/libs/vss/cli" && uvx --with hatch-vcs hatch version)"
-docker build -f "$SRC/services/openshell/vss/Dockerfile" \
+docker build -f "$SRC/.hermes/Dockerfile" \
   --build-arg HERMES_REF="$HERMES_REF" \
   --build-arg VSS_PACKAGE_VERSION="$VERSION" \
   -t "openshell-hermes-vss:${VERSION//+/-}-from-source" "$SRC"
@@ -465,11 +464,11 @@ further builds or manage the `_builds/` tree this run produced.
 The checks are in
 [`services/openshell/README.md`](../../../services/openshell/README.md#5-verification) §5 —
 prover, sandbox state and effective policy, the exposed route, an end-to-end
-agent turn, and the VSS layer's two: the CLI and its grant. Run them, then
-confirm the two things a build adds:
+agent turn, and the two that need a deployment: the CLI and its grant. Run
+them, then confirm the two things a build adds:
 
-1. **The build's own origin answers from inside the sandbox.** Step 3 of the
-   VSS capabilities section already runs `vss configure --base-url "$VSS_PUBLIC_URL"`; read
+1. **The build's own origin answers from inside the sandbox.** The Quickstart's
+   last step already runs `vss configure --base-url "$VSS_PUBLIC_URL"`; read
    what it prints. A partial deployment is normal, and the inactive skills name
    the service they wanted. A `403 CONNECT tunnel failed` is the egress policy
    (see [Prerequisites](#prerequisites)), not a deployment fault — the two have
@@ -515,6 +514,6 @@ bring-up starts both again.
 ## Sources
 
 - [`services/openshell/README.md`](../../../services/openshell/README.md) — the harness itself: architecture, Quickstart, steps, verification
-- [`deploy/docker/services/openshell/`](../../../deploy/docker/services/openshell/), [`.hermes/`](../../../.hermes/), [`services/openshell/vss/`](../../../services/openshell/vss/), [`services/openshell/providers/`](../../../services/openshell/providers/)
+- [`deploy/docker/services/openshell/`](../../../deploy/docker/services/openshell/), [`.hermes/`](../../../.hermes/), [`services/openshell/providers/`](../../../services/openshell/providers/)
 - `deploy/docker/services/ui/compose.yml`
 - `services/ui/DOCKER-README.md`

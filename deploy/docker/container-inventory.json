@@ -397,26 +397,15 @@
       "notes": "NemoClaw OpenClaw sandbox harness (VSS skills + vss CLI). Not a compose service: consumed by `nemoclaw onboard --from` on deploy hosts. Skills and the vss CLI come from this repo at the commit being built: CI passes VSS_REF=<commit sha> (the Dockerfile default is develop for local builds), and skills/ and libs/vss are in source_path, so a skill or CLI change rebuilds the image and moves its tree-<sha>."
     },
     {
-      "name": "openshell-hermes",
-      "strategy": "build",
-      "ghcr_build": true,
-      "source_path": [".hermes/Dockerfile", ".hermes/policy.yaml"],
-      "context": ".hermes",
-      "dockerfile": ".hermes/Dockerfile",
-      "platforms": ["linux/amd64", "linux/arm64"],
-      "compose_image_names": [],
-      "notes": "OpenShell Hermes sandbox harness: upstream Hermes built from its own public source on a standard Ubuntu base, with the matching access policy baked at /etc/openshell/policy.yaml. Carries no VSS content; openshell-hermes-vss is the same harness with VSS in it. Not a compose service: consumed by `openshell sandbox create --from`. Pinned by HERMES_REF rather than VSS_REF, so a skill or CLI change does not rebuild it and the image bakes no release line. source_path names the only two files the build reads, so a .hermes/plugin edit does not rebuild it."
-    },
-    {
       "name": "openshell-hermes-vss",
       "strategy": "build",
       "ghcr_build": true,
-      "source_path": ["services/openshell/vss", ".hermes/plugin", "skills", "libs/vss", ".openclaw/workspace"],
+      "source_path": [".hermes", "skills", "libs/vss", ".openclaw/workspace"],
       "context": ".",
-      "dockerfile": "services/openshell/vss/Dockerfile",
+      "dockerfile": ".hermes/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": [],
-      "notes": "OpenShell Hermes sandbox harness with VSS: the openshell-hermes build repeated end to end, plus the vss CLI, the operation skills, the vss_cli plugin, the workspace docs and the VSS policy. Not a compose service: consumed by `openshell sandbox create --from`. Bakes the release line through VSS_PACKAGE_VERSION, and skills/, libs/vss and .hermes/plugin are in source_path, so a skill, CLI or plugin change rebuilds it. .hermes/Dockerfile is not: its stages are repeated in this Dockerfile, which is in source_path."
+      "notes": "OpenShell Hermes sandbox harness: upstream Hermes built from its own public source on a standard Ubuntu base, plus the vss CLI, the operation skills, the vss_cli plugin and the workspace docs, with the matching access policy baked at /etc/openshell/policy.yaml. Not a compose service: consumed by `openshell sandbox create --from`. Hermes itself is pinned by HERMES_REF; the image bakes the release line through VSS_PACKAGE_VERSION, and skills/, libs/vss and .hermes are in source_path, so a skill, CLI or plugin change rebuilds it."
     },
     {
       "name": "vss-harness-openclaw-base",
