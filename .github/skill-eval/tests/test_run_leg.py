@@ -2703,12 +2703,15 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
             with mock.patch.object(run_leg, "hold_pool_lock", locked), \
                  mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove:
                 self.assertEqual(run_leg.cleanup_after_agent_exit(root), "not_claimed")
-                for value in ("Spark-ba-WiFi\tvios__DGX-SPARK\t122\n", "box/path\tvios__DGX-SPARK\t123\n"):  # pragma: allowlist secret (synthetic receipts)
+                for value in ("Spark-ba-WiFi\tvios__DGX-SPARK\t122\t1\n", "box/path\tvios__DGX-SPARK\t123\t1\n"):  # pragma: allowlist secret (synthetic receipts)
                     receipt.write_text(value)
                     with self.assertRaises(ValueError):
                         run_leg.cleanup_after_agent_exit(root)
                 remove.assert_not_called()
-                receipt.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\n")  # pragma: allowlist secret (synthetic receipt)
+                receipt.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\t2\n")  # pragma: allowlist secret (synthetic receipt)
+                self.assertEqual(run_leg.cleanup_after_agent_exit(root), "not_claimed")
+                remove.assert_not_called()
+                receipt.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\t1\n")  # pragma: allowlist secret (synthetic receipt)
                 self.assertEqual(run_leg.cleanup_after_agent_exit(root), "attempted")
                 remove.assert_called_once()
             with mock.patch.object(run_leg, "hold_pool_lock", side_effect=run_leg.LockTimeoutError("busy")), \
@@ -2717,7 +2720,7 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                 remove.assert_not_called()
             receipt.unlink()
             source = root / "source"
-            source.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\n")  # pragma: allowlist secret (synthetic receipt)
+            source.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\t1\n")  # pragma: allowlist secret (synthetic receipt)
             receipt.symlink_to(source)
             with self.assertRaises(ValueError):
                 run_leg.cleanup_after_agent_exit(root)
@@ -2726,6 +2729,7 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
     def test_opt_in_worker_cleanup_destroys_sandbox_and_resets_runtime(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {
             "EVAL_SLUG": "alerts__cv_mode_gate__L40S", "GITHUB_RUN_ID": "123",
+            "GITHUB_RUN_ATTEMPT": "2",
         }), mock.patch.object(run_leg, "harbor_env", return_value={}), \
              mock.patch.object(
                  run_leg.subprocess,
@@ -2737,12 +2741,53 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
             command = execute.call_args.args[0][-2]
             sandbox = run_leg.nemoclaw_sandbox_name("123", "alerts__cv_mode_gate__L40S")
             self.assertIn(f"nemoclaw {sandbox} destroy --yes --cleanup-gateway", command)
+            self.assertIn("--lookup-port", command)
+            self.assertIn('NEMOCLAW_GATEWAY_PORT="$gateway_port"', command)
+            subprocess.run(["bash", "-n", "-c", command], check=True)
             self.assertIn("docker rm -f", command)
             self.assertIn("docker volume rm -f", command)
             self.assertIn("sudo find", command)
             receipt = (root / "worker-cleanup.txt").read_text()
             self.assertIn("status=ok", receipt)
+            self.assertIn("attempt=2", receipt)
             self.assertIn(f"sandbox={sandbox}", receipt)
+
+    def test_new_worker_claim_invalidates_previous_cleanup_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {
+            "GITHUB_RUN_ATTEMPT": "3",
+        }):
+            root = Path(tmp)
+            (root / "worker-cleanup.txt").write_text("status=ok\nworker=old-box\n")
+            run_leg.record_machine(root, "new-box", "alerts__L40S", "123")
+            self.assertFalse((root / "worker-cleanup.txt").exists())
+            self.assertEqual((root / "machine.txt").read_text(), "new-box\talerts__L40S\t123\t3\n")
+
+    def test_fallback_skips_only_matching_cleanup_receipt(self):
+        @contextlib.contextmanager
+        def locked(*_args):
+            yield "new-box"
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {
+            "EVAL_SLUG": "alerts__L40S", "GITHUB_RUN_ID": "123",
+            "GITHUB_RUN_ATTEMPT": "3", run_leg.CLEAN_WORKER_AFTER_LEG_ENV: "true",
+        }):
+            root = Path(tmp)
+            sandbox = run_leg.nemoclaw_sandbox_name("123", "alerts__L40S")
+            (root / "machine.txt").write_text("new-box\talerts__L40S\t123\t3\n")
+            cleanup_receipt = root / "worker-cleanup.txt"
+            with mock.patch.object(run_leg, "hold_pool_lock", locked), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy"), \
+                 mock.patch.object(run_leg, "cleanup_worker_after_leg") as cleanup:
+                for worker, attempt in (("old-box", "3"), ("new-box", "2")):
+                    cleanup_receipt.write_text(
+                        f"status=ok\nworker={worker}\nattempt={attempt}\nsandbox={sandbox}\n"
+                    )
+                    self.assertEqual(run_leg.cleanup_after_agent_exit(root), "attempted")
+                self.assertEqual(cleanup.call_count, 2)
+                cleanup_receipt.write_text(
+                    f"status=ok\nworker=new-box\nattempt=3\nsandbox={sandbox}\n"
+                )
+                self.assertEqual(run_leg.cleanup_after_agent_exit(root), "attempted")
+                self.assertEqual(cleanup.call_count, 2)
 
     def test_cancelled_workflow_stops_only_its_recorded_wrapper_then_locks_worker(self):
         if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
@@ -2766,7 +2811,7 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                 self.assertEqual(proc.stdout.readline().strip(), "ready")
                 root = repo / "results"
                 root.mkdir()
-                (root / "machine.txt").write_text("box-a\tleg-a\t123\n")
+                (root / "machine.txt").write_text("box-a\tleg-a\t123\t2\n")
                 with mock.patch.dict(os.environ, env), mock.patch.object(run_leg, "REPO_ROOT", repo):
                     run_leg._record_wrapper_owner(root, "box-a", "leg-a", "123")
                     owner = root / "wrapper-owner.json"

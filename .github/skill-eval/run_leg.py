@@ -1513,7 +1513,7 @@ def write_skip_markers(
 def record_machine(
     results_root: Path, instance: str, leg_slug: str, run_id: str
 ) -> None:
-    """Persist the (machine, run, leg) triple the moment the box is claimed.
+    """Persist the (machine, run, leg, attempt) claim before Harbor starts.
 
     This is the only point in the pipeline where all three coexist, and
     ``run_leg.py`` runs as a Bash *tool call* inside the outer agent session —
@@ -1540,12 +1540,16 @@ def record_machine(
             pass
 
     _say(f"[run-leg] machine: {instance} leg={leg_slug} run={run_id}")
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
     # Broad excepts + explicit utf-8: a non-UTF-8 runner locale would otherwise
     # raise UnicodeEncodeError (not an OSError) and fail the leg. Nothing here
     # may propagate.
     try:
+        # A new trial on this worker must never inherit a previous successful
+        # cleanup receipt, even within the same GitHub run attempt.
+        (results_root / "worker-cleanup.txt").unlink(missing_ok=True)
         (results_root / "machine.txt").write_text(
-            f"{instance}\t{leg_slug}\t{run_id}\n", encoding="utf-8"
+            f"{instance}\t{leg_slug}\t{run_id}\t{attempt}\n", encoding="utf-8"
         )
     except Exception as exc:  # noqa: BLE001
         _say(f"[run-leg] machine.txt write failed: {exc!r}")
@@ -1772,6 +1776,10 @@ def cleanup_worker_after_leg(instance: str, results_root: Path, *, timeout_sec: 
     slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
     run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
     sandbox = nemoclaw_sandbox_name(run_id, slug)
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    owner = hashlib.sha256(f"{run_id}:{slug}".encode()).hexdigest()
+    gateway_script = (REPO_ROOT / ".github/skill-eval/nemoclaw/gateway_state.py").read_text()
+    lookup_command = "python3 -c " + shlex.quote(gateway_script) + " " + shlex.join([owner, "--lookup-port"])
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", sandbox):
         raise ValueError("invalid derived NemoClaw sandbox name")
     sandbox_re = re.escape(sandbox)
@@ -1782,7 +1790,10 @@ if command -v openshell >/dev/null 2>&1 && openshell sandbox get {shlex.quote(sa
   if ! command -v nemoclaw >/dev/null 2>&1; then
     echo "nemoclaw CLI missing while sandbox still exists" >&2
     cleanup_failed=1
-  elif ! nemoclaw {shlex.quote(sandbox)} destroy --yes --cleanup-gateway; then
+  elif ! gateway_port=$({lookup_command}); then
+    echo "owned NemoClaw gateway port unavailable for {sandbox}" >&2
+    cleanup_failed=1
+  elif ! NEMOCLAW_GATEWAY_PORT="$gateway_port" nemoclaw {shlex.quote(sandbox)} destroy --yes --cleanup-gateway; then
     echo "failed to destroy NemoClaw sandbox {sandbox}" >&2
     cleanup_failed=1
   fi
@@ -1843,7 +1854,7 @@ echo "worker cleanup OK: sandbox absent; docker runtime empty; host trial data p
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
                 stream.write(
-                    f"status={status}\nworker={instance}\nsandbox={sandbox}\n{detail}\n"
+                    f"status={status}\nworker={instance}\nattempt={attempt}\nsandbox={sandbox}\n{detail}\n"
                 )
             os.replace(name, results_root / "worker-cleanup.txt")
         finally:
@@ -1939,8 +1950,11 @@ def cleanup_after_agent_exit(results_root: Path, *, lock_dir: Path = Path("/tmp/
     if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_size > 4096:
         raise ValueError("invalid cleanup worker receipt")
     fields = receipt.read_text().strip().split("\t")
-    if len(fields) != 3 or fields[1:] != [slug, run_id] or not slug or not run_id:
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    if len(fields) != 4 or fields[1:3] != [slug, run_id] or not slug or not run_id:
         raise ValueError("cleanup worker receipt does not match this leg")
+    if fields[3] != attempt:
+        return "not_claimed"
     instance = fields[0]
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", instance):
         raise ValueError("invalid cleanup worker name")
@@ -1957,7 +1971,10 @@ def cleanup_after_agent_exit(results_root: Path, *, lock_dir: Path = Path("/tmp/
                     cleanup_receipt.is_file()
                     and not cleanup_receipt.is_symlink()
                     and cleanup_receipt.stat().st_size <= 4096
-                    and cleanup_receipt.read_text(encoding="utf-8").startswith("status=ok\n")
+                    and cleanup_receipt.read_text(encoding="utf-8").splitlines()[:4] == [
+                        "status=ok", f"worker={instance}", f"attempt={attempt}",
+                        f"sandbox={nemoclaw_sandbox_name(run_id, slug)}",
+                    ]
                 )
                 if not already_clean:
                     cleanup_worker_after_leg(instance, results_root)
