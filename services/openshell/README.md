@@ -267,8 +267,7 @@ openshell sandbox create \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'trust-supervisor-ca
-            E=/sandbox/.hermes/.env
+  -- sh -c 'E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
               printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
@@ -355,8 +354,7 @@ openshell sandbox create \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'trust-supervisor-ca
-            E=/sandbox/.hermes/.env
+  -- sh -c 'E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
               printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
@@ -423,8 +421,7 @@ openshell sandbox create \
   --env HARNESS_MODEL="$HARNESS_MODEL" \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'trust-supervisor-ca
-            E=/sandbox/.hermes/.env
+  -- sh -c 'E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
               printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
@@ -879,8 +876,7 @@ openshell sandbox create \
   --env HARNESS_MODEL=aws/anthropic/bedrock-claude-opus-5 \
   --restart-policy on-failure \
   --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
-  -- sh -c 'trust-supervisor-ca
-            E=/sandbox/.hermes/.env
+  -- sh -c 'E=/sandbox/.hermes/.env
             grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
               K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
               printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
@@ -911,14 +907,12 @@ it.
 **The command after `--` prepares the sandbox, then becomes the harness.** In
 order:
 
-1. `trust-supervisor-ca` — the CA it adds to the trust store is mounted only
-   once the sandbox exists.
-2. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode
+1. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode
    640 rather than the environment — a file the image deliberately ships
    without, so the key is per sandbox.
-3. `exec hermes gateway run` — the harness itself, not a start script.
+2. `exec hermes gateway run` — the harness itself, not a start script.
 
-Neither of the first two can move into the image: a root PID 1 is what the
+The key mint cannot move into the image: a root PID 1 is what the
 gateway's policy validation refuses. The `exec` is what makes Hermes the
 sandbox's canonical main process, whose output OpenShell streams and whose exit
 status it returns, so a dead agent surfaces as `Error` with `MainProcessFailed`

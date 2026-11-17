@@ -43,13 +43,14 @@ stage installs no compiler, no node and no network client beyond `git`, so
 there is nothing to strip afterwards. Every build happens in an earlier stage
 and only its output is copied.
 
-Two things the image leaves to the sandbox's start command, both because the
-values are not known at build time:
+The image needs no CA setup. OpenShell points `SSL_CERT_FILE`,
+`REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` at its own bundle
+of the public roots plus the supervisor CA, for the workload and every `exec`
+process, overriding whatever the image set.
 
-- **CA bundle.** `trust-supervisor-ca` writes certifi's public roots and the
-  supervisor's mounted CA together to `SSL_CERT_FILE` under `/sandbox`.
-  certifi's own bundle cannot take the append: it is root-owned under `/opt`,
-  which the policy mounts read-only.
+One thing the image leaves to the sandbox's start command, because the values
+are not known at build time:
+
 - **Inference target.** `config.yaml` carries the endpoint, model and key as
   `${env:HARNESS_BASE_URL}`, `${env:HARNESS_MODEL}` and
   `${env:HARNESS_API_KEY}`; Hermes expands all three from the sandbox

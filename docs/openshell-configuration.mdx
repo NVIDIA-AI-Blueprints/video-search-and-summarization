@@ -181,13 +181,12 @@ Precedence at create is `--policy` > `OPENSHELL_SANDBOX_POLICY` > the image's ba
 
 The command after `--` in `openshell sandbox create` prepares the sandbox and then becomes the harness. In order:
 
-1. `trust-supervisor-ca` — the CA it adds to the trust store is mounted only once the sandbox exists.
-2. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode 640 rather than into the environment — a file the image deliberately ships without, so the key is per sandbox.
-3. `exec hermes gateway run` — the harness itself, not a start script.
+1. The key mint writes `API_SERVER_KEY` into `/sandbox/.hermes/.env` at mode 640 rather than into the environment — a file the image deliberately ships without, so the key is per sandbox.
+2. `exec hermes gateway run` — the harness itself, not a start script.
 
 The `--env` values need no rendering into `config.yaml`: the image carries the endpoint, model, and key as `${env:}` references, which Hermes expands from the sandbox environment on every path, the API server included. `HARNESS_API_KEY` holds the `openshell:resolve:env:` placeholder rather than a key, so expanding that reference is what puts the placeholder in the bearer for the supervisor to swap at egress. A bearer carrying anything else is passed through untouched.
 
-Neither of the first two can move into the image: a root PID 1 is what the gateway's policy validation refuses. The `exec` is what makes Hermes the sandbox's canonical main process, whose output OpenShell streams and whose exit status it returns, so a dead agent surfaces as `Error` with `MainProcessFailed` instead of a healthy-looking container.
+The key mint cannot move into the image: a root PID 1 is what the gateway's policy validation refuses. The `exec` is what makes Hermes the sandbox's canonical main process, whose output OpenShell streams and whose exit status it returns, so a dead agent surfaces as `Error` with `MainProcessFailed` instead of a healthy-looking container.
 
 Two flags on the create are load-bearing:
 
