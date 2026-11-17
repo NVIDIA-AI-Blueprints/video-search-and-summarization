@@ -20,6 +20,46 @@ Dashboard JSON is written below `perf-results/vss-perf-results/`; native
 reports are kept below `perf-results/native/`. See
 `benchmark/PERF_GUIDE.RTVI_VLM.md` for scenario and tuning guidance.
 
+## Hardware profiles
+
+`configs/perf-configs.yaml` declares six enabled, single-GPU configurations.
+An optional `benchmarkConfig` selects a profile relative to this `perf/` directory;
+rows without it retain `configs/config.yaml`.
+
+| Hardware | Image variant | Benchmark profile (`perf/` relative) | Model preset |
+|---|---|---|---|
+| RTXPRO6000BW-SE | amd64 | `configs/config.yaml` | cr3-super-reasoner-nvfp4 |
+| H100-SXM | amd64 | `benchmark/rtvi_vlm_bcd_3_3_h100_sxm_config.yaml` | cr3-super-reasoner-fp8 |
+| RTXPRO4500BW | amd64 | `benchmark/rtvi_vlm_bcd_3_3_rtx_pro_4500_config.yaml` | cr3-nano-reasoner-nvfp4 |
+| DGX-SPARK | arm64-sbsa | `benchmark/rtvi_vlm_bcd_3_3_dgx_spark_config.yaml` | cr3-nano-reasoner-nvfp4 |
+| IGX-T7000 (IGX-THOR platform) | arm64-sbsa | `benchmark/rtvi_vlm_bcd_3_3_agx_thor_t5000_config.yaml` | cr3-nano-reasoner-nvfp4 |
+| GB300 | arm64-sbsa | `benchmark/rtvi_vlm_bcd_3_3_gb300_config.yaml` | cr3-super-reasoner-nvfp4 |
+
+All selections use BCD 3.3 workloads. The AGX Thor T5000 profile is the
+owner-approved initial workload for IGX-T7000; it is not a claim of measured IGX
+capacity. Preserve the selected profile's search seeds, model and workload values.
+
+For a local run, select the matching profile explicitly with `--config` and use
+its configuration ID. For example, on Spark after setting the variables above:
+
+```bash
+./perf/scripts/run_benchmark.sh \
+  --config perf/benchmark/rtvi_vlm_bcd_3_3_dgx_spark_config.yaml \
+  --compose-file perf/setup/compose/compose.perf.yaml \
+  --scenario e2e_latency_1_token_2k --config-id rtvi-vlm-dgx-spark-1gpu \
+  --vlm-gpus 0 --output-json perf-results/spark
+```
+
+Choose a service image compatible with the target architecture and model. The
+configured image variant does not rewrite an explicit image reference or prove
+runtime compatibility. New targets require native deployment and measurement
+validation; the existing benchmark algorithms and supporting image tags are unchanged.
+Select an existing scenario from the chosen profile before running its full suite.
+
+Reports retain the selected profile, model, GPU assignment and configuration ID in
+`metadata.config`, alongside the native measurements and test outcomes. No new
+Python dependency is needed for hardware selection.
+
 ## Supporting container images
 
 Edit `setup/configs/images.yaml` to select this benchmark's supporting images.

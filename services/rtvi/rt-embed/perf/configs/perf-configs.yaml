@@ -1,5 +1,6 @@
 perf_configs:
-  - id: rtvi-embed-rtxpro6000bw-se-1gpu
+  - &rtvi_embed_baseline
+    id: rtvi-embed-rtxpro6000bw-se-1gpu
     nodeLabel: RTXPRO6000BW-SE
     imageArch: amd64
     enabled: true
@@ -11,3 +12,32 @@ perf_configs:
     vision_input_tokens: "unused"
     checkoutPaths:
       - libs/vss-perf-tools/
+
+# Profile paths are relative to this perf directory. All rows use one GPU.
+  - <<: *rtvi_embed_baseline
+    id: rtvi-embed-h100-sxm-1gpu
+    nodeLabel: H100-SXM
+    imageArch: amd64
+
+  - <<: *rtvi_embed_baseline
+    id: rtvi-embed-rtxpro4500bw-1gpu
+    nodeLabel: RTXPRO4500BW
+    imageArch: amd64
+
+  - <<: *rtvi_embed_baseline
+    id: rtvi-embed-dgx-spark-1gpu
+    nodeLabel: DGX-SPARK
+    imageArch: arm64-sbsa
+    benchmarkConfig: benchmark/rtvi_embed_bcd_3_2_thor_config.yaml
+
+  # Jenkins allocates IGX-T7000; IGX-THOR remains the report/config platform.
+  - <<: *rtvi_embed_baseline
+    id: rtvi-embed-igx-thor-1gpu
+    nodeLabel: IGX-THOR
+    imageArch: arm64-sbsa
+    benchmarkConfig: benchmark/rtvi_embed_bcd_3_2_thor_config.yaml
+
+  - <<: *rtvi_embed_baseline
+    id: rtvi-embed-gb300-1gpu
+    nodeLabel: GB300
+    imageArch: arm64-sbsa

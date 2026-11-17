@@ -22,6 +22,46 @@ Dashboard JSON is written below `perf-results/vss-perf-results/`; native
 reports are kept below `perf-results/native/`. See
 `benchmark/PERF_GUIDE.RTVI_EMBED.md` for scenario and tuning guidance.
 
+## Hardware profiles
+
+`configs/perf-configs.yaml` declares six enabled, single-GPU configurations.
+An optional `benchmarkConfig` selects a profile relative to this `perf/` directory;
+rows without it retain `configs/config.yaml`.
+
+| Hardware | Image variant | Benchmark profile (`perf/` relative) |
+|---|---|---|
+| RTXPRO6000BW-SE | amd64 | `configs/config.yaml` |
+| H100-SXM | amd64 | `configs/config.yaml` |
+| RTXPRO4500BW | amd64 | `configs/config.yaml` |
+| DGX-SPARK | arm64-sbsa | `benchmark/rtvi_embed_bcd_3_2_thor_config.yaml` |
+| IGX-T7000 (IGX-THOR platform) | arm64-sbsa | `benchmark/rtvi_embed_bcd_3_2_thor_config.yaml` |
+| GB300 | arm64-sbsa | `configs/config.yaml` |
+
+Spark and IGX use the source Thor/DGX workload, including its smaller non-streaming
+and text concurrency sweep. GB300 retains the existing standard workload. These
+are the existing Embed configurations; VLM's BCD 3.3 version does not apply here.
+
+For a local run, select the matching profile explicitly with `--config` and use
+its configuration ID. For example, on Spark after setting the variables above:
+
+```bash
+./perf/scripts/run_benchmark.sh \
+  --config perf/benchmark/rtvi_embed_bcd_3_2_thor_config.yaml \
+  --compose-file perf/setup/compose/compose.perf.yaml \
+  --scenario warmup_test --config-id rtvi-embed-dgx-spark-1gpu \
+  --vlm-gpus 0 --output-json perf-results/spark
+```
+
+Choose a service image compatible with the target architecture and model. The
+configured image variant does not rewrite an explicit image reference or prove
+runtime compatibility. New targets require native deployment and measurement
+validation; the existing benchmark algorithms and supporting image tags are unchanged.
+Select an existing scenario from the chosen profile before running its full suite.
+
+Reports retain the selected profile, model, GPU assignment and configuration ID in
+`metadata.config`, alongside the native measurements and test outcomes. No new
+Python dependency is needed for hardware selection.
+
 ## Supporting container images
 
 Edit `setup/configs/images.yaml` to select this benchmark's supporting images.

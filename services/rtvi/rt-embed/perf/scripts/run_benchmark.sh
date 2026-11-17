@@ -114,7 +114,7 @@ fi
 
 "$PERF_VENV_DIR/bin/python" "$PERF_ROOT/scripts/finalize_result_metadata.py" \
     --results "$output/vss-perf-results" --triggered-by "$triggered_by" \
-    --pipeline-url "$pipeline_url"
+    --pipeline-url "$pipeline_url" --config "$runtime_config" --profile "$config"
 
 if [[ "$benchmark_status" -eq 3 ]]; then
     echo "[PERF] Evaluation completed with failed test case(s); canonical report published as FAIL/PARTIAL."
