@@ -117,8 +117,8 @@ RUN mkdir -p /opt/vss-assets/wheels \
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
 # The toolchain purge is by construction rather than by removal: this stage
-# installs no compiler, no network client and no node, so there is nothing to
-# strip afterwards. Every build happens in a stage above and only its output
+# installs no compiler, no node and no network client beyond git, so there is
+# nothing to strip afterwards. Every build happens in a stage above and only its output
 # is copied; uv is the one exception, removed once the vss venv exists.
 FROM ${BASE_IMAGE} AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \

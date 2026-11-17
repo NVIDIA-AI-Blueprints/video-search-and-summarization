@@ -6,9 +6,9 @@ SPDX-License-Identifier: Apache-2.0
 # Hermes harness
 
 The Hermes agent harness and the access boundary it runs under. Each harness
-owns a top-level directory (`.openclaw/`, `.hermes/`); the `SKILL.md` tree at
-the repo root (`skills/`) stays harness-neutral, and each directory packages it
-the way that harness loads skills.
+owns a top-level directory (`.openclaw/`, `.hermes/`). This one packages no
+skills: the harness-neutral `skills/` tree reaches a Hermes sandbox through
+[`../services/openshell/vss/`](../services/openshell/vss/).
 
 | Path | What it is |
 |---|---|

@@ -77,8 +77,8 @@ RUN rm -rf /opt/hermes/.git /opt/hermes/tests /opt/hermes/tests-js /opt/hermes/e
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
 # The toolchain purge is by construction rather than by removal: this stage
-# installs no compiler, no network client and no node, so there is nothing to
-# strip afterwards. Every build happens in a stage above and only its output
+# installs no compiler, no node and no network client beyond git, so there is
+# nothing to strip afterwards. Every build happens in a stage above and only its output
 # is copied.
 FROM ${BASE_IMAGE} AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \

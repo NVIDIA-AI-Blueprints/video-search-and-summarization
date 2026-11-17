@@ -216,10 +216,10 @@ The authentication posture is upstream's opt-out, `allow_unauthenticated_users =
 
 ## Adding a second harness
 
-The work is per-harness, so a second harness is a parallel set of the same artifacts — no new code path, because OpenShell has no harness concept to teach. For a harness in `services/openshell/<name>/`:
+The work is per-harness, so a second harness is a parallel set of the same artifacts — no new code path, because OpenShell has no harness concept to teach. For a harness in its own top-level directory, `.<name>/`:
 
-* **`<name>/Dockerfile`** builds its image, with its own config and its policy baked in at `/etc/openshell/policy.yaml`.
-* **`<name>/policy.yaml`**, proven against **`<name>/boundary.yaml`**. `binaries` name the interpreter the harness actually runs under — `/usr/local/bin/node` for a Node harness — the endpoints add the hosts the harness itself calls, and `process` takes the `sandbox` UID and GID of its image.
+* **`.<name>/Dockerfile`** builds its image, with its own config and its policy baked in at `/etc/openshell/policy.yaml`.
+* **`.<name>/policy.yaml`**, proven against **`.<name>/boundary.yaml`**. `binaries` name the interpreter the harness actually runs under — `/usr/local/bin/node` for a Node harness — the endpoints add the hosts the harness itself calls, and `process` takes the `sandbox` UID and GID of its image.
 * **A provider profile** whose `binaries` name that same interpreter, since the shipped profiles list only `/usr/bin/python3.13`. Its endpoints are merged in at create, outside the proof.
 * **The create**, with `--from` its image, `--policy` its file, `--expose` the port its API listens on, and its own serve command after `--`.
 

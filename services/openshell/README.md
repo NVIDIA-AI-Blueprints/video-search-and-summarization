@@ -1016,11 +1016,11 @@ streams the reply back as `message.delta` events.
 
 The work above is per-harness, so a second harness is a parallel set of the
 same artifacts — no new code path, because OpenShell has no harness concept to
-teach. For a harness in `services/openshell/<name>/`:
+teach. For a harness in its own top-level directory, `.<name>/`:
 
-- **`<name>/Dockerfile`** builds its image, with its own config and its policy
+- **`.<name>/Dockerfile`** builds its image, with its own config and its policy
   baked in at `/etc/openshell/policy.yaml`, as step 2 does for Hermes.
-- **`<name>/policy.yaml`**, proven against **`<name>/boundary.yaml`** the same
+- **`.<name>/policy.yaml`**, proven against **`.<name>/boundary.yaml`** the same
   way. `binaries` name the interpreter the harness actually runs under —
   `/usr/local/bin/node` for a Node harness — the endpoints add the hosts the
   harness itself calls, and `process` takes the `sandbox` UID and GID of its
