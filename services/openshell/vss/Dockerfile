@@ -193,6 +193,10 @@ RUN set -eux; \
 RUN mkdir -p /etc/openshell && chmod 0755 /etc/openshell
 COPY --chmod=0644 services/openshell/vss/policy.yaml /etc/openshell/policy.yaml
 
+# Harbor trial paths, as in ../../../.hermes/Dockerfile — this image repeats its
+# stages rather than building FROM it, so the directories are made again here.
+RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
+
 # ── VLM request defaults for `vss vlm run` ────────────────────────────────────
 # Runtime variables, declared empty: the CLI reads empty as unset, so the VLM
 # server's own behavior applies until a sandbox sets one. Names and meanings:

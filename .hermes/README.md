@@ -115,6 +115,13 @@ serves the OpenClaw plugin and host tooling.
 `CMD sleep infinity` so an exec-driven sandbox stays up, final `USER sandbox`
 and `WORKDIR /sandbox`. `LABEL harness.agent=hermes`.
 
+`LABEL harness.contract=harbor-trial-v1`: Harbor and its agent adapters address
+`/task /output /logs /tests /solution` by name, and both images pre-create them
+as real, world-writable directories. They cannot be symlinks into the
+workspace: OpenShell chowns every `read_write` policy path at sandbox start and
+refuses a symlink. The eval harness moves files in and out with exec + tar, so
+they do not need to live in the workspace.
+
 `vss vlm run` request defaults are runtime variables the VSS layer declares:
 every `VSS_VLM_*` setting (`VSS_VLM_BACKEND`, `VSS_VLM_MODEL`, `VSS_VLM_FPS`,
 `VSS_VLM_MAX_FRAMES`, `VSS_VLM_TOTAL_PIXELS`, …; full list in

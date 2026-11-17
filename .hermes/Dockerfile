@@ -112,6 +112,12 @@ RUN su sandbox -s /bin/sh -c 'set -e; cd /sandbox; H=/opt/hermes/.venv/bin/herme
 RUN mkdir -p /etc/openshell && chmod 0755 /etc/openshell
 COPY --chmod=0644 policy.yaml /etc/openshell/policy.yaml
 
+# Harbor trial paths, which Harbor and its agent adapters address by name. Real
+# directories, not symlinks into /sandbox: OpenShell chowns every read_write
+# policy path at sandbox start and refuses a symlink. World-writable so the
+# harness can populate them as the sandbox user.
+RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
+
 USER sandbox
 WORKDIR /sandbox
 CMD ["sleep", "infinity"]
