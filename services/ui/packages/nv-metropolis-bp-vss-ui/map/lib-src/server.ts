@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import { env } from 'next-runtime-env';
+import { vstApiV1Base } from './common/env';
 import { MAP_TAB_APP_TRAFFIC_LIGHT, MAP_TAB_APP_WAREHOUSE } from './mapTabAppConstants';
 
 const read = (key: string) => env(key) || process?.env?.[key];
@@ -14,11 +15,8 @@ export async function fetchWarehouseAnalyticsData() {
   return {
     systemStatus: 'operational',
     mapTabApp: MAP_TAB_APP_WAREHOUSE,
-    apiUrl:
-      read('NEXT_PUBLIC_WAREHOUSE_ANALYTICS_API_URL') ||
-      read('NEXT_PUBLIC_MDX_WEB_API_URL') ||
-      null,
-    mediaStreamingUrl: read('NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_URL') || null,
+    apiUrl: read('NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL') || null,
+    mediaStreamingUrl: vstApiV1Base(read('NEXT_PUBLIC_VIOS_API_URL')) || null,
     googleMapsApiKey: read('NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') || null,
     uiConfigUrl:
       read('NEXT_PUBLIC_WAREHOUSE_UI_CONFIG_URL') ||
@@ -32,11 +30,8 @@ export async function fetchTrafficLightData() {
   return {
     systemStatus: 'operational',
     mapTabApp: MAP_TAB_APP_TRAFFIC_LIGHT,
-    apiUrl:
-      read('NEXT_PUBLIC_WAREHOUSE_ANALYTICS_API_URL') ||
-      read('NEXT_PUBLIC_MDX_WEB_API_URL') ||
-      null,
-    mediaStreamingUrl: read('NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_URL') || null,
+    apiUrl: read('NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL') || null,
+    mediaStreamingUrl: vstApiV1Base(read('NEXT_PUBLIC_VIOS_API_URL')) || null,
     googleMapsApiKey: read('NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') || null,
     uiConfigUrl:
       read('NEXT_PUBLIC_TRAFFIC_LIGHT_UI_CONFIG_URL') ||

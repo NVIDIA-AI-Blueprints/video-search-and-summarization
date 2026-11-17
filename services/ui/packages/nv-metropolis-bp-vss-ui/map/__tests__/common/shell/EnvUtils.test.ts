@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { getEnv, isDevelopment, isProduction, isObtainDynamicServiceUrls } from '../../../lib-src/common/shell/js/EnvUtils';
+import { getEnv, isDevelopment, isProduction, isObtainDynamicServiceUrls, vstApiV1Base } from '../../../lib-src/common/shell/js/EnvUtils';
 
 describe('getEnv', () => {
   afterEach(() => {
@@ -31,6 +31,30 @@ describe('getEnv', () => {
     window.__ENV = { TEST_VAR: 'runtime' };
     process.env.TEST_VAR = 'buildtime';
     expect(getEnv('TEST_VAR')).toBe('runtime');
+  });
+
+  it('reads the Agent UI video analytics URL as the API base', () => {
+    window.__ENV = {
+      NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL: 'http://host:7777/video-analytics-api',
+    };
+    expect(getEnv('REACT_APP_API_URL_BASE')).toBe('http://host:7777/video-analytics-api');
+  });
+
+  it('reads the Agent UI VIOS URL as the media streaming base', () => {
+    window.__ENV = {
+      NEXT_PUBLIC_VIOS_API_URL: 'http://host:7777/vst/api',
+    };
+    expect(getEnv('REACT_APP_MEDIA_STREAMING_URL_BASE')).toBe('http://host:7777/vst/api');
+  });
+});
+
+describe('vstApiV1Base', () => {
+  it('appends /v1 to the VIOS root', () => {
+    expect(vstApiV1Base('http://host:7777/vst/api')).toBe('http://host:7777/vst/api/v1');
+  });
+
+  it('leaves a base that already includes a version', () => {
+    expect(vstApiV1Base('http://host:7777/vst/api/v1/')).toBe('http://host:7777/vst/api/v1');
   });
 });
 

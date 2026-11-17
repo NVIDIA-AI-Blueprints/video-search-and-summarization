@@ -6,4 +6,5 @@ export {
   isProduction,
   isObtainDynamicServiceUrls,
   stripTrailingSlash,
+  vstApiV1Base,
 } from '../../env';

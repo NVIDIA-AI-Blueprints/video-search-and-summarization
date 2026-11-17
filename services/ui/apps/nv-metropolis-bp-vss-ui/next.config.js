@@ -11,8 +11,7 @@ const { i18n } = require('./next-i18next.config');
  */
 function vstDevRewrites() {
   const raw = (
-    process.env.NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_URL ||
-    process.env.NEXT_PUBLIC_VST_API_URL ||
+    process.env.NEXT_PUBLIC_VIOS_API_URL ||
     ''
   ).trim();
   if (!raw) return [];

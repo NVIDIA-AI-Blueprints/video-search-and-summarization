@@ -39,4 +39,19 @@ describe('fetchMapData', () => {
     expect(data.mapTabApp).toBe('traffic-light');
     expect(data.uiConfigUrl).toBe('/traffic-light/default-ui-config.json');
   });
+
+  it('uses the Agent UI video analytics URL when no warehouse override is set', async () => {
+    envStore.NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL = 'http://host:7777/video-analytics-api';
+    const { fetchMapData } = await import('../lib-src/server');
+    const data = await fetchMapData();
+    expect(data.apiUrl).toBe('http://host:7777/video-analytics-api');
+  });
+
+  it('builds the media streaming URL from the VIOS root', async () => {
+    envStore.NEXT_PUBLIC_MAP_TAB_APP = 'traffic-light';
+    envStore.NEXT_PUBLIC_VIOS_API_URL = 'http://host:7777/vst/api';
+    const { fetchMapData } = await import('../lib-src/server');
+    const data = await fetchMapData();
+    expect(data.mediaStreamingUrl).toBe('http://host:7777/vst/api/v1');
+  });
 });

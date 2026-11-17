@@ -9,19 +9,17 @@
 
 const ALIASES: Record<string, string[]> = {
   REACT_APP_API_URL_BASE: [
-    'NEXT_PUBLIC_WAREHOUSE_ANALYTICS_API_URL',
-    'NEXT_PUBLIC_MDX_WEB_API_URL',
+    'NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL',
     'REACT_APP_API_URL_BASE',
     'REACT_APP_API_URL',
   ],
   REACT_APP_API_URL: [
-    'NEXT_PUBLIC_WAREHOUSE_ANALYTICS_API_URL',
-    'NEXT_PUBLIC_MDX_WEB_API_URL',
+    'NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL',
     'REACT_APP_API_URL_BASE',
     'REACT_APP_API_URL',
   ],
   REACT_APP_MEDIA_STREAMING_URL_BASE: [
-    'NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_URL',
+    'NEXT_PUBLIC_VIOS_API_URL',
     'REACT_APP_MEDIA_STREAMING_URL_BASE',
   ],
   REACT_APP_GOOGLE_MAPS_API_KEY: [
@@ -84,4 +82,16 @@ export function isObtainDynamicServiceUrls(): boolean {
 
 export function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
+}
+
+/**
+ * `NEXT_PUBLIC_VIOS_API_URL` is the VST root (`…/vst/api`). Map playback
+ * calls `/sensor/list` and `/replay/stream` on that root, which live under `/v1`.
+ */
+export function vstApiV1Base(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const trimmed = url.trim().replace(/\/+$/, '');
+  if (!trimmed) return undefined;
+  if (/\/v\d+$/i.test(trimmed)) return trimmed;
+  return `${trimmed}/v1`;
 }

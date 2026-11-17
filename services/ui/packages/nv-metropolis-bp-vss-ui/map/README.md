@@ -24,8 +24,8 @@ function App() {
     <MapComponent
       theme="light"
       mapData={{
-        apiUrl: process.env.NEXT_PUBLIC_WAREHOUSE_ANALYTICS_API_URL,
-        mediaStreamingUrl: process.env.NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_URL,
+        apiUrl: process.env.NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL,
+        mediaStreamingUrl: process.env.NEXT_PUBLIC_VIOS_API_URL,
         googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
       }}
     />
@@ -37,8 +37,8 @@ function App() {
 
 - `NEXT_PUBLIC_ENABLE_MAP_TAB` — show the Map tab
 - `NEXT_PUBLIC_MAP_TAB_APP` — `warehouse` (default) or `traffic-light`
-- `NEXT_PUBLIC_WAREHOUSE_ANALYTICS_API_URL` — video analytics API origin
-- `NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_URL` — VST streaming API origin
+- `NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL` — video analytics API origin, the same variable the rest of the Agent UI uses
+- `NEXT_PUBLIC_VIOS_API_URL` — VST API root (`…/vst/api`), the same variable the rest of the Agent UI uses. Playback calls are under `/v1`.
 - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` — Maps JavaScript API key
 - `NEXT_PUBLIC_WAREHOUSE_UI_CONFIG_URL` — optional override for the warehouse UI config JSON (default `/warehouse-analytics/default-ui-config.json`)
 - `NEXT_PUBLIC_TRAFFIC_LIGHT_UI_CONFIG_URL` — optional override for the traffic-light UI config JSON (default `/traffic-light/default-ui-config.json`)

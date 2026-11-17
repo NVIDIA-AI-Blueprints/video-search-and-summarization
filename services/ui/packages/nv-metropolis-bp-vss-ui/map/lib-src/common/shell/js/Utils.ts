@@ -3,12 +3,12 @@
 // @ts-nocheck
 import { GetSensorAttr } from "../../utils/Utils";
 import { ProdBaseBackendUrl } from "./UrlConstants";
-import { getEnv, isProduction, isObtainDynamicServiceUrls } from "./EnvUtils";
+import { getEnv, isProduction, isObtainDynamicServiceUrls, vstApiV1Base } from "./EnvUtils";
 
 const Utils = {
   getMediaServiceBaseUrl: (sensorConfig) => {
     if (!(isProduction() && isObtainDynamicServiceUrls())) {
-      return getEnv("REACT_APP_MEDIA_STREAMING_URL_BASE");
+      return vstApiV1Base(getEnv("REACT_APP_MEDIA_STREAMING_URL_BASE"));
     }
 
     // Production mode with requirement to obtain dynamic service URLs. Use Ingress Path
