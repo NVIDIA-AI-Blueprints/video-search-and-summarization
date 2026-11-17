@@ -5,14 +5,17 @@
 # Stage the local checkout's harness inputs into a harness build context.
 #
 # NemoClaw's `onboard --from <Dockerfile>` fixes the Docker build context to
-# the Dockerfile's parent directory, so .openclaw/ and .hermes/ cannot COPY
-# from the repo root; their Dockerfiles fetch one pinned commit (VSS_REF)
-# instead. That stays the shipping path — reproducible, provenance-carrying —
-# but a local skill or CLI edit cannot reach the image until it is pushed and
-# the pin moves. This tool is the dev-loop override: it snapshots the working
-# tree's harness inputs (STAGE_ROOTS below) into <harness>/.vss-src/, which
-# the Dockerfiles use INSTEAD of the pinned fetch when present. `--clean`
-# removes the snapshots, returning builds to the pin.
+# the Dockerfile's parent directory, so .openclaw/ cannot COPY from the repo
+# root; its Dockerfile fetches one pinned commit (VSS_REF) instead. That stays
+# the shipping path — reproducible, provenance-carrying — but a local skill or
+# CLI edit cannot reach the image until it is pushed and the pin moves. This
+# tool is the dev-loop override: it snapshots the working tree's harness inputs
+# (STAGE_ROOTS below) into <harness>/.vss-src/, which the Dockerfile uses
+# INSTEAD of the pinned fetch when present. `--clean` removes the snapshots,
+# returning builds to the pin.
+#
+# The OpenShell harness needs none of this: services/openshell/vss/Dockerfile
+# builds from the repo root, so a local edit reaches that image directly.
 #
 # The snapshot is the working tree as git sees it: tracked files plus
 # untracked-but-not-ignored ones (`git ls-files --cached --others
@@ -35,15 +38,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Everything the harness Dockerfiles consume from the VSS checkout. A unit
-# test (test_stage_vss_src.py) parses the Dockerfiles and fails when they
-# start consuming a path outside these roots. libs/vss is the CLI library
-# workspace (nvidia-vss-cli + nvidia-vss-core), the images' whole install
-# surface — the agent service under services/agent is deliberately not staged.
+# Everything the harness Dockerfile consumes from the VSS checkout. A unit
+# test (test_stage_vss_src.py) parses the Dockerfile and fails when it starts
+# consuming a path outside these roots. libs/vss is the CLI library workspace
+# (nvidia-vss-cli + nvidia-vss-core), the image's whole install surface — the
+# agent service under services/agent is deliberately not staged.
 STAGE_ROOTS = ("skills", ".openclaw/workspace", "libs/vss")
 STAGE_DIR_NAME = ".vss-src"
 MARKER_NAME = "STAGED"
-DEFAULT_HARNESS_DIRS = (".openclaw", ".hermes")
+DEFAULT_HARNESS_DIRS = (".openclaw",)
 
 
 def git(repo_root: Path, *args: str) -> str:
