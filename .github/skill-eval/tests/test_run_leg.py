@@ -1986,30 +1986,25 @@ class TraceUrls(unittest.TestCase):
         result.write_text(json.dumps(payload if payload is not None else self.RESULT))
         return result
 
-    def test_trace_url_matches_the_viewer_route(self):
+    def test_trace_url_matches_gateway_safe_job_route(self):
         with tempfile.TemporaryDirectory() as td:
             result = self._write_result(Path(td) / "step-7__E6dBECL")
             url = run_leg.trace_url(result, self.JOB)
 
         self.assertEqual(
             url,
-            "https://harbor-13xh5gpe7.brevlab.com/jobs/"
-            + self.JOB
-            + "/tasks/l40s/claude-code/aws"
-            + "/anthropic%2Fbedrock-claude-opus-4-6"
-            + "/nvidia-vss%2Fvss-generate-video-report-base-l40s-step-7",
+            "https://harbor-13xh5gpe7.gobrev.dev/jobs/" + self.JOB,
         )
 
-    def test_trace_url_never_ends_in_the_include_task_filter(self):
-        """The exact regression: a bare `step-7` tail renders a blank page."""
+    def test_trace_url_avoids_gateway_rejected_encoded_slashes(self):
+        """The task route's encoded model/task slashes get HTTP 400 at Brev."""
         with tempfile.TemporaryDirectory() as td:
             result = self._write_result(Path(td) / "step-7__E6dBECL")
             url = run_leg.trace_url(result, self.JOB)
 
-        self.assertFalse(url.endswith("/step-7"))
-        self.assertTrue(url.endswith("-step-7"))
-        # Slashes inside <model>/<task> must be segments, not path levels.
-        self.assertEqual(url.count("%2F"), 2)
+        self.assertNotIn("/tasks/", url)
+        self.assertNotIn("%2F", url)
+        self.assertTrue(url.endswith(self.JOB))
 
     def test_trace_url_none_on_incomplete_result(self):
         with tempfile.TemporaryDirectory() as td:
@@ -2056,7 +2051,7 @@ class TraceUrls(unittest.TestCase):
         self.assertEqual(row[0], "step-7")
         self.assertEqual(row[1], "step-7__E6dBECL")
         self.assertEqual(row[2], url)
-        self.assertIn("/jobs/leg__30284131217__2026-07-27__17-16-47/tasks/", url)
+        self.assertTrue(url.endswith("/jobs/leg__30284131217__2026-07-27__17-16-47"))
 
     def test_publish_trace_returns_none_when_trial_produced_no_result(self):
         invocation = run_leg.HarborInvocation(
@@ -2097,6 +2092,11 @@ class PoolCandidates(unittest.TestCase):
     ]
 
     def setUp(self):
+        legacy_harness = mock.patch.dict(
+            run_leg.os.environ, {"SKILLS_EVAL_OPERATIONAL_HARNESS": "claude-code"}
+        )
+        legacy_harness.start()
+        self.addCleanup(legacy_harness.stop)
         self._orig = run_leg._list_pool_instances
         run_leg._list_pool_instances = (
             lambda _skill=None, _spec_stem=None: self.FLEET
@@ -2242,6 +2242,18 @@ class PoolCandidates(unittest.TestCase):
         self.assertEqual(registered["status"], "RUNNING")
         self.assertEqual(registered["gpu"], "RTX PRO 6000")
         self.assertTrue(registered["_registered"])
+
+    def test_nemoclaw_pool_excludes_registered_nodes_even_if_allowlisted(self):
+        managed = {"name": "vss-eval-rtx-2g-6", "status": "RUNNING"}
+        registered = {"name": "vss-eval-rtx-2g-VM1b", "status": "Connected"}
+        with mock.patch.object(run_leg, "_list_brev_instances", return_value=[managed]), \
+             mock.patch.object(run_leg, "_list_registered_nodes", return_value=[registered]) as nodes, \
+             mock.patch.dict(run_leg.os.environ, {
+                 "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+                 "BREV_REGISTERED_POOL": registered["name"],
+             }):
+            self.assertEqual(self._orig(), [managed])
+        nodes.assert_not_called()
 
     def test_registered_pool_requires_explicit_allowlist(self):
         orig_managed = run_leg._list_brev_instances
@@ -2603,6 +2615,26 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                  ):
                 self.assertEqual(run_leg.main(self._argv(tmp)), 42)
 
+    def test_failed_nemoclaw_leg_cleans_worker_and_gateway(self):
+        events = []
+        routes = mock.Mock()
+        routes.operational.runtime = "nemoclaw"
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with mock.patch.dict(os.environ, {
+                "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/cv_mode_gate.json",
+                run_leg.CLEAN_WORKER_AFTER_LEG_ENV: "true",
+            }), self._held_lock(), \
+                 mock.patch.object(run_leg, "resolve_model_routes", return_value=routes), \
+                 mock.patch.object(run_leg, "prepare_canary_verifier_runtime"), \
+                 mock.patch.object(run_leg, "run_invocations", return_value=1), \
+                 mock.patch.object(run_leg, "cleanup_worker_after_leg",
+                                   side_effect=lambda *args: events.append("cleanup")), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy",
+                                   side_effect=lambda *args: events.append("policy")):
+                self.assertEqual(run_leg.main(self._argv(tmp)), 1)
+        self.assertEqual(events, ["cleanup", "policy"])
+
     def test_nemoclaw_cancellation_cleans_firewall_before_releasing_worker(self):
         held = False
         @contextlib.contextmanager
@@ -2671,6 +2703,27 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
             with self.assertRaises(ValueError):
                 run_leg.cleanup_after_agent_exit(root)
         self.assertFalse(held)
+
+    def test_opt_in_worker_cleanup_destroys_sandbox_and_resets_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {
+            "EVAL_SLUG": "alerts__cv_mode_gate__L40S", "GITHUB_RUN_ID": "123",
+        }), mock.patch.object(run_leg, "harbor_env", return_value={}), \
+             mock.patch.object(
+                 run_leg.subprocess,
+                 "run",
+                 return_value=subprocess.CompletedProcess([], 0, stdout="worker cleanup OK\n", stderr=""),
+             ) as execute:
+            root = Path(tmp)
+            run_leg.cleanup_worker_after_leg("box-a", root)
+            command = execute.call_args.args[0][-2]
+            sandbox = run_leg.nemoclaw_sandbox_name("123", "alerts__cv_mode_gate__L40S")
+            self.assertIn(f"nemoclaw {sandbox} destroy --yes --cleanup-gateway", command)
+            self.assertIn("docker rm -f", command)
+            self.assertIn("docker volume rm -f", command)
+            self.assertIn("sudo find", command)
+            receipt = (root / "worker-cleanup.txt").read_text()
+            self.assertIn("status=ok", receipt)
+            self.assertIn(f"sandbox={sandbox}", receipt)
 
     def test_cancelled_workflow_stops_only_its_recorded_wrapper_then_locks_worker(self):
         if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):

@@ -175,6 +175,7 @@ WORK_DEADLINE_ENV = "SKILL_EVAL_HARBOR_DEADLINE_MONOTONIC"
 SDK_DEADLINE_ENV = "SKILL_EVAL_WORK_DEADLINE_MONOTONIC"
 TRANSPORT_PGID_REGISTRY_ENV = "BREV_TRANSPORT_PGID_FILE"
 GATEWAY_CANCEL_CLEANUP_ROOT_ENV = "SKILL_EVAL_GATEWAY_CANCEL_CLEANUP_ROOT"
+CLEAN_WORKER_AFTER_LEG_ENV = "SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -629,6 +630,16 @@ def _list_pool_instances(
 ) -> list[dict]:
     """Return managed instances plus connected registered pool nodes."""
     instances = list(_list_brev_instances())
+    # Security boundary for the NemoClaw transition: external registered
+    # nodes are not approved, even if they are Connected and allowlisted for
+    # the legacy harness. Use Brev-managed cloud instances only.
+    operational_runtime = (
+        os.environ.get("SKILLS_EVAL_OPERATIONAL_HARNESS")
+        or os.environ.get("EVAL_AGENT")
+        or "nemoclaw"
+    ).strip().lower()
+    if operational_runtime == "nemoclaw":
+        return instances
     seen = {(inst.get("name") or "").lower() for inst in instances}
     registered_allowlist = _registered_pool_allowlist(skill, spec_stem)
     rtx4090_allowlist = _parse_pool_names(
@@ -1391,17 +1402,14 @@ def _coordinator_env_id() -> str | None:
 
 
 def trace_url(result_json: Path, job_name: str) -> str | None:
-    """Harbor viewer deep-link for one finished trial.
+    """Gateway-safe Harbor job link for one finished trial.
 
-    Every segment is read from the trial's own result.json, so the link
-    cannot drift from what the viewer indexes. `task_name` in particular is
-    Harbor's fully-qualified name (`nvidia-vss/<dataset>-step-N`), NOT the
-    `--include-task-name` filter (`step-N`) that selects the task here — the
-    viewer resolves its task route by the former. A bare `step-N` matches
-    nothing and renders a BLANK PAGE rather than a 404, because the viewer
-    is a client-side SPA where every route returns the same HTTP 200 shell.
-    That failure mode is indistinguishable from missing trace data, which is
-    why the URL is built here instead of being assembled by hand.
+    The viewer accepts a task route with %2F-encoded model/task names locally,
+    but the gobrev.dev gateway rejects that path with HTTP 400 before it
+    reaches Harbor. Each invocation is published as its own dated viewer job,
+    whose /jobs/<job_name> route contains the trial without encoded slashes.
+    Keep requiring complete result metadata so incomplete trials do not get
+    misleading links.
     """
     env_id = _coordinator_env_id()
     if not env_id:
@@ -1421,10 +1429,8 @@ def trace_url(result_json: Path, job_name: str) -> str | None:
     ]
     if not all(parts):
         return None
-    # safe="" so the slashes inside <model> and <task> encode as %2F — the
-    # viewer expects them as single path segments, not extra path levels.
-    encoded = "/".join(urllib.parse.quote(str(part), safe="") for part in parts)
-    return f"https://harbor-{env_id}.brevlab.com/jobs/{job_name}/tasks/{encoded}"
+    encoded_job = urllib.parse.quote(job_name, safe="")
+    return f"https://harbor-{env_id}.gobrev.dev/jobs/{encoded_job}"
 
 
 def publish_trace(
@@ -1704,6 +1710,154 @@ def cleanup_gateway_network_policy(instance: str, results_root: Path, *, timeout
         print(f"[run-leg] owned gateway network policy cleanup failed: {type(exc).__name__}", file=sys.stderr)
 
 
+def needs_canary_verifier_runtime(operational_runtime: str, spec_path: str) -> bool:
+    """The NemoClaw Alerts verifier is independent of post-run cleanup."""
+    return (
+        operational_runtime == "nemoclaw"
+        and spec_path.startswith("skills/operations/vss-manage-alerts/evals/")
+    )
+
+
+def prepare_canary_verifier_runtime(instance: str, *, timeout_sec: int = 300) -> None:
+    """Ensure the NemoClaw Alerts canary has a pinned worker-side judge.
+
+    The coordinator's Python 3.12 venv is not available over Brev SSH. Keep
+    this runtime outside the checkout and trial scratch so normal worker
+    cleanup preserves it, and check it under the worker lock before Harbor.
+    """
+    command = """set -euo pipefail
+export PATH="$HOME/.local/bin:$PATH"
+command -v uv >/dev/null || { echo "uv missing on worker" >&2; exit 1; }
+venv="$HOME/.cache/vss-skill-eval/verifier-py312-sdk-0.2.128"
+check_runtime() {
+  [ -x "$venv/bin/python" ] && "$venv/bin/python" -c 'import importlib.metadata, sys; assert sys.version_info[:2] == (3, 12); assert importlib.metadata.version("claude-agent-sdk") == "0.2.128"; import claude_agent_sdk'
+}
+if ! check_runtime; then
+  mkdir -p "$(dirname "$venv")"
+  uv venv --python 3.12 --clear "$venv"
+  uv pip install --python "$venv/bin/python" 'claude-agent-sdk==0.2.128'
+  check_runtime
+fi
+echo "canary verifier runtime ready: $venv"
+"""
+    result = subprocess.run(
+        [
+            "uvx", "--python", sys.executable, "--from", HARBOR_REQUIREMENT,
+            "python", "-c",
+            "import asyncio,sys; from envs.brev_env import _run_brev_exec_retry; "
+            "r=asyncio.run(_run_brev_exec_retry(sys.argv[1],sys.argv[2],timeout=int(sys.argv[3]))); "
+            "print(r.stdout or ''); print(r.stderr or '',file=sys.stderr); sys.exit(r.return_code)",
+            instance, command, str(max(1, timeout_sec - 30)),
+        ],
+        cwd=REPO_ROOT,
+        env=harbor_env(instance),
+        timeout=timeout_sec,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    detail = "\n".join(filter(None, (result.stdout, result.stderr))).strip()[-1500:]
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"canary verifier bootstrap failed on {instance} "
+            f"(exit {result.returncode}): {detail}"
+        )
+    print(f"[run-leg] {detail}", flush=True)
+
+
+def cleanup_worker_after_leg(instance: str, results_root: Path, *, timeout_sec: int = 720) -> None:
+    """Destroy this leg's NemoClaw client and wipe trial state from its locked worker.
+
+    The Brev instance and cached images remain. This is opt-in because the
+    production nightly historically leaves the final deployment for operator
+    inspection; the one-leg canary requests a fully clean hand-back instead.
+    """
+    slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
+    run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
+    sandbox = nemoclaw_sandbox_name(run_id, slug)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", sandbox):
+        raise ValueError("invalid derived NemoClaw sandbox name")
+    sandbox_re = re.escape(sandbox)
+    command = f"""set -uo pipefail
+export PATH="$HOME/.local/bin:$PATH"
+cleanup_failed=0
+if command -v openshell >/dev/null 2>&1 && openshell sandbox get {shlex.quote(sandbox)} >/dev/null 2>&1; then
+  if ! command -v nemoclaw >/dev/null 2>&1; then
+    echo "nemoclaw CLI missing while sandbox still exists" >&2
+    cleanup_failed=1
+  elif ! nemoclaw {shlex.quote(sandbox)} destroy --yes --cleanup-gateway; then
+    echo "failed to destroy NemoClaw sandbox {sandbox}" >&2
+    cleanup_failed=1
+  fi
+fi
+pkill -f -- '[d]ashboard-forward-watchdog\\.py --sandbox {sandbox_re}( |$)' 2>/dev/null || true
+pkill -f -- '[d]ashboard-relay\\.py --sandbox {sandbox_re}( |$)' 2>/dev/null || true
+rm -f /tmp/nemoclaw-dashboard-relay.log /tmp/nemoclaw-dashboard-watchdog.log
+sudo rm -rf /tmp/vss-sample-data /tmp/skill-eval/uploads
+sudo rm -f /tmp/.harbor_dl_*.b64
+docker info >/dev/null 2>&1 || {{ echo "docker daemon unreachable" >&2; exit 1; }}
+cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
+vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
+docker network prune -f >/dev/null 2>&1 || true
+docker info >/dev/null 2>&1 || {{ echo "docker daemon died during reset" >&2; exit 1; }}
+rc=$(docker ps -aq | wc -l | tr -d ' ')
+rv=$(docker volume ls -q | wc -l | tr -d ' ')
+rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
+if [ "$rc" != 0 ] || [ "$rv" != 0 ] || [ "$rn" != 0 ]; then
+  echo "docker reset incomplete: $rc containers, $rv volumes, $rn custom networks" >&2
+  exit 1
+fi
+purged=""
+for root in /opt/vss-data "$HOME"/vss-data; do
+  [ -d "$root" ] || continue
+  for sub in data_log nvstreamer/videos nvstreamer/videos-upload nvstreamer/vst_data videos/nvstreamer; do
+    d="$root/$sub"; [ -d "$d" ] || continue
+    sudo find "$d" -mindepth 1 -delete || {{ echo "failed to purge $d" >&2; exit 1; }}
+    purged="$purged $d"
+  done
+done
+if command -v openshell >/dev/null 2>&1 && openshell sandbox get {shlex.quote(sandbox)} >/dev/null 2>&1; then
+  echo "NemoClaw sandbox survived teardown: {sandbox}" >&2
+  cleanup_failed=1
+fi
+[ "$cleanup_failed" = 0 ] || exit 1
+echo "worker cleanup OK: sandbox absent; docker runtime empty; host trial data purged"
+"""
+    result = subprocess.run(
+        [
+            "uvx", "--python", sys.executable, "--from", HARBOR_REQUIREMENT,
+            "python", "-c",
+            "import asyncio,sys; from envs.brev_env import _run_brev_exec_retry; "
+            "r=asyncio.run(_run_brev_exec_retry(sys.argv[1],sys.argv[2],timeout=int(sys.argv[3]))); "
+            "print(r.stdout or ''); print(r.stderr or '',file=sys.stderr); sys.exit(r.return_code)",
+            instance, command, str(max(1, timeout_sec - 30)),
+        ],
+        cwd=REPO_ROOT,
+        env=harbor_env(instance),
+        timeout=timeout_sec,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    detail = (result.stdout or result.stderr or "").strip()[-2000:]
+    status = "ok" if result.returncode == 0 else f"failed (exit {result.returncode})"
+    try:
+        fd, name = tempfile.mkstemp(prefix=".worker-cleanup-", dir=results_root)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(
+                    f"status={status}\nworker={instance}\nsandbox={sandbox}\n{detail}\n"
+                )
+            os.replace(name, results_root / "worker-cleanup.txt")
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(name)
+    except OSError:
+        pass
+    if result.returncode:
+        raise RuntimeError(f"worker cleanup failed on {instance}: {detail[-500:]}")
+
+
 
 def _process_start_time(pid: int) -> str:
     # comm can contain spaces and parentheses; field 22 follows the final ')'.
@@ -1800,6 +1954,16 @@ def cleanup_after_agent_exit(results_root: Path, *, lock_dir: Path = Path("/tmp/
         # Never reconcile even an owned chain while a sibling holds the worker.
         # A busy worker remains untouched; the fallback has a bounded CI budget.
         with hold_pool_lock(lambda: [instance], lock_dir, 120 if cancelled else 60):
+            if os.environ.get(CLEAN_WORKER_AFTER_LEG_ENV) == "true":
+                cleanup_receipt = results_root / "worker-cleanup.txt"
+                already_clean = (
+                    cleanup_receipt.is_file()
+                    and not cleanup_receipt.is_symlink()
+                    and cleanup_receipt.stat().st_size <= 4096
+                    and cleanup_receipt.read_text(encoding="utf-8").startswith("status=ok\n")
+                )
+                if not already_clean:
+                    cleanup_worker_after_leg(instance, results_root)
             cleanup_gateway_network_policy(instance, results_root)
         return "attempted"
     except LockTimeoutError:
@@ -2299,7 +2463,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--instance",
-        default=os.environ.get("BREV_INSTANCE") or None,
+        default=(os.environ.get("SKILLS_EVAL_TARGET_INSTANCE")
+                 or os.environ.get("BREV_INSTANCE") or None),
         help="Operator override: pin the leg to this Brev instance instead "
              "of pool selection (still lock-guarded; waits if held)",
     )
@@ -2396,10 +2561,18 @@ def main(argv: list[str] | None = None) -> int:
                 "whole-leg deadline cannot fit one complete Harbor invocation"
             )
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
-        # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
+        # Pin precedence: CLI/--instance (incl. dedicated CI pin or
+        # BREV_INSTANCE env default)
         # > task.toml brev_instance > pool selection.
         pinned = selected_instance(args.instance, metadata, args.platform)
         if pinned:
+            if model_routes.operational.runtime == "nemoclaw":
+                managed_names = {inst.get("name") for inst in _list_brev_instances()}
+                if pinned not in managed_names:
+                    raise ValueError(
+                        f"NemoClaw worker {pinned!r} is not a Brev-managed instance; "
+                        "registered external nodes are not approved"
+                    )
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)
             candidates_fn = lambda: [pinned]  # noqa: E731
@@ -2456,6 +2629,11 @@ def main(argv: list[str] | None = None) -> int:
                     # phases below set their own labels.
                     leg_timing.set_phase(outer_phase)
                     dispatch_started = time.time()
+                    if needs_canary_verifier_runtime(
+                        model_routes.operational.runtime,
+                        os.environ.get("EVAL_SPEC_PATH", ""),
+                    ):
+                        prepare_canary_verifier_runtime(instance)
                     try:
                         rc = run_invocations(
                             invocations,
@@ -2473,7 +2651,11 @@ def main(argv: list[str] | None = None) -> int:
                             model_routes.operational.runtime == "nemoclaw"
                             and os.environ.get("EVAL_SPEC_PATH", "").startswith("skills/operations/")
                         ):
-                            cleanup_gateway_network_policy(instance, args.results_root)
+                            try:
+                                if os.environ.get(CLEAN_WORKER_AFTER_LEG_ENV) == "true":
+                                    cleanup_worker_after_leg(instance, args.results_root)
+                            finally:
+                                cleanup_gateway_network_policy(instance, args.results_root)
                     if rc == 0:
                         return rc
                     refusal = box_rejected_for_capacity(

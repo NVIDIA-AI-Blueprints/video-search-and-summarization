@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -157,15 +158,28 @@ def _platform_modes(spec: dict, platform_filter: str | None) -> list[tuple[str, 
 # ---------------------------------------------------------------------------
 
 def _test_sh(step_idx: int, spec_name: str) -> str:
+    # NemoClaw Alerts uses a pinned verifier runtime on the worker regardless
+    # of whether the deployment is preserved for debugging after this leg.
+    nemoclaw_verifier = os.environ.get("SKILLS_EVAL_OPERATIONAL_HARNESS") == "nemoclaw"
+    if nemoclaw_verifier:
+        python_setup = (
+            'VERIFIER_PYTHON="$HOME/.cache/vss-skill-eval/verifier-py312-sdk-0.2.128/bin/python"\n'
+            'test -x "$VERIFIER_PYTHON" || { echo "NemoClaw verifier runtime missing" >&2; exit 1; }\n'
+        )
+        python_command = '"$VERIFIER_PYTHON"'
+    else:
+        python_setup = "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+        python_command = "python3"
+    shell_options = "set -euo pipefail" if nemoclaw_verifier else "set -uo pipefail"
     return (
         "#!/bin/bash\n"
         f"# vss-manage-alerts verifier step {step_idx}: delegates to generic LLM-as-judge.\n"
-        "set -uo pipefail\n"
+        f"{shell_options}\n"
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
-        "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+        f"{python_setup}"
         "\n"
-        'python3 "$TEST_DIR/generic_judge.py" \\\n'
+        f'{python_command} "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step {step_idx}\n'
         "exit 0\n"
     )
@@ -280,9 +294,11 @@ def generate_platform_mode(
         if idx == 1:
             leading = [
                 f"Use the `/vss-manage-alerts` skill (and `/vss-build-vision-ai` as needed) on this bare `{platform}` host.",
-                "Docker + NVIDIA Container Toolkit are available, `NGC_CLI_API_KEY` is set,",
-                "and the remote LLM/VLM endpoints are configured via "
-                "`LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` / `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL`.",
+                "Docker + NVIDIA Container Toolkit are available, and `NGC_CLI_API_KEY` is set.",
+                "For the requested remote LLM/VLM placement, use the configured "
+                "`LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` / `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL`. "
+                "If any value is absent, report the missing configuration before deploying; "
+                "do not substitute the operational agent's model endpoint. Never print credentials.",
             ]
         else:
             # A `skill-routing` step names neither a skill nor the alert mode:
