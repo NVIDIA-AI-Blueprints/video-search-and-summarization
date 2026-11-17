@@ -4,6 +4,7 @@ description: Use this skill when answering a question about previously analyzed 
 license: Apache-2.0
 metadata:
   version: "3.3.0"
+  author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
   # What a live deployment must expose for this skill to be usable, as the vss CLI
@@ -63,7 +64,7 @@ Direct VLM requires:
 - Reachable RT-VLM.
 - VIOS when using sensor-based media.
 
-Directly scoped URL, file, and sensor requests go straight to `vss vlm run`.
+Directly scoped URL, file, and explicit fresh sensor-window requests go straight to `vss vlm run` (unwindowed sensors under 120 s follow [Whole-recording questions](#whole-recording-questions); other sensor questions use the memory routing below).
 The checks below are for requested readiness diagnostics, not mandatory preflight.
 
 Introspection requires:
@@ -196,7 +197,7 @@ Valid introspection scope is established by one of:
 - Both `--start-time` and `--end-time`
 - Complete child identity: `--job-id`, `--record-type`, and `--record-id`
 
-Never pass `--record-id` alone. `--record-type` and `--group` may refine valid
+Never pass `--record-id` alone or propose it without both `--job-id` and `--record-type`; ask for whichever is missing first. `--record-type` and `--group` may refine valid
 scope but do not establish it independently.
 
 A relative expression is not a window. "Last week", "this morning", "recently"
