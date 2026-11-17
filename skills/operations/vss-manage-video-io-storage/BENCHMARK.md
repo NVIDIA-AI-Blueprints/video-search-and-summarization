@@ -1,25 +1,38 @@
 # Skill Benchmark: vss-manage-video-io-storage
 
-> ✅ **Overall verdict: PASS — Recommended for publication**
+> ⚠️ **Overall verdict: INCOMPLETE — Required evidence is missing**
 
-## Publication Recommendation
-
-Recommended for publication based on the completed evaluation evidence in this report.
+One or more required evaluation tiers did not complete, so this benchmark is not publication-complete.
 
 ## Evaluation Metadata
 
 - Skill: `vss-manage-video-io-storage`
-- Evaluation date: 2026-10-15
-- Evaluator version: `1.5.6`
-- Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
-- Tasks: 3 evaluation tasks (2 positive, 1 negative)
-- Dataset digest: `sha256:a6125aa6c349a89512f96ab34c391da725e9628d6a912448db97f4dc212133c0` (skill-evaluator-dataset-snapshot/1)
+- Validation status: `incomplete`
+- Evaluation date: 2026-11-16
+- Evaluator version: `1.6.9`
+- Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-5-5`), Codex (`openai/openai/gpt-6.1-sol`)
+- Tasks: 5 evaluation tasks (4 positive, 1 negative)
+- Dataset digest: `sha256:aa1527514676af46c651dffddfa8c5ca6f57bbbe6dee80901557168978a3a272` (skill-evaluator-dataset-snapshot/1)
 - Attempts per task: 1
 - Environment: `k8s-sandbox`
 - Tier 2 evidence: required for publication
 - Tier 3 evidence: required for publication
 
 Each task attempt ran in its own isolated sandbox pod.
+
+## Tier 1 LLM Provenance
+
+SkillSpector provider, model, analyzer revision, and determinism evidence retained for this scan.
+
+| Skill | Provider | Adapter | Analyzer | Model | Revision | Determinism |
+| --- | --- | --- | --- | --- | --- | --- |
+| vss-manage-video-io-storage | nv_inference | openai | mcp_tool_poisoning | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-manage-video-io-storage | nv_inference | openai | semantic_developer_intent | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-manage-video-io-storage | nv_inference | openai | semantic_quality_policy | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-manage-video-io-storage | nv_inference | openai | semantic_security_discovery | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+| vss-manage-video-io-storage | nv_inference | openai | meta_analyzer | `aws/anthropic/bedrock-claude-opus-5-5` | `2.13.4` | nondeterministic / provider_defaults |
+
+- Controls for `vss-manage-video-io-storage`: temperature=not set (source=provider_default, forwarded=no); seed=not set (source=unset, forwarded=no); reasoning_effort=not set (source=provider_default, forwarded=no)
 
 ## What This Report Answers
 
@@ -35,12 +48,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 73.2% — baseline ran, but no comparable score was available; uplift unavailable | 70.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 66.7% → 100.0% (+33.3 points) | 50.0% → 100.0% (+50.0 points) |
-| Correctness | 6.7% → 33.3% (+26.6 points) | 33.3% → 40.0% (+6.7 points) |
-| Discoverability | 97.5% — baseline ran, but no comparable score was available; uplift unavailable | 92.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 23.3% → 46.7% (+23.4 points) | 48.3% → 26.7% (-21.6 points) |
-| Efficiency | 88.5% — baseline ran, but no comparable score was available; uplift unavailable | 93.4% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 95.7% — baseline ran, but no comparable score was available; uplift unavailable | 62.6% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 100.0% → 100.0% (±0.0 points) | 100.0% → 100.0% (±0.0 points) |
+| Correctness | 48.0% → 100.0% (+52.0 points) | 100.0% → 84.0% (-16.0 points) |
+| Discoverability | 100.0% — baseline ran, but no comparable score was available; uplift unavailable | 30.0% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 30.0% → 90.0% (+60.0 points) | 75.0% → 55.0% (-20.0 points) |
+| Efficiency | 88.6% — baseline ran, but no comparable score was available; uplift unavailable | 44.2% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -48,43 +61,62 @@ Example: `47.0% → 92.0% (+45.0 points)` means the skill-assisted run scored 92
 
 A partial dimension was calculated from only the available configured signals; review the detailed report before relying on it.
 
+### Comparison details
+
+Shared-source comparisons use the same signals and weights on both conditions. They do not replace the full dimension scores above or change the publication verdict.
+
+| Agent | Dimension | Basis | Baseline → With skill (uplift) | Explanation |
+| --- | --- | --- | --- | --- |
+| claude-code | Discoverability | Dimension comparison | N/A | Discoverability is not applicable to the no-skill baseline; there is no installed skill to discover. |
+| claude-code | Efficiency | Token-only comparison | 98.8% → 93.9% (-4.9 points) | Only Token Efficiency is comparable; the full dimension scores use different evaluator sources. |
+| codex | Discoverability | Dimension comparison | N/A | Discoverability is not applicable to the no-skill baseline; there is no installed skill to discover. |
+| codex | Efficiency | Token-only comparison | 89.1% → 88.3% (-0.8 points) | Only Token Efficiency is comparable; the full dimension scores use different evaluator sources. |
+
 ## Token Usage
 
 Actual Tier 3 execution usage is reported for every observed agent/case pair and both conditions.
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 706,005 | 476,760 | +229,245 | +48.08% | skill 3/3; base 3/3 |
-| claude-code | video-io-storage-nvstreamer-upload | 281,302 | 190,876 | +90,426 | +47.37% | skill 1/1; base 1/1 |
-| claude-code | video-io-storage-vios-routing | 363,758 | 226,143 | +137,615 | +60.85% | skill 1/1; base 1/1 |
-| claude-code | video-question-non-activation | 60,945 | 59,741 | +1,204 | +2.02% | skill 1/1; base 1/1 |
-| codex | All cases | 357,873 | 957,323 | -599,450 | -62.62% | skill 3/3; base 3/3 |
-| codex | video-io-storage-nvstreamer-upload | 118,667 | 443,179 | -324,512 | -73.22% | skill 1/1; base 1/1 |
-| codex | video-io-storage-vios-routing | 160,533 | 459,275 | -298,742 | -65.05% | skill 1/1; base 1/1 |
-| codex | video-question-non-activation | 78,673 | 54,869 | +23,804 | +43.38% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 1,063,878 | 1,434,083 | -370,205 | -25.81% | skill 6/6; base 6/6 |
+| claude-code | All cases | 565,850 | 286,426 | +279,424 | +97.56% | skill 5/5; base 5/5 |
+| claude-code | video-io-storage-delete-stream | 81,106 | 70,873 | +10,233 | +14.44% | skill 1/1; base 1/1 |
+| claude-code | video-io-storage-not-configured | 81,601 | 35,711 | +45,890 | +128.50% | skill 1/1; base 1/1 |
+| claude-code | video-io-storage-nvstreamer-upload | 186,897 | 36,562 | +150,335 | +411.18% | skill 1/1; base 1/1 |
+| claude-code | video-io-storage-vios-routing | 180,431 | 36,111 | +144,320 | +399.66% | skill 1/1; base 1/1 |
+| claude-code | video-question-non-activation | 35,815 | 107,169 | -71,354 | -66.58% | skill 1/1; base 1/1 |
+| codex | All cases | 147,665 | 123,832 | +23,833 | +19.25% | skill 5/5; base 5/5 |
+| codex | video-io-storage-delete-stream | 34,506 | 29,060 | +5,446 | +18.74% | skill 1/1; base 1/1 |
+| codex | video-io-storage-not-configured | 13,878 | 17,711 | -3,833 | -21.64% | skill 1/1; base 1/1 |
+| codex | video-io-storage-nvstreamer-upload | 39,085 | 37,767 | +1,318 | +3.49% | skill 1/1; base 1/1 |
+| codex | video-io-storage-vios-routing | 26,046 | 17,784 | +8,262 | +46.46% | skill 1/1; base 1/1 |
+| codex | video-question-non-activation | 34,150 | 21,510 | +12,640 | +58.76% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 713,515 | 410,258 | +303,257 | +73.92% | skill 10/10; base 10/10 |
 
-Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
+Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. Change is `100 * (with - without) / without`; negative means fewer tokens. N/A comparisons include their reason in the coverage column; coverage is never estimated.
 
 ## Tier Status
 
 | Tier | Purpose | Status | Evidence |
 |---|---|---|---|
-| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 54 finding(s) |
-| Tier 2 | Semantic deduplication | **PASSED WITH OBSERVATIONS** | 2 validator(s); 1 finding(s) |
-| Tier 3 | Live agent evaluation | **PASS** | 2 agent(s); 3 task(s) |
+| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 52 finding(s) |
+| Tier 2 | Semantic deduplication | **INCOMPLETE** | Tier 2 scan incomplete: a content cluster has more than 64 members. |
+| Tier 3 | Live agent evaluation | **PASS** | 2 agent(s); 5 task(s) |
+
+## Incomplete Coverage
+
+- **Context Deduplication:** Tier 2 scan incomplete: a content cluster has more than 64 members.
 
 ## Findings and Observations
 
 <details>
 <summary>Show detailed findings and successful checks</summary>
 
-- **CRITICAL** CONTENT_DEDUP/llm_cluster_member_limit: A Tier 2 cluster exceeds the LLM member limit. (`skills/operations/vss-manage-video-io-storage`)
-- **MEDIUM** PII/ip_addresses: Public IP address (`references/deploy-vios-service.md:139`)
 - **MEDIUM** PII/ip_addresses: Public IP address (`references/deploy-vios-service.md:142`)
+- **MEDIUM** PII/ip_addresses: Public IP address (`references/deploy-vios-service.md:145`)
 - **MEDIUM** QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/operations/vss-manage-video-io-storage/SKILL.md`)
-- **MEDIUM** QUALITY/quality_efficiency: Large skill (6755 tokens, recommended max <5000). Per agentskills.io, SKILL.md should be concise (~500 lines) — large skill bodies increase token cost after invocation; long or unfocused top-level descriptions can degrade agent routing accuracy (`skills/operations/vss-manage-video-io-storage/SKILL.md`)
-- 50 additional finding(s) are available in the full evaluation artifacts.
+- **MEDIUM** QUALITY/quality_efficiency: Large skill (6754 tokens, recommended max <5000). Per agentskills.io, SKILL.md should be concise (~500 lines) — large skill bodies increase token cost after invocation; long or unfocused top-level descriptions can degrade agent routing accuracy (`skills/operations/vss-manage-video-io-storage/SKILL.md`)
+- **MEDIUM** QUALITY/quality_efficiency: Deeply nested references in provision-vios-source.md (`skills/operations/vss-manage-video-io-storage/SKILL.md`)
+- 47 additional finding(s) are available in the full evaluation artifacts.
 
 </details>
 

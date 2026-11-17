@@ -33,7 +33,7 @@ rules:
 
   - id: "TM1"
     path: "SKILL.md"
-    message: "DELETE /*"
+    message: "*DELETE /*"
     reason: &tm1_rest >-
       Reviewed false positive (temporary until the SkillSpector TM1 fix ships).
       These are VIOS, NvStreamer, and RT-VLM REST routes (DELETE /sensor/<id>,
@@ -42,27 +42,27 @@ rules:
 
   - id: "TM1"
     path: "references/api-reference.md"
-    message: "DELETE /*"
+    message: "*DELETE /*"
     reason: *tm1_rest
 
   - id: "TM1"
     path: "references/integrate-vios-service.md"
-    message: "DELETE /*"
+    message: "*DELETE /*"
     reason: *tm1_rest
 
   - id: "TM1"
     path: "references/nvstreamer-api-reference.md"
-    message: "DELETE /*"
+    message: "*DELETE /*"
     reason: *tm1_rest
 
   - id: "TM1"
     path: "references/provision-vios-source.md"
-    message: "DELETE /*"
+    message: "*DELETE /*"
     reason: *tm1_rest
 
   - id: "TM1"
     path: "evals/nvstreamer_ops.json"
-    message: "DELETE /vst/api/v1/*"
+    message: "*DELETE /vst/api/v1/*"
     reason: *tm1_rest
 
   # --- B. Accurate findings, accepted for intended deployment steps ----------
@@ -83,7 +83,7 @@ rules:
 
   - id: "TM1"
     path: "references/deploy-vios-service.md"
-    message: "chown -R 1001:1001 *"
+    message: "*chown -R 1001:1001*"
     reason: >-
       Accepted: host-path setup gives the VIOS containers' UID 1001 ownership of
       the deployment's own ${VSS_DATA_DIR}/data_log/vst tree only (with a
@@ -91,7 +91,7 @@ rules:
 
   - id: "TM1"
     path: "references/deploy-vios-service.md"
-    message: "rm -rf *${SDRC_DIR}/log/*"
+    message: "*rm -rf *${SDRC_DIR}/log/*"
     reason: >-
       Accepted: teardown clears SDRC runtime artifacts under the SDRC compose
       directory's own log/ and .wdm-env/ folders, which the container writes as
@@ -100,7 +100,7 @@ rules:
   # --- C. Accurate findings for risky steps kept for now ---------------------
   - id: "TM1"
     path: "references/deploy-vios-service.md"
-    message: "rm -rf ${VSS_DATA_DIR}/data_log/vst*"
+    message: "*rm -rf ${VSS_DATA_DIR}/data_log/vst*"
     reason: >-
       Accepted risk, to revisit: an optional, commented-out host cleanup that
       deletes all recorded video under ${VSS_DATA_DIR}/data_log/vst. The line is
@@ -108,7 +108,7 @@ rules:
 
   - id: "TM1"
     path: "references/deploy-vios-service.md"
-    message: "chmod *777*"
+    message: "*chmod *777*"
     reason: &chmod_sdrc >-
       Accepted risk, to revisit: the Blueprint's SDRC init-dirs one-shot makes
       ./log and ./.wdm-env (and VIOS bind subdirs) world-writable so the root-
@@ -117,7 +117,7 @@ rules:
 
   - id: "TM1"
     path: "references/integrate-vios-service.md"
-    message: "chmod *777*"
+    message: "*chmod *777*"
     reason: *chmod_sdrc
 
 fingerprints: []
