@@ -301,8 +301,8 @@ curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
 
 To change the model, the endpoint or the key, or to start over, make the change
 and then recreate the sandbox. The model and endpoint are fixed at create, and a
-running API server never sees a new credential. The gateway, image and provider
-all survive the recreate.
+running API server never sees a new credential. The gateway and provider
+survive the recreate.
 
 Pick the one change you are making and follow only its steps. To start over,
 follow the model change with no edit.
@@ -316,13 +316,18 @@ follow the model change with no edit.
 A provider authorizes only its profile's host, so the sandbox refuses a base URL
 on any other host.
 
-First re-read the settings:
+First re-read the settings and re-run step 2's build. Editing `openshell.env`
+or updating the checkout changes the version, so the tag may not be built yet;
+an unchanged tree reuses the cache.
 
 ```bash
 PROVIDER=agent-inference          # the Quickstart's provider
 set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
-# The tag step 2 built, recomputed from the same checkout.
 VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"; TAG="${VERSION//+/-}-from-source"
+docker build -f .hermes/Dockerfile \
+  --build-arg HERMES_REF="$HERMES_REF" \
+  --build-arg VSS_PACKAGE_VERSION="$VERSION" \
+  -t "openshell-hermes-vss:$TAG" .
 ```
 
 Then register the change with the gateway, by which one you made:
@@ -348,10 +353,11 @@ Then register the change with the gateway, by which one you made:
   ```
 
 Finally, for every change, delete the sandbox and create it again: the
-Quickstart's step 4 with `$PROVIDER`.
+Quickstart's step 4 with `$PROVIDER`. The delete runs only once the image exists.
 
 ```bash
-openshell sandbox delete hermes
+docker image inspect "openshell-hermes-vss:$TAG" >/dev/null &&
+  openshell sandbox delete hermes
 openshell sandbox create \
   --name hermes \
   --from "openshell-hermes-vss:$TAG" \
