@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,20 @@ DEFAULT_MINIO_SECRET_KEY = ""
 _CANONICAL_FIELDS = {"schema_version", "metadata", "summary", "test_cases"}
 _CANONICAL_DIRECTORY = "vss-perf-results"
 _SAFE_SERVICE = re.compile(r"[A-Za-z0-9._-]+")
+_LOGGER = logging.getLogger(__name__)
+
+
+def _log_storage_exception(message: str, *credentials: str | None) -> None:
+    """Preserve exception chains without exposing configured MinIO credentials."""
+    details = f"{message}\n{traceback.format_exc()}"
+    secrets = {
+        *credentials,
+        os.getenv("MINIO_ACCESS_KEY"),
+        os.getenv("MINIO_SECRET_KEY"),
+    }
+    for secret in sorted((value for value in secrets if value), key=len, reverse=True):
+        details = details.replace(secret, "[REDACTED]")
+    _LOGGER.error("%s", details)
 
 
 def get_minio_endpoint() -> str:
@@ -81,11 +97,15 @@ class MinIOUploader:
     ) -> bool:
         local_path = Path(local_file_path)
         if not local_path.is_file():
+            _LOGGER.error("MinIO upload source is not a file: %s", local_path)
             return False
         object_name = object_name or local_path.name
+        operation = "check bucket existence"
         try:
             if not self.client.bucket_exists(bucket_name):
+                operation = "create bucket"
                 self.client.make_bucket(bucket_name)
+            operation = "upload object"
             self.client.fput_object(
                 bucket_name=bucket_name,
                 object_name=object_name,
@@ -93,6 +113,11 @@ class MinIOUploader:
                 content_type=content_type,
             )
         except Exception:
+            _log_storage_exception(
+                f"MinIO {operation} failed: endpoint={self.endpoint}, "
+                f"bucket={bucket_name}, object={object_name}, file={local_path}",
+                self.access_key, self.secret_key,
+            )
             return False
         return True
 
@@ -116,6 +141,11 @@ class MinIOUploader:
                 for item in self.client.list_objects(bucket_name, prefix=prefix, recursive=True)
             ]
         except Exception:
+            _log_storage_exception(
+                f"MinIO list objects failed: endpoint={self.endpoint}, "
+                f"bucket={bucket_name}, prefix={prefix}",
+                self.access_key, self.secret_key,
+            )
             return []
 
 
@@ -132,6 +162,12 @@ def upload_result_file(
         uploader = MinIOUploader(endpoint, access_key, secret_key, secure)
         return uploader.upload_benchmark_result(local_file_path, service, bucket)
     except Exception:
+        _log_storage_exception(
+            f"MinIO result upload failed: service={service}, file={local_file_path}, "
+            f"endpoint={endpoint if endpoint is not None else os.getenv('MINIO_ENDPOINT', '')}, "
+            f"bucket={bucket if bucket is not None else get_minio_bucket()}",
+            access_key, secret_key,
+        )
         return False
 
 
