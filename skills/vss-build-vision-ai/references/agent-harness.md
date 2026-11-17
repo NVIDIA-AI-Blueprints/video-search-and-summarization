@@ -109,7 +109,8 @@ The OpenShell **gateway** is a Compose service of the `vss` project
 ([`deploy/docker/services/openshell/compose.yml`](../../../deploy/docker/services/openshell/compose.yml),
 behind the `openshell` profile), started by the bring-up rather than by the
 build's `COMPOSE_PROFILES`. It is one per host, and a teardown of the `vss`
-project removes it and its `openshell-data` volume.
+project removes it and its `openshell-data` volume, so teardown stops while
+another sandbox remains on it ([Shared gateway](teardown.md#shared-gateway--before-compose)).
 
 Selecting the sandbox therefore never *adds* a key to the build. All it adds is
 a host-side step after deployment (below).
@@ -508,8 +509,8 @@ reports as a skill failure rather than a missing deployment.
 
 The gateway, the image and the provider survive a sandbox delete by design, and
 a later build reuses all three. A teardown of the `vss` project removes the
-gateway and its `openshell-data` volume, provider included, so the next
-bring-up starts both again.
+gateway and its `openshell-data` volume, provider included, once no other
+sandbox remains on it, so the next bring-up starts both again.
 
 ## Sources
 

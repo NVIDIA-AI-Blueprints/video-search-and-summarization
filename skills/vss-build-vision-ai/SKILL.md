@@ -43,7 +43,7 @@ metadata:
 - [`references/deployment.md`](references/deployment.md) — resolved Compose deployment lifecycle.
 - [`references/agent-harness.md`](references/agent-harness.md) — the in-stack agent and the host-side OpenShell sandbox, why at most one is deployed and what removing the agent costs, the sandbox's default model provider and where its endpoint, model id, and key come from, and its post-readiness bring-up.
 - [`references/deployment_resolution.md`](references/deployment_resolution.md) — deployment publication of `VSS_PUBLIC_URL`, public-route mappings, and the endpoint contract consumed by operate skills.
-- [`references/teardown.md`](references/teardown.md) — harness sandbox deletion before Compose, default project-volume cleanup, explicit cache-preserving teardown, stale-volume removal, and bind-mounted data cleanup.
+- [`references/teardown.md`](references/teardown.md) — harness sandbox deletion before Compose, the shared-gateway check, default project-volume cleanup, explicit cache-preserving teardown, stale-volume removal, and bind-mounted data cleanup.
 - [`references/prerequisites.md`](references/prerequisites.md), [`references/credentials.md`](references/credentials.md), and [`references/ngc.md`](references/ngc.md) — host, GPU runtime, firewall, credential, entitlement, and NGC checks.
 - [`references/sizing.md`](references/sizing.md) — consolidated developer-profile sizing, model placement, shared-GPU budgets, stream capacity, utilization tuning, and validation.
 - [`references/edge.md`](references/edge.md) — DGX Spark and Thor routing, unified-memory budgeting, cache management, and edge model recipes.

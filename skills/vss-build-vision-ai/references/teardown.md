@@ -3,6 +3,7 @@
 ## Contents
 
 - [Harness sandbox](#harness-sandbox--before-compose)
+- [Shared gateway](#shared-gateway--before-compose)
 - [Default teardown](#default-teardown--clean-project-volumes)
 - [Cache-preserving teardown](#cache-preserving-teardown--explicit-opt-in)
 - [Bind-mounted data cleanup](#bind-mounted-data-cleanup)
@@ -51,11 +52,7 @@ recorded by a run that failed *before* `sandbox create` belongs to a sandbox
 that was never created, so `delete` reports it as not found. That is the one
 non-zero here to accept and move on from; any other failure is a blocker.
 
-The harness image survives. The gateway is a service of the `vss` project, so
-either teardown below removes it and its `openshell-data` volume, and with them
-the inference provider and every other sandbox's gateway record on the host;
-check `openshell sandbox list` before running one. The next bring-up starts the
-gateway and provider again.
+The harness image survives.
 
 The name comes from the build's `sandbox` file and nowhere else: a sandbox
 carries no Compose project label, so neither the build directory nor the
@@ -71,6 +68,39 @@ this build does not own.
 the checkout that deployed: `down -v` needs that build's own `resolved.yml`.
 Left undone, the deployment holds the project's volumes, its sandbox's name,
 and — on a UI-wired build — port `8642`, against the next user.
+
+## Shared gateway — before Compose
+
+The gateway is a service of the project, so either teardown below removes it
+and its `openshell-data` volume: every sandbox's gateway record and the sealed
+provider settings. Run this after the harness sandbox section, and also for a
+build with no `sandbox` file, which can still own the gateway another build's
+sandbox runs on.
+
+```bash
+REPO="$(git rev-parse --show-toplevel)"
+BUILD_DIR="$REPO/_builds/<name>"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
+if [ -n "$(docker ps -aq \
+      --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+      --filter "label=com.docker.compose.service=openshell-gateway")" ]; then
+  NAMES="$(openshell sandbox list --names)" \
+    || { echo "cannot list the gateway's sandboxes; keeping it" >&2; exit 1; }
+  # A deleted sandbox stays listed while its cleanup finishes.
+  OTHERS="$(printf '%s\n' "$NAMES" | grep -vxF -e "$(cat "$BUILD_DIR/sandbox" 2>/dev/null)" -e '' || true)"
+  if [ -n "$OTHERS" ]; then
+    printf 'other sandboxes remain on the gateway:\n%s\n' "$OTHERS" >&2
+    exit 1
+  fi
+fi
+```
+
+A non-zero exit stops the teardown. Run neither path below. Name the remaining
+sandboxes to the user, and say that tearing down deletes their gateway records
+and the provider settings, leaving their containers running with nothing to
+manage them. Continue only on the user's explicit approval to delete that
+state; without it, leave the deployment up. After a teardown, the next
+bring-up starts the gateway and provider again.
 
 ## Default teardown — clean project volumes
 
