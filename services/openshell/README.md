@@ -21,7 +21,7 @@ a grant to reach VSS.
 | [`.hermes/policy.yaml`](../../.hermes/policy.yaml), [`.hermes/boundary.yaml`](../../.hermes/boundary.yaml) | The sandbox policy and the boundary ceiling `openshell-prover check` verifies it against |
 | [`.hermes/Dockerfile`](../../.hermes/Dockerfile) | Step 2 — the harness image. It lives with the harness, not here: each harness owns a top-level directory, and this one carries no OpenShell-only content beyond the baked policy |
 | [`providers/`](providers/) — `agent-inference-profile.yaml`, `agent-inference-build-profile.yaml`, `agent-inference-local-profile.yaml` | Step 3 — provider profiles for the agent's own model: an OpenAI-compatible endpoint, `build.nvidia.com`, or a host-local model server |
-| [`vss/`](vss/) — `Dockerfile`, `policy.yaml`, `boundary.yaml` | Optional — the VSS layer over the step 2 image, and the policy pair adding the `vss-backend` and `ngc` grants |
+| [`vss/`](vss/) — `Dockerfile`, `policy.yaml`, `boundary.yaml` | Optional — the step 2 harness built end to end with VSS in it, and the policy pair adding the `vss-backend` and `ngc` grants |
 
 ---
 
@@ -403,10 +403,10 @@ PROVIDER="${PROVIDER:-agent-inference}"  # the Quickstart's provider, unless cha
 VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
 TAG="${VERSION//+/-}-from-source"
 
-# 1. The VSS layer, built on the harness image from the Quickstart's step 2
-#    (openshell-hermes:$HERMES_REF).
+# 1. The harness with VSS in it, built end to end at the same HERMES_REF as the
+#    Quickstart's step 2.
 docker build -f services/openshell/vss/Dockerfile \
-  --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
+  --build-arg HERMES_REF="$HERMES_REF" \
   --build-arg VSS_PACKAGE_VERSION="$VERSION" \
   -t "openshell-hermes-vss:$TAG" .
 

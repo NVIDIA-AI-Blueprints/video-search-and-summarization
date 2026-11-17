@@ -81,9 +81,9 @@ both pinned by the image. Why those values, and what makes the prover return
 
 The image here has no `vss` CLI, no operation skills and no grant to reach a
 deployment. [`../services/openshell/vss/`](../services/openshell/vss/) is the optional layer
-that adds all three: it takes this image as its base, installs the CLI, the
-skills, the workspace docs and the plugin from `plugin/`, and replaces the
-baked policy with one carrying the `vss-backend` and `ngc` grants.
+that adds all three: it installs the CLI, the skills, the workspace docs and
+the plugin from `plugin/`, and bakes a policy carrying the `vss-backend` and
+`ngc` grants.
 
 The plugin lives here rather than there because it is Hermes code: it mirrors
 the OpenClaw plugin's tool exactly — same name, same `{args, cwd, timeoutSec}`

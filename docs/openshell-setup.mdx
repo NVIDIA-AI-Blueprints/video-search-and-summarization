@@ -182,9 +182,9 @@ PROVIDER="${PROVIDER:-agent-inference}"  # the provider from step 3, unless chan
 VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
 TAG="${VERSION//+/-}-from-source"
 
-# 1. The VSS layer, built on the harness image from step 2.
+# 1. The harness with VSS in it, built end to end at the same HERMES_REF as step 2.
 docker build -f services/openshell/vss/Dockerfile \
-  --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
+  --build-arg HERMES_REF="$HERMES_REF" \
   --build-arg VSS_PACKAGE_VERSION="$VERSION" \
   -t "openshell-hermes-vss:$TAG" .
 

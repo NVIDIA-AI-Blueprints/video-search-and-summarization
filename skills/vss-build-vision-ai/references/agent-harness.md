@@ -441,7 +441,7 @@ SRC="$REPO/_builds/<name>/harness-src"
 git -C "$REPO" fetch -q origin "$REF" && git -C "$REPO" worktree add -q --detach "$SRC" FETCH_HEAD
 VERSION="$(cd "$SRC/libs/vss/cli" && uvx --with hatch-vcs hatch version)"
 docker build -f "$SRC/services/openshell/vss/Dockerfile" \
-  --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
+  --build-arg HERMES_REF="$HERMES_REF" \
   --build-arg VSS_PACKAGE_VERSION="$VERSION" \
   -t "openshell-hermes-vss:${VERSION//+/-}-from-source" "$SRC"
 git -C "$REPO" worktree remove "$SRC"

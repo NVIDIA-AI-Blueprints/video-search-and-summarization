@@ -1,13 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# The optional VSS layer on top of the pure harness ../../../.hermes/Dockerfile
-# builds. Adds the `vss` CLI, the operation skills, the vss_cli tool plugin and
-# the workspace docs, and replaces the baked policy with the pair beside this
-# file, which is the pure one plus the vss-backend and ngc grants.
-#
-# Nothing below re-does what the base already did: the interpreter, Hermes, the
-# sandbox identity, config.yaml and trust-supervisor-ca all come from it.
+# The Hermes harness with VSS in it, built end to end. The python and hermes
+# stages and the start of the runtime stage repeat ../../../.hermes/Dockerfile;
+# change both files together. On top it adds the `vss` CLI, the operation
+# skills, the vss_cli tool plugin and the workspace docs, and bakes the
+# policy.yaml beside this file: the pure policy plus the vss-backend and ngc
+# grants.
 #
 # Not carried over: the NGC CLI. An operation skill that resolves a sample
 # video by name shells out to `ngc`, and that call fails here; the `ngc` entry
@@ -16,26 +15,78 @@
 # Build context is the checkout root, so the image carries this tree:
 #
 #   docker build -f services/openshell/vss/Dockerfile \
-#     --build-arg HARNESS_IMAGE="openshell-hermes:$HERMES_REF" \
+#     --build-arg HERMES_REF="$HERMES_REF" \
 #     -t "openshell-hermes-vss:$TAG" .
 
+ARG BASE_IMAGE=nvcr.io/nvidia/base/ubuntu:24.04
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
-# The image ../../../.hermes/Dockerfile produced. No default: a stale base silently
-# yields a harness the policy pair here was not proven against.
-ARG HARNESS_IMAGE
+# Hermes publishes weekly tags; v2026.9.14 is 0.21.3, the verified version.
+# Keep HERMES_REF on a tag, not a branch.
+ARG HERMES_REPO=https://github.com/NousResearch/hermes-agent
+ARG HERMES_REF=v2026.9.14
 # The CLI wheels' version: hatch-vcs reads git metadata, and a build context has
 # no .git. Same arg and default as ../../../services/agent/docker/Dockerfile.
 ARG VSS_PACKAGE_VERSION=0.0.0+local
 
 FROM ${UV_IMAGE} AS uv
 
-# ── VSS source: skills + workspace docs + CLI wheels ──────────────────────────
-# Same selection rules as ../../../.openclaw/Dockerfile's vss-src stage. Built on the
-# harness image rather than the bare base so the wheels are built against the
-# same /usr/bin/python3.13 the runtime resolves.
-FROM ${HARNESS_IMAGE} AS vss-src
-USER root
+# ── Python 3.13 ────────────────────────────────────────────────────────────────
+# The base ships no python3 at all, so uv supplies it — 3.13, the top of
+# Hermes' >=3.11,<3.14 range and the floor the vss CLI needs. Staging the whole
+# prefix under usr/ is what puts it at /usr/bin/python3.13 with sys.prefix=/usr
+# instead of uv's version-and-arch directory: the OPA binary check matches
+# /proc/<pid>/exe, which no symlink can redirect.
+FROM ${BASE_IMAGE} AS python
 COPY --from=uv /uv /usr/local/bin/uv
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && uv python install --install-dir /tmp/py 3.13 \
+    && mkdir -p /opt/pystage/usr \
+    && cp -a /tmp/py/cpython-3.13.*/. /opt/pystage/usr/ \
+    && rm -rf /tmp/py /opt/pystage/usr/lib/python3.13/test \
+         /opt/pystage/usr/lib/python3.13/idlelib \
+    && find /opt/pystage -name 'libpython*.a' -delete \
+    && /opt/pystage/usr/bin/python3.13 -c 'import ssl, sqlite3, venv, ctypes'
+
+# ── Hermes runtime: upstream source + its venv ─────────────────────────────────
+FROM ${BASE_IMAGE} AS hermes
+ARG HERMES_REPO
+ARG HERMES_REF
+COPY --from=uv /uv /usr/local/bin/uv
+COPY --from=python /opt/pystage/ /
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+RUN git init -q /opt/hermes \
+    && git -C /opt/hermes remote add origin "$HERMES_REPO" \
+    && git -C /opt/hermes fetch -q --depth 1 --filter=blob:none origin "$HERMES_REF" \
+    && git -C /opt/hermes checkout -q FETCH_HEAD
+ENV UV_PYTHON=/usr/bin/python3.13 \
+    UV_PROJECT_ENVIRONMENT=/opt/hermes/.venv
+# Core dependencies only: every provider, messaging platform and browser extra
+# is opt-in in Hermes' own pyproject.toml. The one exception is --extra sms,
+# Hermes' aiohttp-only extra; aiohttp is what the api_server platform's adapter
+# needs, and without it the gateway logs "No adapter available for api_server"
+# and binds nothing. Taking it as an extra holds the version to uv.lock's pin
+# instead of resolving one outside it.
+#
+# Editable, because Hermes' setup.py refuses to build a wheel or sdist of
+# itself: the source tree is the installed package and stays in the runtime.
+RUN cd /opt/hermes && uv sync --no-dev --frozen --extra sms \
+    && .venv/bin/hermes --version
+# The build tree is not the runtime tree: the harness ships the package, its
+# bundled skills and its bundled plugins, not the repo it was built from. The
+# directories below are the TUI, web UI, tests and docs site — all node or
+# browser surfaces, none reachable from the API server or the CLI agent.
+RUN rm -rf /opt/hermes/.git /opt/hermes/tests /opt/hermes/tests-js /opt/hermes/evals \
+      /opt/hermes/website /opt/hermes/web /opt/hermes/ui-tui /opt/hermes/apps \
+      /opt/hermes/native /opt/hermes/nix /opt/hermes/contributors \
+      /opt/hermes/package-lock.json
+
+# ── VSS source: skills + workspace docs + CLI wheels ──────────────────────────
+# Same selection rules as ../../../.openclaw/Dockerfile's vss-src stage. Built on
+# the hermes stage so the wheels are built against the same /usr/bin/python3.13
+# the runtime resolves.
+FROM hermes AS vss-src
 # libs/vss by its two members, not whole: a developer's .venv sits beside them
 # and BuildKit would send all of it.
 COPY libs/vss/pyproject.toml libs/vss/uv.lock /opt/vss-src/libs/vss/
@@ -65,9 +116,36 @@ RUN mkdir -p /opt/vss-assets/wheels \
        uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-assets/wheels
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
-FROM ${HARNESS_IMAGE} AS runtime
-USER root
-ENV PATH=/usr/local/vss/bin:/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# The toolchain purge is by construction rather than by removal: this stage
+# installs no compiler, no network client and no node, so there is nothing to
+# strip afterwards. Every build happens in a stage above and only its output
+# is copied; uv is the one exception, removed once the vss venv exists.
+FROM ${BASE_IMAGE} AS runtime
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HERMES_HOME=/sandbox/.hermes \
+    PATH=/usr/local/vss/bin:/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/* \
+    # 998:999 is the process identity policy.yaml requires.
+    && groupadd -g 999 sandbox \
+    && useradd -u 998 -g 999 -m -d /sandbox -s /bin/bash sandbox
+COPY --from=python /opt/pystage/ /
+COPY --from=hermes /opt/hermes /opt/hermes
+# config.yaml, which upstream Hermes ships none of. Endpoint, model and key
+# stay ${env:} refs: they are a per-deployment choice the create command
+# renders. The three settings after the model block are the only non-default
+# guardrails this harness relies on; the api_server platform needs no entry,
+# since it starts by default and binds its documented 8642.
+RUN su sandbox -s /bin/sh -c 'set -e; cd /sandbox; H=/opt/hermes/.venv/bin/hermes; \
+      $H config set model.default "\${env:HARNESS_MODEL}"; \
+      $H config set model.provider custom; \
+      $H config set model.base_url "\${env:HARNESS_BASE_URL}"; \
+      $H config set model.api_key "\${env:HARNESS_API_KEY}"; \
+      $H config set agent.max_turns 60; \
+      $H config set approvals.mode manual; \
+      $H config set browser.restrict_evaluate true' \
+    && test -f /sandbox/.hermes/config.yaml
 COPY --from=uv /uv /usr/local/bin/uv
 COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
 COPY .hermes/plugin /opt/vss-assets/plugin
@@ -75,8 +153,7 @@ RUN set -eux; \
     # The vss CLI, from the wheels built out of the same tree as the skills.
     # Installed by path, not by name: with --find-links a bare name still
     # admits index candidates, so a future published nvidia-vss-cli could
-    # outrank the wheel and silently break the CLI==skills guarantee. The CLI
-    # needs >=3.13, which is what the base interpreter has to stay at.
+    # outrank the wheel and silently break the CLI==skills guarantee.
     uv venv --python /usr/bin/python3.13 /usr/local/vss \
     && VIRTUAL_ENV=/usr/local/vss uv pip install /opt/vss-assets/wheels/*.whl \
     && vss --version \
@@ -110,7 +187,10 @@ RUN set -eux; \
     && chmod -R a+rX /opt/vss-skills /opt/hermes/skills/vss /opt/hermes/plugins/vss \
     && test -f /opt/hermes/skills/vss/vss-ask-video/SKILL.md && test -f /sandbox/AGENTS.md \
     && rm -rf /opt/vss-assets /usr/local/bin/uv
-# Replaces the base's pure policy with the pair beside this file.
+# The access boundary, baked so one artifact carries harness and policy. The
+# directory is made here rather than left to COPY, which would give it the
+# --chmod mode and leave it unsearchable.
+RUN mkdir -p /etc/openshell && chmod 0755 /etc/openshell
 COPY --chmod=0644 services/openshell/vss/policy.yaml /etc/openshell/policy.yaml
 
 # ── VLM request defaults for `vss vlm run` ────────────────────────────────────

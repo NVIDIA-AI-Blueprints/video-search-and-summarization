@@ -123,11 +123,11 @@ class DownstreamGateTest(unittest.TestCase):
         inventory = load_inventory(Path(__file__).resolve().parents[2])
         cases = {
             "services/agent/app.py": {"vss-agent"},
-            "libs/vss/cli/src/vss_cli/configure.py": {"vss-agent", "vss-harness-openclaw"},
+            "libs/vss/cli/src/vss_cli/configure.py": {"vss-agent", "vss-harness-openclaw", "openshell-hermes-vss"},
             "services/ui/package.json": {"vss-agent-ui"},
             "LICENSE": {"vss-agent-ui"},
             "libs/analytics/spatialai-data-utils/release/pyproject.toml": {"vss-configurator"},
-            "skills/operations/vss-summarize-video/SKILL.md": {"vss-harness-openclaw"},
+            "skills/operations/vss-summarize-video/SKILL.md": {"vss-harness-openclaw", "openshell-hermes-vss"},
         }
         for changed, images in cases.items():
             with self.subTest(changed=changed):
