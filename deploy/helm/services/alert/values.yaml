@@ -65,6 +65,17 @@ kafkaBootstrapServers: ""
 elasticHosts: ""
 vlmBaseUrl: ""
 vlmName: "nvidia/cosmos3-nano-reasoner"
+# Explicit bearer token for the VLM endpoint, read by
+# services/alert/src/vlm/vlm_client.py as VLM_API_KEY. Applies to any endpoint
+# (local or remote). Compose parity: ${VLM_API_KEY:-}. Leave "" to render an
+# empty env var; override from an umbrella profile with
+# vss-alert-bridge.vlmApiKey, or wire a Secret with valueFrom in a follow-up.
+vlmApiKey: ""
+# Used only when the VLM client targets NVIDIA's HTTPS inference API
+# (endpoint https://inference-api.nvidia.com), per the fallback chain in
+# vlm_client.py. Compose parity: ${NVIDIA_API_KEY:-}. Leave "" when the
+# endpoint is in-cluster or when VLM_API_KEY is set.
+nvidiaApiKey: ""
 # VST base for Alert Bridge media lookup (vst_config.base_url). Default: in-cluster
 # vss-vios-ingress service (Docker parity: always ${VST_INTERNAL_URL}). Public URLs
 # for remote VLM are rewritten via url_transform + EXTERNAL_IP/INTERNAL_IP, not by

@@ -135,6 +135,18 @@ spec:
               value: {{ ternary "remote" "local" (ne $globVlmUrl "") | quote }}
             - name: VLM_NAME
               value: {{ $vlmNameStr | quote }}
+            {{- /* Explicit VLM endpoint credentials. VLM_API_KEY is the generic
+                   bearer token read by services/alert/src/vlm/vlm_client.py for
+                   any endpoint; NVIDIA_API_KEY is used only when the VLM client
+                   targets NVIDIA's HTTPS inference API. Both default to "" so
+                   the rendered env matches Compose's ${VLM_API_KEY:-} /
+                   ${NVIDIA_API_KEY:-}. Umbrella profiles should override via
+                   subchart keys (vss-alert-bridge.vlmApiKey / .nvidiaApiKey) or
+                   wire a Secret with valueFrom in a follow-up. */}}
+            - name: VLM_API_KEY
+              value: {{ .Values.vlmApiKey | default "" | quote }}
+            - name: NVIDIA_API_KEY
+              value: {{ .Values.nvidiaApiKey | default "" | quote }}
             - name: RTVI_VLM_MODEL_TO_USE
               value: {{ .Values.rtviVlmModelToUse | default $vlmNameStr | quote }}
             - name: ALWAYS_ON_RULES_CONFIG
