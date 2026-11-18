@@ -120,8 +120,10 @@ serves the OpenClaw plugin and host tooling.
 and `WORKDIR /sandbox`. `LABEL harness.agent=hermes`.
 
 `LABEL harness.contract=harbor-trial-v1`: Harbor and its agent adapters address
-`/task /output /logs /tests /solution` by name, and the image pre-creates them
-as real, world-writable directories. They cannot be symlinks into the
+`/task /output /logs /tests /solution` by name. `.hermes/policy.yaml` lists
+them as `read_write`, without which Landlock denies them whatever their mode.
+The image pre-creates them as real, world-writable
+directories. They cannot be symlinks into the
 workspace: OpenShell chowns every `read_write` policy path at sandbox start and
 refuses a symlink. The eval harness moves files in and out with exec + tar, so
 they do not need to live in the workspace.

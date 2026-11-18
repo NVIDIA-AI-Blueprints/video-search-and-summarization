@@ -701,7 +701,8 @@ policies to Hermes:
 version: 1
 filesystem_policy:
   read_only:  [/usr, /bin, /sbin, /lib, /lib64, /etc, /opt, /proc]
-  read_write: [/sandbox, /tmp, /dev/null, /dev/urandom]
+  read_write: [/sandbox, /tmp, /dev/null, /dev/urandom,
+               /task, /output, /logs, /tests, /solution]
 landlock: { compatibility: best_effort }
 process:  { run_as_user: "998", run_as_group: "999" }   # `sandbox` in the image
 network_policies:
@@ -749,7 +750,8 @@ candidate's `GET`:
 version: 1
 filesystem_policy:
   read_only:  [/usr, /bin, /sbin, /lib, /lib64, /etc, /opt, /proc]
-  read_write: [/sandbox, /tmp, /dev/null, /dev/urandom]
+  read_write: [/sandbox, /tmp, /dev/null, /dev/urandom,
+               /task, /output, /logs, /tests, /solution]
 landlock: { compatibility: best_effort }
 process:  { run_as_user: "998", run_as_group: "999" }
 network_policies:
