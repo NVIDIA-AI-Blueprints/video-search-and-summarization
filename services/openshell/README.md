@@ -145,19 +145,22 @@ README states "No workload launch depends on a host bind mount".
 
 ### What OpenShell deploys
 
-The first three rows are declared once per deployment in VSS's Compose file
-(§4 step 1). The rest are made by the gateway's compute driver — Docker here,
-selected by `compute_driver = "docker"` — through the host's Docker socket on
-each `sandbox create`. The driver builds the boundary but never makes a policy
+**Per deployment** — declared once in VSS's Compose file, behind the
+`openshell` profile (§4 step 1):
+
+| Resource | Process | Contents and networking |
+|---|---|---|
+| `openshell-init` container | `generate-certs`, then exits | One-shot: writes the JWT signing keys and mTLS certificates into the data volume |
+| `openshell-gateway` container | `openshell-gateway` | Host networking, one listener on `127.0.0.1:8080` for the CLI, SDK and supervisors, health on `:8082`; mounts the Docker socket |
+| `openshell-data` volume | — | `gateway.db` (SQLite record of every sandbox), the JWT signing key, and the key-encryption key that seals provider credentials |
+
+**Per sandbox** — made by the gateway's compute driver — Docker here, selected
+by `compute_driver = "docker"` — through the host's Docker socket on each
+`sandbox create`. The driver builds the boundary but never makes a policy
 decision.
 
 | Resource | Process | Contents and networking |
 |---|---|---|
-| **Per deployment** — Compose, `openshell` profile | | |
-| `openshell-init` container | `generate-certs`, then exits | One-shot: writes the JWT signing keys and mTLS certificates into the data volume |
-| `openshell-gateway` container | `openshell-gateway` | Host networking, one listener on `127.0.0.1:8080` for the CLI, SDK and supervisors, health on `:8082`; mounts the Docker socket |
-| `openshell-data` volume | — | `gateway.db` (SQLite record of every sandbox), the JWT signing key, and the key-encryption key that seals provider credentials |
-| **Per sandbox** — the Docker driver | | |
 | Workload container | `openshell-sandbox` as PID 1, the harness (`hermes gateway run`) as its child | The harness image, `network_mode=none`, one non-root UID, all capabilities dropped |
 | Supervisor container | `openshell-supervisor` | From the supervisor image, host networking; dials the gateway and makes every outbound connection |
 | Channel volumes | — | Sandbox bootstrap keys, and the Unix socket the two containers speak over — never the network |
@@ -196,7 +199,7 @@ domain, so a compromised agent cannot switch it off:
 ## 3. Quickstart
 
 Brings up a Hermes sandbox against its own model; only the last step needs a
-VSS deployment. Every file in the table above is pre-created: the Compose services and the
+VSS deployment. Every file in the [file table](#agent-harness-on-openshell) is pre-created: the Compose services and the
 `OPENSHELL_TAG` they read, the version-2 gateway config, the policy and the
 boundary it is proven against, the harness Dockerfile, and the provider
 profiles. Section 4 is the same ground with the reasoning; §5 is how to check
@@ -300,9 +303,9 @@ curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
 ### Change the model, endpoint or key
 
 To change the model, the endpoint or the key, or to start over, make the change
-and then recreate the sandbox. The model and endpoint are fixed at create, and a
-running API server never sees a new credential. The gateway and provider
-survive the recreate.
+and then apply it. A key change reaches a live sandbox; the model and endpoint
+are fixed at create, so either one recreates it. The gateway, image and
+provider survive both.
 
 Pick the one change you are making and follow only its steps. To start over,
 follow the model change with no edit.
@@ -316,28 +319,39 @@ follow the model change with no edit.
 A provider authorizes only its profile's host, so the sandbox refuses a base URL
 on any other host.
 
-First re-read the settings and re-run step 2's build. Editing `openshell.env`
-or updating the checkout changes the version, so the tag may not be built yet;
-an unchanged tree reuses the cache.
+First re-read the settings:
 
 ```bash
-PROVIDER=agent-inference          # the Quickstart's provider
 set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
-VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"; TAG="${VERSION//+/-}-from-source"
-docker build -f .hermes/Dockerfile \
-  --build-arg HERMES_REF="$HERMES_REF" \
-  --build-arg VSS_PACKAGE_VERSION="$VERSION" \
-  -t "openshell-hermes-vss:$TAG" .
 ```
 
-Then register the change with the gateway, by which one you made:
+Then follow the one change you made:
 
-- **Model:** nothing to register.
+- **Key:** the sandbox holds an `openshell:resolve:env:` placeholder rather than
+  the key, so updating the provider is the whole change. Every process started
+  after it egresses with the new key; an already-running API server keeps the
+  old one until the sandbox restarts.
+
+  ```bash
+  openshell provider update agent-inference --credential HARNESS_API_KEY --wait
+  openshell sandbox stop hermes && openshell sandbox start hermes   # API server only
+  ```
+
+  `stop` keeps the workspace, the sandbox's `API_SERVER_KEY` and its exposed
+  route, and ends any port forward; start that again afterwards. Nothing below
+  applies.
+
+- **Model:** keep the Quickstart's provider, then recreate the sandbox below.
+
+  ```bash
+  PROVIDER=agent-inference
+  ```
+
 - **Endpoint:** create a provider from the profile in `providers/` that
-  authorizes the new host. Set `PROVIDER` to `agent-inference-build` for
-  build.nvidia.com, or `agent-inference-local` for a server on this host, which
-  needs no real key but still takes a non-empty `HARNESS_API_KEY`, such as a
-  placeholder:
+  authorizes the new host, then recreate the sandbox below. Set `PROVIDER` to
+  `agent-inference-build` for build.nvidia.com, or `agent-inference-local` for
+  a server on this host, which needs no real key but still takes a non-empty
+  `HARNESS_API_KEY`, such as a placeholder:
 
   ```bash
   PROVIDER=agent-inference-build
@@ -346,16 +360,18 @@ Then register the change with the gateway, by which one you made:
     --type "$PROVIDER" --credential HARNESS_API_KEY
   ```
 
-- **Key:** update the current provider:
+  Returning to an endpoint you have used before needs neither command, since
+  both the profile and the provider are already there; refresh its credential
+  with `openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
+  --wait` instead.
 
-  ```bash
-  openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
-  ```
-
-Finally, for every change, delete the sandbox and create it again: the
-Quickstart's step 4 with `$PROVIDER`. The delete runs only once the image exists.
+A model or endpoint change ends by deleting the sandbox and creating it again:
+the Quickstart's step 4 with `$PROVIDER`, against the image step 2 already
+built. Re-run that build only after updating the checkout, since the tag names
+the tree the image carries.
 
 ```bash
+TAG="${TAG:-$(docker images --format '{{.Tag}}' openshell-hermes-vss | head -1)}"
 docker image inspect "openshell-hermes-vss:$TAG" >/dev/null &&
   openshell sandbox delete hermes
 openshell sandbox create \

@@ -72,7 +72,7 @@ HARNESS_API_KEY=... openshell provider create \
 
 ## Change the model, endpoint, or key
 
-To change the model, the endpoint, or the key, or to start over, make the change and then recreate the sandbox. The model and endpoint are fixed at create, and a running API server never sees a new credential. The gateway and provider survive the recreate.
+To change the model, the endpoint, or the key, or to start over, make the change and then apply it. A key change reaches a live sandbox; the model and endpoint are fixed at create, so either one recreates it. The gateway, image, and provider survive both.
 
 Pick the one change you are making and follow only its steps. To start over, follow the model change with no edit.
 
@@ -84,22 +84,30 @@ Pick the one change you are making and follow only its steps. To start over, fol
 
 A provider authorizes only its profile's host, so the sandbox refuses a base URL on any other host.
 
-First re-read the settings and re-run step 2's build. Editing `openshell.env` or updating the checkout changes the version, so the tag may not be built yet; an unchanged tree reuses the cache.
+First re-read the settings:
 
 ```bash
-PROVIDER=agent-inference          # the provider from the setup
 set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
-VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"; TAG="${VERSION//+/-}-from-source"
-docker build -f .hermes/Dockerfile \
-  --build-arg HERMES_REF="$HERMES_REF" \
-  --build-arg VSS_PACKAGE_VERSION="$VERSION" \
-  -t "openshell-hermes-vss:$TAG" .
 ```
 
-Then register the change with the gateway, by which one you made:
+Then follow the one change you made:
 
-* **Model:** nothing to register.
-* **Endpoint:** create a provider from the profile in `providers/` that authorizes the new host. Set `PROVIDER` to `agent-inference-build` for `build.nvidia.com`, or `agent-inference-local` for a server on this host, which needs no real key but still takes a non-empty `HARNESS_API_KEY`, such as a placeholder:
+* **Key:** the sandbox holds an `openshell:resolve:env:` placeholder rather than the key, so updating the provider is the whole change. Every process started after it egresses with the new key; an already-running API server keeps the old one until the sandbox restarts.
+
+  ```bash
+  openshell provider update agent-inference --credential HARNESS_API_KEY --wait
+  openshell sandbox stop hermes && openshell sandbox start hermes   # API server only
+  ```
+
+  `stop` keeps the workspace, the sandbox's `API_SERVER_KEY`, and its exposed route, and ends any port forward; start that again afterwards. Nothing below applies.
+
+* **Model:** keep the provider from the setup, then recreate the sandbox below.
+
+  ```bash
+  PROVIDER=agent-inference
+  ```
+
+* **Endpoint:** create a provider from the profile in `providers/` that authorizes the new host, then recreate the sandbox below. Set `PROVIDER` to `agent-inference-build` for `build.nvidia.com`, or `agent-inference-local` for a server on this host, which needs no real key but still takes a non-empty `HARNESS_API_KEY`, such as a placeholder:
 
   ```bash
   PROVIDER=agent-inference-build
@@ -108,15 +116,12 @@ Then register the change with the gateway, by which one you made:
     --type "$PROVIDER" --credential HARNESS_API_KEY
   ```
 
-* **Key:** update the current provider:
+  Returning to an endpoint you have used before needs neither command, since both the profile and the provider are already there; refresh its credential with `openshell provider update "$PROVIDER" --credential HARNESS_API_KEY --wait` instead.
 
-  ```bash
-  openshell provider update "$PROVIDER" --credential HARNESS_API_KEY
-  ```
-
-Finally, for every change, delete the sandbox once the image exists:
+A model or endpoint change ends by deleting the sandbox, against the image step 2 already built. Re-run that build only after updating the checkout, since the tag names the tree the image carries.
 
 ```bash
+TAG="${TAG:-$(docker images --format '{{.Tag}}' openshell-hermes-vss | head -1)}"
 docker image inspect "openshell-hermes-vss:$TAG" >/dev/null &&
   openshell sandbox delete hermes
 ```

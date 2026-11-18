@@ -42,15 +42,18 @@ The trusted half of a sandbox, one per sandbox, and the only component that deci
 
 ## What OpenShell deploys
 
-The first three rows are declared once per deployment in the VSS Compose file. The rest are made by the gateway's compute driver — Docker here, selected by `compute_driver = "docker"` — through the host's Docker socket on each `sandbox create`. The driver builds the boundary but never makes a policy decision.
+**Per deployment** — declared once in the VSS Compose file, behind the `openshell` profile:
 
 | Resource | Process | Contents and networking |
 |---|---|---|
-| **Per deployment** — Compose, `openshell` profile | | |
 | `openshell-init` container | `generate-certs`, then exits | One-shot: writes the JWT signing keys and mTLS certificates into the data volume |
 | `openshell-gateway` container | `openshell-gateway` | Host networking, one listener on `127.0.0.1:8080` for the CLI, SDK, and supervisors, health on `:8082`; mounts the Docker socket |
 | `openshell-data` volume | — | `gateway.db` (the SQLite record of every sandbox), the JWT signing key, and the key-encryption key that seals provider credentials |
-| **Per sandbox** — the Docker driver | | |
+
+**Per sandbox** — made by the gateway's compute driver — Docker here, selected by `compute_driver = "docker"` — through the host's Docker socket on each `sandbox create`. The driver builds the boundary but never makes a policy decision.
+
+| Resource | Process | Contents and networking |
+|---|---|---|
 | Workload container | `openshell-sandbox` as PID 1, the harness (`hermes gateway run`) as its child | The harness image, `network_mode=none`, one non-root UID, all capabilities dropped |
 | Supervisor container | `openshell-supervisor` | From the supervisor image, host networking; dials the gateway and makes every outbound connection |
 | Channel volumes | — | Sandbox bootstrap keys, and the Unix socket the two containers speak over — never the network |
