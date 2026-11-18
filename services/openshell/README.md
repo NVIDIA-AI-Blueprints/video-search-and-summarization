@@ -425,8 +425,8 @@ recording which deployment, and selecting the skills it can serve.
 
 ```bash
 # 5. Point the CLI at VSS, then re-select the skills those services can serve.
-set -a; . deploy/docker/services/openshell/openshell.env; set +a
-openshell sandbox exec -n hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
+#    The sandbox expands VSS_PUBLIC_URL, so it is the origin create set.
+openshell sandbox exec -n hermes -- sh -c 'vss configure --base-url "$VSS_PUBLIC_URL"'
 openshell sandbox exec -n hermes -- vss-hermes-sync
 ```
 

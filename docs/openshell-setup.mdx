@@ -148,8 +148,8 @@ openshell sandbox create \
 The only step that needs a deployment already up. The `vss` CLI, the operation Skills, and the `vss_cli` tool plugin are in the image, and the policy already grants the deployment's origin; what remains is recording which deployment, and selecting the Skills it can serve.
 
 ```bash
-set -a; . deploy/docker/services/openshell/openshell.env; set +a
-openshell sandbox exec -n hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
+# The sandbox expands VSS_PUBLIC_URL, so it is the origin create set.
+openshell sandbox exec -n hermes -- sh -c 'vss configure --base-url "$VSS_PUBLIC_URL"'
 openshell sandbox exec -n hermes -- vss-hermes-sync
 ```
 
