@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+**
+!services/d1-cosmos/model-lock.json
+!services/d1-cosmos/d1_protocol.py
+!services/d1-cosmos/d1_runtime.py
+!services/d1-cosmos/model_entrypoint.py
+!services/d1-cosmos/server.py

@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Reuse the released ARM64 GStreamer and Jetson GPU decoder userspace. The entrypoint
+# below starts a D1 worker and does not load the base image's VLM.
+ARG D1_WORKER_BASE_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.3.0
+FROM ${D1_WORKER_BASE_IMAGE}
+USER root
+WORKDIR /app
+COPY services/d1-cosmos/requirements.txt /app/requirements.txt
+RUN /usr/bin/python3 -m venv --system-site-packages /opt/d1-worker \
+    && /opt/d1-worker/bin/pip install --no-cache-dir -r /app/requirements.txt \
+    && install -d -o 1001 -g 1001 -m 0700 /data /home/d1
+COPY libs/vss/pyproject.toml libs/vss/uv.lock /opt/vss-cli/
+COPY libs/vss/cli/pyproject.toml /opt/vss-cli/cli/
+COPY libs/vss/cli/src /opt/vss-cli/cli/src
+COPY libs/vss/core/pyproject.toml /opt/vss-cli/core/
+COPY libs/vss/core/src /opt/vss-cli/core/src
+ARG VSS_PACKAGE_VERSION=3.3.0
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
+RUN SETUPTOOLS_SCM_PRETEND_VERSION="$VSS_PACKAGE_VERSION" \
+    uv sync --project /opt/vss-cli --python 3.13 --locked --no-dev --no-editable --package nvidia-vss-cli \
+    && /opt/vss-cli/.venv/bin/vss --version
+COPY services/d1-cosmos/agent_pipeline /app/agent_pipeline
+COPY services/d1-cosmos/worker.py /app/worker.py
+ENV HOME=/home/d1 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    PATH="/opt/d1-worker/bin:/opt/vss-cli/.venv/bin:${PATH}" \
+    D1_INGEST_DB=/data/ingest.sqlite D1_ANALYTICS_DB=/data/analytics.sqlite \
+    D1_CLIP_CACHE=/data/review-clips D1_SELECTION_BACKUPS=/data/source-backups
+USER 1001:1001
+EXPOSE 8020 8021
+ENTRYPOINT ["python", "/app/worker.py"]

@@ -1,0 +1,9 @@
+The D1/Cosmos runtime and tests were adapted from the Jetson Thor D1 + Cosmos
+event-agent demo for this VSS deployment. The model weights and the NVIDIA
+container layers are obtained by the deployer from their corresponding registries.
+See model-lock.json for the LiquidAI/d1-2B checkpoint revision:
+https://huggingface.co/LiquidAI/d1-2B
+
+The VSS RT-VLM service supplies the Cosmos model under the upstream model and
+container terms. See the repository's LICENSE and LICENSE-3rd-party.txt for VSS
+notices. The optional prompt assistant connects to a user-provided Nemotron model endpoint.

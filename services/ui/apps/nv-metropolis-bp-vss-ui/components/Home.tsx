@@ -91,6 +91,8 @@ interface TabConfig {
 
 // Dynamic component imports based on configuration
 // These are loaded at runtime only if the corresponding tab is enabled
+const D1AgentPanel = dynamic(() => import('./D1AgentPanel'), { ssr: false });
+
 const VssChatPanel = dynamic(
   () => import('@nv-metropolis-bp-vss-ui/chat').then((mod) => mod.ChatPanel),
   { ssr: false },
@@ -299,6 +301,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   // Get deployment configuration from environment variables - memoize to prevent recreation
   const deploymentConfig = useMemo(() => {
     return {
+      enableD1Tab: (env('NEXT_PUBLIC_ENABLE_D1_TAB') || process.env.NEXT_PUBLIC_ENABLE_D1_TAB) === 'true',
       enableChatTab: (env('NEXT_PUBLIC_ENABLE_CHAT_TAB') || process.env.NEXT_PUBLIC_ENABLE_CHAT_TAB) !== 'false',
       enableAlertsTab: (env('NEXT_PUBLIC_ENABLE_ALERTS_TAB') || process.env.NEXT_PUBLIC_ENABLE_ALERTS_TAB) !== 'false',
       enableSearchTab: (env('NEXT_PUBLIC_ENABLE_SEARCH_TAB') || process.env.NEXT_PUBLIC_ENABLE_SEARCH_TAB) !== 'false',
@@ -315,6 +318,9 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
 
   // Define all possible tabs with their configuration - memoize to prevent recreation
   const allTabs: TabConfig[] = useMemo(() => [
+    { id: 'd1-agent', label: 'D1 Agent', icon: <IconVideo size={16} />,
+      alt: 'D1 decisions and Cosmos reviews', enabled: deploymentConfig.enableD1Tab,
+      component: 'D1AgentComponent' },
     { 
       id: 'chat', 
       label: 'Chat', 
@@ -371,7 +377,18 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     [allTabs]
   );
 
+  // The D1-only demo has no navigation choices; give its monitor and assistant the full width.
+  const isD1Only = visibleTabs.length === 1 && visibleTabs[0].id === 'd1-agent';
+  const showLeftNavigation = visibleTabs.length > 0 && !isD1Only;
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    if (!deploymentConfig.enableD1Tab || typeof window.matchMedia !== 'function') return;
+    const narrow = window.matchMedia('(max-width: 767px)');
+    const resize = () => setSidebarCollapsed(narrow.matches);
+    resize(); narrow.addEventListener('change', resize);
+    return () => narrow.removeEventListener('change', resize);
+  }, [deploymentConfig.enableD1Tab]);
 
   // Set initial active tab - start with first visible tab for SSR compatibility
   const [activeTab, setActiveTabInternal] = useState(() => {
@@ -709,6 +726,11 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   // Render a single tab component with visibility control
   const renderTabComponent = (tabConfig: TabConfig) => {
     const isActive = activeTab === tabConfig.id;
+    if (tabConfig.component === 'D1AgentComponent') return (
+      <div key={tabConfig.id} className="absolute inset-0 overflow-auto" style={{ display: isActive ? 'block' : 'none' }}>
+        <D1AgentPanel isActive={isActive} />
+      </div>
+    );
 
     // Chat is checked before the registry lookup: the panel is its own
     // top-level dynamic import, not an entry in `dynamicComponents`.
@@ -882,7 +904,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
         {/* Header content */}
         <div className="h-full px-6 flex items-center justify-between relative">
           <div className="flex items-center space-x-2 flex-1 min-w-0">
-            {visibleTabs.length > 0 && (
+            {showLeftNavigation && (
               <button
                 onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                 className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors flex-shrink-0"
@@ -912,14 +934,14 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
               {APPLICATION_TITLE}
             </h4>
             <span
-              className="self-end flex-shrink-0 pb-0.5 text-xs text-gray-500 dark:text-gray-400"
+              className={`${isD1Only ? 'hidden sm:block ' : ''}self-end flex-shrink-0 pb-0.5 text-xs text-gray-500 dark:text-gray-400`}
               title={`ver: ${packageJson.version}`}
             >
               ver: {packageJson.version}
             </span>
-            <div className="flex-shrink-0 w-[2px] h-[19px] bg-black dark:bg-white" />
+            <div className={`${isD1Only ? 'hidden lg:block ' : ''}flex-shrink-0 w-[2px] h-[19px] bg-black dark:bg-white`} />
             {APPLICATION_SUBTITLE && (
-              <div className="flex items-center">
+              <div className={`${isD1Only ? 'hidden lg:flex' : 'flex'} items-center`}>
                 <span className="text-sm text-black dark:text-white">
                   {APPLICATION_SUBTITLE}
                 </span>
@@ -942,7 +964,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* Left Sidebar with Tabs - Only show if there are visible tabs */}
-        {visibleTabs.length > 0 && (
+        {showLeftNavigation && (
           <aside 
             className={`bg-white dark:bg-neutral-900 border-r border-gray-300 dark:border-gray-600 flex flex-col shrink-0 overflow-hidden transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-0 min-w-0 border-r-0' : ''}`}
             style={sidebarCollapsed ? { width: 0, minWidth: 0, maxWidth: 0 } : {
@@ -988,7 +1010,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
             </nav>
 
             {/* Mode-Specific Controls Section */}
-            <ModeControlsSection 
+            {activeTab !== 'd1-agent' && <ModeControlsSection
               chatHandlers={chatControlHandlers}
               alertsHandlers={alertsControlHandlers}
               searchHandlers={searchControlHandlers}
@@ -996,7 +1018,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
               mapHandlers={mapControlHandlers}
               videoManagementHandlers={videoManagementControlHandlers}
               activeTabLabel={visibleTabs.find(tab => tab.id === activeTab)?.label || ''}
-            />
+            />}
           </aside>
         )}
 

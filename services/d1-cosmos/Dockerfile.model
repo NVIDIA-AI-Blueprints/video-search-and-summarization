@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+FROM nvcr.io/nvidia/pytorch:26.09-py3
+WORKDIR /app
+RUN python -m pip install --no-cache-dir transformers==5.19.0 Pillow==12.3.0 huggingface-hub==1.31.0 \
+    && install -d -o 1001 -g 1001 -m 0700 /models /home/d1
+COPY services/d1-cosmos/model-lock.json services/d1-cosmos/d1_runtime.py \
+     services/d1-cosmos/d1_protocol.py services/d1-cosmos/model_entrypoint.py \
+     services/d1-cosmos/server.py /app/
+ENV HOME=/home/d1 D1_MODEL_DIR=/models PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
+USER 1001:1001
+EXPOSE 8001
+ENTRYPOINT ["python", "/app/model_entrypoint.py"]

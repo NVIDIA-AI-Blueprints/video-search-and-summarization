@@ -1,0 +1,177 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+x-d1-worker: &d1-worker
+  image: vss-d1-cosmos-worker:${VSS_CONTAINER_TAG:-3.3.0}
+  build:
+    context: ../../../..
+    dockerfile: services/d1-cosmos/Dockerfile.worker
+    args:
+      D1_WORKER_BASE_IMAGE: ${VSS_RT_VLM_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-vlm}:${VSS_RT_VLM_TAG:-3.3.0}
+  profiles: ["d1-cosmos"]
+  init: true
+  restart: unless-stopped
+
+x-d1-inputs: &d1-inputs
+  D1_FLOWING_RTSP_URL: ${D1_FLOWING_RTSP_URL:-}
+  D1_QUEUED_RTSP_URL: ${D1_QUEUED_RTSP_URL:-}
+  D1_FLOWING_KIND: ${D1_FLOWING_KIND:-live}
+  D1_QUEUED_KIND: ${D1_QUEUED_KIND:-live}
+
+services:
+  d1-model:
+    image: vss-d1-cosmos-model:${VSS_CONTAINER_TAG:-3.3.0}
+    build:
+      context: ../../../..
+      dockerfile: services/d1-cosmos/Dockerfile.model
+    profiles: ["d1-cosmos"]
+    init: true
+    runtime: nvidia
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      NVIDIA_VISIBLE_DEVICES: "0"
+    volumes:
+      - d1-model-cache:/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=4).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 20m
+    restart: unless-stopped
+
+  d1-topics:
+    image: confluentinc/cp-kafka:8.3.0
+    profiles: ["d1-cosmos"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        for topic in d1.decisions.v1 d1.events.v1 d1.reviews.v1; do
+          kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+            --topic "$$topic" --partitions 1 --replication-factor 1
+        done
+    restart: "no"
+
+  d1-ingest:
+    <<: *d1-worker
+    runtime: nvidia
+    command: ["ingest"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      D1_MODEL_URL: http://d1-model:8001
+      D1_INGEST_DB: /data/ingest.sqlite
+      NVIDIA_VISIBLE_DEVICES: "0"
+      NVIDIA_DRIVER_CAPABILITIES: all
+    volumes:
+      - d1-ingest-state:/data
+    healthcheck:
+      # Ready means ingest has frames. Liveness is needed before bootstrap
+      # to configure the first input and start recording without a cycle.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/v1/health/live', timeout=4).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      d1-model:
+        condition: service_healthy
+      d1-topics:
+        condition: service_completed_successfully
+
+  d1-analytics:
+    <<: *d1-worker
+    command: ["analytics"]
+    environment:
+      <<: *d1-inputs
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      D1_INGEST_URL: http://d1-ingest:8020
+      D1_ANALYTICS_DB: /data/analytics.sqlite
+      D1_CLIP_CACHE: /data/review-clips
+      D1_VSS_ORIGIN: http://vss-haproxy-ingress:${HAPROXY_PORT:-7777}
+      COSMOS_BASE_URL: http://rtvi-vlm:8000
+      COSMOS_MODEL: ${VLM_NAME:-nim_nvidia_cosmos3-nano-reasoner_bf16-final}
+      NEMOTRON_URL: ${NEMOTRON_URL:-}
+    volumes:
+      - d1-analytics-state:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8021/v1/health/live', timeout=4).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      d1-ingest:
+        condition: service_healthy
+      rtvi-vlm:
+        condition: service_healthy
+      vst-ingress:
+        condition: service_healthy
+      vss-haproxy-ingress:
+        condition: service_started
+
+  d1-indexer:
+    <<: *d1-worker
+    command: ["indexer"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+    depends_on:
+      d1-topics:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+
+  d1-bootstrap:
+    <<: *d1-worker
+    command: ["python", "/profile/bootstrap.py"]
+    environment:
+      <<: *d1-inputs
+      D1_INGEST_URL: http://d1-ingest:8020
+      D1_ANALYTICS_URL: http://d1-analytics:8021
+      D1_VSS_ORIGIN: http://vss-haproxy-ingress:${HAPROXY_PORT:-7777}
+    volumes:
+      - ./bootstrap.py:/profile/bootstrap.py:ro
+    restart: "no"
+    depends_on:
+      d1-ingest:
+        condition: service_healthy
+      d1-analytics:
+        condition: service_healthy
+      streamprocessing-ms:
+        condition: service_healthy
+
+  d1-ui:
+    image: vss-d1-cosmos-ui:${VSS_CONTAINER_TAG:-3.3.0}
+    build:
+      context: ../../../..
+      dockerfile: services/ui/Dockerfile
+    profiles: ["d1-cosmos"]
+    environment:
+      RUN_APP_NAME: nv-metropolis-bp-vss-ui
+      NEXT_PUBLIC_APP_SUBTITLE: D1 + Cosmos
+      NEXT_PUBLIC_ENABLE_D1_TAB: "true"
+      NEXT_PUBLIC_ENABLE_ALERTS_TAB: "false"
+      NEXT_PUBLIC_ENABLE_CHAT_TAB: "false"
+      NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR: "false"
+      NEXT_PUBLIC_ENABLE_DASHBOARD_TAB: "false"
+      NEXT_PUBLIC_ENABLE_SEARCH_TAB: "false"
+      NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB: "false"
+      D1_AGENT_ENABLED: "true"
+      D1_INGEST_URL: http://d1-ingest:8020
+      D1_ANALYTICS_URL: http://d1-analytics:8021
+      D1_ELASTICSEARCH_URL: http://elasticsearch:9200
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000', {signal: AbortSignal.timeout(4000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      d1-bootstrap:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  d1-model-cache:
+  d1-ingest-state:
+  d1-analytics-state:

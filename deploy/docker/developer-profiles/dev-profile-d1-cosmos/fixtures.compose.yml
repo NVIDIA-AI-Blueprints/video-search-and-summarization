@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Optional Compose overlay for two user-supplied H.264 MP4s. Paths below are
+# relative to the first Compose file, deploy/docker/compose.yml.
+x-publisher: &publisher
+  profiles: ["d1-cosmos"]
+  build:
+    context: ./developer-profiles/dev-profile-d1-cosmos/sample-publisher
+  restart: unless-stopped
+  depends_on:
+    d1-fixture-rtsp:
+      condition: service_started
+  healthcheck:
+    test: ["CMD", "python", "/opt/d1-sample/publish.py", "health"]
+    start_period: 10s
+    interval: 30s
+    timeout: 6s
+    retries: 4
+
+services:
+  d1-fixture-rtsp:
+    profiles: ["d1-cosmos"]
+    image: bluenviron/mediamtx@sha256:59e43552f3be43695b70c19424dc2a42fcec18075f88d91561a24ac5d70a586c
+    restart: unless-stopped
+    volumes:
+      - ./developer-profiles/dev-profile-d1-cosmos/sample-publisher/mediamtx.yml:/mediamtx.yml:ro
+  d1-fixture-flowing:
+    <<: *publisher
+    environment:
+      OUTPUT_RTSP: rtsp://d1-fixture-rtsp:8554/flowing
+    volumes:
+      - type: bind
+        source: ${D1_FLOWING_MP4:?Set D1_FLOWING_MP4 to a local H.264 MP4}
+        target: /input.mp4
+        read_only: true
+        bind:
+          create_host_path: false
+  d1-fixture-queued:
+    <<: *publisher
+    environment:
+      OUTPUT_RTSP: rtsp://d1-fixture-rtsp:8554/queued
+    volumes:
+      - type: bind
+        source: ${D1_QUEUED_MP4:?Set D1_QUEUED_MP4 to a local H.264 MP4}
+        target: /input.mp4
+        read_only: true
+        bind:
+          create_host_path: false
+  d1-analytics:
+    environment: &fixture-inputs
+      D1_FLOWING_RTSP_URL: rtsp://d1-fixture-rtsp:8554/flowing
+      D1_QUEUED_RTSP_URL: rtsp://d1-fixture-rtsp:8554/queued
+      D1_FLOWING_KIND: recorded
+      D1_QUEUED_KIND: recorded
+  d1-bootstrap:
+    environment: *fixture-inputs
+    depends_on:
+      d1-fixture-flowing:
+        condition: service_healthy
+      d1-fixture-queued:
+        condition: service_healthy

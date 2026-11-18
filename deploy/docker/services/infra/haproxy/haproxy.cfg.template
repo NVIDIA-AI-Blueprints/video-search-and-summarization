@@ -325,6 +325,11 @@ frontend fe_http
     acl p_api_proxy path_beg /api/proxy/
     use_backend bk_vss_ui if h_main p_api_proxy
 
+    # The D1 API lives in the UI and is enabled only by its developer profile.
+    acl p_api_d1 path /api/d1
+    acl p_api_d1 path_beg /api/d1/
+    use_backend bk_vss_ui if h_main p_api_d1
+
     acl p_api path /api
     acl p_api path_beg /api/
     use_backend bk_vss_agent if h_main p_api

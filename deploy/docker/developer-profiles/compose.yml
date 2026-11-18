@@ -31,3 +31,4 @@ include:
       - ${VSS_APPS_DIR}/services/nvstreamer/.env
       - ${VSS_APPS_DIR}/services/vios/vst.env
       - ${VSS_APPS_DIR}/services/rtvi/rtvi.env
+  - path: ./dev-profile-d1-cosmos/compose.yml

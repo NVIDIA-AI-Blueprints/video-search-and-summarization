@@ -5,7 +5,7 @@ This tree is the Docker Compose packaging for **Video Search & Summarization**. 
 | Include | Role |
 |---------|------|
 | **`services/compose.yml`** | Shared microservices (infra, VIOS, UI, RTVI, NIMs, etc.) |
-| **`developer-profiles/compose.yml`** | Developer profiles: **base**, **lvs**, **alerts**, **search** |
+| **`developer-profiles/compose.yml`** | Developer profiles: **base**, **lvs**, **alerts**, **search**, **[D1 + Cosmos](developer-profiles/dev-profile-d1-cosmos/README.md)** (direct Compose) |
 | **`industry-profiles/compose.yml`** | Industry blueprints (e.g. **warehouse-operations**) |
 
 Run Compose from **`deploy/docker`** so relative paths resolve correctly.
@@ -99,6 +99,10 @@ export NGC_CLI_API_KEY="<your-key>"
 ```bash
 ./deploy/docker/scripts/dev-profile.sh --help
 ```
+
+### D1 + Cosmos on Jetson AGX Thor
+
+See the [D1 + Cosmos developer profile](developer-profiles/dev-profile-d1-cosmos/README.md) for the Compose command, input setup, and verification steps. The profile combines D1 video decisions with VIOS recording and Cosmos clip review.
 
 ### LVS GPU hardware metrics
 
