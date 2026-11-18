@@ -95,7 +95,7 @@ Options:
   -G OVERLAY     GPU overlay for MODEL_PATH (default: auto-detect by GPU name):
                    auto                       — detect by GPU name (default)
                    none                       — skip overlay, use base default
-                   h100 | h200 | b200 | gh200 | gb200 | l40s | thor | spark   — force a specific device
+                   h100 | h200 | b200 | gh200 | gb200 | gb300 | l40s | thor | spark — force a specific device
                    rtx-pro-6000 | rtx-pro-4500                                 — force a specific RTX Pro device
                    /path/to/custom.yaml       — absolute path to a custom overlay
                  GPUs without a device-specific overlay (A100, A40, V100, ...) use the base compose default.
@@ -294,6 +294,7 @@ match_device_overlay() {
         # gb200/gh200 must come before b200/h100: "gb200" contains "b200" as a
         # substring, so *"b200"* would false-match a GB200. (gh200 doesn't
         # actually collide with h100, but order it here for symmetry.)
+        *"gb300"*|*"b300"*)            echo "gpu-gb300.yaml" ;;
         *"gh200"*)                     echo "gpu-gh200.yaml" ;;
         *"h200"*)                      echo "gpu-h200.yaml" ;;
         *"h100"*)                      echo "gpu-h100.yaml" ;;
@@ -345,7 +346,7 @@ case "$GPU_OVERLAY" in
     none|"")
         step "GPU overlay disabled (-G none); using base compose default for MODEL_PATH"
         ;;
-    h100|h200|b200|l40s|thor|spark|rtx-pro-6000|rtx-pro-4500|gh200|gb200)
+    h100|h200|b200|l40s|thor|spark|rtx-pro-6000|rtx-pro-4500|gh200|gb200|gb300)
         OVERLAY_FILE_PATH="$COMPOSE_DIR/overlays/gpu-${GPU_OVERLAY}.yaml"
         if [ ! -f "$OVERLAY_FILE_PATH" ]; then
             error "Overlay not found: $OVERLAY_FILE_PATH"
@@ -363,7 +364,7 @@ case "$GPU_OVERLAY" in
         ;;
     *)
         error "Invalid -G OVERLAY: '$GPU_OVERLAY'. Use auto|none|<device>|/abs/path"
-        error "  devices: h100|h200|b200|gh200|gb200|l40s|thor|spark|rtx-pro-6000|rtx-pro-4500"
+        error "  devices: h100|h200|b200|gh200|gb200|gb300|l40s|thor|spark|rtx-pro-6000|rtx-pro-4500"
         exit 1
         ;;
 esac

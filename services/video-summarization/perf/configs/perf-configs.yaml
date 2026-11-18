@@ -144,6 +144,38 @@ perf_configs:
     llmGpus: "0"
     vision_input_tokens: "9k"
 
+  # --- IGX Thor (P0 validation; source Thor workload and power setup) ---
+  - id: "igx-thor-1-1-cr3-nano-rtvi-nemonano9b-9k"
+    composePath: "compose/thor-rtvi-cr-nemotron-9b.yaml"
+    nodeLabel: "IGX-THOR"
+    imageArch: "arm64-igpu"
+    enabled: true
+    checkoutPaths:
+      - libs/vss-perf-tools/
+      - libs/vss-perf-reporting/
+    description: "IGX Thor 1: source Thor stack, MAXN and pinned clocks required"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
+
+  # --- GB300 (P0 validation; owner-approved Spark ARM/SBSA starting stack) ---
+  - id: "gb300-1-1-cr3-nano-rtvi-nemonano9b-9k"
+    composePath: "compose/spark-rtvi-cr-nemotron-9b.yaml"
+    nodeLabel: "GB300"
+    imageArch: "arm64-sbsa"
+    enabled: true
+    checkoutPaths:
+      - libs/vss-perf-tools/
+      - libs/vss-perf-reporting/
+    description: "GB300 1: Spark ARM/SBSA starting stack with explicit GB300 overlay; hardware validation pending"
+    vlmModel: "cosmos-reason3-nano"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
+
   # --- GB200 (EngSQA; enable when node is in pool) ---
   - id: "gb200-1-1-cr3-nano-rtvi-nemonano9b-9k"
     composePath: "compose/x86-rtvi-cr-nemotron-9b_1gpu.yaml"
@@ -176,12 +208,12 @@ perf_configs:
     llmGpus: "1"
     vision_input_tokens: "9k"
 
-  # --- RTX PRO 4500 (EngSQA; enable when node is in pool) ---
+  # --- RTX PRO 4500 (P0 validation) ---
   - id: "rtxpro4500-1-1-cr3-nano-rtvi-nemonano9b-9k"
     composePath: "compose/x86-rtvi-cr-nemotron-9b_1gpu.yaml"
     nodeLabel: "RTXPRO4500BW"
     imageArch: "amd64"
-    enabled: false
+    enabled: true
     checkoutPaths:
       - libs/vss-perf-tools/
       - libs/vss-perf-reporting/

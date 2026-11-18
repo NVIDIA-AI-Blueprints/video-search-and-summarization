@@ -150,3 +150,37 @@ benchmark logs and scenario outputs go into `native/`, and diagnostics stay in
 are never deleted by the wrapper. Short-option invocations retain their output
 paths. Image snapshots are saved after measurement so they do not interfere with
 the native benchmark's empty-output-directory check.
+
+## P0 hardware configurations
+
+All six requested P0 platforms are enabled in `configs/perf-configs.yaml`:
+
+| Platform | Image architecture | Deployment |
+|---|---|---|
+| H100-SXM | amd64 | Existing source H100 stacks |
+| RTXPRO6000BW-SE | amd64 | Existing source RTX PRO 6000 stacks |
+| RTXPRO4500BW | amd64 | Source one-GPU stack and RTX PRO 4500 overlay |
+| DGX-SPARK | arm64-sbsa | Source Spark stack |
+| IGX-THOR | arm64-igpu | Source Thor stack |
+| GB300 | arm64-sbsa | Source Spark stack plus explicit GB300 overlay (PoC) |
+
+IGX uses the source Thor workload and, by owner choice, requires successful
+`nvpmodel -m 0`, verification of MAXN mode, and `jetson_clocks`, exactly as AGX
+Thor does. The node must provide these tools and the required privileges; setup
+fails rather than skipping power configuration. The existing AGX configuration
+remains available. IGX's worker allocation label is IGX-T7000.
+
+GB300 is an owner-approved starting deployment, not a source-certified GB300
+profile. It retains Spark's CR3 Nano + Nemotron Nano 9B placement on GPU 0,
+Tegra benchmark configuration and warmup behavior. Auto-detection of GB300/B300
+selects `gpu-gb300.yaml`; `-G gb300` selects it explicitly. The overlay retains
+the source NVFP4 model selection without treating GB300 as GB200. Supporting
+images remain in `setup/configs/images.yaml` with their existing source tags;
+GPU compatibility, model memory usage and driver/runtime support need smoke
+validation on the target hardware. No latency calculations or thresholds change.
+
+Use the matching architecture-specific LVS artifact. Thor uses the unsuffixed,
+ARM64-compatible image; Spark and GB300 use the SBSA variant. Validate each new
+target with `quick_test`, inspect deployment/model readiness, reports, diagnostics
+and cleanup, then run longer scenarios. Enabled scheduling does not certify
+hardware validation. Automatic promotion triggers remain disabled during the PoC.
