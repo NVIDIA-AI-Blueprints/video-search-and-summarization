@@ -406,6 +406,10 @@ KEY=$(openshell sandbox exec -n hermes --no-tty -- \
 curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   http://default--hermes.openshell.localhost:8080/v1/chat/completions \
   -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Which model are you running?"}]}'
+
+# 4. The new sandbox has an empty /sandbox, so record the deployment again.
+openshell sandbox exec -n hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
+openshell sandbox exec -n hermes -- vss-hermes-sync
 ```
 
 ### Point the sandbox at a VSS deployment
@@ -417,6 +421,7 @@ recording which deployment, and selecting the skills it can serve.
 
 ```bash
 # 5. Point the CLI at VSS, then re-select the skills those services can serve.
+set -a; . deploy/docker/services/openshell/openshell.env; set +a
 openshell sandbox exec -n hermes -- vss configure --base-url "$VSS_PUBLIC_URL"
 openshell sandbox exec -n hermes -- vss-hermes-sync
 ```
@@ -433,7 +438,9 @@ Quickstart's step 1 and nothing else.
 
 `VSS_PUBLIC_URL` is fixed at create like the model settings, so pointing the
 sandbox at another deployment is the [recreate above](#change-the-model-endpoint-or-key)
-with that value changed.
+with that value changed, and a `vss-backend` endpoint for its host and port in
+[`policy.yaml`](../../.hermes/policy.yaml): the grant names one origin, and the
+sandbox refuses every other.
 
 ### Optional — answer from the VSS UI
 
@@ -1078,6 +1085,6 @@ openshell sandbox exec -n hermes -- \
   hermes chat -q "Run vss configure check and report which services are ok."
 ```
 
-With no deployment there, both report a connection error rather than a missing
-command, and the supervisor's log names the host that was refused or
-unreachable.
+With no deployment there, the Quickstart's step 5 fails before it writes a
+config, so both report `no deployment configured` rather than a missing
+command.

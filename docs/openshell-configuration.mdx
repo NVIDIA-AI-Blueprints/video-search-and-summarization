@@ -133,7 +133,7 @@ docker image inspect "openshell-hermes-vss:$TAG" >/dev/null &&
   openshell sandbox delete hermes
 ```
 
-Then re-run the `openshell sandbox create` command from [step 4](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-4-create-the-sandbox) with `--provider "$PROVIDER"`. The new sandbox mints a new `API_SERVER_KEY`, so fetch it again before calling the API server.
+Then re-run the `openshell sandbox create` command from [step 4](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-4-create-the-sandbox) with `--provider "$PROVIDER"`, and [step 5](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#step-5-point-the-sandbox-at-a-vss-deployment) after it, since the new sandbox has an empty `/sandbox`. It also mints a new `API_SERVER_KEY`, so fetch it again before calling the API server.
 
 ## The policy and the boundary
 
