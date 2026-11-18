@@ -4,7 +4,6 @@ export {
   getEnv,
   isDevelopment,
   isProduction,
-  isObtainDynamicServiceUrls,
   stripTrailingSlash,
   vstApiV1Base,
   applyMapServiceEndpoints,

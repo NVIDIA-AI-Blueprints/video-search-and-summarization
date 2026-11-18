@@ -51,8 +51,6 @@ spec:
           env:
             - name: APP_NAME
               value: {{ .Values.appName | quote }}
-            - name: REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS
-              value: "false"
             - name: REACT_APP_MEDIA_STREAMING_URL_BASE
               value: {{ ternary (printf "%s://%s/vst/api/v1" $es $eh) (printf "http://%s:30888/vst/api/v1" $vstIngress) (ne $eh "") | quote }}
             - name: REACT_APP_GOOGLE_MAPS_API_KEY

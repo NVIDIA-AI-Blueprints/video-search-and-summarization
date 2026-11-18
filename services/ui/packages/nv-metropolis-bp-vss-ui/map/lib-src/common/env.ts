@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Environment access for warehouse analytics.
+ * Environment access for both Map tab apps.
  *
  * Accepts the original CRA `REACT_APP_*` names and the Next.js
  * `NEXT_PUBLIC_*` names used by this repo.
@@ -25,18 +25,6 @@ const ALIASES: Record<string, string[]> = {
   REACT_APP_GOOGLE_MAPS_API_KEY: [
     'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY',
     'REACT_APP_GOOGLE_MAPS_API_KEY',
-  ],
-  REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS: [
-    'NEXT_PUBLIC_WAREHOUSE_OBTAIN_DYNAMIC_SERVICE_URLS',
-    'REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS',
-  ],
-  REACT_APP_ANALYTICS_API_BASE_URL_VERSION: [
-    'NEXT_PUBLIC_WAREHOUSE_ANALYTICS_API_BASE_URL_VERSION',
-    'REACT_APP_ANALYTICS_API_BASE_URL_VERSION',
-  ],
-  REACT_APP_MEDIA_STREAMING_API_VERSION: [
-    'NEXT_PUBLIC_WAREHOUSE_MEDIA_STREAMING_API_VERSION',
-    'REACT_APP_MEDIA_STREAMING_API_VERSION',
   ],
 };
 
@@ -74,10 +62,6 @@ export function isDevelopment(): boolean {
 
 export function isProduction(): boolean {
   return process.env.NODE_ENV === 'production';
-}
-
-export function isObtainDynamicServiceUrls(): boolean {
-  return getEnv('REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS') === 'true';
 }
 
 export function stripTrailingSlash(url: string): string {

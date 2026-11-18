@@ -9,7 +9,6 @@ export {
   getEnv,
   isDevelopment,
   isProduction,
-  isObtainDynamicServiceUrls,
   stripTrailingSlash,
 } from './env';
 

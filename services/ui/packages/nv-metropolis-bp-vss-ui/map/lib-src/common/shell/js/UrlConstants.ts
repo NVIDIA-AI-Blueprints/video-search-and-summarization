@@ -35,53 +35,19 @@ import {
   UploadConfigFileUrlSuffix,
 } from "../../utils/UrlConstants";
 
-import { getEnv, isDevelopment, isProduction, isObtainDynamicServiceUrls, stripTrailingSlash } from "./EnvUtils";
+import { getEnv, stripTrailingSlash } from "./EnvUtils";
 
-if (isProduction() && isObtainDynamicServiceUrls()) {
-  if (!getEnv("REACT_APP_ANALYTICS_API_BASE_URL_VERSION"))
-    console.error(
-      "No REACT_APP_ANALYTICS_API_BASE_URL_VERSION in .env.production or runtime env"
-    );
-  if (!getEnv("REACT_APP_MEDIA_STREAMING_API_VERSION"))
-    console.error(
-      "No REACT_APP_MEDIA_STREAMING_API_VERSION in .env.production or runtime env"
-    );
-} else {
-  // Support REACT_APP_API_URL as fallback for backward compatibility with older Docker configurations
-  if (!getEnv("REACT_APP_API_URL_BASE") && !getEnv("REACT_APP_API_URL"))
-    console.warn("No REACT_APP_API_URL_BASE in .env.development");
-  if (!getEnv("REACT_APP_MEDIA_STREAMING_URL_BASE"))
-    console.warn("No REACT_APP_MEDIA_STREAMING_URL_BASE in .env.development");
-}
-
-// MDX deployment on NGC prod may happen for per user basis,
-// thus changing the url paths to the different services.
-// Endpoints URLs for Web API/Media Streaming etc. used by the
-// UI need to built from the UI URL context. Additionally, the
-// UI static files path changes as those may not be served at '/'.
-// These functions help generate the required endpoints URLs.
-export const ProdBaseBackendUrl = () => {
-  const pattern = /\/ui.*$/;
-  return `${window.location.origin}${window.location.pathname.replace(
-    pattern,
-    "/"
-  )}`;
-};
-
-export const ProdBaseUiServerUrl = () => {
-  return `${window.location.origin}${window.location.pathname}`;
-};
+// Support REACT_APP_API_URL as fallback for backward compatibility with older Docker configurations
+if (!getEnv("REACT_APP_API_URL_BASE") && !getEnv("REACT_APP_API_URL"))
+  console.warn("No REACT_APP_API_URL_BASE in .env.development");
+if (!getEnv("REACT_APP_MEDIA_STREAMING_URL_BASE"))
+  console.warn("No REACT_APP_MEDIA_STREAMING_URL_BASE in .env.development");
 
 export const AppConstants = {
   APP_LOGS_CONSOLE_NAME: "AppLogs",
   get API_URL_BASE() {
-    if (!(isProduction() && isObtainDynamicServiceUrls())) {
-      return stripTrailingSlash(
-        getEnv("REACT_APP_API_URL_BASE") || getEnv("REACT_APP_API_URL") || "",
-      );
-    }
     return stripTrailingSlash(
-      `${ProdBaseBackendUrl()}/api/${getEnv("REACT_APP_ANALYTICS_API_BASE_URL_VERSION")}/analytics`,
+      getEnv("REACT_APP_API_URL_BASE") || getEnv("REACT_APP_API_URL") || "",
     );
   },
 };

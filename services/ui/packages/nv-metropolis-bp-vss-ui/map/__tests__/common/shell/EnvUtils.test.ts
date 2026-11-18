@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // @ts-nocheck
-import { applyMapServiceEndpoints, getEnv, isDevelopment, isProduction, isObtainDynamicServiceUrls, vstApiV1Base } from '../../../lib-src/common/shell/js/EnvUtils';
+import { applyMapServiceEndpoints, getEnv, isDevelopment, isProduction, vstApiV1Base } from '../../../lib-src/common/shell/js/EnvUtils';
 
 describe('getEnv', () => {
   afterEach(() => {
@@ -117,26 +117,5 @@ describe('applyMapServiceEndpoints', () => {
     expect(getEnv('REACT_APP_MEDIA_STREAMING_URL_BASE')).toBe('http://host:7777/vst/api');
     expect(getEnv('REACT_APP_GOOGLE_MAPS_API_KEY')).toBe('maps-key');
     expect(window.__ENV.NEXT_PUBLIC_ENABLE_MAP_TAB).toBe('true');
-  });
-});
-
-describe('isObtainDynamicServiceUrls', () => {
-  afterEach(() => {
-    delete window.__ENV;
-    delete process.env.REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS;
-  });
-
-  it('returns true when env is "true"', () => {
-    process.env.REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS = 'true';
-    expect(isObtainDynamicServiceUrls()).toBe(true);
-  });
-
-  it('returns false when env is not set', () => {
-    expect(isObtainDynamicServiceUrls()).toBe(false);
-  });
-
-  it('returns false when env is "false"', () => {
-    process.env.REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS = 'false';
-    expect(isObtainDynamicServiceUrls()).toBe(false);
   });
 });
