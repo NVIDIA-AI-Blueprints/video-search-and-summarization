@@ -81,6 +81,7 @@ tests/model/vllm_compatible/test_adaptive_preprocess_limiter.py
 tests/model/vllm_compatible/test_evs_encode_error.py
 tests/model/vllm_compatible/test_evs_min_frames.py
 tests/model/vllm_compatible/test_evs_overlay_protection.py
+tests/model/vllm_compatible/test_evs_overlay_qwen3_5.py
 tests/model/vllm_compatible/test_evs_overlay_qwen3_vl_timestamps.py
 tests/model/vllm_compatible/test_evs_session_created_log.py
 tests/model/vllm_compatible/test_evs_session_create_error.py

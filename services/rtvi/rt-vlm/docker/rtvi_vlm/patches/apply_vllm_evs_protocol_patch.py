@@ -110,6 +110,12 @@ class VideoSessionCreateRequest(OpenAIBaseModel):
     token_budget: int = 8192
     prompt: str = ""
     system_prompt: str | None = None
+    # Passed to the model's chat template as ``enable_thinking``, like
+    # ``chat_template_kwargs`` on a chat request, for models whose template
+    # has that switch (e.g. Qwen3.5). None leaves the template's default. The
+    # thinking comes back inline in ``response_text``, tags included, and
+    # spends ``max_tokens``.
+    enable_thinking: bool | None = None
     timestamp_prompt_template: str | None = None
     sampling_params: VideoSessionSamplingParams | None = None
     event_only: bool = False

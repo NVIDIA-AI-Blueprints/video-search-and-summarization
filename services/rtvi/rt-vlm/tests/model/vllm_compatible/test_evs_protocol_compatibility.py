@@ -66,6 +66,17 @@ def test_protocol_patch_installs_session_types_idempotently(tmp_path, monkeypatc
     assert protocol.read_text() == first_install
 
 
+def test_protocol_patch_carries_the_session_thinking_mode():
+    """The session passes ``enable_thinking`` on to the model's chat template.
+
+    The protected session module reads it off every create request, so a
+    protocol without it fails session creation with an ``AttributeError``.
+    """
+    types = _load_patch_module().EVS_PROTOCOL_TYPES
+
+    assert "    enable_thinking: bool | None = None\n" in types
+
+
 @pytest.mark.no_gpu
 def test_protected_evs_session_module_imports_with_protocol_compatibility():
     """The shipped EVS extension must import against the installed protocol API.

@@ -463,7 +463,7 @@ RUN set -eu; \
 # compatibility types are not a coherent set. The SBSA build environment does
 # not mount the Tegra driver, which vLLM imports during this check.
 RUN if [ "$TARGETARCH" != "arm64" ] || [ "$ARM_PLATFORM" != "sbsa" ]; then \
-        python3 -c 'from vllm.entrypoints.openai.serving_video_sessions import OpenAIServingVideoSessions; from vllm.model_executor.models.nano_nemotron_vl import NemotronH_Nano_VL_V2'; \
+        python3 -c 'from vllm.entrypoints.openai.serving_video_sessions import OpenAIServingVideoSessions; from vllm.model_executor.models.nano_nemotron_vl import NemotronH_Nano_VL_V2; from vllm.model_executor.models.qwen3_5 import Qwen3_5ForConditionalGeneration; assert Qwen3_5ForConditionalGeneration.supports_multimodal_pruning'; \
     fi
 
 # Remove unneeded media libraries shipped under /usr and DALI-bundled FFmpeg
