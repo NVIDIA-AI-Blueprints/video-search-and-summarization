@@ -111,7 +111,7 @@ describe('applyMapServiceEndpoints', () => {
     applyMapServiceEndpoints({
       apiUrl: 'http://host:7777/video-analytics-api',
       mediaStreamingUrl: 'http://host:7777/vst/api/v1',
-      googleMapsApiKey: 'maps-key',
+      googleMapsApiKey: 'maps-key', // pragma: allowlist secret
     });
     expect(getEnv('REACT_APP_API_URL_BASE')).toBe('http://host:7777/video-analytics-api');
     expect(getEnv('REACT_APP_MEDIA_STREAMING_URL_BASE')).toBe('http://host:7777/vst/api');
