@@ -69,21 +69,16 @@ const createWarehouseStore = () =>
 
 const DEFAULT_INITIAL_USER_MESSAGE = 'Loading map…';
 
-const selectInitialView = (metadata: {
+/**
+ * Open on the highest place that still needs a choice. One building opens on
+ * that building, even when it has a single room; the room stays a marker.
+ * Several buildings open on the city.
+ */
+export const selectInitialView = (metadata: {
   buildingsMap?: Map<string, { rooms?: Set<string> }>;
   roomsMap?: Map<string, unknown>;
 }) => {
   const buildings = metadata?.buildingsMap;
-  const rooms = metadata?.roomsMap;
-  if (rooms && rooms.size === 1 && buildings && buildings.size >= 1) {
-    const buildingName = buildings.keys().next().value as string;
-    const roomName = rooms.keys().next().value as string;
-    return {
-      selectedBuilding: buildingName,
-      selectedRoom: roomName,
-      viewType: 'room-level-live',
-    };
-  }
   if (buildings && buildings.size === 1) {
     const buildingName = buildings.keys().next().value as string;
     return {

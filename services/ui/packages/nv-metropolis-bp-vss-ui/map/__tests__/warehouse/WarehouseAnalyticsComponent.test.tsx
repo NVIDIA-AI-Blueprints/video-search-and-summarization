@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { WarehouseAnalyticsComponent } from '../../lib-src/warehouse/WarehouseAnalyticsComponent';
+import {
+  WarehouseAnalyticsComponent,
+  selectInitialView,
+} from '../../lib-src/warehouse/WarehouseAnalyticsComponent';
 
 jest.mock('../../lib-src/warehouse/page-builder/BuildingsLevelView', () => ({
   __esModule: true,
@@ -99,6 +102,25 @@ describe('WarehouseAnalyticsComponent', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+  });
+
+  it('opens a one-room warehouse on the building, not inside the room', () => {
+    const buildingsMap = new Map([['Warehouse', { rooms: new Set(['Room-1']) }]]);
+    const roomsMap = new Map([['Room-1', {}]]);
+    expect(selectInitialView({ buildingsMap, roomsMap })).toEqual({
+      selectedBuilding: 'Warehouse',
+      viewType: 'building-level-live',
+    });
+  });
+
+  it('opens the city when more than one building is calibrated', () => {
+    const buildingsMap = new Map([
+      ['Warehouse', { rooms: new Set(['Room-1']) }],
+      ['Annex', { rooms: new Set(['Room-2']) }],
+    ]);
+    expect(selectInitialView({ buildingsMap, roomsMap: new Map() })).toEqual({
+      viewType: 'city-level-live',
+    });
   });
 
   it('renders the warehouse analytics surface while configuration loads', () => {
