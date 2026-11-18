@@ -7,11 +7,11 @@ calculation and reporting on every platform. Full E2E remains disabled.
 | Config ID suffix | Platform | Image architecture | Native profile | State |
 |---|---|---|---|---|
 | Original `alerts-verification-compose` | RTXPRO6000BW-SE | amd64 | RTXPRO6000BW | Existing enabled baseline |
-| h100 | H100-SXM | amd64 | H100 | Disabled pending smoke test |
-| rtxpro4500bw | RTXPRO4500BW | amd64 | RTXPRO4500BW | Disabled pending remote LLM reachability and worker validation |
-| dgx-spark | DGX-SPARK | arm64-igpu | DGX-SPARK | Disabled pending smoke test |
-| igx-thor | IGX-THOR | arm64-igpu | IGX-THOR | Disabled pending smoke test |
-| gb300 | GB300 | arm64-igpu | GB300 | Disabled pending smoke test |
+| h100 | H100-SXM | amd64 | H100 | Enabled; smoke test pending |
+| rtxpro4500bw | RTXPRO4500BW | amd64 | RTXPRO4500BW | Enabled; remote LLM reachability and worker validation pending |
+| dgx-spark | DGX-SPARK | arm64-igpu | DGX-SPARK | Enabled; smoke test pending |
+| igx-thor | IGX-THOR | arm64-igpu | IGX-THOR | Enabled; smoke test pending |
+| gb300 | GB300 | arm64-igpu | GB300 | Enabled; smoke test pending |
 
 Non-baseline IDs have the prefix `alerts-verification-compose-`.
 The original ID and arbitrary local report identifiers preserve automatic GPU
@@ -28,7 +28,7 @@ RTX PRO 4500's source deployment requires at least two GPUs, driver 595.58.03
 or newer, and a remote LLM. It and Spark use the source CI remote LLM topology. Set
 `ALERTS_PERF_REMOTE_LLM_URL` to the shared LLM base URL (without `/v1`); the
 native deployment resolves its advertised model. The endpoint must be reachable
-from the worker and deployment containers before either row is enabled. Do not replace it with an invented endpoint or reduce the native
+from the worker and deployment containers for a successful run. Do not replace it with an invented endpoint or reduce the native
 requirements to make a preflight pass.
 
 The internal orchestrator supplies the source CI endpoint. For a local run,
@@ -49,13 +49,13 @@ local/remote model settings unchanged.
    changes supporting-service tags.
 2. Reserve an idle target with Docker access, compatible NVIDIA runtime/driver,
    required credentials and dataset access. Follow the service README setup.
-3. Set the desired configuration's `enabled` to `true`, keeping other unvalidated
-   rows disabled. Run the synthetic scenario on that one platform first.
+3. All six P0 configurations are enabled. Select one target at a time for the
+   initial synthetic smoke tests before requesting the complete hardware matrix.
 4. Confirm requested Alerts image identity, deployment readiness, completed
    latency measurements and source workload values. Inspect report failures,
    hardware metadata, diagnostics, upload, dashboard visibility and cleanup.
-5. Enable the remaining rows individually only after equivalent checks. Keep
-   automatic promotion triggers disabled throughout the PoC.
+5. Repeat these checks on the remaining targets. Keep automatic promotion
+   triggers disabled throughout the PoC.
 
 For example, on a reserved Spark node, after setup described in the README
 and exporting `ALERTS_PERF_REMOTE_LLM_URL`:
@@ -67,10 +67,9 @@ bash services/alert/perf/scripts/run_benchmark.sh \
 ```
 
 The local entrypoint runs the explicitly requested configuration regardless of
-its matrix enable flag; that flag controls orchestrator scheduling. An individual
-smoke test can therefore validate a row before scheduling is enabled.
+its matrix enable flag; that flag controls orchestrator scheduling.
 
 Once validated, architecture filtering must keep AMD64 and ARM artifact runs
 separate. Selecting all hardware runs only enabled matching configurations;
-adding disabled rows does not claim those platforms have passed evaluation.
+enabling these rows does not claim those platforms have passed evaluation.
 No cross-platform latency thresholds are introduced.

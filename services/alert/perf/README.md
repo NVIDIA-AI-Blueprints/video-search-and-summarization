@@ -125,4 +125,5 @@ directory; canonical benchmark reports retain the existing shared format.
 
 See [HARDWARE.md](HARDWARE.md) for the six-platform matrix, native deployment
 requirements and validation steps. ARM artifact selection uses `arm64-igpu`.
-New hardware rows remain disabled until individually smoke-tested.
+All six P0 hardware rows are enabled for validation; platform smoke tests are
+still required. Automatic promotion triggers remain disabled during the PoC.

@@ -14,14 +14,14 @@ def rows():
     return yaml.safe_load((PERF / "configs/perf-configs.yaml").read_text())["perf_configs"]
 
 
-def test_matrix_keeps_validated_baseline_and_gates_new_platforms():
+def test_matrix_enables_all_p0_platforms_with_correct_architecture():
     matrix = rows()
     assert len({row["id"] for row in matrix}) == len(matrix) == 6
     assert {row["nodeLabel"] for row in matrix} == {
         "RTXPRO6000BW-SE", "H100-SXM", "RTXPRO4500BW",
         "DGX-SPARK", "IGX-THOR", "GB300",
     }
-    assert [row["id"] for row in matrix if row["enabled"]] == ["alerts-verification-compose"]
+    assert all(row["enabled"] is True for row in matrix)
     for row in matrix:
         arm = row["nodeLabel"] in {"DGX-SPARK", "IGX-THOR", "GB300"}
         assert row["imageArch"] == ("arm64-igpu" if arm else "amd64")

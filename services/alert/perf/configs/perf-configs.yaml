@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# New targets remain opt-in until their native deployment has been smoke-tested.
+# All six P0 targets are enabled for hardware validation.
 perf_configs:
   - &alerts_compose
     id: alerts-verification-compose
@@ -17,15 +17,15 @@ perf_configs:
     id: alerts-verification-compose-h100
     nodeLabel: H100-SXM
     hardwareProfile: H100
-    enabled: false
+    enabled: true
 
   - <<: *alerts_compose
     id: alerts-verification-compose-rtxpro4500bw
     nodeLabel: RTXPRO4500BW
     hardwareProfile: RTXPRO4500BW
     # Native profile requires a remote LLM, >=2 GPUs and driver >=595.58.03.
-    # Uses ALERTS_PERF_REMOTE_LLM_URL; keep disabled until worker validation.
-    enabled: false
+    # Uses ALERTS_PERF_REMOTE_LLM_URL; worker prerequisites still apply.
+    enabled: true
 
   - <<: *alerts_compose
     id: alerts-verification-compose-dgx-spark
@@ -33,7 +33,7 @@ perf_configs:
     hardwareProfile: DGX-SPARK
     imageArch: arm64-igpu
     # Native edge profile selects device 0; it rejects explicit model GPU flags.
-    enabled: false
+    enabled: true
 
   - <<: *alerts_compose
     id: alerts-verification-compose-igx-thor
@@ -41,7 +41,7 @@ perf_configs:
     hardwareProfile: IGX-THOR
     imageArch: arm64-igpu
     # Jenkins maps the logical platform IGX-THOR to pool label IGX-T7000.
-    enabled: false
+    enabled: true
 
   - <<: *alerts_compose
     id: alerts-verification-compose-gb300
@@ -51,4 +51,4 @@ perf_configs:
     # Native GB300 deployment requires both local models on the same device.
     vlmGpus: "0"
     llmGpus: "0"
-    enabled: false
+    enabled: true
