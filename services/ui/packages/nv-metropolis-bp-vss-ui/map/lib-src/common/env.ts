@@ -30,7 +30,6 @@ const ALIASES: Record<string, string[]> = {
 
 const readNextRuntimeEnv = (name: string): string | undefined => {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const runtime = require('next-runtime-env') as {
       env?: (key: string) => string | undefined;
     };

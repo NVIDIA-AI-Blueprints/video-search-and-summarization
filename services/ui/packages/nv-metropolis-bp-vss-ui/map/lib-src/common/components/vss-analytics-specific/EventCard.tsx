@@ -368,7 +368,6 @@ const EventCard = React.memo(
       return () => {
         observer.disconnect();
       };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const { title, cardContentEl, description } = EventData2EventCardContentElements(

@@ -110,11 +110,11 @@ export const mergeRoadSegments = (
     if (segment?.id == null) {
       continue;
     }
-    const prev = byId.get(segment.id) || {};
+    const prev = byId.get(segment.id);
     const nextPoints =
       Array.isArray(segment.points) && segment.points.length > 0
         ? segment.points
-        : prev.points;
+        : prev?.points;
     byId.set(segment.id, {
       ...prev,
       ...segment,
