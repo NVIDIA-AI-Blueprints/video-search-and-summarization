@@ -14,7 +14,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[3]
 ARCHITECTURES = {
     "RTXPRO6000BW-SE": "amd64", "H100-SXM": "amd64", "RTXPRO4500BW": "amd64",
-    "DGX-SPARK": "arm64-sbsa", "IGX-THOR": "arm64-sbsa", "GB300": "arm64-sbsa",
+    "DGX-SPARK": "arm64-sbsa", "IGX-THOR": "arm64-igpu", "GB300": "arm64-sbsa",
 }
 VLM_PROFILES = {
     "H100-SXM": ("h100_sxm", "cr3-super-reasoner-fp8"),
@@ -105,3 +105,15 @@ def test_report_metadata_preserves_measurements_and_outcomes(service, tmp_path):
     assert config["gpu_model"] == "IGX-THOR"
     assert config["vlm"] == load(source)["global"].get("model_preset", "cosmos-embed1-448p")
     assert actual["metadata"]["run_info"]["run_id"] == "original"
+
+
+@pytest.mark.parametrize("service_path", [
+    "services/video-summarization", "services/analytics/behavior-analytics",
+    "services/analytics/video-analytics-api", "services/alert",
+    "services/rtvi/rt-vlm", "services/rtvi/rt-embed",
+])
+def test_all_service_thor_targets_use_igpu_classification(service_path):
+    rows = load(ROOT / service_path / "perf/configs/perf-configs.yaml")["perf_configs"]
+    thor = [row for row in rows if row.get("nodeLabel") in {"IGX-THOR", "IGX-T7000", "AGX-THOR"}]
+    assert thor, f"Expected existing Thor configuration for {service_path}"
+    assert all(row["imageArch"] == "arm64-igpu" for row in thor)

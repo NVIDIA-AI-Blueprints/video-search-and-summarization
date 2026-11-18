@@ -32,7 +32,7 @@ rows without it retain `configs/config.yaml`.
 | H100-SXM | amd64 | `benchmark/rtvi_vlm_bcd_3_3_h100_sxm_config.yaml` | cr3-super-reasoner-fp8 |
 | RTXPRO4500BW | amd64 | `benchmark/rtvi_vlm_bcd_3_3_rtx_pro_4500_config.yaml` | cr3-nano-reasoner-nvfp4 |
 | DGX-SPARK | arm64-sbsa | `benchmark/rtvi_vlm_bcd_3_3_dgx_spark_config.yaml` | cr3-nano-reasoner-nvfp4 |
-| IGX-T7000 (IGX-THOR platform) | arm64-sbsa | `benchmark/rtvi_vlm_bcd_3_3_agx_thor_t5000_config.yaml` | cr3-nano-reasoner-nvfp4 |
+| IGX-T7000 (IGX-THOR platform) | arm64-igpu | `benchmark/rtvi_vlm_bcd_3_3_agx_thor_t5000_config.yaml` | cr3-nano-reasoner-nvfp4 |
 | GB300 | arm64-sbsa | `benchmark/rtvi_vlm_bcd_3_3_gb300_config.yaml` | cr3-super-reasoner-nvfp4 |
 
 All selections use BCD 3.3 workloads. The AGX Thor T5000 profile is the
@@ -105,3 +105,10 @@ The supporting image references are defined in `setup/configs/images.yaml`.
 Keep the public VIOS exception when synchronizing source image tags. It changes supporting
 deployment selection, while measurement and latency calculations remain in the
 native benchmark implementation.
+
+IGX Thor uses the same full, unsuffixed service image tag as AMD64, with an
+ARM64-compatible image variant. Use the `arm64-igpu` artifact classifier for
+IGX; Spark and GB300 keep `arm64-sbsa`. Supplying a full `-sbsa` image reference
+still selects that exact image, so use separate artifact runs for IGX and the
+SBSA platforms. This changes image selection only; workloads and model profiles
+remain unchanged. Image/runtime compatibility still requires a hardware run.

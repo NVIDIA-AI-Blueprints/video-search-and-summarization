@@ -42,7 +42,7 @@ perf_configs:
   - <<: *rtvi_vlm_baseline
     id: rtvi-vlm-igx-thor-1gpu
     nodeLabel: IGX-THOR
-    imageArch: arm64-sbsa
+    imageArch: arm64-igpu
     # Owner-approved initial IGX workload; native validation remains required.
     benchmarkConfig: benchmark/rtvi_vlm_bcd_3_3_agx_thor_t5000_config.yaml
     vlmModel: "cr3-nano-reasoner-nvfp4"

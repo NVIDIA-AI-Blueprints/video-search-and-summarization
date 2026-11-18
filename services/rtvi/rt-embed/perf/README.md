@@ -34,7 +34,7 @@ rows without it retain `configs/config.yaml`.
 | H100-SXM | amd64 | `configs/config.yaml` |
 | RTXPRO4500BW | amd64 | `configs/config.yaml` |
 | DGX-SPARK | arm64-sbsa | `benchmark/rtvi_embed_bcd_3_2_thor_config.yaml` |
-| IGX-T7000 (IGX-THOR platform) | arm64-sbsa | `benchmark/rtvi_embed_bcd_3_2_thor_config.yaml` |
+| IGX-T7000 (IGX-THOR platform) | arm64-igpu | `benchmark/rtvi_embed_bcd_3_2_thor_config.yaml` |
 | GB300 | arm64-sbsa | `configs/config.yaml` |
 
 Spark and IGX use the source Thor/DGX workload, including its smaller non-streaming
@@ -100,3 +100,10 @@ VST and NVStreamer use separate Compose projects derived from the
 `<namespace>-nvstreamer`. Setup scopes the staged package's Compose commands to
 the selected component, so VST cleanup preserves the running NVStreamer.
 Diagnostics cover both projects; normal and failure teardown stop both.
+
+IGX Thor uses the same full, unsuffixed service image tag as AMD64, with an
+ARM64-compatible image variant. Use the `arm64-igpu` artifact classifier for
+IGX; Spark and GB300 keep `arm64-sbsa`. Supplying a full `-sbsa` image reference
+still selects that exact image, so use separate artifact runs for IGX and the
+SBSA platforms. This changes image selection only; workloads and model profiles
+remain unchanged. Image/runtime compatibility still requires a hardware run.
