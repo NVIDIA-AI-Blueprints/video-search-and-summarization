@@ -40,7 +40,7 @@ def resolve(env_dir, data_dir, config_files=()):
     return json.loads(result.stdout)
 
 
-example = "examples/d1-cosmos"
+example = "examples/decision-model-alerts"
 example_path = Path.cwd() / example
 repo_root = Path.cwd().parents[1]
 
@@ -62,10 +62,13 @@ assert {
     "d1-model", "d1-ingest", "d1-analytics", "d1-indexer", "d1-topics", "d1-bootstrap", "d1-ui"
 } <= services.keys()
 assert not any(name.startswith("d1-fixture-") for name in services), "RTSP mode activated fixture services"
-for name in ("d1-model", "d1-ingest", "d1-ui"):
+for name in ("d1-model", "d1-ingest"):
     build = services[name]["build"]
     assert Path(build["context"]) == repo_root, f"{name} build context misses the repository root"
     assert (repo_root / build["dockerfile"]).is_file(), f"{name} Dockerfile is missing"
+assert "build" not in services["d1-ui"], "The example UI is built in its isolated context"
+assert services["d1-ui"]["pull_policy"] == "never", "The example uses the local UI image"
+assert (example_path / "ui/build.sh").is_file(), "The example UI build script is missing"
 bootstrap_mount = services["d1-bootstrap"]["volumes"][0]
 assert Path(bootstrap_mount["source"]) == example_path / "bootstrap.py"
 assert bootstrap_mount["target"] == "/profile/bootstrap.py"

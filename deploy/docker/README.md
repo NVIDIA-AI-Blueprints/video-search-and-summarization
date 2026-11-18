@@ -461,7 +461,7 @@ Compose profiles for warehouse slices are defined in
 
 ## Docker Compose examples
 
-- [D1 + Cosmos on Jetson AGX Thor](examples/d1-cosmos/README.md) combines D1
+- [Decision-model alerts on Jetson AGX Thor](examples/decision-model-alerts/README.md) combines D1
   video decisions, VIOS recording, and Cosmos clip verification. Launch it with
   the example's Compose overlay and your own RTSP feeds or MP4 files.
 

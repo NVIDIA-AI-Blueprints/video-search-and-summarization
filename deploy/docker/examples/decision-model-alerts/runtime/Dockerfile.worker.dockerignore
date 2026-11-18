@@ -8,7 +8,7 @@
 !libs/vss/cli/src/**
 !libs/vss/core/pyproject.toml
 !libs/vss/core/src/**
-!deploy/docker/examples/d1-cosmos/runtime/requirements.txt
-!deploy/docker/examples/d1-cosmos/runtime/worker.py
-!deploy/docker/examples/d1-cosmos/runtime/agent_pipeline/*.py
+!deploy/docker/examples/decision-model-alerts/runtime/requirements.txt
+!deploy/docker/examples/decision-model-alerts/runtime/worker.py
+!deploy/docker/examples/decision-model-alerts/runtime/agent_pipeline/*.py
 **/__pycache__

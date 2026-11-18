@@ -10,10 +10,6 @@ jest.mock("next/dynamic", () => ({
   default: (loader: () => Promise<unknown>) => {
     const source = loader.toString();
 
-    if (source.includes("D1AgentPanel")) {
-      return ({ isActive }: { isActive: boolean }) => <div data-testid="d1-monitor" data-active={String(isActive)} />;
-    }
-
     if (source.includes("ChatPanel")) {
       return ({
         onAnswer,
@@ -132,7 +128,6 @@ jest.mock("../../utils/tabChatSidebarConfig", () => ({
 
 describe("Home tab lifecycle", () => {
   const featureVariables = [
-    "NEXT_PUBLIC_ENABLE_D1_TAB",
     "NEXT_PUBLIC_ENABLE_CHAT_TAB",
     "NEXT_PUBLIC_ENABLE_SEARCH_TAB",
     "NEXT_PUBLIC_ENABLE_ALERTS_TAB",
@@ -164,19 +159,6 @@ describe("Home tab lifecycle", () => {
   afterEach(() => {
     for (const variable of featureVariables) delete process.env[variable];
     global.fetch = originalFetch;
-  });
-
-  it("keeps D1 out of ordinary deployments", () => {
-    render(<Home />);
-    expect(screen.queryByTestId("sidebar-tab-d1-agent")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("d1-monitor")).not.toBeInTheDocument();
-  });
-
-  it("shows D1 when enabled at runtime", () => {
-    process.env.NEXT_PUBLIC_ENABLE_D1_TAB = "true";
-    render(<Home />);
-    fireEvent.click(screen.getByTestId("sidebar-tab-d1-agent"));
-    expect(screen.getByTestId("d1-monitor")).toHaveAttribute("data-active", "true");
   });
 
   it('notifies Alerts when full-page Chat completes without answer content', () => {

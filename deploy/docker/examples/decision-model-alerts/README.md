@@ -1,4 +1,4 @@
-# D1 + Cosmos on Jetson AGX Thor
+# Decision-model alerts on Jetson AGX Thor
 
 Run the D1 + Cosmos video example with Docker Compose. D1-2B scores
 a rolling window of frames. When a rule matches, the application retrieves the
@@ -22,7 +22,7 @@ From the VSS checkout that contains this example:
 
 ```bash
 cd deploy/docker
-example=examples/d1-cosmos
+example=examples/decision-model-alerts
 if [ ! -e "$example/user-overrides.env" ]; then
   cp "$example/overrides.env" "$example/user-overrides.env"
 fi
@@ -80,7 +80,9 @@ operator configuration when the same inputs are used again.
 ## Start and verify
 
 Keep the shell open so the path and credential settings are available.
-Define the command with the stock deployment and the example overlay.
+Build the example UI from the stock VSS UI sources and the example's UI files.
+The build script assembles those files in a temporary Docker context.
+Define the Compose command with the stock deployment and the example overlay.
 **For local MP4s**, uncomment the `files+=` line before running it.
 
 ```bash
@@ -95,6 +97,7 @@ d1_compose() {
 }
 
 d1_compose config --services
+bash "$example/ui/build.sh"
 d1_compose up -d --build
 d1_compose ps --all
 ```
@@ -141,7 +144,7 @@ d1_compose stop
 From the repository root:
 
 ```bash
-bash deploy/docker/test-scripts/test-d1-cosmos-example.sh
+bash deploy/docker/test-scripts/test-decision-model-alerts-example.sh
 python3 -m pytest deploy/docker/test-scripts/test_d1_bootstrap.py
 ```
 

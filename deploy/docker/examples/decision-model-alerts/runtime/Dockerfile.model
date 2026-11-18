@@ -5,11 +5,11 @@ FROM nvcr.io/nvidia/pytorch:26.09-py3
 WORKDIR /app
 RUN python -m pip install --no-cache-dir transformers==5.19.0 Pillow==12.3.0 huggingface-hub==1.31.0 \
     && install -d -o 1001 -g 1001 -m 0700 /models /home/d1
-COPY deploy/docker/examples/d1-cosmos/runtime/model-lock.json \
-     deploy/docker/examples/d1-cosmos/runtime/d1_runtime.py \
-     deploy/docker/examples/d1-cosmos/runtime/d1_protocol.py \
-     deploy/docker/examples/d1-cosmos/runtime/model_entrypoint.py \
-     deploy/docker/examples/d1-cosmos/runtime/server.py \
+COPY deploy/docker/examples/decision-model-alerts/runtime/model-lock.json \
+     deploy/docker/examples/decision-model-alerts/runtime/d1_runtime.py \
+     deploy/docker/examples/decision-model-alerts/runtime/d1_protocol.py \
+     deploy/docker/examples/decision-model-alerts/runtime/model_entrypoint.py \
+     deploy/docker/examples/decision-model-alerts/runtime/server.py \
      /app/
 ENV HOME=/home/d1 D1_MODEL_DIR=/models PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     OMP_NUM_THREADS=4 MKL_NUM_THREADS=4

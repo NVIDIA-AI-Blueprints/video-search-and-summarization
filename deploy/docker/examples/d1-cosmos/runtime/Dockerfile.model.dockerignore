@@ -1,9 +1,0 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
-**
-!deploy/docker/examples/d1-cosmos/runtime/model-lock.json
-!deploy/docker/examples/d1-cosmos/runtime/d1_protocol.py
-!deploy/docker/examples/d1-cosmos/runtime/d1_runtime.py
-!deploy/docker/examples/d1-cosmos/runtime/model_entrypoint.py
-!deploy/docker/examples/d1-cosmos/runtime/server.py
