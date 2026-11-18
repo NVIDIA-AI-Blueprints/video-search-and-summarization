@@ -36,12 +36,12 @@ export `ALERTS_PERF_REMOTE_LLM_URL` explicitly; no private network address is
 embedded in this public benchmark package. Other profiles keep their native
 local/remote model settings unchanged.
 
-For GB300, RTVI CV and RTVI VLM support containers use the explicitly configured
+For DGX Spark and GB300, RTVI CV and RTVI VLM support containers use the explicitly configured
 `PERF_VSS_RT_CV_SBSA_IMAGE` and `PERF_VSS_RT_VLM_SBSA_IMAGE` references from
 `setup/configs/images.yaml`. Override those keys to select other approved SBSA
 versions. The effective references are recorded in `support-images.json` and
-report metadata. The supplied Alerts artifact is unchanged. This GB300-specific
-selection does not change supporting-image selection for the other platforms.
+report metadata. The supplied Alerts artifact is unchanged. Thor and AMD64
+platforms retain their configured unsuffixed supporting images.
 
 ## Validate one target
 

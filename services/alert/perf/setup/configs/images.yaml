@@ -22,7 +22,7 @@ images:
   PERF_SDR_MW_L_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/sdr-mw-l:develop-latest
   PERF_VSS_RT_VLM_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
   PERF_VSS_RT_CV_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv:develop-latest
-  # GB300 supporting-service variants; Thor keeps the unsuffixed images above.
+  # Spark/GB300 supporting-service variants; Thor keeps the unsuffixed images above.
   PERF_VSS_RT_VLM_SBSA_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest-sbsa
   PERF_VSS_RT_CV_SBSA_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv:develop-latest-sbsa
   PERF_VSS_BEHAVIOR_ANALYTICS_IMAGE: ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics:develop-latest

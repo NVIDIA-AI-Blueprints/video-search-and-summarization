@@ -53,9 +53,9 @@ def remote_llm_arguments(profile, environment):
 
 
 def supporting_images_for_profile(profile, values):
-    """Select configured GB300 support images without changing the target artifact."""
+    """Select configured Spark/GB300 support images without changing the target artifact."""
     selected = dict(values)
-    if profile == "GB300":
+    if profile in {"GB300", "DGX-SPARK"}:
         for component in ("RT_VLM", "RT_CV"):
             key = f"PERF_VSS_{component}_IMAGE"
             selected[key] = values[f"PERF_VSS_{component}_SBSA_IMAGE"]
