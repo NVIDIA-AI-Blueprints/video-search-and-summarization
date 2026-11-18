@@ -586,7 +586,7 @@ workspace docs, the plugin and the policy in the same build.
 | | `hermes-sandbox` | From source |
 |---|---|---|
 | Layers, built image | 126 of overlay2's 127 | **13** |
-| Size, built image | 2.15 GB | **0.73 GB** |
+| Size, built image | 2.15 GB | **0.67 GB** |
 | Python packages in Hermes' venv | 248 | **72** |
 | `config.yaml` | 175 lines, patched by `sed` | **11 lines, authored** |
 | Build and network tools | `node`, `npm`, `ssh`, `curl` present; `gcc` purged | **`git` only** |
@@ -602,7 +602,8 @@ Three properties make this cheaper than its line count suggests:
   and the OPA check reads `/proc/<pid>/exe`, which a symlink cannot redirect.
 - **The toolchain purge is by construction.** The runtime stage installs only
   `ca-certificates` and `git`, so there is nothing to strip — and no purge step
-  to keep in sync with a base image that might reintroduce one.
+  to keep in sync with a base image that might reintroduce one. uv is
+  bind-mounted, cache off, for the one `RUN` that builds the vss venv.
 - **The layer budget stops mattering.** At 13 layers the policy can be baked
   directly, so the separate policy overlay and its single-`COPY` constraint fall
   away along with the unsplittable `RUN`.

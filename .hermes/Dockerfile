@@ -120,7 +120,8 @@ RUN mkdir -p /opt/vss-assets/wheels \
 # The toolchain purge is by construction rather than by removal: this stage
 # installs no compiler, no node and no network client beyond git, so there is
 # nothing to strip afterwards. Every build happens in a stage above and only its output
-# is copied; uv is the one exception, removed once the vss venv exists.
+# is copied; uv is bind-mounted for the one RUN that makes the vss venv, so
+# neither the binary nor its cache reaches a layer.
 FROM ${BASE_IMAGE} AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -147,10 +148,10 @@ RUN su sandbox -s /bin/sh -c 'set -e; cd /sandbox; H=/opt/hermes/.venv/bin/herme
       $H config set approvals.mode manual; \
       $H config set browser.restrict_evaluate true' \
     && test -f /sandbox/.hermes/config.yaml
-COPY --from=uv /uv /usr/local/bin/uv
 COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
 COPY .hermes/plugin /opt/vss-assets/plugin
-RUN set -eux; \
+RUN --mount=type=bind,from=uv,source=/uv,target=/usr/local/bin/uv \
+    set -eux; export UV_NO_CACHE=1; \
     # The vss CLI, from the wheels built out of the same tree as the skills.
     # Installed by path, not by name: with --find-links a bare name still
     # admits index candidates, so a future published nvidia-vss-cli could
@@ -187,7 +188,7 @@ RUN set -eux; \
     && chown -R sandbox:sandbox /sandbox \
     && chmod -R a+rX /opt/vss-skills /opt/hermes/skills/vss /opt/hermes/plugins/vss \
     && test -f /opt/hermes/skills/vss/vss-ask-video/SKILL.md && test -f /sandbox/AGENTS.md \
-    && rm -rf /opt/vss-assets /usr/local/bin/uv
+    && rm -rf /opt/vss-assets
 # The access boundary, baked so one artifact carries harness and policy. The
 # directory is made here rather than left to COPY, which would give it the
 # --chmod mode and leave it unsearchable.
