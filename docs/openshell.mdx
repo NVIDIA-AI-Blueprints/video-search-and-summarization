@@ -3,7 +3,7 @@ title: "OpenShell"
 description: ""
 position: 1
 ---
-[NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/) runs an always-on AI agent inside a sandbox whose security boundary sits outside the agent's trust domain, so a compromised agent cannot switch it off. Integrated with the Video Search and Summarization (VSS) blueprint, it runs the Hermes agent harness against a VSS deployment: the gateway is declared as a Compose service alongside the rest of the stack, and an optional image layer gives the agent the `vss` CLI, the VSS operation Skills, and the one network grant that lets it reach the deployment.
+[NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/) runs an always-on AI agent inside a sandbox whose security boundary sits outside the agent's trust domain, so a compromised agent cannot switch it off. Integrated with the Video Search and Summarization (VSS) blueprint, it runs the Hermes agent harness against a VSS deployment: the gateway is declared as a Compose service alongside the rest of the stack, and the harness image carries the `vss` CLI, the VSS operation Skills, and the one network grant that lets the agent reach the deployment.
 
 Everything below is written for OpenShell 0.1.6, the release the integration was tested on.
 
@@ -14,7 +14,7 @@ Running VSS through OpenShell turns a multi-service Docker Compose deployment in
 * **Natural-language operations.** Prompts like *"List the VIOS sensors"* or *"Summarize warehouse_safety_0001"* are answered by the agent calling the `vss` CLI inside the sandbox, with the VSS operation Skills selecting what the deployment can actually serve.
 * **The agent never holds a credential.** The workload sees an `openshell:resolve:env:<KEY>` placeholder. The real key is added at egress by the supervisor, and only for the endpoints the provider profile authorizes.
 * **Default-deny networking.** The workload container has no network at all. Every connection is opened on its behalf by the supervisor, and only when both the destination *and* the calling binary match the same policy block.
-* **A policy you can prove.** Each sandbox policy has a boundary ceiling it is checked against with `openshell-prover check` before anything is deployed, covering filesystem, L4, REST, process, and Landlock domains.
+* **A policy you can prove.** The sandbox policy has a boundary ceiling it is checked against with `openshell-prover check`, covering filesystem, L4, REST, process, and Landlock domains.
 * **Declared with the stack.** The gateway is a Compose service behind the `openshell` profile, so its image tag, port, and mounts stay under review with the rest of the deployment rather than living as host state.
 
 ## Architecture at a glance

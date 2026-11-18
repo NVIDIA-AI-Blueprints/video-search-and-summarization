@@ -3,13 +3,18 @@ title: "Troubleshooting"
 description: ""
 position: 5
 ---
-Recovery steps for common OpenShell gateway, sandbox, and VSS issues. Substitute your sandbox name wherever `hermes` appears. Every command assumes `~/.local/bin` is on `PATH` and that you are in the repository root.
+Recovery steps for common OpenShell gateway, sandbox, and VSS issues. Substitute your sandbox name wherever `hermes` appears. Every command assumes `~/.local/bin` is on `PATH`, that you are in the repository root, and that the settings are sourced:
+
+```bash
+set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
+```
 
 Two commands answer most questions before anything else:
 
 ```bash
 openshell sandbox list                  # phase of every sandbox on this gateway
-docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell \
+docker compose --env-file deploy/docker/services/openshell/openshell.env \
+  -f deploy/docker/services/openshell/compose.yml --profile openshell \
   logs openshell-gateway                # the gateway's own startup and errors
 ```
 
@@ -34,7 +39,8 @@ docker logs "$(docker ps -q \
 1. Confirm the container is up and the listener answers:
 
    ```bash
-   docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell ps
+   docker compose --env-file deploy/docker/services/openshell/openshell.env \
+     -f deploy/docker/services/openshell/compose.yml --profile openshell ps
    curl -fsS http://127.0.0.1:8082/health
    ```
 
@@ -63,7 +69,7 @@ docker logs "$(docker ps -q \
 | --- | --- | --- |
 | `this build requires version 2; migrate legacy fields` | The config is on the version 1 schema | Use the shipped `gateway.toml`. The renames that bite are `compute_drivers = ["docker"]` to `compute_driver = "docker"`, the removal of `sandbox_namespace`, and `gateway_jwt.ttl_secs = 0` |
 | `address already in use` | Another service holds `8080` or the health port | The gateway health listener is on `127.0.0.1:8082` precisely because VSS publishes the Video Analytics API on `8081` in the alerts and search profiles. Check what holds the port before moving it |
-| A missing-key or permission error on `/var/lib/openshell/tls` | `openshell-init` did not complete | Re-run it on its own: `docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell up openshell-init` |
+| A missing-key or permission error on `/var/lib/openshell/tls` | `openshell-init` did not complete | Re-run it on its own: `docker compose --env-file deploy/docker/services/openshell/openshell.env -f deploy/docker/services/openshell/compose.yml --profile openshell up openshell-init` |
 
 ## Sandbox Create Fails on Gateway Authentication
 
@@ -71,17 +77,18 @@ docker logs "$(docker ps -q \
 
 **Cause**: The Docker compute driver needs a `[openshell.gateway.gateway_jwt]` block even when `allow_unauthenticated_users` is `true`. The two settings are independent: the opt-out covers user calls, not the driver's launch-scoped JWT.
 
-**Solution**: Confirm the block is present in `deploy/docker/services/openshell/gateway.toml` and that the key files it names exist in the data volume. The `openshell-init` service writes them:
+**Solution**: Confirm the block is present in `deploy/docker/services/openshell/gateway.toml` and that the key files it names exist in the data volume. The `openshell-init` service writes them. Read the volume from a busybox container: the gateway image is distroless and carries no `ls`.
 
 ```bash
-docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell \
-  run --rm --entrypoint ls openshell-init -l /var/lib/openshell/tls/jwt
+docker run --rm -v vss_openshell-data:/var/lib/openshell busybox \
+  ls -l /var/lib/openshell/tls/jwt
 ```
 
 If the directory is empty, the init service never ran. Bring it up on its own, then restart the gateway:
 
 ```bash
-docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell \
+docker compose --env-file deploy/docker/services/openshell/openshell.env \
+  -f deploy/docker/services/openshell/compose.yml --profile openshell \
   up openshell-init
 ```
 
@@ -96,7 +103,9 @@ docker compose -f deploy/docker/services/openshell/compose.yml --profile openshe
 1. Check that the gateway runs both images at its own release. The environment wins over a `gateway.toml` key, so the Compose values are the ones that apply:
 
    ```bash
-   docker inspect "$(docker compose -f deploy/docker/services/openshell/compose.yml \
+   docker inspect "$(docker compose \
+     --env-file deploy/docker/services/openshell/openshell.env \
+     -f deploy/docker/services/openshell/compose.yml \
      --profile openshell ps -q openshell-gateway)" \
      --format '{{.Config.Image}}{{range .Config.Env}}{{println}}{{.}}{{end}}' | grep -E 'gateway:|_IMAGE='
    ```
@@ -250,7 +259,8 @@ If they differ, reinstall the CLI at the gateway's release using the install ste
 
 ```bash
 openshell sandbox delete hermes
-docker compose -f deploy/docker/services/openshell/compose.yml --profile openshell down
+docker compose --env-file deploy/docker/services/openshell/openshell.env \
+  -f deploy/docker/services/openshell/compose.yml --profile openshell down
 ```
 
 That keeps the `openshell-data` volume, and with it the gateway's record of every sandbox, its JWT signing key, and the key-encryption key that provider credentials are sealed with. Add `-v` only when you intend to discard all of it — every provider has to be created again afterwards.

@@ -276,8 +276,11 @@ Infer OPENCLAW_GATEWAY_URL and VST_PUBLIC_URL_BASE based on the deployment.
 
 `NOTIFY_BACKENDS`, `VST_ENDPOINT`, `VST_PUBLIC_URL_BASE`, and `OPENCLAW_GATEWAY_URL` are
 relay process environment variables. `VST_PUBLIC_URL_BASE` is the URL clients use to play
-clips (for example a reverse-proxy or Brev tunnel). Infer `OPENCLAW_GATEWAY_URL` from your
-OpenClaw deployment. Use `wss://` whenever the gateway crosses a network boundary because
+clips (for example a reverse-proxy or Brev tunnel). `OPENCLAW_GATEWAY_URL` is the agent
+dashboard forward that
+[`deploy_nemoclaw.ipynb`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/docker/scripts/deploy_nemoclaw.ipynb)
+opens, `AGENT_DASHBOARD_PORT`, which defaults to `18789`. Use `wss://` whenever the
+gateway crosses a network boundary because
 the connection carries the gateway token and alert contents. Use `ws://` only for loopback
 (for example `ws://127.0.0.1:18789`) or another trusted internal connection.
 `host.openshell.internal` is only reachable from inside that sandbox.

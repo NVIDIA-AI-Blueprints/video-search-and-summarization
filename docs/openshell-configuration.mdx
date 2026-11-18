@@ -3,7 +3,7 @@ title: "Additional Configuration"
 description: ""
 position: 4
 ---
-Reference for the values the OpenShell integration reads, the provider profiles and policy pairs it ships, and the reasoning behind each step of [Setup VSS and Skills](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills).
+Reference for the values the OpenShell integration reads, the provider profiles and the policy pair it ships, and the reasoning behind each step of [Setup VSS and Skills](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills).
 
 ## openshell.env variables
 
@@ -13,7 +13,7 @@ Every command in the setup sources `deploy/docker/services/openshell/openshell.e
 | --- | --- | --- |
 | `OPENSHELL_TAG` | `0.1.6` | Gateway image tag. The `openshell` CLI and `openshell-prover` must be the same release, since the CLI and gateway speak Protobuf. |
 | `HERMES_REF` | `v2026.9.14` | Upstream Hermes tag the harness image is built from. The image is tagged by the `vss` CLI's version, so this only pins what the build fetches. |
-| `HARNESS_BASE_URL` | `https://inference-api.nvidia.com/v1` | The agent model endpoint's OpenAI-compatible base URL, including its `/v1`. Unrelated to any VLM a VSS deployment serves. |
+| `HARNESS_BASE_URL` | `https://inference-api.nvidia.com/v1` | The agent model endpoint's OpenAI-compatible base URL, including its `/v1`. Unrelated to any VLM a VSS deployment serves. The default is the NVIDIA Inference Hub, reachable only from NVIDIA infrastructure; elsewhere use `build.nvidia.com` — see [Change the model, endpoint, or key](#change-the-model-endpoint-or-key). |
 | `HARNESS_MODEL` | `aws/anthropic/bedrock-claude-opus-5` | A model id that endpoint serves. |
 | `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` | The deployment's origin as the sandbox reaches it, read only once a deployment is up, by `vss configure` inside the sandbox. The default is a deployment on this host. |
 

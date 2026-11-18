@@ -210,7 +210,7 @@ its values replace any of the same name exported in the shell:
 
 | Variable | Set it to |
 |---|---|
-| `HARNESS_BASE_URL` | The endpoint's OpenAI-compatible base URL, including its `/v1`. The default is the host `providers/agent-inference-profile.yaml` authorizes |
+| `HARNESS_BASE_URL` | The endpoint's OpenAI-compatible base URL, including its `/v1`. The default, `https://inference-api.nvidia.com/v1`, is the host `providers/agent-inference-profile.yaml` authorizes: the NVIDIA Inference Hub, reachable only from NVIDIA infrastructure. Elsewhere use build.nvidia.com — see [Change the model, endpoint or key](#change-the-model-endpoint-or-key) |
 | `HARNESS_MODEL` | A model id that endpoint serves |
 | `VSS_PUBLIC_URL` | The deployment's origin as the sandbox reaches it. The default, `http://host.openshell.internal:7777`, is a deployment on this host |
 
@@ -225,22 +225,23 @@ build.nvidia.com and a server on this host.
 Then run from the repository root.
 
 ```bash
-# 0. Install the openshell CLI and openshell-prover 0.1.6, the gateway's
-#    release, into ~/.local/bin from the checksum-verified release tarballs,
-#    and uv, which step 2 runs.
+# 0. Install the openshell CLI and openshell-prover at OPENSHELL_TAG, the
+#    gateway's release, into ~/.local/bin from the checksum-verified release
+#    tarballs, and uv, which step 2 runs.
 mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
 command -v uvx >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
-( cd "$(mktemp -d)" && V=0.1.6 A=$(uname -m) &&
+
+set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
+case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; *) echo "HARNESS_API_KEY ok";; esac
+
+( cd "$(mktemp -d)" && V="$OPENSHELL_TAG" A=$(uname -m) &&
   for p in openshell openshell-prover; do
     curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-$A-unknown-linux-musl.tar.gz"
     curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-checksums-sha256.txt"
     grep " $p-$A-unknown-linux-musl.tar.gz\$" "$p-checksums-sha256.txt" | sha256sum -c - &&
     tar -xzf "$p-$A-unknown-linux-musl.tar.gz" -C ~/.local/bin
   done )
-openshell --version && openshell-prover --version     # both 0.1.6
-
-set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
-case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set, without quotes" >&2; false;; *) echo "HARNESS_API_KEY ok";; esac
+openshell --version && openshell-prover --version     # both $OPENSHELL_TAG
 
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --env-file deploy/docker/services/openshell/openshell.env \

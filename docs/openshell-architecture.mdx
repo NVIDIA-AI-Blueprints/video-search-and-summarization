@@ -13,7 +13,7 @@ Both diagrams below show the sandbox the [setup](/vision-agent/agent-harnesses/o
 
 * **Gateway** is the control plane, a Compose service behind the `openshell` profile. It owns sandbox lifecycle and state, signs the only credentials in the system, delivers policy and provider credentials, and runs the policy prover. Its **compute driver** provisions each sandbox as two containers and builds the isolation boundary.
 * **Workload** runs the harness image — Hermes, the `vss` CLI, the Skills and the baked policy — with networking turned off. Its only path out is the supervisor; if the supervisor exits, the agent is stopped rather than left running unchecked.
-* **Supervisor** is the trusted half and the only decision point. It checks every connection against the policy, then opens it: to the inference endpoint with the real credential added at egress, and — only where the VSS policy pair is in force — to VSS HAProxy on `:7777`. The agent never holds a key.
+* **Supervisor** is the trusted half and the only decision point. It checks every connection against the policy, then opens it: to the inference endpoint with the real credential added at egress, and to VSS HAProxy on `:7777`. The agent never holds a key.
 * **Gateway link** delivers policy and credentials to the supervisor and carries logs, exec sessions, and the exposed harness API, whose `:8642` is the loopback target inside the sandbox. The URL itself is served on the gateway's own port under a per-sandbox hostname.
 
 ## Inside the boundary
@@ -87,7 +87,7 @@ The security boundary is OpenShell's, and it sits outside the agent's trust doma
 
 ## A chat turn end to end
 
-![Sequence diagram: the browser posts to the VSS ingress, the UI adapter calls the sandbox's Responses API through an openshell forward, the gateway routes it by Host header to the supervisor and on to the Hermes API server, and the SSE events retrace the same path](./assets/images/openshell/vss-openshell-request-path.png)
+![Sequence diagram: the browser posts to the VSS ingress, the UI adapter calls the sandbox's Responses API through an openshell forward because it has no route to the gateway's loopback listener, the gateway carries it over the open supervisor session to the Hermes API server, which validates the bearer, and the SSE events retrace the same path; a host client skips the forward and reaches the same API by Host header](./assets/images/openshell/vss-openshell-request-path.png)
 
 Both halves are deployed from the host, and in that order: VSS by the [Build Vision AI Skill](/vision-agent/build-vision-ai-skill) or Docker Compose, then the harness against the running build with the `openshell` CLI. The agent inside the sandbox drives VSS but never deploys or tears it down.
 

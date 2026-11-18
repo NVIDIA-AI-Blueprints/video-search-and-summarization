@@ -73,19 +73,27 @@ catalog is used, so the available capabilities and example prompts are unchanged
 OpenClaw is an open agent sandbox that exposes an `agentskills.io`-compatible host with
 a chat UI. As a generic compatible host, it loads VSS Skills from `~/.agents/skills/<name>/`.
 
+VSS brings one up through NemoClaw, from two notebooks in the blueprint repository:
+[`deploy_nemoclaw.ipynb`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/docker/scripts/deploy_nemoclaw.ipynb)
+onboards the sandbox with the Skills, the workspace docs, and the `vss` CLI, and
+[`deploy_vss_orchestrator.ipynb`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/docker/scripts/deploy_vss_orchestrator.ipynb)
+deploys VSS from that chat UI through the [VSS Orchestrator MCP](/vision-agent/agent-harnesses/vss-orchestrator-mcp)
+server. The same flow as canonical commands, to run by hand, is in
+[`deploy/docker/scripts/nemoclaw/README.md`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/docker/scripts/nemoclaw/README.md).
+
 ## OpenShell
 
 [NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/) is an agent sandbox, and
 VSS drives it directly to run the Hermes harness. The gateway is declared as a Docker
-Compose service alongside the rest of the stack, and an image layer adds the `vss` CLI,
-the VSS operation Skills, and the one network grant that lets the agent reach a
+Compose service alongside the rest of the stack, and the harness image carries the `vss`
+CLI, the VSS operation Skills, and the one network grant that lets the agent reach a
 deployment.
 
 What this route gives you over installing Skills into a coding agent is a boundary the
 agent cannot switch off: the workload container has no network at all, the supervisor
 opens every connection only when its destination *and* calling binary match the policy,
-and the real credential is added at egress so the agent never holds a key. Each policy is
-checked against a boundary ceiling with `openshell-prover` before anything is deployed.
+and the real credential is added at egress so the agent never holds a key. The policy is
+checked against a boundary ceiling with `openshell-prover`.
 
 The [Build Vision AI Skill](/vision-agent/build-vision-ai-skill#agent-harness) brings
 the sandbox up as the default harness of a developer-profile build; you can also bring it
