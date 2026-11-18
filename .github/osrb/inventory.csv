@@ -1699,7 +1699,6 @@ ghcr.io/astral-sh/uv,latest,UNKNOWN,services/video-summarization,container,conta
 ghcr.io/astral-sh/uv,sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/google/cadvisor,v0.60.6,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
 ghcr.io/mlflow/mlflow,v3.6.0,UNKNOWN,deploy,container,compose,deploy/docker/active-learning/includes/deft-aoi-data-flywheel/compose.yml,runtime,no,no,yes,container-image,Unknown
-ghcr.io/nvidia/nemoclaw/hermes-sandbox,sha256:26899bd091f7ad2d58ab7cf9fad33f1fcd065c10eb54f9cf1461a24e1c21ed1a,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/nvidia/nemoclaw/openclaw-sandbox,sha256:959d1255717b54f724248eb282dbb049d3cd785d5aa4eddb0da2a03839ad6fca,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/nvidia/openshell/gateway,${OPENSHELL_TAG},UNKNOWN,deploy,container,compose,deploy/docker/services/openshell/compose.yml,runtime,no,no,yes,container-image,Unknown
 gherkin-official,29.0.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -3360,7 +3359,6 @@ pywin32,311,Python Software Foundation License,services/video-summarization,pyth
 pywin32,312,PSF-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pywin32,312,PSF-2.0,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 pywin32,312,PSF-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-PyYAML,UNKNOWN,MIT License,.hermes,python,usage,.hermes/base-config.py,runtime,no,no,no,imported-only,None
 PyYAML,UNKNOWN,MIT License,deploy,python,usage,deploy/docker/active-learning/includes/deft-aoi-data-flywheel/service-configs/data-flywheel/render_config.py,runtime,no,no,no,imported-only,None
 PyYAML,UNKNOWN,MIT License,skills/vss-build-vision-ai,python,usage,skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py,runtime,no,no,no,imported-only,None
 pyyaml,6.0.2,MIT,services/rtvi/rt-cv-3d/rt-cv-config-init,python,lockfile;manifest,services/rtvi/rt-cv-3d/rt-cv-config-init/Pipfile.lock;services/rtvi/rt-cv-3d/rt-cv-config-init/tests/requirements.txt,runtime,no,no,no,declared-manifest,None
