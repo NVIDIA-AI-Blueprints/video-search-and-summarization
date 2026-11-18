@@ -23,35 +23,31 @@ The repository ships the RAG-enabled LVS agent config at
 It is a superset of the default LVS config: regular caption retrieval remains
 enabled, and `frag_retrieval` adds Enterprise RAG document grounding.
 
-Use the normal `/vss-build-vision-ai` workflow for deployment. The source
-`.env` and `overrides.env` remain read-only; initialize `generated.env` from
-`overrides.env` and apply non-secret overrides there.
-`generated.env` is ignored by the repository, but it is still a plaintext file:
-do not commit it, paste it into logs, or store long-lived credentials there.
-Prefer a vault, Docker secrets, or ephemeral shell environment variables for
-API keys.
+Use `/vss-build-vision-ai` with the LVS Foundation and explicitly retain the
+in-stack `vss-agent`, which owns this RAG/HITL workflow. Keep the checked-in
+`.env` and `overrides.env` read-only. All deployment artifacts belong under
+`_builds/<name>/`; follow the build skill's
+[`deployment.md`](../../vss-build-vision-ai/references/deployment.md) for
+resolution, validation, host preparation, image pulls, and readiness.
 
-### Step 1: Configure the generated env file
+### Step 1: Configure the build override
 
-```bash
-REPO=${REPO:-$(git rev-parse --show-toplevel)}
-cd "$REPO"
-cp deploy/docker/developer-profiles/dev-profile-lvs/overrides.env \
-  deploy/docker/developer-profiles/dev-profile-lvs/generated.env
-```
+Add these non-secret settings to `_builds/<name>/override.env`, preserving
+`FOUNDATION=lvs`, the effective service set including `vss-agent`, and the
+build's hardware, model, path, and dependent settings:
 
-Set these non-secret values in `generated.env`:
-- `HOST_IP` — host IP (`hostname -I | awk '{print $1}'`)
+- `HOST_IP` — the observed host address reachable by the selected services
 - `VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml`
 - `RAG_SERVER_URL` — Enterprise RAG server HTTP endpoint (defaults to `http://rag-server:8081/v1`)
 - `KNOWLEDGE_COLLECTION` — default Enterprise RAG collection for `frag_retrieval`
 
-Keep sensitive values (`NGC_CLI_API_KEY`, `NVIDIA_API_KEY`, `RAG_API_KEY`) out
-of `generated.env` and out of `resolved.yml`. Do not export them before running
-`docker compose config > resolved.yml`, because Compose expands environment
-variables into that file. Use a secret manager, an existing authenticated Docker
-session, or a local override file that references an ephemeral shell variable at
-`up` time.
+Handle required model credentials through the build skill's
+[`credentials.md`](../../vss-build-vision-ai/references/credentials.md). That
+workflow resolves required model keys into the deployment artifacts; keep those
+artifacts private and never commit them or paste their contents into logs.
+Keep `RAG_API_KEY` out of the build override and saved `resolved.yml`: leave
+it unset during resolution and supply it only through the runtime override
+below when the RAG server requires authentication.
 
 ### Step 2: Log in to NGC registry
 
@@ -63,13 +59,24 @@ printf '%s\n' "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken'
 unset NGC_CLI_API_KEY
 ```
 
-### Step 3: Deploy the LVS profile with the RAG config
+### Step 3: Resolve and deploy the RAG build
 
-Do not export `RAG_API_KEY` for the dry-run below. If the RAG server requires an
-API key, create this untracked local override after `resolved.yml` is generated:
+Resolve the root Compose graph and any build patches with the build skill's
+four ordered env layers into `$BUILD_DIR/resolved.yml`. Normalize and validate
+that file and complete data-directory preparation before deployment. Confirm
+the resolved `vss-agent` selects `config_rag.yml` and has the requested
+`RAG_SERVER_URL` and `KNOWLEDGE_COLLECTION`. Keep `RAG_API_KEY` unset during
+resolution and confirm the saved model contains no RAG API key value.
+
+If the RAG server needs no API key, use the shared resolved Compose deployment
+lifecycle directly. If it requires authentication, create this build-local
+runtime override **after** resolution; do not include it in the build's
+`compose.yml` or fold it into the saved `resolved.yml`:
 
 ```bash
-cat > rag-secret.override.yml <<'EOF'
+: "${BUILD_DIR:?Set to the RAG build directory}"
+mkdir -p "$BUILD_DIR/patches"
+cat > "$BUILD_DIR/patches/rag-secret.runtime.yml" <<'EOF'
 services:
   vss-agent:
     environment:
@@ -77,39 +84,30 @@ services:
 EOF
 ```
 
-```bash
-REPO=${REPO:-$(git rev-parse --show-toplevel)}
-cd "$REPO/deploy/docker"
-docker compose \
-  --env-file developer-profiles/dev-profile-lvs/.env \
-  --env-file developer-profiles/dev-profile-lvs/generated.env \
-  config > resolved.yml
-uv run "$REPO/skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py" \
-  "$REPO/deploy/docker/resolved.yml"
-docker compose \
-  --env-file developer-profiles/dev-profile-lvs/.env \
-  --env-file developer-profiles/dev-profile-lvs/generated.env \
-  -f resolved.yml up -d
-```
-
-When `rag-secret.override.yml` is needed, use:
+Complete the shared image-pull step against `resolved.yml`. Then supply the
+RAG key only while bringing up the build:
 
 ```bash
 read -rsp "RAG API key: " RAG_API_KEY
 RAG_API_KEY="$RAG_API_KEY" docker compose \
-  --env-file developer-profiles/dev-profile-lvs/.env \
-  --env-file developer-profiles/dev-profile-lvs/generated.env \
-  -f resolved.yml -f rag-secret.override.yml up -d
+  -f "$BUILD_DIR/resolved.yml" \
+  -f "$BUILD_DIR/patches/rag-secret.runtime.yml" up -d --build
 unset RAG_API_KEY
 ```
 
+This runtime-only credential override is the exception to deploying with just
+`resolved.yml`; neither path re-reads profile env files or passes profile flags.
+Keep the override with this build for subsequent recreations that need the
+key, and inject it again at runtime. Never save expanded output from this
+two-file command, print the key, or put it into command history.
+
 ### Step 4: Verify deployment
 
-```bash
-# Check containers are running
-docker ps --format "table {{.Names}}\t{{.Status}}"
+Complete the build skill's readiness checks, then check the RAG agent:
 
-# Health check
+```bash
+docker compose -f "$BUILD_DIR/resolved.yml" ps --all
+
 curl -sf --max-time 5 "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/health" >/dev/null \
   && echo "VSS LVS RAG agent is running" \
   || echo "VSS LVS RAG agent is NOT reachable"
@@ -117,11 +115,9 @@ curl -sf --max-time 5 "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/health" >/dev/n
 
 ### Tear down
 
-```bash
-REPO=${REPO:-$(git rev-parse --show-toplevel)}
-cd "$REPO/deploy/docker"
-docker compose -f resolved.yml down
-```
+Use the build skill's teardown workflow for this build's `resolved.yml` and
+Compose project. The runtime-only secret override is not needed to stop the
+project.
 
 ## When to Use
 

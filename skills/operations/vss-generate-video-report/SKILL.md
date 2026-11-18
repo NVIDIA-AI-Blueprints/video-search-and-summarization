@@ -337,7 +337,7 @@ printf 'BROWSER_CLIP_URL=%q\n' "${BROWSER_CLIP_URL}"
 handoff to set concrete `VSS_PUBLIC_HOST` / `VSS_PUBLIC_PORT` /
 `VSS_PUBLIC_HTTP_PROTOCOL` values for the block below. If inspecting the
 deployed `_builds/<name>/resolved.yml`, read the materialized public URLs
-(for example, `vss-ui.environment.NEXT_PUBLIC_VST_API_URL`); interpolation
+(for example, `vss-ui.environment.NEXT_PUBLIC_VIOS_API_URL`); interpolation
 inputs need not remain as environment keys in that file. Do not use a
 checked-in env template or an older deployment's generated file.
 On Brev, use the actual secure-link host, protocol, and public port resolved by

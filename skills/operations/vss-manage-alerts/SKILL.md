@@ -26,7 +26,8 @@ Operate the VSS alert pipeline (mode detection, Alert-Bridge subscriptions, veri
   [`../vss-build-vision-ai/references/deployment_resolution.md`](../../vss-build-vision-ai/references/deployment_resolution.md)
   for the shared `VSS_PUBLIC_URL` contract.
 - `curl` and `jq` on the agent host. Docker Compose mode detection may use
-  `docker` / `generated.env`; Kubernetes must not.
+  Docker inspection or the actual deployment's resolved Compose model;
+  Kubernetes must not use those Docker-specific signals.
 
 ## Instructions
 
@@ -170,17 +171,19 @@ If `vss-behavior-analytics` is present → **CV mode** (which also has `vss-rtvi
 If only `vss-rtvi-vlm` is present (and no CV pipeline) → **VLM mode**.
 If neither matches on Docker, the alerts profile is not deployed — direct the user to the `vss-build-vision-ai` skill.
 
-Alternative Docker signal (preferred when `docker ps` isn't accessible): check the deployed `generated.env`, falling back to `overrides.env` before a deployment has generated one:
+When Docker inspection is unavailable, use the resolved Compose model identified
+by the deployment handoff (`_builds/<name>/resolved.yml` for Build Vision AI).
+For stock Alerts modes, check the selected services and
+`alert-bridge.environment.ALERT_AGENT_ALWAYS_ON` together:
 
-```bash
-if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  ENV_FILE=deploy/docker/developer-profiles/dev-profile-alerts/generated.env
-  [ -f "$ENV_FILE" ] || ENV_FILE=deploy/docker/developer-profiles/dev-profile-alerts/overrides.env
-  grep -E '^MODE=' "$ENV_FILE"
-  # MODE=2d_cv   → CV mode (full superset)
-  # MODE=2d_vlm  → VLM real-time mode (vss-rtvi-vlm only; no vss-rtvi-cv)
-fi
-```
+- `perception-alerts` and `vss-behavior-analytics-alerts` present, with the
+  always-on setting `false`: **CV verification**.
+- Those CV services absent, `rtvi-vlm` present, and the always-on setting `true`:
+  **VLM real-time**.
+
+Use only the model for the deployment being operated. Checked-in env defaults
+are not evidence of its mode. If that model is unavailable or the signals
+conflict, ask the operator which mode is deployed before routing the request.
 
 ---
 
