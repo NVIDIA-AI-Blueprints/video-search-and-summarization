@@ -70,12 +70,14 @@ The gateway is a Compose service behind the `openshell` profile. Bringing it up 
 ```bash
 docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
-openshell gateway list | grep -q ' http://127.0.0.1:8080 ' ||
+GW=$(openshell gateway list | awk '$(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')
+[ -n "$GW" ] || {
   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
-openshell gateway select openshell-gateway
+  GW=openshell-gateway; }
+openshell gateway select "$GW"
 ```
 
-Only `gateway add` makes a gateway active, so the `select` is what points every command below at this one when the registration already existed.
+Only `gateway add` makes a gateway active, so the `select` is what points every command below at this gateway when the registration already existed — under whichever name holds the endpoint, which need not be `openshell-gateway`.
 
 <Note>
 A VSS developer profile can start the gateway for you: append `openshell` to

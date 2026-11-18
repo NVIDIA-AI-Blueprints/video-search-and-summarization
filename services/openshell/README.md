@@ -246,11 +246,13 @@ openshell --version && openshell-prover --version     # both $OPENSHELL_TAG
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
-openshell gateway list | grep -q ' http://127.0.0.1:8080 ' ||
+# Only `add` makes a gateway active, and a registration that already existed
+# may carry any name, so select whichever name holds this endpoint.
+GW=$(openshell gateway list | awk '$(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')
+[ -n "$GW" ] || {
   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
-# Only `add` makes a gateway active, so a registration that already existed
-# leaves the commands below pointed at whichever one is.
-openshell gateway select openshell-gateway
+  GW=openshell-gateway; }
+openshell gateway select "$GW"
 
 # 2. Harness image: upstream Hermes, VSS and the baked policy. The CLI's
 #    reported version tags it, naming the commit the image carries. A Docker
@@ -628,9 +630,11 @@ JWT key paths `init` writes. Three edits VSS has to make to it:
 ```bash
 docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
-openshell gateway list | grep -q ' http://127.0.0.1:8080 ' ||
+GW=$(openshell gateway list | awk '$(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')
+[ -n "$GW" ] || {
   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
-openshell gateway select openshell-gateway
+  GW=openshell-gateway; }
+openshell gateway select "$GW"
 ```
 
 Three constraints the service has to respect:
