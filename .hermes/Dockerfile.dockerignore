@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# The context is the checkout root, so a test run's byte-code and a
+# developer's virtualenv would otherwise reach the image with the skills,
+# the CLI and the plugin.
+**/__pycache__
+**/.venv

@@ -120,11 +120,11 @@ docker compose --env-file deploy/docker/services/openshell/openshell.env \
 
 4. If the phase does not clear, delete and create it again. Neither the image nor the policy can be swapped on a live sandbox, so a change to either is always a delete and a create.
 
-## Sandbox Shows Error with MainProcessFailed
+## Sandbox Restarts, or Shows Error with MainProcessFailed
 
-**Symptom**: The sandbox reaches `Error`, and the reason is `MainProcessFailed`.
+**Symptom**: The sandbox sits in `Starting` with `MainProcessRestartScheduled` or `MainProcessRestartBackoff`, or reaches `Error` with `MainProcessFailed`.
 
-**Cause**: The command after `--` exited. Because that command ends in `exec hermes gateway run`, Hermes is the sandbox's canonical main process and its exit status is the sandbox's — which is the point, since a dead agent surfaces here instead of as a healthy-looking container.
+**Cause**: The command after `--` exited. Because that command ends in `exec hermes gateway run`, Hermes is the sandbox's canonical main process and its exit status is the sandbox's — which is the point, since a dead agent surfaces here instead of as a healthy-looking container. Which phase you see is the create's `--restart-policy`: every create here passes `on-failure`, which restarts the runtime and backs off up to three minutes between attempts rather than ever giving up, so a Hermes that keeps exiting never reaches `Error`. The `never` default is what ends in `Error` with `MainProcessFailed`.
 
 **Solution**: Read the main process's output, which OpenShell streams:
 
@@ -162,16 +162,16 @@ A failure in the key mint before the `exec` shows up the same way.
 
 **Cause and solution**:
 
-* **`401` from the endpoint.** The sealed credential is wrong. `HARNESS_API_KEY` is read from the environment at `provider create` time, so a key changed in the shell or `harness.env` afterwards has not reached the gateway. Re-register it and recreate the sandbox, because a running API server never sees a new credential:
+* **`401` from the endpoint.** The sealed credential is wrong. `HARNESS_API_KEY` is read from the environment at `provider create` time, so a key changed in the shell or `harness.env` afterwards has not reached the gateway. Re-register it, then restart the sandbox, because a running API server keeps the credential it started with:
 
   ```bash
-  set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
-  openshell provider update agent-inference --credential HARNESS_API_KEY
+  openshell provider update agent-inference --credential HARNESS_API_KEY --wait
+  openshell sandbox stop hermes && openshell sandbox start hermes
   ```
 
   Note that many endpoints answer `GET /v1/models` without valid authentication, so a successful models call does not prove the key works. Test with a chat completion.
 
-* **`403` naming the model as unknown.** The API server sent the literal `${env:HARNESS_MODEL}` placeholder as the model id. `hermes chat` expands those references but the API server reads `config.yaml` as written, which is why the start command renders both values into the file with `sed`. Recreate the sandbox with the full start command.
+* **`403` naming the model as unknown.** The endpoint does not serve the `HARNESS_MODEL` the sandbox was created with. The model is fixed at create, so this is a recreate with a model id that endpoint serves; `openshell sandbox exec -n hermes -- printenv HARNESS_MODEL` shows the one in force.
 
 * **A refusal before the request leaves the host.** A provider authorizes only its profile's host, so a `HARNESS_BASE_URL` on any other host is denied regardless of the key. Import the profile that covers the new host and create a provider from it.
 

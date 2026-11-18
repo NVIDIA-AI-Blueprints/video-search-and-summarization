@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The VSS project, which an include gives it regardless, so starting this file
-# on its own reaches the same gateway and volume as a developer profile does.
+# on its own reaches the same gateway and volume as a developer profile under
+# the default COMPOSE_PROJECT_NAME. A profile under another name runs its own.
 name: vss
 
 services:

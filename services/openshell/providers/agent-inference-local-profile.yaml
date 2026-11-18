@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Step 4, option (b): a model served on this host — deploy_nemoclaw.ipynb's
-# install-vllm / ollama / nim-local. Ports are the profile's to declare, so a
-# server on anything else needs an entry added here before it is reachable.
+# A vLLM, NIM or Ollama server on this host. Ports are the profile's to
+# declare, so a server on any other port needs an entry here before it is
+# reachable.
 
 id: agent-inference-local
 display_name: Agent inference (host-local server)

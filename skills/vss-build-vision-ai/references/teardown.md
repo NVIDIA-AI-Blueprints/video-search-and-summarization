@@ -71,9 +71,12 @@ and — on a UI-wired build — port `8642`, against the next user.
 
 ## Shared gateway — before Compose
 
-The gateway is a service of the project, so either teardown below removes it
-and its `openshell-data` volume: every sandbox's gateway record and the sealed
-provider settings. Run this after the harness sandbox section, and also for a
+The gateway is a service of the build's own project when a developer profile
+brought it up, and of `vss` when `compose.yml` was started on its own. Either
+teardown below removes the one in the project it targets, together with its
+`openshell-data` volume: every sandbox's gateway record and the sealed provider
+settings, and `--remove-orphans` reaches it even when the build's own Compose
+model omits it. Run this after the harness sandbox section, and also for a
 build with no `sandbox` file, which can still own the gateway another build's
 sandbox runs on.
 
@@ -84,10 +87,13 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
 if [ -n "$(docker ps -aq \
       --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
       --filter "label=com.docker.compose.service=openshell-gateway")" ]; then
-  NAMES="$(openshell sandbox list --names)" \
+  # -g and --all-workspaces, so the gate asks this gateway rather than
+  # whichever is active, and sees every workspace's sandboxes, not `default`'s.
+  # --all-workspaces prints `<workspace>/<name>`.
+  NAMES="$(openshell -g openshell-gateway sandbox list --names --all-workspaces)" \
     || { echo "cannot list the gateway's sandboxes; keeping it" >&2; exit 1; }
   # A deleted sandbox stays listed while its cleanup finishes.
-  OTHERS="$(printf '%s\n' "$NAMES" | grep -vxF -e "$(cat "$BUILD_DIR/sandbox" 2>/dev/null)" -e '' || true)"
+  OTHERS="$(printf '%s\n' "$NAMES" | grep -vxF -e "default/$(cat "$BUILD_DIR/sandbox" 2>/dev/null)" -e '' || true)"
   if [ -n "$OTHERS" ]; then
     printf 'other sandboxes remain on the gateway:\n%s\n' "$OTHERS" >&2
     exit 1

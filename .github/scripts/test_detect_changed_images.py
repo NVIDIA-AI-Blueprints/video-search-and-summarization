@@ -771,7 +771,7 @@ class HermesHarnessSelectionTest(unittest.TestCase):
             ".hermes/plugin/__init__.py": {"openshell-hermes-vss"},
             "skills/vss-ask-video/SKILL.md": {"openshell-hermes-vss"},
             "libs/vss/cli/src/vss_cli/configure.py": {"openshell-hermes-vss"},
-            ".openclaw/workspace/AGENTS.md": {"openshell-hermes-vss"},
+            ".hermes/workspace/AGENTS.md": {"openshell-hermes-vss"},
         }
         for changed, expected in cases.items():
             with self.subTest(changed=changed):

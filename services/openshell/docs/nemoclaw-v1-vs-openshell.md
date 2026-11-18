@@ -365,8 +365,7 @@ own steps, and where each lands:
 | `wait` on the gateway process | OpenShell's canonical main process does this |
 
 What remains is the create command's short `sh -c` rather than a launcher
-image: it trusts the supervisor CA, mints `API_SERVER_KEY` into
-`/sandbox/.hermes/.env` when none is
+image: it mints `API_SERVER_KEY` into `/sandbox/.hermes/.env` when none is
 there, and ends with `exec hermes gateway run`, so the exit status still
 reaches OpenShell. `hermes gateway run` enrols the API server only when it
 finds a usable key in that file. The UI's token is read out with `sandbox exec`
@@ -553,9 +552,9 @@ nine are curator retention windows, tool-search limits, update preferences and
 display cosmetics. So four lines of model wiring plus those three is a faithful
 port, and nothing mandatory is lost.
 
-With all five mitigations in the table above applied — toolchain purge,
-authored `config.yaml`, `--expose 8642`, the appended supervisor CA and the
-`github`→`devops` skill check — the sandbox reaches `Ready`, the exposed route answers
+With the four mitigations the table above calls for — toolchain purge,
+authored `config.yaml`, `--expose 8642` and the `github`→`devops` skill
+check — the sandbox reaches `Ready`, the exposed route answers
 `/health` 200 and returns `hermes-agent` for a bearer `GET /v1/models` (401
 without), `vss configure check` reports the same groups as the current sandbox,
 `vss vios list` returns the sensor, and an agent turn completes through the

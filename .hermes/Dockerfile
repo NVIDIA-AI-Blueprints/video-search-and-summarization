@@ -12,9 +12,11 @@
 #
 # Build context is the checkout root, so the image carries this tree:
 #
+#   VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
 #   docker build -f .hermes/Dockerfile \
 #     --build-arg HERMES_REF="$HERMES_REF" \
-#     -t "openshell-hermes-vss:$TAG" .
+#     --build-arg VSS_PACKAGE_VERSION="$VERSION" \
+#     -t "openshell-hermes-vss:${VERSION//+/-}-from-source" .
 
 ARG BASE_IMAGE=nvcr.io/nvidia/base/ubuntu:24.04
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
@@ -91,7 +93,10 @@ COPY libs/vss/pyproject.toml libs/vss/uv.lock /opt/vss-src/libs/vss/
 COPY libs/vss/cli /opt/vss-src/libs/vss/cli
 COPY libs/vss/core /opt/vss-src/libs/vss/core
 COPY skills /opt/vss-src/skills
-COPY .openclaw/workspace /opt/vss-src/.openclaw/workspace
+# Workspace docs: this harness's own. Hermes loads /sandbox/AGENTS.md into
+# every system prompt, and the OpenClaw set addresses a harness that deploys
+# from a checkout and chats on messaging platforms.
+COPY .hermes/workspace /opt/vss-assets/workspace
 # Operation skills: every skill whose SKILL.md frontmatter declares vss-requires.
 RUN mkdir -p /opt/vss-assets/skills \
     && find /opt/vss-src/skills -name SKILL.md | sort | while read -r f; do \
@@ -101,13 +106,6 @@ RUN mkdir -p /opt/vss-assets/skills \
        done \
     && test "$(ls /opt/vss-assets/skills | wc -l)" -gt 0 \
     && cp /opt/vss-src/skills/vss-build-vision-ai/scripts/sync_skills.py /opt/vss-assets/sync_skills.py
-# Workspace docs: the shared set, less BOOTSTRAP.md. AGENTS.md follows that
-# file on first run, and it probes for a repository, a GPU and the NGC CLI,
-# none of which a sandbox that only operates a deployment has.
-RUN mkdir -p /opt/vss-assets/workspace \
-    && cp /opt/vss-src/.openclaw/workspace/*.md /opt/vss-assets/workspace/ \
-    && rm -f /opt/vss-assets/workspace/BOOTSTRAP.md \
-    && test -f /opt/vss-assets/workspace/AGENTS.md
 # Only the CLI library workspace (libs/vss). services/agent is deliberately not
 # built: a sandbox operates a deployment through the CLI, it does not run the
 # agent. Building here keeps VSS source out of the runtime image.
@@ -135,10 +133,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=python /opt/pystage/ /
 COPY --from=hermes /opt/hermes /opt/hermes
 # config.yaml, which upstream Hermes ships none of. Endpoint, model and key
-# stay ${env:} refs: they are a per-deployment choice the create command
-# renders. The three settings after the model block are the only non-default
-# guardrails this harness relies on; the api_server platform needs no entry,
-# since it starts by default and binds its documented 8642.
+# stay ${env:} refs: a per-deployment choice the create passes as --env, which
+# Hermes expands on every path, the API server included. The three settings
+# after the model block are the only non-default guardrails this harness
+# relies on; the api_server platform needs no entry, since it starts by
+# default and binds its documented 8642.
 RUN su sandbox -s /bin/sh -c 'set -e; cd /sandbox; H=/opt/hermes/.venv/bin/hermes; \
       $H config set model.default "\${env:HARNESS_MODEL}"; \
       $H config set model.provider custom; \

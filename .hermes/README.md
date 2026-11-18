@@ -15,6 +15,7 @@ the way that harness loads skills.
 | `Dockerfile` | The sandbox image: Hermes built from its own public source on a standard Ubuntu base, plus the `vss` CLI, the operation skills and the plugin below, with `policy.yaml` baked in |
 | `policy.yaml`, `boundary.yaml` | The OpenShell policy this image is built against, and the ceiling `openshell-prover check` proves it stays inside |
 | `plugin/` | The VSS Hermes plugin: `plugin.yaml`, `__init__.py` (the `vss_cli` tool, registered via `ctx.register_tool`) |
+| `workspace/` | What the build puts in `/sandbox`: `AGENTS.md`, which Hermes loads into every system prompt, and `TOOLS.md` for the sandbox's own notes |
 
 Bring-up — the gateway, the provider profile, the sandbox and the verification
 steps — is in [`../services/openshell/README.md`](../services/openshell/README.md). This file
@@ -23,15 +24,17 @@ covers the image and the plugin only.
 ## Building
 
 ```
+VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
 docker build -f .hermes/Dockerfile --build-arg HERMES_REF=v2026.9.14 \
-  --build-arg VSS_PACKAGE_VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)" \
-  -t openshell-hermes-vss:local .
+  --build-arg VSS_PACKAGE_VERSION="$VERSION" \
+  -t "openshell-hermes-vss:${VERSION//+/-}-from-source" .
 ```
 
 The build context is the checkout root, since the image carries this tree's
-skills, CLI and plugin. `HERMES_REF` has to be passed rather than left to the
-tag: Docker does not read the environment for build args. Keep it on a Hermes
-release tag rather than a branch.
+skills, CLI and plugin. Both build args have to be passed: Docker does not read
+the environment for them. Keep `HERMES_REF` on a Hermes release tag rather than
+a branch, and the tag on the CLI's version, which is the one every create in
+[`../services/openshell/README.md`](../services/openshell/README.md) takes.
 
 | Build arg | Default | What it pins |
 |---|---|---|
@@ -50,14 +53,14 @@ The image needs no CA setup. OpenShell points `SSL_CERT_FILE`,
 of the public roots plus the supervisor CA, for the workload and every `exec`
 process, overriding whatever the image set.
 
-One thing the image leaves to the sandbox's start command, because the values
-are not known at build time:
+One thing the image leaves to the create, because the values are not known at
+build time:
 
 - **Inference target.** `config.yaml` carries the endpoint, model and key as
   `${env:HARNESS_BASE_URL}`, `${env:HARNESS_MODEL}` and
-  `${env:HARNESS_API_KEY}`; Hermes expands all three from the sandbox
-  environment, and the egress proxy swaps the placeholder the third expands to
-  for the real key.
+  `${env:HARNESS_API_KEY}`, which the create's `--env` supplies; Hermes expands
+  all three from the sandbox environment, and the egress proxy swaps the
+  placeholder the third expands to for the real key.
 
 ## The policy pair
 

@@ -400,7 +400,7 @@
       "name": "openshell-hermes-vss",
       "strategy": "build",
       "ghcr_build": true,
-      "source_path": [".hermes", "skills", "libs/vss", ".openclaw/workspace"],
+      "source_path": [".hermes", "skills", "libs/vss"],
       "context": ".",
       "dockerfile": ".hermes/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],

@@ -1,8 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# build.nvidia.com. The credential is an nvapi- key, declared as
-# HARNESS_API_KEY like every other profile here.
+# build.nvidia.com, with an nvapi- key.
 
 id: agent-inference-build
 display_name: Agent inference (build.nvidia.com)

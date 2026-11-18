@@ -216,7 +216,7 @@ image would be reused stale.
 
 The harness Dockerfile, and every Dockerfile that declares
 `ARG VSS_PACKAGE_VERSION`, bakes a version in (today: `vss-agent`,
-`vss-harness-openclaw`). Their images carry a
+`vss-harness-openclaw`, `openshell-hermes-vss`). Their images carry a
 `com.nvidia.vss.release_line` label, and two rules keep it current:
 
 - the reuse path re-tags an existing image only when its tree **and** release

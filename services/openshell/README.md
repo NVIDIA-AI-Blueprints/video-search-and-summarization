@@ -32,7 +32,7 @@ the same host.
 
 ![VSS on OpenShell](docs/assets/vss-openshell-high-level-architecture.png)
 
-- **Gateway** is the control plane, a Compose service behind the `harness`
+- **Gateway** is the control plane, a Compose service behind the `openshell`
   profile. It owns sandbox lifecycle and state,
   signs the only credentials in the system, delivers policy and provider
   credentials, and runs the policy prover. Its **compute driver** provisions
@@ -248,10 +248,13 @@ docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
 openshell gateway list | grep -q ' http://127.0.0.1:8080 ' ||
   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
+# Only `add` makes a gateway active, so a registration that already existed
+# leaves the commands below pointed at whichever one is.
+openshell gateway select openshell-gateway
 
 # 2. Harness image: upstream Hermes, VSS and the baked policy. The CLI's
-#    reported version tags it, naming the tree the image carries, so two
-#    checkouts never collide on one tag. A Docker tag cannot hold the `+`.
+#    reported version tags it, naming the commit the image carries. A Docker
+#    tag cannot hold the `+`.
 VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
 TAG="${VERSION//+/-}-from-source"
 docker build -f .hermes/Dockerfile \
@@ -435,7 +438,10 @@ that need a deployment.
 A VSS developer profile starts the gateway itself — append `openshell` to
 `COMPOSE_PROFILES` in its `overrides.env`, or for alerts to both
 `COMPOSE_PROFILES_CV` and `COMPOSE_PROFILES_VLM` — which covers the
-Quickstart's step 1 and nothing else.
+Quickstart's step 1 and nothing else. The gateway is that profile's project,
+so under a non-default `COMPOSE_PROJECT_NAME` step 1 would start a second one
+in `vss`, competing for the same port; register and select the one the profile
+started instead.
 
 `VSS_PUBLIC_URL` is fixed at create like the model settings, so pointing the
 sandbox at another deployment is the [recreate above](#change-the-model-endpoint-or-key)
@@ -624,6 +630,7 @@ docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
 openshell gateway list | grep -q ' http://127.0.0.1:8080 ' ||
   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
+openshell gateway select openshell-gateway
 ```
 
 Three constraints the service has to respect:
@@ -797,11 +804,11 @@ the checkout root and the tag names the CLI's version rather than
 `HERMES_REF`: an edit to a skill or the CLI produces a new image, and a Hermes
 bump produces one too.
 
-The image leaves the CA bundle and the inference target to the start command in
-step 4, both because of what 0.1.6 changed: the supervisor's CA is mounted only
-once the sandbox exists, and sandbox-scoped provider attachments replaced
-managed inference routes, which makes the base URL and the model the workload's
-to set. What the image ships for each is in
+The image needs no CA setup: OpenShell points `SSL_CERT_FILE` and the three
+other CA variables at its own bundle of the public roots plus the supervisor
+CA. The inference target is the create's `--env`, which `config.yaml`'s
+`${env:}` references expand from the sandbox environment, so neither the image
+nor the start command carries it. What the image ships for each is in
 [`.hermes/README.md`](../../.hermes/README.md#building).
 
 The NGC CLI is not in the image, so an operation skill that resolves a sample
@@ -911,8 +918,10 @@ order:
 The key mint cannot move into the image: a root PID 1 is what the
 gateway's policy validation refuses. The `exec` is what makes Hermes the
 sandbox's canonical main process, whose output OpenShell streams and whose exit
-status it returns, so a dead agent surfaces as `Error` with `MainProcessFailed`
-instead of a healthy-looking container. The image's own
+status it returns, so a dead agent surfaces in the sandbox's own phase instead
+of as a healthy-looking container: under `on-failure` as `Starting` with
+`MainProcessRestartScheduled` or `MainProcessRestartBackoff`, and under the
+`never` default as `Error` with `MainProcessFailed`. The image's own
 `CMD ["sleep", "infinity"]` only keeps an exec-driven sandbox alive and watches
 nothing.
 
@@ -943,7 +952,8 @@ directly, with no forwarder in between.
 
 `--restart-policy` defaults to `never`, which leaves an exited Hermes dead and the
 route silently unanswered; `on-failure` has the driver replace the runtime after
-a nonzero main-process exit.
+a nonzero main-process exit, backing off up to three minutes between attempts
+and never giving up.
 
 **Compose cannot declare the sandbox, so this step needs a script on both
 sides.** `gateway.toml` has no sandbox section, and the containers the driver

@@ -72,13 +72,18 @@ docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
 openshell gateway list | grep -q ' http://127.0.0.1:8080 ' ||
   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
+openshell gateway select openshell-gateway
 ```
+
+Only `gateway add` makes a gateway active, so the `select` is what points every command below at this one when the registration already existed.
 
 <Note>
 A VSS developer profile can start the gateway for you: append `openshell` to
 its `COMPOSE_PROFILES` and the deployment brings it up with the rest of the
 stack. That replaces the `docker compose` line above and nothing else — you
-still register the gateway and create the sandbox yourself. `openshell gateway
+still register, select, and create the sandbox yourself. The gateway belongs
+to the profile's project, so under a non-default `COMPOSE_PROJECT_NAME` the
+line above would start a second one in `vss`, competing for the same port. `openshell gateway
 add` only warns when the endpoint is cold, so if Compose has just returned,
 poll `openshell sandbox list` until it answers before continuing.
 </Note>
@@ -88,8 +93,8 @@ poll `openshell sandbox list` until it answers before continuing.
 One pass from upstream Hermes, adding the `vss` CLI, the VSS operation Skills, the workspace docs, and the `vss_cli` tool plugin from this checkout, with the sandbox policy baked in at `/etc/openshell/policy.yaml` as the image's default for a create that passes no `--policy`; every create here passes one.
 
 ```bash
-# The CLI's reported version, and a tag naming the tree the image carries, so
-# two checkouts never collide on one tag. A Docker tag cannot hold the `+`.
+# The CLI's reported version, and a tag naming the commit the image carries.
+# A Docker tag cannot hold the `+`.
 VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
 TAG="${VERSION//+/-}-from-source"
 

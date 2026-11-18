@@ -197,12 +197,12 @@ The command after `--` in `openshell sandbox create` prepares the sandbox and th
 
 The `--env` values need no rendering into `config.yaml`: the image carries the endpoint, model, and key as `${env:}` references, which Hermes expands from the sandbox environment on every path, the API server included. `HARNESS_API_KEY` holds the `openshell:resolve:env:` placeholder rather than a key, so expanding that reference is what puts the placeholder in the bearer for the supervisor to swap at egress. A bearer carrying anything else is passed through untouched.
 
-The key mint cannot move into the image: a root PID 1 is what the gateway's policy validation refuses. The `exec` is what makes Hermes the sandbox's canonical main process, whose output OpenShell streams and whose exit status it returns, so a dead agent surfaces as `Error` with `MainProcessFailed` instead of a healthy-looking container.
+The key mint cannot move into the image: a root PID 1 is what the gateway's policy validation refuses. The `exec` is what makes Hermes the sandbox's canonical main process, whose output OpenShell streams and whose exit status it returns, so a dead agent surfaces in the sandbox's own phase instead of as a healthy-looking container: under `on-failure` as `Starting` with `MainProcessRestartScheduled` or `MainProcessRestartBackoff`, and under the `never` default as `Error` with `MainProcessFailed`.
 
 Two flags on the create are load-bearing:
 
 * **`--expose 8642`** is the API server, which the UI adapter talks to and where Hermes serves `/health`. It binds the sandbox's own loopback at its documented default, because the image ships no `API_SERVER_PORT`; `gateway.api_server.port` in `config.yaml` does not move it, so overriding the port means editing `/sandbox/.hermes/.env`. With `--expose-authorization-mode bearer-passthrough` the application `Authorization` header survives the route, where the default `strip` removes it.
-* **`--restart-policy on-failure`**. The default is `never`, which leaves an exited Hermes dead and the route silently unanswered.
+* **`--restart-policy on-failure`**. The default is `never`, which leaves an exited Hermes dead and the route silently unanswered. `on-failure` restarts it instead, backing off up to three minutes between attempts and never giving up.
 
 ## The gateway Compose service
 
