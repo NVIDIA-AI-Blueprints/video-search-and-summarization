@@ -582,8 +582,8 @@ JWT key paths `init` writes. Three edits VSS has to make to it:
 
 - **No `sandbox_runtime_image` or `supervisor_image`.** Both must match the
   gateway's release, so the Compose service sets `OPENSHELL_SUPERVISOR_IMAGE`
-  and `OPENSHELL_SANDBOX_RUNTIME_IMAGE` from `OPENSHELL_TAG`. A key here would
-  override that.
+  and `OPENSHELL_SANDBOX_RUNTIME_IMAGE` from `OPENSHELL_TAG`. The environment
+  wins over a key here, so the Compose values hold even if one is added.
 - **Write the version 2 schema.** 0.1.5 rejects a `version = 1` file:
   `this build requires version 2; migrate legacy fields`. The renames that
   bite, each a separate startup failure: `compute_drivers = ["docker"]` becomes
