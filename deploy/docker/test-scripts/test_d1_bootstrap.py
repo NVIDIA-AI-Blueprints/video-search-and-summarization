@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-path = Path(__file__).resolve().parents[1] / "developer-profiles/dev-profile-d1-cosmos/bootstrap.py"
+path = Path(__file__).resolve().parents[1] / "examples/d1-cosmos/bootstrap.py"
 spec = importlib.util.spec_from_file_location("d1_bootstrap", path)
 bootstrap = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bootstrap)

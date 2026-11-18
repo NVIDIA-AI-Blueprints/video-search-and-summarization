@@ -61,7 +61,7 @@ export default function EventQuestions({ eventId, clipReady, clipTime, onPending
   pendingCallback.current = onPendingChange;
   const request = useRef<{ question: string; id: string } | null>(null);
   const postController = useRef<AbortController | null>(null);
-  const url = `/api/d1/reviews/${encodeURIComponent(eventId)}/questions`;
+  const url = `/api/proxy/d1/reviews/${encodeURIComponent(eventId)}/questions`;
 
   useEffect(() => {
     mounted.current = true;

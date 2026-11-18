@@ -4,11 +4,10 @@
 x-d1-worker: &d1-worker
   image: vss-d1-cosmos-worker:${VSS_CONTAINER_TAG:-3.3.0}
   build:
-    context: ../../../..
-    dockerfile: services/d1-cosmos/Dockerfile.worker
+    context: ../..
+    dockerfile: deploy/docker/examples/d1-cosmos/runtime/Dockerfile.worker
     args:
       D1_WORKER_BASE_IMAGE: ${VSS_RT_VLM_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-vlm}:${VSS_RT_VLM_TAG:-3.3.0}
-  profiles: ["d1-cosmos"]
   init: true
   restart: unless-stopped
 
@@ -22,9 +21,8 @@ services:
   d1-model:
     image: vss-d1-cosmos-model:${VSS_CONTAINER_TAG:-3.3.0}
     build:
-      context: ../../../..
-      dockerfile: services/d1-cosmos/Dockerfile.model
-    profiles: ["d1-cosmos"]
+      context: ../..
+      dockerfile: deploy/docker/examples/d1-cosmos/runtime/Dockerfile.model
     init: true
     runtime: nvidia
     environment:
@@ -42,7 +40,6 @@ services:
 
   d1-topics:
     image: confluentinc/cp-kafka:8.3.0
-    profiles: ["d1-cosmos"]
     depends_on:
       kafka:
         condition: service_healthy
@@ -131,7 +128,7 @@ services:
       D1_ANALYTICS_URL: http://d1-analytics:8021
       D1_VSS_ORIGIN: http://vss-haproxy-ingress:${HAPROXY_PORT:-7777}
     volumes:
-      - ./bootstrap.py:/profile/bootstrap.py:ro
+      - ./examples/d1-cosmos/bootstrap.py:/profile/bootstrap.py:ro
     restart: "no"
     depends_on:
       d1-ingest:
@@ -144,9 +141,8 @@ services:
   d1-ui:
     image: vss-d1-cosmos-ui:${VSS_CONTAINER_TAG:-3.3.0}
     build:
-      context: ../../../..
+      context: ../..
       dockerfile: services/ui/Dockerfile
-    profiles: ["d1-cosmos"]
     environment:
       RUN_APP_NAME: nv-metropolis-bp-vss-ui
       NEXT_PUBLIC_APP_SUBTITLE: D1 + Cosmos
@@ -175,3 +171,11 @@ volumes:
   d1-model-cache:
   d1-ingest-state:
   d1-analytics-state:
+
+# Apply only to this demo. Shared services inherit a loopback bind for every
+# port without an explicit host address, while containers retain Compose DNS.
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"

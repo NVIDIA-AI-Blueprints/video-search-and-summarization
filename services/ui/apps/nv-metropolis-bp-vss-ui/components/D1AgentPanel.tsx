@@ -53,7 +53,7 @@ function ConfigEditor({ kind, records, streams, preferredId, onSaved }: {
         payload.value = payload.field === 'choice' ? String(payload.value) : Number(payload.value);
         payload.probability_key = payload.field === 'probability' ? payload.probability_key : null;
       }
-      const response = await fetch(`/api/d1/${kind}/${encodeURIComponent(selected)}`, {
+      const response = await fetch(`/api/proxy/d1/${kind}/${encodeURIComponent(selected)}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
       const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Save failed');
@@ -163,7 +163,7 @@ export default function D1AgentPanel({ isActive }: { isActive: boolean }) {
   }, [settingsOpen]);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      const response = await fetch('/api/d1/snapshot', { signal });
+      const response = await fetch('/api/proxy/d1/snapshot', { signal });
       if (!response.ok) throw new Error(`Unable to refresh (${response.status})`);
       setSnapshot(await response.json()); setError('');
     } catch (err) { if (!signal?.aborted) setError(err instanceof Error ? err.message : 'Connection failed'); }
@@ -186,7 +186,7 @@ export default function D1AgentPanel({ isActive }: { isActive: boolean }) {
     if (!nextSource || sourceBusy || nextSource === sources.active_source || !sources.sources.some(source => source.id === nextSource && source.available)) return;
     setSourceBusy(true); setSourceError('');
     try {
-      const response = await fetch('/api/d1/demo/sources', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_id: nextSource }) });
+      const response = await fetch('/api/proxy/d1/demo/sources', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_id: nextSource }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Source change failed');
       await refresh();

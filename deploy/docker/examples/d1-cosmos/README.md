@@ -1,31 +1,30 @@
 # D1 + Cosmos on Jetson AGX Thor
 
-Run the D1 + Cosmos video example as an opt-in VSS developer profile. D1-2B scores
+Run the D1 + Cosmos video example with Docker Compose. D1-2B scores
 a rolling window of frames. When a rule matches, the application retrieves the
 event clip from VIOS and asks Cosmos3 Nano Reasoner to review it. The VSS UI
 shows the current D1 decision, saved reviews, and Q&A about the selected clip.
 
-The layout follows the [VSS Docker deployment](../../README.md). The profile
-`.env` holds stable defaults, `overrides.env` is the host configuration template,
-and `compose.yml` is registered in the developer profile index. This example
-uses direct Compose with the normal environment file order.
+The example adds D1 services to the [VSS Docker deployment](../../README.md)
+through an explicit Compose overlay. The example's `.env` holds stable defaults.
+Its `overrides.env` is a template for your local settings.
 
 ## Before you start
 
-- Use a Jetson AGX Thor that meets the [VSS 3.3.0 prerequisites](https://docs.nvidia.com/vss/3.3.0/getting-started/prerequisites), with Docker Compose and the NVIDIA Container Toolkit.
+- Use a Jetson AGX Thor that meets the [VSS prerequisites](https://docs.nvidia.com/vss/getting-started/prerequisites), with Docker Compose and the NVIDIA Container Toolkit. This example pins the VSS images to 3.3.0.
 - Have an NGC API key with access to the VSS and PyTorch images and Cosmos model. D1-2B weights are fetched by the model container at the pinned revision.
 - Provide two continuous H.264 RTSP/TCP sources, or two local H.264 MP4s that can loop. For the traffic example, pick one with flowing traffic and one with a sustained queue.
 - Use a Thor with no conflicting VSS deployment. Some shared Compose services use fixed container names and ports even when the project name is different.
 
-## Configure the profile
+## Configure the example
 
-From the VSS checkout that contains this profile:
+From the VSS checkout that contains this example:
 
 ```bash
 cd deploy/docker
-profile=developer-profiles/dev-profile-d1-cosmos
-if [ ! -e "$profile/user-overrides.env" ]; then
-  cp "$profile/overrides.env" "$profile/user-overrides.env"
+example=examples/d1-cosmos
+if [ ! -e "$example/user-overrides.env" ]; then
+  cp "$example/overrides.env" "$example/user-overrides.env"
 fi
 
 export VSS_APPS_DIR="$PWD"
@@ -47,10 +46,10 @@ if [ ! -d "$VSS_DATA_DIR/data_log/vst/clip_storage" ]; then
 fi
 ```
 
-The data paths are dedicated to this demo. The writable bind directories allow
+The data paths are dedicated to this example. The writable bind directories allow
 the existing VSS containers to use their configured service users.
 
-Export `NGC_CLI_API_KEY` using the [VSS credential setup](https://docs.nvidia.com/vss/3.3.0/getting-started/quickstart)
+Export `NGC_CLI_API_KEY` using the [VSS credential setup](https://docs.nvidia.com/vss/getting-started/prerequisites#ngc-hugging-face-api-keys)
 and log Docker in from the same shell:
 
 ```bash
@@ -81,18 +80,18 @@ operator configuration when the same inputs are used again.
 ## Start and verify
 
 Keep the shell open so the path and credential settings are available.
-Define the command using the same env file order as the other developer
-profiles. **For local MP4s**, uncomment the `files+=` line before running it.
+Define the command with the stock deployment and the example overlay.
+**For local MP4s**, uncomment the `files+=` line before running it.
 
 ```bash
-files=(-f compose.yml -f "$profile/network.compose.yml")
-# files+=(-f "$profile/fixtures.compose.yml")
+files=(-f compose.yml -f "$example/compose.yml")
+# files+=(-f "$example/fixtures.compose.yml")
 
 d1_compose() {
   docker compose "${files[@]}" \
     --env-file containers.env \
-    --env-file "$profile/.env" \
-    --env-file "$profile/user-overrides.env" "$@"
+    --env-file "$example/.env" \
+    --env-file "$example/user-overrides.env" "$@"
 }
 
 d1_compose config --services
@@ -106,10 +105,10 @@ their logs if the UI does not start:
 
 ```bash
 d1_compose logs --tail 100 d1-model rtvi-vlm d1-topics d1-bootstrap
-curl -fsS http://127.0.0.1:7777/api/d1/snapshot >/dev/null
+curl -fsS http://127.0.0.1:7777/api/proxy/d1/snapshot >/dev/null
 ```
 
-Open **http://127.0.0.1:7777** on Thor. The profile binds published ports to
+Open **http://127.0.0.1:7777** on Thor. The example binds published ports to
 loopback. From a laptop, forward the ingress port with the following command
 after replacing `USER@JETSON`, and open the same address locally:
 
@@ -131,7 +130,7 @@ For a new camera, tune the rule using its footage. To enable prompt drafting,
 set `NEMOTRON_URL` in `user-overrides.env` to a private Nemotron Bolt endpoint.
 Manual monitoring settings and Cosmos clip Q&A work with the default setup.
 
-Stop the demo while preserving recordings, caches, and configuration:
+Stop the example while preserving recordings, caches, and configuration:
 
 ```bash
 d1_compose stop
@@ -142,7 +141,7 @@ d1_compose stop
 From the repository root:
 
 ```bash
-bash deploy/docker/test-scripts/test-d1-cosmos-profile.sh
+bash deploy/docker/test-scripts/test-d1-cosmos-example.sh
 python3 -m pytest deploy/docker/test-scripts/test_d1_bootstrap.py
 ```
 

@@ -179,7 +179,7 @@ describe('Two-section traffic monitoring',()=>{
   await act(async()=>{});
   const writes=(global.fetch as jest.Mock).mock.calls.filter(call=>call[1]?.method==='POST');
   expect(writes).toHaveLength(1);
-  expect(writes[0]).toEqual(['/api/d1/demo/sources',expect.objectContaining({body:JSON.stringify({source_id:target})})]);
+  expect(writes[0]).toEqual(['/api/proxy/d1/demo/sources',expect.objectContaining({body:JSON.stringify({source_id:target})})]);
  });
  it('keeps the confirmed stream selected during a switch and blocks duplicate requests',async()=>{
   current.sources=recordedSources('queued');
@@ -240,6 +240,6 @@ describe('Two-section traffic monitoring',()=>{
   expect(within(select).getByRole('option',{name:'Additional traffic camera',exact:true})).toBeEnabled();
   fireEvent.change(select,{target:{value:'extra-camera'}});
   await act(async()=>{});
-  expect(global.fetch).toHaveBeenCalledWith('/api/d1/demo/sources',expect.objectContaining({method:'POST',body:JSON.stringify({source_id:'extra-camera'})}));
+  expect(global.fetch).toHaveBeenCalledWith('/api/proxy/d1/demo/sources',expect.objectContaining({method:'POST',body:JSON.stringify({source_id:'extra-camera'})}));
  });
 });

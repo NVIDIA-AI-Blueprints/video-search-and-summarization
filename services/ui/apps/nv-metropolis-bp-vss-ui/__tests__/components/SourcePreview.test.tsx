@@ -51,7 +51,7 @@ describe('Current monitored video preview', () => {
     (global.fetch as jest.Mock).mockReturnValueOnce(pending.promise);
     render(<SourcePreview streamId="traffic/example" revision={7} paused={false} />);
     expect(screen.getByRole('status')).toHaveTextContent('Connecting to monitored video…');
-    expect(global.fetch).toHaveBeenCalledWith('/api/d1/preview/traffic%2Fexample?revision=7', expect.objectContaining({
+    expect(global.fetch).toHaveBeenCalledWith('/api/proxy/d1/preview/traffic%2Fexample?revision=7', expect.objectContaining({
       cache: 'no-store', headers: { Accept: 'image/jpeg' }, signal: expect.any(AbortSignal),
     }));
     await advance(1000);
@@ -126,7 +126,7 @@ describe('Current monitored video preview', () => {
     expect(shownFrame()).not.toBeInTheDocument();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:frame-1');
     expect(screen.getByRole('status')).toHaveTextContent('Connecting to monitored video…');
-    expect(global.fetch).toHaveBeenLastCalledWith(`/api/d1/preview/${streamId}?revision=${revision}`, expect.anything());
+    expect(global.fetch).toHaveBeenLastCalledWith(`/api/proxy/d1/preview/${streamId}?revision=${revision}`, expect.anything());
     await act(async () => newPending.resolve(jpeg()));
     expect(shownFrame()).toHaveAttribute('src', 'blob:frame-2');
     await act(async () => oldPending.resolve(jpeg()));

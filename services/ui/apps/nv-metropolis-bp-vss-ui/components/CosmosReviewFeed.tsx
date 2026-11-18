@@ -37,7 +37,7 @@ function EventClip({ event, root, first }: { event: any; root: React.RefObject<H
     {waiting ? <div className={styles.videoStatus}><IconClock size={24} aria-hidden="true" /><p>{event.attempts > 0 ? 'The event clip is delayed.' : 'Preparing event clip…'}</p></div>
       : failed ? <div className={styles.videoStatus}><p>This saved clip is unavailable.</p><button onClick={() => { setFailed(false); setAttempt(value => value + 1); }}>Retry video</button></div>
       : nearby ? <video key={attempt} controls muted playsInline preload="metadata" aria-label={`Saved evidence clip ${event.id}`}
-          src={`/api/d1/clips/${encodeURIComponent(event.id)}?attempt=${attempt}`}
+          src={`/api/proxy/d1/clips/${encodeURIComponent(event.id)}?attempt=${attempt}`}
           onError={() => setFailed(true)} onLoadedMetadata={e => { if (e.currentTarget.currentTime === 0) e.currentTarget.currentTime = 0.01; }} />
         : <button className={styles.loadVideo} onClick={() => setNearby(true)} aria-label={`Load saved clip ${event.id}`}><IconPlayerPlay size={30} aria-hidden="true" /><span>Load event clip</span></button>}
   </div>;

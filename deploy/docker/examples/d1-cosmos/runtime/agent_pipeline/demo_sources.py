@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException
 from .contracts import StrictModel
 
 LOG = logging.getLogger(__name__)
-# The developer profile bootstrap owns the URL and VIOS sensor for each input.
+# The example bootstrap owns the URL and VIOS sensor for each input.
 SOURCES = (
     ("flowing", "Flowing traffic", "d1-flowing", "d1-flowing"),
     ("queued", "Queued traffic", "d1-queued", "d1-queued"),

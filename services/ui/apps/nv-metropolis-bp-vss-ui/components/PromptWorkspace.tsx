@@ -100,7 +100,7 @@ export default function PromptWorkspace({ streams, rules, streamId, sourceLabel,
     return value;
   };
   const post = async (action: string, body: unknown) => {
-    const response = await fetch(`/api/d1/assistant/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const response = await fetch(`/api/proxy/d1/assistant/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const value = await response.json(); if (!response.ok) throw new Error(value.error || 'Request failed'); return value;
   };
   const send = async (event: React.FormEvent) => {

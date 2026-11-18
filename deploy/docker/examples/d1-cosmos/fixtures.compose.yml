@@ -4,9 +4,8 @@
 # Optional Compose overlay for two user-supplied H.264 MP4s. Paths below are
 # relative to the first Compose file, deploy/docker/compose.yml.
 x-publisher: &publisher
-  profiles: ["d1-cosmos"]
   build:
-    context: ./developer-profiles/dev-profile-d1-cosmos/sample-publisher
+    context: ./examples/d1-cosmos/sample-publisher
   restart: unless-stopped
   depends_on:
     d1-fixture-rtsp:
@@ -20,11 +19,10 @@ x-publisher: &publisher
 
 services:
   d1-fixture-rtsp:
-    profiles: ["d1-cosmos"]
     image: bluenviron/mediamtx@sha256:59e43552f3be43695b70c19424dc2a42fcec18075f88d91561a24ac5d70a586c
     restart: unless-stopped
     volumes:
-      - ./developer-profiles/dev-profile-d1-cosmos/sample-publisher/mediamtx.yml:/mediamtx.yml:ro
+      - ./examples/d1-cosmos/sample-publisher/mediamtx.yml:/mediamtx.yml:ro
   d1-fixture-flowing:
     <<: *publisher
     environment:

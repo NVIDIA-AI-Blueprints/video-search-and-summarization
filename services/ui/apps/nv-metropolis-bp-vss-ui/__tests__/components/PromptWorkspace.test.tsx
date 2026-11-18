@@ -68,7 +68,7 @@ describe('Persistent prompt workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await screen.findByText('Draft ready. Review the prompts, then apply both.');
     expect(global.fetch).toHaveBeenCalledTimes(1);
-    expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe('/api/d1/assistant/draft');
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe('/api/proxy/d1/assistant/draft');
     expect(JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body).stream_id).toBe(live.id);
     expect(screen.getByRole('tab', { name: /Review prompts/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByLabelText('D1 prompt')).toHaveValue('Are vehicles stopped or crawling?');

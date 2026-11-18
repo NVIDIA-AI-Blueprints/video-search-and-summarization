@@ -46,7 +46,7 @@ export default function SourcePreview({ streamId, revision, paused }: Props) {
         waitForFreshVideo();
       }, 3000);
       try {
-        const response = await fetch(`/api/d1/preview/${encodeURIComponent(streamId)}?revision=${encodeURIComponent(String(revision))}`, {
+        const response = await fetch(`/api/proxy/d1/preview/${encodeURIComponent(streamId)}?revision=${encodeURIComponent(String(revision))}`, {
           cache: 'no-store', headers: { Accept: 'image/jpeg' }, signal: request.signal,
         });
         if (!response.ok) throw new Error('Fresh video is not available.');

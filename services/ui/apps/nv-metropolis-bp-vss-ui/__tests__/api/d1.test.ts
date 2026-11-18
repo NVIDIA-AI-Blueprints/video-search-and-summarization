@@ -1,7 +1,7 @@
 /** @jest-environment node */
 // SPDX-FileCopyrightText: Copyright (c) 2026 D1 project contributors
 // SPDX-License-Identifier: Apache-2.0
-import handler from '../../pages/api/d1/[...path]';
+import handler from '../../pages/api/proxy/d1/[...path]';
 function response() {
   const res: any = { statusCode: 200, body: undefined, setHeader: jest.fn() };
   res.status = (code: number) => { res.statusCode = code; return res; };

@@ -49,7 +49,7 @@ describe('Attached video questions', () => {
     await load();
     submit();
     expect(await screen.findByText(turn.answer)).toBeInTheDocument();
-    expect(global.fetch).toHaveBeenCalledWith('/api/d1/reviews/event-one/questions', expect.objectContaining({
+    expect(global.fetch).toHaveBeenCalledWith('/api/proxy/d1/reviews/event-one/questions', expect.objectContaining({
       method: 'POST', body: JSON.stringify({ question: turn.question, request_id: 'request-1' }),
     }));
     expect(composer()).toHaveValue('');
@@ -261,7 +261,7 @@ describe('Attached video questions', () => {
     expect(screen.getByText(turn.answer)).toBeInTheDocument();
     expect(posts()).toHaveLength(1);
     expect(composer()).toHaveValue('');
-    expect(global.fetch).toHaveBeenCalledWith('/api/d1/reviews/event-one/questions/request-1', expect.objectContaining({ cache: 'no-store' }));
+    expect(global.fetch).toHaveBeenCalledWith('/api/proxy/d1/reviews/event-one/questions/request-1', expect.objectContaining({ cache: 'no-store' }));
   });
 
   it('recovers queued history after reload using GET only and preserves saved failed questions', async () => {

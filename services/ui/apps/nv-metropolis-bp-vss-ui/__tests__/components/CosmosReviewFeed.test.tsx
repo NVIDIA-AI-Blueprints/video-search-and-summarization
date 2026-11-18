@@ -36,7 +36,7 @@ describe('Cosmos event review feed', () => {
     const feed=screen.getByRole('region',{name:'Cosmos review history'});
     const rows=within(feed).getAllByRole('article');
     expect(rows.map(row=>row.getAttribute('data-event-id'))).toEqual(['newest','older']);
-    expect(within(rows[0]).getByLabelText('Saved evidence clip newest')).toHaveAttribute('src','/api/d1/clips/newest?attempt=0');
+    expect(within(rows[0]).getByLabelText('Saved evidence clip newest')).toHaveAttribute('src','/api/proxy/d1/clips/newest?attempt=0');
     expect(within(rows[0]).getByText('Review of newest')).toBeInTheDocument();
     fireEvent.click(within(rows[0]).getByText('Evidence & trigger details'));
     expect(within(rows[0]).getByText('The saved D1 question')).toBeInTheDocument();
@@ -51,7 +51,7 @@ describe('Cosmos event review feed', () => {
     expect(screen.queryByLabelText('Saved evidence clip older')).not.toBeInTheDocument();
     const observer=observers[0];
     act(()=>observer.callback([{isIntersecting:true,target:observer.node}] as any,{} as any));
-    expect(screen.getByLabelText('Saved evidence clip older')).toHaveAttribute('src','/api/d1/clips/older?attempt=0');
+    expect(screen.getByLabelText('Saved evidence clip older')).toHaveAttribute('src','/api/proxy/d1/clips/older?attempt=0');
     expect(observer.disconnect).toHaveBeenCalled();
   });
 
