@@ -30,7 +30,7 @@ from support_images import load as load_images, environment as image_environment
 from vss_perf_reporting import build_and_save, discover_platform  # noqa: E402
 from alert_results_adapter import to_test_cases  # noqa: E402
 
-from hardware_config import profile_for_config, remote_llm_arguments
+from hardware_config import profile_for_config, remote_llm_arguments, supporting_images_for_profile
 
 SERVICE = "Alerts-Verification"
 # Both the native runner and report collector execute on the Compose host.
@@ -450,6 +450,10 @@ def main(argv=None):
             )
         profile = profile_for_config(args.config_id, hardware_profile())
         metadata_config["hardware_profile"] = profile
+        support_values = supporting_images_for_profile(profile, support_values)
+        env.update(support_values)
+        save_snapshot(output / "support-images.json", support_values)
+        metadata_config["supporting_images"] = {**supporting, "images": support_values}
         remote_llm_args = remote_llm_arguments(profile, env)
         if remote_llm_args:
             metadata_config["llm_mode"] = "remote"

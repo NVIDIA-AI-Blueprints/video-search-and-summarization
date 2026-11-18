@@ -7,7 +7,7 @@ import yaml
 
 PERF = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PERF / "benchmark/core"))
-from hardware_config import profile_for_config, remote_llm_arguments  # noqa: E402
+from hardware_config import profile_for_config, remote_llm_arguments, supporting_images_for_profile  # noqa: E402
 
 
 def rows():
@@ -74,3 +74,29 @@ def test_remote_endpoint_must_be_present_and_credential_free(endpoint):
 @pytest.mark.parametrize("profile", ["H100", "RTXPRO6000BW", "IGX-THOR", "GB300"])
 def test_other_hardware_ignores_shared_remote_llm_setting(profile):
     assert remote_llm_arguments(profile, {"ALERTS_PERF_REMOTE_LLM_URL": "http://shared"}) == []
+
+
+def test_gb300_uses_configured_sbsa_support_images_without_changing_input():
+    images = yaml.safe_load((PERF / "setup/configs/images.yaml").read_text())["images"]
+    before = dict(images)
+    selected = supporting_images_for_profile("GB300", images)
+    for component in ("RT_VLM", "RT_CV"):
+        key = f"PERF_VSS_{component}_IMAGE"
+        assert selected[key] == images[f"PERF_VSS_{component}_SBSA_IMAGE"]
+        assert selected[key].endswith(":develop-latest-sbsa")
+    assert images == before
+    assert {key for key in images if selected[key] != images[key]} == {
+        "PERF_VSS_RT_VLM_IMAGE", "PERF_VSS_RT_CV_IMAGE"}
+    assert "PERF_ALERT_IMAGE" not in selected
+
+
+@pytest.mark.parametrize("profile", ["IGX-THOR", "AGX-THOR", "DGX-SPARK", "H100", "RTXPRO6000BW", "RTXPRO4500BW"])
+def test_other_platforms_keep_their_support_images(profile):
+    images = yaml.safe_load((PERF / "setup/configs/images.yaml").read_text())["images"]
+    assert supporting_images_for_profile(profile, images) == images
+
+
+def test_gb300_support_images_remain_configurable():
+    images = yaml.safe_load((PERF / "setup/configs/images.yaml").read_text())["images"]
+    images["PERF_VSS_RT_VLM_SBSA_IMAGE"] = "registry.example/vlm:approved-sbsa"
+    assert supporting_images_for_profile("GB300", images)["PERF_VSS_RT_VLM_IMAGE"] == "registry.example/vlm:approved-sbsa"
