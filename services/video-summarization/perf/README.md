@@ -168,7 +168,8 @@ IGX uses the source Thor workload and, by owner choice, requires successful
 `nvpmodel -m 0`, verification of MAXN mode, and `jetson_clocks`, exactly as AGX
 Thor does. The node must provide these tools and the required privileges; setup
 fails rather than skipping power configuration. The existing AGX configuration
-remains available. IGX's worker allocation label is IGX-T7000.
+is retained but disabled as non-P0, alongside L40S, GB200 and B200.
+IGX's worker allocation label is IGX-T7000.
 
 GB300 is an owner-approved starting deployment, not a source-certified GB300
 profile. It retains Spark's CR3 Nano + Nemotron Nano 9B placement on GPU 0,

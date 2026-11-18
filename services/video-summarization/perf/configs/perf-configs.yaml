@@ -70,7 +70,7 @@ perf_configs:
     composePath: "compose/x86-rtvi-cr-nemo3-nano_2gpu.yaml"
     nodeLabel: "L40S"
     imageArch: "amd64"
-    enabled: true
+    enabled: false
     checkoutPaths:
       - libs/vss-perf-tools/
       - libs/vss-perf-reporting/
@@ -133,7 +133,7 @@ perf_configs:
     composePath: "compose/thor-rtvi-cr-nemotron-9b.yaml"
     nodeLabel: "AGX-THOR"
     imageArch: "arm64-igpu"
-    enabled: true
+    enabled: false
     checkoutPaths:
       - libs/vss-perf-tools/
       - libs/vss-perf-reporting/

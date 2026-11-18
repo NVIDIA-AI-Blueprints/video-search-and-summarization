@@ -112,8 +112,11 @@ def test_report_metadata_preserves_measurements_and_outcomes(service, tmp_path):
     "services/analytics/video-analytics-api", "services/alert",
     "services/rtvi/rt-vlm", "services/rtvi/rt-embed",
 ])
-def test_all_service_thor_targets_use_igpu_classification(service_path):
+def test_all_service_p0_scope_and_thor_classification(service_path):
     rows = load(ROOT / service_path / "perf/configs/perf-configs.yaml")["perf_configs"]
     thor = [row for row in rows if row.get("nodeLabel") in {"IGX-THOR", "IGX-T7000", "AGX-THOR"}]
     assert thor, f"Expected existing Thor configuration for {service_path}"
     assert all(row["imageArch"] == "arm64-igpu" for row in thor)
+    p0 = {"RTXPRO6000BW-SE", "H100-SXM", "RTXPRO4500BW", "DGX-SPARK", "IGX-THOR", "GB300"}
+    assert {row["nodeLabel"] for row in rows if row.get("enabled", True)} == p0
+    assert all(row.get("enabled", True) is False for row in rows if row["nodeLabel"] not in p0)

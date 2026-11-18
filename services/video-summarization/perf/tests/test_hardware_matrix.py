@@ -36,7 +36,7 @@ def test_new_platforms_reuse_approved_source_topology_and_workload(platform, sou
     matrix = rows()
     target = next(row for row in matrix if row["nodeLabel"] == platform)
     baseline = next(row for row in matrix if row["nodeLabel"] == source)
-    excluded = {"id", "nodeLabel", "description"}
+    excluded = {"id", "nodeLabel", "description", "enabled"}
     assert {k: v for k, v in target.items() if k not in excluded} == {
         k: v for k, v in baseline.items() if k not in excluded}
 
