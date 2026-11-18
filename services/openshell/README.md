@@ -370,8 +370,17 @@ the Quickstart's step 4 with `$PROVIDER`, against the image step 2 already
 built. Re-run that build only after updating the checkout, since the tag names
 the tree the image carries.
 
+It recreates the sandbox on the image that one is running, so a model change
+carries no new harness, skills or CLI code with it. To move it to another
+build instead, set `TAG` to a tag `docker images openshell-hermes-vss` lists.
+
 ```bash
-TAG="${TAG:-$(docker images --format '{{.Tag}}' openshell-hermes-vss | head -1)}"
+ID=$(docker ps -a --format '{{.Image}}' \
+  --filter label=openshell.ai/sandbox-name=hermes \
+  --filter label=openshell.ai/isolation-role=sandbox)
+TAG="${TAG:-$(docker images --format '{{.ID}} {{.Tag}}' openshell-hermes-vss |
+  awk -v id="$ID" '$1 == id {print $2}')}"
+: "${TAG:?set TAG to a tag from docker images openshell-hermes-vss}"
 docker image inspect "openshell-hermes-vss:$TAG" >/dev/null &&
   openshell sandbox delete hermes
 openshell sandbox create \
