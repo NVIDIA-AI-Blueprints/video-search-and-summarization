@@ -76,6 +76,10 @@ def cli_preflight(project):
         raise ValueError(
             "Locked FPS would defeat fixed-count overview; preflight must remove the inherited rate consistently before evaluation"
         )
+    if locked and effective("chunk_duration") not in (None, 0, "0"):
+        raise ValueError(
+            "Locked chunking would split the overview into multiple model calls"
+        )
     cap = effective("max_frames")
     if locked and cap is not None and int(cap) != FRAME_COUNT:
         raise ValueError("Locked frame count differs from overview's 48")
@@ -101,6 +105,8 @@ def run_uniform(project, scope, prompt, directory):
             scope["end"],
             "--max-frames",
             str(FRAME_COUNT),
+            "--chunk-duration",
+            "0",
             "--prompt",
             prompt,
         )

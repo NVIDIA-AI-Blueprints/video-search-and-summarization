@@ -38,7 +38,9 @@ once and not silently repeated. Do not manually edit the canonical ledger.
 
 ## Sampling preflight and interpretation
 
-- The CLI route requests `--max-frames 48` with NO `--fps`. Supported fixed-count
+- The CLI route requests `--max-frames 48 --chunk-duration 0` with NO `--fps`;
+  backend chunking must not turn the overview into multiple model calls. A locked
+  nonzero chunk duration is rejected before inference. Supported fixed-count
   routes are RT-VLM and Cosmos NIM. This does not change the configured model.
 - A locked FPS policy would defeat that request; code rejects it before inference.
   Prepare a common policy allowing explicit per-call sampling for ALL arms before

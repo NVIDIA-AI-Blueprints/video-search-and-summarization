@@ -189,6 +189,7 @@ def test_unknown_sensor_or_changed_receipt_is_rejected(prepared, monkeypatch):
         {"backend": "vllm"},
         {"backend": "rt_vlm", "locked": True, "fps": 1},
         {"backend": "rt_vlm", "locked": True, "max_frames": 60},
+        {"backend": "rt_vlm", "locked": True, "chunk_duration": 30},
     ],
 )
 def test_unsupported_or_locked_sampling_fails_preflight(monkeypatch, policy):
@@ -226,6 +227,7 @@ def test_cli_sends_fixed_count_not_fps(monkeypatch, tmp_path):
     monkeypatch.setattr(vlm, "_vss_command", run)
     result = overview.run_uniform(None, SCOPE, "prompt", tmp_path)
     assert "--fps" not in calls[0]
+    assert calls[0][calls[0].index("--chunk-duration") + 1] == "0"
     assert calls[0][calls[0].index("--max-frames") + 1] == "48"
     assert result["frames_sent"] is None
     assert result["usable"]
