@@ -3,13 +3,18 @@ name: vss-introspect-video
 description: Run a single-coordinator evidence loop using fixed-format parallel VLM tool calls, compact claim assessments, and a mandatory reserved final visual check. Delegate here from vss-ask-video for evidence-intensive questions.
 license: Apache-2.0
 metadata:
-  version: "4.0.1-experimental"
+  version: "4.1.0-experiment-d"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
   vss-requires: "vlm"
 ---
 
 # Batched video introspection — experimental workflow
+
+This is experiment D. Read [the overview contract](references/overview-contract.md)
+before starting. After memory binding, one whole-video overview and its merge are
+mandatory BEFORE targeted batches or the final check, even if memory resolved the
+ledger. It consumes one normal call (leaving seven), not an extra call or round.
 
 Use after `vss-ask-video` delegates an introspection question. This branch
 replaces parallel inspector agents with **parallel tool calls**. One coordinator
@@ -103,7 +108,9 @@ python3 "$LEDGER_TOOL" merge-memory --ledger "$RUN_DIR/ledger.json" \
 python3 "$LEDGER_TOOL" assess --ledger "$RUN_DIR/ledger.json"
 ```
 
-If memory resolves the ledger, skip normal batches **but not the final check**.
+After memory, run and merge the overview described in the overview contract.
+If the combined evidence resolves the ledger, skip targeted batches but not the
+final check. Otherwise use the overview's chronology to choose targeted windows.
 
 ## 3. Submit a structured batch
 

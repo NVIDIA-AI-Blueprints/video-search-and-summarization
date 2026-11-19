@@ -448,7 +448,10 @@ def _derived_claim_status(
 
 def validate_ledger(ledger: Any) -> None:
     """Strictly validate the canonical minimal ledger and cross references."""
-    ledger = _strict(ledger, LEDGER_KEYS, "ledger")
+    extra = {"overview_required"} if isinstance(ledger, dict) and "overview_required" in ledger else set()
+    ledger = _strict(ledger, LEDGER_KEYS | extra, "ledger")
+    if extra and ledger["overview_required"] is not True:
+        _fail("overview_required", "must be true when present")
     if ledger["ledger_version"] != "1.0":
         _fail("ledger.ledger_version", "must be 1.0")
     _integer(ledger["revision"], "ledger.revision")
@@ -586,6 +589,7 @@ def initialize_ledger(
     *,
     requires_choice: bool | None = None,
     original_question: str | None = None,
+    overview_required: bool = False,
 ) -> dict[str, Any]:
     """Initialize a canonical ledger from a valid initial evidence plan."""
     validate_plan(plan, "initial")
@@ -621,6 +625,8 @@ def initialize_ledger(
         "stop_reason": None,
         "requires_choice": flag,
     }
+    if overview_required:
+        ledger["overview_required"] = True
     validate_ledger(ledger)
     return ledger
 
@@ -1548,6 +1554,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _read(args.plan),
                 requires_choice=True if args.requires_choice else None,
                 original_question=args.original_question,
+                overview_required=True,
             ),
             args.output,
         )

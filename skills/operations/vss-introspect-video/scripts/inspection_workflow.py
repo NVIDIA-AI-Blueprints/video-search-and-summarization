@@ -22,6 +22,7 @@ from pathlib import Path
 
 import evidence_ledger as ledger
 import vlm_inspection as vlm
+import video_overview
 
 POLICY = json.loads((ledger.ROOT / "config/batch-policy.json").read_text())
 FOCUS_KEYS = {"subject", "fact_to_establish", "required_state", "reference_frame"}
@@ -169,6 +170,7 @@ def workflow_contract(current=None):
             "path. Verify actual backend sampling before claiming image-limit safety."
         ),
         "final_check_retry_allowed": False,
+        "overview": {"required_in_this_image": True, "frames": video_overview.FRAME_COUNT, "normal_calls_charged": 1, "normal_rounds_charged": 0, "commands": ["overview --ledger PATH --sensor SENSOR", "merge-overview --ledger PATH --assessments PATH"]},
     }
     if current is not None:
         ledger.validate_ledger(current)
@@ -348,6 +350,7 @@ def run_batch(ledger_path, specs, project):
     root = Path(ledger_path).resolve().parent
     with locked(root):
         current = read(ledger_path)
+        video_overview.require_merged(root, current)
         validate_specs(current, specs)
         if current["status"] != "in_progress":
             raise ValueError("Normal inspections have stopped; run final-check")
@@ -595,6 +598,7 @@ def run_final_check(ledger_path, spec, project):
     root = Path(ledger_path).resolve().parent
     with locked(root):
         current = ledger.prepare_for_final_result(read(ledger_path))
+        video_overview.require_merged(root, current)
         strict(spec, CHECK_KEYS, "final-check")
         validate_scope(spec["scope"])
         fps = sampling(spec["sampling"])
@@ -674,6 +678,7 @@ def run_final_check(ledger_path, spec, project):
 def checked_final_result(current, artifact_dir, answer, evidence_ids=None):
     """No terminal publication without a revision-bound final-check receipt."""
     current = ledger.prepare_for_final_result(current)
+    video_overview.require_merged(artifact_dir, current)
     path = Path(artifact_dir) / "final-check.json"
     if not path.is_file():
         raise ValueError(
@@ -730,6 +735,13 @@ def main(argv=None):
     contract.add_argument(
         "--ledger", help="Optionally include current claim eligibility"
     )
+    overview = sub.add_parser("overview")
+    overview.add_argument("--ledger", required=True)
+    overview.add_argument("--sensor", required=True)
+    overview.add_argument("--vss-project")
+    overview_merge = sub.add_parser("merge-overview")
+    overview_merge.add_argument("--ledger", required=True)
+    overview_merge.add_argument("--assessments", required=True)
     for name in ("batch", "merge", "final-check"):
         p = sub.add_parser(name)
         p.add_argument("--ledger", required=True)
@@ -745,6 +757,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.command == "contract":
         print(json.dumps(workflow_contract(read(args.ledger) if args.ledger else None)))
+    elif args.command == "overview":
+        result = video_overview.run_overview(args.ledger, args.sensor, args.vss_project)
+        print(json.dumps({"complete": result["inspection"]["complete"], "artifact": str(Path(args.ledger).resolve().parent / "overview.json")}))
+    elif args.command == "merge-overview":
+        result = video_overview.merge_overview(args.ledger, read(args.assessments))
+        print(json.dumps({"revision": result["revision"], "status": result["status"], "normal_calls_used": result["vlm_calls_used"]}))
     elif args.command == "batch":
         result = run_batch(args.ledger, read(args.spec), args.vss_project)
         print(

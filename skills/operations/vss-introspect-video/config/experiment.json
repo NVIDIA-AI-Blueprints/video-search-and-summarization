@@ -1,7 +1,7 @@
 {
-  "arm": "A",
-  "name": "code-batched-control",
+  "arm": "D",
+  "name": "whole-video-overview-first",
   "baseline_commit": "df70ce35de001a6a2454f1d1fbaa5abfbfe572ac",
-  "runtime_change": "none",
+  "runtime_change": "one 48-frame whole-video overview consumes one normal call before targeted batches",
   "requires_fresh_attempt_directory": true
 }
