@@ -47,8 +47,10 @@ once and not silently repeated. Do not manually edit the canonical ledger.
   the cohort. Do not relax locks or switch endpoints mid-run.
 - Other CLI backends that cannot guarantee this fixed-count request fail preflight.
   Do not reinterpret a plain OpenAI video URL request as 48 submitted images.
-- If the existing remote-image route is already configured, code extracts the full
-  clip, measures its container duration, samples uniformly across it and sends at
+- If the existing remote-image route is already configured, both `ffmpeg` and
+  `ffprobe` must be installed in the image; absence fails preflight before a VLM
+  call. Code extracts the full clip, measures its container duration, samples
+  uniformly across it and sends at
   most 48 images. It retains the images and their hashes in `overview-media/`.
 - CLI receipts retain `frames_sent: null` because actual images are not exposed.
   Remote receipts record image count and a nominal sampling grid, NOT measured

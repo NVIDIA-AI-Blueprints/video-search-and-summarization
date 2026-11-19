@@ -86,6 +86,16 @@ def cli_preflight(project):
     return {"backend": backend, "locked": locked, "frames_requested": FRAME_COUNT}
 
 
+def remote_preflight():
+    ffmpeg = vlm._ffmpeg_bin()
+    ffprobe = shutil.which("ffprobe") or str(Path(ffmpeg).with_name("ffprobe"))
+    if not shutil.which(ffmpeg) or not shutil.which(ffprobe):
+        raise ValueError(
+            "Remote overview requires ffmpeg AND ffprobe in the image; no VLM call was made"
+        )
+    return ffprobe
+
+
 def run_uniform(project, scope, prompt, directory):
     """Preserve configured routing. Never fall back to another model/backend."""
     remote = vlm.remote_vlm_spec()
@@ -133,13 +143,11 @@ def run_uniform(project, scope, prompt, directory):
 
     # The existing remote route sends images; sample across the decoded clip,
     # not at 48/requested-duration FPS over a potentially longer served clip.
+    ffprobe = remote_preflight()
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     clip = directory / "overview.mp4"
     vlm._extract_clip(project, scope["sensor_id"], scope["start"], scope["end"], clip)
-    ffprobe = shutil.which("ffprobe") or str(
-        Path(vlm._ffmpeg_bin()).with_name("ffprobe")
-    )
     probe = subprocess.run(
         [
             ffprobe,
@@ -255,6 +263,8 @@ def run_overview(ledger_path, sensor, project):
         workflow.validate_scope(scope)
         if vlm.remote_vlm_spec() is None:
             cli_preflight(project)  # no paid call or receipt on configuration failure
+        else:
+            remote_preflight()
         started = root / "overview.started.json"
         prompt = PROMPT + json.dumps(
             {

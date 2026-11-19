@@ -16,6 +16,7 @@ from test_inspection_workflow import SCOPE, assessment, initialize, response, sp
 def prepared(tmp_path, monkeypatch):
     monkeypatch.setattr(vlm, "allowed_sensors_from_attempt_context", lambda: ())
     monkeypatch.setattr(vlm, "remote_vlm_spec", lambda: {"model": "unchanged"})
+    monkeypatch.setattr(overview, "remote_preflight", lambda: "/test/ffprobe")
     monkeypatch.setattr(vlm, "_run_vlm", lambda **kw: response())
     monkeypatch.setattr(
         overview, "full_scope", lambda *args: (copy.deepcopy(SCOPE), {"recorded": True})
@@ -235,6 +236,7 @@ def test_cli_sends_fixed_count_not_fps(monkeypatch, tmp_path):
 
 def test_remote_sampling_uses_served_duration_and_caps_images(monkeypatch, tmp_path):
     monkeypatch.setattr(vlm, "remote_vlm_spec", lambda: {"model": "unchanged"})
+    monkeypatch.setattr(overview, "remote_preflight", lambda: "/test/ffprobe")
     monkeypatch.setattr(vlm, "_extract_clip", lambda *args: None)
     monkeypatch.setattr(vlm, "_ffmpeg_bin", lambda: "/test/ffmpeg")
     monkeypatch.setattr(
@@ -371,3 +373,10 @@ def test_locked_environment_rate_overrides_saved_unlocked_policy(monkeypatch):
     )
     with pytest.raises(ValueError, match="Locked FPS"):
         overview.cli_preflight(None)
+
+
+def test_missing_remote_tools_fail_before_inference(monkeypatch):
+    monkeypatch.setattr(vlm, "_ffmpeg_bin", lambda: "/missing/ffmpeg")
+    monkeypatch.setattr(overview.shutil, "which", lambda name: None)
+    with pytest.raises(ValueError, match="ffmpeg AND ffprobe"):
+        overview.remote_preflight()
