@@ -133,7 +133,9 @@ services:
       KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
 
       KAFKA_BOOTSTRAP_SERVERS: ${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
-      NGC_API_KEY: "${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}"
+      # NGC model access is distinct from the remote inference bearer key.
+      # Preserve the RTVI fallback for existing deployments without an NGC key.
+      NGC_API_KEY: "${NGC_CLI_API_KEY:-${RTVI_VLM_API_KEY:-}}"
       RTVI_EXTRA_ARGS: "${RTVI_EXTRA_ARGS:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
       VLM_MODEL_SUPPORTS_AUDIO: "${VLM_MODEL_SUPPORTS_AUDIO:-false}"

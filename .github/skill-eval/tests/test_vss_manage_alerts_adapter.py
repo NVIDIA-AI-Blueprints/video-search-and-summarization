@@ -64,6 +64,8 @@ def test_skill_routing_step_names_no_skill_or_mode(tmp_path: Path) -> None:
     assert "If any value is absent" in setup_instruction
     assert "LLM_REMOTE_MODEL" in setup_instruction
     assert "VLM_REMOTE_MODEL" in setup_instruction
+    assert "persist the provisioned `RTVI_VLM_API_KEY`" in setup_instruction
+    assert "keep `NGC_API_KEY` sourced from `NGC_CLI_API_KEY`" in setup_instruction
     for idx in range(2, len(expects) + 1):
         instruction = (root / f"step-{idx}/instruction.md").read_text()
         if idx in routing:

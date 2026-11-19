@@ -107,6 +107,31 @@ def _resolve_rtsp_sample_url() -> str:
     return os.environ.get("RTSP_SAMPLE_URL") or DEFAULT_RTSP_SAMPLE_URL
 
 
+def _resolve_rtvi_vlm_api_key(environ: dict[str, str]) -> str:
+    """Use the NVIDIA key only for a known NVIDIA-hosted remote VLM.
+
+    RT-VLM sends this key to its endpoint. Never infer it from NVIDIA_API_KEY
+    for a customer-controlled URL, which would disclose the NVIDIA credential.
+    """
+    if environ.get("RTVI_VLM_API_KEY"):
+        return environ["RTVI_VLM_API_KEY"]
+    endpoint = environ.get("VLM_REMOTE_URL", "")
+    try:
+        parsed = urlsplit(endpoint)
+        trusted = (
+            parsed.scheme == "https"
+            and parsed.hostname in {
+                "inference-api.nvidia.com", "integrate.api.nvidia.com"
+            }
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+        )
+    except ValueError:
+        return ""
+    return environ.get("NVIDIA_API_KEY", "") if trusted else ""
+
+
 def _upload_attestation_command(target: str, marker: str) -> str:
     # Emit one marked record, even when the file is absent. Brev can mix
     # transport output with stdout and can obscure a remote shell exit code.
@@ -499,6 +524,9 @@ class BrevEnvironment(BaseEnvironment):
             val = os.environ.get(key)
             if val:
                 forwarded.append((key, val))
+        rtvi_vlm_key = _resolve_rtvi_vlm_api_key(os.environ)
+        if rtvi_vlm_key:
+            forwarded.append(("RTVI_VLM_API_KEY", rtvi_vlm_key))
         if forwarded:
             env_block = "\n".join(
                 f"export {k}={shlex.quote(v)}" for k, v in forwarded

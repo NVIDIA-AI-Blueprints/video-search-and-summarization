@@ -299,6 +299,10 @@ def generate_platform_mode(
                 "`LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` / `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL`. "
                 "If any value is absent, report the missing configuration before deploying; "
                 "do not substitute the operational agent's model endpoint. Never print credentials.",
+                "For an NVIDIA-hosted remote VLM, persist the provisioned `RTVI_VLM_API_KEY` "
+                "as RT-VLM's bearer key in the build override before resolving Compose; "
+                "keep `NGC_API_KEY` sourced from `NGC_CLI_API_KEY` for NGC access. "
+                "Never print either value.",
             ]
         else:
             # A `skill-routing` step names neither a skill nor the alert mode:
