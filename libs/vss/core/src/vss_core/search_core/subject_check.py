@@ -49,6 +49,7 @@ from typing import Any
 import httpx
 
 from vss_core._foundation.sanitize import scrub_log
+from vss_core._foundation.time import iso8601_to_datetime
 from vss_core._foundation.time_measure import TimeMeasure
 from vss_core.vios.client import build_screenshot_url
 from vss_core.vios.client import map_timestamp_to_timeline
@@ -125,6 +126,19 @@ Return only JSON, one of:
 {{"answer": "unsure"}}"""
 
 
+class FrameNotRecordedError(Exception):
+    """The subject's frame is outside VST's recording, so there is nothing honest to check."""
+
+
+def _within_recording(timestamp: str, timeline_start: str, timeline_end: str) -> bool:
+    """Whether a wall-clock timestamp lies on VST's recording; unparseable reads as no."""
+    try:
+        moment = iso8601_to_datetime(timestamp)
+        return iso8601_to_datetime(timeline_start) <= moment <= iso8601_to_datetime(timeline_end)
+    except (TypeError, ValueError):
+        return False
+
+
 class SubjectVerdict(StrEnum):
     """The VLM's answer for one result."""
 
@@ -147,13 +161,14 @@ class Subject:
 def subject_from_attribute_result(result: AttributeSearchResult) -> Subject | None:
     """Build a :class:`Subject` when the box is known to belong to the frame we fetch.
 
-    The box must come from the frame-level lookup (``frame_score`` is set), so
-    it was measured on the frame at ``frame_timestamp``. A behavior-level box
-    describes some other moment, and drawing it on this frame could outline the
-    wrong person, so those results are not checked.
+    The box must have been measured on the frame at ``frame_timestamp``
+    (``bbox_from_frame``). A set ``frame_score`` is not enough: the best frame
+    can lack a box for the object, and the box then falls back to the behavior
+    record's, which describes some other moment. Drawing that on this frame
+    could outline the wrong person, so those results are not checked.
     """
     meta = result.metadata
-    if meta.frame_score is None or not meta.frame_timestamp or not meta.bbox:
+    if not meta.bbox_from_frame or meta.frame_score is None or not meta.frame_timestamp or not meta.bbox:
         return None
     if not meta.sensor_id or meta.sensor_id == "unknown":
         return None
@@ -308,11 +323,15 @@ class SubjectChecker:
         query: str,
         attributes: list[str],
         limit: int | None = None,
+        source_type: str | None = "video_file",
     ) -> list[SearchResult]:
         """Check the top results and move each one answered ``no`` down ``demote_by`` places.
 
         ``limit`` caps how many results from the top are checked (normally the
         caller's ``top_k``); it is itself capped at ``max_checks``.
+        ``source_type`` is the searched source type: only ``video_file`` frame
+        timestamps are rebased onto VST's recording; any other (live) timestamp
+        is real wall-clock and is checked only while VST still holds it.
         """
         query = query.strip()
         attribute = "; ".join(a.strip() for a in attributes if a and a.strip())
@@ -330,7 +349,7 @@ class SubjectChecker:
         async with httpx.AsyncClient(timeout=self._frame_timeout) as client:
             with TimeMeasure(TIMER_TOTAL):
                 verdicts = await asyncio.gather(
-                    *(self._check(subject, prompt, semaphore, cache, client) for _, subject in checks)
+                    *(self._check(subject, prompt, semaphore, cache, client, source_type) for _, subject in checks)
                 )
         for (index, subject), verdict in zip(checks, verdicts, strict=True):
             _log_verdict(index, results[index], subject, verdict)
@@ -362,12 +381,13 @@ class SubjectChecker:
         semaphore: asyncio.Semaphore,
         cache: _RunCache,
         client: httpx.AsyncClient,
+        source_type: str | None = "video_file",
     ) -> SubjectVerdict:
         """One result's verdict; every failure is ``unsure``."""
         try:
             async with semaphore:
                 with TimeMeasure(TIMER_FETCH):
-                    frame = await self._fetch_frame(subject, cache, client)
+                    frame = await self._fetch_frame(subject, cache, client, source_type)
                 with TimeMeasure(TIMER_DRAW):
                     image = draw_subject_box(frame, subject.bbox)
                 if image is None:
@@ -380,6 +400,14 @@ class SubjectChecker:
                 with TimeMeasure(TIMER_VLM):
                     answer = await self._vlm.analyze_image(image_bytes=image, prompt=prompt)
             return parse_verdict(answer)
+        except FrameNotRecordedError as e:
+            logger.info(
+                "Subject check skipped for object %s on %s: %s",
+                scrub_log(subject.object_id),
+                scrub_log(subject.sensor_id),
+                scrub_log(str(e)),
+            )
+            return SubjectVerdict.UNSURE
         except Exception as e:
             logger.warning(
                 "Subject check failed for object %s on %s (%s); leaving its rank unchanged",
@@ -389,13 +417,31 @@ class SubjectChecker:
             )
             return SubjectVerdict.UNSURE
 
-    async def _fetch_frame(self, subject: Subject, cache: _RunCache, client: httpx.AsyncClient) -> bytes:
-        """Fetch the subject's frame from VST at its (timeline-mapped) timestamp."""
+    async def _fetch_frame(
+        self,
+        subject: Subject,
+        cache: _RunCache,
+        client: httpx.AsyncClient,
+        source_type: str | None = "video_file",
+    ) -> bytes:
+        """Fetch the subject's frame from VST at its timestamp on VST's recording.
+
+        Uploaded files are indexed on a synthetic epoch, so their timestamps are
+        rebased onto the recording. Live timestamps are real wall-clock and are
+        used as they are; one VST no longer holds (an aged-out segment) raises
+        :class:`FrameNotRecordedError` rather than being clamped onto unrelated
+        footage, the same rule the critic follows.
+        """
         stream_id: str = await cache.get(
             "stream", subject.sensor_id, lambda: self._vst.resolve_stream_id(subject.sensor_id)
         )
         start, end = await cache.get("timeline", stream_id, lambda: self._vst.get_timeline(stream_id))
-        timestamp = map_timestamp_to_timeline(subject.frame_timestamp, start, end)
+        if source_type == "video_file":
+            timestamp = map_timestamp_to_timeline(subject.frame_timestamp, start, end)
+        elif _within_recording(subject.frame_timestamp, start, end):
+            timestamp = subject.frame_timestamp
+        else:
+            raise FrameNotRecordedError("its frame is no longer in the live recording")
         url = build_screenshot_url(self._vst_internal_url, stream_id, timestamp)
         try:
             response = await client.get(url)
