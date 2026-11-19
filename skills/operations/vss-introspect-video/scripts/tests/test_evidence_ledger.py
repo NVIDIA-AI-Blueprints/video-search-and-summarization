@@ -15,6 +15,7 @@ from unittest.mock import patch
 import evidence_ledger as ledger_mod
 import inspection_workflow as workflow
 import pytest
+from closure_fixtures import contract_for, upgrade_for_cli
 
 START = "2026-09-21T20:00:00Z"
 END = "2026-09-21T20:00:10Z"
@@ -28,6 +29,7 @@ MEDIA_SCOPE = {
 
 def mock_final_check(path, answer=None):
     """Exercise the real check runner with a mocked model response, not a live VLM."""
+    ledger_mod.atomic_write(path, upgrade_for_cli(json.loads(path.read_text())))
     response = {"job_id": "test-check", "answer": "CHECK: supported", "raw_answer": "CHECK: supported",
                 "usable": True, "exit_code": 0, "error": None}
     with patch("vlm_inspection._run_vlm", return_value=response):
@@ -837,9 +839,11 @@ def test_choice_merge_does_not_publish_harvestable_abstention(tmp_path: Path) ->
 def test_init_cli_requires_choice_flag(tmp_path: Path) -> None:
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(json.dumps(plan()), encoding="utf-8")
+    closure_path = tmp_path / "closure-plan.json"
+    closure_path.write_text(json.dumps(contract_for(plan())), encoding="utf-8")
     output = tmp_path / "ledger.json"
     assert ledger_mod.main(
-        ["init", "--plan", str(plan_path), "--requires-choice", "--output", str(output)]
+        ["init", "--plan", str(plan_path), "--closure-plan", str(closure_path), "--requires-choice", "--output", str(output)]
     ) == 0
     written = json.loads(output.read_text(encoding="utf-8"))
     assert written["requires_choice"] is True

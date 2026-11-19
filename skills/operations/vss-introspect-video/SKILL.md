@@ -3,13 +3,20 @@ name: vss-introspect-video
 description: Run a single-coordinator evidence loop using fixed-format parallel VLM tool calls, compact claim assessments, and a mandatory reserved final visual check. Delegate here from vss-ask-video for evidence-intensive questions.
 license: Apache-2.0
 metadata:
-  version: "4.0.1-experimental"
+  version: "4.1.0-experiment-b"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
   vss-requires: "vlm"
 ---
 
 # Batched video introspection — experimental workflow
+
+## Experiment B: requirement-bound closure
+
+Before planning/retrieval, read [the closure contract](references/closure-contract.md).
+Its additional `--closure-plan` and `closure_evidence` fields are mandatory in
+this build. All normal inspection prompts, budgets and the final check below
+are unchanged. Code checks declared evidence applicability, not visual truth.
 
 Use after `vss-ask-video` delegates an introspection question. This branch
 replaces parallel inspector agents with **parallel tool calls**. One coordinator
@@ -77,7 +84,8 @@ LEDGER_TOOL="$SKILL_DIR/scripts/evidence_ledger.py"
 WORKFLOW="$SKILL_DIR/scripts/inspection_workflow.py"
 # Optional read-only authoring reference: no model call or artifact write.
 python3 "$WORKFLOW" contract
-python3 "$LEDGER_TOOL" init --plan "$RUN_DIR/plan.json" --output "$RUN_DIR/ledger.json"
+python3 "$LEDGER_TOOL" init --plan "$RUN_DIR/plan.json" \
+  --closure-plan "$RUN_DIR/closure-plan.json" --output "$RUN_DIR/ledger.json"
 # Explicit option-selection question: also pass --requires-choice and
 # --original-question "$ORIGINAL_QUESTION" to init.
 ```
@@ -162,6 +170,9 @@ clip and limitations. Imperfect caption syntax does not trigger a retry.
 ## 4. Assess compactly and merge once
 
 Write one assessment per returned task:
+
+Also include `closure_evidence` as defined in the closure contract. An empty list
+is valid when no requirement can be established; it blocks closure, not answering.
 
 Keep `rationale` and each missing-evidence entry at most 400 characters, with
 at most eight missing-evidence entries and eight quoted observations per task.

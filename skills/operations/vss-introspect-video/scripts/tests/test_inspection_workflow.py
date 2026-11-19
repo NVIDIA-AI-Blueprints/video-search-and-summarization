@@ -524,6 +524,8 @@ def test_case_binding_rejects_wrong_sensor_before_calls(tmp_path, monkeypatch):
 def test_missing_final_check_blocks_public_cli(tmp_path):
     path = initialize(tmp_path)
     run_and_merge(path)
+    from closure_fixtures import upgrade_for_cli
+    ledger.atomic_write(path, upgrade_for_cli(workflow.read(path)))
     with pytest.raises(ValueError, match="Mandatory"):
         ledger.main(
             [

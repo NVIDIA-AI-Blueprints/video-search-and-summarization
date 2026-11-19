@@ -172,6 +172,10 @@ def workflow_contract(current=None):
     }
     if current is not None:
         ledger.validate_ledger(current)
+        if "closure_contract" in current:
+            result["assessment_fields"].append("closure_evidence")
+            result["closure_contract"] = current["closure_contract"]
+            result["closure_blockers"] = ledger.closure_gate.blockers(current)
         rounds_remaining = max(
             0,
             min(POLICY["max_rounds"], current["budgets"]["max_inspection_rounds"])
@@ -427,8 +431,9 @@ def run_batch(ledger_path, specs, project):
         return manifest
 
 
-def assessment_result(item, assessment):
-    strict(assessment, ASSESSMENT_KEYS, "assessment")
+def assessment_result(item, assessment, current=None):
+    gated = current is not None and "closure_contract" in current
+    strict(assessment, ASSESSMENT_KEYS | ({"closure_evidence"} if gated else set()), "assessment")
     task, report = item["task"], item["inspection"]
     if assessment["task_id"] != task["task_id"]:
         raise ValueError("assessment/task mismatch")
@@ -513,6 +518,10 @@ def assessment_result(item, assessment):
         "vlm_calls_used": report["vlm_calls_used"],
         "error": report.get("error"),
     }
+    if gated:
+        result["closure_evidence"] = ledger.closure_gate.normalize_certificate(
+            assessment["closure_evidence"], observations, current, task["claim"]["claim_id"]
+        )
     ledger.validate_inspection_result(result, task)
     return result
 
@@ -532,7 +541,7 @@ def merge_batch(ledger_path, batch_path, assessments):
         if set(by_id) != {r["task"]["task_id"] for r in batch["results"]}:
             raise ValueError("Unknown, duplicate or missing assessment")
         results = [
-            assessment_result(item, by_id[item["task"]["task_id"]])
+            assessment_result(item, by_id[item["task"]["task_id"]], base)
             for item in batch["results"]
         ]
         merge_path = Path(batch_path).parent / "merged.json"

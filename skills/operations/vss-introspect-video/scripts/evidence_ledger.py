@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+import closure_gate
+
 ROOT = Path(__file__).resolve().parents[1]
 BUDGET_PATH = ROOT / "config" / "ledger-budgets.json"
 ATTEMPT_CONTEXT_ENV = "VSS_INTROSPECTION_ATTEMPT_CONTEXT"
@@ -412,7 +414,8 @@ def _validate_observation(
 
 
 def _validate_claim_state(state: Any, path: str) -> None:
-    state = _strict(state, CLAIM_STATE_KEYS, path)
+    extra = {"closure_blockers"} if isinstance(state, dict) and "closure_blockers" in state else set()
+    state = _strict(state, CLAIM_STATE_KEYS | extra, path)
     if not CLAIM_ID_RE.fullmatch(str(state["claim_id"])):
         _fail(f"{path}.claim_id", "invalid claim ID")
     if state["status"] not in CLAIM_STATUSES:
@@ -448,7 +451,8 @@ def _derived_claim_status(
 
 def validate_ledger(ledger: Any) -> None:
     """Strictly validate the canonical minimal ledger and cross references."""
-    ledger = _strict(ledger, LEDGER_KEYS, "ledger")
+    extra = {"closure_contract", "closure_certificates"} if isinstance(ledger, dict) and "closure_contract" in ledger else set()
+    ledger = _strict(ledger, LEDGER_KEYS | extra, "ledger")
     if ledger["ledger_version"] != "1.0":
         _fail("ledger.ledger_version", "must be 1.0")
     _integer(ledger["revision"], "ledger.revision")
@@ -548,6 +552,8 @@ def validate_ledger(ledger: Any) -> None:
             "every accepted observation must be cited by its claim",
         )
 
+    if "closure_contract" in ledger:
+        closure_gate.validate_state(ledger)
     sufficient = _is_sufficient(ledger)
     if ledger["status"] == "answered" and (
         not sufficient or ledger["stop_reason"] != "resolved"
@@ -586,6 +592,7 @@ def initialize_ledger(
     *,
     requires_choice: bool | None = None,
     original_question: str | None = None,
+    closure_contract: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Initialize a canonical ledger from a valid initial evidence plan."""
     validate_plan(plan, "initial")
@@ -621,6 +628,11 @@ def initialize_ledger(
         "stop_reason": None,
         "requires_choice": flag,
     }
+    if closure_contract is not None:
+        closure_gate.validate_contract(closure_contract, plan)
+        ledger["closure_contract"] = copy.deepcopy(closure_contract)
+        ledger["closure_certificates"] = {c["claim_id"]: [] for c in plan["claims"]}
+        closure_gate.refresh(ledger)
     validate_ledger(ledger)
     return ledger
 
@@ -706,7 +718,7 @@ def _needs_inspection(state: Mapping[str, Any]) -> bool:
     """
     if state["status"] not in ("supported", "contradicted"):
         return True
-    return state["coverage"] != "sufficient" or state["gap"] is not None
+    return state["coverage"] != "sufficient" or state["gap"] is not None or bool(state.get("closure_blockers"))
 
 
 def _budget_exhausted(ledger: Mapping[str, Any]) -> bool:
@@ -782,7 +794,8 @@ def validate_inspection_result(
     result: Any, task: Mapping[str, Any] | None = None
 ) -> None:
     """Validate a small subagent result; it never carries canonical state."""
-    result = _strict(result, RESULT_KEYS, "result")
+    extra = {"closure_evidence"} if isinstance(result, dict) and "closure_evidence" in result else set()
+    result = _strict(result, RESULT_KEYS | extra, "result")
     if not TASK_ID_RE.fullmatch(str(result["task_id"])):
         _fail("result.task_id", "invalid task ID")
     _integer(result["base_revision"], "result.base_revision")
@@ -885,6 +898,8 @@ def merge_memory(
         _fail("updates", "must contain at least one claim update")
     updates = canonicalize_memory_update_observation_ids(updates)
     allowed = {"claim_id", "observations", "coverage", "gap"}
+    if "closure_contract" in ledger:
+        allowed.add("closure_evidence")
     prepared: list[Mapping[str, Any]] = []
     for index, update in enumerate(updates):
         update = _strict(update, allowed, f"updates[{index}]")
@@ -910,11 +925,16 @@ def merge_memory(
     updated = copy.deepcopy(ledger)
     for update in prepared:
         _append_observations(updated, update["observations"])
+        if "closure_contract" in updated:
+            updated["closure_certificates"][update["claim_id"]] = closure_gate.normalize_certificate(
+                update["closure_evidence"], update["observations"], updated, update["claim_id"]
+            )
         state = _state(updated, update["claim_id"])
         if COVERAGES.index(update["coverage"]) > COVERAGES.index(state["coverage"]):
             state["coverage"] = update["coverage"]
         state["gap"] = update["gap"]
     updated["revision"] += 1
+    closure_gate.refresh(updated)
     if _is_sufficient(updated):
         updated["status"] = "answered"
         updated["stop_reason"] = "resolved"
@@ -923,6 +943,8 @@ def merge_memory(
 
 
 def _is_sufficient(ledger: Mapping[str, Any]) -> bool:
+    if "closure_contract" in ledger and any(closure_gate.blockers(ledger).values()):
+        return False
     observations = {item["observation_id"]: item for item in ledger["observations"]}
     for state in ledger["claims"]:
         if state["gap"] is not None:
@@ -956,6 +978,7 @@ def assess_sufficiency(ledger: Mapping[str, Any]) -> dict[str, Any]:
                 "has_observation": bool(state["observation_ids"]),
                 "conflicting": "supports" in relations and "contradicts" in relations,
                 "has_gap": state["gap"] is not None,
+                "closure_blockers": state.get("closure_blockers", []),
             }
         )
     return {"sufficient": _is_sufficient(ledger), "claims": claims}
@@ -1009,6 +1032,10 @@ def merge_round_results(
         result = result_map[task_id]
         accepted += _append_observations(updated, result["observations"])
         state = _state(updated, task_map[task_id]["claim"]["claim_id"])
+        if "closure_contract" in updated:
+            updated["closure_certificates"][state["claim_id"]] = closure_gate.normalize_certificate(
+                result.get("closure_evidence", []), result["observations"], updated, state["claim_id"]
+            )
         if COVERAGES.index(result["coverage"]) > COVERAGES.index(state["coverage"]):
             state["coverage"] = result["coverage"]
             coverage_improved = True
@@ -1016,6 +1043,8 @@ def merge_round_results(
     updated["vlm_calls_used"] += calls
     updated["round"] += 1
     updated["revision"] += 1
+
+    closure_gate.refresh(updated)
 
     all_failed = all(result["error"] is not None for result in normalized_results)
     if _is_sufficient(updated):
@@ -1268,6 +1297,7 @@ def final_result(
             state["status"] in ("supported", "contradicted")
             and state["coverage"] == "sufficient"
             and state["gap"] is None
+            and not state.get("closure_blockers")
         ):
             continue
         if ledger["stop_reason"] == "tool_failure":
@@ -1284,7 +1314,7 @@ def final_result(
         gaps.append(
             {
                 "claim_id": state["claim_id"],
-                "gap": state["gap"] or "The claim remains unresolved.",
+                "gap": state["gap"] or "; ".join(state.get("closure_blockers", [])) or "The claim remains unresolved.",
                 "reason": reason,
             }
         )
@@ -1487,6 +1517,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init")
     init.add_argument("--plan", required=True)
+    init.add_argument("--closure-plan", required=True, help="Frozen prerequisite and applicability requirements, declared before retrieval")
     init.add_argument(
         "--requires-choice",
         action="store_true",
@@ -1548,6 +1579,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _read(args.plan),
                 requires_choice=True if args.requires_choice else None,
                 original_question=args.original_question,
+                closure_contract=_read(args.closure_plan),
             ),
             args.output,
         )
@@ -1590,6 +1622,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             None,
         )
     elif args.command == "final-result":
+        if "closure_contract" not in _read(args.ledger):
+            _fail("closure_contract", "Experiment B requires init --closure-plan")
         from inspection_workflow import checked_final_result
 
         prepared = prepare_for_final_result(_read(args.ledger))

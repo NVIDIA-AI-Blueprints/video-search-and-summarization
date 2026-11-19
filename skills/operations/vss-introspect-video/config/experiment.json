@@ -1,7 +1,7 @@
 {
-  "arm": "A",
-  "name": "code-batched-control",
+  "arm": "B",
+  "name": "requirement-bound-closure",
   "baseline_commit": "df70ce35de001a6a2454f1d1fbaa5abfbfe572ac",
-  "runtime_change": "none",
+  "runtime_change": "closure certificates on memory and visual evidence; dependency and applicability gates",
   "requires_fresh_attempt_directory": true
 }
