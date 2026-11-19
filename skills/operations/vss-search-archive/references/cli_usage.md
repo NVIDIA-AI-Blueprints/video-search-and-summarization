@@ -91,7 +91,9 @@ action, using that person's best frame with their box drawn on it. A hit it
 answers no for moves down three places; nothing is dropped and no field is
 added. It needs the same VST and RT-VLM as the critic and is skipped without
 them. It adds a VST frame fetch and a VLM call per checked hit, so leave it off
-unless an evaluation on your data shows it helps.
+unless an evaluation on your data shows it helps. It works only with the default
+`rrf` fusion: combined with the VLM tag leg (`--w-tag > 0`) it is an input
+error (exit 2).
 `--critic-eval-count N` caps how many retrieved hits the VLM critic verifies;
 hits beyond the cap stay `unverified`. Omit to verify every hit (bounded by
 `--top-k`). The critic is best-effort, fail-open, and already concurrent

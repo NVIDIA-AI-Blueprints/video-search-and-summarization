@@ -48,20 +48,22 @@ def _attr(
     frame_score: float | None = 0.6,
     bbox: dict[str, Any] | None = None,
     frame_timestamp: str | None = "2025-01-01T00:00:02Z",
+    bbox_from_frame: bool = True,
 ) -> AttributeSearchResult:
-    return AttributeSearchResult(
-        metadata=AttributeSearchMetadata(
-            sensor_id=sensor_id,
-            object_id=object_id,
-            object_type="person",
-            frame_timestamp=frame_timestamp,
-            start_time="2025-01-01T00:00:00Z",
-            end_time="2025-01-01T00:00:05Z",
-            bbox=_BOX if bbox is None else bbox,
-            behavior_score=0.55,
-            frame_score=frame_score,
-        )
+    metadata = AttributeSearchMetadata(
+        sensor_id=sensor_id,
+        object_id=object_id,
+        object_type="person",
+        frame_timestamp=frame_timestamp,
+        start_time="2025-01-01T00:00:00Z",
+        end_time="2025-01-01T00:00:05Z",
+        bbox=_BOX if bbox is None else bbox,
+        behavior_score=0.55,
+        frame_score=frame_score,
     )
+    if bbox_from_frame:
+        metadata.mark_bbox_from_frame()
+    return AttributeSearchResult(metadata=metadata)
 
 
 def _result(name: str, sensor_id: str = "cam1") -> SearchResult:
@@ -196,6 +198,42 @@ def test_subject_requires_a_frame_level_box() -> None:
     assert sc.subject_from_attribute_result(_attr("7", bbox={})) is None
     assert sc.subject_from_attribute_result(_attr("7", frame_timestamp=None)) is None
     assert sc.subject_from_attribute_result(_attr("unknown")) is None
+    # A frame score alone is not enough: the best frame may have had no box for
+    # the object, leaving the behavior record's box from another moment.
+    assert sc.subject_from_attribute_result(_attr("7", bbox_from_frame=False)) is None
+
+
+def test_hit_to_result_records_where_the_box_came_from() -> None:
+    from vss_core.search_core.primitives._attribute_helpers import hit_to_result
+
+    behavior_box = {"leftX": 1, "rightX": 2, "topY": 3, "bottomY": 4}
+    hit = {
+        "_score": 0.7,
+        "_source": {
+            "object": {"id": "7", "type": "person", "bbox": behavior_box},
+            "sensor": {"id": "cam1"},
+            "timestamp": "2025-01-01T00:00:00Z",
+            "end": "2025-01-01T00:00:05Z",
+        },
+    }
+
+    framed = hit_to_result(hit, ("f1", _BOX, 0.8, "2025-01-01T00:00:02Z"))
+    assert framed.metadata.bbox == _BOX
+    assert framed.metadata.bbox_from_frame
+    assert sc.subject_from_attribute_result(framed) is not None
+
+    # The best frame had no box for this object: the box falls back to the
+    # behavior record's while the frame's score and timestamp remain.
+    fallback = hit_to_result(hit, ("f1", None, 0.8, "2025-01-01T00:00:02Z"))
+    assert fallback.metadata.frame_score == 0.8
+    assert not fallback.metadata.bbox_from_frame
+    assert sc.subject_from_attribute_result(fallback) is None
+
+    # Internal only: the response carries no new field.
+    assert "bbox_from_frame" not in framed.model_dump()["metadata"]
+    assert framed.model_dump() == fallback.model_dump() | {
+        "metadata": fallback.model_dump()["metadata"] | {"bbox": _BOX}
+    }
 
 
 # ------------------------------------------------------------------ rerank
@@ -374,6 +412,64 @@ async def test_frame_fetch_maps_file_time_onto_the_vst_timeline(monkeypatch: pyt
     assert urllib.parse.parse_qs(url.query.decode())["startTime"] == ["2026-11-10T08:00:02.000Z"]
 
 
+def _live_subject(frame_timestamp: str) -> Subject:
+    return Subject(sensor_id="cam1", object_id="1", frame_timestamp=frame_timestamp, bbox=_BOX, score=0.6)
+
+
+@pytest.mark.asyncio
+async def test_frame_fetch_uses_live_time_as_it_is(monkeypatch: pytest.MonkeyPatch) -> None:
+    requested: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url)
+        return httpx.Response(200, content=_jpeg(), request=request)
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(sc.httpx, "AsyncClient", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    vlm = _VLM({200: '{"answer": "yes"}'})
+    checker = SubjectChecker(image_analyzer=vlm, vst=_VST(), vst_internal_url="http://vst")  # type: ignore[arg-type]
+
+    await checker.rerank(
+        [_result("a")],
+        lambda _r: _live_subject("2026-11-10T08:05:00.000Z"),
+        query="q",
+        attributes=["white shirt"],
+        source_type="rtsp",
+    )
+
+    assert len(vlm.prompts) == 1
+    assert urllib.parse.parse_qs(requested[0].query.decode())["startTime"] == ["2026-11-10T08:05:00.000Z"]
+
+
+@pytest.mark.asyncio
+async def test_live_frame_outside_the_recording_is_not_checked(monkeypatch: pytest.MonkeyPatch) -> None:
+    requested: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url)
+        return httpx.Response(200, content=_jpeg(), request=request)
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(sc.httpx, "AsyncClient", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    vlm = _VLM({200: '{"answer": "no"}'})
+    checker = SubjectChecker(image_analyzer=vlm, vst=_VST(), vst_internal_url="http://vst")  # type: ignore[arg-type]
+    results = [_result("a"), _result("b")]
+
+    # An aged-out live frame: a day before VST's recording starts. Clamping it
+    # onto the recording would show unrelated footage, so it is left unchecked.
+    reranked = await checker.rerank(
+        results,
+        lambda _r: _live_subject("2026-11-09T08:05:00.000Z"),
+        query="q",
+        attributes=["white shirt"],
+        source_type="rtsp",
+    )
+
+    assert reranked == results
+    assert requested == []
+    assert vlm.prompts == []
+
+
 @pytest.mark.asyncio
 async def test_frame_fetch_http_error_is_unsure(monkeypatch: pytest.MonkeyPatch) -> None:
     real_client = httpx.AsyncClient
@@ -393,7 +489,7 @@ async def test_frame_fetch_http_error_is_unsure(monkeypatch: pytest.MonkeyPatch)
 # ------------------------------------------------------------------ lookup + orchestrator
 
 
-def test_subject_lookup_matches_merged_results_by_sensor_and_overlap() -> None:
+def test_subject_lookup_matches_results_to_candidates_inside_their_window() -> None:
     def candidate(start: str, end: str, subject: AttributeSearchResult | None) -> _fusion.FusionCandidate:
         embed = _result("v")
         embed = embed.model_copy(update={"start_time": start, "end_time": end})
@@ -412,6 +508,15 @@ def test_subject_lookup_matches_merged_results_by_sensor_and_overlap() -> None:
     merged = _result("v").model_copy(update={"end_time": "2025-01-01T00:00:10Z"})
     picked = lookup(merged)
     assert picked is not None and picked.object_id == "2"
+    # Left unmerged (--no-merge-adjacent, or scores too far apart), each clip
+    # keeps its own subject: the touching 5-10 s neighbour's stronger frame
+    # lies outside 0-5 s and must not be judged in its place.
+    first = lookup(_result("v"))
+    assert first is not None and first.object_id == "1"
+    second = lookup(
+        _result("v").model_copy(update={"start_time": "2025-01-01T00:00:05Z", "end_time": "2025-01-01T00:00:10Z"})
+    )
+    assert second is not None and second.object_id == "2"
     assert lookup(_result("v", sensor_id="other")) is None
     later = _result("v").model_copy(update={"start_time": "2025-01-01T00:10:00Z", "end_time": "2025-01-01T00:10:05Z"})
     assert lookup(later) is None

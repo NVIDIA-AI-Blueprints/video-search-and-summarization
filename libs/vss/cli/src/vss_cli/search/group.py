@@ -252,6 +252,7 @@ class SearchTuning(BaseModel):
             " drawn on it, and move each top result it answers no for down three"
             " places. Off by default. Needs the same VST and RT-VLM the critic uses;"
             " without them it is skipped. Changes only the order of results."
+            " Not available with the VLM tag leg (--w-tag > 0)."
         ),
         json_schema_extra={"cli_flag": "--subject-check"},
     )
@@ -553,6 +554,15 @@ class SearchGroup(CommandGroup):
             )
         except ConfigurationError as error:
             raise InvalidInput(str(error)) from error
+        # The subject check runs on the per-clip attribute matches that only
+        # the `rrf` path builds; `weighted_rrf` runs its attribute leg on its
+        # own, so it has no subject to check. Refuse the pair rather than
+        # accept a flag that would silently do nothing.
+        if subject_check and tuning["fusion_method"] != "rrf":
+            raise InvalidInput(
+                "--subject-check needs the default rrf fusion; it cannot be combined with"
+                " the VLM tag leg (--w-tag > 0 or --fusion-method weighted_rrf)"
+            )
         # The library still selects a path by `search_mode`; the CLI just no
         # longer asks the caller to name it. The sub-action is the mode.
         payload["search_mode"] = action

@@ -487,8 +487,12 @@ def _subject_lookup(
     """Map a final (possibly merged) result back to the best checkable subject.
 
     Merging builds new result objects, so a result is matched to candidates by
-    sensor and time overlap rather than identity; when several merged chunks
-    carry a subject, the highest-scoring one is checked.
+    sensor and time rather than identity: a candidate belongs to a result only
+    when its window lies inside the result's window. A merged result spans
+    every chunk it was built from, and an unmerged one is its own chunk, so a
+    neighbouring clip that merely touches or overlaps the result (0-5 s next to
+    5-10 s) never lends it a frame from outside its window. When several merged
+    chunks carry a subject, the highest-scoring one is checked.
     """
     by_sensor: dict[str, list[tuple[datetime, datetime, Subject]]] = {}
     for candidate in candidates:
@@ -506,12 +510,12 @@ def _subject_lookup(
         end = safe_iso8601_to_datetime(result.end_time)
         if start is None or end is None:
             return None
-        overlapping = [
+        contained = [
             subject
             for cand_start, cand_end, subject in by_sensor.get(result.sensor_id, [])
-            if cand_start <= end and cand_end >= start
+            if start <= cand_start and cand_end <= end
         ]
-        return max(overlapping, key=lambda subject: subject.score, default=None)
+        return max(contained, key=lambda subject: subject.score, default=None)
 
     return lookup
 
@@ -794,9 +798,15 @@ async def execute_core_search(
                     query=search_input.original_query or search_input.query,
                     attributes=attribute_list,
                     limit=original_top_k,
+                    source_type=search_input.source_type,
                 )
             yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
             return
+
+        if getattr(config, "subject_checker", None) is not None:
+            # The CLI refuses this pair; a library caller gets told rather than
+            # silently skipped. weighted_rrf builds no per-clip attribute match.
+            logger.warning("Subject check runs only with rrf fusion; skipped for %s", config.fusion_method)
 
         if tag_search is None:
             raise ConfigurationError("tag_search must be pre-loaded by the Search primitive")
