@@ -34,6 +34,11 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 | `rtx` | Managed `vss-eval-rtx-*`, registered RTX PRO workers such as `vss-eval-rtx-2g-VM1b`–`VM4b`, and capability-routed `vss-eval-geforce-rtx4090-vm*` workers | AWS `g7e.4xlarge` / `g7e.12xlarge`, registered RTX PRO Server 6000, or approved RTX 4090 |
 | `spark` | BYOH DGX Spark node registered via `brev register` | n/a |
 
+The NemoClaw operational route uses only Brev-managed cloud instances; it
+excludes registered external nodes even when they are connected and otherwise
+allowlisted for the legacy harness. This applies to automatic selection and
+explicit worker pins.
+
 Per-CI-run hygiene is the trial's own responsibility: each spec's first agent turn invokes `/vss-build-vision-ai` (or a standalone deploy runbook) to bring up whatever it needs, including `docker compose down` of any prior leftover containers on the box. The harness no longer pre-deploys profiles or maintains an `active-deploy.txt` marker — that machinery was removed in favour of putting deploy steps inside the trial trajectory where they're visible in the reward, judge, and `claude-code.txt`. Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
 
 Operational specs use two independent routes. Their first `expects[]` task
@@ -425,14 +430,16 @@ results root afterwards) and appends the browsable URL to
 `<results-root>/trace-urls.tsv`:
 
 ```
-step-7	step-7__E6dBECL	https://harbor-<ENV_ID>.brevlab.com/jobs/<job>/tasks/<source>/<agent>/<provider>/<model>/<task>
+step-7	step-7__E6dBECL	https://harbor-<ENV_ID>.gobrev.dev/jobs/<job>
 ```
 
-Open the URL from that file rather than composing one: the trailing
-`<task>` is Harbor's fully-qualified `task_name`
-(`nvidia-vss/<dataset>-step-N`), not the `step-N` filter, and the
-viewer is an SPA that renders a wrong path as a **blank page**, never
-a 404.
+Open the URL from that file rather than composing one. Each dated viewer job
+contains one Harbor invocation's trial. The previous `/tasks/...` deep link
+used `%2F` in model and task names; Harbor accepted it locally, but the
+gobrev.dev gateway rejected it with HTTP 400 before the viewer could respond.
+The `/jobs/<job>` route reaches Brev sign-in without encoded slashes and lets
+you open that trial from its job page. Existing GitHub result comments retain
+their older links; only newly generated results use this shape.
 
 `harbor view` runs persistently on the CI runner host. If it's down:
 

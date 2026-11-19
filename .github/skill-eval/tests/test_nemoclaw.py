@@ -307,6 +307,35 @@ def test_explicit_ports_remain_exact(tmp_path):
 
 
 
+def test_gateway_lookup_uses_owned_port_and_rejects_ambiguous_state(tmp_path):
+    owner = "a" * 64
+    roots = tmp_path / ".nemoclaw/gateways"
+    for name, claimed_owner in (("23000", owner), ("24000", "b" * 64)):
+        root = roots / name
+        root.mkdir(parents=True)
+        port = int(name)
+        (root / "skill-eval-owner.json").write_text(json.dumps({
+            "owner": claimed_owner, "ports": [port, port + 1, port + 2],
+        }))
+    assert gateway.lookup_gateway_port(owner, tmp_path) == 23000
+    with pytest.raises(gateway.NamespaceUnavailable, match="exactly one"):
+        gateway.lookup_gateway_port("c" * 64, tmp_path)
+    (roots / "24000/skill-eval-owner.json").write_text(json.dumps({
+        "owner": owner, "ports": [24000, 24001, 24002],
+    }))
+    with pytest.raises(gateway.NamespaceUnavailable, match="exactly one"):
+        gateway.lookup_gateway_port(owner, tmp_path)
+
+
+def test_gateway_lookup_rejects_invalid_owned_receipt(tmp_path):
+    owner = "a" * 64
+    receipt = tmp_path / ".nemoclaw/gateways/23000/skill-eval-owner.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(json.dumps({"owner": owner, "ports": [8080, 23001, 23002]}))
+    with pytest.raises(ValueError, match="invalid owned"):
+        gateway.lookup_gateway_port(owner, tmp_path)
+
+
 def test_allocator_exhaustion_and_permission_errors_fail_closed(monkeypatch, tmp_path):
     import errno
     monkeypatch.setattr(gateway, 'claim', lambda *args: (_ for _ in ()).throw(gateway.NamespaceUnavailable('occupied')))
