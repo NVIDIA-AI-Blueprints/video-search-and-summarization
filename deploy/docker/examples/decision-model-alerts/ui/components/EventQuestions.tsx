@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 D1 project contributors
 // SPDX-License-Identifier: Apache-2.0
+import { appPath } from '../utils/basePath';
 import React, { useEffect, useRef, useState } from 'react';
 import { IconArrowUp } from '@tabler/icons-react';
 import styles from './D1AgentPanel.module.css';
@@ -8,8 +9,8 @@ type Turn = { id: string; event_id: string; question: string; answer?: string; c
   status?: 'queued' | 'running' | 'complete' | 'failed'; error?: { code: string; message: string } };
 type Phase = 'sending' | 'queued' | 'running';
 const pendingLabel = (phase: Phase) => phase === 'queued'
-  ? 'Queued — Cosmos will answer after its current review.'
-  : phase === 'running' ? 'Cosmos is reviewing the selected clip…' : 'Sending your question…';
+  ? 'Queued — NVIDIA Cosmos will answer after its current review.'
+  : phase === 'running' ? 'NVIDIA Cosmos is reviewing the selected clip…' : 'Sending your question…';
 
 async function questionRequest(url: string, signal: AbortSignal, options: RequestInit = {}) {
   // Every HTTP request is short. Waiting for model capacity happens through
@@ -22,7 +23,7 @@ async function questionRequest(url: string, signal: AbortSignal, options: Reques
   try {
     const response = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
     const body = await response.json();
-    if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'Cosmos could not accept this question. Try again.');
+    if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'NVIDIA Cosmos could not accept this question. Try again.');
     return body;
   } finally { clearTimeout(timeout); signal.removeEventListener('abort', abort); }
 }
@@ -61,7 +62,7 @@ export default function EventQuestions({ eventId, clipReady, clipTime, onPending
   pendingCallback.current = onPendingChange;
   const request = useRef<{ question: string; id: string } | null>(null);
   const postController = useRef<AbortController | null>(null);
-  const url = `/api/proxy/d1/reviews/${encodeURIComponent(eventId)}/questions`;
+  const url = appPath(`/api/proxy/d1/reviews/${encodeURIComponent(eventId)}/questions`);
 
   useEffect(() => {
     mounted.current = true;
@@ -105,6 +106,11 @@ export default function EventQuestions({ eventId, clipReady, clipTime, onPending
       history.current.scrollTop = history.current.scrollHeight;
       followBottom.current = true;
     }
+  }, [active, eventId]);
+  useEffect(() => {
+    if (active && history.current && followBottom.current) {
+      history.current.scrollTop = history.current.scrollHeight;
+    }
   }, [active, turns, pending, error]);
   useEffect(() => {
     const node = history.current;
@@ -141,7 +147,7 @@ export default function EventQuestions({ eventId, clipReady, clipTime, onPending
           terminalFailure = true;
           request.current = null;
           setTurns(old => [...old.filter(item => item.id !== id), turn]);
-          throw new Error(`${turn.error?.message || 'Cosmos could not answer this question.'} Retry to submit a new attempt.`);
+          throw new Error(`${turn.error?.message || 'NVIDIA Cosmos could not answer this question.'} Retry to submit a new attempt.`);
         }
         if (turn.status === 'queued' || turn.status === 'running') {
           accepted = true; setPhase(turn.status);
@@ -184,7 +190,7 @@ export default function EventQuestions({ eventId, clipReady, clipTime, onPending
     }}>
       {loading && <p className={styles.muted}>Loading saved questions…</p>}
       {!loading && !turns.length && !pending && <div className={styles.questionWelcome}><p>Ask about what is visible in the attached clip.</p><div className={styles.suggestions}><button disabled={!clipReady} onClick={() => suggest('Is a collision visible in this clip?')}>Is a collision visible?</button><button disabled={!clipReady} onClick={() => suggest('Which lanes are still moving?')}>Which lanes are moving?</button></div></div>}
-      {turns.map(turn => <article key={turn.id} className={styles.questionTurn}><div><span>You</span><p>{turn.question}</p></div><div><span>Cosmos · this clip</span><p>{turn.status === 'queued' || turn.status === 'running' ? pendingLabel(turn.status) : turn.status === 'failed' ? turn.error?.message || 'This question was not answered.' : turn.answer}</p>{turn.status === 'failed' && <div className={styles.suggestions}><button type="button" disabled={Boolean(pending)} onClick={() => { request.current = null; suggest(turn.question); }}>Use question again</button></div>}</div></article>)}
+      {turns.map(turn => <article key={turn.id} className={styles.questionTurn}><div><span>You</span><p>{turn.question}</p></div><div><span>NVIDIA Cosmos · this clip</span><p>{turn.status === 'queued' || turn.status === 'running' ? pendingLabel(turn.status) : turn.status === 'failed' ? turn.error?.message || 'This question was not answered.' : turn.answer}</p>{turn.status === 'failed' && <div className={styles.suggestions}><button type="button" disabled={Boolean(pending)} onClick={() => { request.current = null; suggest(turn.question); }}>Use question again</button></div>}</div></article>)}
       {pending && <article className={styles.questionTurn}><div><span>You</span><p>{pending}</p></div><p className={styles.answering} role="status">{pendingLabel(phase)}</p></article>}
       {busyElsewhere && !pending && <p className={styles.answering} role="status">Another clip has a pending question. You can keep writing here.</p>}
       {error && <p className={styles.questionError} role="alert">{error}</p>}

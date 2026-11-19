@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 D1 project contributors
 // SPDX-License-Identifier: Apache-2.0
+import { appPath } from '../utils/basePath';
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './SourcePreview.module.css';
 
@@ -46,7 +47,7 @@ export default function SourcePreview({ streamId, revision, paused }: Props) {
         waitForFreshVideo();
       }, 3000);
       try {
-        const response = await fetch(`/api/proxy/d1/preview/${encodeURIComponent(streamId)}?revision=${encodeURIComponent(String(revision))}`, {
+        const response = await fetch(appPath(`/api/proxy/d1/preview/${encodeURIComponent(streamId)}?revision=${encodeURIComponent(String(revision))}`), {
           cache: 'no-store', headers: { Accept: 'image/jpeg' }, signal: request.signal,
         });
         if (!response.ok) throw new Error('Fresh video is not available.');

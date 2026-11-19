@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 D1 project contributors
 // SPDX-License-Identifier: Apache-2.0
+import { appPath } from '../utils/basePath';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { IconCheck, IconClock, IconMessageCircle, IconPlayerPlay, IconX, IconAlertTriangle, IconArrowUp, IconPaperclip, IconMovie } from '@tabler/icons-react';
 import EventQuestions from './EventQuestions';
@@ -37,7 +38,7 @@ function EventClip({ event, root, first }: { event: any; root: React.RefObject<H
     {waiting ? <div className={styles.videoStatus}><IconClock size={24} aria-hidden="true" /><p>{event.attempts > 0 ? 'The event clip is delayed.' : 'Preparing event clip…'}</p></div>
       : failed ? <div className={styles.videoStatus}><p>This saved clip is unavailable.</p><button onClick={() => { setFailed(false); setAttempt(value => value + 1); }}>Retry video</button></div>
       : nearby ? <video key={attempt} controls muted playsInline preload="metadata" aria-label={`Saved evidence clip ${event.id}`}
-          src={`/api/proxy/d1/clips/${encodeURIComponent(event.id)}?attempt=${attempt}`}
+          src={appPath(`/api/proxy/d1/clips/${encodeURIComponent(event.id)}?attempt=${attempt}`)}
           onError={() => setFailed(true)} onLoadedMetadata={e => { if (e.currentTarget.currentTime === 0) e.currentTarget.currentTime = 0.01; }} />
         : <button className={styles.loadVideo} onClick={() => setNearby(true)} aria-label={`Load saved clip ${event.id}`}><IconPlayerPlay size={30} aria-hidden="true" /><span>Load event clip</span></button>}
   </div>;
@@ -57,7 +58,7 @@ function ReviewRow({ event, incident, streamRevision, activeRule, root, first, a
     : event.status === 'legacy' ? 'This event predates verification. No verdict was recorded.'
     : event.status === 'failed' ? 'Verification could not be completed. No verdict was issued.'
     : event.attempts > 0 ? 'Verification is delayed. An automatic retry is scheduled.'
-    : event.status === 'reviewing' ? 'Cosmos is checking the saved clip.' : 'The saved clip will be sent to Cosmos for verification.';
+    : event.status === 'reviewing' ? 'NVIDIA Cosmos is checking the saved clip.' : 'The saved clip will be sent to NVIDIA Cosmos for verification.';
   return <article className={styles.row} data-event-id={event.id} aria-label={`Saved event ${savedTime(event.captured_at)}`}>
     <div className={styles.evidence}>
       <div className={styles.clipHeading}><strong>Event clip</strong><time dateTime={new Date(event.captured_at * 1000).toISOString()}>{savedTime(event.captured_at)}</time></div>
@@ -65,7 +66,7 @@ function ReviewRow({ event, incident, streamRevision, activeRule, root, first, a
       <div className={styles.clipCaption}><span>Saved recording</span><span>{Math.round(event.clip_end - event.clip_start)}s requested window</span></div>
     </div>
     <div className={styles.result} data-verdict={verdict || (unverified ? 'unverified' : event.status === 'failed' ? 'failed' : 'pending')}>
-      <div className={styles.resultHeading}><strong>Cosmos result</strong><span className={styles.verdict}>{verdict === 'confirmed' ? <IconCheck size={16} aria-hidden="true" /> : verdict === 'rejected' || verdict === 'uncertain' || event.status === 'failed' ? <IconAlertTriangle size={16} aria-hidden="true" /> : <IconClock size={16} aria-hidden="true" />}{resultLabel(event)}</span></div>
+      <div className={styles.resultHeading}><strong>NVIDIA Cosmos result</strong><span className={styles.verdict}>{verdict === 'confirmed' ? <IconCheck size={16} aria-hidden="true" /> : verdict === 'rejected' || verdict === 'uncertain' || event.status === 'failed' ? <IconAlertTriangle size={16} aria-hidden="true" /> : <IconClock size={16} aria-hidden="true" />}{resultLabel(event)}</span></div>
       <p className={styles.summary}>{summary || 'A description is not available for this saved clip.'}</p>
       {verdict === 'rejected' && <p className={styles.note}>Not added to verified incidents.</p>}
       {verdict === 'uncertain' && <p className={styles.note}>Not added to verified incidents. More evidence is needed.</p>}
@@ -74,7 +75,7 @@ function ReviewRow({ event, incident, streamRevision, activeRule, root, first, a
         {incident?.candidate_count > 1 && <p className={styles.note}>Part of one incident · {incident.candidate_count} candidate clips grouped</p>}
         {verdict && event.review.evidence?.length > 0 && <><h5>Visible evidence</h5><ul>{event.review.evidence.map((item: string, index: number) => <li key={index}>{item}</li>)}</ul></>}
         {verdict && event.review.uncertainty?.length > 0 && <><h5>What the clip cannot establish</h5><ul>{event.review.uncertainty.map((item: string, index: number) => <li key={index}>{item}</li>)}</ul></>}
-        <h5>D1’s saved question</h5><p>{question || 'The saved question is not available.'}</p>
+        <h5>D1 decision model’s saved question</h5><p>{question || 'The saved question is not available.'}</p>
         <p>{describeTrigger(event.incident) || 'Trigger details are not available.'}</p>
         {describeEventWindow(event.incident) && <p>{describeEventWindow(event.incident)}</p>}
         {previousSettings && <p>This clip uses earlier monitoring settings.</p>}
@@ -154,7 +155,7 @@ export default function CosmosReviewFeed({ events, incidents, streamRevision, ac
   return <div className={styles.root}>
     <div className={styles.historyPane}>
     {newAbove && <button className={styles.newClips} onClick={() => { feed.current?.scrollTo({ top: 0, behavior: 'smooth' }); setNewAbove(false); }}><IconArrowUp size={14} aria-hidden="true" />New clips above</button>}
-    <div ref={feed} className={styles.feed} role="region" aria-label="Cosmos review history" tabIndex={0} onScroll={recordPosition}
+    <div ref={feed} className={styles.feed} role="region" aria-label="NVIDIA Cosmos review history" tabIndex={0} onScroll={recordPosition}
       onPlayCapture={event => {
         const playing = event.target as HTMLVideoElement;
         const id = playing.closest<HTMLElement>('[data-event-id]')?.dataset.eventId;
@@ -165,16 +166,16 @@ export default function CosmosReviewFeed({ events, incidents, streamRevision, ac
       {sorted.length ? sorted.map((event, index) => <ReviewRow key={event.id} event={event} root={feed} first={index === 0}
         incident={incidents.find(incident => incident.candidate_ids?.includes(event.id) || incident.representative_event_id === event.id)}
         streamRevision={streamRevision} activeRule={activeRule} ask={addToChat} attached={attachedId === event.id} />)
-        : <div className={styles.empty}><IconClock size={25} aria-hidden="true" /><h3>{!available ? 'Waiting for review history' : autoReview ? 'Waiting for a D1 candidate' : 'Automatic verification is off'}</h3><p>{autoReview ? 'When D1’s trigger rule matches, the event clip and Cosmos’s verification appear here.' : 'Open Monitoring setup to review the trigger configuration.'}</p><span>The monitored video stays visible above.</span></div>}
+        : <div className={styles.empty}><IconClock size={25} aria-hidden="true" /><h3>{!available ? 'Waiting for review history' : autoReview ? 'Waiting for a D1 decision model candidate' : 'Automatic verification is off'}</h3><p>{autoReview ? 'When the D1 decision model’s trigger rule matches, the event clip and NVIDIA Cosmos’s verification appear here.' : 'Open Monitoring setup to review the trigger configuration.'}</p><span>The monitored video stays visible above.</span></div>}
     </div>
     </div>
-    <aside ref={chat} className={styles.chatDock} aria-label="Chat with Cosmos">
-      <header className={styles.chatHeading}><IconMessageCircle size={19} aria-hidden="true" /><div><h3>Chat with Cosmos</h3></div></header>
+    <aside ref={chat} className={styles.chatDock} aria-label="Chat with NVIDIA Cosmos">
+      <header className={styles.chatHeading}><IconMessageCircle size={19} aria-hidden="true" /><div><h3>Chat with NVIDIA Cosmos</h3></div></header>
       {qaEvent ? <div className={styles.attachment} data-testid="chat-attachment" data-attached-event-id={qaEvent.id}>
         <IconMovie size={24} aria-hidden="true" /><div><strong>Event clip attached</strong><time dateTime={new Date(qaEvent.captured_at * 1000).toISOString()}>{savedTime(qaEvent.captured_at)}</time></div>
         <button type="button" aria-label="Remove clip from chat" onClick={() => setAttachedId(null)}><IconX size={16} aria-hidden="true" /></button>
       </div> : <div className={styles.chatEmpty}>
-        <IconPaperclip size={28} aria-hidden="true" /><h4>Add a clip to start</h4><p>Choose <strong>Add to chat</strong> on an event, then ask Cosmos about that video.</p>
+        <IconPaperclip size={28} aria-hidden="true" /><h4>Add a clip to start</h4><p>Choose <strong>Add to chat</strong> on an event, then ask NVIDIA Cosmos about that video.</p>
         <div className={styles.emptyComposer}><textarea aria-label="Question about attached clip" disabled rows={2} placeholder="Add an event clip to ask about it…" /><button disabled aria-label="Send question"><IconArrowUp size={18} aria-hidden="true" /></button></div>
       </div>}
       <div className={styles.chatThreads} hidden={!qaEvent}>

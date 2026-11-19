@@ -8,7 +8,7 @@ let mockFeedProps: any;
 jest.mock('../../components/SourcePreview', () => ({ __esModule: true, default: ({ streamId, revision, paused }: any) => <div aria-label="Current monitored video" data-stream={streamId} data-revision={revision} data-paused={String(paused)} /> }));
 jest.mock('../../components/CosmosReviewFeed', () => ({ __esModule: true, default: (props: any) => {
  mockFeedProps = props;
- return <div aria-label="Cosmos review feed" data-count={props.events.length} data-available={String(props.available)} />;
+ return <div aria-label="NVIDIA Cosmos review feed" data-count={props.events.length} data-available={String(props.available)} />;
 } }));
 
 const now = 1794600000;
@@ -29,29 +29,29 @@ const recordedSources = (active='live') => ({ data: { active_source:active, sour
 describe('Two-section traffic monitoring',()=>{
  const originalFetch=global.fetch, originalClone=global.structuredClone;
  let current:any;
- beforeEach(()=>{jest.useFakeTimers();sessionStorage.clear();current=snapshot();mockFeedProps=null;global.structuredClone=value=>JSON.parse(JSON.stringify(value));global.fetch=jest.fn().mockImplementation(async()=>({ok:true,json:async()=>JSON.parse(JSON.stringify(current))})) as any;});
+ beforeEach(()=>{jest.useFakeTimers();jest.setSystemTime(now*1000);sessionStorage.clear();current=snapshot();mockFeedProps=null;global.structuredClone=value=>JSON.parse(JSON.stringify(value));global.fetch=jest.fn().mockImplementation(async()=>({ok:true,json:async()=>JSON.parse(JSON.stringify(current))})) as any;});
  afterEach(()=>{jest.useRealTimers();global.fetch=originalFetch;global.structuredClone=originalClone;});
  const setup=async()=>{render(<D1AgentPanel isActive/>);await screen.findByText('Actual traffic check');await act(async()=>{});};
- it('keeps current input and D1 output above separate Cosmos evidence even when an incident exists',async()=>{
+ it('keeps current input and D1 decision model output above separate NVIDIA Cosmos evidence even when an incident exists',async()=>{
   await setup();
-  const live=screen.getByRole('region',{name:/D1 live inference/});
-  const cosmos=screen.getByRole('region',{name:/Cosmos verification/});
+  const live=screen.getByRole('region',{name:/D1 decision model live inference/});
+  const cosmos=screen.getByRole('region',{name:/NVIDIA Cosmos verification/});
   const preview=screen.getByLabelText('Current monitored video');
   expect(live).toContainElement(preview);
   expect(within(live).getByTestId('d1-question')).toHaveTextContent('Actual traffic check');
   expect(within(live).getByText('Yes (95% confidence)')).toBeInTheDocument();
-  expect(cosmos).toContainElement(screen.getByLabelText('Cosmos review feed'));
+  expect(cosmos).toContainElement(screen.getByLabelText('NVIDIA Cosmos review feed'));
   expect(cosmos).not.toContainElement(preview);
   expect(mockFeedProps.events[0]).toMatchObject({id:'one',review:{clip_sha256:'abc'}});
   expect(mockFeedProps.incidents[0]).toMatchObject({id:'incident-one',candidate_count:4});
   expect((global.fetch as jest.Mock).mock.calls.every(call=>!call[1]?.method||call[1]?.method==='GET')).toBe(true);
  });
- it('continues showing incoming video without manufacturing candidates or asking Cosmos when no event exists',async()=>{
+ it('continues showing incoming video without manufacturing candidates or asking NVIDIA Cosmos when no event exists',async()=>{
   current.incidents.data={incidents:[],candidates:[]};
   current.rules.data[0].config.value=.85;
   current.decisions.data[1].answer.noul=.16;
   await setup();
-  expect(screen.getByText('Video going into D1')).toBeInTheDocument();
+  expect(screen.getByText('Video going into the D1 decision model')).toBeInTheDocument();
   expect(screen.getByLabelText('Current monitored video')).toHaveAttribute('data-stream',traffic.id);
   expect(screen.getByLabelText('Current monitored video')).toHaveAttribute('data-revision','2');
   expect(screen.getByText('Yes with at least 85% confidence for 3 consecutive checks.')).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe('Two-section traffic monitoring',()=>{
   expect(mockFeedProps.events[0]).toMatchObject({status:'uncertain',review:{verdict:'uncertain'}});
   expect(mockFeedProps.events[1]).toMatchObject({status:'confirmed',review:{verdict:'confirmed'}});
  });
- it('passes only the active source’s candidates, incidents, jobs and reviews to Cosmos',async()=>{
+ it('passes only the active source’s candidates, incidents, jobs and reviews to NVIDIA Cosmos',async()=>{
   current.incidents.data.candidates.push({...candidate('warehouse-event'),stream_id:warehouse.id,event:{...event('warehouse-event'),stream_id:warehouse.id}});
   current.incidents.data.incidents.push({...incident(),id:'warehouse-incident',stream_id:warehouse.id});
   current.jobs.data=[{...event('other-job'),stream_id:warehouse.id,status:'complete'}];
@@ -92,7 +92,7 @@ describe('Two-section traffic monitoring',()=>{
   expect(mockFeedProps.events.find((e:any)=>e.id==='legacy').review.verification_version).toBeUndefined();
   expect(mockFeedProps.incidents).toEqual([]);
  });
- it('keeps original saved trigger question and verdict separate from the newest D1 answer',async()=>{
+ it('keeps original saved trigger question and verdict separate from the newest D1 decision model answer',async()=>{
   current.incidents.data.candidates[0].event={...event(),rule_revision:1,trigger:{config_revision:1,question:{instructions:'Original historical question'},answer:{noul:.9}}};
   await setup();
   expect(screen.getByTestId('d1-question')).toHaveTextContent('Actual traffic check');
@@ -119,7 +119,7 @@ describe('Two-section traffic monitoring',()=>{
  });
  it('resets source-bound preview and feed when the monitored source changes',async()=>{
   await setup();
-  const oldPreview=screen.getByLabelText('Current monitored video'),oldFeed=screen.getByLabelText('Cosmos review feed');
+  const oldPreview=screen.getByLabelText('Current monitored video'),oldFeed=screen.getByLabelText('NVIDIA Cosmos review feed');
   current.sources=recordedSources('queued');
   current.streams.data=[warehouse,{...traffic,id:'d1-queued'}];
   await act(async()=>{jest.advanceTimersByTime(5000);});
@@ -127,7 +127,7 @@ describe('Two-section traffic monitoring',()=>{
   expect(screen.getByText('Recorded input')).toBeInTheDocument();
   expect(screen.getByLabelText('Current monitored video')).not.toBe(oldPreview);
   expect(screen.getByLabelText('Current monitored video')).toHaveAttribute('data-stream','d1-queued');
-  expect(screen.getByLabelText('Cosmos review feed')).not.toBe(oldFeed);
+  expect(screen.getByLabelText('NVIDIA Cosmos review feed')).not.toBe(oldFeed);
   expect(mockFeedProps.events).toEqual([]);expect(mockFeedProps.incidents).toEqual([]);
  });
  it('pauses current input without dropping saved review data',async()=>{
@@ -144,16 +144,55 @@ describe('Two-section traffic monitoring',()=>{
   view.rerender(<D1AgentPanel isActive={false}/>);
   expect(screen.getByLabelText('Current monitored video')).toHaveAttribute('data-paused','true');
  });
- it('labels a stale D1 answer without the removed availability messages',async()=>{current.decisions.data[1].captured_at=now-100;await setup();expect(screen.getByText('Last D1 answer · out of date')).toBeInTheDocument();expect(screen.queryByText('Input unavailable')).not.toBeInTheDocument();expect(screen.queryByText('Current data is unavailable. Saved evidence remains available.')).not.toBeInTheDocument();expect(screen.queryByText('Monitoring',{exact:true})).not.toBeInTheDocument();});
+ it('labels a stale D1 decision model answer without the removed availability messages',async()=>{current.decisions.data[1].captured_at=now-100;await setup();expect(screen.getByText('Last D1 decision model answer · out of date')).toBeInTheDocument();expect(screen.queryByText('Input unavailable')).not.toBeInTheDocument();expect(screen.queryByText('Current data is unavailable. Saved evidence remains available.')).not.toBeInTheDocument();expect(screen.queryByText('Monitoring',{exact:true})).not.toBeInTheDocument();});
  it('keeps admin prompt configuration secondary and preserves a draft while closing setup',async()=>{await setup();expect(screen.queryByLabelText('Describe your monitoring goal')).not.toBeVisible();fireEvent.click(screen.getByRole('button',{name:'Monitoring setup'}));const input=screen.getByLabelText('Describe your monitoring goal');fireEvent.change(input,{target:{value:'Watch slow traffic'}});fireEvent.click(screen.getByRole('button',{name:'Close settings'}));expect(input).not.toBeVisible();fireEvent.click(screen.getByRole('button',{name:'Monitoring setup'}));expect(screen.getByLabelText('Describe your monitoring goal')).toHaveValue('Watch slow traffic');});
+ it('ages a saved answer while every refresh fails', async () => {
+  await setup();
+  expect(screen.getByText('Latest D1 decision model answer')).toBeInTheDocument();
+  (global.fetch as jest.Mock).mockRejectedValue(new Error('Disconnected'));
+  await act(async () => { await jest.advanceTimersByTimeAsync(20000); });
+  expect(screen.getByText('Last D1 decision model answer · out of date')).toBeInTheDocument();
+  expect(screen.getByText('Yes (95% confidence)')).toBeInTheDocument();
+ });
+ it('keeps an unsent monitoring request through assistant outages and recovery', async () => {
+  current.assistant = { data: { configured: true, ready: true } };
+  await setup();
+  fireEvent.click(screen.getByRole('button', {name: 'Monitoring setup'}));
+  const input = screen.getByLabelText('Describe your monitoring goal');
+  fireEvent.change(input, {target: {value: 'Watch a sustained queue'}});
+  current.assistant = { data: { configured: true, ready: false } };
+  await act(async () => { await jest.advanceTimersByTimeAsync(5000); });
+  expect(screen.getByLabelText('Describe your monitoring goal')).toBe(input);
+  expect(input).toHaveValue('Watch a sustained queue');
+  current.assistant = { error: 'Health probe timed out' };
+  await act(async () => { await jest.advanceTimersByTimeAsync(5000); });
+  expect(screen.getByLabelText('Describe your monitoring goal')).toBe(input);
+  current.assistant = { data: { configured: true, ready: true } };
+  await act(async () => { await jest.advanceTimersByTimeAsync(5000); });
+  expect(input).toHaveValue('Watch a sustained queue');
+ });
  it('opens manual configuration when the optional prompt assistant is disabled', async () => {
   current.assistant = { data: { ready: false, configured: false } };
   await setup();
   fireEvent.click(screen.getByRole('button', {name: 'Monitoring setup'}));
   expect(screen.queryByRole('tab', {name: 'Prompt assistant'})).not.toBeInTheDocument();
-  expect(screen.getByLabelText('What should D1 watch for?')).toHaveValue('Is there a traffic queue?');
+  expect(screen.getByLabelText('What should the D1 decision model watch for?')).toHaveValue('Is there a traffic queue?');
  });
- it('preserves advanced input configuration and binds it to the enabled stream',async()=>{await setup();fireEvent.click(screen.getByRole('button',{name:'Monitoring setup'}));fireEvent.click(screen.getByRole('tab',{name:'Source & trigger settings'}));expect(screen.getByLabelText('Stream',{exact:true})).toHaveValue(traffic.id);fireEvent.change(screen.getByLabelText('What D1 receives'),{target:{value:'video'}});expect(screen.getByLabelText('Frames per video check')).toHaveValue(8);expect(screen.getByLabelText('What should D1 watch for?')).toHaveValue('Is there a traffic queue?');});
+ it('shows legacy rule errors and offers only verifiable Yes/no trigger choices', async () => {
+  current.rules.data[0].validation_error = 'Unsupported confidence trigger';
+  current.rules.data[0].config.enabled = false;
+  await setup();
+  expect(screen.getByText(/This rule needs correction in Monitoring setup/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name: 'Monitoring setup'}));
+  fireEvent.click(screen.getByRole('tab', {name: 'Source & trigger settings'}));
+  expect(within(screen.getByLabelText('Output field')).getAllByRole('option').map(o => o.textContent)).toEqual(['noul']);
+  expect(within(within(screen.getByLabelText('Output field').closest('form')!).getByLabelText('Comparison')).queryByRole('option', {name: '= value'})).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Trigger threshold'), {target: {value: '0.4'}});
+  fireEvent.click(screen.getByRole('button', {name: 'Save rule'}));
+  await act(async () => {});
+  expect((global.fetch as jest.Mock).mock.calls.some(c => c[1]?.method === 'PUT')).toBe(false);
+ });
+ it('preserves advanced input configuration and binds it to the enabled stream',async()=>{await setup();fireEvent.click(screen.getByRole('button',{name:'Monitoring setup'}));fireEvent.click(screen.getByRole('tab',{name:'Source & trigger settings'}));expect(screen.getByLabelText('Stream',{exact:true})).toHaveValue(traffic.id);fireEvent.change(screen.getByLabelText('What the D1 decision model receives'),{target:{value:'video'}});expect(screen.getByLabelText('Frames per video check')).toHaveValue(8);expect(screen.getByLabelText('What should the D1 decision model watch for?')).toHaveValue('Is there a traffic queue?');});
  it('shows the current stream and all prepared inputs in one visible dropdown without switching automatically',async()=>{
   current.sources=recordedSources();await setup();
   const select=screen.getByRole('combobox',{name:'Stream',exact:true});

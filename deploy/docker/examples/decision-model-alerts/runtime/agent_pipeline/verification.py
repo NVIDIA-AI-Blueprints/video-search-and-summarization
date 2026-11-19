@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 from pydantic import (AfterValidator, BeforeValidator, Field, StringConstraints,
                       ValidationError, ValidationInfo, field_validator)
 from pydantic_core import PydanticCustomError
-from .contracts import StrictModel
+from .contracts import StrictModel, Question
 
 
 VERIFICATION_POLICY_VERSION = "2026-11-17.2"
@@ -146,8 +146,15 @@ def candidate_condition(event):
     question = event.get("trigger", {}).get("question")
     if not isinstance(question, dict) or not isinstance(question.get("instructions"), str):
         raise VerificationFormatError("Candidate has no saved D1 question to verify")
+    try:
+        validated_question = Question.model_validate(question)
+    except ValidationError as exc:
+        raise VerificationFormatError("Candidate has an invalid saved D1 question") from exc
     rule = event["rule"]
     field = rule["field"]
+    allowed = {"noul": {"noul"}, "score": {"score", "probability"}, "choice": {"choice", "probability"}}
+    if field not in allowed[validated_question.type]:
+        raise VerificationFormatError("Trigger does not identify a semantic condition for this question type")
     criteria = question.get("criteria")
     expected = None
     if field == "noul":

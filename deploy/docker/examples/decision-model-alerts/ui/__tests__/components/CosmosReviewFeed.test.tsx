@@ -12,12 +12,12 @@ jest.mock('../../components/EventQuestions', () => ({ __esModule: true, default:
 const now = 1794856080;
 const candidate = (id: string, timestamp = now, status = 'confirmed') => ({
   id, stream_id:'traffic-recorded', captured_at:timestamp, clip_start:timestamp-15, clip_end:timestamp+5, status, clip_ready:status!=='pending',
-  incident:{ id,stream_id:'traffic-recorded',rule_id:'traffic-rule',rule_revision:2,rule:{field:'noul',operator:'gte',value:.85,consecutive_samples:3,pre_seconds:15,post_seconds:5},trigger:{config_revision:4,question:{instructions:'The saved D1 question'}} },
+  incident:{ id,stream_id:'traffic-recorded',rule_id:'traffic-rule',rule_revision:2,rule:{field:'noul',operator:'gte',value:.85,consecutive_samples:3,pre_seconds:15,post_seconds:5},trigger:{config_revision:4,question:{instructions:'The saved D1 decision model question'}} },
   review:['confirmed','rejected','uncertain'].includes(status)?{event_id:id,verification_version:1,verdict:status,summary:`Review of ${id}`,evidence:['A queue is visible.'],uncertainty:['The cause is outside the view.'],clip_sha256:`sha-${id}`} : null,
 });
 const props = (events:any[]) => ({events,incidents:[],available:true,autoReview:true,streamRevision:4,activeRule:{id:'traffic-rule',revision:2}});
 
-describe('Cosmos event review feed', () => {
+describe('NVIDIA Cosmos event review feed', () => {
   const originalObserver = global.IntersectionObserver;
   const observers: Array<{ callback: IntersectionObserverCallback; node?: Element; disconnect: jest.Mock }> = [];
   beforeEach(() => {
@@ -33,14 +33,14 @@ describe('Cosmos event review feed', () => {
 
   it('pairs newest-first saved clips with their own result and original question', () => {
     render(<CosmosReviewFeed {...props([candidate('older',now-60),candidate('newest')])} />);
-    const feed=screen.getByRole('region',{name:'Cosmos review history'});
+    const feed=screen.getByRole('region',{name:'NVIDIA Cosmos review history'});
     const rows=within(feed).getAllByRole('article');
     expect(rows.map(row=>row.getAttribute('data-event-id'))).toEqual(['newest','older']);
     expect(within(rows[0]).getByLabelText('Saved evidence clip newest')).toHaveAttribute('src','/api/proxy/d1/clips/newest?attempt=0');
     expect(within(rows[0]).getByText('Review of newest')).toBeInTheDocument();
     fireEvent.click(within(rows[0]).getByText('Evidence & trigger details'));
-    expect(within(rows[0]).getByText('The saved D1 question')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('D1’s yes score was at least 85% for 3 consecutive checks.')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('The saved D1 decision model question')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('The D1 decision model’s yes score was at least 85% for 3 consecutive checks.')).toBeInTheDocument();
     expect(within(rows[0]).getByText('Reviewed clip SHA-256: sha-newest')).toBeInTheDocument();
     expect(within(rows[0]).getByLabelText('Saved evidence clip newest')).not.toHaveAttribute('autoplay');
   });
@@ -94,7 +94,7 @@ describe('Cosmos event review feed', () => {
   it('anchors an older row when new clips or changing review heights appear above it', () => {
     const old=candidate('old',now-60), recent=candidate('recent');
     const {rerender}=render(<CosmosReviewFeed {...props([recent,old])} />);
-    const feed=screen.getByRole('region',{name:'Cosmos review history'});
+    const feed=screen.getByRole('region',{name:'NVIDIA Cosmos review history'});
     const rows=screen.getAllByRole('article');
     jest.spyOn(feed,'getBoundingClientRect').mockReturnValue({top:100,bottom:400} as DOMRect);
     jest.spyOn(rows[0],'getBoundingClientRect').mockReturnValue({top:-200,bottom:90} as DOMRect);
@@ -124,7 +124,7 @@ describe('Cosmos event review feed', () => {
   it('shows a permanent empty chat, then preserves its attachment and draft through polling and removal', () => {
     const old=candidate('old');
     const {rerender}=render(<CosmosReviewFeed {...props([old])} />);
-    expect(screen.getByRole('complementary',{name:'Chat with Cosmos'})).toBeVisible();
+    expect(screen.getByRole('complementary',{name:'Chat with NVIDIA Cosmos'})).toBeVisible();
     expect(screen.getByRole('textbox',{name:'Question about attached clip'})).toBeDisabled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'Add to chat'}));
@@ -210,7 +210,7 @@ describe('Cosmos event review feed', () => {
 
   it('clearly explains an empty candidate feed and unavailable history separately', () => {
     const {rerender}=render(<CosmosReviewFeed {...props([])} />);
-    expect(screen.getByRole('heading',{name:'Waiting for a D1 candidate'})).toBeInTheDocument();
+    expect(screen.getByRole('heading',{name:'Waiting for a D1 decision model candidate'})).toBeInTheDocument();
     expect(screen.queryByRole('button',{name:'Add to chat'})).not.toBeInTheDocument();
     rerender(<CosmosReviewFeed {...props([])} available={false} />);
     expect(screen.getByRole('heading',{name:'Waiting for review history'})).toBeInTheDocument();

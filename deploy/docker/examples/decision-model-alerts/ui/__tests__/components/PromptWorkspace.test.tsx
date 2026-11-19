@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 D1 project contributors
 // SPDX-License-Identifier: Apache-2.0
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import PromptWorkspace from '../../components/PromptWorkspace';
 
 const stream = (id: string, enabled: boolean) => ({ id, revision: 1, config: { enabled, interval_seconds: 2, question: { type: 'noul', instructions: `Question for ${id}`, criteria: null } } });
@@ -39,21 +39,32 @@ describe('Persistent prompt workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Alert on stopped or crawling traffic' }));
     expect(screen.getByLabelText('Describe your monitoring goal')).toHaveValue('Alert on stopped or crawling traffic');
     expect(screen.getByLabelText('Describe your monitoring goal')).toHaveFocus();
-    expect(screen.getByRole('button', { name: 'Have Cosmos compare the lanes' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Have NVIDIA Cosmos compare the lanes' })).toBeVisible();
+  });
+
+  it('prevents applying a Yes threshold that cannot be verified', async () => {
+    global.fetch = jest.fn() as any;
+    render(<PromptWorkspace {...props} />);
+    openPrompts();
+    expect(within(screen.getByLabelText('Trigger field')).queryByRole('option', {name: 'confidence'})).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Threshold / choice key'), {target: {value: '0.4'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Apply both'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Yes requires a threshold from 0.5 to 1');
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('loads and explicitly applies the matching stream and rule, retaining the new revision before polling catches up', async () => {
     global.fetch = jest.fn().mockResolvedValue(reply({ stream: { revision: 2 }, rule: { revision: 2 } })) as unknown as typeof fetch;
     render(<PromptWorkspace {...props} />);
     openPrompts();
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue(`Question for ${live.id}`);
-    expect(screen.getByLabelText('Cosmos prompt')).toHaveValue(`Review for ${live.id}`);
-    fireEvent.change(screen.getByLabelText('D1 prompt'), { target: { value: 'Edited traffic question' } });
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue(`Question for ${live.id}`);
+    expect(screen.getByLabelText('NVIDIA Cosmos prompt')).toHaveValue(`Review for ${live.id}`);
+    fireEvent.change(screen.getByLabelText('D1 decision model prompt'), { target: { value: 'Edited traffic question' } });
     fireEvent.click(screen.getByRole('button', { name: 'Apply both' }));
-    await screen.findByText('Applied to D1 and Cosmos.');
+    await screen.findByText('Applied to the D1 decision model and NVIDIA Cosmos.');
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
     expect(body).toMatchObject({ stream_id: live.id, rule_id: 'traffic-live', stream_revision: 1, rule_revision: 1, draft: { question: { instructions: 'Edited traffic question' } } });
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue('Edited traffic question');
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue('Edited traffic question');
     expect(screen.getByRole('button', { name: 'Apply both' })).toBeDisabled();
     const saved = JSON.parse(sessionStorage.getItem(`d1-prompt-workspace-v1:${live.id}`)!);
     expect(saved.base.stream_revision).toBe(2);
@@ -71,11 +82,11 @@ describe('Persistent prompt workspace', () => {
     expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe('/api/proxy/d1/assistant/draft');
     expect(JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body).stream_id).toBe(live.id);
     expect(screen.getByRole('tab', { name: /Review prompts/ })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue('Are vehicles stopped or crawling?');
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue('Are vehicles stopped or crawling?');
     expect(screen.getByRole('button', { name: 'Apply both' })).toBeEnabled();
     expect(screen.getByLabelText('Describe your monitoring goal')).toBe(composer);
     expect(screen.getByText('Here are prompts for sustained congestion.')).not.toBeVisible();
-    expect(screen.getByLabelText('Cosmos prompt')).toBeVisible();
+    expect(screen.getByLabelText('NVIDIA Cosmos prompt')).toBeVisible();
     openConversation();
     expect(screen.getByText('Here are prompts for sustained congestion.')).toBeVisible();
     expect(screen.getByLabelText('Describe your monitoring goal')).toBe(composer);
@@ -94,8 +105,8 @@ describe('Persistent prompt workspace', () => {
     const updatedRules = rules.map(item => item.id === 'traffic-live' ? { ...item, revision: 2, config: { ...item.config, review_prompt: 'New active review' } } : item);
     rerender(<PromptWorkspace {...props} streams={updatedStreams} rules={updatedRules} />);
     openPrompts();
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue('New active question');
-    expect(screen.getByLabelText('Cosmos prompt')).toHaveValue('New active review');
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue('New active question');
+    expect(screen.getByLabelText('NVIDIA Cosmos prompt')).toHaveValue('New active review');
     expect(screen.getByLabelText('Describe your monitoring goal')).toHaveValue('A follow-up request');
     openConversation();
     expect(screen.getByText('I can help configure that camera.')).toBeVisible();
@@ -105,23 +116,23 @@ describe('Persistent prompt workspace', () => {
   it('preserves operator edits across configuration polls', () => {
     const { rerender } = render(<PromptWorkspace {...props} />);
     openPrompts();
-    fireEvent.change(screen.getByLabelText('D1 prompt'), { target: { value: 'Unsaved operator draft' } });
+    fireEvent.change(screen.getByLabelText('D1 decision model prompt'), { target: { value: 'Unsaved operator draft' } });
     rerender(<PromptWorkspace {...props} streams={props.streams.map(item => ({ ...item, revision: 2 }))} />);
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue('Unsaved operator draft');
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue('Unsaved operator draft');
   });
 
   it('preserves a dirty draft on source switch and disables both Send and Apply until the current source is loaded', () => {
     const { rerender } = render(<PromptWorkspace {...props} streamId={live.id} />);
     openPrompts();
-    fireEvent.change(screen.getByLabelText('D1 prompt'), { target: { value: 'Keep this live draft' } });
+    fireEvent.change(screen.getByLabelText('D1 decision model prompt'), { target: { value: 'Keep this live draft' } });
     fireEvent.change(screen.getByLabelText('Describe your monitoring goal'), { target: { value: 'A live camera follow-up' } });
     rerender(<PromptWorkspace {...props} streamId={recorded.id} />);
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue('Keep this live draft');
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue('Keep this live draft');
     expect(screen.getByText(/Your previous source’s draft is preserved/)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Apply both' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Load active settings' }));
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue(`Question for ${recorded.id}`);
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue(`Question for ${recorded.id}`);
     expect(screen.getByLabelText('Describe your monitoring goal')).toHaveValue('');
     expect(JSON.parse(sessionStorage.getItem(`d1-prompt-workspace-v1:${live.id}`)!).draft.question.instructions).toBe('Keep this live draft');
   });
@@ -139,7 +150,7 @@ describe('Persistent prompt workspace', () => {
     const { rerender } = render(<PromptWorkspace {...props} streamId={live.id} />);
     rerender(<PromptWorkspace {...props} streamId={recorded.id} sourceLabel="Recorded backup" />);
     openPrompts();
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue(`Question for ${recorded.id}`);
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue(`Question for ${recorded.id}`);
     expect(screen.getByText('For Recorded backup')).toBeVisible();
   });
 
@@ -164,10 +175,10 @@ describe('Persistent prompt workspace', () => {
     global.fetch = jest.fn().mockResolvedValue(reply({ error: 'Settings changed. Reload the active settings before applying.' }, false)) as unknown as typeof fetch;
     render(<PromptWorkspace {...props} />);
     openPrompts();
-    fireEvent.change(screen.getByLabelText('D1 prompt'), { target: { value: 'Keep my revised question' } });
+    fireEvent.change(screen.getByLabelText('D1 decision model prompt'), { target: { value: 'Keep my revised question' } });
     fireEvent.click(screen.getByRole('button', { name: 'Apply both' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Settings changed.');
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue('Keep my revised question');
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue('Keep my revised question');
     expect(screen.getByRole('button', { name: 'Apply both' })).toBeEnabled();
   });
 
@@ -176,7 +187,7 @@ describe('Persistent prompt workspace', () => {
     sessionStorage.setItem('d1-prompt-workspace-v1', JSON.stringify(saved));
     render(<PromptWorkspace {...props} />);
     openPrompts();
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue(`Question for ${live.id}`);
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue(`Question for ${live.id}`);
     expect(JSON.parse(sessionStorage.getItem(`d1-prompt-workspace-v1:${warehouse.id}`)!)).toEqual(saved);
   });
   it('supports keyboard view switching while preserving the composer and both prompt drafts', () => {
@@ -189,17 +200,17 @@ describe('Persistent prompt workspace', () => {
     const review = screen.getByRole('tab', { name: /Review prompts/ });
     expect(review).toHaveFocus();
     expect(review).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByLabelText('D1 prompt')).toBeVisible();
-    expect(screen.getByLabelText('Cosmos prompt')).toBeVisible();
-    fireEvent.change(screen.getByLabelText('D1 prompt'), { target: { value: 'My D1 draft' } });
-    fireEvent.change(screen.getByLabelText('Cosmos prompt'), { target: { value: 'My Cosmos draft' } });
+    expect(screen.getByLabelText('D1 decision model prompt')).toBeVisible();
+    expect(screen.getByLabelText('NVIDIA Cosmos prompt')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('D1 decision model prompt'), { target: { value: 'My D1 decision model draft' } });
+    fireEvent.change(screen.getByLabelText('NVIDIA Cosmos prompt'), { target: { value: 'My NVIDIA Cosmos draft' } });
     fireEvent.keyDown(review, { key: 'Home' });
     expect(conversation).toHaveFocus();
     expect(screen.getByLabelText('Describe your monitoring goal')).toBe(composer);
     expect(composer).toHaveValue('A request in progress');
     openPrompts();
-    expect(screen.getByLabelText('D1 prompt')).toHaveValue('My D1 draft');
-    expect(screen.getByLabelText('Cosmos prompt')).toHaveValue('My Cosmos draft');
+    expect(screen.getByLabelText('D1 decision model prompt')).toHaveValue('My D1 decision model draft');
+    expect(screen.getByLabelText('NVIDIA Cosmos prompt')).toHaveValue('My NVIDIA Cosmos draft');
   });
 
 });

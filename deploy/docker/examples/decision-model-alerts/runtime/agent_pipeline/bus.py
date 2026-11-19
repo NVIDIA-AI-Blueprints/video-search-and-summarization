@@ -5,12 +5,29 @@
 import logging
 import os
 import threading
+from dataclasses import dataclass
 from confluent_kafka import Consumer, Producer
 
 DECISIONS = "d1.decisions.v1"
 EVENTS = "d1.events.v1"
 REVIEWS = "d1.reviews.v1"
 LOG = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ConsumerPosition:
+    """The broker position, never an offset supplied by a message payload."""
+    topic: str
+    partition: int
+    offset: int
+
+    def __post_init__(self):
+        if not self.topic or self.partition < 0 or self.offset < 0:
+            raise ValueError("A decision requires a valid Kafka topic, partition and offset")
+
+    @classmethod
+    def from_message(cls, message):
+        return cls(message.topic(), message.partition(), message.offset())
 
 
 def kafka_config():

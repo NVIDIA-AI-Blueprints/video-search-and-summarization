@@ -61,6 +61,8 @@ class Rule(StrictModel):
 
     @model_validator(mode="after")
     def validate_comparison(self):
+        if self.field == "confidence":
+            raise ValueError("Confidence alone does not identify a condition for Cosmos to verify; use noul, score, choice or probability")
         if self.field == "probability" and self.probability_key is None:
             raise ValueError("probability_key is required")
         if self.field == "choice":
@@ -70,6 +72,13 @@ class Rule(StrictModel):
             raise ValueError("numeric fields require a numeric threshold")
         if self.field in ("noul", "confidence", "probability") and not 0 <= self.value <= 1:
             raise ValueError("probability thresholds must lie in [0, 1]")
+        if self.field == "noul" and not (
+            self.operator == "gte" and self.value >= 0.5
+            or self.operator == "lte" and self.value <= 0.5
+        ):
+            raise ValueError("Yes/no verification requires gte with a threshold >= 0.5 or lte with a threshold <= 0.5")
+        if self.field == "score" and self.operator == "eq" and not float(self.value).is_integer():
+            raise ValueError("An exact score trigger must identify an integer answer-label index")
         if self.pre_seconds + self.post_seconds <= 0:
             raise ValueError("clip duration must be positive")
         return self

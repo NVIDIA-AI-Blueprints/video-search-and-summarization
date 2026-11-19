@@ -75,10 +75,10 @@ describe('Attached video questions', () => {
   it('keeps the question and reuses the request ID after a failed attempt', async () => {
     let attempts = 0;
     (global.fetch as jest.Mock).mockImplementation(async (_url, options) => options?.method === 'POST' && attempts++ === 0
-      ? response({ error: 'Cosmos is busy' }, false) : response(options?.method === 'POST' ? turn : []));
+      ? response({ error: 'NVIDIA Cosmos is busy' }, false) : response(options?.method === 'POST' ? turn : []));
     await load();
     submit();
-    expect(await screen.findByRole('alert')).toHaveTextContent('Cosmos is busy');
+    expect(await screen.findByRole('alert')).toHaveTextContent('NVIDIA Cosmos is busy');
     expect(composer()).toHaveValue(turn.question);
     fireEvent.click(send());
     await screen.findByText(turn.answer);
@@ -151,6 +151,20 @@ describe('Attached video questions', () => {
     view.rerender(<EventQuestions eventId="event-one" clipReady clipTime="3:00 PM" onPendingChange={onPendingChange} active />);
     expect(history.scrollTop).toBe(500);
     expect(posts()).toHaveLength(1);
+  });
+
+  it('does not jump past older answers when an in-flight answer arrives', async () => {
+    const answer = deferred();
+    (global.fetch as jest.Mock).mockImplementation((_url, options) => options?.method === 'POST' ? answer.promise : Promise.resolve(response([])));
+    await load();
+    const history = document.querySelector('[data-chat-conversation]') as HTMLElement;
+    Object.defineProperties(history, {scrollHeight: {configurable: true, value: 900}, clientHeight: {configurable: true, value: 200}});
+    submit();
+    history.scrollTop = 100;
+    fireEvent.scroll(history);
+    await act(async () => { answer.resolve(response({...turn, status: 'complete'})); });
+    expect(screen.getByText(turn.answer)).toBeInTheDocument();
+    expect(history.scrollTop).toBe(100);
   });
 
   it('follows the newest answer on resize only when the user was near the bottom', async () => {
@@ -253,10 +267,10 @@ describe('Attached video questions', () => {
     });
     await load(); submit();
     await act(async () => {});
-    expect(screen.getByRole('status')).toHaveTextContent('Queued — Cosmos will answer after its current review');
+    expect(screen.getByRole('status')).toHaveTextContent('Queued — NVIDIA Cosmos will answer after its current review');
     expect(composer()).toBeDisabled();
     await act(async () => { await jest.advanceTimersByTimeAsync(1000); });
-    expect(screen.getByRole('status')).toHaveTextContent('Cosmos is reviewing the selected clip');
+    expect(screen.getByRole('status')).toHaveTextContent('NVIDIA Cosmos is reviewing the selected clip');
     await act(async () => { await jest.advanceTimersByTimeAsync(1000); });
     expect(screen.getByText(turn.answer)).toBeInTheDocument();
     expect(posts()).toHaveLength(1);

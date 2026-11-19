@@ -66,9 +66,13 @@ for name in ("d1-model", "d1-ingest"):
     build = services[name]["build"]
     assert Path(build["context"]) == repo_root, f"{name} build context misses the repository root"
     assert (repo_root / build["dockerfile"]).is_file(), f"{name} Dockerfile is missing"
-assert "build" not in services["d1-ui"], "The example UI is built in its isolated context"
-assert services["d1-ui"]["pull_policy"] == "never", "The example uses the local UI image"
-assert (example_path / "ui/build.sh").is_file(), "The example UI build script is missing"
+ui = services["d1-ui"]
+assert Path(ui["build"]["context"]) == example_path / "ui", "The UI must build from the example only"
+assert (example_path / "ui/Dockerfile").is_file(), "The standalone UI Dockerfile is missing"
+assert not (example_path / "ui/home-integration.patch").exists(), "The example must not patch the core UI"
+assert not any(key.startswith("NEXT_PUBLIC_ENABLE_") for key in ui["environment"]), (
+    "The standalone UI must not rely on core tab flags"
+)
 bootstrap_mount = services["d1-bootstrap"]["volumes"][0]
 assert Path(bootstrap_mount["source"]) == example_path / "bootstrap.py"
 assert bootstrap_mount["target"] == "/profile/bootstrap.py"

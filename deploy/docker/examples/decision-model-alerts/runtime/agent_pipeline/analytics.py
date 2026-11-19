@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from .clips import clip_path, save_clip, LOCK
-from .bus import DECISIONS, REVIEWS, consumer, drain_outbox
+from .bus import DECISIONS, REVIEWS, ConsumerPosition, consumer, drain_outbox
 from .contracts import Rule
 from .review import review_event, resolve_clip, ClipEvidenceChanged
 from .verification import VerificationFormatError
@@ -40,7 +40,8 @@ def consume_decisions(store, stop):
             # Do not skip failed messages by committing a later offset.
             while not stop.is_set():
                 try:
-                    process_decision(store, json.loads(message.value()))
+                    process_decision(store, json.loads(message.value()),
+                                     position=ConsumerPosition.from_message(message))
                     client.commit(message=message, asynchronous=False)
                     break
                 except Exception:
@@ -132,6 +133,8 @@ def create_app(store=None, start_workers=True):
             reconcile_rule(db, rule_id, None)
             db.execute("DELETE FROM config WHERE kind='rule' AND id=?", (rule_id,))
             db.execute("DELETE FROM rule_state WHERE id=?", (rule_id,))
+            db.execute("DELETE FROM rule_apply_recovery WHERE rule_id=?", (rule_id,))
+            db.execute("DELETE FROM rule_validation_errors WHERE rule_id=?", (rule_id,))
         return {"removed": rule_id}
 
     @app.get("/v1/reviews")

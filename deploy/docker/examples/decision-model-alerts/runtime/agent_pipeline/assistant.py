@@ -10,6 +10,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import Field, model_validator, ValidationError
 from .contracts import StrictModel, Question, Rule, StreamConfig
+from .verification import candidate_condition
 
 
 class ReviewDraft(StrictModel):
@@ -40,8 +41,8 @@ class MonitorDraft(StrictModel):
     @model_validator(mode='after')
     def compatible(self):
         rule = Rule(stream_id='validation', config_revision=1, **self.review.model_dump())
-        allowed = {'noul': {'noul', 'confidence'}, 'score': {'score', 'confidence', 'probability'},
-                   'choice': {'choice', 'confidence', 'probability'}}[self.question.type]
+        allowed = {'noul': {'noul'}, 'score': {'score', 'probability'},
+                   'choice': {'choice', 'probability'}}[self.question.type]
         if rule.field not in allowed:
             raise ValueError('Trigger field does not match the D1 answer type')
         if rule.field == 'score' and not 0 <= rule.value <= len(self.question.criteria) - 1:
@@ -54,6 +55,7 @@ class MonitorDraft(StrictModel):
                 raise ValueError('Probability trigger must name an answer key')
         if rule.max_gap_seconds < self.interval_seconds:
             raise ValueError('Maximum sample gap must cover the inference interval')
+        candidate_condition({'rule': rule.model_dump(), 'trigger': {'question': self.question.model_dump()}})
         return self
 
 
@@ -113,7 +115,8 @@ trigger; do not assume the score itself is an object count, speed, or probabilit
 Always include question.type explicitly. Always include criteria (null for noul).
 For choice, criteria is a dictionary of 2-10 string keys and labels; field choice uses eq and a string key.
 For probability, probability_key must be an existing label key (score keys are "0", "1", etc.).
-confidence is certainty, not a semantic event condition. Prefer noul/score/choice for triggers.
+Confidence-only triggers are not supported: certainty is not a semantic event condition.
+For noul, use gte at a threshold >=0.5 to verify yes, or lte at <=0.5 to verify no; do not use eq.
 Review includes: field, probability_key (null unless probability), operator, value,
 consecutive_samples, max_gap_seconds, cooldown_seconds, pre_seconds, post_seconds, review_prompt.
 Use sensible defaults: 2-second interval, 3 consecutive checks, 10-second max gap, 60-second
@@ -144,12 +147,12 @@ def router(store):
     def health():
         endpoint = os.getenv('NEMOTRON_URL', '').rstrip('/')
         if not endpoint:
-            return {'ready': False, 'model': 'Nemotron 3.5 Bolt E4B Q4'}
+            return {'configured': False, 'ready': False, 'model': 'Nemotron 3.5 Bolt E4B Q4'}
         try:
             response = httpx.get(endpoint + '/health', timeout=2)
-            return {'ready': response.status_code == 200, 'model': 'Nemotron 3.5 Bolt E4B Q4'}
+            return {'configured': True, 'ready': response.status_code == 200, 'model': 'Nemotron 3.5 Bolt E4B Q4'}
         except httpx.HTTPError:
-            return {'ready': False, 'model': 'Nemotron 3.5 Bolt E4B Q4'}
+            return {'configured': True, 'ready': False, 'model': 'Nemotron 3.5 Bolt E4B Q4'}
 
     @api.post('/draft')
     def draft(request: DraftRequest):
@@ -222,14 +225,14 @@ def router(store):
                     'question': request.draft.question.model_dump(), 'interval_seconds': request.draft.interval_seconds})
                 # Disable the old rule before changing D1. Failures leave it disabled,
                 # so new answers can never be interpreted under the old question.
-                store.put_config('rule', request.rule_id, {**rule['config'], 'enabled': False})
+                intended_enabled = store.pause_rule_for_apply(request.rule_id)
                 try:
                     response = client.put(base + '/v1/streams/' + request.stream_id,
                         json=stream_config.model_dump(), headers={'If-Match': str(request.stream_revision)})
                     response.raise_for_status()
                     saved = response.json()
                     new_rule = Rule(stream_id=request.stream_id, config_revision=saved['revision'],
-                        enabled=rule['config']['enabled'], **request.draft.review.model_dump())
+                        enabled=intended_enabled, **request.draft.review.model_dump())
                     revision = store.put_config('rule', request.rule_id, new_rule.model_dump())
                 except Exception as exc:
                     raise HTTPException(503, 'Apply did not finish. D1 may have changed; the rule is disabled. Reload live settings, review and apply again.') from exc

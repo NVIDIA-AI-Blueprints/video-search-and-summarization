@@ -1,5 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 D1 project contributors
 // SPDX-License-Identifier: Apache-2.0
+import { appPath } from '../utils/basePath';
+import { triggerFields, comparisons, comparisonLabel, triggerError } from '../utils/triggerSettings';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import styles from './PromptWorkspace.module.css';
@@ -100,7 +102,7 @@ export default function PromptWorkspace({ streams, rules, streamId, sourceLabel,
     return value;
   };
   const post = async (action: string, body: unknown) => {
-    const response = await fetch(`/api/proxy/d1/assistant/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const response = await fetch(appPath(`/api/proxy/d1/assistant/${action}`), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const value = await response.json(); if (!response.ok) throw new Error(value.error || 'Request failed'); return value;
   };
   const send = async (event: React.FormEvent) => {
@@ -121,15 +123,18 @@ export default function PromptWorkspace({ streams, rules, streamId, sourceLabel,
     event.preventDefault(); if (!base || busy || sourceChanged || !dirty) return;
     setBusy('apply'); setError(''); setNotice('');
     try {
-      const current = materialize(); const result = await post('apply', { ...base, draft: current });
+      const current = materialize();
+      const invalid = triggerError(current.question, current.review);
+      if (invalid) throw new Error(invalid);
+      const result = await post('apply', { ...base, draft: current });
       install(current); setBase({ ...base, stream_revision: result.stream.revision, rule_revision: result.rule.revision });
-      setDirty(false); setNotice('Applied to D1 and Cosmos.'); onApplied();
+      setDirty(false); setNotice('Applied to the D1 decision model and NVIDIA Cosmos.'); onApplied();
     } catch (err) { setError(err instanceof Error ? err.message : 'Apply failed.'); }
     finally { setBusy(null); }
   };
   const numeric = (key: string, label: string, min: number, max: number, step = 1) => <Field label={label}><input className={styles.input} type="number" required min={min} max={max} step={step} value={draft?.review[key] ?? ''} onChange={e => reviewEdit(key, e.target.value === '' ? '' : Number(e.target.value))} /></Field>;
-  if (!draft || !base) return <section className={styles.workspace} aria-label="Demo assistant"><header className={styles.header}><h3>Assistant</h3></header><p className={styles.waiting} role="status">Waiting for a configured D1 stream and Cosmos rule…</p></section>;
-  const examples = base.stream_id.startsWith('traffic') ? ['Alert on stopped or crawling traffic', 'Have Cosmos compare the lanes'] : ['Alert on sustained activity', 'Have Cosmos describe scene changes'];
+  if (!draft || !base) return <section className={styles.workspace} aria-label="Demo assistant"><header className={styles.header}><h3>Assistant</h3></header><p className={styles.waiting} role="status">Waiting for a configured D1 decision model stream and NVIDIA Cosmos rule…</p></section>;
+  const examples = base.stream_id.startsWith('traffic') ? ['Alert on stopped or crawling traffic', 'Have NVIDIA Cosmos compare the lanes'] : ['Alert on sustained activity', 'Have NVIDIA Cosmos describe scene changes'];
 
   return <section className={styles.workspace} aria-label="Demo assistant" data-testid="prompt-workspace">
     <header className={styles.header}>
@@ -151,7 +156,7 @@ export default function PromptWorkspace({ streams, rules, streamId, sourceLabel,
       <div id={conversationId} role="tabpanel" aria-labelledby={conversationTabId} hidden={promptsOpen} className={styles.conversationPanel}>
         <div ref={conversationRef} role="log" aria-label="Chat messages" className={styles.conversation}>
           {!messages.length && <div className={styles.welcome}>
-            <p>Describe what you want to monitor to draft the D1 and Cosmos prompts.</p>
+            <p>Describe what you want to monitor to draft the D1 decision model and NVIDIA Cosmos prompts.</p>
             <div className={styles.examples}>{examples.map(example => <button type="button" key={example} disabled={!!busy || sourceChanged} onClick={() => { setText(example); composerRef.current?.focus(); }}>{example}</button>)}</div>
           </div>}
           {messages.map((message, index) => <div key={index} className={`${styles.message} ${message.role === 'user' ? styles.userMessage : styles.assistantMessage}`}><p className={styles.speaker}>{message.role === 'user' ? 'You' : 'Nemotron'}</p><p>{message.content}</p></div>)}
@@ -160,18 +165,18 @@ export default function PromptWorkspace({ streams, rules, streamId, sourceLabel,
       </div>
       <div id={editorId} role="tabpanel" aria-labelledby={promptTabId} hidden={!promptsOpen} className={styles.editor}>
         <p className={styles.editorIntro}>{sourceChanged ? 'Prompts for the previous source.' : dirty ? 'Review this draft before applying it.' : 'These prompts are currently active.'}</p>
-          <form id={draftFormId} onSubmit={apply} onInvalidCapture={event => { flushSync(() => setPromptsOpen(true)); const details = (event.target as HTMLElement).closest('details'); if (details) details.open = true; }} aria-label="D1 and Cosmos prompts">
+          <form id={draftFormId} onSubmit={apply} onInvalidCapture={event => { flushSync(() => setPromptsOpen(true)); const details = (event.target as HTMLElement).closest('details'); if (details) details.open = true; }} aria-label="D1 decision model and NVIDIA Cosmos prompts">
             <fieldset disabled={!!busy || sourceChanged} className={styles.fields}>
-              <section className={styles.promptPane} aria-label="D1 prompt pane"><h4><span>D1</span>What to look for</h4><Field label="D1 prompt" quiet><textarea className={styles.input} rows={3} required maxLength={4000} value={draft.question.instructions} onChange={e => edit(d => ({ ...d, question: { ...d.question, instructions: e.target.value } }))} /></Field></section>
-              <section className={styles.promptPane} aria-label="Cosmos prompt pane"><h4><span>Cosmos</span>What to explain</h4><Field label="Cosmos prompt" quiet><textarea className={styles.input} required rows={4} maxLength={4000} value={draft.review.review_prompt} onChange={e => reviewEdit('review_prompt', e.target.value)} /></Field></section>
+              <section className={styles.promptPane} aria-label="D1 decision model prompt pane"><h4><span>D1 decision model</span>What to look for</h4><Field label="D1 decision model prompt" quiet><textarea className={styles.input} rows={3} required maxLength={4000} value={draft.question.instructions} onChange={e => edit(d => ({ ...d, question: { ...d.question, instructions: e.target.value } }))} /></Field></section>
+              <section className={styles.promptPane} aria-label="NVIDIA Cosmos prompt pane"><h4><span>NVIDIA Cosmos</span>What to explain</h4><Field label="NVIDIA Cosmos prompt" quiet><textarea className={styles.input} required rows={4} maxLength={4000} value={draft.review.review_prompt} onChange={e => reviewEdit('review_prompt', e.target.value)} /></Field></section>
               <details className={styles.advanced}><summary>Advanced controls</summary><div className={styles.advancedFields}>
                 <Field label="Check every (seconds)"><input className={styles.input} required type="number" min={0.2} max={60} step={0.1} value={draft.interval_seconds} onChange={e => edit(d => ({ ...d, interval_seconds: Number(e.target.value) }))} /></Field>
-                <Field label="D1 answer type"><select className={styles.input} value={draft.question.type} onChange={e => { const type = e.target.value as Draft['question']['type']; edit(d => ({ ...d, question: { ...d.question, type, criteria: type === 'score' ? ['Very busy', 'Busy', 'Not Busy', 'Empty'] : type === 'choice' ? { yes: 'Yes', no: 'No' } : null } })); setChoiceText('{"yes":"Yes","no":"No"}'); }}><option value="score">Ordered labels</option><option value="noul">Yes / no probability</option><option value="choice">Named choices</option></select></Field>
+                <Field label="D1 decision model answer type"><select className={styles.input} value={draft.question.type} onChange={e => { const type = e.target.value as Draft['question']['type']; edit(d => ({ ...d, question: { ...d.question, type, criteria: type === 'score' ? ['Very busy', 'Busy', 'Not Busy', 'Empty'] : type === 'choice' ? { yes: 'Yes', no: 'No' } : null } })); setChoiceText('{"yes":"Yes","no":"No"}'); }}><option value="score">Ordered labels</option><option value="noul">Yes / no probability</option><option value="choice">Named choices</option></select></Field>
                 {draft.question.type === 'score' && <><Field label="Ordered labels (one per line)"><textarea className={styles.input} rows={4} required value={(draft.question.criteria as string[]).join('\n')} onChange={e => edit(d => ({ ...d, question: { ...d.question, criteria: e.target.value.split('\n') } }))} /></Field><p className={styles.help}>Scores start at 0 for the first label. The trigger must use this order.</p></>}
                 {draft.question.type === 'choice' && <Field label="Choice keys and labels (JSON)"><textarea className={styles.input} rows={4} required value={choiceText} onChange={e => { setChoiceText(e.target.value); setDirty(true); setNotice(''); }} /></Field>}
                 <div className={styles.controlGrid}>
-                  <Field label="Trigger field"><select className={styles.input} value={draft.review.field} onChange={e => reviewEdit('field', e.target.value)}>{['score', 'noul', 'choice', 'probability', 'confidence'].map(value => <option key={value}>{value}</option>)}</select></Field>
-                  <Field label="Comparison"><select className={styles.input} value={draft.review.operator} onChange={e => reviewEdit('operator', e.target.value)}><option value="lte">≤ threshold</option><option value="gte">≥ threshold</option><option value="eq">= value</option></select></Field>
+                  <Field label="Trigger field"><select className={styles.input} value={draft.review.field} onChange={e => reviewEdit('field', e.target.value)}>{!triggerFields(draft.question.type).includes(draft.review.field) && <option value={draft.review.field} disabled>{draft.review.field} (change required)</option>}{triggerFields(draft.question.type).map(value => <option key={value}>{value}</option>)}</select></Field>
+                  <Field label="Comparison"><select className={styles.input} value={draft.review.operator} onChange={e => reviewEdit('operator', e.target.value)}>{!comparisons(draft.review.field).includes(draft.review.operator) && <option value={draft.review.operator} disabled>{draft.review.operator} (change required)</option>}{comparisons(draft.review.field).map(value => <option key={value} value={value}>{comparisonLabel(value)}</option>)}</select></Field>
                   <Field label="Threshold / choice key"><input className={styles.input} required value={draft.review.value} onChange={e => reviewEdit('value', e.target.value)} /></Field>
                   {numeric('consecutive_samples', 'Checks in a row', 1, 100)}
                   {numeric('pre_seconds', 'Seconds before', 0, 120, 0.1)}

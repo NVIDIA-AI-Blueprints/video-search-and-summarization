@@ -9,7 +9,7 @@ const savedIncident = () => ({
   decision_ids: ['first', 'second', 'third'],
 });
 
-describe('D1 event presentation provenance', () => {
+describe('D1 decision model event presentation provenance', () => {
   it('matches both event identity and source, even when another source uses the same event ID', () => {
     const incident = savedIncident();
     const otherSource = { ...incident, stream_id: 'warehouse' };
@@ -25,7 +25,7 @@ describe('D1 event presentation provenance', () => {
     const incident = savedIncident();
     const currentConfig = { ...incident.rule, value: 0.95, consecutive_samples: 5 };
     const currentQuestion = 'Is the road empty?';
-    expect(describeTrigger(incident)).toBe('D1’s yes score was at least 80% for 3 consecutive checks.');
+    expect(describeTrigger(incident)).toBe('The D1 decision model’s yes score was at least 80% for 3 consecutive checks.');
     expect(eventTriggerQuestion(incident)).toBe('Are vehicles stopped or crawling?');
     expect(describeTrigger(incident)).not.toContain('95%');
     expect(eventTriggerQuestion(incident)).not.toBe(currentQuestion);
@@ -34,12 +34,12 @@ describe('D1 event presentation provenance', () => {
 
   it('preserves fractional probability thresholds without treating ordinary scores as percentages', () => {
     const incident = savedIncident();
-    expect(describeTrigger({ ...incident, rule: { ...incident.rule, value: 0.825, operator: 'lte' } })).toBe('D1’s yes score was at most 82.5% for 3 consecutive checks.');
-    expect(describeTrigger({ ...incident, rule: { ...incident.rule, value: 0.803 } })).toBe('D1’s yes score was at least 80.3% for 3 consecutive checks.');
-    expect(describeTrigger({ ...incident, rule: { ...incident.rule, field: 'score', value: 0.825, operator: 'lte' } })).toBe('D1’s score was at most 0.825 for 3 consecutive checks.');
-    expect(describeTrigger({ ...incident, rule: { ...incident.rule, field: 'confidence', value: 0.9, operator: 'eq', consecutive_samples: 1 } })).toBe('D1’s confidence was exactly 90% for 1 check.');
-    expect(describeTrigger({ ...incident, rule: { ...incident.rule, field: 'probability', probability_key: 'stopped', value: 0.7 } })).toBe('D1’s probability for “stopped” was at least 70% for 3 consecutive checks.');
-    expect(describeTrigger({ ...incident, rule: { ...incident.rule, field: 'choice', operator: 'eq', value: 'stopped' } })).toBe('D1 chose “stopped” for 3 consecutive checks.');
+    expect(describeTrigger({ ...incident, rule: { ...incident.rule, value: 0.825, operator: 'lte' } })).toBe('The D1 decision model’s yes score was at most 82.5% for 3 consecutive checks.');
+    expect(describeTrigger({ ...incident, rule: { ...incident.rule, value: 0.803 } })).toBe('The D1 decision model’s yes score was at least 80.3% for 3 consecutive checks.');
+    expect(describeTrigger({ ...incident, rule: { ...incident.rule, field: 'score', value: 0.825, operator: 'lte' } })).toBe('The D1 decision model’s score was at most 0.825 for 3 consecutive checks.');
+    expect(describeTrigger({ ...incident, rule: { ...incident.rule, field: 'confidence', value: 0.9, operator: 'eq', consecutive_samples: 1 } })).toBe('The D1 decision model’s confidence was exactly 90% for 1 check.');
+    expect(describeTrigger({ ...incident, rule: { ...incident.rule, field: 'probability', probability_key: 'stopped', value: 0.7 } })).toBe('The D1 decision model’s probability for “stopped” was at least 70% for 3 consecutive checks.');
+    expect(describeTrigger({ ...incident, rule: { ...incident.rule, field: 'choice', operator: 'eq', value: 'stopped' } })).toBe('The D1 decision model chose “stopped” for 3 consecutive checks.');
   });
 
   it('returns no explanation for absent, invalid, or mismatched trigger metadata', () => {

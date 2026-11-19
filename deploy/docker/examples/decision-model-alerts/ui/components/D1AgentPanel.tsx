@@ -7,9 +7,11 @@ import SourcePreview from './SourcePreview';
 import { IconSettings, IconX, IconVideo } from '@tabler/icons-react';
 import styles from './D1AgentPanel.module.css';
 import { matchIncident } from './d1Presentation';
+import { appPath } from '../utils/basePath';
+import { triggerFields, comparisons, comparisonLabel, triggerError } from '../utils/triggerSettings';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-type ConfigRecord = { id: string; revision: number; config: Record<string, any> };
+type ConfigRecord = { id: string; revision: number; config: Record<string, any>; validation_error?: string };
 type VideoSource = { id: string; stream_id: string; label: string; available: boolean; kind?: 'stream' | 'live' | 'recorded' };
 type VideoSources = { sources: VideoSource[]; active_source: string | null };
 type Section = { data?: any; error?: string };
@@ -52,8 +54,10 @@ function ConfigEditor({ kind, records, streams, preferredId, onSaved }: {
       if (kind === 'rules') {
         payload.value = payload.field === 'choice' ? String(payload.value) : Number(payload.value);
         payload.probability_key = payload.field === 'probability' ? payload.probability_key : null;
+        const invalid = triggerError(streams.find(s => s.id === payload.stream_id)?.config.question, payload);
+        if (invalid) throw new Error(invalid);
       }
-      const response = await fetch(`/api/proxy/d1/${kind}/${encodeURIComponent(selected)}`, {
+      const response = await fetch(appPath(`/api/proxy/d1/${kind}/${encodeURIComponent(selected)}`), {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
       const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Save failed');
@@ -64,23 +68,24 @@ function ConfigEditor({ kind, records, streams, preferredId, onSaved }: {
   if (!draft) return <div className={cardClass}>No {kind} configured yet. Register them through the service API.</div>;
   const boundStream = streams.find(s => s.id === draft.stream_id);
   return <form className={cardClass + ' space-y-4'} onSubmit={save}>
-    <h3 className="text-lg font-semibold">{kind === 'streams' ? 'D1 inference' : 'Cosmos trigger and clip'}</h3>
+    <h3 className="text-lg font-semibold">{kind === 'streams' ? 'D1 decision model inference' : 'NVIDIA Cosmos trigger and clip'}</h3>
+    {record?.validation_error && <p role="alert">Automatic verification is paused: {record.validation_error} Update this rule, then enable it to resume.</p>}
     <Field label={kind === 'streams' ? 'Stream' : 'Rule'}><select className={fieldClass} value={selected} onChange={e => load(records.find(r => r.id === e.target.value)!)}>
       {records.map(r => <option key={r.id} value={r.id}>{r.id} · revision {r.revision}</option>)}
     </select></Field>
     <label className="flex items-center gap-2"><input type="checkbox" checked={draft.enabled} onChange={e => update('enabled', e.target.checked)} />Enabled</label>
     {kind === 'streams' ? <>
-      <Field label="What should D1 watch for?"><textarea className={fieldClass} required rows={3} maxLength={4000} value={draft.question.instructions}
+      <Field label="What should the D1 decision model watch for?"><textarea className={fieldClass} required rows={3} maxLength={4000} value={draft.question.instructions}
         onChange={e => update('question', { ...draft.question, instructions: e.target.value })} /></Field>
       {number('interval_seconds', 'Check every (seconds)', 0.2, 60, 0.1)}
-      <Field label="What D1 receives"><select className={fieldClass} value={draft.input_mode || 'image'} onChange={e => {
+      <Field label="What the D1 decision model receives"><select className={fieldClass} value={draft.input_mode || 'image'} onChange={e => {
         const mode = e.target.value;
         setDraft(d => ({ ...d, input_mode: mode, video_frames: d?.video_frames ?? 8, video_fps: d?.video_fps ?? 1 }));
       }}><option value="image">One image</option><option value="video">Recent video frames</option></select></Field>
       {draft.input_mode === 'video' && <div className="grid grid-cols-2 gap-3">
         {number('video_frames', 'Frames per video check', 2, 16)}
         {number('video_fps', 'Sampled frames per second', 0.5, 5, 0.5)}
-        <p className="col-span-2 text-xs text-gray-500">D1 compares motion across these frames. Video input alone does not establish a measured speed in mph.</p>
+        <p className="col-span-2 text-xs text-gray-500">The D1 decision model compares motion across these frames. Video input alone does not establish a measured speed in mph.</p>
       </div>}
       <details className="border-t border-gray-200 dark:border-gray-700 pt-3"><summary className="cursor-pointer text-sm">Source and answer format</summary><div className="space-y-4 mt-4">
         <Field label="RTSP source"><input className={fieldClass} required value={draft.rtsp_url} onChange={e => update('rtsp_url', e.target.value)} /></Field>
@@ -94,7 +99,7 @@ function ConfigEditor({ kind, records, streams, preferredId, onSaved }: {
       </div></details>
       <p className="text-xs text-gray-500 dark:text-gray-400">After changing the question, source, or video input, update the rule’s stream revision in Advanced settings.</p>
     </> : <>
-      {boundStream && draft.config_revision !== boundStream.revision && <p role="alert" className="text-amber-700 dark:text-amber-400">The D1 question changed. Update the stream revision in Advanced settings to resume matching.</p>}
+      {boundStream && draft.config_revision !== boundStream.revision && <p role="alert" className="text-amber-700 dark:text-amber-400">The D1 decision model question changed. Update the stream revision in Advanced settings to resume matching.</p>}
       <div className="rounded-lg bg-gray-100 dark:bg-gray-900 p-3 text-sm">Review when <strong>{draft.field} {draft.operator === 'lte' ? '≤' : draft.operator === 'gte' ? '≥' : '='} {draft.value}</strong> for <strong>{draft.consecutive_samples} checks</strong>. Wait {draft.cooldown_seconds}s between events.</div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Trigger threshold"><input className={fieldClass} required value={draft.value} onChange={e => update('value', e.target.value)} /></Field>
@@ -102,13 +107,13 @@ function ConfigEditor({ kind, records, streams, preferredId, onSaved }: {
         {number('pre_seconds', 'Seconds before event', 0, 120, 0.1)}
         {number('post_seconds', 'Seconds after event', 0, 120, 0.1)}
       </div>
-      <Field label="What should Cosmos explain?"><textarea className={fieldClass} required rows={3} maxLength={4000} value={draft.review_prompt} onChange={e => update('review_prompt', e.target.value)} /></Field>
+      <Field label="What should NVIDIA Cosmos explain?"><textarea className={fieldClass} required rows={3} maxLength={4000} value={draft.review_prompt} onChange={e => update('review_prompt', e.target.value)} /></Field>
       <details className="border-t border-gray-200 dark:border-gray-700 pt-3"><summary className="cursor-pointer text-sm">Advanced settings</summary><div className="space-y-4 mt-4">
         <Field label="Stream ID"><select className={fieldClass} value={draft.stream_id} onChange={e => update('stream_id', e.target.value)}>{streams.map(s => <option key={s.id}>{s.id}</option>)}</select></Field>
         {number('config_revision', `Required stream revision (current: ${boundStream?.revision ?? 'unknown'})`, 1, 2147483647)}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Output field"><select className={fieldClass} value={draft.field} onChange={e => update('field', e.target.value)}>{['score', 'noul', 'confidence', 'choice', 'probability'].map(v => <option key={v}>{v}</option>)}</select></Field>
-          <Field label="Comparison"><select className={fieldClass} value={draft.operator} onChange={e => update('operator', e.target.value)}><option value="lte">≤ threshold</option><option value="gte">≥ threshold</option><option value="eq">= threshold</option></select></Field>
+          <Field label="Output field"><select className={fieldClass} value={draft.field} onChange={e => update('field', e.target.value)}>{!triggerFields(boundStream?.config.question?.type).includes(draft.field) && <option value={draft.field} disabled>{draft.field} (change required)</option>}{triggerFields(boundStream?.config.question?.type).map(v => <option key={v}>{v}</option>)}</select></Field>
+          <Field label="Comparison"><select className={fieldClass} value={draft.operator} onChange={e => update('operator', e.target.value)}>{!comparisons(draft.field).includes(draft.operator) && <option value={draft.operator} disabled>{draft.operator} (change required)</option>}{comparisons(draft.field).map(value => <option key={value} value={value}>{comparisonLabel(value)}</option>)}</select></Field>
           {draft.field === 'probability' && <Field label="Probability key"><input className={fieldClass} required value={draft.probability_key || ''} onChange={e => update('probability_key', e.target.value)} /></Field>}
           {number('max_gap_seconds', 'Maximum sample gap (s)', 0.1, 600, 0.1)}
           {number('cooldown_seconds', 'Cooldown (s)', 0, 86400, 0.1)}
@@ -117,12 +122,13 @@ function ConfigEditor({ kind, records, streams, preferredId, onSaved }: {
     </>}
     <div className="flex flex-wrap gap-3"><button type="submit" className={buttonClass} disabled={saving}>{saving ? 'Saving…' : 'Save ' + (kind === 'streams' ? 'stream' : 'rule')}</button>
       <button type="button" className="rounded border px-3 py-2" disabled={saving || !record} onClick={() => record && load(record)}>Reload saved values</button></div>
+    {kind === 'rules' && triggerError(boundStream?.config.question, draft) && <p role="alert">{triggerError(boundStream?.config.question, draft)}</p>}
     {message && <p role="status" className="break-words text-sm">{message}</p>}
   </form>;
 }
 
 function answerLabel(answer: any) {
-  if (!answer) return 'Waiting for D1';
+  if (!answer) return 'Waiting for the D1 decision model';
   if (answer.choice) return answer.legend?.[answer.choice] || answer.choice;
   if (answer.legend && answer.probabilities) {
     const top = Object.entries(answer.probabilities).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
@@ -135,7 +141,7 @@ function answerLabel(answer: any) {
 }
 function inputLabel(decision: any) {
   if (!decision) return '';
-  const model = typeof decision.model === 'string' ? decision.model.split('/').pop() : 'D1';
+  const model = typeof decision.model === 'string' ? decision.model.split('/').pop() : 'D1 decision model';
   if (decision.input?.mode !== 'video') return `${model} · Single image`;
   const seconds = decision.input.window_end - decision.input.window_start;
   return `${model} · ${decision.input.frame_count} frames${Number.isFinite(seconds) ? ` over ${seconds.toFixed(1)}s` : ''}`;
@@ -146,6 +152,12 @@ function savedTime(value: number) { return new Date(value * 1000).toLocaleString
 export default function D1AgentPanel({ isActive }: { isActive: boolean }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState('');
+  const [clock, setClock] = useState(() => Date.now() / 1000);
+  const [assistantConfigured, setAssistantConfigured] = useState(false);
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now() / 1000), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [setupTab, setSetupTab] = useState<'prompts' | 'advanced'>('prompts');
   const settingsDialog = useRef<HTMLDialogElement>(null);
@@ -163,9 +175,14 @@ export default function D1AgentPanel({ isActive }: { isActive: boolean }) {
   }, [settingsOpen]);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      const response = await fetch('/api/proxy/d1/snapshot', { signal });
+      const response = await fetch(appPath('/api/proxy/d1/snapshot'), { signal });
       if (!response.ok) throw new Error(`Unable to refresh (${response.status})`);
-      setSnapshot(await response.json()); setError('');
+      const next = await response.json();
+      const assistantHealth = next.assistant?.data;
+      // Configuration survives a failed health probe, preserving unsent requests.
+      if (typeof assistantHealth?.configured === 'boolean') setAssistantConfigured(assistantHealth.configured);
+      else if (assistantHealth?.ready === true) setAssistantConfigured(true);
+      setSnapshot(next); setError('');
     } catch (err) { if (!signal?.aborted) setError(err instanceof Error ? err.message : 'Connection failed'); }
   }, []);
   useEffect(() => {
@@ -180,13 +197,13 @@ export default function D1AgentPanel({ isActive }: { isActive: boolean }) {
   const projection = data('incidents', null);
   const sources: VideoSources = data('sources', { sources: [], active_source: null });
   const assistant = data('assistant', {});
-  const showPromptAssistant = assistant.configured ?? assistant.ready === true;
+  const showPromptAssistant = assistantConfigured;
   const activeSetupTab = showPromptAssistant ? setupTab : 'advanced';
   const switchSource = async (nextSource: string) => {
     if (!nextSource || sourceBusy || nextSource === sources.active_source || !sources.sources.some(source => source.id === nextSource && source.available)) return;
     setSourceBusy(true); setSourceError('');
     try {
-      const response = await fetch('/api/proxy/d1/demo/sources', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_id: nextSource }) });
+      const response = await fetch(appPath('/api/proxy/d1/demo/sources'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_id: nextSource }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Source change failed');
       await refresh();
@@ -212,8 +229,7 @@ export default function D1AgentPanel({ isActive }: { isActive: boolean }) {
     });
   }
   const activeIncidents = verifiedIncidents.filter((incident: any) => incident.status === 'active');
-  const fetchedTime = snapshot ? Date.parse(snapshot.fetched_at) / 1000 : 0;
-  const decisionAge = latest ? fetchedTime - latest.captured_at : Infinity;
+  const decisionAge = latest ? clock - latest.captured_at : Infinity;
   const fresh = decisionAge <= Math.max(15, (activeStream?.config.interval_seconds || 2) * 4);
   const healthy = !error && !(snapshot?.health as Section)?.error && data('health', {}).ready && fresh;
   const currentAnswer = healthy && activeStream?.config.enabled && !paused;
@@ -222,7 +238,7 @@ export default function D1AgentPanel({ isActive }: { isActive: boolean }) {
   const activeSourceLabel = activeSource?.label || streamLabel(activeStream?.id);
   const sourceKind = !activeStream ? 'No source' : activeSource?.kind === 'recorded'
     ? 'Recorded source' : activeSource?.kind === 'live' ? 'Live source' : 'RTSP source';
-  return <section className={styles.root} aria-label="D1 stream monitor" data-input-state={healthy && activeStream?.config.enabled && !paused ? 'ready' : 'unavailable'}>
+  return <section className={styles.root} aria-label="D1 decision model stream monitor" data-input-state={healthy && activeStream?.config.enabled && !paused ? 'ready' : 'unavailable'}>
     <header className={styles.header}>
       <div className={styles.titleRow}><h2>Traffic monitor</h2><span className={styles.source}>Source: {activeSourceLabel}</span><span className={styles.sourceBadge}>{sourceKind}</span></div>
       <div className={styles.headerActions}><span className={styles.edgeBadge}>Running on Jetson Thor</span>
@@ -241,28 +257,28 @@ export default function D1AgentPanel({ isActive }: { isActive: boolean }) {
       </div>}
       {sourceError && <p role="alert" className={styles.sourceSwitchError}>{sourceError}</p>}
       <section className={layout.liveSection} aria-labelledby="d1-live-title">
-        <div className={layout.sectionHeading}><h3 id="d1-live-title"><span>1</span>D1 live inference</h3><span>{sourceKind === 'Recorded source' ? 'Recorded input' : sourceKind}</span></div>
+        <div className={layout.sectionHeading}><h3 id="d1-live-title"><span>1</span>D1 decision model live inference</h3><span>{sourceKind === 'Recorded source' ? 'Recorded input' : sourceKind}</span></div>
         <div className={layout.liveGrid}>
           <div className={layout.inputPane}>
-            <div className={layout.paneHeading}>Video going into D1</div>
+            <div className={layout.paneHeading}>Video going into the D1 decision model</div>
             <div className={layout.inputVideo}>{activeStream ? <SourcePreview key={`${activeStream.id}:${activeStream.revision}`} streamId={activeStream.id} revision={activeStream.revision} paused={paused || !isActive || !activeStream.config.enabled || sourceBusy} /> : <div className={layout.noInput}><IconVideo size={28} aria-hidden="true" /><p>{snapshot ? 'Choose a video source' : 'Connecting to the monitor…'}</p></div>}</div>
           </div>
-          <section className={layout.decisionPane} aria-label="Latest D1 check">
+          <section className={layout.decisionPane} aria-label="Latest D1 decision model check">
             <div className={layout.paneHeading}>D1 decision model</div>
             <div className={layout.decisionBody}>
               <div className={layout.question}><span>Monitoring question</span><p data-testid="d1-question">{latest ? latest.question?.instructions || 'Question unavailable' : activeStream?.config.question?.instructions || 'No question configured'}</p></div>
-              <div className={layout.score}><div><span>{latest && !currentAnswer ? fresh ? 'Last D1 answer' : 'Last D1 answer · out of date' : 'Latest D1 answer'}</span><strong>{answerLabel(latest?.answer)}</strong></div><time>{latest ? currentAnswer ? clockTime(latest.captured_at) : savedTime(latest.captured_at) : 'Waiting for a frame'}</time></div>
-              <div className={layout.trigger}><strong>When does Cosmos get a clip?</strong><p>{autoReview ? activeRule?.config.operator === 'gte' && activeRule.config.field === 'noul' ? `Yes with at least ${Math.round(activeRule.config.value * 100)}% confidence for ${activeRule.config.consecutive_samples} consecutive checks.` : 'When the configured D1 trigger rule matches.' : 'Automatic verification is off.'}</p></div>
+              <div className={layout.score}><div><span>{latest && !currentAnswer ? fresh ? 'Last D1 decision model answer' : 'Last D1 decision model answer · out of date' : 'Latest D1 decision model answer'}</span><strong>{answerLabel(latest?.answer)}</strong></div><time>{latest ? currentAnswer ? clockTime(latest.captured_at) : savedTime(latest.captured_at) : 'Waiting for a frame'}</time></div>
+              <div className={layout.trigger}><strong>When does NVIDIA Cosmos get a clip?</strong><p>{autoReview ? activeRule?.config.operator === 'gte' && activeRule.config.field === 'noul' ? `Yes with at least ${Math.round(activeRule.config.value * 100)}% confidence for ${activeRule.config.consecutive_samples} consecutive checks.` : 'When the configured D1 decision model trigger rule matches.' : 'Automatic verification is off.'}</p>{activeRule?.validation_error && <p role="alert">This rule needs correction in Monitoring setup: {activeRule.validation_error}</p>}</div>
             </div>
           </section>
         </div>
       </section>
       <section className={layout.cosmosSection} aria-labelledby="cosmos-review-title">
-        <div className={layout.sectionHeading}><h3 id="cosmos-review-title"><span>2</span>Cosmos verification</h3><span>Saved clips · newest first · scroll for more</span></div>
+        <div className={layout.sectionHeading}><h3 id="cosmos-review-title"><span>2</span>NVIDIA Cosmos verification</h3><span>Saved clips · newest first · scroll for more</span></div>
         <CosmosReviewFeed key={activeStream?.id || 'no-source'} events={events} incidents={verifiedIncidents} streamRevision={activeStream?.revision} activeRule={activeRule} available={Boolean(projection)} autoReview={Boolean(autoReview)} />
         {projection && events.length > 0 && <p className={layout.feedNote}>{activeIncidents.length} ongoing verified incident{activeIncidents.length === 1 ? '' : 's'} · Repeated candidate clips are grouped into the same incident.</p>}
       </section>
-      <details className={styles.architecture}><summary>How VSS connects this demo</summary><p>The camera feeds D1 continuously. VSS VIOS records the video and retrieves the event clip. Cosmos checks that clip through VSS RT-VLM. This demo groups confirmed candidates into incidents and keeps the evidence available for questions.</p><p>Kafka carries decisions, events and reviews; Elasticsearch stores their searchable history. The monitoring and incident rules are this demo’s extension to VSS.</p><p className={styles.decisionMeta}><span>{activeStream?.config.enabled ? `Every ${activeStream.config.interval_seconds}s` : 'Paused'}</span><span data-testid="d1-input">{inputLabel(latest)}</span><span>{autoReview ? 'Automatic verification is on' : 'Automatic verification is off'}</span></p><p>Confidence shows D1’s support for its Yes or No answer. It is not a vehicle speed or the percentage of the road that is congested.</p></details>
+      <details className={styles.architecture}><summary>How VSS connects this demo</summary><p>The camera feeds the D1 decision model continuously. VSS VIOS records the video and retrieves the event clip. NVIDIA Cosmos checks that clip through VSS RT-VLM. This demo groups confirmed candidates into incidents and keeps the evidence available for questions.</p><p>Kafka carries decisions, events and reviews; Elasticsearch stores their searchable history. The monitoring and incident rules are this demo’s extension to VSS.</p><p className={styles.decisionMeta}><span>{activeStream?.config.enabled ? `Every ${activeStream.config.interval_seconds}s` : 'Paused'}</span><span data-testid="d1-input">{inputLabel(latest)}</span><span>{autoReview ? 'Automatic verification is on' : 'Automatic verification is off'}</span></p><p>Confidence shows the D1 decision model’s support for its Yes or No answer. It is not a vehicle speed or the percentage of the road that is congested.</p></details>
       <footer className={styles.footer}><span>{snapshot ? `Updated ${new Date(snapshot.fetched_at).toLocaleTimeString()}` : 'Connecting'} · Model-generated assessments</span><button onClick={() => setPaused(!paused)}>{paused ? 'Resume updates' : 'Pause updates'}</button></footer>
     </div>
     <dialog ref={settingsDialog} className={styles.dialog} aria-labelledby="d1-settings-title" onCancel={() => setSettingsOpen(false)} onClose={() => setSettingsOpen(false)}>

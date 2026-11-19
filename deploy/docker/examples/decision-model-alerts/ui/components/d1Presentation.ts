@@ -26,14 +26,14 @@ export function describeTrigger(incident: any): string | null {
 
   if (rule.field === 'choice') {
     if (rule.operator !== 'eq' || typeof rule.value !== 'string' || !rule.value.trim()) return null;
-    return `D1 chose “${rule.value}” ${checks}.`;
+    return `The D1 decision model chose “${rule.value}” ${checks}.`;
   }
   if (!finite(rule.value)) return null;
-  if (rule.field === 'score') return `D1’s score was ${comparison} ${numberText(rule.value)} ${checks}.`;
+  if (rule.field === 'score') return `The D1 decision model’s score was ${comparison} ${numberText(rule.value)} ${checks}.`;
   if (!['noul', 'confidence', 'probability'].includes(rule.field) || rule.value < 0 || rule.value > 1) return null;
   if (rule.field === 'probability' && (typeof rule.probability_key !== 'string' || !rule.probability_key.trim())) return null;
   const metric = rule.field === 'noul' ? 'yes score' : rule.field === 'confidence' ? 'confidence' : `probability for “${rule.probability_key}”`;
-  return `D1’s ${metric} was ${comparison} ${percentage(rule.value)} ${checks}.`;
+  return `The D1 decision model’s ${metric} was ${comparison} ${percentage(rule.value)} ${checks}.`;
 }
 
 /** The question attached to the triggering decision, including original wording. */

@@ -13,6 +13,32 @@ The source selector accepts only the two bootstrap-created IDs `flowing` and `qu
 
 Set `NEMOTRON_URL` to an optional private Nemotron Bolt endpoint for prompt drafting. The D1 decision loop, Cosmos verification and clip Q&A run without that endpoint.
 
+Verification requires a semantic condition: a yes/no condition, an answer label,
+or a range of score labels. Confidence alone is not a supported trigger. Yes/no
+rules use `gte` at 0.5 or higher to verify yes, or `lte` at 0.5 or lower to verify
+no. Invalid settings are rejected before saving. On upgrade, an incompatible
+saved rule is paused and its rule-list entry includes `validation_error`; edit
+the condition and resume it after reviewing the error.
+An individual decision with missing or incompatible question metadata is
+ignored with a diagnostic and breaks the positive streak; it does not disable
+valid settings or count as evidence that an existing incident has cleared.
+
+Applying paired settings pauses review while D1 is updated. If that update
+fails, reload the settings and retry: the original enablement is durably saved
+and restored only after a successful paired update. A manual rule edit cancels
+that recovery intent. Rules already disabled before this recovery mechanism was
+installed remain disabled because their original intent cannot be inferred.
+
+Kafka decision processing saves a topic/partition watermark in the same SQLite
+transaction as rule state, review jobs and the outbox; the broker offset is
+committed afterwards. Watermarks keep consumer replay safe without retaining an
+ID forever for every check. A 4,096-entry cache additionally suppresses recent
+duplicate producer IDs; direct offline callers without broker positions only
+have this bounded deduplication window. The pre-upgrade `consumed` table is kept
+as a frozen ledger so upgrading does not discard old deduplication evidence.
+Do not reuse an analytics database with a recreated Kafka topic or a different
+cluster: offset identity belongs to that deployment.
+
 Run the CPU-only tests from this directory with an isolated Python 3.12 environment:
 
 ```bash

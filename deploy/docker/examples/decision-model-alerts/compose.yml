@@ -140,17 +140,9 @@ services:
 
   d1-ui:
     image: vss-d1-cosmos-ui:${VSS_CONTAINER_TAG:-3.3.0}
-    pull_policy: never
+    build:
+      context: ./examples/decision-model-alerts/ui
     environment:
-      RUN_APP_NAME: nv-metropolis-bp-vss-ui
-      NEXT_PUBLIC_APP_SUBTITLE: D1 + Cosmos
-      NEXT_PUBLIC_ENABLE_D1_TAB: "true"
-      NEXT_PUBLIC_ENABLE_ALERTS_TAB: "false"
-      NEXT_PUBLIC_ENABLE_CHAT_TAB: "false"
-      NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR: "false"
-      NEXT_PUBLIC_ENABLE_DASHBOARD_TAB: "false"
-      NEXT_PUBLIC_ENABLE_SEARCH_TAB: "false"
-      NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB: "false"
       D1_AGENT_ENABLED: "true"
       D1_INGEST_URL: http://d1-ingest:8020
       D1_ANALYTICS_URL: http://d1-analytics:8021
