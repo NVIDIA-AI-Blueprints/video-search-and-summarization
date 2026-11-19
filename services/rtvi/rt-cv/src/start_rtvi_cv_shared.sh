@@ -22,6 +22,8 @@ fi
 
 runtime_dir="${RTVI_CV_SHARED_RUNTIME_DIR:-/tmp/rtvi-cv-shared}"
 mkdir -p "$runtime_dir"
+config_dir="$(cd "$(dirname "$config")" && pwd)"
+cp -a "$config_dir/." "$runtime_dir/"
 runtime_config="$runtime_dir/$(basename "$config")"
 awk -v port="$UPSTREAM_PORT" '
     /^http-port[[:space:]]*=/ {$0 = "http-port=" port}
@@ -31,12 +33,23 @@ args[$config_index]="$runtime_config"
 
 "$APP" "${args[@]}" &
 app_pid=$!
-cleanup() {
-    kill "$app_pid" 2>/dev/null || true
-    wait "$app_pid" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
-
-exec python3 "$API" \
+python3 "$API" \
     --port "$PUBLIC_PORT" \
-    --upstream "http://127.0.0.1:$UPSTREAM_PORT"
+    --upstream "http://127.0.0.1:$UPSTREAM_PORT" &
+api_pid=$!
+
+cleanup() {
+    kill "$app_pid" "$api_pid" 2>/dev/null || true
+    wait "$app_pid" "$api_pid" 2>/dev/null || true
+}
+trap 'cleanup; exit 143' INT TERM
+trap cleanup EXIT
+
+set +e
+wait -n "$app_pid" "$api_pid"
+status=$?
+set -e
+if [[ "$status" -eq 0 ]]; then
+    status=1
+fi
+exit "$status"

@@ -22,6 +22,13 @@ _SOCKET_ROOT = Path(
 _STREAM_STATUS: dict[str, Path] = {}
 
 
+def _validate_camera_url(camera_url: Any) -> None:
+    if not isinstance(camera_url, str) or not camera_url:
+        raise ValueError("camera_url must be a non-empty string")
+    if urllib.parse.urlsplit(camera_url).scheme.lower() == "vssipc":
+        raise ValueError("vssipc camera_url is reserved for frame_source requests")
+
+
 def _shared_uri(camera_id: str, source: dict[str, Any]) -> str:
     required = {
         "type": "shared_decode",
@@ -113,6 +120,8 @@ class Handler(BaseHTTPRequestHandler):
                     value["camera_url"] = _shared_uri(camera_id, frame_source)
                     value.pop("frame_source", None)
                     body = json.dumps(payload).encode()
+                else:
+                    _validate_camera_url(camera_url)
             elif self.path == "/api/v1/stream/remove" and body:
                 payload = json.loads(body)
                 value = payload.get("value", payload.get("event"))

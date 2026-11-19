@@ -19,6 +19,25 @@ G_DEFINE_TYPE_WITH_CODE(
 
 enum { PROP_0, PROP_URI };
 
+static gboolean status_file_is_allowed(const gchar *status_file) {
+  if (!status_file || !g_path_is_absolute(status_file)) return FALSE;
+  const gchar *configured_root = g_getenv("RTVI_CV_IPC_STATUS_DIR");
+  const gchar *root = configured_root && configured_root[0]
+                          ? configured_root
+                          : "/run/rtvi-cv-ipc-status";
+  gchar *canonical_root = g_canonicalize_filename(root, NULL);
+  gchar *canonical_status = g_canonicalize_filename(status_file, NULL);
+  gchar *root_prefix =
+      g_str_has_suffix(canonical_root, G_DIR_SEPARATOR_S)
+          ? g_strdup(canonical_root)
+          : g_strconcat(canonical_root, G_DIR_SEPARATOR_S, NULL);
+  gboolean allowed = g_str_has_prefix(canonical_status, root_prefix);
+  g_free(root_prefix);
+  g_free(canonical_status);
+  g_free(canonical_root);
+  return allowed;
+}
+
 static void write_status(GstVssIpcSrc *self, const gchar *status) {
   if (!self->status_file) return;
   gchar *body = g_strdup_printf(
@@ -62,6 +81,13 @@ static gboolean configure_uri(GstVssIpcSrc *self, const gchar *uri,
   }
   const gchar *gpu_text = g_hash_table_lookup(query, "gpu_id");
   const gchar *status_file = g_hash_table_lookup(query, "status_file");
+  if (!status_file_is_allowed(status_file)) {
+    g_set_error(error, GST_URI_ERROR, GST_URI_ERROR_BAD_URI,
+                "vssipc status_file must be inside RTVI_CV_IPC_STATUS_DIR");
+    g_hash_table_unref(query);
+    g_uri_unref(parsed);
+    return FALSE;
+  }
   guint gpu_id = gpu_text ? (guint)g_ascii_strtoull(gpu_text, NULL, 10) : 0;
   g_object_set(self->source, "socket-path", path, "gpu-id", gpu_id,
                "buffer-timestamp-copy", TRUE, NULL);

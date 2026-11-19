@@ -67,3 +67,18 @@ def test_shared_uri_rejects_invalid_contract(tmp_path, monkeypatch, override):
 
     with pytest.raises(ValueError):
         shared_api._shared_uri("camera-1", source)
+
+
+def test_camera_url_rejects_direct_vssipc_uri():
+    with pytest.raises(ValueError, match="reserved for frame_source"):
+        shared_api._validate_camera_url(
+            "vssipc:///run/vss/frame-broker/job.sock?status_file=/tmp/attacker-selected-file"
+        )
+
+
+@pytest.mark.parametrize(
+    "camera_url",
+    ["rtsp://example.test/live", "http://example.test/video.mp4"],
+)
+def test_camera_url_accepts_non_reserved_schemes(camera_url):
+    shared_api._validate_camera_url(camera_url)
