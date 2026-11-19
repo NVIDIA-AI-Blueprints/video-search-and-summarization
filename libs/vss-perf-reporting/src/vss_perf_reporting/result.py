@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .identity import enriched_config
 from .naming import generate_run_id
 from .schema import (
     DEFAULT_PLATFORM_PLACEHOLDER,
@@ -66,7 +67,7 @@ def build_result(
             "service": service,
             "run_info": run_info,
             "platform": platform or DEFAULT_PLATFORM_PLACEHOLDER,
-            "config": config or {},
+            "config": enriched_config(config),
             "benchmark_name": benchmark_name,
             "benchmark_mode": benchmark_mode,
         },

@@ -91,3 +91,25 @@ From the repository root:
 PYTHONPATH=libs/vss-perf-reporting/src python -m pytest \
   libs/vss-perf-reporting/tests
 ```
+
+### Optional image provenance
+
+The shared result builder preserves existing measurements and accepts optional
+orchestrator environment metadata: `PERF_ARTIFACT_REF` (full resolved image
+reference), `PERF_REQUESTED_ARTIFACT_REF`, `PERF_HARDWARE_PLATFORM` and
+`PERF_IMAGE_ARCH`. These add fields under `metadata.config`; they do not assert a
+Docker-observed digest. `IGX-T7000` is reported as `IGX-THOR`.
+
+`src/vss_perf_reporting/identity.py REPORT_DIR` is a standard-library-only
+finalizer for canonical reports from native harnesses. It rewrites local
+`vss-perf-results/*.json` atomically before publication, preserving test cases,
+metrics, statuses, timestamps and filenames. Contradictory image references
+raise an error; callers must withhold publication/stashing if it fails. Optional
+`PERF_IDENTITY_SELECTION` JSON plus `PERF_IDENTITY_CONFIG_DIR` generate a stable
+configuration fingerprint from the selected settings, configuration and profile
+contents, allowing failed and successful runs of one configuration to be matched
+without merging different workloads. Without these environment variables,
+local reporting remains usable with its existing configuration.
+
+This does not migrate or rewrite existing MinIO objects and does not publish
+index sidecars. Consumers build their own derived catalogs from canonical reports.

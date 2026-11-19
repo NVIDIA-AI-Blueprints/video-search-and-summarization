@@ -11,6 +11,7 @@ perf_configs:
     llmModel: "unused"
     vision_input_tokens: "unused"
     checkoutPaths:
+      - libs/vss-perf-reporting/
       - libs/vss-perf-tools/
 
 # Profile paths are relative to this perf directory. All rows use one GPU.
