@@ -3,13 +3,16 @@ name: vss-introspect-video
 description: Run a single-coordinator evidence loop using fixed-format parallel VLM tool calls, compact claim assessments, and a mandatory reserved final visual check. Delegate here from vss-ask-video for evidence-intensive questions.
 license: Apache-2.0
 metadata:
-  version: "4.0.1-experimental"
+  version: "4.1.0-experiment-c"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
   vss-requires: "vlm"
 ---
 
 # Batched video introspection — experimental workflow
+
+This is experiment C: normal planning, memory, batches, closure and budgets are
+unchanged. Only the reserved final call becomes an answer-blind targeted inspection.
 
 Use after `vss-ask-video` delegates an introspection question. This branch
 replaces parallel inspector agents with **parallel tool calls**. One coordinator
@@ -216,6 +219,14 @@ Write `final-check-spec.json`:
 ```json
 {
   "candidate_answer": "<complete tentative answer, or null for open-ended abstention>",
+  "discriminator": {
+    "claim_id": "<one existing claim ID>",
+    "uncertain_fact": "<specific unresolved fact, or weakest necessary premise if resolved>",
+    "alternative_observations": ["<observable possibility>", "<different observable possibility>"],
+    "distinguishing_observation": "<visible observation that would separate the possibilities>",
+    "required_state": "<the relevant event and before/after state>",
+    "reference_frame": "<required coordinates, or Not applicable>"
+  },
   "scope": {
     "type": "sensor", "sensor_id": "<listed sensor>",
     "start": "<ISO start>", "end": "<ISO end>"
@@ -228,9 +239,12 @@ Choose the most answer-discriminating grounded window. It **must fit one call**
 at the preset; an overly long scope is rejected, not silently truncated.
 Use the same 48-frame limit (96/48/24 seconds at skim/locate/detail).
 The call is fresh, outside normal budget, with no quality retry. Normal inspections
-remain option-blind; the final template intentionally receives the candidate as
-a hypothesis to challenge. One local check may not establish a whole-video/count
-answer; that should be inconclusive, not confirmation.
+remain option-blind. The candidate is stored for the before/after answer audit
+but is NOT sent to the VLM. Focus fields are at most 400 characters; give two to
+four distinct observable alternatives, not option letters or a disguised candidate.
+The code renders the fixed prompt. If unresolved, inspect the missing fact most
+likely to change the answer; if resolved, test the weakest necessary premise.
+One local check may not establish whole-video/count coverage; preserve that gap.
 
 ```bash
 python3 "$WORKFLOW" final-check --ledger "$RUN_DIR/ledger.json" \
@@ -238,10 +252,15 @@ python3 "$WORKFLOW" final-check --ledger "$RUN_DIR/ledger.json" \
 ```
 
 Read `final-check.json`, including raw output. The VLM returns visual evidence and
-one `CHECK: supported/contradicted/inconclusive` line. Malformed verdicts remain
+one `CHECK: supported/contradicted/inconclusive` line about the TARGETED FACT, not
+the full answer. Malformed verdicts remain
 inconclusive; useful raw text is retained. Tool failure remains failed.
 Do not loop after this call. You may revise the answer, but the revised answer
-is explicitly not rechecked. Do not modify the ledger to make the check agree.
+is explicitly not rechecked. Use the new observations for synthesis, but do not
+modify the ledger to make the check agree. This controlled arm deliberately keeps
+the baseline's conservative publication rule: final evidence does not automatically
+resolve an earlier unresolved ledger. Report factual recovery and ledger closure
+separately; a supported targeted fact is not independent verification of the answer.
 If the check fails, keep its receipt and proceed to final publication with
 unresolved evidence. Re-running the identical command only reads the receipt;
 changing the scope or candidate cannot obtain a second final call. Do not delete

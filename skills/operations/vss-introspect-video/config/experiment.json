@@ -1,7 +1,7 @@
 {
-  "arm": "A",
-  "name": "code-batched-control",
+  "arm": "C",
+  "name": "answer-blind-targeted-final-inspection",
   "baseline_commit": "df70ce35de001a6a2454f1d1fbaa5abfbfe572ac",
-  "runtime_change": "none",
+  "runtime_change": "replace candidate-aware final check with one structured discriminator inspection",
   "requires_fresh_attempt_directory": true
 }

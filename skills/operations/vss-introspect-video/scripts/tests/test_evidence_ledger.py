@@ -15,6 +15,7 @@ from unittest.mock import patch
 import evidence_ledger as ledger_mod
 import inspection_workflow as workflow
 import pytest
+from targeted_final_fixtures import discriminator
 
 START = "2026-09-21T20:00:00Z"
 END = "2026-09-21T20:00:10Z"
@@ -31,7 +32,7 @@ def mock_final_check(path, answer=None):
     response = {"job_id": "test-check", "answer": "CHECK: supported", "raw_answer": "CHECK: supported",
                 "usable": True, "exit_code": 0, "error": None}
     with patch("vlm_inspection._run_vlm", return_value=response):
-        workflow.run_final_check(path, {"scope": MEDIA_SCOPE, "sampling": "locate", "candidate_answer": answer}, "unused")
+        workflow.run_final_check(path, {"scope": MEDIA_SCOPE, "sampling": "locate", "candidate_answer": answer, "discriminator": discriminator()}, "unused")
 
 
 def claim(

@@ -13,6 +13,7 @@ import evidence_ledger as ledger
 import inspection_workflow as workflow
 import pytest
 import vlm_inspection as vlm
+from targeted_final_fixtures import discriminator
 
 SCOPE = {
     "type": "sensor",
@@ -114,7 +115,7 @@ def run_and_merge(path, specs=None, **changes):
 def check(path, answer="Blue"):
     return workflow.run_final_check(
         path,
-        {"scope": SCOPE, "sampling": "detail", "candidate_answer": answer},
+        {"scope": SCOPE, "sampling": "detail", "candidate_answer": answer, "discriminator": discriminator()},
         "unused",
     )
 
@@ -410,7 +411,7 @@ def test_final_check_cannot_split_or_change_on_replay(tmp_path):
     with pytest.raises(ValueError, match="ONE call"):
         workflow.run_final_check(
             path,
-            {"scope": too_long, "sampling": "detail", "candidate_answer": "Blue"},
+            {"scope": too_long, "sampling": "detail", "candidate_answer": "Blue", "discriminator": discriminator()},
             "unused",
         )
     assert not (tmp_path / "final-check.started.json").exists()
@@ -728,6 +729,7 @@ def test_final_check_allows_48_frames_but_rejects_larger_window(
         "scope": scope_for_seconds(seconds),
         "sampling": preset,
         "candidate_answer": "Blue",
+        "discriminator": discriminator(),
     }
     receipt = workflow.run_final_check(path, request, None)
     assert receipt["inspection"]["attempts"][0]["frames_requested"] == 48
