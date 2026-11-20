@@ -674,12 +674,18 @@ def _list_pool_instances(
 
 
 def _loose_gpu_match(want: str, have: str) -> bool:
-    """`RTX PRO 6000` ⊆ `RTX PRO SERVER 6000` — all tokens of `want` must
-    appear in `have` (substring fallback for dashed variants). Mirrors
-    envs.brev_env._check_instance_matches."""
+    """`RTX PRO 6000` ⊆ `RTX PRO SERVER 6000` or concatenated `RTXPRO6000` /
+    `dmz.rtxpro6000x2.pcie`. Mirrors envs.brev_env._loose_gpu_match."""
     want_tokens = set(want.replace("-", " ").split())
     have_tokens = set(have.replace("-", " ").split())
-    return want_tokens.issubset(have_tokens) or want in have
+    if want_tokens and want_tokens.issubset(have_tokens):
+        return True
+    compact_want = re.sub(r"[^A-Z0-9]+", "", want.upper())
+    compact_have = re.sub(r"[^A-Z0-9]+", "", have.upper())
+    return bool(
+        compact_want
+        and re.search(rf"{re.escape(compact_want)}(?![0-9])", compact_have)
+    )
 
 
 # How many refusals a leg absorbs before reporting the last one. The pool is

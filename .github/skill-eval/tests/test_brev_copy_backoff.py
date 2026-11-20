@@ -113,6 +113,66 @@ def test_managed_copy_uses_rsync_and_discovered_port():
     assert calls[0][-1] == "ubuntu@global.prd.ga.run.brev.nvidia.com:/tmp/archive.tar.gz"
 
 
+def test_managed_copy_uses_ssh_user_from_brev_ssh_config():
+    module = _load_brev_env()
+    calls = []
+
+    async def launch(*cmd, **kwargs):
+        calls.append(cmd)
+        return types.SimpleNamespace(returncode=0)
+
+    async def communicate(proc, **kwargs):
+        return b"", b""
+
+    with tempfile.TemporaryDirectory() as td:
+        brev_dir = Path(td) / ".brev"
+        brev_dir.mkdir()
+        (brev_dir / "brev.pem").write_text("test key")
+        (brev_dir / "ssh_config").write_text(
+            "Host *\n"
+            "  User wildcard-ignored\n\n"
+            "Host vss-eval-rtx-2g-15-host\n"
+            "  User wrong-host\n\n"
+            "Host vss-eval-rtx-2g-15\n"
+            "  Hostname global.prd.ga.run.brev.nvidia.com\n"
+            "  User nvidia\n"
+            "  Port 28348\n\n"
+            "Host vss-eval-bad-user\n"
+            "  User -oProxyCommand=evil\n"
+        )
+        with mock.patch.object(module, "_is_registered_node", new_callable=mock.AsyncMock, return_value=False), \
+             mock.patch.object(module, "_get_brev_ssh_endpoint", new_callable=mock.AsyncMock, return_value=("global.prd.ga.run.brev.nvidia.com", 28348)), \
+             mock.patch.object(module.Path, "home", return_value=Path(td)), \
+             mock.patch.object(module.asyncio, "create_subprocess_exec", side_effect=launch), \
+             mock.patch.object(module, "_communicate_with_cancellation_cleanup", side_effect=communicate), \
+             mock.patch.object(module, "_register_transport_process"):
+            result = asyncio.run(
+                module._run_brev_copy_once("/tmp/archive.tar.gz", "vss-eval-rtx-2g-15:/tmp/archive.tar.gz")
+            )
+            assert module._brev_ssh_user("vss-eval-bad-user") == "ubuntu"
+    assert result.return_code == 0
+    assert calls[0][-1] == "nvidia@global.prd.ga.run.brev.nvidia.com:/tmp/archive.tar.gz"
+
+
+def test_ssh_endpoint_falls_back_to_ssh_config_when_brev_ports_rate_limited():
+    module = _load_brev_env()
+    rate_limited = types.SimpleNamespace(return_code=1, stdout="", stderr="resource exhausted")
+    with tempfile.TemporaryDirectory() as td:
+        brev_dir = Path(td) / ".brev"
+        brev_dir.mkdir()
+        (brev_dir / "ssh_config").write_text(
+            "Host vss-eval-l40s-1g-2\n"
+            "  Hostname global.prd.ga.run.brev.nvidia.com\n"
+            "  User ubuntu\n"
+            "  Port 22494\n"
+        )
+        with mock.patch.object(module, "_run_brev", new_callable=mock.AsyncMock, return_value=rate_limited), \
+             mock.patch.object(module.Path, "home", return_value=Path(td)):
+            assert asyncio.run(module._get_brev_ssh_endpoint("vss-eval-l40s-1g-2")) == (
+                "global.prd.ga.run.brev.nvidia.com", 22494,
+            )
+
+
 def test_legacy_copy_requires_explicit_switch():
     module = _load_brev_env()
     success = types.SimpleNamespace(return_code=0, stdout="", stderr="")
