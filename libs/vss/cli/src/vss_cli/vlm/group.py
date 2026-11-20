@@ -13,8 +13,9 @@ summarize pipeline and never re-enters a long-running job.
 Media reaches the VLM one of two ways (VLM-1 / VLM-2):
 
 * **Path B** (default): ``--sensor <name> [--start-time T --end-time T]``.
-  VIOS resolves the sensor to a clip URL and the VLM receives that URL. No
-  video bytes cross the CLI; the VLM fetches the clip from VIOS directly.
+  VIOS resolves the sensor to a clip URL and the VLM receives that URL.
+  ``--use-base64`` downloads the clip and sends its bytes inline instead;
+  loopback URLs use this automatically.
 * **Path A** (escape hatch): ``--media-url <url>``. A pre-resolved handle --
   any HTTP/HTTPS URL -- is sent directly as ``video_url``. Add ``--use-base64``
   to read a local file and send it as base64-encoded bytes instead.
@@ -40,8 +41,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 import json as _json_mod
 import logging
+import math
 import os
 import secrets
 import tempfile
@@ -69,7 +73,10 @@ from vss_cli.group import InvalidInput
 from vss_cli.group import Result
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
     from collections.abc import Sequence
+
+    import httpx
 
     from vss_core.memory.models import MemoryInput
 
@@ -185,6 +192,26 @@ class VlmInput(BaseModel):
         None,
         description="Clip window end, ISO-8601 UTC. Only valid with --sensor.",
     )
+    relook_start_time: str | None = Field(
+        None,
+        description="Opt in to one narrower read: start in ISO time or source seconds for a recorded file.",
+    )
+    relook_end_time: str | None = Field(
+        None,
+        description="Second-read end, paired with --relook-start-time. Requires --sensor.",
+    )
+    relook_fps: float | None = Field(
+        None,
+        gt=0,
+        le=256,
+        description="Frames per second for the second read only. Requires a relook window; honors policy locks.",
+    )
+    relook_max_frames: int | None = Field(
+        None,
+        ge=1,
+        le=2**31 - 1,
+        description="Frame budget for the second read only. Combines with --relook-fps on vLLM; honors policy locks.",
+    )
     media_url: str | None = Field(
         None,
         description="Pre-resolved HTTP/HTTPS video URL (Path A). Mutually exclusive with --sensor and --file.",
@@ -262,6 +289,18 @@ class VlmInput(BaseModel):
             raise ValueError("exactly one of --sensor, --media-url, or --file is required")
         if not has_sensor and (self.start_time or self.end_time):
             raise ValueError("--start-time / --end-time require --sensor")
+        if (
+            any(value is not None for value in (self.relook_fps, self.relook_max_frames))
+            and self.relook_start_time is None
+        ):
+            raise ValueError("--relook-fps and --relook-max-frames require a relook window")
+        if any(value is not None for value in (self.relook_start_time, self.relook_end_time)):
+            if not self.relook_start_time or not self.relook_end_time:
+                raise ValueError("--relook-start-time and --relook-end-time must be supplied together")
+            if not has_sensor:
+                raise ValueError("second look requires --sensor")
+            if self.chunk_duration:
+                raise ValueError("second look requires --chunk-duration 0")
         return self
 
 
@@ -274,9 +313,13 @@ class VlmOptions(BaseModel):
     use_base64: bool = Field(
         False,
         description=(
-            "Read the --media-url value as a local file path and send its bytes as base64. "
-            "Path A escape hatch when VIOS is not available."
+            "Send video bytes inline as base64: download a --sensor clip, "
+            "or read the --media-url value as a local file path."
         ),
+    )
+    relook_container: Literal["mp4", "mkv"] | None = Field(
+        None,
+        description="VIOS container for the second clip only. Requires a relook window; default is unchanged.",
     )
 
 
@@ -340,14 +383,18 @@ def _resolve_vios_clip(
     sensor: str,
     start_time: str | None,
     end_time: str | None,
+    *,
+    transcode: Literal["full"] | None = None,
+    container: Literal["mp4", "mkv"] | None = None,
 ) -> tuple[str, str | None, str | None]:
     """Resolve a VIOS sensor to a clip URL and the effective window bounds.
 
-    Returns ``(media_url, resolved_start, resolved_end)`` where the bounds reflect
-    the actual window VIOS served, which may differ from the inputs when only one
-    bound was supplied or neither was supplied.
+    Returns ``(media_url, resolved_start, resolved_end)`` with requested bounds
+    resolved against the recording. Full transcoding avoids the earlier
+    keyframe that the default remux can include.
     """
     from vss_core import vios
+    from vss_core._foundation.time import iso8601_to_datetime
 
     origin = deployment.base_url.rstrip("/")
 
@@ -355,11 +402,15 @@ def _resolve_vios_clip(
         ref = await vios.resolve_sensor(origin, sensor)
         segments = await vios.recorded_segments(origin, ref.stream_id)
         start, end = vios.resolve_window(segments, start_time, end_time, ref.kind)
+        window = tuple(iso8601_to_datetime(value) for value in (start, end))
+        whole_segment = any(window == tuple(iso8601_to_datetime(value) for value in segment) for segment in segments)
         url = await vios.get_video_clip_url(
             stream_id=ref.stream_id,
             start_time=start,
             end_time=end,
             vst_internal_url=origin,
+            transcode=None if whole_segment else transcode,
+            container=container,
         )
         url = vios.normalise_media_url(url, origin)
         await vios.warm_media_url(url)
@@ -593,12 +644,385 @@ def _iter_base64_json(
 
     try:
         with open(file_path, "rb") as fh:
-            yield (pre + '"data:video/mp4;base64,').encode()
+            media_type = "video/x-matroska" if file_path.lower().endswith(".mkv") else "video/mp4"
+            yield (pre + f'"data:{media_type};base64,').encode()
             while chunk := fh.read(3 * 65536):
                 yield base64.b64encode(chunk)
             yield ('"' + post).encode()
     except OSError as exc:
         raise InvalidInput(f"cannot read local file {file_path!r}: {exc}") from exc
+
+
+def _retry_delay(response: httpx.Response, minimum: float) -> float:
+    try:
+        value = response.headers["Retry-After"]
+        try:
+            delay = float(value)
+        except ValueError:
+            retry_at = parsedate_to_datetime(value)
+            delay = retry_at.replace(tzinfo=retry_at.tzinfo or UTC).timestamp() - time.time()
+        if math.isfinite(delay) and delay >= 0:
+            return max(minimum, delay)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        pass
+    return minimum
+
+
+async def _post_second_look(
+    url: str, *, backend: str, model: str, inputs: VlmInput, media_url: str, inline: bool
+) -> httpx.Response:
+    """Retry explicit refusals within one cancellable model-request budget."""
+    import httpx
+
+    async def body() -> AsyncGenerator[bytes]:
+        with contextlib.closing(
+            _iter_base64_json(backend=backend, prompt=inputs.prompt, file_path=media_url, model=model, inputs=inputs)
+        ) as chunks:
+            for chunk in chunks:
+                yield chunk
+
+    deadline = time.monotonic() + float(inputs.timeout)
+    try:
+        async with asyncio.timeout(float(inputs.timeout)), httpx.AsyncClient() as client:
+            for attempt in range(3):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError
+                if inline:
+                    async with contextlib.aclosing(body()) as content:
+                        response = await client.post(url, content=content, headers=_vlm_headers(), timeout=remaining)
+                else:
+                    response = await client.post(
+                        url,
+                        json=_build_vlm_request(
+                            backend=backend, prompt=inputs.prompt, media_url=media_url, model=model, inputs=inputs
+                        ),
+                        headers=_vlm_headers(),
+                        timeout=remaining,
+                    )
+                if response.status_code not in (429, 502, 503, 504) or attempt == 2:
+                    break
+                delay = _retry_delay(response, 2.0 * (attempt + 1))
+                if delay >= deadline - time.monotonic():
+                    break
+                await response.aclose()
+                await asyncio.sleep(delay)
+            return response
+    except TimeoutError as exc:
+        raise httpx.TimeoutException("Second-look model-request deadline reached") from exc
+
+
+class _VlmJob:
+    """One CLI read, sharing its identity and persistence across terminal paths."""
+
+    def __init__(self, group: VlmGroup, inputs: VlmInput, ctx: Context, options: VlmOptions, model: str) -> None:
+        from vss_core.memory.adapters import utc_now_iso
+
+        from .memory_adapter import VlmAdapter
+
+        self.job_id = _mint_job_id()
+        self.created_at = utc_now_iso()
+        self.adapter = VlmAdapter()
+        self.inputs = inputs
+        self.model = model
+        self.input_data: MemoryInput | None = None
+        self.model_params: dict[str, Any] = {"model": model, "timeout": inputs.timeout}
+        for name in (
+            *config_mod.VLM_SAMPLING_FIELDS,
+            "max_tokens",
+            "temperature",
+            "seed",
+            "enable_reasoning",
+            "chunk_duration",
+        ):
+            value = getattr(inputs, name)
+            if value is not None:
+                self.model_params[name] = value
+        # Resolve memory first so media failures also receive a terminal record.
+        self.persist_error: str | None = None
+        try:
+            self.memory = group.persist_memory(ctx, no_persist=options.no_persist)
+        except memory_mod.MemoryUnavailable as exc:
+            self.persist_error = str(exc)
+            click.echo(f"vss: unified memory is unavailable, running without it ({exc})", err=True)
+            self.memory = None
+
+    def build_input(self, start: str | None, end: str | None, media_url: str | None = None) -> MemoryInput:
+        return self.adapter.build_input(
+            prompt=self.inputs.prompt,
+            sensor=self.inputs.sensor,
+            start_time=start,
+            end_time=end,
+            media_url=media_url,
+            intent=self.inputs.intent,
+            model_params=self.model_params,
+        )
+
+    def failure(
+        self,
+        detail: str,
+        code: Exit,
+        *,
+        status: str = "failed",
+        diagnostic: str | None = None,
+        include_error: bool = True,
+    ) -> Result:
+        if self.input_data is None:
+            persisted = _persist_failure(
+                self.memory,
+                self.adapter,
+                job_id=self.job_id,
+                created_at=self.created_at,
+                prompt=self.inputs.prompt,
+                sensor=self.inputs.sensor,
+                start_time=self.inputs.start_time,
+                end_time=self.inputs.end_time,
+                intent=self.inputs.intent,
+                model_params=self.model_params,
+                status=status,
+                message=detail,
+            )
+        else:
+            persisted = _write_terminal(
+                self.memory,
+                self.adapter,
+                job_id=self.job_id,
+                created_at=self.created_at,
+                input_data=self.input_data,
+                status=status,
+                message=detail,
+            )
+        body = {"job_id": self.job_id, "status": status}
+        if include_error:
+            body["error"] = detail
+        click.echo(f"vss: {diagnostic if diagnostic is not None else detail}", err=True)
+        return Result(
+            body=body, extra={"marker": {"status": status, "persisted": persisted}}, exit=code, job_id=self.job_id
+        )
+
+    def resolve_media(
+        self, deployment: config_mod.Deployment, ctx: Context
+    ) -> tuple[str, str | None, str | None] | Result:
+        inputs = self.inputs
+        if not inputs.sensor:
+            return inputs.file or inputs.media_url, inputs.start_time, inputs.end_time  # type: ignore[return-value]
+        if "vst" not in (deployment.services or {}):
+            if deployment.is_direct_vlm:
+                detail = (
+                    f"--sensor needs a VSS deployment, but {deployment.base_url} is a bare VLM endpoint "
+                    "with no VIOS. Use --media-url <url> or --media-url <path> --use-base64."
+                )
+            else:
+                detail = (
+                    "--sensor requires the `vst` service in the deployment. Re-run `vss configure --base-url <URL>`."
+                )
+            return self.failure(detail, Exit.CONFIGURATION)
+        resolved: tuple[str, str | None, str | None] | Result
+        try:
+            resolved = _resolve_vios_clip(
+                deployment,
+                inputs.sensor,
+                inputs.start_time,
+                inputs.end_time,
+                transcode="full" if ctx.extra.get("_second_look_exact_clip") else None,
+                container=ctx.extra.get("_second_look_container"),
+            )
+        except Exception as exc:
+            code, status = _vios_exit_for(exc)
+            resolved = self.failure(str(exc), code, status=status)
+        return resolved
+
+    def download(self, media_url: str, start: str | None, end: str | None) -> str | Result:
+        import httpx
+
+        suffix = os.path.splitext(urllib.parse.urlparse(media_url).path)[1] or ".mp4"
+        fd, path = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+        downloaded = False
+        result: str | Result
+        try:
+            with httpx.stream("GET", media_url, timeout=float(self.inputs.timeout)) as response:
+                response.raise_for_status()
+                with open(path, "wb") as stream:
+                    for chunk in response.iter_bytes(chunk_size=65536):
+                        stream.write(chunk)
+            downloaded = True
+            result = path
+        except httpx.TimeoutException:
+            detail = f"VIOS clip download timed out after {self.inputs.timeout}s"
+            self.input_data = self.build_input(start, end)
+            result = self.failure(
+                detail, Exit.TIMEOUT, status="timeout", diagnostic=f"{detail} (job {self.job_id})", include_error=False
+            )
+        except (httpx.HTTPError, OSError) as exc:
+            if isinstance(exc, httpx.HTTPStatusError):
+                detail = f"VIOS clip download returned HTTP {exc.response.status_code}"
+            else:
+                detail = f"VIOS clip download failed ({type(exc).__name__})"
+            self.input_data = self.build_input(start, end)
+            result = self.failure(detail, Exit.BACKEND_UNREACHABLE)
+        finally:
+            if not downloaded:
+                with contextlib.suppress(OSError):
+                    os.unlink(path)
+        return result
+
+    def request(
+        self,
+        deployment: config_mod.Deployment,
+        backend: str,
+        media_url: str,
+        inline: bool,
+        second_look: bool,
+        bounds: tuple[str | None, str | None],
+    ) -> httpx.Response | Result:
+        import httpx
+
+        result: httpx.Response | Result
+        try:
+            self.input_data = self.build_input(*bounds, media_url if not self.inputs.sensor and not inline else None)
+            url = deployment.endpoint("rt_vlm").rstrip("/") + _COMPLETIONS_PATH
+            if inline:
+                # Fail before streaming so an unreadable file remains invalid input.
+                try:
+                    open(media_url, "rb").close()
+                except OSError as exc:
+                    raise InvalidInput(f"cannot read local file {media_url!r}: {exc}") from exc
+            if second_look:
+                result = asyncio.run(
+                    _post_second_look(
+                        url,
+                        backend=backend,
+                        model=self.model,
+                        inputs=self.inputs,
+                        media_url=media_url,
+                        inline=inline,
+                    )
+                )
+            elif inline:
+                result = httpx.post(
+                    url,
+                    content=_iter_base64_json(
+                        backend=backend,
+                        prompt=self.inputs.prompt,
+                        file_path=media_url,
+                        model=self.model,
+                        inputs=self.inputs,
+                    ),
+                    headers=_vlm_headers(),
+                    timeout=float(self.inputs.timeout),
+                )
+            else:
+                result = httpx.post(
+                    url,
+                    json=_build_vlm_request(
+                        backend=backend,
+                        prompt=self.inputs.prompt,
+                        media_url=media_url,
+                        model=self.model,
+                        inputs=self.inputs,
+                    ),
+                    headers=_vlm_headers(),
+                    timeout=float(self.inputs.timeout),
+                )
+        except InvalidInput as exc:
+            result = self.failure(str(exc), Exit.INVALID_INPUT)
+        except httpx.TimeoutException:
+            detail = f"VLM call timed out after {self.inputs.timeout}s"
+            result = self.failure(
+                detail, Exit.TIMEOUT, status="timeout", diagnostic=f"{detail} (job {self.job_id})", include_error=False
+            )
+        except httpx.HTTPError as exc:
+            result = self.failure(str(exc), Exit.BACKEND_UNREACHABLE, diagnostic=f"VLM unreachable at {url}: {exc}")
+        return result
+
+    def completion(self, response: httpx.Response) -> tuple[dict[str, Any], str] | Result:
+        if response.status_code >= 400:
+            detail = f"HTTP {response.status_code}"
+            code = Exit.BACKEND_UNREACHABLE if response.status_code >= 500 else Exit.INVALID_INPUT
+            return self.failure(detail, code, diagnostic=f"VLM backend error {detail}: {response.text[:500]}")
+        try:
+            try:
+                completion = response.json()
+            except ValueError:
+                raise ValueError("VLM response was not valid JSON") from None
+            answer = _extract_answer(completion)
+            if not answer.strip():
+                raise ValueError("VLM returned an empty answer")
+        except ValueError as exc:
+            return self.failure(str(exc), Exit.BACKEND_UNREACHABLE)
+        return completion, answer
+
+    def finish(self, response: httpx.Response, media_url: str | None) -> Result:
+        parsed = self.completion(response)
+        if isinstance(parsed, Result):
+            return parsed
+        completion, answer = parsed
+        model = completion.get("model") or self.model
+        body: dict[str, Any] = {
+            "job_id": self.job_id,
+            "status": "completed",
+            "answer": answer,
+            "model": model,
+            "intent": self.inputs.intent,
+        }
+        if self.memory is not None:
+            assert self.input_data is not None
+            output = self.adapter.build_output(
+                answer=answer,
+                model=model,
+                media_url=media_url,
+                intent=self.inputs.intent,
+                completion_id=completion.get("id"),
+            )
+            terminal = self.adapter.terminal_record(
+                job_id=self.job_id,
+                created_at=self.created_at,
+                status="completed",
+                input_data=self.input_data,
+                output=output,
+            )
+            try:
+                self.memory.service.upsert(terminal)
+            except memory_mod.write_failures() as exc:
+                self.persist_error = str(exc)
+                click.echo(f"vss: unified memory write failed ({exc})", err=True)
+        persisted = self.memory is not None and not self.persist_error
+        body["persisted"] = persisted
+        if self.persist_error:
+            body["persist_error"] = self.persist_error
+        elif persisted:
+            body["memory_index"] = self.memory.index
+        return Result(
+            body=body,
+            extra={"marker": {"status": "completed", "persisted": persisted}},
+            exit=Exit.PARTIAL if self.persist_error else Exit.SUCCESS,
+            job_id=self.job_id,
+        )
+
+    def execute(self, deployment: config_mod.Deployment, options: VlmOptions, ctx: Context, backend: str) -> Result:
+        prepared = self.resolve_media(deployment, ctx)
+        if isinstance(prepared, Result):
+            return prepared
+        media_url, start, end = prepared
+        temporary = None
+        if self.inputs.sensor and (_is_loopback_url(media_url) or options.use_base64):
+            downloaded = self.download(media_url, start, end)
+            if isinstance(downloaded, Result):
+                return downloaded
+            media_url = temporary = downloaded
+        inline = options.use_base64 or bool(self.inputs.file) or temporary is not None
+        try:
+            response = self.request(
+                deployment, backend, media_url, inline, bool(ctx.extra.get("_second_look_exact_clip")), (start, end)
+            )
+        finally:
+            if temporary is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(temporary)
+        if not isinstance(response, Result):
+            response = self.finish(response, None if inline else media_url)
+        return response
 
 
 class VlmGroup(CommandGroup):
@@ -612,478 +1036,25 @@ class VlmGroup(CommandGroup):
     extra_params: ClassVar[Sequence[click.Parameter]] = tuple(params_mod.options_from_model(VlmOptions))
 
     def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:  # noqa: ARG002
-        import httpx
-
         if not isinstance(inputs, VlmInput):  # pragma: no cover
             raise TypeError(f"expected VlmInput, got {type(inputs).__name__}")
-
         deployment = ctx.deployment or config_mod.load()
         policy = config_mod.effective_vlm_config(deployment.vlm)
         inputs = _apply_vlm_policy(inputs, policy)
         backend = policy.backend if policy is not None else "rt_vlm"
         options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
-
-        if options.use_base64 and inputs.sensor:
-            raise InvalidInput("--use-base64 cannot be combined with --sensor")
-
+        if options.relook_container is not None and inputs.relook_start_time is None:
+            raise InvalidInput("--relook-container requires a relook window")
         model = inputs.model or _default_model(deployment)
-        job_id = _mint_job_id()
+        if inputs.relook_start_time is not None:
+            from dataclasses import replace
 
-        from vss_core.memory.adapters import utc_now_iso
+            from .second_look import run_second_look
 
-        from .memory_adapter import VlmAdapter
-
-        adapter = VlmAdapter()
-        created_at = utc_now_iso()
-
-        model_params: dict[str, Any] = {"model": model, "timeout": inputs.timeout}
-        for name in config_mod.VLM_SAMPLING_FIELDS:
-            if getattr(inputs, name) is not None:
-                model_params[name] = getattr(inputs, name)
-        if inputs.max_tokens is not None:
-            model_params["max_tokens"] = inputs.max_tokens
-        if inputs.temperature is not None:
-            model_params["temperature"] = inputs.temperature
-        if inputs.seed is not None:
-            model_params["seed"] = inputs.seed
-        if inputs.enable_reasoning is not None:
-            model_params["enable_reasoning"] = inputs.enable_reasoning
-        if inputs.chunk_duration is not None:
-            model_params["chunk_duration"] = inputs.chunk_duration
-
-        # Initialise memory before media resolution so any failure path (including
-        # the loopback clip-fetch timeout below) can write a terminal record. A
-        # configured store that is unavailable must not prevent the visual answer:
-        # carry on unpersisted and report the persistence failure as partial.
-        persist_error: str | None = None
-        try:
-            memory = self.persist_memory(ctx, no_persist=options.no_persist)
-        except memory_mod.MemoryUnavailable as exc:
-            persist_error = str(exc)
-            click.echo(f"vss: unified memory is unavailable, running without it ({exc})", err=True)
-            memory = None
-
-        # Resolve the media URL.
-        media_url: str
-        resolved_start: str | None = inputs.start_time
-        resolved_end: str | None = inputs.end_time
-        _loopback_tmp: str | None = None  # temp file path when loopback fallback fires
-        if inputs.sensor:
-            if "vst" not in (deployment.services or {}):
-                # Post-mint: the job id is already public, so this must write its
-                # terminal record and report through a Result (body + marker).
-                if deployment.is_direct_vlm:
-                    detail = (
-                        f"--sensor needs a VSS deployment, but {deployment.base_url} is a bare VLM endpoint "
-                        "with no VIOS. Use --media-url <url> or --media-url <path> --use-base64."
-                    )
-                else:
-                    detail = (
-                        "--sensor requires the `vst` service in the deployment. "
-                        "Re-run `vss configure --base-url <URL>`."
-                    )
-                _vst_persisted = _persist_failure(
-                    memory,
-                    adapter,
-                    job_id=job_id,
-                    created_at=created_at,
-                    prompt=inputs.prompt,
-                    sensor=inputs.sensor,
-                    start_time=inputs.start_time,
-                    end_time=inputs.end_time,
-                    intent=inputs.intent,
-                    model_params=model_params,
-                    status="failed",
-                    message=detail,
-                )
-                click.echo(f"vss: {detail}", err=True)
-                return Result(
-                    body={"job_id": job_id, "status": "failed", "error": detail},
-                    extra={"marker": {"status": "failed", "persisted": _vst_persisted}},
-                    exit=Exit.CONFIGURATION,
-                    job_id=job_id,
-                )
-            try:
-                media_url, resolved_start, resolved_end = _resolve_vios_clip(
-                    deployment, inputs.sensor, inputs.start_time, inputs.end_time
-                )
-            except Exception as _vios_exc:
-                _vios_code, _vios_status = _vios_exit_for(_vios_exc)
-                _vios_persisted = _persist_failure(
-                    memory,
-                    adapter,
-                    job_id=job_id,
-                    created_at=created_at,
-                    prompt=inputs.prompt,
-                    sensor=inputs.sensor,
-                    start_time=inputs.start_time,
-                    end_time=inputs.end_time,
-                    intent=inputs.intent,
-                    model_params=model_params,
-                    status=_vios_status,
-                    message=str(_vios_exc),
-                )
-                click.echo(f"vss: {_vios_exc}", err=True)
-                return Result(
-                    body={"job_id": job_id, "status": _vios_status, "error": str(_vios_exc)},
-                    extra={"marker": {"status": _vios_status, "persisted": _vios_persisted}},
-                    exit=_vios_code,
-                    job_id=job_id,
-                )
-            if _is_loopback_url(media_url):
-                # The VIOS clip URL resolves to localhost — reachable from this CLI
-                # host but blocked by rt_vlm's SSRF protection (or simply unreachable
-                # from inside the VLM container in Docker deployments). Stream the
-                # clip to a temp file and send it inline as base64.
-                tmp_fd, _loopback_tmp = tempfile.mkstemp(suffix=".mp4")
-                os.close(tmp_fd)
-                _download_ok = False
-                try:
-                    with httpx.stream("GET", media_url, timeout=float(inputs.timeout)) as clip_resp:
-                        clip_resp.raise_for_status()
-                        with open(_loopback_tmp, "wb") as f:
-                            for chunk in clip_resp.iter_bytes(chunk_size=65536):
-                                f.write(chunk)
-                    media_url = _loopback_tmp
-                    _download_ok = True
-                except httpx.TimeoutException:
-                    detail = f"VIOS clip download timed out after {inputs.timeout}s"
-                    # VIOS resolution succeeded; resolved_start/resolved_end are available.
-                    clip_input: MemoryInput = adapter.build_input(
-                        prompt=inputs.prompt,
-                        sensor=inputs.sensor,
-                        start_time=resolved_start,
-                        end_time=resolved_end,
-                        media_url=None,
-                        intent=inputs.intent,
-                        model_params=model_params,
-                    )
-                    _persisted = _write_terminal(
-                        memory,
-                        adapter,
-                        job_id=job_id,
-                        created_at=created_at,
-                        input_data=clip_input,
-                        status="timeout",
-                        message=detail,
-                    )
-                    click.echo(f"vss: {detail} (job {job_id})", err=True)
-                    return Result(
-                        body={"job_id": job_id, "status": "timeout"},
-                        extra={"marker": {"status": "timeout", "persisted": _persisted}},
-                        exit=Exit.TIMEOUT,
-                        job_id=job_id,
-                    )
-                except Exception as exc:
-                    # httpx.HTTPError (network/protocol failure) or OSError
-                    # during the write — both signal VIOS is unreachable, not a
-                    # caller mistake. Write a terminal record and exit as
-                    # BACKEND_UNREACHABLE (3) so callers/retries treat this
-                    # correctly instead of seeing an invalid-input (2) exit.
-                    detail = f"cannot fetch VIOS clip for loopback base64 fallback: {exc}"
-                    clip_input = adapter.build_input(
-                        prompt=inputs.prompt,
-                        sensor=inputs.sensor,
-                        start_time=resolved_start,
-                        end_time=resolved_end,
-                        media_url=None,
-                        intent=inputs.intent,
-                        model_params=model_params,
-                    )
-                    _persisted = _write_terminal(
-                        memory,
-                        adapter,
-                        job_id=job_id,
-                        created_at=created_at,
-                        input_data=clip_input,
-                        status="failed",
-                        message=detail,
-                    )
-                    click.echo(f"vss: {detail}", err=True)
-                    return Result(
-                        body={"job_id": job_id, "status": "failed", "error": detail},
-                        extra={"marker": {"status": "failed", "persisted": _persisted}},
-                        exit=Exit.BACKEND_UNREACHABLE,
-                        job_id=job_id,
-                    )
-                finally:
-                    # Clean up the temp file if the download failed.  On success
-                    # (_download_ok=True) the file is kept for the VLM call below.
-                    if not _download_ok:
-                        with contextlib.suppress(OSError):
-                            os.unlink(_loopback_tmp)
-                        _loopback_tmp = None
-        elif inputs.file:
-            # Path A (file): local file path read and sent as base64-encoded bytes.
-            media_url = inputs.file
-        else:
-            # Path A (url): pre-resolved HTTP/HTTPS handle passed directly to the VLM.
-            media_url = inputs.media_url  # type: ignore[assignment]
-
-        # True for --file, "--media-url <path> --use-base64", or the loopback
-        # SSRF fallback where the clip was streamed to a temp file: the video
-        # content is machine-specific bytes, not a retrievable URL handle.
-        _use_base64_effective = options.use_base64 or bool(inputs.file) or _loopback_tmp is not None
-
-        # Wrap everything that references _loopback_tmp in try/finally so the
-        # temp file is deleted even if adapter.build_input or the VLM call raises.
-        try:
-            input_data: MemoryInput = adapter.build_input(
-                prompt=inputs.prompt,
-                sensor=inputs.sensor,
-                start_time=resolved_start,
-                end_time=resolved_end,
-                media_url=media_url if (not inputs.sensor and not _use_base64_effective) else None,
-                intent=inputs.intent,
-                model_params=model_params,
-            )
-
-            vlm_url = deployment.endpoint("rt_vlm").rstrip("/") + _COMPLETIONS_PATH
-            if _use_base64_effective:
-                # Stream the JSON body chunk-by-chunk from the file.  This keeps only
-                # one 192 KB raw chunk in memory at a time instead of the entire encoded
-                # payload, the joined string, the data-URI f-string, and the json.dumps
-                # output that the list-then-join approach created simultaneously.
-                file_to_read = _loopback_tmp if _loopback_tmp is not None else media_url
-                # Pre-validate readability before giving the file to httpx.  If
-                # the open() fails inside the content generator, httpx wraps the
-                # OSError as httpx.WriteError (an httpx.HTTPError subclass) and
-                # the caller sees BACKEND_UNREACHABLE instead of INVALID_INPUT.
-                try:
-                    open(file_to_read, "rb").close()
-                except OSError as exc:
-                    raise InvalidInput(f"cannot read local file {file_to_read!r}: {exc}") from exc
-                response = httpx.post(
-                    vlm_url,
-                    content=_iter_base64_json(
-                        backend=backend,
-                        prompt=inputs.prompt,
-                        file_path=file_to_read,
-                        model=model,
-                        inputs=inputs,
-                    ),
-                    headers=_vlm_headers(),
-                    timeout=float(inputs.timeout),
-                )
-            else:
-                response = httpx.post(
-                    vlm_url,
-                    json=_build_vlm_request(
-                        backend=backend,
-                        prompt=inputs.prompt,
-                        media_url=media_url,
-                        model=model,
-                        inputs=inputs,
-                    ),
-                    headers=_vlm_headers(),
-                    timeout=float(inputs.timeout),
-                )
-        except InvalidInput as exc:
-            # Raised by the pre-send readability check and by _iter_base64_json
-            # while httpx consumes the body. Both happen after the job id is
-            # minted, so they report through a Result rather than propagating to
-            # guarded(), which would exit without emitting a marker.
-            detail = str(exc)
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="failed",
-                message=detail,
-            )
-            click.echo(f"vss: {detail}", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=Exit.INVALID_INPUT,
-                job_id=job_id,
-            )
-        except httpx.TimeoutException:
-            detail = f"VLM call timed out after {inputs.timeout}s"
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="timeout",
-                message=detail,
-            )
-            click.echo(f"vss: {detail} (job {job_id})", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "timeout"},
-                extra={"marker": {"status": "timeout", "persisted": _persisted}},
-                exit=Exit.TIMEOUT,
-                job_id=job_id,
-            )
-        except httpx.HTTPError as exc:
-            detail = str(exc)
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="failed",
-                message=detail,
-            )
-            click.echo(f"vss: VLM unreachable at {vlm_url}: {exc}", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=Exit.BACKEND_UNREACHABLE,
-                job_id=job_id,
-            )
-        finally:
-            # Guarantee temp file deletion whether the VLM call succeeded, failed,
-            # or raised — including if adapter.build_input raised before the call.
-            if _loopback_tmp is not None:
-                with contextlib.suppress(OSError):
-                    os.unlink(_loopback_tmp)
-                _loopback_tmp = None
-
-        if response.status_code >= 400:
-            detail = f"HTTP {response.status_code}"
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="failed",
-                message=detail,
-            )
-            code = Exit.BACKEND_UNREACHABLE if response.status_code >= 500 else Exit.INVALID_INPUT
-            click.echo(f"vss: VLM backend error {detail}: {response.text[:500]}", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=code,
-                job_id=job_id,
-            )
-
-        try:
-            completion = response.json()
-        except ValueError:
-            detail = "VLM response was not valid JSON"
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="failed",
-                message=detail,
-            )
-            click.echo(f"vss: {detail}", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=Exit.BACKEND_UNREACHABLE,
-                job_id=job_id,
-            )
-
-        try:
-            answer = _extract_answer(completion)
-        except ValueError as exc:
-            detail = str(exc)
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="failed",
-                message=detail,
-            )
-            click.echo(f"vss: {detail}", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=Exit.BACKEND_UNREACHABLE,
-                job_id=job_id,
-            )
-
-        if not answer.strip():
-            detail = "VLM returned an empty answer"
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="failed",
-                message=detail,
-            )
-            click.echo(f"vss: {detail}", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=Exit.BACKEND_UNREACHABLE,
-                job_id=job_id,
-            )
-
-        completion_id: str | None = completion.get("id")
-        body: dict[str, Any] = {
-            "job_id": job_id,
-            "status": "completed",
-            "answer": answer,
-            "model": completion.get("model") or model,
-        }
-        body["intent"] = inputs.intent
-
-        # Point call: write the terminal record once.
-        if memory is None:
-            body["persisted"] = False
-            if persist_error:
-                body["persist_error"] = persist_error
-            return Result(
-                body=body,
-                extra={"marker": {"status": "completed", "persisted": False}},
-                exit=Exit.PARTIAL if persist_error else Exit.SUCCESS,
-                job_id=job_id,
-            )
-
-        output = adapter.build_output(
-            answer=answer,
-            model=completion.get("model") or model,
-            media_url=None if _use_base64_effective else media_url,
-            intent=inputs.intent,
-            completion_id=completion_id,
-        )
-        terminal = adapter.terminal_record(
-            job_id=job_id,
-            created_at=created_at,
-            status="completed",
-            input_data=input_data,
-            output=output,
-        )
-        try:
-            memory.service.upsert(terminal)
-        except memory_mod.write_failures() as exc:
-            persist_error = str(exc)
-            click.echo(f"vss: unified memory write failed ({exc})", err=True)
-
-        if persist_error:
-            body["persisted"] = False
-            body["persist_error"] = persist_error
-            return Result(
-                body=body,
-                extra={"marker": {"status": "completed", "persisted": False}},
-                exit=Exit.PARTIAL,
-                job_id=job_id,
-            )
-
-        body["persisted"] = True
-        body["memory_index"] = memory.index
-        return Result(
-            body=body,
-            extra={"marker": {"status": "completed", "persisted": True}},
-            exit=Exit.SUCCESS,
-            job_id=job_id,
-        )
+            relook_inputs: VlmInput = inputs.model_copy(update={"model": model, "chunk_duration": 0})
+            relook_ctx: Context = replace(ctx, deployment=deployment)
+            return run_second_look(self, relook_inputs, relook_ctx, policy=policy)
+        return _VlmJob(self, inputs, ctx, options, model).execute(deployment, options, ctx, backend)
 
 
 def _write_terminal(
