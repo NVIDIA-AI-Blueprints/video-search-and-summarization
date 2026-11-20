@@ -17,6 +17,7 @@
 
 import asyncio
 import json
+import logging
 import sys
 from unittest.mock import AsyncMock
 
@@ -1084,6 +1085,107 @@ class TestAlwaysOnCameraStreaming:
         assert cfg.prompt == "detect fire"
         assert cfg.live_stream_url == "rtsp://cam-1/stream"
         assert cfg.sensor_name == "Cam 1"
+
+    @pytest.mark.parametrize(
+        "camera_url",
+        [
+            "http://vios:30888/vst/storage/warehouse_sample.mp4",
+            "https://vios:30888/vst/storage/warehouse_sample.mp4",
+            "file:///home/vst/vst_release/streamer_videos/warehouse_sample.mp4",
+            # VIOS re-announces an uploaded file with its storage path.
+            "/home/vst/vst_release/streamer_videos/warehouse_sample.mp4",
+            # RTVI VLM matches ``^rtsp://`` exactly, so these fail there too.
+            "rtsps://cam-1/stream",
+            "RTSP://cam-1/stream",
+        ],
+    )
+    @pytest.mark.parametrize("camera_type", ["file", None])
+    def test_non_rtsp_camera_url_is_skipped(
+        self, client, mocks, always_on, camera_url, camera_type
+    ):
+        """RTVI VLM rejects any stream URL that is not ``rtsp://``.
+
+        Such an event must start no rule and answer 200, not 502, so the
+        sender does not retry a request that can never succeed. Senders
+        that do not send ``camera_type`` get the same answer.
+        """
+        always_on([_sample_rule()])
+        event = _streaming_event(camera_url=camera_url)
+        if camera_type is not None:
+            event["event"]["camera_type"] = camera_type
+
+        resp = client.post("/api/v1/realtime/always-on", json=event)
+
+        assert resp.status_code == 200
+        assert resp.json() == {"reason": "STREAM_ADD_SKIPPED", "status": "HTTP/1.1 200 OK"}
+        mocks["realtime"].start_alert.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        ("camera_type", "level"),
+        [("file", logging.INFO), (None, logging.INFO), ("rtsp", logging.WARNING)],
+    )
+    def test_non_rtsp_skip_is_a_warning_for_a_live_camera(
+        self, client, mocks, always_on, caplog, camera_type, level
+    ):
+        """The check is on the URL, so a camera the sender calls ``rtsp``
+        is skipped too. That camera will never be monitored, so its skip is
+        logged as a warning; an uploaded file's is routine. The log names
+        the scheme, never the URL.
+        """
+        always_on([_sample_rule()])
+        event = _streaming_event(camera_url="http://user:secret@vios:30888/cam.mp4")
+        if camera_type is not None:
+            event["event"]["camera_type"] = camera_type
+
+        with caplog.at_level(logging.INFO):
+            resp = client.post("/api/v1/realtime/always-on", json=event)
+
+        assert resp.json()["reason"] == "STREAM_ADD_SKIPPED"
+        mocks["realtime"].start_alert.assert_not_awaited()
+        skips = [
+            r for r in caplog.records
+            if "skipped: camera_url is not an RTSP URL" in r.getMessage()
+        ]
+        assert [r.levelno for r in skips] == [level]
+        assert "scheme='http'" in skips[0].getMessage()
+        assert "secret" not in skips[0].getMessage()
+
+    def test_non_rtsp_is_skipped_before_rules_config_is_loaded(
+        self, client, mocks, always_on, monkeypatch
+    ):
+        """A missing rules config must not turn an upload into a 503 that
+        the sender retries; an RTSP camera still gets the 503."""
+        monkeypatch.delenv("ALWAYS_ON_RULES_CONFIG", raising=False)
+
+        resp = client.post(
+            "/api/v1/realtime/always-on",
+            json=_streaming_event(camera_url="http://vios:30888/vst/storage/warehouse_sample.mp4"),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["reason"] == "STREAM_ADD_SKIPPED"
+
+        resp = client.post("/api/v1/realtime/always-on", json=_streaming_event())
+        assert resp.status_code == 503
+        assert resp.json()["reason"] == "CONFIG_ERROR"
+
+    def test_skipped_camera_leaves_nothing_to_remove(self, client, mocks, always_on):
+        """A skip records no rule, so the camera's later camera_remove is a
+        clean no-op."""
+        always_on([_sample_rule()])
+        client.post(
+            "/api/v1/realtime/always-on",
+            json=_streaming_event(camera_url="http://vios:30888/vst/storage/warehouse_sample.mp4"),
+        )
+
+        resp = client.post("/api/v1/realtime/always-on", json=_remove_event())
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "reason": "STREAM_REMOVE_SUCCESS",
+            "status": "HTTP/1.1 200 OK",
+            "details": [],
+        }
+        mocks["realtime"].stop_alert.assert_not_awaited()
 
     def test_fans_out_one_start_alert_per_rule(self, client, mocks, always_on):
         always_on([

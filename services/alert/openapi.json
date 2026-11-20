@@ -510,7 +510,7 @@
                     "realtime"
                 ],
                 "summary": "Start/stop always-on alert rules for an incoming camera event",
-                "description": "Starts or stops always-on alert rules in response to a camera lifecycle event.\n\n**Behavior by `event.change`:**\n\n- `camera_streaming` — starts one rule per entry in the always-on rules config. Idempotent per `camera_id`: repeats return reason `STREAM_ADD_ALREADY_ACTIVE`.\n- `camera_remove` — stops every rule previously started for that `camera_id`.\n\nResponses carry a `reason` code (`STREAM_ADD_SUCCESS`, `STREAM_ADD_PARTIAL_SUCCESS`, `STREAM_ADD_ALREADY_ACTIVE`, `STREAM_ADD_FAILED`, or `ALWAYS_ON_DISABLED`) and a `details` array with one entry per rule.",
+                "description": "Starts or stops always-on alert rules in response to a camera lifecycle event.\n\n**Behavior by `event.change`:**\n\n- `camera_streaming` — starts one rule per entry in the always-on rules config. Idempotent per `camera_id`: repeats return reason `STREAM_ADD_ALREADY_ACTIVE`. A non-RTSP `camera_url` (an uploaded file) starts no rule and returns 200 with reason `STREAM_ADD_SKIPPED`.\n- `camera_remove` — stops every rule previously started for that `camera_id`.\n\nResponses carry a `reason` code (`STREAM_ADD_SUCCESS`, `STREAM_ADD_PARTIAL_SUCCESS`, `STREAM_ADD_ALREADY_ACTIVE`, `STREAM_ADD_SKIPPED`, `STREAM_ADD_FAILED`, or `ALWAYS_ON_DISABLED`) and a `details` array with one entry per rule.",
                 "operationId": "always_on_realtime_api_v1_realtime_always_on_post",
                 "requestBody": {
                     "content": {
@@ -583,7 +583,7 @@
                                                     }
                                                 ],
                                                 "title": "Camera Url",
-                                                "description": "RTSP URL for the live stream. Required on `camera_streaming` (enforced by the handler); ignored on `camera_remove`."
+                                                "description": "RTSP URL for the live stream. Required on `camera_streaming` (enforced by the handler); ignored on `camera_remove`. A non-RTSP URL (an uploaded file) starts no rule and is answered with reason `STREAM_ADD_SKIPPED`."
                                             },
                                             "camera_vod_url": {
                                                 "anyOf": [
@@ -674,7 +674,7 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Rules started/stopped successfully",
+                        "description": "Request handled: rules started or stopped, already active, or skipped for a non-RTSP `camera_url`",
                         "content": {
                             "application/json": {
                                 "schema": {

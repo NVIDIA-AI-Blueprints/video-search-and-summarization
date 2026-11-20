@@ -665,7 +665,9 @@ class AlwaysOnEvent(BaseModel):
         default=None,
         description=(
             "RTSP URL for the live stream. Required on `camera_streaming` "
-            "(enforced by the handler); ignored on `camera_remove`."
+            "(enforced by the handler); ignored on `camera_remove`. A "
+            "non-RTSP URL (an uploaded file) starts no rule and is "
+            "answered with reason `STREAM_ADD_SKIPPED`."
         ),
     )
     camera_vod_url: Optional[str] = Field(

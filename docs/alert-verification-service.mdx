@@ -73,7 +73,7 @@ Real-time alerts follow the process below:
 
 4. **Alert Retrieval**: Stored incidents are queried with `GET /api/v1/realtime/incidents`. Because RT-VLM can emit one incident per video chunk while a single event stays visible, the same endpoint can group consecutive confirmed chunks into one event on request with `consolidate=true`. This is an API-only option; see [Realtime incident consolidation](/system-components/analytics-microservices/alerts-microservice/alert-verification-api#realtime-incident-consolidation).
 
-Always-on alerts are a refinement of the real-time alerts capability: users define VLM prompts and configuration in a file, and the rule is applied automatically to every newly added stream. This saves users from invoking the alert config creation API explicitly.
+Always-on alerts are a refinement of the real-time alerts capability: users define VLM prompts and configuration in a file, and the rule is applied automatically to every newly added RTSP stream. This saves users from invoking the alert config creation API explicitly. Uploaded video files are skipped, because RT-VLM monitors live RTSP streams only.
 
 ## Alert-on-Demand
 
