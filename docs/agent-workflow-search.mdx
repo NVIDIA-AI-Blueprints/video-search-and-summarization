@@ -41,7 +41,7 @@ The following diagram illustrates the search workflow architecture:
 - **RTVI-CV:** Real Time Video Intelligence Computer Vision Microservice to generate object attribute embeddings for videos
 - **Behavior Analytics:** Behavior Analytics microservice to perform sequential frame analysis for object detection and tracking in videos/streams.
 
-This list describes the stock profile. The manual Compose deployment below uses it as it stands, and so does the Agent Skills deployment that names the in-stack Agent. The other two Agent Skills deployments do not: both drop the in-stack VSS Agent, Phoenix, and the Agent's LLM. The NemoClaw deployment keeps the Web UI; a capability-composed build drops it. Ask for the in-stack VSS Agent if you plan to use the Agent REST API or the manual Agent UI workflow.
+This list describes the stock profile. The manual Compose deployment below uses it as it stands, and so does the Agent Skills deployment that names the in-stack Agent. The other two Agent Skills deployments do not: both drop the in-stack VSS Agent, Phoenix, and the Agent's LLM. The sandbox deployment keeps the Web UI; a capability-composed build drops it. Ask for the in-stack VSS Agent if you plan to use the Agent REST API or the manual Agent UI workflow.
 
 ## Search Workflow Data Flow
 
@@ -70,7 +70,7 @@ Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/
 
 ### With Agent Skills
 
-As an alternative to running the workflow manually, you can use [VSS Agent Skills](/vision-agent/agent-skills) from a coding agent such as Claude Code, Codex, or NemoClaw.
+As an alternative to running the workflow manually, you can use [VSS Agent Skills](/vision-agent/agent-skills) from a coding agent such as Claude Code, Codex, or OpenShell.
 
 First install the skills as described in [Installing Skills](/vision-agent/agent-skills#installing-skills) and make it accessible to your coding agent.
 
@@ -104,9 +104,9 @@ What the agent does:
 
 Operate it either way: with the prompts in Steps 2 to 7 below, or through the UI steps under [Manually](/vision-agent/agent-workflows/search#manually).
 
-##### Stock Search profile driven by NemoClaw
+##### Stock Search profile driven by an OpenShell sandbox
 
-The same profile with NemoClaw as the harness. When the prompt does not name an agent, the skill asks whether to deploy NemoClaw and takes yes as the default. NemoClaw runs as a sandbox on the host and drives the deployment over its public routes, so the in-stack VSS Agent, Phoenix, and the Agent's LLM are left out.
+The same profile with an [OpenShell](/vision-agent/agent-harnesses/open-shell) sandbox as the harness. When the prompt does not name an agent, the skill asks whether to deploy the sandbox and takes yes as the default. The sandbox runs Hermes on the host and drives the deployment over its public routes, so the in-stack VSS Agent, Phoenix, and the Agent's LLM are left out.
 
 **Deploy prompt structure**
 
@@ -114,11 +114,7 @@ The same profile with NemoClaw as the harness. When the prompt does not name an 
 Deploy the VSS search profile.
 ```
 
-The agent follows the same steps as above, then brings up the NemoClaw sandbox against the deployed origin and reports its chat URL. You reach the deployment through that chat, and the Web UI's chat sidebar and Chat tab answer through it as well. The `/api`, `/chat`, and `/websocket` ingress routes are unavailable here. Operate this deployment with the prompts in Steps 2 to 7 below.
-
-<Note>
-NemoClaw's chat and the Web UI's chat surfaces both wait for a gateway token before they answer. For the token step, see [Agent harness](/vision-agent/build-vision-ai-skill#agent-harness).
-</Note>
+The agent follows the same steps as above, then brings up the sandbox against the deployed origin, wires the Web UI's chat sidebar and Chat tab to it, and reports the sandbox name. You reach the deployment through that chat, or with `openshell sandbox exec -n <sandbox-name> -- hermes chat` on the host. The `/api`, `/chat`, and `/websocket` ingress routes are unavailable here. Operate this deployment with the prompts in Steps 2 to 7 below.
 
 ##### Custom search build
 
@@ -302,7 +298,7 @@ Tear down the search deployment and preserve the model caches.
 
 Bind-mounted data under `VSS_DATA_DIR`, such as Elasticsearch and Kafka data and VIOS recordings, survives either path and would carry into the next deployment. Clearing it is a separate step that needs root, so the agent will surface the command and confirm with you before running it.
 
-On the NemoClaw deployment the sandbox is a separate lifecycle from the containers, so tearing down one leaves the other running. Ask for the sandbox to be destroyed as well when you are finished with it.
+On the sandbox deployment the sandbox is a separate lifecycle from the containers, so tearing down one leaves the other running. Ask for the sandbox to be destroyed as well when you are finished with it.
 
 ### Manually
 

@@ -54,7 +54,7 @@ The following diagram illustrates the video summarization architecture:
 
 This list describes the stock profile used by the manual Compose deployment.
 Build Vision AI customizes that profile for the requested capabilities. With
-the default NemoClaw harness, or with no harness, it does not deploy the
+the default sandbox harness, or with no harness, it does not deploy the
 in-stack VSS Agent or Phoenix. It also omits the Agent's local LLM unless
 another selected service needs it. Ask for the in-stack VSS Agent if you plan
 to use the Agent REST API or the manual Agent UI workflow below.
@@ -73,7 +73,7 @@ For instructions on downloading sample data and the deployment package, see [Dow
 
 #### Step 1: Deploy the Agent
 
-Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and operate the video summarization workflow.
+Use VSS Agent Skills from an agent such as Claude Code, Codex, or OpenShell to deploy and operate the video summarization workflow.
 First, install the `vss-build-vision-ai` skill as described in [Agent Skills](/vision-agent/agent-skills) and make it
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/getting-started/prerequisites).
@@ -102,7 +102,7 @@ What the agent does:
 3. Selects the `lvs` profile and a platform and mode that fit your hardware, then builds the deployment configuration.
 4. Reviews the configuration with you, then deploys the containers.
 5. Waits until all services are healthy and returns the endpoints available for
-   the deployment, including the NemoClaw URL when that harness is selected.
+   the deployment, including the sandbox name when that harness is selected.
 
 #### Step 2: Upload a Video
 
@@ -742,7 +742,7 @@ Once the video is uploaded, the video will appear in the video list.
 Ask the agent to generate a report about the uploaded video. Here is an example prompt:
 
 <Note>
-The screenshots in this step show the in-stack VSS Agent UI. VSS Agent collects the Video Summarization parameters in Human in the Loop (HITL) dialog windows and provides the finished report as a PDF download. With NemoClaw's OpenClaw runtime, HITL happens in the OpenClaw chat: the agent asks for needed parameters inline, you answer in the conversation, and the summary or report appears in the chat UI. The VSS Agent's structured HITL dialogs are not available through an external VSS UI connected to NemoClaw, so the dialog and PDF screenshots do not represent that experience.
+The screenshots in this step show the in-stack VSS Agent UI. VSS Agent collects the Video Summarization parameters in Human in the Loop (HITL) dialog windows and provides the finished report as a PDF download. With the OpenShell sandbox harness, HITL happens in the sandbox's chat: the agent asks for needed parameters inline, you answer in the conversation, and the summary or report appears there. The VSS Agent's structured HITL dialogs are not available through a VSS UI connected to the sandbox, so the dialog and PDF screenshots do not represent that experience.
 </Note>
 
 ```bash

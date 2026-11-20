@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# A vLLM, NIM or Ollama server on this host. Ports are the profile's to
+# declare, so a server on any other port needs an entry here before it is
+# reachable.
+
+id: agent-inference-local
+display_name: Agent inference (host-local server)
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    env_vars: [HARNESS_API_KEY]
+    required: false
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - {host: host.openshell.internal, port: 8000, protocol: tcp}    # vLLM, NIM
+  - {host: host.openshell.internal, port: 11434, protocol: tcp}   # Ollama
+binaries:
+  - {path: /usr/bin/python3.13}

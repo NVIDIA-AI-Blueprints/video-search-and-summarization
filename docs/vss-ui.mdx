@@ -949,8 +949,7 @@ No known issues.
 ### Global Chat Sidebar
 
 * If the backend agent restarts, the UI doesn't clear the outdated chat history.
-* On a Build Vision AI deployment with NemoClaw, the Web UI starts with chat waiting for a gateway token. After onboarding, run `nemoclaw <sandbox> gateway-token --quiet` on the deployment host and enter the result in **Connect NemoClaw chat**. If the relay is still starting, the panel reports that the gateway is unreachable and offers **Retry gateway**. A rejected token is reported separately. The token remains in the browser tab session; no UI container restart is needed. Use HTTPS when accessing the UI remotely because the browser sends the token to the UI's agent API.
-* If the NemoClaw agent API returns error 503, the OpenShell tunnel may have stopped forwarding traffic even if the process still appears alive. To recover, run `nemoclaw <sandbox> recover`.
+* On a Build Vision AI deployment with the OpenShell sandbox harness, the chat sidebar and Chat tab answer through the sandbox's API server; the Search tab and the `/api`, `/chat`, and `/websocket` ingress routes, which address the in-stack agent, are unavailable. The UI authenticates with a key minted per sandbox, so after the sandbox is recreated, chat fails until the UI is wired to the new sandbox. See [Answer from the VSS UI](/vision-agent/agent-harnesses/open-shell/setup-vss-and-skills#optional-answer-from-the-vss-ui).
 * The in-stack VSS Agent Human-in-the-Loop (HITL) dialog may clip or truncate content when browser zoom is increased. Reduce the browser zoom until the full dialog is visible.
 
 ### Alerts Tab

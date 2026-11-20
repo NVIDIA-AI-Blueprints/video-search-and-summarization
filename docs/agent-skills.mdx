@@ -58,7 +58,7 @@ VSS Agent Skills are used in two complementary ways:
   `vss-build-vision-ai` to select the profile or capability set, run pre-flight
   checks, generate the Compose plan, and bring up the stack. The developer does
   not need to remember exact flags, profile names, or compose commands.
-- **Runtime.** Once VSS is running, an always-on coding agent such as NemoClaw loads
+- **Runtime.** Once VSS is running, an always-on agent such as Hermes in an OpenShell sandbox loads
   the same Skills and acts as the operational interface to the deployment. The user can
   manage cameras and streams, submit and verify alerts, run searches, summarize videos,
   and generate reports through natural-language chat.
@@ -261,7 +261,7 @@ VSS Agent Skills can be loaded by any agent harness that follows the
 - [Claude Code](https://docs.anthropic.com/claude/docs/claude-code)
 - [OpenAI Codex](https://platform.openai.com/docs/codex)
 - [OpenClaw](https://github.com/openclaw/openclaw)
-- [NemoClaw](https://github.com/NVIDIA/NemoClaw)
+- [OpenShell](/vision-agent/agent-harnesses/open-shell) (Hermes)
 
 For more information on agent harnesses with VSS, see [Agent Harnesses](/vision-agent/agent-harnesses). Each agent harness expects Skills under a standard directory:
 
@@ -281,9 +281,9 @@ an explicit invocation.
 
 | Host | Explicit deployment prompt |
 | --- | --- |
-| Codex | `$vss-build-vision-ai Deploy the VSS base profile on this machine with NemoClaw.` |
-| Claude Code | `/vss-build-vision-ai Deploy the VSS base profile on this machine with NemoClaw.` |
-| Other compatible harness | `Read skills/vss-build-vision-ai/SKILL.md and use it to deploy the VSS base profile with NemoClaw.` |
+| Codex | `$vss-build-vision-ai Deploy the VSS base profile on this machine with the sandbox harness.` |
+| Claude Code | `/vss-build-vision-ai Deploy the VSS base profile on this machine with the sandbox harness.` |
+| Other compatible harness | `Read skills/vss-build-vision-ai/SKILL.md and use it to deploy the VSS base profile with the sandbox harness.` |
 
 Use a model with tool use and enough context for the deployment plan. Choose
 high reasoning effort if your host exposes that control. The validation

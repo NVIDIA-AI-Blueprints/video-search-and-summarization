@@ -746,7 +746,7 @@ class StaleReleaseLineTest(unittest.TestCase):
         self.assertTrue(seen[0].startswith("ghcr.io/org/vss/vss-agent:tree-"))
 
     def test_the_real_version_carrying_images(self):
-        """vss-agent and both harness images bake a version in; e.g. the UI does not."""
+        """vss-agent and the VSS harness images bake a version in; e.g. the UI does not."""
         repo = Path(__file__).resolve().parents[2]
         inventory = dci.load_inventory(repo)
         baking = {
@@ -754,8 +754,29 @@ class StaleReleaseLineTest(unittest.TestCase):
             for entry in inventory["images"]
             if entry.get("ghcr_build") and dci.bakes_release_line(str(repo / entry.get("dockerfile", "")))
         }
-        self.assertLessEqual({"vss-agent", "vss-harness-openclaw", "vss-harness-hermes"}, baking)
+        self.assertLessEqual({"vss-agent", "vss-harness-openclaw", "openshell-hermes-vss"}, baking)
         self.assertNotIn("vss-agent-ui", baking)
+
+
+class HermesHarnessSelectionTest(unittest.TestCase):
+    """Harness, policy and VSS content all live in the one Hermes image, so
+    each of them rebuilds it (the real inventory)."""
+
+    def test_each_change_selects_exactly_its_harness_image(self):
+        inventory = dci.load_inventory(Path(__file__).resolve().parents[2])
+        harness = {"openshell-hermes-vss"}
+        cases = {
+            ".hermes/Dockerfile": {"openshell-hermes-vss"},
+            ".hermes/policy.yaml": {"openshell-hermes-vss"},
+            ".hermes/plugin/__init__.py": {"openshell-hermes-vss"},
+            "skills/vss-ask-video/SKILL.md": {"openshell-hermes-vss"},
+            "libs/vss/cli/src/vss_cli/configure.py": {"openshell-hermes-vss"},
+            ".hermes/workspace/AGENTS.md": {"openshell-hermes-vss"},
+        }
+        for changed, expected in cases.items():
+            with self.subTest(changed=changed):
+                entries, _ = dci.select_images(inventory, [changed])
+                self.assertEqual({entry["name"] for entry in entries} & harness, expected)
 
 
 class ContentTagGapTest(unittest.TestCase):
@@ -840,7 +861,7 @@ class DockerfileCopiesAreDeclaredTest(unittest.TestCase):
                 if src.startswith(("http://", "https://")):
                     continue
                 # Dockerfil[e]-style globs and ./ prefixes normalise to the path.
-                sources.add(src.replace("[", "").replace("]", "").lstrip("./") or ".")
+                sources.add(src.replace("[", "").replace("]", "").removeprefix("./") or ".")
         return sources
 
     def test_every_copied_path_is_a_declared_source_path(self):

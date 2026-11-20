@@ -55,8 +55,6 @@ def repo(tmp_path):
     (root / "libs" / "other").mkdir(parents=True)
     (root / "libs" / "other" / "keep.txt").write_text("not a staged root\n")
     (root / ".openclaw" / "Dockerfile").write_text("FROM scratch\n")
-    (root / ".hermes").mkdir()
-    (root / ".hermes" / "Dockerfile").write_text("FROM scratch\n")
     (root / ".gitignore").write_text("__pycache__/\n*.secret\n")
     git(root, "init", "-q")
     git(root, "add", "-A")
@@ -71,19 +69,18 @@ def run(root, *argv):
 
 # --- what gets staged ---------------------------------------------------------
 
-def test_stages_all_roots_into_both_default_harness_dirs(repo):
+def test_stages_all_roots_into_the_default_harness_dir(repo):
     assert run(repo) == 0
-    for harness in (".openclaw", ".hermes"):
-        dest = repo / harness / ".vss-src"
-        assert (dest / "skills" / "vss-x" / "SKILL.md").is_file()
-        assert (dest / ".openclaw" / "workspace" / "AGENTS.md").is_file()
-        assert (dest / ".openclaw" / "workspace" / "_nemoclaw" / "ENV.md").is_file()
-        # libs/vss (nvidia-vss-cli + nvidia-vss-core) is the images' whole
-        # install surface; the agent service package is deliberately not staged.
-        assert (dest / "libs" / "vss" / "core" / "pyproject.toml").is_file()
-        assert not (dest / "services").exists()
-        assert not (dest / "libs" / "other").exists()
-        assert (dest / "STAGED").is_file()
+    dest = repo / ".openclaw" / ".vss-src"
+    assert (dest / "skills" / "vss-x" / "SKILL.md").is_file()
+    assert (dest / ".openclaw" / "workspace" / "AGENTS.md").is_file()
+    assert (dest / ".openclaw" / "workspace" / "_nemoclaw" / "ENV.md").is_file()
+    # libs/vss (nvidia-vss-cli + nvidia-vss-core) is the image's whole
+    # install surface; the agent service package is deliberately not staged.
+    assert (dest / "libs" / "vss" / "core" / "pyproject.toml").is_file()
+    assert not (dest / "services").exists()
+    assert not (dest / "libs" / "other").exists()
+    assert (dest / "STAGED").is_file()
 
 
 def test_untracked_included_ignored_and_git_excluded(repo):
@@ -121,7 +118,6 @@ def test_clean_removes_snapshots(repo):
     assert run(repo) == 0
     assert run(repo, "--clean") == 0
     assert not (repo / ".openclaw" / ".vss-src").exists()
-    assert not (repo / ".hermes" / ".vss-src").exists()
 
 
 def test_harness_dir_without_dockerfile_is_refused(repo):
@@ -192,15 +188,15 @@ def test_not_a_git_checkout_exits_one(tmp_path):
 # --- drift guard against the real Dockerfiles ---------------------------------
 
 def test_dockerfiles_consume_only_staged_paths():
-    """Every /opt/vss-src/<path> a harness Dockerfile touches must be covered
+    """Every /opt/vss-src/<path> the harness Dockerfile touches must be covered
     by STAGE_ROOTS (or be the STAGED marker / a fallback COPY anchor) —
     otherwise a pre-staged build silently diverges from a pinned one."""
     allowed_files = {"STAGED", "Dockerfile", "README.md"}
     refs = set()
-    for df in (REPO_ROOT / ".openclaw" / "Dockerfile", REPO_ROOT / ".hermes" / "Dockerfile"):
+    for df in (REPO_ROOT / d / "Dockerfile" for d in stage_vss_src.DEFAULT_HARNESS_DIRS):
         for m in re.finditer(r"/opt/vss-src/([^\s\"'();]+)", df.read_text()):
             refs.add(m.group(1).rstrip("/"))
-    assert refs, "Dockerfiles no longer reference /opt/vss-src — update this test"
+    assert refs, "the Dockerfile no longer references /opt/vss-src — update this test"
     for ref in refs:
         covered = ref in allowed_files or any(
             ref == root or ref.startswith(root + "/") for root in stage_vss_src.STAGE_ROOTS
