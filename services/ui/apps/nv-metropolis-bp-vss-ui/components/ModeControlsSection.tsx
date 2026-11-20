@@ -9,9 +9,9 @@ import type {
   AlertsSidebarControlHandlers,
   SearchSidebarControlHandlers,
   DashboardSidebarControlHandlers,
-  MapSidebarControlHandlers,
   VideoManagementSidebarControlHandlers
 } from '@nv-metropolis-bp-vss-ui/all';
+import type { MapSidebarControlHandlers } from '@nv-metropolis-bp-vss-ui/map';
 
 import { hasComponentContentArray } from '../utils';
 

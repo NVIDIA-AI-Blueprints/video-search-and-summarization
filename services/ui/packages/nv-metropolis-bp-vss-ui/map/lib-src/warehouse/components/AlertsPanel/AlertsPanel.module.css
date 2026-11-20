@@ -1,0 +1,94 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.alerts,
+.alertsHeader,
+.clickableTitle,
+.subtitle,
+.title,
+.list,
+.listCentered {
+  position: absolute;
+}
+
+.alerts,
+.alertsHeader,
+.title {
+  top: 0;
+}
+
+.alerts,
+.alertsHeader,
+.subtitle,
+.list,
+.listCentered {
+  width: 100%;
+  display: block;
+}
+
+.alerts {
+  height: 100%;
+  overflow: hidden;
+}
+
+.alertsHeader {
+  top: 0;
+  height: 32px;
+  border-bottom: 2px solid lightgray;
+  box-sizing: border-box;
+}
+
+.subtitle {
+  top: 4px;
+}
+
+.subtitle,
+.title,
+.clickableTitle {
+  padding: 0.25vw;
+}
+
+.title,
+.clickableTitle,
+.returnIcon {
+  font-size: 1.5vw;
+  display: inline-block;
+}
+
+.clickableTitle,
+.returnIcon {
+  cursor: pointer;
+}
+
+.subtitle {
+  font-style: italic;
+  font-size: 0.75vw !important;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.list,
+.listCentered {
+  top: 32px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.listCentered {
+  justify-content: center;
+  align-items: center;
+}

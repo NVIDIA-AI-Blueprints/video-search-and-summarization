@@ -1,0 +1,105 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.body {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: #1a1a1a;
+}
+
+.selectorContainer {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 20;
+  width: 22rem;
+  min-width: 240px;
+  padding: 8px;
+  color: #1a1a1a;
+  color-scheme: light;
+  background: #fff;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+.clusterLabelUpdatePanelContainer {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 20;
+  width: 18rem;
+  min-width: 220px;
+  padding: 8px;
+  color: #1a1a1a;
+  background: #fff;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+.infoOverlayContainer {
+  z-index: 2;
+  position: absolute;
+  top: 8px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.infoOverlayItem {
+  margin: 4px 10px;
+  padding: 0 2px;
+  opacity: 0.95;
+  color: #1a1a1a;
+  pointer-events: auto;
+}
+
+.mainContentMsg {
+  position: absolute;
+  top: 10%;
+  width: 100%;
+  text-align: center;
+}
+
+.helpBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 29;
+  background: rgba(24, 24, 27, 0.32);
+}
+
+.helpElementContainer {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 30;
+  width: min(32rem, calc(100% - 2rem));
+  max-height: calc(100% - 32px);
+  overflow: hidden;
+  transform: translateX(-50%);
+  border: 1px solid #e4e4e7;
+  border-radius: 12px;
+  background: #fff;
+  color: #1a1a1a;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+}
+
+.mainContentContainer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #bbbbbb;
+}
+
+.warningIcon {
+  margin: 0 2px;
+  color: #e69302;
+  font-size: 0.9vw;
+  vertical-align: middle;
+}

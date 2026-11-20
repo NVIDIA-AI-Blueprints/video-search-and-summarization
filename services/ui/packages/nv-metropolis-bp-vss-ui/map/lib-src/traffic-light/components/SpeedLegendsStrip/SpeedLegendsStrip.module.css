@@ -1,0 +1,94 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.container,
+.legendContainer1,
+.legendContainer2,
+.legendContainer3,
+.legendContainer4,
+.legendContainer5,
+.textLeft,
+.textRight {
+  height: 1vw;
+  position: absolute;
+  top: 0;
+  display: inline;
+}
+
+.textLeft,
+.textRight {
+  font-style: italic;
+  font-weight: bold;
+  font-size: 0.625vw;
+  color: #8c8c8c;
+  width: 1.85vw;
+  text-align: center;
+}
+
+.legendContainer1,
+.legendContainer2,
+.legendContainer3,
+.legendContainer4,
+.legendContainer5 {
+  width: 0.85vw;
+}
+
+.legendContainer1 {
+  left: calc(1.85vw + 0 * 0.85vw);
+}
+
+.legendContainer2 {
+  left: calc(1.85vw + 1 * 0.85vw);
+}
+
+.legendContainer3 {
+  left: calc(1.85vw + 2 * 0.85vw);
+}
+
+.legendContainer4 {
+  left: calc(1.85vw + 3 * 0.85vw);
+}
+
+.legendContainer5 {
+  left: calc(1.85vw + 4 * 0.85vw);
+}
+
+.legendIcon0To10Speed,
+.legendIcon10To20Speed,
+.legendIcon20To30Speed,
+.legendIcon30To45Speed,
+.legendIcon45ToHigherSpeed {
+  position: absolute;
+  top: 0.25vw;
+  left: 0;
+  height: 0.4vw;
+  width: 0.75vw;
+}
+
+.legendIcon0To10Speed {
+  background: #e60000;
+}
+
+.legendIcon10To20Speed {
+  background: #f08080;
+}
+
+.legendIcon20To30Speed {
+  background: #ffa769;
+}
+
+.legendIcon30To45Speed {
+  background: #98fb98;
+}
+
+.legendIcon45ToHigherSpeed {
+  background: #3cb371;
+}
+
+.textRight {
+  left: calc(1.85vw + 5 * 0.85vw);
+}

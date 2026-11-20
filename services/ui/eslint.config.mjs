@@ -80,4 +80,16 @@ export default tseslint.config(
       'no-console': 'off',
     },
   },
+  {
+    // The Map tab is a port of the analytics UI. Those files still carry
+    // `@ts-nocheck` and the JavaScript patterns that come with it.
+    files: ['**/nv-metropolis-bp-vss-ui/map/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/ban-ts-comment': 'off',
+      '@typescript-eslint/no-unused-expressions': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      'prefer-const': 'off',
+      'prefer-rest-params': 'off',
+    },
+  },
 );

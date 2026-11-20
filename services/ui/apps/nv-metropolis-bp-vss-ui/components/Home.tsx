@@ -8,10 +8,10 @@ import type {
   AlertsSidebarControlHandlers,
   SearchSidebarControlHandlers,
   DashboardSidebarControlHandlers,
-  MapSidebarControlHandlers,
   VideoManagementSidebarControlHandlers,
   QueryDataContext
 } from '@nv-metropolis-bp-vss-ui/all';
+import type { MapSidebarControlHandlers } from '@nv-metropolis-bp-vss-ui/map';
 import { 
   IconMessageCircle, 
   IconSearch, 
@@ -61,7 +61,11 @@ interface DashboardData {
 
 interface MapData {
   systemStatus: string;
-  mapUrl: string;
+  mapUrl?: string | null;
+  apiUrl?: string | null;
+  mediaStreamingUrl?: string | null;
+  googleMapsApiKey?: string | null;
+  uiConfigUrl?: string | null;
 }
 
 interface VideoManagementData {
@@ -248,19 +252,19 @@ const dynamicComponents = {
     }
   ),
   MapComponent: dynamic(() => 
-    import('@nv-metropolis-bp-vss-ui/all').then(mod => mod.MapComponent).catch((error) => {
+    import('@nv-metropolis-bp-vss-ui/map').then(mod => mod.MapComponent).catch((error) => {
       console.error('[DynamicImport] Failed to load MapComponent:', error);
       return () => (
         <div className="flex-1 p-6 overflow-auto">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">Map</h2>
           <p className="text-gray-600 dark:text-gray-400">
-            Map component library not available. Please install @nv-metropolis-bp-vss-ui/all package.
+            Map component library not available.
           </p>
         </div>
       );
     }),
     { 
-      ssr: true,
+      ssr: false,
       loading: () => (
         <div className="flex-1 p-6 overflow-auto">
           <div className="flex items-center justify-center h-full">
@@ -798,8 +802,9 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       componentProps.onControlsReady = isActive ? dashboardControlsReadyCallback : undefined;
       componentProps.registerChatAnswerHandler = registerDashboardTabChatAnswer;
       componentProps.registerSidebarChatEventSubscriber = registerDashboardTabSidebarChatEvents;
-    } else if (componentName === 'MapComponent' && mapData) {
-      componentProps.mapData = mapData;
+    } else if (componentName === 'MapComponent') {
+      componentProps.mapData = mapData ?? undefined;
+      componentProps.warehouseData = mapData ?? undefined;
       componentProps.serverRenderTime = serverRenderTime;
       componentProps.renderControlsInLeftSidebar = true;
       componentProps.onControlsReady = isActive ? mapControlsReadyCallback : undefined;

@@ -571,6 +571,10 @@ vss-agent-ui:
     # Preserve existing entries; Helm replaces lists.
     - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
       value: "true"
+    - name: NEXT_PUBLIC_ENABLE_MAP_TAB
+      value: "true"
+    - name: NEXT_PUBLIC_MAP_TAB_APP
+      value: "warehouse"
     - name: NEXT_PUBLIC_VIDEO_ANALYTICS_WEB_API_URL
       value: "http://<NODE_IP>:30801"
 ```
