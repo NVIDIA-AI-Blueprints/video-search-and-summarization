@@ -2346,23 +2346,19 @@ async def _run_brev_copy_once(
 _SAFE_SSH_USER_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 
 
-def _brev_ssh_user(instance: str) -> str:
-    """Resolve the SSH login user for *instance* from ``~/.brev/ssh_config``.
-
-    Brev cloud instances typically use ``ubuntu``, while Launchpad/DMZ workers
-    (e.g. ``dmz.rtxpro6000x2.pcie``) use ``nvidia``. Fall back to ``ubuntu``
-    when the config file, host stanza, or valid ``User`` directive is absent.
-    """
+def _brev_ssh_config_stanza(instance: str) -> dict[str, str]:
+    """Return directives from the explicit ``Host <instance>`` block in ``~/.brev/ssh_config``."""
     ssh_config = Path.home() / ".brev" / "ssh_config"
     try:
         lines = ssh_config.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return "ubuntu"
+        return {}
 
     target = instance.strip().lower()
     if not target:
-        return "ubuntu"
+        return {}
 
+    directives: dict[str, str] = {}
     in_target_host = False
     for raw_line in lines:
         line = raw_line.strip()
@@ -2372,25 +2368,56 @@ def _brev_ssh_user(instance: str) -> str:
         if len(parts) != 2:
             continue
         key, value = parts[0].lower(), parts[1].strip()
-        if key == "match":
-            in_target_host = False
-        elif key == "host":
-            patterns = {
-                pat.strip('"').lower()
-                for pat in value.split()
-                if not any(ch in pat for ch in "*?!")
-            }
-            in_target_host = target in patterns
-        elif in_target_host and key == "user":
-            user = value.strip().strip('"')
-            if _SAFE_SSH_USER_RE.fullmatch(user):
-                return user
-            logger.warning(
-                "Ignoring unsafe SSH User %r for %r in %s; falling back to ubuntu",
-                user, instance, ssh_config,
-            )
-            return "ubuntu"
+        if key in {"host", "match"}:
+            if in_target_host:
+                break
+            if key == "host":
+                patterns = {
+                    pat.strip('"').lower()
+                    for pat in value.split()
+                    if not any(ch in pat for ch in "*?!")
+                }
+                in_target_host = target in patterns
+        elif in_target_host and key not in directives:
+            directives[key] = value.strip().strip('"')
+    return directives
+
+
+def _brev_ssh_user(instance: str) -> str:
+    """Resolve the SSH login user for *instance* from ``~/.brev/ssh_config``.
+
+    Brev cloud instances typically use ``ubuntu``, while Launchpad/DMZ workers
+    (e.g. ``dmz.rtxpro6000x2.pcie``) use ``nvidia``. Fall back to ``ubuntu``
+    when the config file, host stanza, or valid ``User`` directive is absent.
+    """
+    user = _brev_ssh_config_stanza(instance).get("user", "")
+    if not user:
+        return "ubuntu"
+    if _SAFE_SSH_USER_RE.fullmatch(user):
+        return user
+    logger.warning(
+        "Ignoring unsafe SSH User %r for %r; falling back to ubuntu",
+        user, instance,
+    )
     return "ubuntu"
+
+
+def _brev_ssh_config_endpoint(instance: str) -> tuple[str, int] | None:
+    """Fallback ``(host, port)`` from ``~/.brev/ssh_config`` when ``brev ports ls`` is rate-limited."""
+    stanza = _brev_ssh_config_stanza(instance)
+    host = stanza.get("hostname", "")
+    try:
+        port = int(stanza.get("port", ""))
+    except ValueError:
+        return None
+    if (
+        not host
+        or not 1 <= port <= 65535
+        or not host.isascii()
+        or not all(c.isalnum() or c in ".-" for c in host)
+    ):
+        return None
+    return host, port
 
 
 async def _get_brev_ssh_endpoint(instance: str) -> tuple[str, int]:
@@ -2399,6 +2426,14 @@ async def _get_brev_ssh_endpoint(instance: str) -> tuple[str, int]:
         return cached
     result = await _run_brev("ports", "ls", instance, "--json", timeout=30)
     if result.return_code != 0:
+        fallback = _brev_ssh_config_endpoint(instance)
+        if fallback is not None:
+            logger.warning(
+                "Brev SSH port lookup failed for %s (%s); using ~/.brev/ssh_config endpoint",
+                instance, (result.stderr or "unknown error").strip()[:120],
+            )
+            _ssh_transfer_endpoints[instance] = fallback
+            return fallback
         raise RuntimeError(f"Brev SSH port lookup failed: {result.stderr or 'unknown error'}")
     matches = [row for row in _parse_brev_json(result.stdout) if row.get("destination_port") == 22]
     if len(matches) != 1:

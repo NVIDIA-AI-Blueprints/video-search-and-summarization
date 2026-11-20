@@ -154,6 +154,25 @@ def test_managed_copy_uses_ssh_user_from_brev_ssh_config():
     assert calls[0][-1] == "nvidia@global.prd.ga.run.brev.nvidia.com:/tmp/archive.tar.gz"
 
 
+def test_ssh_endpoint_falls_back_to_ssh_config_when_brev_ports_rate_limited():
+    module = _load_brev_env()
+    rate_limited = types.SimpleNamespace(return_code=1, stdout="", stderr="resource exhausted")
+    with tempfile.TemporaryDirectory() as td:
+        brev_dir = Path(td) / ".brev"
+        brev_dir.mkdir()
+        (brev_dir / "ssh_config").write_text(
+            "Host vss-eval-l40s-1g-2\n"
+            "  Hostname global.prd.ga.run.brev.nvidia.com\n"
+            "  User ubuntu\n"
+            "  Port 22494\n"
+        )
+        with mock.patch.object(module, "_run_brev", new_callable=mock.AsyncMock, return_value=rate_limited), \
+             mock.patch.object(module.Path, "home", return_value=Path(td)):
+            assert asyncio.run(module._get_brev_ssh_endpoint("vss-eval-l40s-1g-2")) == (
+                "global.prd.ga.run.brev.nvidia.com", 22494,
+            )
+
+
 def test_legacy_copy_requires_explicit_switch():
     module = _load_brev_env()
     success = types.SimpleNamespace(return_code=0, stdout="", stderr="")
