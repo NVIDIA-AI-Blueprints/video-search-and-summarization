@@ -293,3 +293,61 @@ def test_normalized_jsonl_recipe_reads_canonical_call(tmp_path: Path) -> None:
 
     assert detection.stdout.strip() == "true"
     assert result.stdout.strip() == command
+
+
+class TestVerdictJSONParsing(unittest.TestCase):
+    def test_valid_verdicts_preserve_pass_and_fail(self):
+        parse = _load_generic_judge()._parse_verdict_json
+        for passed in (True, False):
+            verdict = {
+                "pass": passed,
+                "matched": {"command": "docker ps", "output": "container\tUp"},
+                "rationale": "Observed live state.",
+            }
+            with self.subTest(passed=passed):
+                self.assertEqual(
+                    parse("Evidence gathered.\n" + json.dumps(verdict) + "\nDone."),
+                    verdict,
+                )
+
+    def test_literal_control_characters_in_evidence(self):
+        parse = _load_generic_judge()._parse_verdict_json
+        for passed in (True, False):
+            for character in ("\t", "\n", "\r"):
+                with self.subTest(passed=passed, character=repr(character)):
+                    output = "vss-rtvi-vlm" + character + "Up 10 minutes (healthy)"
+                    text = (
+                        '{"pass": ' + json.dumps(passed)
+                        + ', "matched": "' + output
+                        + '", "rationale": "Observed live state."}'
+                    )
+                    self.assertEqual(parse(text), {
+                        "pass": passed,
+                        "matched": output,
+                        "rationale": "Observed live state.",
+                    })
+
+    def test_other_malformed_json_is_rejected(self):
+        parse = _load_generic_judge()._parse_verdict_json
+        for text in (
+            '{"pass": true, "matched": "unterminated}',
+            '{"pass": true, "matched": "container\tUp",}',
+            '{"pass": true "matched": "container\tUp"}',
+            "{'pass': True}",
+            '{"pass": True}',
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(parse(text))
+
+    def test_evidence_without_verdict_is_ignored(self):
+        parse = _load_generic_judge()._parse_verdict_json
+        self.assertIsNone(parse('Check passes. {"matched": "container\tUp"}'))
+
+    def test_last_verdict_wins_with_mixed_string_formats(self):
+        parse = _load_generic_judge()._parse_verdict_json
+        strict = json.dumps({"pass": False, "rationale": "Final verdict."})
+        literal_tab = '{"pass": true, "matched": "container\tUp"}'
+        self.assertEqual(parse(literal_tab + "\n" + strict), json.loads(strict))
+        self.assertEqual(parse(strict + "\n" + literal_tab), {
+            "pass": True, "matched": "container\tUp",
+        })
