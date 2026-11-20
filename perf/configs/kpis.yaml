@@ -1,0 +1,89 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Warehouse industry-example gates. Not owner SLOs.
+#
+# Behavior Analytics: Yun He's playback table (topic minus raw) from
+# https://nvidia.slack.com/archives/C05RW9T7X7V/p1792432872569139
+# Counts are lowered for a 60 s live window. Replace when Yun publishes
+# warehouse live SLOs.
+#
+# Video Analytics API HTTP: 2x measured p50 / 3x measured p99 of the
+# slowest RTXPRO6000BW-SE sample among dump Jenkins #69, dump #77, and
+# live warehouse (hardware_profile RTXPRO6000BW-SE, MinIO
+# warehouse-bp_warehouse-2d-kafka_20261022T062125Z.json), rounded up to
+# 10 ms. n=20 so p99 sits near max. /livez stays a health check (5/20 ms).
+# 2x A4500 is not the gate.
+
+schema_version: "0.1"
+service: warehouse-bp
+source:
+  setup: industry_example_warehouse_2d_kafka
+  behavior_analytics_owner: Yun He
+  video_analytics_api_owner: unset
+
+scenarios:
+  quick_test:
+    warehouse-2d-kafka:
+      behavior_analytics:
+        required_topics:
+          - raw
+          - frames
+          - behavior
+          - events
+          - incidents
+        raw:
+          min_count: 100
+        frames:
+          min_count: 100
+          max_p50_s: 0.02
+          max_p99_s: 0.05
+        incidents:
+          min_count: 1
+          max_p50_s: 0.03
+          max_p99_s: 0.06
+        behavior:
+          min_count: 1
+          max_p50_s: 0.06
+          max_p99_s: 0.12
+        events:
+          min_count: 1
+          max_p50_s: 0.06
+          max_p99_s: 0.12
+      video_analytics_api:
+        required_endpoints:
+          - livez
+          - frames
+          - behavior
+          - events
+          - incidents
+        livez:
+          min_count: 10
+          min_ok_ratio: 1.0
+          max_p50_s: 0.005
+          max_p99_s: 0.02
+        frames:
+          min_count: 10
+          min_ok_ratio: 1.0
+          max_p50_s: 0.05
+          max_p99_s: 0.10
+        behavior:
+          min_count: 10
+          min_ok_ratio: 1.0
+          max_p50_s: 0.05
+          max_p99_s: 0.08
+        events:
+          min_count: 10
+          min_ok_ratio: 1.0
+          max_p50_s: 0.05
+          max_p99_s: 0.08
+        incidents:
+          min_count: 10
+          min_ok_ratio: 1.0
+          max_p50_s: 0.04
+          max_p99_s: 0.08
+        default:
+          min_count: 10
+          min_ok_ratio: 1.0
+          max_p50_s: 0.10
+          max_p99_s: 0.20
