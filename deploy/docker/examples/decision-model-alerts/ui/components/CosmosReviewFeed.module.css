@@ -1,0 +1,56 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2026 D1 project contributors */
+/* SPDX-License-Identifier: Apache-2.0 */
+.root { display:grid; grid-template-columns:minmax(0,1fr) minmax(330px,380px); min-width:0; height:clamp(360px,calc(100dvh - 600px),440px); }
+.historyPane { position:relative; min-width:0; min-height:0; }
+.feed { height:100%; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--pane-border) transparent; background:var(--pane); border:1px solid var(--pane-border); border-top:0; border-radius:0 0 4px 4px; overflow-anchor:none; }
+.feed:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.row { display:grid; grid-template-columns:minmax(0,280px) minmax(0,1fr); gap:16px; padding:14px 16px 16px; border-bottom:1px solid var(--pane-border); }
+.row:last-child { border-bottom:0; }
+.evidence,.result { min-width:0; }
+.clipHeading,.resultHeading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 12px; min-height:24px; margin-bottom:8px; }
+.clipHeading strong,.resultHeading strong { font-size:13px; font-weight:600; }
+.clipHeading time { font-size:12px; color:var(--muted); }
+.clip { display:flex; align-items:center; justify-content:center; width:100%; height:clamp(128px,15dvh,160px); background:#000; border-radius:3px; overflow:hidden; }
+.clip video { display:block; width:100%; height:100%; object-fit:contain; }
+.clipCaption { display:flex; justify-content:space-between; flex-wrap:wrap; gap:4px 12px; font-size:11px; color:var(--muted); margin-top:7px; }
+.videoStatus,.loadVideo { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:18px; color:#d0d0d0; text-align:center; font-size:13px; line-height:1.5; }
+.videoStatus button { border:1px solid #666; padding:6px 12px; border-radius:3px; color:#fff; }
+.loadVideo { width:100%; height:100%; }
+.loadVideo:hover { color:#fff; background:#151515; }
+.result { padding-left:18px; border-left:1px solid var(--border); }
+.verdict { display:inline-flex; align-items:center; gap:5px; color:var(--muted); border:1px solid currentColor; border-radius:3px; padding:3px 7px; font-size:12px; line-height:1.2; }
+.result[data-verdict=confirmed] .verdict { color:var(--confirmed); }
+.result[data-verdict=rejected] .verdict { color:var(--rejected); }
+.result[data-verdict=uncertain] .verdict,.result[data-verdict=failed] .verdict { color:var(--uncertain); }
+.summary { max-width:78ch; font-size:14px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+.note { margin-top:8px!important; font-size:12px; line-height:1.6; color:var(--muted); }
+.details { margin-top:10px; font-size:12px; color:var(--muted); line-height:1.65; overflow-wrap:anywhere; }
+.details summary { font-size:12px; cursor:pointer; }
+.details h5 { font-size:12px; font-weight:600; color:var(--text); margin:12px 0 4px; }
+.details p { margin-top:6px!important; }.details ul { padding-left:18px; list-style:disc; }
+.askButton { display:inline-flex; align-items:center; gap:7px; font-size:12px; border:1px solid var(--pane-border); border-radius:3px; padding:7px 10px; margin-top:14px; background:var(--pane-heading); }
+.askButton:hover:not(:disabled) { border-color:var(--accent); }
+.availability { padding:12px 16px; font-size:12px; color:var(--muted); border-bottom:1px solid var(--pane-border); }
+.empty { min-height:225px; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:30px; text-align:center; }
+.empty svg { color:var(--muted); }.empty h3 { font-size:18px; font-weight:500; }.empty p { font-size:14px; line-height:1.6; max-width:560px; color:var(--muted); }.empty span { font-size:12px; color:var(--muted); }
+.newClips { position:absolute; z-index:2; right:16px; top:9px; display:flex; align-items:center; gap:5px; padding:6px 10px; font-size:12px; background:var(--pane); color:var(--text); border:1px solid var(--accent); border-radius:3px; box-shadow:0 3px 10px #0003; }
+
+.askButton[aria-pressed=true] { border-color:var(--accent); color:var(--confirmed); background:var(--panel-soft); }
+.row:has(.askButton[aria-pressed=true]) { box-shadow:inset 3px 0 0 var(--accent); }
+.chatDock { display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--pane); border-left:1px solid var(--pane-border); }
+.chatHeading { display:flex; align-items:center; gap:10px; flex:none; padding:12px 14px; border-bottom:1px solid var(--pane-border); background:var(--pane-heading); }
+.chatHeading>svg { color:var(--accent); }.chatHeading h3 { font-size:14px; font-weight:600; }.chatHeading p { margin-top:3px!important; color:var(--muted); font-size:11px; }
+.attachment { display:flex; align-items:center; gap:10px; margin:10px 12px 0; padding:9px 10px; border:1px solid var(--pane-border); border-left:3px solid var(--accent); border-radius:4px; background:var(--panel-soft); flex:none; }
+.attachment>svg { color:var(--muted); flex:none; }.attachment>div { min-width:0; flex:1; display:flex; flex-direction:column; gap:2px; }.attachment strong { font-size:12px; font-weight:600; }.attachment time { font-size:12px; }.attachment span { font-size:10px; color:var(--muted); }.attachment>button { display:flex; align-items:center; justify-content:center; width:28px; height:28px; flex:none; border-radius:3px; color:var(--muted); }.attachment>button:hover { color:var(--text); background:var(--pane-heading); }
+.chatEmpty { display:flex; flex-direction:column; flex:1; min-height:0; align-items:center; justify-content:center; gap:10px; padding:24px 16px 12px; text-align:center; }
+.chatEmpty>svg { color:var(--muted); }.chatEmpty h4 { font-size:16px; font-weight:600; }.chatEmpty p { font-size:13px; color:var(--muted); line-height:1.6; max-width:30ch; }.chatEmpty p strong { color:var(--text); font-weight:500; }
+.emptyComposer { position:relative; width:100%; margin-top:auto; padding-top:20px; }.emptyComposer textarea { width:100%; resize:none; border:1px solid var(--pane-border); border-radius:4px; padding:10px 42px 10px 10px; background:var(--panel); color:var(--muted); font-size:12px; line-height:1.5; }.emptyComposer button { position:absolute; right:9px; bottom:10px; display:flex; align-items:center; justify-content:center; width:28px; height:28px; background:var(--pane-heading); color:var(--muted); border-radius:3px; }
+.chatThreads,.chatThread { display:flex; flex:1; min-height:0; min-width:0; flex-direction:column; }.chatThreads[hidden],.chatThread[hidden] { display:none; }
+.chatThread>section { display:flex; flex-direction:column; flex:1; min-height:0; padding:0 0 10px; border:0; border-radius:0; }
+.chatThread :global([data-chat-conversation]) { flex:1; min-height:0; max-height:none; margin:0 12px; padding:10px 0; overflow:auto; }
+.chatThread :global([data-chat-composer]) { flex:none; margin:0 12px; }.chatThread :global([data-chat-composer]) textarea { resize:none; min-height:62px; }
+.chatThread :global([data-chat-scope]) { flex:none; font-size:10px; margin:6px 12px 0!important; }
+.detachedPending { color:var(--muted); font-size:11px; line-height:1.5; padding:0 12px 10px; }
+@media(max-width:1250px) and (min-width:1001px) { .root { grid-template-columns:minmax(0,1fr) 330px; }.row { grid-template-columns:minmax(0,210px) minmax(0,1fr); gap:12px; padding:12px; }.result { padding-left:12px; }.clipHeading time { font-size:11px; } }
+@media(max-width:1000px) { .root { grid-template-columns:minmax(0,1fr); height:auto; }.feed { height:350px; }.chatDock { height:400px; border-left:0; border-top:1px solid var(--pane-border); }.row { grid-template-columns:minmax(0,260px) minmax(0,1fr); }.chatEmpty p { max-width:40ch; }.emptyComposer { max-width:500px; } }
+@media(max-width:760px) { .feed { height:430px; }.row { grid-template-columns:minmax(0,1fr); gap:14px; padding:12px; }.result { padding-left:0; padding-top:12px; border-left:0; border-top:1px solid var(--border); }.evidence { max-width:300px; }.clip { height:150px; min-height:0; }.clip video { aspect-ratio:16/9; }.summary { font-size:14px; }.clipHeading time { font-size:11px; }.empty { min-height:225px; padding:24px 18px; }.newClips { right:8px; }.chatDock { height:440px; }.chatHeading { padding:12px; } }

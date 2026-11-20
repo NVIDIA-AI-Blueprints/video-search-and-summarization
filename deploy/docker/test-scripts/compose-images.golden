@@ -45,6 +45,11 @@ deploy/docker/active-learning/includes/deft-aoi-inference/compose.yml haproxy:3.
 deploy/docker/active-learning/includes/deft-aoi-inference/compose.yml nvcr.io/0691049440816435/mdx/deft-aoi-inference:v0.0.1
 deploy/docker/active-learning/includes/deft-aoi-inference/compose.yml nvcr.io/0691049440816435/mdx/deft-aoi-inference:v0.0.1
 deploy/docker/active-learning/includes/deft-aoi-inference/compose.yml nvcr.io/0691049440816435/mdx/deft-aoi-inference:v0.0.1
+deploy/docker/examples/decision-model-alerts/compose.yml confluentinc/cp-kafka:8.3.0
+deploy/docker/examples/decision-model-alerts/compose.yml vss-d1-cosmos-model:3.3.0
+deploy/docker/examples/decision-model-alerts/compose.yml vss-d1-cosmos-ui:3.3.0
+deploy/docker/examples/decision-model-alerts/compose.yml vss-d1-cosmos-worker:3.3.0
+deploy/docker/examples/decision-model-alerts/fixtures.compose.yml bluenviron/mediamtx@sha256:59e43552f3be43695b70c19424dc2a42fcec18075f88d91561a24ac5d70a586c
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/calibration:${CALIBRATION_TOOLKIT_IMAGE_TAG}
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvstaging/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
 deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-config-adaptor:develop-latest

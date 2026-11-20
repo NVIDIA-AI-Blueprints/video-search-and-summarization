@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+**
+!libs/vss/pyproject.toml
+!libs/vss/uv.lock
+!libs/vss/cli/pyproject.toml
+!libs/vss/cli/src/**
+!libs/vss/core/pyproject.toml
+!libs/vss/core/src/**
+!deploy/docker/examples/decision-model-alerts/runtime/requirements.txt
+!deploy/docker/examples/decision-model-alerts/runtime/worker.py
+!deploy/docker/examples/decision-model-alerts/runtime/agent_pipeline/*.py
+**/__pycache__
