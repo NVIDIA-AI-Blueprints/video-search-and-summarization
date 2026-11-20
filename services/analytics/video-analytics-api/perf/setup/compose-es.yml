@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Jenkins #68: integration tmpfs for /tmp/elastic/{data,logs} is root-owned on
+# the GPU Docker daemon. The image runs as uid 1000, so the JVM exits and
+# compose reports "elasticsearch is unhealthy" before dumps or HTTP timing.
+# Bind those paths under VA_API_PERF_DATA_DIR (chmod a+rwX) like BA playback.
+# Disable mmap so vm.max_map_count does not have to be 262144 (no sudo on the
+# Jenkins agent). Drop wait_for_status=yellow from the healthcheck so a still-
+# forming single node is not marked unhealthy.
+
+services:
+  elasticsearch:
+    restart: "no"
+    environment:
+      ES_JAVA_OPTS: "-Xmx1024m -Xms256m"
+      discovery.type: single-node
+      node.store.allow_mmap: "false"
+    tmpfs: !override []
+    volumes: !override
+      - ${VSS_APPS_DIR}/services/infra/elk/elasticsearch/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - ${VSS_DATA_DIR}/elastic/data:/tmp/elastic/data
+      - ${VSS_DATA_DIR}/elastic/logs:/tmp/elastic/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 36
+      start_period: 90s

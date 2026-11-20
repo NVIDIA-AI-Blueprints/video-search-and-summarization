@@ -31,8 +31,11 @@ fi
 
 echo "Running video-analytics-api integration test (mode=$MODE)"
 source "$SCRIPT_DIR/generate_env.sh"
+set -a
 . "$SCRIPT_DIR/docker_compose/infra/.env"
+set +a
 source "$SCRIPT_DIR/cleanup.sh"
+source "$SCRIPT_DIR/lifecycle.sh"
 
 TEST_HOST="${TEST_HOST:-}"
 if [ -z "$TEST_HOST" ] && [ "${CI:-}" = "true" ] && [ "${DOCKER_HOST:-}" = "unix:///var/run/docker.sock" ]; then
@@ -131,78 +134,40 @@ if [ "$COMPOSE_EXIT" -ne 0 ]; then
 fi
 echo "✓ Docker Compose started"
 
-# Wait for Elasticsearch then video-analytics-api
-echo "Waiting for Elasticsearch (up to 60s)..."
-for i in $(seq 1 60); do
-    if curl -sf "$ES_URL/_cluster/health" >/dev/null 2>&1; then
-        echo "✓ Elasticsearch is up"
-        break
-    fi
-    if [ "$i" -eq 60 ]; then
-        echo "✗ Elasticsearch did not become ready"
-        echo "--- Elasticsearch container logs (elasticsearch) ---"
-        docker logs elasticsearch 2>&1 || true
-        echo "--- end logs ---"
-        cleanup_docker_environment
-        exit 1
-    fi
-    sleep 1
-done
+# Wait for Elasticsearch then video-analytics-api. Helpers live in lifecycle.sh
+# so the perf job can reuse the same dump loader, readiness checks, and logs.
+if ! va_api_wait_for_elasticsearch "$ES_URL" 60 1; then
+    cleanup_docker_environment
+    exit 1
+fi
 
 # The ILM policies, index templates and the insertion-timestamp-pipeline ingest
 # pipeline are created by the deployment's elasticsearch-init-container, which
 # compose runs to completion before starting the app. Confirm the pipeline the
 # config-upload endpoints depend on actually landed, so a silent init failure
 # surfaces here rather than as a confusing 500 midway through the suite.
-echo "Verifying Elasticsearch ingest pipeline..."
-if ! curl -sf "$ES_URL/_ingest/pipeline/insertion-timestamp-pipeline" >/dev/null; then
-    echo "✗ insertion-timestamp-pipeline missing; elasticsearch-init-container did not complete"
-    echo "--- init container logs (vss-elasticsearch-init) ---"
-    docker logs vss-elasticsearch-init 2>&1 || true
-    echo "--- end logs ---"
+if ! va_api_verify_ingest_pipeline "$ES_URL"; then
     cleanup_docker_environment
     exit 1
 fi
-echo "✓ Ingest pipeline present"
 
-# Load Elasticsearch data dump for testing remaining endpoints (if present)
-DUMP_DIR="$INTEGRATION_TEST_DIR/elasticsearch_data_dump"
-if [ -d "$DUMP_DIR" ]; then
-    echo "Loading Elasticsearch data dump from $DUMP_DIR..."
-    if ! node "$SCRIPT_DIR/scripts/load_elasticsearch_data_dump.js" "$ES_URL" "$DUMP_DIR"; then
-        echo "✗ Elasticsearch data dump load failed"
-        cleanup_docker_environment
-        exit 1
-    fi
-else
-    echo "No elasticsearch_data_dump directory, skipping data load."
+if ! va_api_load_elasticsearch_dumps "$ES_URL" "$INTEGRATION_TEST_DIR/elasticsearch_data_dump"; then
+    echo "✗ Elasticsearch data dump load failed"
+    cleanup_docker_environment
+    exit 1
 fi
 
-echo "Waiting for video-analytics-api (up to 90s)..."
-for i in $(seq 1 90); do
-    if curl -sf "$VA_API_URL/livez" >/dev/null 2>&1; then
-        echo "✓ video-analytics-api is up"
-        break
-    fi
-    if [ "$i" -eq 90 ]; then
-        echo "✗ video-analytics-api did not become ready"
-        echo "--- video-analytics-api container logs (video-analytics-api-integration) ---"
-        docker logs video-analytics-api-integration 2>&1 || true
-        echo "--- end logs ---"
-        cleanup_docker_environment
-        exit 1
-    fi
-    sleep 1
-done
+if ! va_api_wait_for_api "$VA_API_URL" 90 1; then
+    cleanup_docker_environment
+    exit 1
+fi
 
 # Run integration tests (includes warehouse app fixture generation)
 echo "Running integration tests..."
 cd "$SCRIPT_DIR"
 if ! bash scripts/run_integration_tests.sh "$VA_API_URL"; then
     echo "✗ Integration tests failed"
-    echo "--- video-analytics-api container logs (video-analytics-api-integration) ---"
-    docker logs video-analytics-api-integration 2>&1 || true
-    echo "--- end logs ---"
+    va_api_dump_service_logs
     cleanup_docker_environment
     exit 1
 fi

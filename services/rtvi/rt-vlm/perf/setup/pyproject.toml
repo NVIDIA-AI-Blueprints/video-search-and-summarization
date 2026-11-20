@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "vss-rtvi-vlm-perf-environment"
+version = "0.1.0"
+description = "Host-side environment for RTVI VLM performance benchmarks"
+requires-python = ">=3.10"
+dependencies = [
+  "matplotlib>=3.5",
+  "minio>=7.2.20",
+  "numpy>=1.21",
+  "openpyxl>=3.0",
+  "pandas>=1.5",
+  "pydantic>=2.12,<3",
+  "pynvml>=11.5",
+  "protobuf>=4.25",
+  "python-dotenv>=0.19",
+  "PyYAML>=6.0",
+  "requests>=2.28",
+  "sseclient-py>=1.7",
+  "tabulate>=0.9",
+  "tqdm>=4.66",
+  "urllib3>=1.26",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.uv]
+package = false

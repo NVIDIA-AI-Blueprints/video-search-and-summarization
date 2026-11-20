@@ -1,0 +1,145 @@
+# ============================================================================
+# ALERT BRIDGE EVALUATOR CONFIGURATION
+# ============================================================================
+# This configuration manages the VLM evaluation service that:
+# - Loads ground truth data for evaluation
+# - Submits incidents to Alert Bridge for VLM verification
+# - Polls Elasticsearch for VLM results
+# - Compares results with ground truth
+
+# ============================================================================
+# SERVICE CONFIGURATION
+# ============================================================================
+service:
+  host: "0.0.0.0"                    # Service host (use 0.0.0.0 for external access)
+  port: "${PORT:-5001}"              # Service port
+
+# ============================================================================
+# GROUND TRUTH CONFIGURATION
+# ============================================================================
+ground_truth:
+  file_path: "${GT_FILE_PATH:-/app/gt.json}"             # Path to ground truth file (env: GT_FILE_PATH)
+  # Eval v1: dataframe format (video, question, system_prompt, answer).
+  # Eval v2: events format - set this path to your events JSON (env GT_FILE_PATH):
+  #   { "version": 1.0, "events": [ { "start_time": 92, "end_time": 115, "category": "...", ... } ] }
+  #   start_time/end_time are seconds from video start; v2 computes window and compares event count to mdx-vlm-incidents*.
+  #   Optional per-sensor: { "sensors": { "sensor_id": { "events": [ ... ] } } }
+  # Legacy dataframe format:
+  #   { "version": 1.0, "dataframe": [ { "video": "...", "system_prompt": "...", "question": "...", "answer": "Yes" } ] }
+
+# ============================================================================
+# EVALUATION MODE CONFIGURATION
+# ============================================================================
+# Controls what the /eval/v2/* endpoints measure and report.
+# Supported modes:
+#   accuracy  -> count events, compare GT vs ES, output accuracy CSV (default)
+#   latency   -> extract info.latency.* from ES docs, output latency CSV (performance)
+# setup_indexed_at: auto-create ES indexed_at ingest pipeline on startup (for E2E latency)
+evaluation:
+  workflow: "${EVAL_WORKFLOW:-verification}"  # verification (alert-bridge) | real-time (rtvi-vlm)
+  mode: "${EVAL_MODE:-accuracy}"             # accuracy | latency
+  setup_indexed_at: ${SETUP_INDEXED_AT:-false}
+  duration: "${LATENCY_DURATION:-10m}"        # ES time notation: 30m, 10m, 1h, 2d (used when no explicit time range)
+  default_incident_category: "${ALERT_CATEGORY:-}" # Optional default category when request incidents omit category
+  synthetic_alerts_injection: "${SYNTHETIC_ALERTS_INJECTION:-false}"
+  # message_bus publishes directly to Kafka; incident_api uses /api/v1/incidents;
+  # ondemand_api uses /api/v1/verification/ondemand with media URLs.
+  synthetic_alert_submission_mode: "${ALERT_BRIDGE_SYNTHETIC_SUBMISSION_MODE:-message_bus}"
+  synthetic_e2e_min_coverage_ratio: "${SYNTHETIC_E2E_MIN_COVERAGE_RATIO:-0.99}"
+
+# ============================================================================
+# DATA SOURCE CONFIGURATION (V2)
+# ============================================================================
+# Controls where /eval/v2/* reads metrics from.
+# Supported values: elasticsearch | prometheus
+data_source: "${DATA_SOURCE:-elasticsearch}"
+
+# ============================================================================
+# PROMETHEUS CONFIGURATION
+# ============================================================================
+# Used only when data_source == prometheus.
+# IMPORTANT: point to Prometheus server (typically :9090), not alert-agent :9081.
+prometheus:
+  host: "${PROMETHEUS_HOST:-localhost}"
+  port: ${PROMETHEUS_PORT:-9090}
+  timeout: ${PROMETHEUS_TIMEOUT:-30}
+  summary_buffer_seconds: ${PROMETHEUS_SUMMARY_BUFFER_SECONDS:-0}
+  metric_profile: "${ALERT_BRIDGE_EVALUATOR_METRIC_PROFILE:-}"
+
+# ============================================================================
+# REPORTS CONFIGURATION
+# ============================================================================
+reports:
+  directory: "${REPORTS_DIR:-/app/reports}"                   # Directory to store evaluation reports (env: REPORTS_DIR)
+
+# ============================================================================
+# REDIS CONFIGURATION
+# ============================================================================
+# Redis is used for job state management, tracking evaluation progress
+redis:
+  host: "${REDIS_HOST:-0.0.0.0}"
+  port: "${REDIS_PORT:-6379}"
+  db: "${REDIS_DB:-0}"
+  password: "${REDIS_PASSWORD:-}"    # Leave empty if no password
+  job_ttl: 86400                     # Job TTL in seconds (24 hours)
+
+# ============================================================================
+# ALERT BRIDGE CONFIGURATION
+# ============================================================================
+# Alert Bridge service for submitting incidents for VLM verification
+alert_bridge:
+  base_url: "${ALERT_BRIDGE_BASE_URL:-http://0.0.0.0:9080}"
+  timeout: 30                        # Request timeout in seconds
+  endpoint_path: "${ALERT_BRIDGE_ENDPOINT_PATH:-/api/v1/verification/ondemand}"
+  incident_endpoint_path: "${ALERT_BRIDGE_INCIDENT_ENDPOINT_PATH:-/api/v1/incidents}"
+  # Endpoints:
+  #   POST /api/v1/incidents - Submit incident for VLM verification
+  #   GET /health - Health check
+
+# ============================================================================
+# ELASTICSEARCH CONFIGURATION
+# ============================================================================
+# Elasticsearch for querying VLM verification results
+elasticsearch:
+  hosts:
+    - "${ELASTICSEARCH_BASE_URL:-http://0.0.0.0:9200}"
+  index_incidents: "mdx-vlm-incidents*"  # Incidents index (eval v1 poll, eval v2 fallback)
+  index_alerts: "mdx-vlm-alerts*"        # Alerts index (eval v2: check first)
+  timeout: 30                        # Request timeout in seconds
+
+# ============================================================================
+# POLLING CONFIGURATION
+# ============================================================================
+# Configuration for polling Elasticsearch for VLM results
+polling:
+  interval: 5.0                      # Interval between polls in seconds
+  timeout: 10                        # Total timeout in seconds
+  max_attempts: 3                    # Maximum number of poll attempts (0 = use timeout)
+
+# ============================================================================
+# DEPLOYMENT METADATA
+# ============================================================================
+# Used in the one-line summary report (report_summary.csv) generated after
+# each latency evaluation run.  Set via env vars PLATFORM / MODEL or here.
+metadata:
+  platform: "${PLATFORM:-}"          # e.g. RTX-6000 Pro, DGX-Spark, AGX-Thor
+  model: "${MODEL:-}"                # e.g. RT-DETR (RN 50)
+
+# ============================================================================
+# KAFKA CONFIGURATION
+# ============================================================================
+# message_bus synthetic latency injection publishes NvSchema incidents directly
+# to the incident topic. The VLM topic is also used for Kafka message-rate counts.
+kafka:
+  bootstrap_servers: "${KAFKA_BOOTSTRAP_SERVERS:-}"
+  incident_topic: "${KAFKA_INCIDENT_TOPIC:-mdx-incidents}"
+  alert_topic: "${KAFKA_ALERT_TOPIC:-mdx-alerts}"
+  vlm_topic: "${KAFKA_VLM_TOPIC:-mdx-vlm-incidents}"
+  produce_flush_timeout: ${KAFKA_PRODUCE_FLUSH_TIMEOUT:-10}
+
+# ============================================================================
+# LOGGING CONFIGURATION
+# ============================================================================
+logging:
+  level: "INFO"                      # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

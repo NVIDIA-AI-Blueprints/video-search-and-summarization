@@ -17,7 +17,7 @@
 
 services:
   vss-va-mcp:
-    image: ${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent}:${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}
+    image: ${PERF_VSS_AGENT_IMAGE:-${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent}:${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}}
     container_name: vss-va-mcp
     profiles: ["vss-va-mcp"]
     ports:
@@ -59,7 +59,7 @@ services:
 
   vss-agent:
     # Version pinned via VSS_AGENT_VERSION (see the profile .env files).
-    image: ${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent}:${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}
+    image: ${PERF_VSS_AGENT_IMAGE:-${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent}:${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}}
     container_name: vss-agent
     profiles: ["vss-agent"]
     ports:

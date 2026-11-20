@@ -14,7 +14,7 @@ import unittest
 
 
 PERF = Path(__file__).resolve().parents[1]
-STAGER = PERF / "stage_vst.py"
+STAGER = PERF / "scripts/stage_vst.py"
 
 
 class RepositoryVstSetupTests(unittest.TestCase):
@@ -62,7 +62,7 @@ class RepositoryVstSetupTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "linux", "setup requires Linux Bash and GNU sed")
     def test_setup_prerequisites_and_staging_without_artifactory(self):
-        setup = (PERF / "setup_perf_env.sh").read_text()
+        setup = (PERF / "scripts/native_setup_perf_env.sh").read_text()
         # Run actual prerequisite + staging/patching code, stopping before media,
         # system changes, Docker, or GPU execution. No credential file is read.
         code = setup.split("\nrequire_cmd curl\n", 1)[0]
@@ -71,12 +71,13 @@ class RepositoryVstSetupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             perf = directory / "services/rtvi/rt-vlm/perf"
-            perf.mkdir(parents=True)
+            scripts = perf / "scripts"
+            scripts.mkdir(parents=True)
             # Keep the real repository deployment source available at its relative path.
             (directory / "services/vios").symlink_to(PERF.parents[2] / "vios", target_is_directory=True)
             for name in ("stage_vst.py", "deploy_vst.sh"):
-                (perf / name).write_text((PERF / name).read_text())
-            script = perf / "check.sh"
+                (scripts / name).write_text((PERF / "scripts" / name).read_text())
+            script = scripts / "check.sh"
             script.write_text(code)
             config = directory / "benchmark.yaml"
             config.write_text("global: {}\n")

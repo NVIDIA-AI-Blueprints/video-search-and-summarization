@@ -2214,6 +2214,20 @@ function state_up() {
     compose_files+=(-f services/vios/streamprocessing/docker-compose.prebaked.yaml)
     echo "[INFO] Prebaking VIOS runtime-media packages into a local image."
   fi
+  echo "[INFO] Validating Compose configuration..."
+  # Validate the same staged inputs used by up, without printing resolved secrets.
+  # The image-list pipeline below must not hide a Compose error behind sort.
+  if ! (
+    cd "${deployment_directory}" && docker compose \
+      "${compose_files[@]}" \
+      --env-file containers.env \
+      --env-file "developer-profiles/dev-profile-${profile}/.env" \
+      --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
+      config --quiet
+  ); then
+    echo "[ERROR] Compose configuration validation failed for developer profile '${profile}'"
+    return 1
+  fi
   echo "[INFO] Resolved compose images:"
   (
     cd "${deployment_directory}"
