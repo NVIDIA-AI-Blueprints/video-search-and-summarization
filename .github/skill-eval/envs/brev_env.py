@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import random
+import re
 import shlex
 import signal
 import subprocess
@@ -2307,7 +2308,8 @@ async def _run_brev_copy_once(
     ])
     remote = remote_endpoints[0]
     remote_path = remote.split(":", 1)[1]
-    ssh_remote = f"ubuntu@{host}:{remote_path}"
+    ssh_user = _brev_ssh_user(instance_name)
+    ssh_remote = f"{ssh_user}@{host}:{remote_path}"
     rsync_src = ssh_remote if src == remote else src
     rsync_dst = ssh_remote if dst == remote else dst
     cmd = ["rsync", "-a", "--partial", "-e", ssh_command, "--", rsync_src, rsync_dst]
@@ -2339,6 +2341,56 @@ async def _run_brev_copy_once(
         stderr=stderr.decode() if stderr else None,
         return_code=proc.returncode or 0,
     )
+
+
+_SAFE_SSH_USER_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+
+
+def _brev_ssh_user(instance: str) -> str:
+    """Resolve the SSH login user for *instance* from ``~/.brev/ssh_config``.
+
+    Brev cloud instances typically use ``ubuntu``, while Launchpad/DMZ workers
+    (e.g. ``dmz.rtxpro6000x2.pcie``) use ``nvidia``. Fall back to ``ubuntu``
+    when the config file, host stanza, or valid ``User`` directive is absent.
+    """
+    ssh_config = Path.home() / ".brev" / "ssh_config"
+    try:
+        lines = ssh_config.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return "ubuntu"
+
+    target = instance.strip().lower()
+    if not target:
+        return "ubuntu"
+
+    in_target_host = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = re.split(r"[\s=]+", line, maxsplit=1)
+        if len(parts) != 2:
+            continue
+        key, value = parts[0].lower(), parts[1].strip()
+        if key == "match":
+            in_target_host = False
+        elif key == "host":
+            patterns = {
+                pat.strip('"').lower()
+                for pat in value.split()
+                if not any(ch in pat for ch in "*?!")
+            }
+            in_target_host = target in patterns
+        elif in_target_host and key == "user":
+            user = value.strip().strip('"')
+            if _SAFE_SSH_USER_RE.fullmatch(user):
+                return user
+            logger.warning(
+                "Ignoring unsafe SSH User %r for %r in %s; falling back to ubuntu",
+                user, instance, ssh_config,
+            )
+            return "ubuntu"
+    return "ubuntu"
 
 
 async def _get_brev_ssh_endpoint(instance: str) -> tuple[str, int]:
@@ -2625,6 +2677,21 @@ async def _check_live_gpu_count(instance_name: str, required_count: int) -> None
     )
 
 
+def _loose_gpu_match(want: str, have: str) -> bool:
+    """`RTX PRO 6000` ⊆ `RTX PRO SERVER 6000` or concatenated `RTXPRO6000` /
+    `dmz.rtxpro6000x2.pcie`. Mirrors run_leg._loose_gpu_match."""
+    want_tokens = set(want.replace("-", " ").split())
+    have_tokens = set(have.replace("-", " ").split())
+    if want_tokens and want_tokens.issubset(have_tokens):
+        return True
+    compact_want = re.sub(r"[^A-Z0-9]+", "", want.upper())
+    compact_have = re.sub(r"[^A-Z0-9]+", "", have.upper())
+    return bool(
+        compact_want
+        and re.search(rf"{re.escape(compact_want)}(?![0-9])", compact_have)
+    )
+
+
 async def _check_instance_matches(instance: dict, req: dict) -> None:
     """Raise RuntimeError if the instance's GPU doesn't meet task requirements.
 
@@ -2657,14 +2724,6 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
     instance_type = (instance.get("instance_type") or "").upper()
     required_type = (req.get("gpu_type") or "").upper()
 
-    # Loose GPU name match: `RTX PRO 6000` ⊆ `RTX PRO SERVER 6000`
-    # Require ALL tokens of `want` to appear in `have` (and `want ⊆ have` as
-    # a substring fallback for dashed variants like `H100-SXM-80GB`).
-    def _loose_match(want: str, have: str) -> bool:
-        want_tokens = set(want.replace("-", " ").split())
-        have_tokens = set(have.replace("-", " ").split())
-        return want_tokens.issubset(have_tokens) or want in have
-
     # Brev API transient-flake soft-fail: `brev ls --json` occasionally
     # returns gpu="-" (or "") for a healthy instance for a few seconds while
     # the catalog refreshes. If the catalog instance_type carries the GPU
@@ -2675,11 +2734,11 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
     gpu_blank = gpu in ("", "-", "N/A", "NONE")
     type_carries_token = (
         required_type and instance_type
-        and _loose_match(required_type, instance_type)
+        and _loose_gpu_match(required_type, instance_type)
     )
 
     errors = []
-    if required_type and not _loose_match(required_type, gpu):
+    if required_type and not _loose_gpu_match(required_type, gpu):
         if gpu_blank and type_carries_token:
             logger.warning(
                 "Instance '%s' brev ls returned gpu=%r (likely transient "

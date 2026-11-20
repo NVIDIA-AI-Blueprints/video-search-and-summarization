@@ -2196,6 +2196,27 @@ class PoolCandidates(unittest.TestCase):
         names = run_leg.pool_candidates({"gpu_type": "L40S", "gpu_count": 1})
         self.assertEqual(names, ["vss-eval-l40s", "vss-eval-l40s-2"])
 
+    def test_launchpad_concatenated_rtxpro6000_matches_without_false_positives(self):
+        fleet = [
+            {"name": "vss-eval-rtx-2g-15", "status": "RUNNING",
+             "gpu": "RTXPRO6000", "instance_type": "dmz.rtxpro6000x2.pcie"},
+            {"name": "vss-eval-rtx-2g-16", "status": "RUNNING",
+             "gpu": "-", "instance_type": "dmz.rtxpro6000x2.pcie"},
+            {"name": "vss-eval-rtx-ada", "status": "RUNNING",
+             "gpu": "RTX 6000 Ada", "instance_type": "rtx6000ada"},
+            {"name": "vss-eval-l40s-1", "status": "RUNNING",
+             "gpu": "L40S", "instance_type": "massedcompute_L40S"},
+        ]
+        with mock.patch.object(run_leg, "_list_pool_instances", return_value=fleet):
+            self.assertEqual(
+                run_leg.pool_candidates({"gpu_type": "RTX PRO 6000", "gpu_count": 2}),
+                ["vss-eval-rtx-2g-15", "vss-eval-rtx-2g-16"],
+            )
+            self.assertEqual(
+                run_leg.pool_candidates({"gpu_type": "L4", "gpu_count": 1}),
+                [],
+            )
+
     def test_gpu_count_zero_accepts_any_running_pool_box(self):
         names = run_leg.pool_candidates({"gpu_count": 0})
         self.assertEqual(len(names), 5)

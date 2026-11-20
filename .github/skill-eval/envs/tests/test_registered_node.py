@@ -184,6 +184,16 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
         try:
             with self.assertRaises(RuntimeError):
                 asyncio.run(brev_env._check_instance_matches(inst, {"gpu_type": "H100"}))
+            with self.assertRaises(RuntimeError):
+                asyncio.run(brev_env._check_instance_matches(inst, {"gpu_type": "L4"}))
+            asyncio.run(brev_env._check_instance_matches(
+                {"name": "vss-eval-rtx-2g-15", "gpu": "RTXPRO6000", "instance_type": "dmz.rtxpro6000x2.pcie"},
+                {"gpu_type": "RTX PRO 6000", "gpu_count": 1},
+            ))
+            asyncio.run(brev_env._check_instance_matches(
+                {"name": "vss-eval-rtx-2g-15", "gpu": "-", "instance_type": "dmz.rtxpro6000x2.pcie"},
+                {"gpu_type": "RTX PRO 6000", "gpu_count": 1},
+            ))
         finally:
             brev_env._get_instance_gpu_count_from_catalog = original
 
