@@ -27,6 +27,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import PrivateAttr
 
 from ..errors import InvalidInputError
 
@@ -122,6 +123,21 @@ class AttributeSearchMetadata(BaseModel):
     behavior_score: float = 0.0
     frame_score: float | None = None
     video_name: str | None = None
+    # Internal, never serialized: whether ``bbox`` was measured on the frame at
+    # ``frame_timestamp``. A frame lookup can find a best frame that has no box
+    # for the object, and the box then falls back to the behavior record's,
+    # which describes another moment. Unknown provenance (e.g. a result rebuilt
+    # from a dict) reads as False.
+    _bbox_from_frame: bool = PrivateAttr(default=False)
+
+    @property
+    def bbox_from_frame(self) -> bool:
+        """Whether ``bbox`` was measured on the frame at ``frame_timestamp``."""
+        return self._bbox_from_frame
+
+    def mark_bbox_from_frame(self) -> None:
+        """Record that ``bbox`` came from the frame at ``frame_timestamp``."""
+        self._bbox_from_frame = True
 
 
 class AttributeSearchResult(BaseModel):

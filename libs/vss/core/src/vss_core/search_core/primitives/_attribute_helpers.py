@@ -264,6 +264,8 @@ def hit_to_result(
         frame_score=query_to_frame_score,
         video_name=None,
     )
+    if frame_bbox is not None and best_frame_timestamp:
+        metadata.mark_bbox_from_frame()
     return AttributeSearchResult(screenshot_url=None, metadata=metadata)
 
 

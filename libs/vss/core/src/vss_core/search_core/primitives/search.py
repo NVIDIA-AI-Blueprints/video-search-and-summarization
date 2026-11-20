@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from ..clients.protocols import TextEmbedder
     from ..models.common import FusionMethod
     from ..runtime import SearchRuntime
+    from ..subject_check import SubjectChecker
 
 
 class _SupportsRun(Protocol):
@@ -290,6 +291,7 @@ class Search:
         # VST URLs are needed by execute_core_search via its config object
         vst_internal_url: str = "",
         vst_external_url: str = "",
+        subject_checker: SubjectChecker | None = None,
         owns_embed: bool = False,
         owns_attribute: bool = False,
         owns_tag: bool = False,
@@ -332,6 +334,9 @@ class Search:
             behavior_es_endpoint=behavior_es.endpoint,
             behavior_index=behavior_index,
             behavior_index_wildcard=behavior_index_wildcard,
+            # Optional VLM check that the attribute-matched person does the
+            # action; None (no VLM configured) keeps the fused order.
+            subject_checker=subject_checker,
         )
 
     async def run(self, inp: SearchInput) -> SearchOutput:
@@ -391,6 +396,7 @@ class Search:
         attribute: AttributeSearch | None = None,
         tag: TagSearch | None = None,
         behavior_es: ElasticIndex | None = None,
+        subject_checker: SubjectChecker | None = None,
     ) -> Search:
         """Construct from SearchRuntime.
 
@@ -427,6 +433,7 @@ class Search:
             # searches and returns segments with empty `screenshot_url`.
             vst_internal_url=rt.vst_internal_url or "",
             vst_external_url=rt.vst_external_url or "",
+            subject_checker=subject_checker,
             owns_embed=owns_embed,
             owns_attribute=owns_attribute,
             owns_tag=owns_tag,

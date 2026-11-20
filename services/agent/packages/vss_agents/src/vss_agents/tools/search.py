@@ -478,11 +478,14 @@ def _apply_rrf_fusion(
     reranked_results = []
     for rank, video in enumerate(sorted_video_data, start=1):
         rank_action = rank
-        rrf_score = 1.0 / (rank_action + rrf_k) + rrf_w * video["normalised_attribute_score"]
+        embed_gate = max(0.0, float(video["embed_score"]))
+        attr_modulation = 0.6 + 0.4 * embed_gate
+        rrf_score = 1.0 / (rank_action + rrf_k) + rrf_w * attr_modulation * video["normalised_attribute_score"]
 
         logger.debug(
             f"RRF: {video['embed_result'].video_name} - "
-            f"rank_action={rank_action}, normalised_attribute_score={video['normalised_attribute_score']:.3f}, "
+            f"rank_action={rank_action}, embed_score={video['embed_score']:.3f}, "
+            f"normalised_attribute_score={video['normalised_attribute_score']:.3f}, "
             f"rrf_score={rrf_score:.6f}"
         )
 

@@ -139,6 +139,11 @@ class CliQueryBackend:
         # `--original-query`; run_eval_flows probes for it.
         pass_original_query: bool = True,
         critic_eval_count: int | None = None,
+        # Fusion only: pass `--subject-check`, and `--log-level INFO` so the
+        # CLI writes one `subject_check_verdict` line per checked result to
+        # stderr. Those lines are the only place the verdicts exist; the
+        # search response deliberately does not carry them.
+        subject_check: bool = False,
     ) -> None:
         if search_path not in SEARCH_PATHS:
             raise ValueError(f"search_path must be one of {SEARCH_PATHS}, got {search_path!r}")
@@ -155,6 +160,9 @@ class CliQueryBackend:
         self.timeout = timeout
         self.pass_original_query = pass_original_query
         self.critic_eval_count = critic_eval_count
+        self.subject_check = subject_check
+        #: query text -> parsed `subject_check_verdict` records, when collected.
+        self.subject_checks_by_query: dict[str, list[dict[str, Any]]] = {}
         #: query text -> decomposition. Empty means fixed-flag behaviour.
         self.decompositions = decompositions or {}
         #: plans actually executed, so the summary can report the path split.
@@ -183,6 +191,7 @@ class CliQueryBackend:
             "decompositions": len(self.decompositions),
             "pass_original_query": self.pass_original_query,
             "critic_eval_count": self.critic_eval_count,
+            "subject_check": self.subject_check,
         }
 
     def plan_for_query(self, query: str) -> dict[str, Any]:
@@ -246,6 +255,9 @@ class CliQueryBackend:
         if not self.merge_adjacent:
             argv.append("--no-merge-adjacent")
 
+        if self.subject_check and path == "fusion":
+            argv += ["--subject-check", "--log-level", "INFO"]
+
         argv.append("--raw")
         return argv
 
@@ -283,7 +295,35 @@ class CliQueryBackend:
         hits, _messages, timings = parse_cli_output(proc.stdout)
         if timings:
             self.timings_by_query[query] = timings
+        if self.subject_check:
+            checks = parse_subject_check_log(proc.stderr or "")
+            if checks:
+                self.subject_checks_by_query[query] = checks
         return hits, latency
+
+
+#: Marker the search library puts before each subject-check verdict's JSON.
+SUBJECT_CHECK_MARKER = "subject_check_verdict "
+
+
+def parse_subject_check_log(stderr: str) -> list[dict[str, Any]]:
+    """Extract the ``subject_check_verdict`` records from ``vss search run`` stderr.
+
+    Each record is the JSON after the marker on one log line. Lines that do not
+    parse are skipped: a malformed log line must not fail the query it came with.
+    """
+    records: list[dict[str, Any]] = []
+    for line in stderr.splitlines():
+        _, marker, payload = line.partition(SUBJECT_CHECK_MARKER)
+        if not marker:
+            continue
+        try:
+            record = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return sorted(records, key=lambda r: r.get("rank") or 0)
 
 
 def parse_cli_output(stdout: str) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:

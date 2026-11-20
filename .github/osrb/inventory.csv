@@ -2870,6 +2870,7 @@ opencensus-context,0.2.dev0,Apache Software License,services/rtvi/rt-vlm,python,
 openclaw,2026.7.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 opencv-python,4.10.0.84,Apache Software License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 opencv-python,UNKNOWN,Apache Software License,libs/analytics/spatialai-data-utils,python,usage,libs/analytics/spatialai-data-utils/spatialai_data_utils/utils/optional_dependencies.py,runtime,no,no,no,imported-only,None
+opencv-python,UNKNOWN,Apache Software License,libs/vss,python,usage,libs/vss/core/src/vss_core/search_core/subject_check.py,runtime,no,no,no,imported-only,None
 opencv-python,UNKNOWN,Apache Software License,services/agent,python,usage,services/agent/packages/vss_agents/src/vss_agents/tools/s3_picture_url.py,runtime,no,no,no,imported-only,None
 opencv-python,UNKNOWN,Apache Software License,services/analytics/behavior-analytics,python,usage,services/analytics/behavior-analytics/src/mdx/analytics/core/tools/space_utilization.py,runtime,no,no,no,imported-only,None
 opencv-python,UNKNOWN,Apache Software License,services/rtvi/rt-cv-3d/rt-cv-mv3dt,python,manifest,services/rtvi/rt-cv-3d/rt-cv-mv3dt/utils/requirements.txt,runtime,no,no,no,declared-manifest,None
