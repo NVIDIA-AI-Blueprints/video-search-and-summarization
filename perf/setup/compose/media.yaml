@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Optional reproducible video loop. Supply an absolute VSS_PERF_VIDEO path.
+services:
+  perf-media:
+    image: bluenviron/mediamtx:1.9.3
+    ports: ["8554:8554"]
+    environment:
+      MTX_PROTOCOLS: tcp
+    restart: unless-stopped
+  perf-video:
+    image: jrottenberg/ffmpeg:7.1-ubuntu
+    volumes:
+      - ${VSS_PERF_VIDEO:?Set the absolute benchmark video path}:/fixture/video.mp4:ro
+    command: [-re, -stream_loop, "-1", -i, /fixture/video.mp4, -an, -c:v, copy, -rtsp_transport, tcp, -f, rtsp, "rtsp://perf-media:8554/compose-base"]
+    depends_on: [perf-media]
+    restart: on-failure

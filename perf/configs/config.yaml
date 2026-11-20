@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+global:
+  vss_backend: http://localhost:7777
+  dataset:
+    resource: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
+    video_path: videos/nv-warehouse-4cams/Camera_03.mp4
+  minio:
+    endpoint: 10.111.52.248:9000
+    bucket: perf-results
+  rt_cv_container: vss-rtvi-cv
+  stage_timeouts:
+    pre_flight: 30
+    deploy: 45
+    post_deploy: 20
+    teardown: 5
+test_scenarios:
+  quick_test: &single_stream
+    description: One real RTSP stream with RT-CV FPS and VIOS/analytics CLI latency.
+    benchmark_mode: compose_base
+    duration_seconds: 30
+    interval_seconds: 2
+    warmup_iterations: 2
+    expected_streams: 1
+    expected_analytics_sensors: 0
+    thresholds:
+      min_rt_cv_fps: 1.0
+      max_cli_p95_seconds: 10.0
+  sustained_test:
+    <<: *single_stream
+    description: Sustained single-stream throughput and client latency.
+    duration_seconds: 300
