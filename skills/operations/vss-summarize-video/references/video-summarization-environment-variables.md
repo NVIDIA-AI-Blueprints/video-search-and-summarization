@@ -7,17 +7,16 @@ video summarization debugging and request construction.
 ## Profile Env
 
 The checked-in `.env` is the stable-default layer and `overrides.env` is the
-runtime/profile default layer. For an actual deployment, initialize the generated
-profile env from `overrides.env`, apply overrides there, and resolve Compose with both
-`.env` and `generated.env`:
+runtime/profile default layer; both remain read-only. For a Build Vision AI
+LVS deployment, write customized settings and their dependent values to
+`_builds/<name>/override.env`. Resolve `containers.env`, the LVS `.env`, the
+LVS `overrides.env`, and that build override in order, then normalize, validate,
+and deploy `_builds/<name>/resolved.yml`. Follow the shared
+[`deployment.md`](../../../vss-build-vision-ai/references/deployment.md)
+workflow rather than creating a profile-level runtime env file.
 
-```text
-deploy/docker/developer-profiles/dev-profile-lvs/generated.env
-```
-
-Password values should be supplied by that profile env or deployment-specific
-overrides; the service compose file intentionally does not define password
-defaults.
+Supply password values through the deployment's credential mechanism; the
+service Compose intentionally does not define password defaults.
 
 Core deployment:
 
@@ -25,7 +24,7 @@ Core deployment:
 |---|---|
 | `MODE` | Profile mode, currently `2d`. |
 | `BP_PROFILE` | Blueprint profile, `bp_developer_lvs`. |
-| `COMPOSE_PROFILES` | Computed profile list. Includes `bp_developer_lvs_2d`. |
+| `COMPOSE_PROFILES` | Effective service-profile list from the LVS Foundation plus the requested delta; includes `lvs-server`. |
 | `HARDWARE_PROFILE` | Hardware profile for NIM sizing. |
 | `VSS_APPS_DIR` | Absolute path to `deploy/docker`. |
 | `VSS_DATA_DIR` | Data root. |

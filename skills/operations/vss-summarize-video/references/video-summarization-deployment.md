@@ -51,25 +51,27 @@ Prefer the profile deploy skill:
 the `/vss-build-vision-ai` stock Video Summarization workflow
 ```
 
-If you are already operating the resolved Docker Compose stack, include the
-profile that owns the video summarization service:
+If you are already operating a resolved Docker Compose build, use that build's
+exact deployment file without profile flags:
 
 ```bash
-docker compose --profile lvs-server ps lvs-server
-docker compose --profile lvs-server logs -f lvs-server
+: "${BUILD_DIR:?Set to the deployed build directory}"
+docker compose -f "$BUILD_DIR/resolved.yml" ps lvs-server
+docker compose -f "$BUILD_DIR/resolved.yml" logs -f lvs-server
 ```
 
 ## Required Inputs
 
-The checked-in profile env files split stable defaults and runtime/profile defaults:
-`deploy/docker/developer-profiles/dev-profile-lvs/.env` is the stable-default layer,
-and `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env` is copied to
-`generated.env` for deployment-specific overrides. For a deployment, follow
-`vss-build-vision-ai` and apply overrides to
-`deploy/docker/developer-profiles/dev-profile-lvs/generated.env`, then resolve
-`deploy/docker/resolved.yml` using `.env` plus `generated.env`. Do not edit the service compose directly.
-Password values should come from the profile env or deployment overrides; do
-not add password defaults to the service compose file.
+Follow `vss-build-vision-ai` with the LVS Foundation. Keep the checked-in
+`deploy/docker/developer-profiles/dev-profile-lvs/.env` and `overrides.env`
+read-only. Write deployment-specific settings and their dependent values to
+`_builds/<name>/override.env`. Resolve the four ordered layers: `containers.env`,
+the Foundation `.env`, the Foundation `overrides.env`, and the build's
+`override.env`. Normalize and validate `_builds/<name>/resolved.yml`, prepare
+its data directories, and deploy that exact file as described in
+[`deployment.md`](../../../vss-build-vision-ai/references/deployment.md).
+Do not edit the service Compose directly or add password defaults to it;
+supply credentials through the deployment's credential mechanism.
 
 Core required values:
 
@@ -151,6 +153,7 @@ Example Neo4j override:
 ```yaml
 services:
   graph-db:
+    profiles: ["graph-db"]
     image: neo4j:5.26.4
     container_name: graph-db
     environment:
@@ -182,6 +185,7 @@ Example ArangoDB override:
 ```yaml
 services:
   arango-db:
+    profiles: ["arango-db"]
     image: arangodb/arangodb:3.12.4
     container_name: arango-db
     environment:
@@ -208,37 +212,37 @@ services:
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}
 ```
 
-After adding an override, set the matching values in
-`developer-profiles/dev-profile-lvs/generated.env`, then resolve through the
-same dry-run path used by `vss-build-vision-ai`:
+Store the selected database override in `_builds/<name>/patches/database.yml`
+and put its matching environment settings in that build's `override.env`.
+Add only the selected database's service key (`graph-db` or `arango-db`) to
+the build's effective `COMPOSE_PROFILES`, preserving the other selected services.
+Include the patch after the root model in `_builds/<name>/compose.yml`:
 
-```bash
-cd "$REPO/deploy/docker"
-docker compose \
-  --env-file developer-profiles/dev-profile-lvs/.env \
-  --env-file developer-profiles/dev-profile-lvs/generated.env \
-  -f compose.yml -f <db-override.yml> \
-  config > resolved.yml
+```yaml
+include:
+  - path:
+      - ../../deploy/docker/compose.yml
+      - ./patches/database.yml
 ```
 
-Verify `resolved.yml` before recreating the service:
+Keep any other required build patches in the ordered list. Follow the shared
+[`deployment.md`](../../../vss-build-vision-ai/references/deployment.md)
+resolution, normalization, validation, and data-directory preparation steps.
+Verify the selected database service and `lvs-server` environment in the build's
+`resolved.yml` before recreating anything. Do not print credentials while
+inspecting that environment.
+
+After validation and image pulls, recreate the selected database and video
+summarization service from that exact file, without env-file or profile flags.
+Do not add `--force-recreate`; Compose recreates services whose config changed
+or that are down.
 
 ```bash
-uv run "$REPO/skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py" \
-  "$REPO/deploy/docker/resolved.yml"
-sed -n '/lvs-server:/,/^[^ ]/p' resolved.yml \
-  | grep -E 'LVS_DATABASE_BACKEND|GRAPH_DB_|ARANGO_DB_|LVS_EMB_'
-docker compose -f resolved.yml config --quiet
-```
+: "${BUILD_DIR:?Set to the deployed build directory}"
+docker compose -f "$BUILD_DIR/resolved.yml" up -d graph-db lvs-server  # Neo4j
 
-Then recreate the database and video summarization service from `resolved.yml`.
-Do not add `--force-recreate`; Docker will recreate only services whose config
-changed or that are down.
-
-```bash
-docker compose -f resolved.yml up -d graph-db lvs-server        # Neo4j
-
-docker compose -f resolved.yml up -d arango-db lvs-server       # ArangoDB
+# Alternatively, for the ArangoDB build:
+docker compose -f "$BUILD_DIR/resolved.yml" up -d arango-db lvs-server
 ```
 
 Health checks:
