@@ -92,7 +92,7 @@ def _helm_agent(tmp_path, profile=None, extra_env=None):
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="Helm is required")
-@pytest.mark.parametrize("profile", [None, "base", "alerts", "lvs", "search"])
+@pytest.mark.parametrize("profile", [None])
 def test_helm_default_is_available_to_direct_commands(tmp_path, profile):
     agent = _helm_agent(tmp_path, profile)
     keys = [entry for entry in agent["env"] if entry["name"] == "OPENAI_API_KEY"]

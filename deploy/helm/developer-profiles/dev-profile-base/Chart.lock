@@ -8,9 +8,6 @@ dependencies:
 - name: vios
   repository: file://../../services/vios
   version: 3.4.0
-- name: agent
-  repository: file://../../services/agent
-  version: 3.4.0
 - name: vss-agent-ui
   repository: file://../../services/ui
   version: 3.4.0
@@ -20,5 +17,5 @@ dependencies:
 - name: rtvi
   repository: file://../../services/rtvi
   version: 3.4.0
-digest: sha256:452bd0396210c78763ed30da29eda02b1d34e3822cd57410abb946c9aaa58755
-generated: "2026-10-13T09:48:56.017853+05:30"
+digest: sha256:94f8f76a371ee810dcd9d2fec8f84fb70318d916acf5a2f955dbebacbd66389b
+generated: "2026-11-04T11:35:04.601819038-08:00"

@@ -14,14 +14,11 @@ dependencies:
 - name: analytics
   repository: file://../../services/analytics
   version: 3.4.0
-- name: agent
-  repository: file://../../services/agent
-  version: 3.4.0
 - name: vss-agent-ui
   repository: file://../../services/ui
   version: 3.4.0
 - name: nims
   repository: file://../../services/nims
   version: 3.4.0
-digest: sha256:fcf0ba4df4621ba964b8c7ef690efc2a0a5e7a88f0ec07f0dc9f27763a67a88c
-generated: "2026-10-13T09:48:56.645049+05:30"
+digest: sha256:9add7f1f2920d808f30adc3dc289db8ca571c9567fa30fbeffac65e1ec21cd3d
+generated: "2026-11-04T11:36:16.170756646-08:00"

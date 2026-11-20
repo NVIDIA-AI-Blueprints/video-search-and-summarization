@@ -55,9 +55,6 @@
 {{- $viosIngress := index $vios "vss-vios-ingress" | default dict }}
 {{- $viosIngressSvc := index $viosIngress "service" | default dict }}
 {{- $nvstreamerVals := index $vios "vss-vios-nvstreamer" | default dict }}
-{{- $agentRoot := index .Values "agent" | default dict }}
-{{- $vssAgent := index $agentRoot "vss-agent" | default (index .Values "vss-agent") | default dict }}
-{{- $vaMcpVals := index $agentRoot "vss-va-mcp" | default dict }}
 {{- $ui := index .Values "vss-agent-ui" | default dict }}
 {{- $infra := .Values.infra | default dict }}
 {{- $fp := index $infra "phoenix" | default dict }}
@@ -77,7 +74,6 @@
        mounting a route at a Service that was never created. */}}
 {{- $en := "vss.ingress.enabled" }}
 {{- $infraOn := include $en (dict "vals" $infra "default" true) }}
-{{- $agentUmbrellaOn := include $en (dict "vals" $agentRoot "default" true) }}
 {{- $analyticsOn := include $en (dict "vals" $analytics "default" true) }}
 {{- $rtviOn := include $en (dict "vals" $rtvi "default" true) }}
 {{- $viosOn := include $en (dict "vals" $vios "default" true) }}
@@ -89,14 +85,8 @@
 {{- if include $en (dict "vals" $ui "default" true) }}
 {{- $_ := set $b "ui" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent-ui")) "port" ($vi.vssUiPort | default 3000)) }}
 {{- end }}
-{{- if and $agentUmbrellaOn (include $en (dict "vals" $vssAgent "default" true)) }}
-{{- $_ := set $b "agent" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent")) "port" ($vi.vssAgentPort | default 8000)) }}
-{{- end }}
 {{- if and $viosOn (include $en (dict "vals" $viosIngress "default" true)) }}
 {{- $_ := set $b "vst" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-ingress")) "port" (coalesce $viosIngress.port $viosIngressSvc.port 30888)) }}
-{{- end }}
-{{- if and $agentUmbrellaOn (include $en (dict "vals" $vaMcpVals "default" false)) }}
-{{- $_ := set $b "va-mcp" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-va-mcp")) "port" ($vi.vaMcpPort | default 9901)) }}
 {{- end }}
 {{- if and $analyticsOn (include $en (dict "vals" $videoAnalyticsVals "default" false)) }}
 {{- $_ := set $b "video-analytics-api" (dict "service" (include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-video-analytics-api")) "port" ($vi.videoAnalyticsApiPort | default 8081)) }}

@@ -33,9 +33,6 @@
 {{- $videoAnalyticsVals := index $analytics "vss-video-analytics-api" | default dict }}
 {{- $behaviorVals := index $analytics "vss-behavior-analytics" | default dict }}
 {{- $alertBridgeVals := index .Values "vss-alert-bridge" | default dict }}
-{{- $agentRoot := index .Values "agent" | default dict }}
-{{- $agent := index $agentRoot "vss-agent" | default dict }}
-{{- $vaMcpVals := index $agentRoot "vss-va-mcp" | default dict }}
 {{- $ui := index .Values "vss-agent-ui" | default dict }}
 {{- $rtvi := index .Values "rtvi" | default dict }}
 {{- $cvVals := index $rtvi "vss-rtvi-cv" | default dict }}
@@ -46,7 +43,6 @@
        mounting a route at a Service that was never created. */}}
 {{- $en := "vss.ingress.enabled" }}
 {{- $infraOn := include $en (dict "vals" $infra "default" true) }}
-{{- $agentUmbrellaOn := include $en (dict "vals" $agentRoot "default" true) }}
 {{- $analyticsOn := include $en (dict "vals" $analytics "default" true) }}
 {{- $rtviOn := include $en (dict "vals" $rtvi "default" true) }}
 {{- $viosOn := include $en (dict "vals" $vios "default" true) }}
@@ -63,9 +59,6 @@
 {{- if include $en (dict "vals" $ui "default" true) }}
 {{- $_ := set $b "ui" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent-ui")) "port" (index $vi "vssUiPort" | default 3000)) }}
 {{- end }}
-{{- if and $agentUmbrellaOn (include $en (dict "vals" $agent "default" true)) }}
-{{- $_ := set $b "agent" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent")) "port" (index $vi "vssAgentPort" | default 8000)) }}
-{{- end }}
 {{- if and $viosOn (include $en (dict "vals" $viosIngress "default" true)) }}
 {{- $_ := set $b "vst" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-ingress")) "port" (index $vi "vstIngressPort" | default 30888)) }}
 {{- end }}
@@ -77,9 +70,6 @@
 {{- end }}
 {{- if include $en (dict "vals" $alertBridgeVals "default" false) }}
 {{- $_ := set $b "alert-bridge" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-alert-bridge")) "port" (index $vi "alertBridgePort" | default 9080)) }}
-{{- end }}
-{{- if and $agentUmbrellaOn (include $en (dict "vals" $vaMcpVals "default" false)) }}
-{{- $_ := set $b "va-mcp" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-va-mcp")) "port" (index $vi "vaMcpPort" | default 9901)) }}
 {{- end }}
 {{- if and $infraOn (include $en (dict "vals" $esVals "default" false)) }}
 {{- $_ := set $b "elasticsearch" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "elasticsearch")) "port" (index $vi "elasticsearchPort" | default 9200)) }}
