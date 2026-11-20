@@ -19,7 +19,7 @@
 #     -t "openshell-hermes-vss:${VERSION//+/-}-from-source" .
 
 ARG BASE_IMAGE=nvcr.io/nvidia/base/ubuntu:24.04
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.24
 # Hermes publishes weekly tags; v2026.9.14 is 0.21.3, the verified version.
 # Keep HERMES_REF on a tag, not a branch.
 ARG HERMES_REPO=https://github.com/NousResearch/hermes-agent
