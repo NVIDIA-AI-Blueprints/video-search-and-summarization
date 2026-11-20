@@ -22,7 +22,7 @@
 #   VLM_GPUS / LLM_GPUS  GPU indices for the VLM / LLM (comma-separated; or VIA_VLM_GPUS/VIA_LLM_GPUS)
 # Optional:
 #   CONFIG               path to the benchmark config.yaml (default: config.yaml next to this script)
-#   VSS_PUBLIC_URL       deployment origin published by vss-build-vision-ai (Kubernetes). Used for
+#   VSS_PUBLIC_URL       deployment ingress origin serving /api/v1/version. Used for
 #                        the version-compatibility check; falls back to LVS_BACKEND when unset.
 #
 # Exit codes: 0 = all good (warnings allowed), 1 = hard failure (do not benchmark).
@@ -138,10 +138,9 @@ echo "=== 7. Deployed VSS version satisfies this skill's requires-vss range ==="
 # from there rather than taking it as an argument, so what a run enforces cannot
 # drift from what the skill publishes.
 SKILL_MD="$(cd "${SCRIPT_DIR}/.." && pwd)/SKILL.md"
-# GET /api/v1/version is served by the VSS agent. VSS_PUBLIC_URL is the deployment
-# origin vss-build-vision-ai publishes (Kubernetes; deliberately unset on Compose),
-# and its ingress routes /api to the agent. With no such origin we fall back to the
-# LVS backend the operator already gave us — no host is constructed here.
+# Compose HAProxy serves /api/v1/version directly, even without vss-agent.
+# Use the deployment ingress origin recorded in VSS_PUBLIC_URL. Retain the
+# supplied LVS backend as the fallback; no host is constructed here.
 VERSION_ORIGIN="${VSS_PUBLIC_URL:-${LVS_BACKEND}}"
 # Next to this script if someone copied it (the checker is designed to be copied),
 # otherwise in the repo checkout this skill lives in.
@@ -164,8 +163,8 @@ else
         3) err "${vout}"
            err "      this skill does not support this deployment — do not benchmark it" ;;
         *) err "${vout}"
-           err "      compatibility could not be determined; set VSS_PUBLIC_URL to an origin that routes"
-           err "      /api to the VSS agent, then retry" ;;
+           err "      compatibility could not be determined; set VSS_PUBLIC_URL to your deployment ingress"
+           err "      origin serving /api/v1/version, then retry" ;;
     esac
 fi
 

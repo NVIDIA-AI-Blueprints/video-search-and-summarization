@@ -115,7 +115,9 @@ Record `LVS_BACKEND` from the deployment's actual reachable LVS endpoint and
 `LVS_CONTAINER_NAME` from the running `lvs-server` service in that build's
 Compose project. Do not infer ownership from the name `vss-lvs` alone. Set
 `VLM_GPUS` and `LLM_GPUS` to the actual device IDs selected for that build.
-These four values are required by Step 0; do not default to another deployment.
+Record `VSS_PUBLIC_URL` as that deployment's reachable ingress origin, using
+its actual published host and port; this origin serves `/api/v1/version`.
+Use these deployment-specific values in Step 0.
 
 First deployment may download model weights. Reusing the same deployment's
 model caches avoids repeating downloads; startup time depends on the selected
@@ -131,10 +133,10 @@ Set your deployment's values, then run the pre-flight check:
 ```bash
 : "${LVS_BACKEND:?Set to your deployed LVS endpoint}"
 : "${LVS_CONTAINER_NAME:?Set to your deployed LVS container}"
-export LVS_BACKEND LVS_CONTAINER_NAME
+: "${VSS_PUBLIC_URL:?Set to your deployment ingress origin}"
+export LVS_BACKEND LVS_CONTAINER_NAME VSS_PUBLIC_URL
 export VLM_GPUS=<VLM_GPU>                                           # GPU(s) your VLM uses
 export LLM_GPUS=<LLM_GPU>                                           # GPU(s) your LLM uses
-export VSS_PUBLIC_URL=http://localhost:8000                         # origin serving the VSS agent
 
 ./scripts/preflight.sh
 ```
@@ -156,16 +158,15 @@ this skill's own front matter, using
 (standard library only). The range is read from `SKILL.md`, not passed in, so
 what a run enforces cannot drift from what the skill publishes.
 
-`GET /api/v1/version` is served by the **VSS agent**, not by LVS. The check uses
-`VSS_PUBLIC_URL` — the deployment origin `vss-build-vision-ai` publishes, whose
-ingress routes `/api` to the agent — and falls back to `LVS_BACKEND` when that is
-unset. On a Compose deployment `VSS_PUBLIC_URL` is unset by design and
-`LVS_BACKEND` is the LVS server, which returns 404 for this route. Because
-compatibility cannot be determined from that origin, preflight stops. Point it at
-the agent:
+`GET /api/v1/version` is served directly by the Compose HAProxy ingress,
+including when `vss-agent` is absent. The check uses `VSS_PUBLIC_URL`, falling
+back to `LVS_BACKEND` when unset. The direct LVS server does not serve this
+version route, so record and export the deployment's actual ingress origin
+during the handoff above; retaining the in-stack agent is not required.
 
 ```bash
-export VSS_PUBLIC_URL=http://localhost:8000        # YOUR VSS agent / deployment origin
+: "${VSS_PUBLIC_URL:?Set to your deployment ingress origin}"
+export VSS_PUBLIC_URL
 ./scripts/preflight.sh
 ```
 
