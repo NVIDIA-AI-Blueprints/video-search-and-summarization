@@ -644,6 +644,25 @@ class TestGenerateSyncReasoningDescription:
 
 
 
+class TestGenerateSyncEmptyContent:
+    @patch(
+        "models.openai_compat.openai_compat_model.tensor_to_base64_jpeg",
+        side_effect=_fake_base64_jpeg,
+    )
+    def test_none_content_does_not_become_the_word_none(self, _mock_b64, model, chunk):
+        """A choice with content=None (e.g. a refusal or an empty reply) yields an empty caption."""
+        model._client.chat.completions.create.return_value = _make_mock_response(None)
+
+        outputs = model._generate_sync(
+            query="Describe the scene.",
+            chunks=[chunk],
+            video_frames=[MagicMock()],
+            video_frames_times=[[1.0, 2.0]],
+        )
+
+        assert outputs[0].output == ""
+
+
 class TestOpenAITokenParamSelection:
     def test_default_uses_max_tokens_when_unset(self):
         with patch.dict(os.environ, {}, clear=False):
