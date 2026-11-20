@@ -147,6 +147,11 @@ def _make_live_decoder():
     decoder._enable_jpeg_tensors = False
     decoder._data_type_int8 = False
     decoder._enable_audio = False
+    decoder._ipc_frame_copy = False
+    decoder._ipc_socket_dir = "/run/rtvi-ipc"
+    decoder._ipc_socket_template = "nvds_ipc_{camera_id}.sock"
+    decoder._num_decoders_per_gpu = 1
+    decoder._thread_pool = ImmediateExecutor()
     return decoder
 
 
@@ -158,6 +163,9 @@ def _make_vlm_query():
         chunk_duration=10,
         vlm_input_width=None,
         vlm_input_height=None,
+        frame_times=None,
+        frame_chunk_start=None,
+        frame_chunk_end=None,
     )
 
 
@@ -621,6 +629,7 @@ def test_cached_decoder_restores_existing_parser_probe(monkeypatch):
     fgetter = VideoFileFrameGetter.__new__(VideoFileFrameGetter)
     fgetter._gop_decode_opt_enabled = True
     fgetter._gst_pad_probe_ids = []
+    fgetter._is_live = False
 
     fgetter._restore_cached_decoder_parser_probes(cached_decoder)
     fgetter._restore_cached_decoder_parser_probes(cached_decoder)
@@ -840,6 +849,38 @@ def test_fast_image_decode_rejects_underfilled_fixed_frame_chunk(monkeypatch):
 
 
 @pytest.mark.no_gpu
+def test_fast_image_decode_applies_external_frame_timing(monkeypatch):
+    _install_fake_frame_selector(monkeypatch)
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "start_range", lambda *args, **kwargs: object())
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "end_range", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        vlm_pipeline_module,
+        "_try_decode_image_asset_chunk",
+        lambda *args, **kwargs: (torch.zeros((2, 2, 2, 3)), [0.0, 0.0], [], None),
+    )
+
+    decoder = _make_decoder()
+    fgetter = CleanFrameGetter()
+    query = _make_vlm_query()
+    query.frame_times = [1.25, 2.5]
+    query.frame_chunk_start = 1.0
+    query.frame_chunk_end = 3.0
+    chunk = ChunkInfo(file="first.jpg;second.jpg", end_pts=1_000_000_000)
+
+    result = decoder._decode_chunk(
+        fgetter,
+        chunk,
+        query,
+        video_codec=None,
+        request_id="test-request",
+    )
+
+    assert result["frame_times"] == [1.25, 2.5]
+    assert chunk.start_pts == 1_000_000_000
+    assert chunk.end_pts == 3_000_000_000
+
+
+@pytest.mark.no_gpu
 def test_vlm_queue_maxsize_env_override(monkeypatch):
     monkeypatch.setenv("RTVI_VLM_QUEUE_MAXSIZE", "2")
     assert vlm_pipeline_module._vlm_queue_maxsize(num_gpus=8) == 2
@@ -919,6 +960,9 @@ def test_live_stream_fallback_frame_selector_honors_server_fps_default(monkeypat
         path="rtsp://example.test/stream.mp4",
         username="",
         password="",
+        camera_id="camera-1",
+        sensor_name="sensor-1",
+        frame_source={"device_id": 1},
     )
 
     decoder._live_stream(
@@ -930,5 +974,6 @@ def test_live_stream_fallback_frame_selector_honors_server_fps_default(monkeypat
 
     assert created_selectors[0].args == (3,)
     assert created_selectors[0].kwargs["use_fps_for_chunking"] is True
+    assert created_getters[0].kwargs["gpu_id"] == 0
     assert created_getters[0].destroyed == 1
     assert decoder._final_output_queue.items[-1]["live_stream_ended"] is True

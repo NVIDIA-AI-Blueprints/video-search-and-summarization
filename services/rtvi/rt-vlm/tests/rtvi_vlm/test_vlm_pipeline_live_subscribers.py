@@ -30,10 +30,10 @@ from utils.asset_manager import Asset
 from vlm_pipeline.vlm_pipeline import DecoderProcess, VlmPipeline, VlmProcess
 
 
-def _make_pipeline():
+def _make_pipeline(num_gpus=1):
     pipeline = object.__new__(VlmPipeline)
-    pipeline._args = SimpleNamespace(num_gpus=1)
-    pipeline._decoder_procs = [MagicMock()]
+    pipeline._args = SimpleNamespace(num_gpus=num_gpus)
+    pipeline._decoder_procs = [MagicMock() for _ in range(num_gpus)]
     pipeline._vlm_procs = [MagicMock(_disabled=False)]
     pipeline._vlm_procs[0].is_alive.return_value = True
     pipeline._vlm_procs[0].is_model_healthy.return_value = True
@@ -42,13 +42,14 @@ def _make_pipeline():
     return pipeline
 
 
-def _make_asset(asset_id: str):
+def _make_asset(asset_id: str, frame_source=None):
     return Asset(
         asset_id=asset_id,
         path="rtsp://example.com/live",
         purpose="",
         media_type="",
         asset_dir="",
+        frame_source=frame_source,
     )
 
 
@@ -129,6 +130,42 @@ def test_add_live_stream_adds_subscriber_without_second_decoder():
     assert set(live_info.subscribers) == {"request-1", "request-2"}
     assert live_info.subscribers["request-1"].on_chunk_result is first_callback
     assert live_info.subscribers["request-2"].on_chunk_result is second_callback
+
+
+@pytest.mark.no_gpu
+def test_shared_stream_selects_physical_gpu_decoder():
+    pipeline = _make_pipeline(num_gpus=2)
+    asset_id = str(uuid.uuid4())
+    asset = _make_asset(asset_id, frame_source={"device_id": 1})
+
+    pipeline.add_live_stream(
+        asset,
+        _make_query(asset_id, "Describe vehicles."),
+        MagicMock(),
+        request_id="request-1",
+    )
+
+    pipeline._decoder_procs[0].send_command.assert_not_called()
+    assert pipeline._decoder_procs[1].send_command.call_args.args[0] == "start-live-stream"
+    assert pipeline._live_stream_id_map[asset_id].gpu_id == 1
+
+
+@pytest.mark.no_gpu
+def test_shared_stream_rejects_unavailable_physical_gpu():
+    pipeline = _make_pipeline(num_gpus=1)
+    asset_id = str(uuid.uuid4())
+    asset = _make_asset(asset_id, frame_source={"device_id": 1})
+
+    with pytest.raises(ServiceException) as exc_info:
+        pipeline.add_live_stream(
+            asset,
+            _make_query(asset_id, "Describe vehicles."),
+            MagicMock(),
+            request_id="request-1",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.code == "BadParameters"
 
 
 @pytest.mark.no_gpu

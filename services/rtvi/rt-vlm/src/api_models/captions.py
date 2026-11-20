@@ -584,6 +584,25 @@ class VlmQuery(CommonBaseModel):
             " Not applicable for live-streaming."
         ),
     )
+    frame_times: Optional[List[float]] = Field(
+        default=None,
+        min_length=1,
+        max_length=50,
+        description=(
+            "Presentation timestamps in seconds for an ordered list of image IDs. "
+            "Used when externally decoded video frames are submitted as images."
+        ),
+    )
+    frame_chunk_start: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Source-video start time in seconds for an external frame batch.",
+    )
+    frame_chunk_end: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Source-video end time in seconds for an external frame batch.",
+    )
 
     num_frames_per_second_or_fixed_frames_chunk: float = Field(
         default=0,
@@ -698,6 +717,41 @@ class VlmQuery(CommonBaseModel):
                 raise ValueError("ignore_eos=true is incompatible with structured output")
             if self.min_tokens is not None:
                 raise ValueError("min_tokens is incompatible with structured output")
+        timing_values = (
+            self.frame_times,
+            self.frame_chunk_start,
+            self.frame_chunk_end,
+        )
+        if any(value is not None for value in timing_values):
+            if not all(value is not None for value in timing_values):
+                raise ValueError(
+                    "frame_times, frame_chunk_start, and frame_chunk_end "
+                    "must be provided together"
+                )
+            if not isinstance(self.id, list):
+                raise ValueError("external frame timing requires a list of image IDs")
+            if self.media_type != "image":
+                raise ValueError("external frame timing requires media_type='image'")
+            assert self.frame_times is not None
+            assert self.frame_chunk_start is not None
+            assert self.frame_chunk_end is not None
+            if len(self.frame_times) != len(self.id):
+                raise ValueError("frame_times must contain one timestamp per image ID")
+            if self.frame_chunk_end < self.frame_chunk_start:
+                raise ValueError("frame_chunk_end must not precede frame_chunk_start")
+            if any(
+                current < previous
+                for previous, current in zip(
+                    self.frame_times, self.frame_times[1:], strict=False
+                )
+            ):
+                raise ValueError("frame_times must be ordered")
+            if any(
+                timestamp < self.frame_chunk_start
+                or timestamp > self.frame_chunk_end
+                for timestamp in self.frame_times
+            ):
+                raise ValueError("frame_times must fall within the frame chunk")
         return self
 
     alert_category: Optional[str] = Field(

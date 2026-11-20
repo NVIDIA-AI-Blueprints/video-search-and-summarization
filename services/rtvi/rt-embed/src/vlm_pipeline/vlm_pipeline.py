@@ -438,6 +438,19 @@ class DecoderProcess(ProcessBase):
                     ex,
                 )
         frame_times = [float("%.2f" % frame_ele) for frame_ele in frame_times]
+        if vlm_query.frame_times is not None:
+            assert vlm_query.frame_chunk_start is not None
+            assert vlm_query.frame_chunk_end is not None
+            if len(frames) != len(vlm_query.frame_times):
+                error = (
+                    "external frame count does not match frame_times: "
+                    f"decoded {len(frames)}, received "
+                    f"{len(vlm_query.frame_times)} timestamps"
+                )
+            else:
+                frame_times = list(vlm_query.frame_times)
+                chunk.start_pts = int(vlm_query.frame_chunk_start * 1e9)
+                chunk.end_pts = int(vlm_query.frame_chunk_end * 1e9)
 
         nvtx.end_range(nvtx_decode_start)
 
@@ -620,10 +633,12 @@ class DecoderProcess(ProcessBase):
                 use_fps_for_chunking=self._use_fps_for_chunking,
             )
 
+        shared_frame_source = getattr(asset, "frame_source", None) or {}
         fgetter = VideoFileFrameGetter(
             frame_selector=frame_selector,
             frame_width=vlm_query.vlm_input_width or self._width,
             frame_height=vlm_query.vlm_input_height or self._height,
+            # Decoder processes expose their selected physical GPU as local device 0.
             gpu_id=0,
             do_preprocess=self._do_preprocess,
             image_mean=self._image_mean,
@@ -789,7 +804,9 @@ class DecoderProcess(ProcessBase):
             password=asset.password,
             live_stream_id=asset.asset_id,
             live_stream_identity=live_stream_identity,
-            ipc_frame_copy_enabled=self._ipc_frame_copy,
+            ipc_frame_copy_enabled=bool(shared_frame_source)
+            or self._ipc_frame_copy,
+            ipc_socket_path=shared_frame_source.get("control_socket"),
             on_chunk_decoded=(
                 lambda chunk, frames, frame_times, transcripts, error, decode_start_time, decode_end_time, audio_frames, live_stream_id=asset.asset_id, kwargs=kwargs: on_chunk_decoded(  # noqa: E501
                     chunk,
@@ -2108,10 +2125,21 @@ class VlmPipeline:
                 lsinfo.subscribers[request_id] = subscriber
                 gpu_id = lsinfo.gpu_id
             else:
-                gpu_dec_use_cnt = {i: 0 for i in range(self._args.num_gpus)}
-                for info in self._live_stream_id_map.values():
-                    gpu_dec_use_cnt[info.gpu_id] += 1
-                gpu_id = min(gpu_dec_use_cnt, key=gpu_dec_use_cnt.get)
+                frame_source = asset.frame_source or {}
+                if frame_source:
+                    gpu_id = int(frame_source.get("device_id", 0))
+                    if gpu_id >= self._args.num_gpus:
+                        raise ServiceException(
+                            f"Shared frame source device_id {gpu_id} is unavailable; "
+                            f"configured GPU count is {self._args.num_gpus}",
+                            "BadParameters",
+                            400,
+                        )
+                else:
+                    gpu_dec_use_cnt = {i: 0 for i in range(self._args.num_gpus)}
+                    for info in self._live_stream_id_map.values():
+                        gpu_dec_use_cnt[info.gpu_id] += 1
+                    gpu_id = min(gpu_dec_use_cnt, key=gpu_dec_use_cnt.get)
                 lsinfo = self._LiveStreamInfo(
                     subscribers={
                         request_id: self._LiveStreamSubscriber(on_chunk_result),
