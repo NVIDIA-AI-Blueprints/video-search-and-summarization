@@ -366,13 +366,8 @@ def test_502_is_retried_not_failed() -> None:
     assert flows.classify_complete_failure(503, "") == flows.COMPLETE_RETRY
 
 
-def test_duplicate_camera_id_means_the_work_already_landed() -> None:
-    """Not a failure: a prior attempt registered the stream before erroring.
-
-    warehouse_sample returned this on every retry yet had working embeddings
-    and searchable results, so retrying forever would have been wrong and
-    failing the ingest would have been wrong too.
-    """
+def test_duplicate_camera_id_stops_retries_without_proving_completion() -> None:
+    """An existing CV registration does not establish embedding completion."""
     body = (
         'RTVI-CV add failed: RTVI-CV returned 500: {"reason": '
         '"STREAM_ADD_FAIL, Duplicate Camera id, unable to add stream"}'
@@ -3465,3 +3460,58 @@ def test_timeline_duration_is_the_fallback_when_ffprobe_is_missing() -> None:
     timeline = {"start_time": "2025-01-01T00:00:00.000Z", "end_time": "2025-01-01T00:03:30.000Z"}
     assert flows.timeline_duration_s(timeline) == 210.0
     assert flows.timeline_duration_s({"checked": False}) is None
+
+
+@pytest.mark.parametrize(
+    "completion,status,success",
+    [
+        ({"chunks_processed": 1}, 200, True),
+        ({"chunks_processed": 0}, 200, False),
+        ({"chunks_processed": True}, 200, False),
+        ({}, 200, False),
+        ({"detail": "RTVI-CV: Duplicate Camera id"}, 502, False),
+    ],
+)
+def test_three_step_success_requires_completion_proof(tmp_path, monkeypatch, completion, status, success):
+    import requests
+    from flows import ingest
+
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"fixture")
+    monkeypatch.setattr(ingest, "probe_media", lambda _path: {"duration_s": 5.0, "fps": 30.0})
+
+    class Response:
+        def __init__(self, body, code):
+            self.body, self.status_code = body, code
+            self.ok, self.text = code < 400, json.dumps(body)
+
+        def json(self):
+            return self.body
+
+        def raise_for_status(self):
+            if not self.ok:
+                raise requests.HTTPError(self.text)
+
+    responses = iter(
+        [
+            Response({"url": "http://upload.test/returned-handle"}, 200),
+            Response({"sensorId": "registered-id"}, 200),
+            Response(completion, status),
+        ]
+    )
+    calls = []
+
+    def post(url, **_kwargs):
+        calls.append(url)
+        return next(responses)
+
+    monkeypatch.setattr(requests, "post", post)
+    record = flows.AgentThreeStepIngest("http://agent.test").upload(video)
+    assert record["success"] is success
+    assert record["sensor_id"] == "registered-id"
+    assert len(calls) == 3
+    assert calls[1] == "http://upload.test/returned-handle"
+    if not success:
+        assert "chunks_processed" in record["error"]
+    if status == 502:
+        assert "unverified" in record["error"]

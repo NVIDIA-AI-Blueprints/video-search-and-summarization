@@ -25,7 +25,7 @@ TargetManagement:
   maxShadowTrackingAge: 49
   earlyTerminationAge: 1
 TrajectoryManagement:
-  useUniqueID: 0
+  useUniqueID: 1
   enableReAssoc: 1
   minMatchingScore4Overall: 0.6491824364015243
   minTrackletMatchingScore: 0.3365923298667557

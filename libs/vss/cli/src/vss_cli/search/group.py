@@ -40,6 +40,8 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import StrictInt
+from pydantic import model_validator
 
 from vss_cli import config as config_mod
 from vss_cli import memory as memory_mod
@@ -132,24 +134,42 @@ class EmbedInput(_Common):
 
 
 class AttributeInput(_Common):
-    """Structured match against detected-object attributes.
+    """Semantic appearance search over detected and tracked objects.
 
-    Queries `mdx-behavior-*`, the documents RT-CV writes for every object it
-    detects and tracks (class, colour, and other extracted attributes), and
-    optionally `mdx-raw-*` for frame-level lookups. No embeddings are involved
-    and nothing is embedded at query time.
-
-    This is the right path when the thing you are looking for is a property a
-    detector reports ("white jacket", "forklift") rather than a scene you
-    would describe in prose. It will not find anything the CV pipeline did not
-    detect, however well it matches the words.
+    Embeds attribute text with the configured attribute encoder, then compares
+    it with RT-CV behavior vectors. Optional raw-frame vector lookup selects a
+    matching frame and supplies its score; screenshot enrichment supplies URLs.
+    Results depend on which objects the CV pipeline detected and indexed.
     """
 
+    candidate_limit: int | None = Field(
+        None, ge=1, le=100000, description="Exact indexed scan budget; fail if exceeded."
+    )
+    attribute_frame_pool_size: StrictInt = Field(
+        1,
+        ge=1,
+        le=32,
+        description=(
+            "Average the strongest N embedded frames per object; requires --candidate-limit and "
+            "time bounds. Default 1 keeps best-frame scoring."
+        ),
+    )
+    max_hits_per_source: int | None = Field(
+        None, ge=1, le=1000, description="Cap returned matches per source; preserve global rank."
+    )
     attributes: list[str] = Field(
         ...,
         description="Appearance/metadata attribute, e.g. 'white jacket'; repeatable.",
         json_schema_extra={"cli_flag": "--attribute"},
     )
+
+    @model_validator(mode="after")
+    def require_complete_source_pool(self):
+        if self.max_hits_per_source is not None and self.candidate_limit is None:
+            raise ValueError("max_hits_per_source requires an explicit candidate_limit")
+        if self.attribute_frame_pool_size != 1 and self.candidate_limit is None:
+            raise ValueError("attribute_frame_pool_size requires an explicit candidate_limit")
+        return self
 
 
 class TagInput(_Common):
@@ -182,6 +202,18 @@ class FusionInput(_Common):
     min_cosine_similarity: float | None = Field(
         None, ge=-1.0, le=1.0, description="Minimum cosine similarity threshold."
     )
+    candidate_limit: int | None = Field(
+        None, ge=1, le=100000, description="Exact attribute candidate budget; fail if exceeded."
+    )
+    max_hits_per_source: int | None = Field(
+        None, ge=1, le=1000, description="Cap attribute matches per source before weighted_rrf union fusion."
+    )
+
+    @model_validator(mode="after")
+    def require_complete_source_pool(self):
+        if self.max_hits_per_source is not None and self.candidate_limit is None:
+            raise ValueError("max_hits_per_source requires an explicit candidate_limit")
+        return self
 
 
 class ObjectInput(_Common):
@@ -210,6 +242,13 @@ class SearchTuning(BaseModel):
     an omitted flag never silently overrides configuration.
     """
 
+    attribute_representative_weight: float | None = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        allow_inf_nan=False,
+        description="Weight of a query-independent representative frame versus the best query frame; requires frame lookup, time bounds, and an exact candidate budget. Default 0 uses the best frame.",
+    )
     fusion_method: Literal["weighted_rrf", "rrf"] | None = Field(
         None, description="How tag, embed, and optional attribute ranks are combined."
     )
@@ -231,6 +270,7 @@ class SearchTuning(BaseModel):
         ),
         json_schema_extra={"cli_flag": "--no-merge-adjacent"},
     )
+    no_critic: bool = Field(False, description="Return raw retrieval without visual verification.")
     critic_eval_count: int | None = Field(
         None,
         ge=1,
@@ -500,6 +540,7 @@ class SearchGroup(CommandGroup):
         # critic_eval_count is a caller preference, not a runtime field: pop it
         # out of `tuning` (which feeds SearchRuntime) and thread it to the
         # critic instead. None = verify every hit (bounded by --top-k).
+        no_critic = tuning.pop("no_critic", False)
         critic_eval_count = tuning.pop("critic_eval_count", None)
         # Auto-select the fusion method from the VLM tag leg choice. The
         # legacy `rrf` (embed + attribute, no tag leg) is the default; opting
@@ -619,7 +660,10 @@ class SearchGroup(CommandGroup):
             return "stale"
 
         async def _go() -> Any:
-            critic, vlm, disabled_reason = await _critic_from(deployment, eval_count=critic_eval_count)
+            if no_critic:
+                critic, vlm, disabled_reason = None, None, None
+            else:
+                critic, vlm, disabled_reason = await _critic_from(deployment, eval_count=critic_eval_count)
             try:
                 async with VSSSearch.from_runtime(runtime, critic=critic) as vss:
                     output = await vss.search(**payload)
