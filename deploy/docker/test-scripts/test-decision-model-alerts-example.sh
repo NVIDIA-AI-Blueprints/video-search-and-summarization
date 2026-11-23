@@ -61,6 +61,9 @@ assert {"rtvi-vlm", "elasticsearch", "kafka", "vst-ingress", "vss-haproxy-ingres
 assert {
     "d1-model", "d1-ingest", "d1-analytics", "d1-indexer", "d1-topics", "d1-bootstrap", "d1-ui"
 } <= services.keys()
+assert services["d1-topics"]["image"] == services["kafka"]["image"], (
+    "Topic setup must reuse the stock Kafka image instead of adding another version"
+)
 assert not any(name.startswith("d1-fixture-") for name in services), "RTSP mode activated fixture services"
 for name in ("d1-model", "d1-ingest"):
     build = services[name]["build"]

@@ -150,6 +150,22 @@ d1_compose stop
 
 ## Development checks
 
+### Dependency scope
+
+The UI keeps its own pinned manifest and lockfile. React, Next.js and Tabler
+provide the application; Tailwind/PostCSS build its styles. Jest, Testing
+Library and TypeScript support testing and building. The final UI image copies
+Next.js's standalone output rather than the complete development dependency
+tree. The build and runtime stages share the same slim Node image.
+
+The Python workers use FastAPI/Uvicorn for their APIs, HTTPX for service calls,
+Pydantic for validation, Pillow for frames, and confluent-kafka for messaging.
+The model additionally needs Transformers and huggingface-hub. Topic setup
+reuses the stock VSS Kafka image. MediaMTX and imageio-ffmpeg are used only by
+the optional MP4 replay overlay; RTSP deployments do not start those services.
+
+### Run the checks
+
 Use Python 3.12 and Node.js 22.23.3 for these checks. From the repository root:
 
 ```bash

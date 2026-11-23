@@ -72,5 +72,5 @@ def test_refuse_missing_or_credential_bearing_sources():
     with pytest.raises(ValueError, match="D1_FLOWING_RTSP_URL"):
         bootstrap.read_sources({})
     with pytest.raises(ValueError, match="without embedded credentials") as exc:
-        bootstrap.read_sources({"D1_FLOWING_RTSP_URL": "rtsp://user:password@example.test/stream"})
+        bootstrap.read_sources({"D1_FLOWING_RTSP_URL": "rtsp://user:password@example.test/stream"})  # pragma: allowlist secret (dummy rejection fixture)
     assert "password" not in str(exc.value)

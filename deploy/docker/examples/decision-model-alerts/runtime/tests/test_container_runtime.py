@@ -47,5 +47,5 @@ def test_worker_configures_the_vss_cli_once(monkeypatch):
     assert argv == ["vss", "configure", "--base-url", "http://vss-ingress:7777"]
     assert kwargs["check"] is True
     with pytest.raises(SystemExit):
-        configure_vss("http://user:password@vss-ingress:7777")
+        configure_vss("http://user:password@vss-ingress:7777")  # pragma: allowlist secret; trufflehog:ignore (dummy rejection fixture)
     assert len(calls) == 1

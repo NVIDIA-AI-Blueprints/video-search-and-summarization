@@ -39,7 +39,8 @@ services:
     restart: unless-stopped
 
   d1-topics:
-    image: confluentinc/cp-kafka:8.3.0
+    # Reuse the stock broker image for its CLI instead of pulling another version.
+    image: confluentinc/cp-kafka:8.4.0
     depends_on:
       kafka:
         condition: service_healthy

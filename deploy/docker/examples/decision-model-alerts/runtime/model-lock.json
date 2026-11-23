@@ -1,6 +1,6 @@
 {
   "model_id": "LiquidAI/d1-2B",
-  "revision": "652f920e544ea37f81e4b0ce89b81d4ed0da90b1",
+  "revision": "652f920e544ea37f81e4b0ce89b81d4ed0da90b1", "_revision_note": "Public Hugging Face commit, not a credential. // pragma: allowlist secret",
   "base_image": "nvcr.io/nvidia/pytorch:26.09-py3",
   "transformers": "5.19.0",
   "input_api": "media",
