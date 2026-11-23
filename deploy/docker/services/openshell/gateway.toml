@@ -34,6 +34,9 @@ gateway_id       = "openshell-docker"
 
 [openshell.drivers.docker]
 default_image     = "nvcr.io/nvidia/base/ubuntu:24.04"
+# No sandbox_runtime_image or supervisor_image here. Since 0.1.6 a new sandbox
+# requires matching supervisor and sandbox-runtime binaries, so compose.yml
+# sets both from OPENSHELL_TAG; the environment wins over this file.
 image_pull_policy = "if_not_present"
 sandbox_label     = "openshell"
 app_armor_profile = "Unconfined"

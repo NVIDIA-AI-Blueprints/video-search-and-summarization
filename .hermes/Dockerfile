@@ -77,6 +77,9 @@ RUN cd /opt/hermes && uv sync --no-dev --frozen --extra sms \
 # bundled skills and its bundled plugins, not the repo it was built from. The
 # directories below are the TUI, web UI, tests and docs site — all node or
 # browser surfaces, none reachable from the API server or the CLI agent.
+# locales stays: without it every translated string renders as its raw key, and
+# the approval prompt reads its accepted answers from the same catalog, so `o`
+# resolves to deny.
 RUN rm -rf /opt/hermes/.git /opt/hermes/tests /opt/hermes/tests-js /opt/hermes/evals \
       /opt/hermes/website /opt/hermes/web /opt/hermes/ui-tui /opt/hermes/apps \
       /opt/hermes/native /opt/hermes/nix /opt/hermes/contributors \

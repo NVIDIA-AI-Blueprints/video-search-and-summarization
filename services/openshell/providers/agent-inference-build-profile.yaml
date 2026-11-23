@@ -19,6 +19,7 @@ endpoints:
     protocol: rest
     enforcement: enforce
     rules:
+      - allow: {method: GET, path: "/v1/models"}   # Hermes probes this each turn
       - allow: {method: POST, path: "/v1/**"}
 binaries:
   - {path: /usr/bin/python3.13}
