@@ -12,6 +12,7 @@ Every command in the setup sources `deploy/docker/services/openshell/openshell.e
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OPENSHELL_TAG` | `0.1.6` | Gateway image tag. The `openshell` CLI and `openshell-prover` must be the same release, since the CLI and gateway speak Protobuf. |
+| `OPENSHELL_GATEWAY_ENDPOINT` | `http://127.0.0.1:8080` | The endpoint every `openshell` command connects to. `compose.yml`'s `command` binds the gateway there, so changing one means changing both. |
 | `HERMES_REF` | `v2026.9.14` | Upstream Hermes tag the harness image is built from. The image is tagged by the `vss` CLI's version, so this only pins what the build fetches. |
 | `HARNESS_BASE_URL` | `https://inference-api.nvidia.com/v1` | The agent model endpoint's OpenAI-compatible base URL, including its `/v1`. Unrelated to any VLM a VSS deployment serves. The default is the NVIDIA Inference Hub, reachable only from NVIDIA infrastructure; elsewhere use `build.nvidia.com` — see [Change the model, endpoint, or key](#change-the-model-endpoint-or-key). |
 | `HARNESS_MODEL` | `aws/anthropic/bedrock-claude-opus-5` | A model id that endpoint serves. |
@@ -54,6 +55,7 @@ endpoints:
     protocol: rest
     enforcement: enforce
     rules:
+      - allow: { method: GET,  path: "/v1/models" }   # Hermes probes this each turn
       - allow: { method: POST, path: "/v1/**" }
 binaries:
   - { path: /usr/bin/python3.13 }

@@ -88,9 +88,9 @@ its `COMPOSE_PROFILES` and the deployment brings it up with the rest of the
 stack. That replaces the `docker compose` line above and nothing else — you
 still register, select, and create the sandbox yourself. The gateway belongs
 to the profile's project, so under a non-default `COMPOSE_PROJECT_NAME` the
-line above would start a second one in `vss`, competing for the same port. `openshell gateway
-add` only warns when the endpoint is cold, so if Compose has just returned,
-poll `openshell sandbox list` until it answers before continuing.
+line above would start a second one in `vss`, competing for the same port.
+On `dev-profile-alerts` the variable is set from `COMPOSE_PROFILES_CV` and
+`COMPOSE_PROFILES_VLM` in `overrides.env`; append `openshell` to both.
 </Note>
 
 ## Step 2. Build the harness image
@@ -164,7 +164,8 @@ The two commands print which command groups the deployment can serve and which S
 wrote /sandbox/.vss/config.json (3/8 services)
 [vss] skills active: vss-ask-video, vss-generate-video-report,
 vss-manage-video-io-storage, vss-summarize-video; inactive: vss-manage-alerts
-(alert-bridge not reachable), vss-query-analytics, vss-search-archive
+(alert-bridge not reachable), vss-query-analytics (vss command group 'analytics'
+unavailable), vss-search-archive (vss command group 'search' unavailable)
 ```
 
 `VSS_PUBLIC_URL` is fixed at create like the model settings, so pointing the sandbox at another deployment means recreating it — see [Change the model, endpoint, or key](/vision-agent/agent-harnesses/open-shell/additional-configuration#change-the-model-endpoint-or-key) — and adding a `vss-backend` endpoint for its host and port to `.hermes/policy.yaml`: the grant names one origin, and the sandbox refuses every other.
@@ -282,8 +283,9 @@ ORIGIN="http://localhost:$(docker port vss-haproxy-ingress | head -n1 | sed 's/.
 # so a down forward or a wrong token still answers "connected".
 curl -s "$ORIGIN/api/agent/connection"          # -> {"state":"connected"}
 
-# Start a run on thread t1. It returns at once with the run's id. This is the
-# first call that reaches Hermes, so it is what a wrong token or forward fails.
+# Start a run on thread t1. It returns a run id whether or not Hermes answers,
+# so a wrong token or a down forward surfaces in the event stream below as
+# `run.failed` with `backend_http_error`, not here.
 RUN_ID=$(curl -s -X POST "$ORIGIN/api/agent/runs" -H 'Content-Type: application/json' \
   -d '{"thread_id":"t1","input":[{"role":"user","content":"List the VIOS sensors."}]}' |
   jq -r .run_id)

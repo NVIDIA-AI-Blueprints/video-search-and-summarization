@@ -27,7 +27,7 @@ For the full picture, including what the gateway deploys and what it enforces, s
 
 ## Chat surfaces, summaries, and reports
 
-The agent is reachable three ways, and the sandbox serves all three without a VSS deployment:
+The agent is reachable three ways. The first two need no VSS deployment; the third is a deployment's own UI, so it needs one:
 
 * `openshell sandbox exec -n hermes -- hermes chat` for a shell turn.
 * The harness API server on `:8642`, published at a gateway-managed URL and authenticated with the sandbox's own `API_SERVER_KEY`.

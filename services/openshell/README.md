@@ -548,8 +548,9 @@ ORIGIN="http://localhost:$(docker port vss-haproxy-ingress | head -n1 | sed 's/.
 # so a down forward or a wrong token still answers "connected".
 curl -s "$ORIGIN/api/agent/connection"          # -> {"state":"connected"}
 
-# Start a run on thread t1. It returns at once with the run's id. This is the
-# first call that reaches Hermes, so it is what a wrong token or forward fails.
+# Start a run on thread t1. It returns a run id whether or not Hermes answers,
+# so a wrong token or a down forward surfaces in the event stream below as
+# `run.failed` with `backend_http_error`, not here.
 RUN_ID=$(curl -s -X POST "$ORIGIN/api/agent/runs" -H 'Content-Type: application/json' \
   -d '{"thread_id":"t1","input":[{"role":"user","content":"List the VIOS sensors."}]}' |
   jq -r .run_id)
@@ -608,7 +609,7 @@ volumes:
 `gateway.toml` is upstream's
 [`deploy/docker/gateway.toml`](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/deploy/docker/gateway.toml),
 with `health_bind_address` on loopback and the
-JWT key paths `init` writes. Three edits VSS has to make to it:
+JWT key paths `init` writes. The further edits VSS has to make to it:
 
 - **No `sandbox_runtime_image` or `supervisor_image`.** Both must match the
   gateway's release, so the Compose service sets `OPENSHELL_SUPERVISOR_IMAGE`
@@ -856,6 +857,7 @@ endpoints:
     protocol: rest
     enforcement: enforce
     rules:
+      - allow: { method: GET,  path: "/v1/models" }   # Hermes probes this each turn
       - allow: { method: POST, path: "/v1/**" }
 binaries:
   - { path: /usr/bin/python3.13 }

@@ -40,7 +40,7 @@ a branch, and the tag on the CLI's version, which is the one every create in
 |---|---|---|
 | `BASE_IMAGE` | `nvcr.io/nvidia/base/ubuntu:24.04` | the OS layer |
 | `HERMES_REPO`, `HERMES_REF` | upstream Hermes, `v2026.9.14` (0.21.3) | the agent |
-| `UV_IMAGE` | `ghcr.io/astral-sh/uv:0.11.6` | the Python 3.13 install and the venv build |
+| `UV_IMAGE` | `ghcr.io/astral-sh/uv:0.11.24` | the Python 3.13 install and the venv build |
 | `VSS_PACKAGE_VERSION` | `0.0.0+local` | the version the `vss` CLI wheels report, since a build context has no `.git` |
 
 The toolchain purge is by construction rather than by removal: the runtime
