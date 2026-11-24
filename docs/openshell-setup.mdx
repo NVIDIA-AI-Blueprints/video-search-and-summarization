@@ -70,7 +70,10 @@ The gateway is a Compose service behind the `openshell` profile. Bringing it up 
 ```bash
 docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
-GW=$(openshell gateway list | awk '$(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')
+# The listener binds after Compose returns, and `add` warns against a cold
+# endpoint, so wait on gateway.toml's health address first.
+timeout 30 sh -c 'until curl -fs -o /dev/null http://127.0.0.1:8082/health; do sleep 1; done'
+GW=$(openshell gateway list | awk 'NF>4 && $(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')
 [ -n "$GW" ] || {
   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
   GW=openshell-gateway; }

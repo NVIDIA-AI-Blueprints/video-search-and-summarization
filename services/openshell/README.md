@@ -246,9 +246,12 @@ openshell --version && openshell-prover --version     # both $OPENSHELL_TAG
 # 1. Gateway. Idempotent: re-running it leaves a live gateway alone.
 docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
+# The listener binds after Compose returns, and `add` warns against a cold
+# endpoint, so wait on gateway.toml's health address first.
+timeout 30 sh -c 'until curl -fs -o /dev/null http://127.0.0.1:8082/health; do sleep 1; done'
 # Only `add` makes a gateway active, and a registration that already existed
 # may carry any name, so select whichever name holds this endpoint.
-GW=$(openshell gateway list | awk '$(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')
+GW=$(openshell gateway list | awk 'NF>4 && $(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')
 [ -n "$GW" ] || {
   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
   GW=openshell-gateway; }
@@ -385,7 +388,7 @@ ID=$(docker ps -a --format '{{.Image}}' \
   --filter label=openshell.ai/sandbox-name=hermes \
   --filter label=openshell.ai/isolation-role=sandbox)
 TAG="${TAG:-$(docker images --format '{{.ID}} {{.Tag}}' openshell-hermes-vss |
-  awk -v id="$ID" '$1 == id {print $2}')}"
+  awk -v id="$ID" '$1 == id {print $2; exit}')}"
 : "${TAG:?set TAG to a tag from docker images openshell-hermes-vss}"
 docker image inspect "openshell-hermes-vss:$TAG" >/dev/null &&
   openshell sandbox delete hermes
@@ -407,6 +410,8 @@ openshell sandbox create \
             exec hermes gateway run'
 
 # 3. Test it. The new sandbox minted a new API_SERVER_KEY, so fetch it again.
+#    `create --detach` returns before the API server binds, so wait for it.
+timeout 60 sh -c 'until curl -fs -o /dev/null http://default--hermes.openshell.localhost:8080/health; do sleep 2; done'
 KEY=$(openshell sandbox exec -n hermes --no-tty -- \
   sh -c '. /sandbox/.hermes/.env; printf %s "$API_SERVER_KEY"')
 curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
@@ -630,12 +635,18 @@ JWT key paths `init` writes. Three edits VSS has to make to it:
 ```bash
 docker compose --env-file deploy/docker/services/openshell/openshell.env \
   -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
-GW=$(openshell gateway list | awk '$(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')
+timeout 30 sh -c 'until curl -fs -o /dev/null http://127.0.0.1:8082/health; do sleep 1; done'
+GW=$(openshell gateway list | awk 'NF>4 && $(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')
 [ -n "$GW" ] || {
   openshell gateway add http://127.0.0.1:8080 --local --name openshell-gateway
   GW=openshell-gateway; }
 openshell gateway select "$GW"
 ```
+
+The image declares no healthcheck, so `compose up -d` returns on *started*, not
+on listening, and the health address is the only readiness signal. It is on
+`:8082` rather than upstream's `:8081`, which VSS already publishes the Video
+Analytics API on.
 
 Three constraints the service has to respect:
 
