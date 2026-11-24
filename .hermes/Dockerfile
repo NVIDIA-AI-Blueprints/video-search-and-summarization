@@ -71,7 +71,12 @@ ENV UV_PYTHON=/usr/bin/python3.13 \
 #
 # Editable, because Hermes' setup.py refuses to build a wheel or sdist of
 # itself: the source tree is the installed package and stays in the runtime.
+# pillow-heif comes in for HEIC input, but its wheel bundles libx265 under
+# GPL-2.0 and an HEVC encoder this image may not redistribute. Hermes imports it
+# behind try/except at both call sites, so without it HEIC is refused with the
+# message the resolver already carries; AVIF stays native in Pillow.
 RUN cd /opt/hermes && uv sync --no-dev --frozen --extra sms \
+    && uv pip uninstall --python .venv/bin/python pillow-heif \
     && .venv/bin/hermes --version
 # The build tree is not the runtime tree: the harness ships the package, its
 # bundled skills and its bundled plugins, not the repo it was built from. The

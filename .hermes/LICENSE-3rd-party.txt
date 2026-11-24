@@ -2,13 +2,13 @@
 
 This file contains the license texts and attribution notices for third-party components in the OpenShell Hermes harness image (`openshell-hermes-vss`, built from `.hermes/Dockerfile`).
 
-Inventory basis: linux/amd64 image sha256:1d4e37d6b188d7d7c6d538870b507c0e85cc5bce2eaf11a275295eb2a6994a91 built from commit 3fe3a6e8ce8de915b9dc3c32a6fe578d6695e700 with HERMES_REF=v2026.9.14, scanned 2026-11-23
+Inventory basis: image built from .hermes/Dockerfile at this commit with HERMES_REF=v2026.9.14, scanned 2026-11-24. CI records the published per-platform digests for the commit this file ships with.
 
-Base image: nvcr.io/nvidia/base/ubuntu:24.04 (NVIDIA Ubuntu base image). Its own packages are covered by the base image; this file covers what .hermes/Dockerfile adds on top of it. Build-stage tools (uv) are not present in the image.
+Base image: nvcr.io/nvidia/base/ubuntu:24.04, index sha256:8b39ffabffe34dbd03644f0d92e82587681bca5ced1cf762a9c9d6523e177b17 (linux/amd64 sha256:494398fac1b07614c63ba179e3558d84a5a9ce19a6374560ceac04d822462e45, linux/arm64 sha256:b13c2e4ff139d3c01c8f90b5b3eb9f0402d9a826e4bd54ee8b0bfd3a4c192f02). Its own packages are covered by the base image; this file covers what .hermes/Dockerfile adds on top of it. Build-stage tools (uv) are not present in the image.
 
-Installed third-party Python distributions: 96
+Installed third-party Python distributions: 95
 Ubuntu APT packages added: 25
-Total documented components: 122
+Total documented components: 121
 
 ---
 
@@ -17044,50 +17044,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 --------------------------------------------------------------------------------
 
-## pillow_heif (1.5.0)
-
-**License:** GPL-2.0-only (binary wheel); BSD-3-Clause (pillow-heif source)
-
-**License URL:** https://github.com/bigcat88/pillow_heif
-
-**Distribution scope:** Hermes environment (/opt/hermes/.venv)
-
-**Notes:** The binary wheel bundles libx265 (GPL-2.0), libheif (LGPL-3.0) and libde265 (LGPL-3.0) under pillow_heif.libs/; its LICENSES_bundled.txt states the wheel is GPLv2. A core Hermes dependency, imported for HEIF image input. OSRB must confirm separately whether an NVIDIA written source offer is required, and review the bundled HEVC encoder.
-
-**Notice source:** `pillow_heif-1.5.0.dist-info/licenses/LICENSE.txt`
-
-````text
-Copyright (c) 2021-2023, Pillow-Heif contributors.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-    * Redistributions of source code must retain the above copyright
-       notice, this list of conditions and the following disclaimer.
-
-    * Redistributions in binary form must reproduce the above
-       copyright notice, this list of conditions and the following
-       disclaimer in the documentation and/or other materials provided
-       with the distribution.
-
-    * Neither the name of the Pillow-Heif nor the names of any
-       contributors may be used to endorse or promote products derived
-       from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-````
 
 --------------------------------------------------------------------------------
 
