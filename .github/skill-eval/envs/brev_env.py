@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import random
+import re
 import shlex
 import signal
 import subprocess
@@ -35,10 +36,12 @@ import tempfile
 import uuid
 from enum import Enum
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from harbor.environments.base import BaseEnvironment, ExecResult
 
 logger = logging.getLogger(__name__)
+_ssh_transfer_endpoints: dict[str, tuple[str, int]] = {}
 
 # The pre-existing Brev instance to connect to.
 # CLI env var > task.toml metadata > None (error).
@@ -140,8 +143,8 @@ class BrevEnvironment(BaseEnvironment):
     Lifecycle:
         start()    → validate instance is reachable (no provisioning)
         exec()     → brev exec <instance> <command>
-        upload()   → brev copy local:<path> <instance>:<path>
-        download() → brev copy <instance>:<path> local:<path>
+        upload()   → rsync over discovered Brev SSH endpoint
+        download() → rsync over discovered Brev SSH endpoint
         stop()     → no-op (instance stays running for reuse)
     """
 
@@ -2212,6 +2215,8 @@ def _transient_transport_failure(result: ExecResult) -> bool:
     ssh_liveness_timeout = "timeout, server " in detail and " not responding" in detail
     return result.return_code == 124 or ssh_liveness_timeout or any(term in detail for term in (
         "deadline_exceeded", "context deadline exceeded", "rate limit", "too many requests",
+        # Brev copy can report a per-second transfer limit with this gRPC text.
+        "resource exhausted", "resource_exhausted",
         "connection reset", "connection refused", "connection timed out",
         "connection closed", "connection lost", "broken pipe",
         "connection failed", "connection corrupted", "bad packet length",
@@ -2239,17 +2244,17 @@ async def _run_brev_copy(
     dst: str,
     timeout: int = BREV_COPY_TIMEOUT,
 ) -> ExecResult:
-    """Run ``brev copy <src> <dst>`` with transient-failure retries.
+    """Copy via SSH/rsync with transient-failure retries.
 
-    The brev gateway occasionally corrupts a connection mid-transfer
-    ("Bad packet length ... Connection corrupted"), which used to fail the
-    whole trial (AddTestsDirError). Copies are idempotent — retry."""
+    File copies are idempotent, so retry interrupted SSH transfers. The
+    original Brev API copy remains an explicit rollback only.
+    """
     result = None
     for attempt in range(3):
         result = await _run_brev_copy_once(src, dst, timeout)
         if result.return_code == 0 or not _transient_transport_failure(result) or attempt == 2:
             return result
-        logger.warning("brev copy failed (attempt %s): %s",
+        logger.warning("worker copy failed (attempt %s): %s",
                        attempt + 1, (result.stderr or "")[-200:])
         await _transport_backoff(attempt)
     return result
@@ -2260,11 +2265,12 @@ async def _run_brev_copy_once(
     dst: str,
     timeout: int = BREV_COPY_TIMEOUT,
 ) -> ExecResult:
-    """Run ``brev copy <src> <dst>`` and return result.
+    """Run rsync over the instance's published SSH port.
 
-    For registered external nodes, transparently falls back to ``scp``
-    using the ssh alias (same host:path convention, just with lowercase
-    name)."""
+    Registered external nodes continue using their existing scp alias.
+    Set BREV_COPY_TRANSPORT=legacy only for an explicit rollback; never
+    silently fall back to Brev's rate-limited copy API.
+    """
     # Detect registered-node endpoint on either side: "<name>:<path>"
     for endpoint in (src, dst):
         if ":" not in endpoint:
@@ -2275,6 +2281,186 @@ async def _run_brev_copy_once(
             scp_src = src.replace(f"{instance_name}:", f"{alias}:", 1) if src.startswith(f"{instance_name}:") else src
             scp_dst = dst.replace(f"{instance_name}:", f"{alias}:", 1) if dst.startswith(f"{instance_name}:") else dst
             return await _run_scp(scp_src, scp_dst, timeout)
+
+    if os.environ.get("BREV_COPY_TRANSPORT") == "legacy":
+        return await _run_brev_copy_legacy_once(src, dst, timeout)
+
+    if not _which("rsync"):
+        return ExecResult(stdout=None, stderr="rsync is missing on the validator", return_code=2)
+
+    remote_endpoints = [value for value in (src, dst) if ":" in value]
+    if len(remote_endpoints) != 1:
+        return ExecResult(stdout=None, stderr="Expected exactly one remote copy endpoint", return_code=2)
+    instance_name = remote_endpoints[0].split(":", 1)[0]
+    if not instance_name:
+        return ExecResult(stdout=None, stderr="Remote copy endpoint has no instance name", return_code=2)
+    try:
+        host, port = await _get_brev_ssh_endpoint(instance_name)
+    except RuntimeError as exc:
+        return ExecResult(stdout=None, stderr=str(exc), return_code=1)
+    key = Path.home() / ".brev" / "brev.pem"
+    if not key.is_file():
+        return ExecResult(stdout=None, stderr="Brev SSH key is missing; run brev refresh", return_code=2)
+    ssh_command = shlex.join([
+        "ssh", "-i", str(key), "-p", str(port),
+        "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+        "-o", "StrictHostKeyChecking=accept-new",
+    ])
+    remote = remote_endpoints[0]
+    remote_path = remote.split(":", 1)[1]
+    ssh_user = _brev_ssh_user(instance_name)
+    ssh_remote = f"{ssh_user}@{host}:{remote_path}"
+    rsync_src = ssh_remote if src == remote else src
+    rsync_dst = ssh_remote if dst == remote else dst
+    cmd = ["rsync", "-a", "--partial", "-e", ssh_command, "--", rsync_src, rsync_dst]
+    logger.debug("rsync copy for %s", instance_name)
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    _register_transport_process(proc)
+    try:
+        stdout, stderr = await _communicate_with_cancellation_cleanup(
+            proc, input_data=b"", timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        stdout, stderr = await _reap_transport_process(proc)
+        return ExecResult(
+            stdout=stdout.decode() if stdout else None,
+            stderr="rsync timed out", return_code=124,
+        )
+    if proc.returncode and any(marker in (stderr or b"").lower() for marker in (
+        b"connection refused", b"connection timed out", b"no route to host",
+    )):
+        _ssh_transfer_endpoints.pop(instance_name, None)
+    return ExecResult(
+        stdout=stdout.decode() if stdout else None,
+        stderr=stderr.decode() if stderr else None,
+        return_code=proc.returncode or 0,
+    )
+
+
+_SAFE_SSH_USER_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+
+
+def _brev_ssh_config_stanza(instance: str) -> dict[str, str]:
+    """Return directives from the explicit ``Host <instance>`` block in ``~/.brev/ssh_config``."""
+    ssh_config = Path.home() / ".brev" / "ssh_config"
+    try:
+        lines = ssh_config.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+
+    target = instance.strip().lower()
+    if not target:
+        return {}
+
+    directives: dict[str, str] = {}
+    in_target_host = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = re.split(r"[\s=]+", line, maxsplit=1)
+        if len(parts) != 2:
+            continue
+        key, value = parts[0].lower(), parts[1].strip()
+        if key in {"host", "match"}:
+            if in_target_host:
+                break
+            if key == "host":
+                patterns = {
+                    pat.strip('"').lower()
+                    for pat in value.split()
+                    if not any(ch in pat for ch in "*?!")
+                }
+                in_target_host = target in patterns
+        elif in_target_host and key not in directives:
+            directives[key] = value.strip().strip('"')
+    return directives
+
+
+def _brev_ssh_user(instance: str) -> str:
+    """Resolve the SSH login user for *instance* from ``~/.brev/ssh_config``.
+
+    Brev cloud instances typically use ``ubuntu``, while Launchpad/DMZ workers
+    (e.g. ``dmz.rtxpro6000x2.pcie``) use ``nvidia``. Fall back to ``ubuntu``
+    when the config file, host stanza, or valid ``User`` directive is absent.
+    """
+    user = _brev_ssh_config_stanza(instance).get("user", "")
+    if not user:
+        return "ubuntu"
+    if _SAFE_SSH_USER_RE.fullmatch(user):
+        return user
+    logger.warning(
+        "Ignoring unsafe SSH User %r for %r; falling back to ubuntu",
+        user, instance,
+    )
+    return "ubuntu"
+
+
+def _brev_ssh_config_endpoint(instance: str) -> tuple[str, int] | None:
+    """Fallback ``(host, port)`` from ``~/.brev/ssh_config`` when ``brev ports ls`` is rate-limited."""
+    stanza = _brev_ssh_config_stanza(instance)
+    host = stanza.get("hostname", "")
+    try:
+        port = int(stanza.get("port", ""))
+    except ValueError:
+        return None
+    if (
+        not host
+        or not 1 <= port <= 65535
+        or not host.isascii()
+        or not all(c.isalnum() or c in ".-" for c in host)
+    ):
+        return None
+    return host, port
+
+
+async def _get_brev_ssh_endpoint(instance: str) -> tuple[str, int]:
+    cached = _ssh_transfer_endpoints.get(instance)
+    if cached:
+        return cached
+    result = await _run_brev("ports", "ls", instance, "--json", timeout=30)
+    if result.return_code != 0:
+        fallback = _brev_ssh_config_endpoint(instance)
+        if fallback is not None:
+            logger.warning(
+                "Brev SSH port lookup failed for %s (%s); using ~/.brev/ssh_config endpoint",
+                instance, (result.stderr or "unknown error").strip()[:120],
+            )
+            _ssh_transfer_endpoints[instance] = fallback
+            return fallback
+        raise RuntimeError(f"Brev SSH port lookup failed: {result.stderr or 'unknown error'}")
+    matches = [row for row in _parse_brev_json(result.stdout) if row.get("destination_port") == 22]
+    if len(matches) != 1:
+        raise RuntimeError(f"Expected one SSH port for {instance}; found {len(matches)}")
+    row = matches[0]
+    endpoint = row.get("endpoint")
+    public_port = row.get("public_port")
+    if not isinstance(endpoint, str) or not isinstance(public_port, int) or not 1 <= public_port <= 65535:
+        raise RuntimeError(f"Invalid SSH endpoint for {instance}")
+    try:
+        parsed = urlsplit("//" + endpoint)
+        host = parsed.hostname
+        endpoint_port = parsed.port
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid SSH endpoint for {instance}") from exc
+    if not host or endpoint_port != public_port or not host.isascii() or not all(c.isalnum() or c in ".-" for c in host):
+        raise RuntimeError(f"Invalid SSH endpoint for {instance}")
+    _ssh_transfer_endpoints[instance] = (host, public_port)
+    return host, public_port
+
+
+async def _run_brev_copy_legacy_once(
+    src: str,
+    dst: str,
+    timeout: int = BREV_COPY_TIMEOUT,
+) -> ExecResult:
+    """Original Brev API copy path, retained for explicit rollback only."""
 
     cmd = ["brev", "copy", src, dst]
     logger.debug("brev copy: %s -> %s", src, dst)
@@ -2526,6 +2712,21 @@ async def _check_live_gpu_count(instance_name: str, required_count: int) -> None
     )
 
 
+def _loose_gpu_match(want: str, have: str) -> bool:
+    """`RTX PRO 6000` ⊆ `RTX PRO SERVER 6000` or concatenated `RTXPRO6000` /
+    `dmz.rtxpro6000x2.pcie`. Mirrors run_leg._loose_gpu_match."""
+    want_tokens = set(want.replace("-", " ").split())
+    have_tokens = set(have.replace("-", " ").split())
+    if want_tokens and want_tokens.issubset(have_tokens):
+        return True
+    compact_want = re.sub(r"[^A-Z0-9]+", "", want.upper())
+    compact_have = re.sub(r"[^A-Z0-9]+", "", have.upper())
+    return bool(
+        compact_want
+        and re.search(rf"{re.escape(compact_want)}(?![0-9])", compact_have)
+    )
+
+
 async def _check_instance_matches(instance: dict, req: dict) -> None:
     """Raise RuntimeError if the instance's GPU doesn't meet task requirements.
 
@@ -2558,14 +2759,6 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
     instance_type = (instance.get("instance_type") or "").upper()
     required_type = (req.get("gpu_type") or "").upper()
 
-    # Loose GPU name match: `RTX PRO 6000` ⊆ `RTX PRO SERVER 6000`
-    # Require ALL tokens of `want` to appear in `have` (and `want ⊆ have` as
-    # a substring fallback for dashed variants like `H100-SXM-80GB`).
-    def _loose_match(want: str, have: str) -> bool:
-        want_tokens = set(want.replace("-", " ").split())
-        have_tokens = set(have.replace("-", " ").split())
-        return want_tokens.issubset(have_tokens) or want in have
-
     # Brev API transient-flake soft-fail: `brev ls --json` occasionally
     # returns gpu="-" (or "") for a healthy instance for a few seconds while
     # the catalog refreshes. If the catalog instance_type carries the GPU
@@ -2576,11 +2769,11 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
     gpu_blank = gpu in ("", "-", "N/A", "NONE")
     type_carries_token = (
         required_type and instance_type
-        and _loose_match(required_type, instance_type)
+        and _loose_gpu_match(required_type, instance_type)
     )
 
     errors = []
-    if required_type and not _loose_match(required_type, gpu):
+    if required_type and not _loose_gpu_match(required_type, gpu):
         if gpu_blank and type_carries_token:
             logger.warning(
                 "Instance '%s' brev ls returned gpu=%r (likely transient "

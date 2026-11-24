@@ -96,6 +96,35 @@ def cleanup_network_policy(owner: str, home: Path) -> None:
             network_policy(owner, value.get("ports", []), home, remove=True)
 
 
+def lookup_gateway_port(owner: str, home: Path) -> int:
+    """Resolve this leg's claimed gateway, never the shared default gateway."""
+    if not re.fullmatch(r"[a-f0-9]{64}", owner):
+        raise ValueError("invalid eval gateway owner")
+    matches = []
+    roots = home / ".nemoclaw/gateways"
+    if roots.is_symlink():
+        raise ValueError("eval gateway namespaces must not contain symlinks")
+    for receipt in roots.glob("*/skill-eval-owner.json"):
+        if receipt.is_symlink() or receipt.parent.is_symlink() or not receipt.parent.name.isdecimal():
+            continue
+        try:
+            value = json.loads(receipt.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(value, dict) or value.get("owner") != owner:
+            continue
+        ports = value.get("ports")
+        if (not isinstance(ports, list) or len(ports) != 3
+                or any(type(port) is not int or not 1024 <= port <= 65535 for port in ports)
+                or len(set(ports)) != 3 or ports[0] == 8080
+                or str(ports[0]) != receipt.parent.name):
+            raise ValueError("invalid owned gateway receipt")
+        matches.append(ports[0])
+    if len(matches) != 1:
+        raise NamespaceUnavailable("expected exactly one owned eval gateway")
+    return matches[0]
+
+
 def claim(owner: str, ports: list[int], home: Path) -> None:
     if not re.fullmatch(r"[a-f0-9]{64}", owner):
         raise ValueError("invalid eval gateway owner")
@@ -198,9 +227,12 @@ if __name__ == "__main__":
     parser.add_argument("--allocate", action="store_true")
     parser.add_argument("--exact", action="store_true")
     parser.add_argument("--cleanup-firewall", action="store_true")
+    parser.add_argument("--lookup-port", action="store_true")
     args = parser.parse_args()
     if args.cleanup_firewall:
         cleanup_network_policy(args.owner, Path.home())
+    elif args.lookup_port:
+        print(lookup_gateway_port(args.owner, Path.home()))
     elif args.allocate:
         ports = allocate(args.owner, args.ports, Path.home(), exact=args.exact)
         print("NEMOCLAW_GATEWAY_ALLOCATION=" + json.dumps({"owner": args.owner, "ports": ports}))

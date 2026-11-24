@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,27 @@ SPEC_PATH = (
 )
 SKILL_DIR = REPO_ROOT / "skills/operations/vss-manage-alerts"
 DEPLOY_SKILL_DIR = REPO_ROOT / "skills/vss-build-vision-ai"
+
+
+def test_ondemand_requires_configured_remote_route_without_canary_overlay(tmp_path: Path) -> None:
+    spec_path = SKILL_DIR / "evals/ondemand_verification.json"
+    command = [
+        sys.executable, str(ADAPTER_PATH),
+        "--output-dir", str(tmp_path),
+        "--skill-dir", str(SKILL_DIR),
+        "--deploy-skill-dir", str(DEPLOY_SKILL_DIR),
+        "--spec", str(spec_path),
+        "--platform", "L40S",
+    ]
+    env = os.environ.copy()
+    env["SKILLS_EVAL_OPERATIONAL_HARNESS"] = "nemoclaw"
+    subprocess.run(command, check=True, capture_output=True, text=True, env=env)
+    (root,) = (tmp_path / "ondemand_verification").iterdir()
+    instruction = (root / "step-1/instruction.md").read_text()
+    assert "vss1009-alert-auth" not in instruction
+    assert "LLM_REMOTE_URL" in instruction
+    assert "VLM_REMOTE_MODEL" in instruction
+    assert "do not substitute the operational agent's model endpoint" in instruction
 
 
 def test_skill_routing_step_names_no_skill_or_mode(tmp_path: Path) -> None:
@@ -38,6 +60,10 @@ def test_skill_routing_step_names_no_skill_or_mode(tmp_path: Path) -> None:
     assert routing, "alerts_vlm_real_time has no skill-routing step"
 
     (root,) = (tmp_path / "alerts_vlm_real_time").iterdir()
+    setup_instruction = (root / "step-1/instruction.md").read_text()
+    assert "If any value is absent" in setup_instruction
+    assert "LLM_REMOTE_MODEL" in setup_instruction
+    assert "VLM_REMOTE_MODEL" in setup_instruction
     for idx in range(2, len(expects) + 1):
         instruction = (root / f"step-{idx}/instruction.md").read_text()
         if idx in routing:

@@ -20,6 +20,7 @@ import base64
 import logging
 import mimetypes
 import os
+from urllib.parse import urlsplit
 from openai import OpenAI, AsyncOpenAI
 
 from schemas.vlm_responses import ModelType, detect_model_type
@@ -40,7 +41,15 @@ class _VLMClientBase:
         self.max_tokens = config.get("max_tokens")
         self.temperature = config.get("temperature")
         self.stream = False
-        self.api_key = "not-used"
+        endpoint = urlsplit(self.base_url)
+        hosted_key = (
+            os.getenv("NVIDIA_API_KEY")
+            if endpoint.scheme == "https" and endpoint.hostname == "inference-api.nvidia.com"
+            else None
+        )
+        self.api_key = (
+            os.getenv("VLM_API_KEY") or config.get("api_key") or hosted_key or "not-used"
+        )
         self.request_timeout = config.get('request_timeout', 5)
         self.use_vlm_media_defaults = config.get('use_vlm_media_defaults', False)
         logger.info("use_vlm_media_defaults=%s", self.use_vlm_media_defaults)
