@@ -255,7 +255,7 @@ If they differ, reinstall the CLI at the gateway's release using the install ste
 
 **Symptom**: The gateway and sandbox state are inconsistent and the steps above do not resolve it.
 
-**Solution**: Delete the sandboxes first, so the gateway removes their containers and volumes, then take the gateway down. `docker compose down` on its own leaves sandbox containers running, because they are siblings the Compose project never created.
+**Solution**: Delete the sandboxes first, so the gateway removes their containers and volumes, then take the gateway down. `docker compose down` on its own only stops them, because they are siblings the Compose project never created.
 
 ```bash
 openshell sandbox delete hermes

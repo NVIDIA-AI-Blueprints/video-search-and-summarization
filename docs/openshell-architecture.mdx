@@ -63,7 +63,7 @@ The trusted half of a sandbox, one per sandbox, and the only component that deci
 
 OpenShell 0.1.6 reversed which end of the supervisor socket dials the other, which imposes a version rule: a new sandbox needs matching supervisor and sandbox-runtime binaries, so the gateway's Compose service pins both images alongside the gateway tag.
 
-The per-sandbox rows are siblings of the gateway container, not part of any Compose project. `docker compose down` leaves them running, and `openshell sandbox delete` removes both containers and their volumes.
+The per-sandbox rows are siblings of the gateway container, not part of any Compose project, so Compose never deletes them. `docker compose down` takes the supervisor with it and the workload exits, and the next `docker compose up` restores both from the gateway's record. Only `openshell sandbox delete` removes the containers and their volumes.
 
 <Note>
 The `openshell-data` volume needs backups rather than being treated as cache.

@@ -173,8 +173,10 @@ version rule: a new sandbox needs matching supervisor and sandbox-runtime
 binaries, so the Quickstart's step 1 pins both images with the gateway.
 
 The per-sandbox rows are siblings of the gateway container, not part of any
-Compose project: `compose down` leaves them running, and `openshell sandbox
-delete` removes both containers and their volumes.
+Compose project, so Compose never deletes them: `compose down` takes the
+supervisor with it and the workload exits, and the next `compose up` restores
+both from the gateway's record. Only `openshell sandbox delete` removes the
+containers and their volumes.
 
 ### What OpenShell enforces
 
@@ -682,7 +684,8 @@ key, and the key-encryption key that provider credentials are sealed with.
 Keeping it across `compose down` is what keeps sandboxes' gateway records. A
 VSS reset (`dev-profile.sh down`, or `down -v` on the project) removes the
 gateway and this volume with it, so run `openshell sandbox delete` on each
-sandbox first; otherwise its containers keep running with no gateway record.
+sandbox first; otherwise its stopped containers and volumes outlive the record
+that `delete` needs to name them by.
 
 **One project, one profile.** The gateway sits in the VSS project behind the
 `openshell` profile, so a deployment stays one `compose up` and one `compose
@@ -976,7 +979,8 @@ and never giving up.
 
 **Compose cannot declare the sandbox, so this step needs a script on both
 sides.** `gateway.toml` has no sandbox section, and the containers the driver
-creates are siblings Compose never sees — `compose down` leaves them running.
+creates are siblings Compose never sees, so `compose down` stops them without
+ever removing them.
 Wrap the commands above in one rerunnable script that skips only the `create`
 when the sandbox already exists, so an interrupted first run is finished by the
 next one, and pair it with a second that calls `openshell sandbox delete`
