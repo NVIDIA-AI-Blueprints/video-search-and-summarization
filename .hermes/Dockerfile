@@ -71,12 +71,15 @@ ENV UV_PYTHON=/usr/bin/python3.13 \
 #
 # Editable, because Hermes' setup.py refuses to build a wheel or sdist of
 # itself: the source tree is the installed package and stays in the runtime.
-# pillow-heif comes in for HEIC input, but its wheel bundles libx265 under
-# GPL-2.0 and an HEVC encoder this image may not redistribute. Hermes imports it
-# behind try/except at both call sites, so without it HEIC is refused with the
-# message the resolver already carries; AVIF stays native in Pillow.
+# Hermes resolves HEIC through pillow-heif and AVIF through Pillow's bundled
+# libavif. Both ship codecs this image may not redistribute — libx265 under
+# GPL-2.0 in the pillow-heif wheel, and the AV1 decoder that
+# .github/scripts/check_no_patented_codecs.py forbids. Hermes reaches both
+# behind try/except, so each format is refused with the message the resolver
+# already carries.
 RUN cd /opt/hermes && uv sync --no-dev --frozen --extra sms \
     && uv pip uninstall --python .venv/bin/python pillow-heif \
+    && rm -f .venv/lib/python3.13/site-packages/pillow.libs/libavif* \
     && .venv/bin/hermes --version
 # The build tree is not the runtime tree: the harness ships the package, its
 # bundled skills and its bundled plugins, not the repo it was built from. The
@@ -165,6 +168,10 @@ RUN --mount=type=bind,from=uv,source=/uv,target=/usr/local/bin/uv \
     # outrank the wheel and silently break the CLI==skills guarantee.
     uv venv --python /usr/bin/python3.13 /usr/local/vss \
     && VIRTUAL_ENV=/usr/local/vss uv pip install /opt/vss-assets/wheels/*.whl \
+    # The CLI declares opencv-python-headless but imports no cv2, and the PyPI
+    # wheel bundles FFmpeg's patent-encumbered decoders, which no VSS image
+    # redistributes. Removed here as services/agent and rt-vlm remove theirs.
+    && VIRTUAL_ENV=/usr/local/vss uv pip uninstall opencv-python-headless \
     && vss --version \
     # The vss_cli plugin resolves an absolute VSS_BIN, not a PATH lookup.
     && ln -s /usr/local/vss/bin/vss /usr/local/bin/vss \
