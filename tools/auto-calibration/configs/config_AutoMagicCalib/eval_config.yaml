@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ground truth directory is provided via -g argument to the script
+
+# anchors for the transformation cam0 to world ('layout' or 'apriltag' or 'gt_cam0')
+# 'gt_cam0': GT camera 0 is used to transfrom estimated camera parameters to the world coordinate system
+# 'layout': layout image is used to transfrom estimated camera parameters to the world coordinate system
+# 'apriltag': apriltag in images is used to transfrom estimated camera parameters to the world coordinate system
+# 
+# NOTE: if 'gt_cam0' is used, the layout_px_per_m is not used
+#       and the estimated camera parameters are transformed to the world coordinate system
+#       using the GT camera 0's projection matrix
+anchor: "layout"
+layout_px_per_m: 24.22 # this param is only used for layout anchor
+# Height (metres) of red virtual-GT poles drawn during layout post-processing
+virtual_gt_person_height: 1.75
+# Floor-grid line spacing (metres); cells are spacing×spacing (default 1 m → 1×1 m)
+virtual_gt_grid_spacing: 1.0
+
+# minimum bounding box width and height
+min_bbox_w: 25
+min_bbox_h: 70
+
+# minimum boundary x and y
+min_boundary_x: 10
+min_boundary_y: 10

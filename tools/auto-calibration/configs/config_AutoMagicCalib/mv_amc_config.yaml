@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# camera directories (will be joined with base_dir from -i argument)
+# The ordering defines the pairwise relationships: consecutive cameras will be paired automatically
+# Camera numbers are extracted from directory names, so:
+# cam_dir: ['cam_00', 'cam_01', 'cam_02', 'cam_03', 'cam_06'] 
+# will generate camera_pairs: [[0,1], [1,2], [2,3], [3,6]]  <- Note: uses actual camera numbers!
+cam_dir: ['cam_00', 'cam_01', 'cam_02', 'cam_03']
+
+# camera_pairs will be auto-generated from cam_dir ordering
+# Manual specification is no longer needed but can be provided to override auto-generation
+
+# output directory is provided via -o argument to the script
+
+# video resolution
+video_resolution: [1920, 1080]
+
+# image boundary to be ignored in tracklet data(0~1.0)
+image_side_boundary: 0.05 # 0.1 means the side 10% of the image is ignored
+image_bottom_boundary: 0.9 # 0.9 means the bottom 10% of the image is ignored
+
+# tracklet filtering
+tracklet_filter:
+  min_length: 90 # minimum length of the tracklet
+  min_moving_dist: 2.0 # minimum moving distance of the tracklet
+  min_mean_moving_dist: 0.01 # mean distance threshold to remove long-standing objects
+
+# use smoothed tracklets for tracklet matching
+use_smoothed_tracklets: false 
+
+# filtering for tracklet matching 
+# minimum number of matching points for tracklet matching
+min_matching_points: 100
+
+# minimum and maximum scale for tracklet matching
+min_scale: 0.8
+max_scale: 1.3
+# dtw score threshold for tracklet matching
+min_dtw_score_threshold: 25
+
+# distance score threshold for tracklet matching
+min_distance_score_threshold: 1.2
+
+# maximum distance score for hungarian algorithm
+max_distance_score_hungarian_threshold: 0.8
+
+# minimum number of matched tracklets for multi-view calibration
+min_matched_tracklets: 6
+
+# maximum distance between matched tracklets for multi-view calibration
+max_matched_tracklets_dist: 2.0
+
+# minimum distance between the last position and current position of the tracklet
+min_tracklet_dist: 3.0 # 5 pixels
+
+# pose estimation
+ransac_threshold: 10.0
+
+# pairwise calibration
+robust_two_view_calib:
+  enabled: true 
+  min_matched_points: 100
+  min_matched_tracklets: 3
+  min_samples: 3 # 3 matches for RANSAC
+  max_iterations: 100
+  inlier_threshold: 10.0 # 10 pixels
+  min_inliers: 0.6 # 60% of points must be inliers
+  reproj_err_threshold: 25.0 # 25 pixels
+  
+# bundle adjustment
+# skip the number of frames  
+skip_frame: 10 
+# weight for the distance between the 3D point 
+distance_weight: 10.0
+
+# ba method
+ba_method: iterative # standard/iterative
+
+# experiment
+input_cam_params: ba # ba or pairwise_calib
+enable_manual_adjustment: false 
+weight_manual_constraint: 10.0
+manual_adjustment_data_source: file 
+
+# Layout image path is provided via -l argument to the script
+
+# logging level
+logging_level: INFO
+
+# robust scale estimation (Umeyama)
+robust_scale_estimation:
+  enabled: false  # Set to false for original method
+  max_iterations: 1000
+  inlier_threshold: 0.5  # meters (adjust based on your scene scale)
+  min_inliers: 0.6  # 60% of points must be inliers
+  min_samples: 3  # minimum points for 3D similarity transform
+  random_seed: 42  # for reproducibility
+
+# config parameters for VGGT
+vggt:
+  model_path: 'models/vggt/model.pt'
+  auto_select: false # auto-select frames used for calibration. If auto_select is true, timestamp_sec is ignored. 
+  timestamp_sec: 0 # timestamp in sec to extract frames used for calibration 
+  sample_interval_sec: 1 # sample frames with this interval. 
+  max_num_frames: 10000 # maximum number of frames to sample. If max_num_frames is 0, all frames are sampled.
+  top_k: 3 # number of top frames to select 
+  confidence_score_threshold: 0.2 # threshold for confidence score. 
+  temp_dir: temp # temporary directory to store extracted images
+  camInfo_dir: BA_output/results_ba/refined # output directory to store camInfo_xx.yaml
+

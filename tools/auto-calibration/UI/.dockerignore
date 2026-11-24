@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# npm ci and npm run build need only these checked-in inputs. Docker builds
+# fresh dependencies and assets instead of reusing local node_modules or dist.
+**
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.node.json
+!vite.config.ts
+!index.html
+!nginx.conf
+!docker-entrypoint.sh
+!src/
+!src/**
+!public/
+!public/**
+
+# Keep local files out even when they are placed under src/ or public/.
+**/.git
+**/.git/**
+**/.env
+**/.env.*
+**/node_modules
+**/__pycache__
+**/.cache
+**/coverage
+**/*.log
+**/*.swp
+**/*.swo
+**/*~
+**/.DS_Store
+**/*.tsbuildinfo

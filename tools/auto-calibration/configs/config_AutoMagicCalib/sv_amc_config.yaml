@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# parameter
+focal_length_search_range: 10  # [init_f-10, init_f+10]
+weight_iou: 0.8
+iterations: 2000
+
+# Adaptive GeoCalib iteration parameters
+adaptive_geocalib:
+  enabled: false                    # Enable adaptive iteration approach
+  min_iterations: 100              # Minimum number of iterations
+  max_iterations: 300              # Maximum number of iterations (cap)
+  iteration_increment: 10          # How many iterations to add each time
+  cv_threshold: 0.8                # Coefficient of variation threshold (%) - stop if below this
+  early_stop_cv: 0.5               # If CV is excellent (<0.5%) at min_iterations, stop immediately
+  use_median: true                 # Use median instead of mean for representative value
+  save_temp_files: true            # Save intermediate iteration results for debugging
+
+  # Search range tightening strategy
+  search_range_strategy: "aggressive"  # Options: "confidence_interval", "aggressive", "conservative"
+  # - "confidence_interval": Statistical confidence intervals (default, balanced)
+  # - "aggressive": Much tighter bounds for excellent convergence (50-70% tighter)
+  # - "conservative": Safer bounds, closer to original method (20-30% tighter)

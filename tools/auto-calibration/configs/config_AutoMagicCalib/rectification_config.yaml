@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+distortion:
+  # Distortion model to use (must match GeoCalib model)
+  # Options: pinhole, simple_radial, radial, simple_divisional
+  # Already-linear videos bypass this stage through explicit UI staging.
+  model: "simple_divisional"
+  
+  # Auto-generate search range from GeoCalib estimate
+  # Search range will be: geocalib_value * (1 ± search_range_percentage/100)
+  search_range_percentage: 20  # Search ±20% around GeoCalib estimate
+
+preprocess:
+  num_frames: 500 # number of frames to get background image 
+  frame_step: 30  # number of frames to skip 
+  resize_width: 960  # width of resized image
+  resize_height: 540 # height of resized image
+
+param_space:
+  k1_min: -0.00001  # minimum value of k1
+  k1_max: 0         # maximum value of k1
+  k1_step: 100      # number of values for grid search
+
+output:
+  crop: True

@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# The MS Dockerfile uses the repository root as its build context. Include only
+# its source inputs; the UI is built separately with UI/ as its context.
+**
+!requirements.txt
+!core/
+!core/**
+!server/
+!server/**
+!service_scripts/
+!service_scripts/**
+!configs/
+!configs/**
+!models/
+models/**
+!models/custom_parser/
+models/custom_parser/**
+!models/custom_parser/Makefile
+!models/custom_parser/nvdsinfer_custombboxparser_tao.cpp
+!submodules/
+!submodules/**
+
+# Retain the license input required by the legacy core-only Dockerfile.
+!release/
+release/**
+!release/NVIDIA_AutoMagicCalib_EULA.pdf
+
+# Re-exclude local/generated files underneath the included source directories.
+**/.git
+**/.git/**
+**/.claude
+**/.codex
+**/.cursor
+**/.idea
+**/.vscode
+**/.env
+**/.env.*
+**/.venv
+**/venv
+**/node_modules
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.cache
+**/.coverage*
+**/coverage_html
+**/htmlcov
+**/*.log
+**/*.swp
+**/*.swo
+**/*~
+**/.DS_Store
+**/projects
+**/ngc_download
+**/output
+**/output_*
+**/.pyarmor
+**/pyarmor_runtime_*
+**/obfuscated_core
+
+# Model repositories are fetched as source, never with cached checkpoints or
+# locally compiled payloads. Model weights are obtained separately at setup.
+**/*.pt
+**/*.pth
+**/*.ckpt
+**/*.safetensors
+**/*.onnx
+**/*.etlt
+**/*.engine
+**/*.engine.*
+**/*.so
+**/*.so.*
+**/*.o
+**/*.a
