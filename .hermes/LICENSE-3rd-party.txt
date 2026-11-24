@@ -7,7 +7,7 @@ Inventory basis: image built from .hermes/Dockerfile at this commit with HERMES_
 Base image: nvcr.io/nvidia/base/ubuntu:24.04, index sha256:8b39ffabffe34dbd03644f0d92e82587681bca5ced1cf762a9c9d6523e177b17 (linux/amd64 sha256:494398fac1b07614c63ba179e3558d84a5a9ce19a6374560ceac04d822462e45, linux/arm64 sha256:b13c2e4ff139d3c01c8f90b5b3eb9f0402d9a826e4bd54ee8b0bfd3a4c192f02). Its own packages are covered by the base image; this file covers what .hermes/Dockerfile adds on top of it. Build-stage tools (uv) are not present in the image.
 
 Installed third-party Python distributions: 95
-Ubuntu APT packages added: 25
+Ubuntu APT packages added: 25, plus perl-base upgraded in place from the base image (same source package and copyright file as perl). Reproduce the set by subtracting `dpkg-query -W` on the base image from the same query on this image.
 Total documented components: 121
 
 ---
@@ -7480,11 +7480,13 @@ Apache License
 
 ## opencv-python-headless (5.1.0.95)
 
-**License:** Apache 2.0
+**License:** Apache-2.0 (OpenCV); LGPL-2.1 (bundled FFmpeg binaries)
 
 **License URL:** https://github.com/opencv/opencv-python
 
 **Distribution scope:** vss CLI environment (/usr/local/vss)
+
+**Notes:** The wheel bundles FFmpeg (libavcodec, libavformat, libavutil) under LGPL-2.1, plus libaom, libvpx and libavif, in `cv2/../opencv_python_headless.libs/`. A dependency of the `vss` CLI, declared in `libs/vss/uv.lock` and shipped by four other modules. OSRB must confirm the LGPL relink obligation and the codec review for FFmpeg's decoders, AV1 and VP8/VP9 — none of which is specific to this image.
 
 **Notice source:** `cv2/LICENSE-3RD-PARTY.txt`
 
