@@ -232,6 +232,13 @@ ENV VSS_VLM_BACKEND= \
     VSS_VLM_TOTAL_PIXELS= \
     VSS_VLM_LOCKED=false
 
+# Build-time OSRB guard: fail the build if any patent-encumbered FFmpeg/codec
+# library leaked into the final image. Mirrors
+# .github/scripts/check_no_patented_codecs.py, kept inline because .github/ is
+# outside this build context, and it is what catches a `uv pip uninstall` or a
+# `rm` glob above that stops matching a renamed wheel layout.
+RUN ["/usr/bin/python3.13", "-c", "import os,re,sys; pat=re.compile(r'^(libavcodec|libavformat|libavutil|libavfilter|libavdevice|libavresample|libavif|libswscale|libswresample|libpostproc|libx264|libx265|libde265|libopenh264|libkvazaar).*\\.so',re.I); hits=[os.path.join(r,f) for b in ('/opt','/usr') if os.path.exists(b) for r,_,fs in os.walk(b) for f in fs if pat.match(f)]; sys.exit('FAIL: patent-encumbered codec libraries present in image:\\n'+'\\n'.join(sorted(hits))) if hits else print('OK: no patent-encumbered codec libraries in image')"]
+
 USER sandbox
 WORKDIR /sandbox
 CMD ["sleep", "infinity"]
