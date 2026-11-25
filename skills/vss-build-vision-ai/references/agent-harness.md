@@ -444,6 +444,9 @@ blocker to report rather than a reason to fall back to the checkout:
 REPO="$(git rev-parse --show-toplevel)"
 SRC="$REPO/_builds/<name>/harness-src"
 git -C "$REPO" fetch -q origin "$REF" && git -C "$REPO" worktree add -q --detach "$SRC" FETCH_HEAD
+grep -q '^COPY \.hermes/plugin ' "$SRC/.hermes/Dockerfile" 2>/dev/null || {
+  echo "$REF predates the OpenShell harness image; no sandbox can be built from it" >&2
+  git -C "$REPO" worktree remove "$SRC"; false; }
 VERSION="$(cd "$SRC/libs/vss/cli" && uvx --with hatch-vcs hatch version)"
 docker build -f "$SRC/.hermes/Dockerfile" \
   --build-arg HERMES_REF="$HERMES_REF" \
@@ -453,9 +456,10 @@ git -C "$REPO" worktree remove "$SRC"
 ```
 
 Both the Dockerfile and the context come from the worktree, so the ref builds
-its own image definition. A ref from before that file existed cannot be built
-this way, and is a blocker to report. The version names the ref's own commit,
-so two refs coexist as two images.
+its own image definition. A ref whose `.hermes/Dockerfile` does not build from
+the repository root predates this image, and is a blocker to report, never a
+build to retry another way. The version names the ref's own commit, so two refs
+coexist as two images.
 Quote the ref and the version `vss --version` reports inside the sandbox in the
 summary.
 
