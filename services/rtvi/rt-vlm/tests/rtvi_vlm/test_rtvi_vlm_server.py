@@ -2103,7 +2103,7 @@ class TestNIMCompatibleEndpoints:
             return str(uuid.uuid4()), asset, [asset]
 
         rtvi_server._process_vlm_request = AsyncMock(side_effect=process_request)
-        rtvi_server._stream_handler.wait_for_request_done = MagicMock(
+        rtvi_server._wait_for_request_done = AsyncMock(
             side_effect=RuntimeError("forced wait failure")
         )
         rtvi_server._stream_handler.remove_video_file = MagicMock()
@@ -2186,7 +2186,7 @@ class TestNIMCompatibleEndpoints:
             return str(uuid.uuid4()), asset, [asset]
 
         rtvi_server._process_vlm_request = AsyncMock(side_effect=process_request)
-        rtvi_server._stream_handler.wait_for_request_done = MagicMock(
+        rtvi_server._wait_for_request_done = AsyncMock(
             side_effect=RuntimeError("forced wait failure")
         )
         rtvi_server._stream_handler.remove_video_file = MagicMock()

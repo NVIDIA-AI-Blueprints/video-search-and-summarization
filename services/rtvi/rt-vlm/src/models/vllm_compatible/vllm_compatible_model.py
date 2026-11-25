@@ -37,6 +37,7 @@ import torchvision.transforms.functional as TF
 from filelock import FileLock
 from PIL import Image, ImageDraw, ImageFont
 
+from common.cancellable_coroutine_future import _CancellableCoroutineFuture
 from common.chunk_info import ChunkInfo
 from common.logger import TimeMeasure, logger
 from common.service_exception import ServiceException
@@ -3293,16 +3294,8 @@ class VllmCompatible(BaseVlmModel):
         # layout and resizes normally (avoids a collapsed grid -> 0 video
         # tokens).
         #
-        # CPU_COPY_OTHER_THREAD is deliberately NOT honored here. On the non-EVS
-        # path it defers to asyncio.to_thread from an event loop that is never
-        # blocked, so the copy starts at once. EVS's only other thread is an
-        # _output_tpool worker, and those block for the whole add_clip_tensors
-        # round trip (encode plus, when the detector fires, a full generation).
-        # A deferred copy could therefore queue behind every worker and pin this
-        # clip's CUDA frames (~49 MB for a 40-frame 640x640 chunk) for a whole
-        # generation cycle -- to save ~14 ms on a dispatcher that is not the
-        # bottleneck. Copying now lets the pipeline free the CUDA frames as soon
-        # as generate() returns.
+        # Copy before submission so the dispatcher can release its CUDA frames
+        # without waiting for the entire EVS encode/generation operation.
         if self._vlm_model_type == "cosmos-reason1":
             images_cpu = images.cpu()
         else:
@@ -3312,9 +3305,9 @@ class VllmCompatible(BaseVlmModel):
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
 
-        def _run_evs_clip():
-            async def _add():
-                return await handler.add_clip_tensors(
+        async def _run_evs_clip():
+            try:
+                clip_resp = await handler.add_clip_tensors(
                     session_id=session_id,
                     images=images_cpu,
                     metadata=video_metadata,
@@ -3323,9 +3316,6 @@ class VllmCompatible(BaseVlmModel):
                     is_last=is_last,
                     chunk_id=ooo_chunk_id,
                 )
-
-            try:
-                clip_resp = asyncio.run_coroutine_threadsafe(_add(), self._event_loop).result()
             except ServiceException:
                 # Already classified (code + status_code) by the layer that
                 # raised it; re-wrapping would flatten a 400 into a 500.
@@ -3358,15 +3348,6 @@ class VllmCompatible(BaseVlmModel):
                     "EVSClipProcessingError",
                     500,
                 ) from e
-            finally:
-                # Keep the admission slot for the complete EVS operation, not
-                # merely until its encoder finishes.  The worker closure owns
-                # images_cpu until add_clip_tensors returns after any triggered
-                # generation.  Releasing on_encode_done let a second full batch
-                # accumulate while the first batch still retained its frames,
-                # exhausting unified host/GPU memory on Thor (NVBug 6759865).
-                if request_id in self._inflight_req_ids:
-                    self._inflight_req_ids.remove(request_id)
 
             logger.debug(
                 "EVS clip: tokens=%d/%d, kept=%d, dropped=%d%s",
@@ -3413,7 +3394,19 @@ class VllmCompatible(BaseVlmModel):
 
             return placeholder
 
-        return self._output_tpool.submit(_run_evs_clip)
+        def release_admission():
+            # Release only after the task drains, including cancellation before its first step.
+            if request_id in self._inflight_req_ids:
+                self._inflight_req_ids.remove(request_id)
+
+        try:
+            future = _CancellableCoroutineFuture(
+                _run_evs_clip(), self._event_loop, on_done=release_admission
+            )
+        except BaseException:
+            release_admission()
+            raise
+        return future
 
     def _shutdown_model(self):
         try:

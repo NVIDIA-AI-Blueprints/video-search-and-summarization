@@ -210,6 +210,10 @@ class RequestInfo:
     assets: list[Asset] | None = None
     status: "RequestInfo.Status" = field(default_factory=lambda: RequestInfo.Status.QUEUED)
     status_event: Event = field(default_factory=Event)
+    cancelled: bool = False
+    _abort_commands_done: bool = False
+    _cancel_finalized: bool = False
+    _lifecycle_lock: object = field(default_factory=RLock, repr=False)
     _live_stop_finalized: bool = False
     _live_active_accounted: bool = False
 
@@ -2765,6 +2769,18 @@ class RTVIStreamHandler:
 
     def _on_vlm_chunk_response(self, chunk_result: PipelineChunkResult, req_info: RequestInfo):
         """Gather chunks processed by the pipeline and run any further post-processing"""
+        if req_info.is_live:
+            self._process_vlm_chunk_response(chunk_result, req_info)
+            return
+        with req_info._lifecycle_lock:
+            self._process_vlm_chunk_response(chunk_result, req_info)
+
+    def _process_vlm_chunk_response(self, chunk_result, req_info):
+        if req_info.cancelled:
+            with self._lock:
+                req_info.processed_chunk_list.append(chunk_result)
+            self._finish_cancelled_request(req_info)
+            return
         if req_info.is_live and req_info.status != RequestInfo.Status.PROCESSING:
             logger.debug(
                 "Ignoring live-stream chunk for completed query %s",
@@ -4409,6 +4425,90 @@ class RTVIStreamHandler:
             # Remove the responses that will be returned
             req_info.response = req_info.response[chunk_response_size:]
         return req_info, response
+
+    def is_request_done(self, request_id):
+        with self._lock:
+            req_info = self._request_info_map.get(request_id)
+            return req_info is None or req_info.status in (
+                RequestInfo.Status.FAILED,
+                RequestInfo.Status.SUCCESSFUL,
+            )
+
+    def abort_request(self, request_id):
+        """Cancel one HTTP request without masking other users of its asset."""
+        with self._lock:
+            req_info = self._request_info_map.get(request_id)
+        if req_info is None:
+            return False
+        if req_info.is_live:
+            if self.is_request_done(request_id):
+                return False
+            self.remove_rtsp_stream_request(req_info.assets[0], request_id)
+            return True
+        with req_info._lifecycle_lock:
+            return self._abort_request(req_info)
+
+    def _abort_request(self, req_info):
+        request_id = req_info.request_id
+        with self._lock:
+            if req_info.cancelled or req_info.status in (
+                RequestInfo.Status.FAILED,
+                RequestInfo.Status.SUCCESSFUL,
+            ):
+                return False
+            req_info.cancelled = True
+            req_info.status = RequestInfo.Status.FAILED
+            req_info.error_message = "Client disconnected"
+            req_info.error_status_code = 499
+            req_info.chunk_count -= len(req_info.pending_file_chunks)
+            req_info.pending_file_chunks.clear()
+            self._vlm_admission_ready_request_ids.discard(request_id)
+            released_cost = sum(req_info.active_file_chunk_costs.values())
+            req_info.active_file_chunk_costs.clear()
+            self._vlm_admission_active_cost = max(
+                0.0, self._vlm_admission_active_cost - released_cost
+            )
+            req_info.status_event.set()
+            logger.info("Cancelling HTTP generation request %s", request_id)
+
+        self._vlm_pipeline.abort_request(request_id)
+        with self._lock:
+            req_info._abort_commands_done = True
+        self._finish_cancelled_request(req_info)
+        self._dispatch_pending_file_chunks()
+        return True
+
+    def _finish_cancelled_request(self, req_info):
+        with self._lock:
+            if (
+                not req_info._abort_commands_done
+                or req_info._cancel_finalized
+                or len(req_info.processed_chunk_list) < req_info.chunk_count
+            ):
+                return
+            req_info._cancel_finalized = True
+            close_sessions = not any(
+                other.status == RequestInfo.Status.PROCESSING
+                and other.stream_id == req_info.stream_id
+                for other in self._request_info_map.values()
+            )
+        # Retain the cancellation mask and asset lock until queued chunks drain.
+        self._vlm_pipeline.finish_request_abort(req_info.request_id)
+        if close_sessions:
+            Thread(
+                target=self._vlm_pipeline.close_evs_sessions,
+                args=(req_info.stream_id,),
+                daemon=True,
+            ).start()
+        if req_info.nvtx_vlm_start:
+            nvtx.end_range(req_info.nvtx_vlm_start)
+        if req_info.nvtx_summarization_start:
+            nvtx.end_range(req_info.nvtx_summarization_start)
+        self._finalize_stream_fps_tracking(req_info)
+        if req_info.vlm_pipeline_span:
+            req_info.vlm_pipeline_span.end()
+        self._process_output(req_info, False, [])
+        logger.info("Cancelled HTTP generation request %s drained", req_info.request_id)
 
     def wait_for_request_done(self, request_id):
         """Wait for request to either complete or fail."""
