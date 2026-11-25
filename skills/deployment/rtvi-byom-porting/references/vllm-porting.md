@@ -106,7 +106,7 @@ transitively derived values. For reviewed remote code, also record
 `VLM_TRUST_REMOTE_CODE=true` and
 `RTVI_VLM_MODEL_PATH_ALLOWLIST=/opt/models/byom` in that override.
 
-Follow the build skill's Steps 7–9 and `references/deployment.md`: resolve the
+Follow the build skill's Steps 7–9 and [`references/deployment.md`](../../../vss-build-vision-ai/references/deployment.md): resolve the
 ordered env layers into `resolved.yml`, normalize and validate it, prepare the
 data directory, and deploy that exact file. Check the resolved `rtvi-vlm` image
 and container environment against the tested image and snapshot path before

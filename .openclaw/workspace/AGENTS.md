@@ -121,7 +121,8 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 ### VSS Operations
 
 - Operate an existing VSS deployment through the installed operation skills
-  and `vss` CLI. Do not deploy VSS from this runtime.
+  and `vss` CLI. Do not deploy VSS or run `deploy/docker/scripts/dev-profile.sh`
+  from this runtime.
 - For a deployment or profile-change request, or when an operation skill
   routes to the build workflow, tell the user: "Please switch to a coding
   agent and use the `vss-build-vision-ai` skill to deploy VSS."

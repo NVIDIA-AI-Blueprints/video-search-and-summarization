@@ -56,7 +56,7 @@ without the agent add `vss-va-mcp` explicitly (`services/sop.md`).
 | `NEXT_PUBLIC_APP_SUBTITLE` | Derive from the final service set using [`composition.md`](../composition.md#ui-subtitle). |
 | `VST_NOTIFICATION_CONFIG_PATH` | MODE-selected VIOS webhook config (`notification_config_${MODE}.json`): `2d_cv` → RT-CV stream add/remove; `2d_vlm` → Alert Bridge always-on. |
 | `ALERT_AGENT_ALWAYS_ON` | Gate always-on rules (`true` for real-time / `2d_vlm`, `false` for verification / `2d_cv`). |
-| `RTVI_VLM_MESSAGE_BUS` | Generated-message output bus: `kafka` for real-time / `2d_vlm`, explicitly empty for verification / `2d_cv`; Compose maps this to RT-VLM `MESSAGE_BUS`. Kafka also requires non-empty `KAFKA_BOOTSTRAP_SERVERS`. |
+| `RTVI_VLM_MESSAGE_BUS` | Generated-message output bus: `kafka` for real-time / `2d_vlm`, explicitly empty for verification / `2d_cv`; Compose maps this to RT-VLM `MESSAGE_BUS`. Kafka also requires non-empty `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` (mapped by Compose to container `KAFKA_BOOTSTRAP_SERVERS`). |
 | `RTVI_VLM_KAFKA_ENABLED` | Legacy compatibility setting: `true` for `2d_vlm`, `false` for `2d_cv`. The current RT-VLM runtime does not use `KAFKA_ENABLED` to control publishing; set `RTVI_VLM_MESSAGE_BUS` as above. |
 | `NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS` | Keep `true` in both Alerts modes. |
 | `NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION` | Set `false` for `2d_vlm`; keep `true` for `2d_cv`. |

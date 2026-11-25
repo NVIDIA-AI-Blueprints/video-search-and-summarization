@@ -211,9 +211,11 @@ separate skill.
 3. `vss vios timeline --sensor <name>`, then for each segment `vss vios clip
    --sensor <name> --start-time <start> --end-time <end>`. Always pass the
    segment's bounds: a window may not span a gap, and an RTSP sensor has no
-   default window. Pass `media_url` to `--url` as returned, except that a
-   `localhost` / `127.0.0.1` host becomes the host's routable IP: `vss-lvs`
-   cannot fetch loopback and rejects it.
+   default window. Pass `media_url` to `--url` as returned (including
+   `host.openshell.internal` on Docker Compose, where `vss-haproxy-ingress`
+   aliases that hostname on the Compose network), except that a `localhost` /
+   `127.0.0.1` host becomes the host's routable IP: `vss-lvs` cannot fetch
+   loopback and rejects it.
 4. If `warmed` is `false`, stop and report it. `warmed: true` shows only that
    the CLI host fetched the URL, not that LVS can.
 

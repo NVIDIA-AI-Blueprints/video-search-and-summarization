@@ -68,7 +68,7 @@ Measure the latency and throughput limits of a deployed LVS (Long Video Summariz
 
 Use `/vss-build-vision-ai` with the LVS Foundation, the actual hardware
 profile, and your designated `LLM_DEVICE_ID` / `RT_VLM_DEVICE_ID`. Follow its
-Steps 7–9 and `references/deployment.md` for build-local artifacts, ordered env
+Steps 7–9 and [`references/deployment.md`](../../vss-build-vision-ai/references/deployment.md) for build-local artifacts, ordered env
 resolution, normalization, validation, data-directory preparation, deployment,
 and readiness. Do not edit the checked-in Foundation or service env files.
 
