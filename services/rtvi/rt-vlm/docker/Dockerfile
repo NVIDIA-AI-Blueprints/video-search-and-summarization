@@ -366,6 +366,7 @@ RUN set -eu; \
 
 # Native extensions are built outside the runtime image.
 COPY LICENSE.3rdparty /opt/nvidia/rtvi/
+COPY README.md /opt/nvidia/rtvi/README.md
 RUN --mount=from=native-builder,source=/opt/native-artifacts/nvdec_get_count,target=/tmp/nvdec_get_count,readonly \
     install -Dm755 /tmp/nvdec_get_count /usr/bin/nvdec_get_count
 
