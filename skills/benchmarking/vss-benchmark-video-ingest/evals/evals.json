@@ -1,0 +1,95 @@
+[
+  {
+    "id": "vss-benchmark-video-ingest-explicit-001",
+    "question": "Use the vss-benchmark-video-ingest skill to run a standard ingest throughput benchmark against our deployed VSS Search profile at https://vss-search.10.0.0.5.nip.io. Elasticsearch is at http://10.0.0.5:9200 and the corpus is at ./ingest-corpus with 50MB and 500MB classes. Walk me through prerequisites, validation, readiness, transfer volume, the run command, and expected artifacts.",
+    "expected_skill": "vss-benchmark-video-ingest",
+    "acceptable_skills": [],
+    "expected_script": "scripts/run.py",
+    "ground_truth": "The agent should use the vss-benchmark-video-ingest skill, bootstrap the checkout CLI and configure its public origin, confirm ES discovery, ffprobe and Python 3.10+, and run the shared-checker compatibility wrapper and scripts/validate.py before uploading. It should explain that readiness requires both expected RT-CV frame and RT-Embed chunk counts in Elasticsearch, retaining the 15-frame tolerance and never confirming a 95% raw plateau. After cleanup, the runner waits for run-owned raw and Embed documents to remain absent before the next point. It should project about 20 GB for standard, run scripts/run.py --profile standard, then summarize.py and charts.py, and list the four CSVs, three charts, summary.md/summary.json, and run-metadata.json. It must not propose kubectl, Helm, Prometheus, or other cluster telemetry.",
+    "expected_behavior": [
+      "Reads or follows the vss-benchmark-video-ingest skill instructions",
+      "Runs scripts/validate.py before any upload and stops on a non-zero exit",
+      "Uses checkout CLI uploads and expected-count Elasticsearch readiness; explains client timing and polling delay",
+      "Projects the transfer volume as concurrency x class bytes and shows it before running",
+      "Invokes scripts/run.py with --profile standard, then summarize.py and charts.py",
+      "Names the four CSVs, the three required charts, and run-metadata.json",
+      "Uses Elasticsearch only for readiness and run-owned cleanup verification, and proposes no kubectl, Helm, Prometheus, or DCGM"
+    ]
+  },
+  {
+    "id": "vss-benchmark-video-ingest-implicit-001",
+    "question": "We have a VSS search deployment on Kubernetes and I need to know how many video-minutes per second it can actually take in, and how the p95 upload latency moves as I push more parallel uploads. I only have the ingress URL, no cluster access.",
+    "expected_skill": "vss-benchmark-video-ingest",
+    "acceptable_skills": [],
+    "expected_script": "scripts/run.py",
+    "ground_truth": "The agent should recognize this as an ingest throughput and latency benchmark and use the skill without being told its name. It should explain that a sweep point is one video class at one concurrency and every worker uploads the whole class, so uploads and bytes scale with concurrency. It should run smoke first, then standard, and explain video_min_per_sec and the per-point percentiles. It should note that no cluster access is needed, but a reachable Elasticsearch URL is required for readiness.",
+    "expected_behavior": [
+      "Recognizes implicit ingest-benchmark intent without the skill being named",
+      "Explains the sweep-point definition and the concurrency multiplier on uploads and bytes",
+      "Runs the smoke profile before the standard curve",
+      "Explains video_min_per_sec and the per-point percentile semantics",
+      "Requires no cluster access but requires Elasticsearch readiness"
+    ]
+  },
+  {
+    "id": "vss-benchmark-video-ingest-contextual-001",
+    "question": "My ingest benchmark run shows throughput flattening between concurrency 10 and 20, and ingest_summary.csv has eight CLI exit-code-7 outcomes at concurrency 20. Aggregate acknowledged payload rate peaked at 118 MB/s and this host has a 1 Gb link. What is the bottleneck and should I bump the RT-CV stream limit so all 20 uploads land?",
+    "expected_skill": "vss-benchmark-video-ingest",
+    "acceptable_skills": [],
+    "expected_script": null,
+    "ground_truth": "The agent must not identify an internal bottleneck from client-only measurements. CLI exit 7 means the CLI timed out, not a known HTTP status or proof that a particular service refused work. The payload average is about 944 Mb/s against a declared 1 Gb/s link, which suggests an uplink constraint may matter but does not prove it is the sole bottleneck. The point with non-confirmed uploads is invalid for a capacity headline. The agent must refuse to change the RT-CV stream limit as part of measurement because it changes the system being measured, and report observed outcomes and settings. It may suggest a separate comparison with a different client/network path or the highest tested concurrency that fully confirms.",
+    "expected_behavior": [
+      "Does not identify an internal service, GPU, index or queue as the bottleneck",
+      "Reports 118 MB/s as about 944 Mb/s and describes a possible uplink constraint without proving a bottleneck",
+      "Reports exit 7 as CLI timeouts without inferring HTTP status or the responsible service",
+      "Excludes the point with non-confirmed uploads from the valid capacity headline",
+      "Refuses to raise the RT-CV stream limit as part of the benchmark",
+      "Suggests a controlled separate comparison or a fully confirming concurrency"
+    ]
+  },
+  {
+    "id": "vss-benchmark-video-ingest-contextual-002",
+    "question": "Elasticsearch is not routed. Can I time only the upload response and put that p95 in the same chart as last quarter's benchmark that waited for searchable videos?",
+    "expected_skill": "vss-benchmark-video-ingest",
+    "acceptable_skills": [],
+    "expected_script": null,
+    "ground_truth": "The agent should say no: upload-response timing excludes the indexing tail, while this benchmark waits until expected RT-CV and RT-Embed document counts are observed in Elasticsearch. A reachable public ES route is required. It should explain that client-observed readiness includes polling and response delay and compare only measurements using the same timing definition and settings.",
+    "expected_behavior": [
+      "Answers no and explains that upload-response timing excludes the indexing tail",
+      "Requires both expected raw and Embed counts for benchmark readiness",
+      "Requires a reachable public Elasticsearch endpoint",
+      "Explains client-observed completion and polling delay",
+      "Refuses to publish upload-response timing as readiness latency"
+    ]
+  },
+  {
+    "id": "vss-benchmark-video-ingest-negative-001",
+    "question": "Our VSS search deployment is too slow at ingesting video. Scale the RT-CV StatefulSet to 4 replicas, raise the per-pod stream limit, and re-deploy the Helm chart with a larger Elasticsearch heap.",
+    "expected_skill": null,
+    "acceptable_skills": [],
+    "expected_script": null,
+    "ground_truth": "The agent should not run the ingest benchmark workflow as the answer, because the request is a deployment change, not a measurement. It should explain that this skill benchmarks a deployed endpoint and never mutates it, and that RTVI replica counts, per-pod stream limits, and Elasticsearch heap are all explicitly disallowed sweep dimensions. It may offer to measure the current deployment first so the change has a baseline, but the scaling work itself belongs to a deployment skill such as vss-deploy-profile or to a cluster operator.",
+    "expected_behavior": [
+      "Does not present the ingest benchmark run as the answer to a scaling request",
+      "Identifies replica counts, stream limits, and Elasticsearch heap as disallowed dimensions",
+      "Explains that the skill benchmarks the deployed endpoint and does not tune it",
+      "Redirects the deployment change to vss-deploy-profile or a cluster operator",
+      "May offer a baseline measurement without performing the mutation"
+    ]
+  },
+  {
+    "id": "vss-benchmark-video-ingest-negative-002",
+    "question": "Search our archived warehouse footage for a person in a red jacket near the loading dock last Tuesday and tell me whether the top hits are actually correct.",
+    "expected_skill": null,
+    "acceptable_skills": [
+      "vss-search-archive"
+    ],
+    "expected_script": null,
+    "ground_truth": "The agent should not use the ingest benchmark skill. This is an archive search and result-verification request, which belongs to vss-search-archive. The ingest benchmark measures how fast video is accepted and becomes searchable; it says nothing about whether a search result is correct.",
+    "expected_behavior": [
+      "Does not trigger vss-benchmark-video-ingest for an archive search request",
+      "Routes to vss-search-archive or an equivalent search workflow",
+      "Does not present ingest throughput or latency metrics as the answer"
+    ]
+  }
+]
