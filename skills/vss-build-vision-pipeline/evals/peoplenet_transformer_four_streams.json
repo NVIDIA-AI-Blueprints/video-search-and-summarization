@@ -1,0 +1,25 @@
+{
+  "skills": [
+    "vss-build-vision-pipeline"
+  ],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Create a multi-stream pipeline for 4 video inputs with the PeopleNet Transformer model",
+      "checks": [
+        "The delivered project contains runnable pipeline code or configuration, identifies its dependencies and model artifacts, and provides enough setup/run instructions to reproduce the demonstrated execution.",
+        "The pipeline loads and executes PeopleNet Transformer, with runtime evidence identifying the model used.",
+        "The delivered DeepStream pipeline successfully executes model inference on the GPU and produces output consistent with the expected result for the sample input, including empty detections when appropriate, with runtime evidence confirming that execution.",
+        "A demonstrated run processes four video inputs concurrently through the pipeline. Runtime evidence shows frames being processed from each input; four sequential single-video runs do not demonstrate this requirement.",
+        "Results retain source and frame or timestamp identifiers so detections can be associated with the correct video and frame. Object classes, scores and boxes are represented consistently, including when a frame has no detections.",
+        "The four-input run completes or can be stopped cleanly. Source and inference failures are identifiable in the output or logs, and any use of repeated sample footage for testing is stated."
+      ]
+    }
+  ]
+}
