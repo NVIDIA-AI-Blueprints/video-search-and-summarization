@@ -11,6 +11,8 @@ endpoints, exact-set application, and the CLI exit-code contract.
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -106,27 +108,60 @@ def test_command_availability_missing_binary():
 
 # --- alert probe (the PR #2024 review fixes) ----------------------------------
 
-def test_alert_probe_hits_health_on_ingress_route_then_9080():
+def no_probe(url):
+    raise AssertionError(f"probe must not run; got {url}")
+
+
+def urlopen_status(status):
+    """Stand in for urllib.request.urlopen, which http_answers uses as a
+    context manager and reads `.status` from."""
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    Response.status = status
+
+    def urlopen(url, timeout=None):
+        if status >= 400:
+            raise urllib.error.HTTPError(url, status, "", {}, None)
+        return Response()
+
+    return urlopen
+
+
+def test_alert_probe_hits_health_on_ingress_route_then_9080(monkeypatch):
     urls = []
 
-    def run(cmd, timeout):
-        if cmd[0] == "curl":
-            urls.append(cmd[-1])
-            return completed(stdout="404")
-        return completed(stdout=CHECK_OUT)
+    def answers(url):
+        urls.append(url)
+        return False
 
-    assert sync_skills.alerts_available("http://vss.example:31000/", run) is False
+    monkeypatch.setattr(sync_skills, "http_answers", answers)
+    assert sync_skills.alerts_available("http://vss.example:31000/") is False
     assert urls == [
         "http://vss.example:31000/alert-bridge/health",
         "http://vss.example:9080/health",
     ]
 
 
-def test_alert_probe_any_non_404_status_counts_as_answering():
-    assert sync_skills.http_answers("u", run=lambda c, timeout: completed(stdout="401")) is True
-    assert sync_skills.http_answers("u", run=lambda c, timeout: completed(stdout="404")) is False
-    assert sync_skills.http_answers("u", run=lambda c, timeout: completed(stdout="000")) is False
-    assert sync_skills.http_answers("u", run=lambda c, timeout: completed(stdout="garbage")) is False
+@pytest.mark.parametrize(("status", "expected"),
+                         [(200, True), (401, True), (404, False), (502, False), (503, False)])
+def test_alert_probe_counts_an_answer_but_not_a_missing_or_dead_route(monkeypatch, status, expected):
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen_status(status))
+    assert sync_skills.http_answers("http://vss.example/alert-bridge/health") is expected
+
+
+def test_alert_probe_reports_unreachable_when_the_request_cannot_be_made(monkeypatch):
+    """A refused connection, a DNS failure or an interpreter without network
+    egress is "no bridge there", never an exception out of the selector."""
+    def refuse(url, timeout=None):
+        raise urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    assert sync_skills.http_answers("http://vss.example/alert-bridge/health") is False
 
 
 # --- selection ----------------------------------------------------------------
@@ -141,9 +176,10 @@ def specs():
     ]
 
 
-def test_select_all_forced_never_probes():
+def test_select_all_forced_never_probes(monkeypatch):
     def run(cmd, timeout):
-        raise AssertionError("must not invoke vss or curl under --all")
+        raise AssertionError("must not invoke vss under --all")
+    monkeypatch.setattr(sync_skills, "http_answers", no_probe)
     sel = sync_skills.select(specs(), all_skills=True, run=run)
     assert len(sel.active) == 5 and sel.reason == "all shipped skills (forced)"
 
@@ -154,12 +190,9 @@ def test_select_unconfigured_activates_everything():
     assert len(sel.active) == 5 and "all shipped skills active" in sel.reason
 
 
-def test_select_matches_groups_and_reports_missing():
-    def run(cmd, timeout):
-        if cmd[0] == "curl":
-            return completed(stdout="200")
-        return completed(stdout=CHECK_OUT)
-    sel = sync_skills.select(specs(), run=run)
+def test_select_matches_groups_and_reports_missing(monkeypatch):
+    monkeypatch.setattr(sync_skills, "http_answers", lambda url: True)
+    sel = sync_skills.select(specs(), run=lambda cmd, timeout: completed(stdout=CHECK_OUT))
     assert sel.active == [
         "vss-ask-video",
         "vss-manage-alerts",
@@ -180,12 +213,10 @@ def test_select_any_of_holds_when_one_alternative_is_available():
         "needs-neither": "none of vss command groups 'summarize|search' available"}
 
 
-def test_select_skips_alert_probe_when_no_skill_needs_it():
-    def run(cmd, timeout):
-        assert cmd[0] != "curl", "no skill declares alerts; probe must not run"
-        return completed(stdout=CHECK_OUT)
+def test_select_skips_alert_probe_when_no_skill_needs_it(monkeypatch):
+    monkeypatch.setattr(sync_skills, "http_answers", no_probe)
     plain = [s for s in specs() if "alerts" not in s.needs]
-    sel = sync_skills.select(plain, run=run)
+    sel = sync_skills.select(plain, run=lambda cmd, timeout: completed(stdout=CHECK_OUT))
     assert "vss-ask-video" in sel.active
 
 
@@ -211,7 +242,7 @@ def test_apply_missing_source_raises(tmp_path):
 # --- CLI contract ---------------------------------------------------------------
 
 def cli(tmp_path, monkeypatch, *argv):
-    """Run main() with a stub vss/curl on PATH."""
+    """Run main() with a stub vss on PATH."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     stub = bin_dir / "vss"
