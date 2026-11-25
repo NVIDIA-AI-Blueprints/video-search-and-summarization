@@ -17,23 +17,25 @@ Every Docker profile's checked-in `overrides.env` exposes the same
 connects the UI to an existing harness; it does not provision or modify that
 harness.
 
-For `dev-profile.sh`, provide deployment values through the environment so the
-generated, ignored `generated.env` receives them:
+For [manual Compose deployment](../../deploy/docker/README.md#developer-profiles),
+copy the selected profile's `overrides.env` to the ignored `user-overrides.env`
+and set the adapter values there. For
+[Build Vision AI](../../skills/vss-build-vision-ai/SKILL.md), put them in the
+build's `_builds/<name>/override.env` before resolving and validating the build:
 
-```bash
-export VSS_AGENT_ADAPTER_ENABLED=true
-export VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws
-export VSS_AGENT_BACKEND_URL=ws://host.docker.internal:18789
-export VSS_AGENT_BACKEND_PATH=/
-export HITL_ENABLED=false
-
-./deploy/docker/scripts/dev-profile.sh up --profile base --hardware-profile H100
+```env
+VSS_AGENT_ADAPTER_ENABLED=true
+VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws
+VSS_AGENT_BACKEND_URL=ws://host.docker.internal:18790
+VSS_AGENT_BACKEND_PATH=/
+HITL_ENABLED=false
 ```
 
-For direct Compose, copy the selected profile's `overrides.env` to the ignored
-`user-overrides.env` and set the same values there. OpenClaw uses
-`VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws`, a `ws://` or `wss://` URL, and path
-`/`. Once the harness starts, enter the gateway token in the Web UI's
+Use the existing harness's container-reachable WebSocket URL. For NemoClaw,
+`18790` is the default dashboard relay port; use the selected relay port, not
+the loopback-only dashboard forward (`18789`). OpenClaw uses protocol
+`openclaw-ws`, a `ws://` or `wss://` URL, and path `/`.
+Once the harness starts, enter the gateway token in the Web UI's
 **Connect NemoClaw chat** panel. The token stays in the browser tab session;
 the UI container does not need to be recreated. A server-provided
 `VSS_AGENT_BACKEND_TOKEN` remains supported for unattended deployments. Never

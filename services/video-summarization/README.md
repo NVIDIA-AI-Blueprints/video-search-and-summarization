@@ -225,9 +225,8 @@ before running `docker compose up`.
 The standalone compose file in this directory uses Docker-managed volumes for its
 database services. The repo-level compose path under `deploy/docker/compose.yml`,
 including the `lvs` developer profile, uses `VSS_DATA_DIR` host bind mounts for shared
-infrastructure data. If you run that repo-level compose path directly instead of the
-`dev-profile.sh` or `blueprint-deploy.sh` helpers, pre-create the writable data
-directories first:
+infrastructure data. For [manual repo-level Compose deployment](../../deploy/docker/README.md#developer-profiles),
+pre-create the writable data directories first:
 
 ```sh
 export VSS_DATA_DIR=/path/to/vss-apps-data

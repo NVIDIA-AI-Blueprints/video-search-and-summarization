@@ -24,15 +24,6 @@ arguments override earlier ones, so order matters.
 | **`developer-profiles/dev-profile-*/overrides.env`** | Checked-in developer-profile template. Copy it to `user-overrides.env` before direct Compose deployment; do not edit the template. |
 | **`developer-profiles/dev-profile-*/user-overrides.env`** | Ignored user-managed direct-Compose overlay for hardware, model placement, endpoint URLs, host paths, credentials, public ingress, host-published ports, and `COMPOSE_PROFILES`. |
 | **`industry-profiles/*/overrides.env`** | Mutable deployment-specific defaults for industry profiles. |
-| **`generated.env`** | Developer-profile runtime overlay created by `dev-profile.sh` from `overrides.env`. It also receives derived values such as `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, API keys, model slugs, and compose-wide defaults. Do not edit or commit this file. |
-
-`dev-profile.sh` starts developer stacks with env files in this order:
-
-```bash
---env-file containers.env \
---env-file developer-profiles/dev-profile-<profile>/.env \
---env-file developer-profiles/dev-profile-<profile>/generated.env
-```
 
 When running Compose directly, first create the ignored user-managed overlay from the
 checked-in template (repeat the copy to discard prior layout choices):
@@ -55,49 +46,54 @@ Before direct Compose bring-up, update the deployment-specific placeholders in
 
 ---
 
-## Developer profiles (recommended path)
+## Developer profiles
 
-Use the **`dev-profile`** helper instead of hand-editing Compose for day-to-day developer stacks (**base**, **lvs**, **search**, **alerts**).
+For agent-driven deployment, use
+[`/vss-build-vision-ai`](../../skills/vss-build-vision-ai/SKILL.md). Follow its
+build workflow: write `_builds/<name>/override.env` and `compose.yml`, resolve,
+normalize and validate `resolved.yml`, then deploy that exact resolved file.
+The manual commands below use a profile's `user-overrides.env` instead; they do
+not replace the skill's workflow.
 
-**Script:** `deploy/docker/scripts/dev-profile.sh`
-
-**Examples:**
+For manual deployment, select `base`, `lvs`, `search`, or `alerts` and copy its
+checked-in template once:
 
 ```bash
-cd /path/to/video-search-and-summarization
-
-# Required for bring-up: NGC CLI API key (pull + NIM)
-export NGC_CLI_API_KEY="<your-key>"
-
-# Base profile — minimal developer stack (hardware profile required)
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile base \
-  --hardware-profile H100
-
-# LVS profile — video summarization / LVS-oriented bundle (hardware profile required)
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile lvs \
-  --hardware-profile H100
-
-# Alerts profile — set --mode to verification or real-time
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile alerts \
-  --mode verification \
-  --hardware-profile H100
-
-# Search profile
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile search \
-  --hardware-profile H100
-
-# Full reset (no profile flags — removes named volumes and `$VSS_DATA_DIR`)
-./deploy/docker/scripts/dev-profile.sh down
+cd /path/to/video-search-and-summarization/deploy/docker
+profile=search  # base, lvs, search, or alerts
+profile_dir="developer-profiles/dev-profile-${profile}"
+cp "$profile_dir/overrides.env" "$profile_dir/user-overrides.env"
 ```
 
-**Full options** (models, remote LLM/VLM, device IDs, edge hardware, etc.):
+Edit `user-overrides.env` before running Compose. Set concrete host paths,
+addresses and credentials, and select hardware, GPU placement, local or remote
+models, and the full `COMPOSE_PROFILES` service set. Compose does not derive
+these settings from `HARDWARE_PROFILE` or `MODE`. The checked-in template's
+comments describe the settings; prepare the writable data directories described
+below before bring-up.
+
+For Alerts, keep `MODE`, `COMPOSE_PROFILES`, notification configuration and
+RT-VLM publishing settings aligned. The template defaults to `2d_cv`
+(verification); `2d_vlm` (real-time) uses `COMPOSE_PROFILES_VLM` and the
+accompanying settings in the
+[Alerts mode reference](../../skills/vss-build-vision-ai/references/profiles/alerts.md#mode-selected-backend-configuration).
+Changing `MODE` alone is insufficient.
+
+Validate the effective configuration, then start the selected profile with the
+same env layers:
 
 ```bash
-./deploy/docker/scripts/dev-profile.sh --help
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "$profile_dir/.env" \
+  --env-file "$profile_dir/user-overrides.env" \
+  config
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "$profile_dir/.env" \
+  --env-file "$profile_dir/user-overrides.env" \
+  up -d --pull always --build
 ```
 
 ### LVS GPU hardware metrics
@@ -120,18 +116,6 @@ use. The exporter requires the NVIDIA driver, NVIDIA Container Toolkit, and a
 GPU supported by DCGM. Its `/metrics` endpoint can be scraped directly by
 Prometheus, Dynatrace, or another Prometheus-compatible monitoring system.
 
-Each developer profile ships a stable **`.env`** and a mutable
-**`overrides.env`** under **`developer-profiles/dev-profile-<profile>/`**. On
-`up`, the helper reads both, copies `overrides.env` to **`generated.env`**, adds
-derived runtime values, and starts Compose with `containers.env`, the profile
-`.env`, and `generated.env` in that order.
-
-The helper resets its managed state before every `up`: it stops each managed
-Compose project (default: **`vss`**), removes Compose volumes, deletes old `generated.env` files,
-cleans generated SDRC artifacts, and deletes the developer data directory
-(default: **`deploy/docker/data-dir`**) before recreating it. Use `--dry-run` to
-preview the commands and generated environment without starting containers.
-
 ### RTVI CV startup policy
 
 - Docker uses one canonical RTVI CV startup entrypoint: `services/rtvi/rtvi-cv/ds-start.sh`.
@@ -143,25 +127,9 @@ preview the commands and generated environment without starting containers.
 
 ### Direct Compose usage and data directories
 
-`dev-profile.sh` creates and permissions developer-profile data directories automatically. If you run
-`docker compose` directly, you are responsible for both the env-file order and the
-host directories.
-
-For a developer profile started by `dev-profile.sh`, use its helper-created `generated.env`:
-
-```bash
-cd /path/to/video-search-and-summarization/deploy/docker
-
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file developer-profiles/dev-profile-base/.env \
-  --env-file developer-profiles/dev-profile-base/generated.env \
-  config
-```
-
-For direct Compose, copy `overrides.env` to `user-overrides.env` first, then
-replace the user file's placeholder values for `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
-credentials, ports, and model settings.
+For manual Compose deployment, use the env-file order and edited
+`user-overrides.env` described above. Host directories must exist and be
+writable before bring-up.
 
 Create writable host directories for the bind-mounted infrastructure volumes
 before starting a direct Compose stack:
@@ -242,12 +210,13 @@ can add, remove, or rename model-specific initialization containers.
 | Base (`base`) | `llm-nim-init` for the default local LLM. |
 | Video Summarization (`lvs`) | `llm-nim-init`, `vss-elasticsearch-init`, `vss-kafka-topics`, `vss-kibana-init`, `vss-broker-health-check`, `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, and `sdrc-wait-for-redis`. |
 | Search (`search`) | `llm-nim-init`, `vss-elasticsearch-init`, `vss-kafka-topics`, `vss-kibana-init`, and `vss-broker-health-check`. Perception models are downloaded by the perception startup script, not a separate init container. |
-| Alert Verification (`alerts --mode verification`) | The same one-time containers as Search. Perception models are downloaded by the perception startup script. |
-| Real-Time Alerts (`alerts --mode real-time`) | The same one-time containers as Search. This mode does not start the CV perception service. |
+| Alert Verification (`alerts`, `MODE=2d_cv`) | The same one-time containers as Search. Perception models are downloaded by the perception startup script. |
+| Real-Time Alerts (`alerts`, `MODE=2d_vlm`) | The same one-time containers as Search. This mode does not start the CV perception service. |
 
 ### Stop or reset a developer profile
 
-Run these commands from `deploy/docker`. Both remove project containers, orphans,
+Run these commands from `deploy/docker`, with `profile_dir` set to the same
+profile directory used for bring-up. Both remove project containers, orphans,
 and the Compose network. The project defaults to `vss`, but respects an explicit
 `COMPOSE_PROJECT_NAME`:
 
@@ -255,10 +224,18 @@ and the Compose network. The project defaults to `vss`, but respects an explicit
 project="${COMPOSE_PROJECT_NAME:-vss}"
 
 # Stop the deployment and preserve named volumes.
-docker compose -p "${project}" down --remove-orphans
+docker compose -p "${project}" -f compose.yml \
+  --env-file containers.env \
+  --env-file "$profile_dir/.env" \
+  --env-file "$profile_dir/user-overrides.env" \
+  down --remove-orphans
 
 # Reset the deployment and remove named and anonymous volumes.
-docker compose -p "${project}" down -v --remove-orphans
+docker compose -p "${project}" -f compose.yml \
+  --env-file containers.env \
+  --env-file "$profile_dir/.env" \
+  --env-file "$profile_dir/user-overrides.env" \
+  down -v --remove-orphans
 ```
 
 The `-v` option removes Docker-managed volumes, including VIOS PostgreSQL data,
@@ -296,11 +273,7 @@ tree. The LVS profile uses `services/infra/sdrc/log`,
 `services/infra/sdrc/.wdm-env`, and rendered profile configuration files. A normal
 Compose `down`, with or without `-v`, does not delete them.
 
-`./deploy/docker/scripts/dev-profile.sh down` is a **full reset**, not merely a
-container stop. It runs the `-v` teardown for every discovered project name, removes
-dangling volumes, deletes generated environment and SDRC runtime files, and
-recursively deletes the configured `VSS_DATA_DIR`. Use the first Compose command
-when model caches, recordings, indexes, or other deployment data must survive.
+Neither teardown command deletes `user-overrides.env` or resets host data.
 
 ### LVS Compose notes
 
@@ -313,22 +286,11 @@ Default LVS model wiring:
 | LLM | Starts the **`nemotron-3.5-lightning-30b-a3b`** NIM container on **`LLM_PORT=30081`** when `LLM_MODE` is `local` or `local_shared`. | `nvidia/nemotron-3.5-lightning-30b-a3b` |
 | VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` |
 
-For external endpoints, use the helper flags instead of editing Compose files directly:
-
-```bash
-export LLM_ENDPOINT_URL='<REMOTE LLM SERVICE ROOT, no trailing /v1>'
-export VLM_ENDPOINT_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
-
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile lvs \
-  --hardware-profile H100 \
-  --use-remote-llm \
-  --use-remote-vlm \
-  --llm nvidia/nemotron-3.5-lightning-30b-a3b \
-  --vlm nim_nvidia_cosmos3-nano-reasoner_bf16-final
-```
-
-The helper probes **`${LLM_ENDPOINT_URL}/v1/models`** and **`${VLM_ENDPOINT_URL}/v1/models`**, and the agent config appends **`/v1`** to **`LLM_BASE_URL`** / **`VLM_BASE_URL`**. Do not include **`/v1`** in the endpoint environment variables.
+For external endpoints, configure `user-overrides.env` before bring-up. Set the
+remote modes, endpoint URLs, model names and slugs, and RT-VLM proxy settings
+together using the [remote model recipe](../../skills/vss-build-vision-ai/references/env-overrides.md#common-override-sets).
+`LLM_BASE_URL` and `VLM_BASE_URL` omit the trailing `/v1`;
+`RTVI_VLM_ENDPOINT` includes it. Setting `VLM_MODE=remote` alone is insufficient.
 
 Post-deploy checks for the default local LVS ports:
 
@@ -341,7 +303,7 @@ curl -f http://127.0.0.1:38111/models
 curl -f http://127.0.0.1:30081/v1/models
 ```
 
-If a local NIM container keeps restarting and logs include **`No available memory for the cache blocks`**, reduce the NIM max model length and/or sequence count for the active hardware profile. One non-destructive way is to pass an override env file through **`--llm-env-file`**:
+If a local NIM container keeps restarting and logs include **`No available memory for the cache blocks`**, reduce the NIM max model length and/or sequence count for the active hardware profile. Put model-specific settings in an env file:
 
 ```env
 # /tmp/lvs-nim-low-memory.env
@@ -349,12 +311,8 @@ NIM_MAX_MODEL_LEN=65536
 NIM_MAX_NUM_SEQS=2
 ```
 
-```bash
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile lvs \
-  --hardware-profile RTXPRO6000BW \
-  --llm-env-file /tmp/lvs-nim-low-memory.env
-```
+Set `LLM_ENV_FILE=/tmp/lvs-nim-low-memory.env` in the LVS
+`user-overrides.env`, then rerun the same Compose bring-up command.
 
 Those numeric values are only an example shape for reducing cache pressure; validate the final values on your GPU and workload.
 
@@ -462,7 +420,7 @@ Compose profiles for warehouse slices are defined in
 ## Requirements
 
 - **Docker** and **Docker Compose** (Compose v2: `docker compose`)
-- **bash** (for **`dev-profile.sh`** and cleanup scripts)
+- **bash** (for cleanup scripts)
 - **NVIDIA GPU driver** on the host, at a version supported by your hardware and by the GPU containers you run (see NVIDIA release notes for CUDA / NIM images). Check with **`nvidia-smi`** before starting stacks that use GPUs.
 - **NVIDIA Container Toolkit** (nvidia-docker) so containers can access the GPU; required alongside the driver for GPU-backed Compose services.
 - Valid **NGC** credentials where images or NIMs require **`NGC_CLI_API_KEY`**

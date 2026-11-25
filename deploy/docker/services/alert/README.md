@@ -8,19 +8,16 @@ profile's `COMPOSE_PROFILES`.
 
 ## Deploy
 
-Bring it up through the profile helper, not from this directory:
+Deploy the `alerts` profile through
+[`Build Vision AI`](../../../../skills/vss-build-vision-ai/SKILL.md), or use the
+[manual Compose workflow](../../README.md#developer-profiles) with an edited
+`developer-profiles/dev-profile-alerts/user-overrides.env`.
 
-```bash
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile alerts \
-  --mode verification \
-  --hardware-profile H100
-```
-
-Use `--mode real-time` for RTVI-VLM alert generation instead of CV-triggered
-verification. The industry profiles under `deploy/docker/industry-profiles/`
-include the same service. See [`deploy/docker/README.md`](../../README.md) for
-the env-file precedence and the full profile list.
+Select `MODE=2d_cv` for CV-triggered verification or `MODE=2d_vlm` for real-time
+RT-VLM alerts. Keep the service set and accompanying mode settings aligned as
+specified in the [Alerts mode reference](../../../../skills/vss-build-vision-ai/references/profiles/alerts.md#mode-selected-backend-configuration);
+changing `MODE` alone is insufficient. The industry profiles under
+`deploy/docker/industry-profiles/` include the same service.
 
 ## Configuration
 
@@ -34,8 +31,8 @@ profile you deployed:
 | `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME` | `/app/configs/realtime-config.yml` | Always-on alert rules |
 | `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` | `/app/alert_type_config.json` | Per-alert-type verification config |
 
-The profiles set these in their `overrides.env` — for example
-`developer-profiles/dev-profile-alerts/overrides.env`. Edit the file the
+The profile templates declare these paths. Override them in the manual
+`user-overrides.env` or the Build Vision AI build's `override.env`. Edit the file the
 variable points at; editing anything under this directory has no effect.
 
 The entrypoint runs `scripts/env-substitute.py` first, which expands `${...}`
