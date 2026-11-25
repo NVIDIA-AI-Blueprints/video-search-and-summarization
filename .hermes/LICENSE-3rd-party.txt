@@ -10,6 +10,12 @@ Installed third-party Python distributions: 94
 Ubuntu APT packages added: 25, plus perl-base upgraded in place from the base image (same source package and copyright file as perl). Reproduce the set by subtracting `dpkg-query -W` on the base image from the same query on this image.
 Total documented components: 120
 
+Source availability: no separate source bundle is redistributed; each component is obtained from the distribution point it was built from, by the exact name and version listed below.
+- Python distributions: `https://pypi.org/project/<name>/<version>/`, which carries the sdist. Both pinned sets are reproducible from hermes-agent's `uv.lock` at HERMES_REF and `libs/vss/uv.lock` in this repository.
+- Hermes: `https://github.com/NousResearch/hermes-agent` at HERMES_REF.
+- CPython 3.13.14: the `astral-sh/python-build-standalone` asset `uv python install` fetches, built from CPython `v3.13.14`.
+- Ubuntu APT packages: the Ubuntu 24.04 archive via `apt-get source <package>=<version>` with a `deb-src` entry, or Launchpad, which retains superseded versions. A binary package resolves to its source package, as `perl-base` does to `perl`.
+
 ---
 
 --------------------------------------------------------------------------------
