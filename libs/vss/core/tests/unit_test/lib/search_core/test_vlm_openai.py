@@ -6,12 +6,16 @@ from __future__ import annotations
 
 import base64
 import json
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
+from vss_core.vios import VSTClient
+import vss_core.vios.client as vst_module
+from vss_core.vlm import second_look
 from vss_core.vlm.openai import OpenAIVLMAnalyzer
 from vss_core.vlm.openai import bound_rt_vlm_fps_sampling
 
@@ -19,6 +23,49 @@ from vss_core.vlm.openai import bound_rt_vlm_fps_sampling
 class _VST:
     async def get_video_clip_url(self, **_kwargs: object) -> str:
         return "https://vst.example/clip.mp4"
+
+
+@pytest.mark.asyncio
+async def test_second_look_uses_exact_configured_vst_for_both_partial_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(VSTClient, "resolve_stream_id", AsyncMock(return_value="stream-1"))
+    monkeypatch.setattr(
+        vst_module,
+        "recorded_segments",
+        AsyncMock(return_value=[("2026-01-01T00:00:00Z", "2026-01-01T00:05:00Z")]),
+    )
+    clips = AsyncMock(return_value="https://vst.example/clip.mp4")
+    monkeypatch.setattr(vst_module, "get_video_clip_url", clips)
+    answers = iter(("first", "targeted"))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": next(answers)}}]}, request=request)
+
+    analyzer = OpenAIVLMAnalyzer(
+        base_url="https://vlm.example/v1",
+        model="model",
+        vst=VSTClient(internal_url="http://vst", external_url="https://vst.example", exact_clips=True),
+    )
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        result = await second_look(
+            analyzer,
+            sensor_id="camera",
+            start_timestamp="100",
+            end_timestamp="200",
+            second_start_timestamp="120",
+            second_end_timestamp="123",
+            prompt="What happens at 02:01?",
+            time_format="offset",
+        )
+    finally:
+        await analyzer.aclose()
+
+    assert result.first_answer == "first" and result.answer == "targeted"
+    assert [call.kwargs["transcode"] for call in clips.await_args_list] == ["full", "full"]
+    assert [(call.kwargs["start_time"], call.kwargs["end_time"]) for call in clips.await_args_list] == [
+        ("2026-01-01T00:01:40.000Z", "2026-01-01T00:03:20.000Z"),
+        ("2026-01-01T00:02:00.000Z", "2026-01-01T00:02:03.000Z"),
+    ]
 
 
 @pytest.mark.parametrize(
