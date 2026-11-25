@@ -2855,7 +2855,7 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
             self.assertTrue(held)
             self.assertEqual(instance, "Spark-ba-WiFi")
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {
-            "EVAL_SLUG": "vios__DGX-SPARK", "GITHUB_RUN_ID": "123",
+            "EVAL_SLUG": "vios__DGX-SPARK", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1",
         }):
             root = Path(tmp)
             receipt = root / "machine.txt"
