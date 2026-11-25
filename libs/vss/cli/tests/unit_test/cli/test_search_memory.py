@@ -149,6 +149,12 @@ def test_search_cli_resolves_fusion_flags_at_invocation_boundary(monkeypatch: py
             "--no-persist",
         ],
     )
+    # The subject check needs rrf's per-clip attribute match; with the tag leg
+    # it would silently do nothing, so the pair is refused before any request.
+    subject_check_with_tags = runner.invoke(
+        cli,
+        ["run", "fusion", "--query", "forklift", "--w-tag", "0.2", "--subject-check", "--no-persist"],
+    )
 
     assert default.exit_code == 0, default.output
     assert automatic.exit_code == 0, automatic.output
@@ -158,6 +164,8 @@ def test_search_cli_resolves_fusion_flags_at_invocation_boundary(monkeypatch: py
     ]
     assert contradictory.exit_code == int(Exit.INVALID_INPUT)
     assert "has no VLM tag leg" in contradictory.output
+    assert subject_check_with_tags.exit_code == int(Exit.INVALID_INPUT), subject_check_with_tags.output
+    assert "--subject-check needs the default rrf fusion" in subject_check_with_tags.output
 
 
 @pytest.fixture

@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     import click
 
     from vss_core.search_core.critic import CriticAgent
+    from vss_core.search_core.subject_check import SubjectChecker
     from vss_core.vlm import OpenAIVLMAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -243,6 +244,18 @@ class SearchTuning(BaseModel):
         ),
         json_schema_extra={"cli_flag": "--critic-eval-count"},
     )
+    subject_check: bool = Field(
+        False,
+        description=(
+            "Fusion only: ask the VLM whether the person who matched the attribute"
+            " is the one doing the action, using that person's best frame with their box"
+            " drawn on it, and move each top result it answers no for down three"
+            " places. Off by default. Needs the same VST and RT-VLM the critic uses;"
+            " without them it is skipped. Changes only the order of results."
+            " Not available with the VLM tag leg (--w-tag > 0)."
+        ),
+        json_schema_extra={"cli_flag": "--subject-check"},
+    )
 
 
 class SearchPersistOptions(BaseModel):
@@ -424,6 +437,27 @@ async def _critic_from(
     )
 
 
+def _subject_checker_from(
+    deployment: config_mod.Deployment,
+    vlm: OpenAIVLMAnalyzer | None,
+) -> SubjectChecker | None:
+    """Build the fusion subject check on the critic's VLM, or ``None`` without one.
+
+    Only called for ``--subject-check``. It needs the same two services the
+    critic does (RT-VLM and VST): ``_critic_from`` has already probed RT-VLM,
+    and a ``None`` analyzer means it found no usable VLM, so the check is
+    skipped.
+    """
+    if vlm is None:
+        return None
+
+    from vss_core.search_core.subject_check import SubjectChecker
+    from vss_core.vios import VSTClient
+
+    vst = VSTClient(internal_url=deployment.base_url, external_url=deployment.base_url)
+    return SubjectChecker(image_analyzer=vlm, vst=vst, vst_internal_url=deployment.base_url)
+
+
 class SearchGroup(CommandGroup):
     """Search indexed video."""
 
@@ -501,6 +535,9 @@ class SearchGroup(CommandGroup):
         # out of `tuning` (which feeds SearchRuntime) and thread it to the
         # critic instead. None = verify every hit (bounded by --top-k).
         critic_eval_count = tuning.pop("critic_eval_count", None)
+        # Like critic_eval_count, a caller preference rather than a runtime
+        # field: it decides whether the subject checker is built at all.
+        subject_check = bool(tuning.pop("subject_check", False))
         # Auto-select the fusion method from the VLM tag leg choice. The
         # legacy `rrf` (embed + attribute, no tag leg) is the default; opting
         # into the VLM tag leg (--w-tag > 0) auto-selects `weighted_rrf`
@@ -517,6 +554,15 @@ class SearchGroup(CommandGroup):
             )
         except ConfigurationError as error:
             raise InvalidInput(str(error)) from error
+        # The subject check runs on the per-clip attribute matches that only
+        # the `rrf` path builds; `weighted_rrf` runs its attribute leg on its
+        # own, so it has no subject to check. Refuse the pair rather than
+        # accept a flag that would silently do nothing.
+        if subject_check and tuning["fusion_method"] != "rrf":
+            raise InvalidInput(
+                "--subject-check needs the default rrf fusion; it cannot be combined with"
+                " the VLM tag leg (--w-tag > 0 or --fusion-method weighted_rrf)"
+            )
         # The library still selects a path by `search_mode`; the CLI just no
         # longer asks the caller to name it. The sub-action is the mode.
         payload["search_mode"] = action
@@ -620,8 +666,9 @@ class SearchGroup(CommandGroup):
 
         async def _go() -> Any:
             critic, vlm, disabled_reason = await _critic_from(deployment, eval_count=critic_eval_count)
+            subject_checker = _subject_checker_from(deployment, vlm) if subject_check else None
             try:
-                async with VSSSearch.from_runtime(runtime, critic=critic) as vss:
+                async with VSSSearch.from_runtime(runtime, critic=critic, subject_checker=subject_checker) as vss:
                     output = await vss.search(**payload)
             finally:
                 if vlm is not None:
