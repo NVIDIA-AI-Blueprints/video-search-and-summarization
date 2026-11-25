@@ -1,0 +1,40 @@
+{
+  "schema_version": "0.1",
+  "metadata": {
+    "service": "compose-base",
+    "run_info": {
+      "run_id": "compose-base_example-single-gpu_20261014_120000",
+      "timestamp": "2026-10-14T12:00:00Z",
+      "duration_seconds": 30,
+      "triggered_by": "manual",
+      "release": "example"
+    },
+    "platform": {"gpu": {"model": "Example GPU", "count": 1}},
+    "config": {"config_id": "example-single-gpu", "sample_only": true},
+    "benchmark_name": "quick_test",
+    "benchmark_mode": "compose_base"
+  },
+  "summary": {"total_tests": 5, "passed": 5, "failed": 0, "pass_rate": 100, "overall_status": "PASS"},
+  "test_cases": [
+    {
+      "test_case_id": "vios_stream_listing", "success": true,
+      "metrics": {"latency": {"client_observed_mean_seconds": 0.3, "client_observed_p50_seconds": 0.3, "client_observed_p95_seconds": 0.35}}
+    },
+    {
+      "test_case_id": "analytics_sensor_listing", "success": true,
+      "metrics": {"latency": {"client_observed_mean_seconds": 0.3, "client_observed_p50_seconds": 0.3, "client_observed_p95_seconds": 0.35}}
+    },
+    {
+      "test_case_id": "analytics_incident_query", "success": true,
+      "metrics": {"latency": {"client_observed_mean_seconds": 0.3, "client_observed_p50_seconds": 0.3, "client_observed_p95_seconds": 0.35}}
+    },
+    {
+      "test_case_id": "rt_cv_stream_throughput", "success": true,
+      "metrics": {"throughput": {"aggregate_fps_mean": 30, "minimum_stream_fps": 29.9, "active_streams_minimum": 1, "sample_count": 6}}
+    },
+    {
+      "test_case_id": "infrastructure_resources", "success": true,
+      "metrics": {"scope": "host aggregate and selected physical GPUs", "duration_seconds": 30, "cpu": {"utilization_percent": {"mean": 20}}, "gpu": {"0": {"utilization_percent": {"mean": 30}}}, "storage": {"read_bytes": 1000}, "network": {"bytes_recv": 1000}}
+    }
+  ]
+}

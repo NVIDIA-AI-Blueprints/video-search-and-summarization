@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# GPU 0 on Hugo's local RTX PRO 6000 Blackwell SE machine was identified independently.
+# The node label selects the shared machine class; DevOps confirms pool enrollment.
+perf_configs:
+  - id: rtxpro6000bw-1-compose-base-rtdetr-warehouse
+    composePath: perf/setup/compose/x86-single-gpu.yaml
+    nodeLabel: RTXPRO6000BW-SE
+    imageArch: amd64
+    enabled: true
+    rtCvModel: rtdetr-warehouse-v1.0.2
+    rtCvGpus: "0"
+    rtCvNetworkMode: 0
+    rtCvStronglyTyped: true
+    hardwareProfile: RTXPRO6000BW
