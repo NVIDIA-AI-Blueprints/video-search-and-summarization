@@ -1561,7 +1561,7 @@ class RunInvocations(unittest.TestCase):
             ),
             (
                 "explicit-compatible",
-                {"COMPATIBLE_API_KEY": "explicit-compatible-key"},
+                {"COMPATIBLE_API_KEY": "explicit-compatible-key"},  # pragma: allowlist secret
                 "explicit-compatible-key",
             ),
         ):
@@ -1594,7 +1594,7 @@ class RunInvocations(unittest.TestCase):
                     mock.patch.object(
                         run_leg,
                         "harbor_env",
-                        return_value={"COMPATIBLE_API_KEY": "stale-key"},
+                        return_value={"COMPATIBLE_API_KEY": "stale-key"},  # pragma: allowlist secret
                     ),
                     mock.patch.object(
                         run_leg, "build_harbor_command", return_value=["harbor"]
@@ -1632,8 +1632,8 @@ class RunInvocations(unittest.TestCase):
         )
         env = {
             **self.ENV,
-            "COMPATIBLE_API_KEY": "hosted-secret",
-            "NGC_API_KEY": "registry-secret",
+            "COMPATIBLE_API_KEY": "hosted-secret",  # pragma: allowlist secret
+            "NGC_API_KEY": "registry-secret",  # pragma: allowlist secret
             "EVAL_SKILL": "vss-build-vision-ai",
             "EVAL_SPEC_PATH": (
                 "skills/vss-build-vision-ai/evals/"
@@ -1656,7 +1656,7 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.object(
                     run_leg,
                     "harbor_env",
-                    return_value={"COMPATIBLE_API_KEY": "hosted-secret"},
+                    return_value={"COMPATIBLE_API_KEY": "hosted-secret"},  # pragma: allowlist secret
                 ),
                 mock.patch.object(
                     run_leg, "build_harbor_command", return_value=["harbor"]
