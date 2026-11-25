@@ -378,6 +378,15 @@ async def add_to_rtvi_vlm(
                 errors = result.get("errors") if isinstance(result, dict) else None
                 results = result.get("results", []) if isinstance(result, dict) else []
                 if errors and not results:
+                    if all(
+                        isinstance(error, dict) and error.get("error_code") == "DuplicateStreamId" for error in errors
+                    ):
+                        logger.info(
+                            "RTVI-VLM stream already registered: rtvi_stream_id=%s (vst_sensor_id=%s)",
+                            sensor_id,
+                            sensor_id,
+                        )
+                        return True, "Already registered", sensor_id
                     return False, f"RTVI-VLM returned errors: {errors}", None
 
                 rtvi_stream_id = (results[0].get("id") if results else None) or sensor_id

@@ -1673,6 +1673,13 @@ class VlmPipeline:
 
         logger.info("Initialized VLM pipeline")
 
+    def _invoke_chunk_result_callback(self, callback, chunk_result) -> None:
+        """Keep subscriber faults from killing the processed-chunk watcher."""
+        try:
+            callback(chunk_result)
+        except Exception:
+            logger.error("Chunk result callback failed", exc_info=True)
+
     def _watch_processed_chunk_queue(self):
         """Gather chunks processed by the pipeline and return via callback"""
 
@@ -1695,7 +1702,9 @@ class VlmPipeline:
                     chunk_result.stream_error_attempt_count = item.get("attempt_count", 0)
                     for subscriber in subscribers:
                         if subscriber.on_chunk_result:
-                            subscriber.on_chunk_result(chunk_result)
+                            self._invoke_chunk_result_callback(
+                                subscriber.on_chunk_result, chunk_result
+                            )
                 continue
 
             if item.get("live_stream_ended", False):
@@ -1738,7 +1747,7 @@ class VlmPipeline:
                     chunk_result = PipelineChunkResult()
                     chunk_result.is_live_stream_ended = True
                     for callback in eos_callbacks:
-                        callback(chunk_result)
+                        self._invoke_chunk_result_callback(callback, chunk_result)
                 if close_sessions:
                     Thread(
                         target=self._close_evs_sessions_after_eos,
@@ -1844,12 +1853,12 @@ class VlmPipeline:
                         close_sessions = True
 
                 for callback in result_callbacks:
-                    callback(chunk_result)
+                    self._invoke_chunk_result_callback(callback, chunk_result)
                 if eos_callbacks:
                     live_stream_ended = PipelineChunkResult()
                     live_stream_ended.is_live_stream_ended = True
                     for callback in eos_callbacks:
-                        callback(live_stream_ended)
+                        self._invoke_chunk_result_callback(callback, live_stream_ended)
                 if close_sessions:
                     Thread(
                         target=self._close_evs_sessions_after_eos,
@@ -1859,7 +1868,7 @@ class VlmPipeline:
                 continue
             callback = self._chunk_callback_map.pop(item["chunk_id"], None)
             if callback:
-                callback(chunk_result)
+                self._invoke_chunk_result_callback(callback, chunk_result)
 
     def _close_evs_sessions_after_eos(self, lsinfo: "VlmPipeline._LiveStreamInfo", stream_id: str):
         try:
@@ -2009,6 +2018,7 @@ class VlmPipeline:
                 request_id=request_id,
                 decode_start_time=decode_start_time,
                 decode_end_time=decode_end_time,
+                decode_retry_count=0,
                 frames=[],
                 frame_times=[],
                 audio_frames=[],
@@ -2039,6 +2049,7 @@ class VlmPipeline:
                 request_id=request_id,
                 decode_start_time=decode_start_time,
                 decode_end_time=decode_end_time,
+                decode_retry_count=0,
                 frames=[],
                 frame_times=[],
                 audio_frames=[],
