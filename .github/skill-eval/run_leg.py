@@ -2286,6 +2286,21 @@ def _run_invocations(
             )
         )
         deferred_agent_marker = deferred_agent_run_marker(run_id, leg_slug)
+    elif not operational_eval:
+        if model_routes.coding.provider == "local-nim":
+            env.pop("COMPATIBLE_API_KEY", None)
+        else:
+            compatible_api_key = (
+                os.environ.get("COMPATIBLE_API_KEY", "").strip()
+                or (
+                    operational_config.api_key
+                    if operational_config.provider != "local-nim"
+                    else ""
+                )
+                or model_routes.coding.api_key
+            )
+            if compatible_api_key:
+                env["COMPATIBLE_API_KEY"] = compatible_api_key
     skipped_after: dict[str, int] = {}
     overall_rc = 0
 

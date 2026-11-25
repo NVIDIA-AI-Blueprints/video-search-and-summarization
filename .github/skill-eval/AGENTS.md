@@ -743,8 +743,9 @@ date dir's *contents* into a pre-made job dir — the workflow's
 "Collect results" step runs *after* this agent and tars `$RES` for
 the artifact, so a `mv` would upload an artifact with no
 `result.json`. Copying keeps `$RES` intact for the collector (which
-excludes `agent/` from the public tarball) while the `_viewer` copy
-keeps `agent/` for the live Harbor Trace tab. You do not run `cp`
+redacts and includes `agent/trajectory.json` while excluding raw
+`agent/sessions/` and CLI scratch) and keeps the `_viewer` copy
+for the live Harbor Trace tab. You do not run `cp`
 yourself.
 
 ### Trace URLs — read them, never build them
