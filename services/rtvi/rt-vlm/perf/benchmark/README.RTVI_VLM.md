@@ -2,6 +2,8 @@
 
 Performance benchmarking framework for RTVI VLM services.
 
+Max-live-stream startup registers assets first, then phases caption requests across one chunk interval using absolute deadlines. Startup admission waits use a separate bounded pool from long-lived stream monitors. Frame selection, generation parameters and the steady request rate are unchanged.
+
 ---
 
 ## Quick Start (BCD 3.3)

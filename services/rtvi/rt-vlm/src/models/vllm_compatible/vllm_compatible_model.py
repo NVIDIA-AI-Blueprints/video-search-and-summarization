@@ -18,10 +18,10 @@ import concurrent.futures
 import contextlib
 import copy
 import hashlib
+import inspect
 import json
 import math
 import os
-import random
 import re
 import shutil
 import string
@@ -257,6 +257,23 @@ def _get_num_preprocess_workers() -> int:
             f"'{num_workers}' must be greater than or equal to 1"
         )
     return num_workers
+
+
+def _configure_renderer_workers(engine_args_kwargs: dict, supported_params) -> bool:
+    if "renderer_num_workers" not in supported_params:
+        return False
+    # vLLM creates workers + 1 independent copies for preprocessing and output.
+    engine_args_kwargs["renderer_num_workers"] = _get_num_preprocess_workers()
+    return True
+
+
+def _warm_vllm_tokenizer_processors(llm) -> None:
+    """Materialize lazy HF tokenizer copies before the service accepts requests."""
+    renderer = llm.input_processor.renderer
+    mm_processor = renderer.mm_processor
+    if mm_processor is not None:
+        mm_processor.info.get_hf_processor()
+    logger.info("vLLM tokenizer processors warmed before live admission")
 
 
 def _get_vllm_compilation_config(
@@ -783,11 +800,10 @@ def _configure_structured_outputs(engine_args_kwargs: dict, supported_params: se
 
     from vllm.config import StructuredOutputsConfig
 
-    engine_args_kwargs["structured_outputs_config"] = StructuredOutputsConfig(
-        backend="xgrammar",
-        disable_fallback=True,
-        disable_any_whitespace=True,
-    )
+    config_kwargs = {"backend": "xgrammar", "disable_any_whitespace": True}
+    if "disable_fallback" in inspect.signature(StructuredOutputsConfig).parameters:
+        config_kwargs["disable_fallback"] = True
+    engine_args_kwargs["structured_outputs_config"] = StructuredOutputsConfig(**config_kwargs)
 
 
 def _set_cosmos_no_repeat_ngram_size(sampling_params, model_type: str) -> None:
@@ -1675,9 +1691,7 @@ class VllmCompatible(BaseVlmModel):
                 if video_pruning_rate is not None:
                     if "video_pruning_rate" in _engine_supported_params:
                         engine_args_kwargs["video_pruning_rate"] = video_pruning_rate
-                        logger.info(
-                            "EVS enabled: video_pruning_rate=%.2f", video_pruning_rate
-                        )
+                        logger.info("EVS enabled: video_pruning_rate=%.2f", video_pruning_rate)
                     else:
                         logger.warning(
                             "VLM_VIDEO_PRUNING_RATE is set but the installed vLLM engine "
@@ -1710,8 +1724,13 @@ class VllmCompatible(BaseVlmModel):
                 if "num_preprocess_workers" in _engine_supported_params:
                     engine_args_kwargs["num_preprocess_workers"] = _get_num_preprocess_workers()
 
+                prewarm_tokenizers = _configure_renderer_workers(
+                    engine_args_kwargs, _engine_supported_params
+                )
                 engine_args = AsyncEngineArgs(**engine_args_kwargs)
                 self._llm = AsyncLLMEngine.from_engine_args(engine_args)
+                if prewarm_tokenizers:
+                    _warm_vllm_tokenizer_processors(self._llm)
                 self._processor = AutoProcessor.from_pretrained(
                     self.model_path, trust_remote_code=vlm_trust_remote_code
                 )
@@ -1784,9 +1803,7 @@ class VllmCompatible(BaseVlmModel):
             self._conv = []
         return self._conv.copy()
 
-    def _resolve_prompt_reasoning_config(
-        self, config: VlmGenerationConfig
-    ) -> VlmGenerationConfig:
+    def _resolve_prompt_reasoning_config(self, config: VlmGenerationConfig) -> VlmGenerationConfig:
         """Honor Cosmos Reason 3's prompt-driven ``<think>`` contract."""
         if (
             getattr(self, "_vlm_model_type", None) != "cosmos-reason3"
@@ -1933,11 +1950,7 @@ class VllmCompatible(BaseVlmModel):
                 ]
 
             generated_text = output[0].outputs[0].text
-            if (
-                self._model_architecture in _QWEN3VL_ARCHS
-                and not enable_reasoning
-                and ignore_eos
-            ):
+            if self._model_architecture in _QWEN3VL_ARCHS and not enable_reasoning and ignore_eos:
                 generated_text = self._truncate_qwen3vl_non_reasoning_output(output[0])
             logger.debug("VLLM raw text output: %s", generated_text)
             if not generated_text:
@@ -2110,7 +2123,7 @@ class VllmCompatible(BaseVlmModel):
         return workload_key, max(1, math.ceil(payload_bytes / (1024 * 1024)))
 
     def _ensure_legacy_preprocess_semaphore(self):
-        if self._cuda_mm_legacy_preprocess_semaphore is None:
+        if getattr(self, "_cuda_mm_legacy_preprocess_semaphore", None) is None:
             self._cuda_mm_legacy_preprocess_semaphore = asyncio.Semaphore(
                 _LEGACY_MAX_CONCURRENT_CUDA_MM_PREPROCESS
             )
@@ -2147,6 +2160,42 @@ class VllmCompatible(BaseVlmModel):
                         if isinstance(video_item, tuple)
                         else video_tensor
                     )
+        input_processor = getattr(self._llm, "input_processor", None)
+        get_supported_tasks = getattr(self._llm, "get_supported_tasks", None)
+        if (
+            input_processor is not None
+            and get_supported_tasks is not None
+            and getattr(self._llm, "_preprocess_executor", None) is None
+        ):
+            supported_tasks = await get_supported_tasks()
+            # Shared caches remain serialized; uncached processing uses the configured worker bound.
+            lock = getattr(self, "_input_processor_lock", None)
+            if lock is None:
+                model_config = getattr(input_processor, "model_config", None)
+                mm_config = getattr(model_config, "multimodal_config", None)
+                cache_disabled = getattr(mm_config, "mm_processor_cache_gb", None) == 0
+                workers = _get_num_preprocess_workers() if cache_disabled else 1
+                lock = self._input_processor_lock = asyncio.Semaphore(workers)
+            async with lock:
+                preprocessing = asyncio.create_task(
+                    asyncio.to_thread(
+                        input_processor.process_inputs,
+                        request_id,
+                        llm_inputs,
+                        vllm_sampling_params,
+                        supported_tasks=supported_tasks,
+                    )
+                )
+                try:
+                    llm_inputs = await asyncio.shield(preprocessing)
+                except asyncio.CancelledError:
+                    # A running worker must finish before its input tensors are released.
+                    while not preprocessing.done():
+                        with contextlib.suppress(asyncio.CancelledError, Exception):
+                            await asyncio.shield(preprocessing)
+                    with contextlib.suppress(Exception):
+                        preprocessing.result()
+                    raise
         return await self._llm.add_request(
             request_id,
             llm_inputs,
@@ -2161,7 +2210,7 @@ class VllmCompatible(BaseVlmModel):
     ):
         """Submit a multimodal prompt with bounded frontend preprocessing.
 
-        AsyncLLM.add_request() returns after its threaded InputProcessor finishes.
+        Input processing uses a worker or the runtime's preprocessing executor.
         The default RPC path retains admission until the first EngineCore output,
         which proves the visual encoder has consumed the processed request.
         """
@@ -2225,18 +2274,20 @@ class VllmCompatible(BaseVlmModel):
             )
 
         try:
-            workload_key, payload_mb = self._multimodal_preprocess_workload(
-                llm_inputs,
-                vllm_sampling_params,
-            )
+            with TimeMeasure("vLLM admission prepare"):
+                workload_key, payload_mb = self._multimodal_preprocess_workload(
+                    llm_inputs,
+                    vllm_sampling_params,
+                )
             limiter = self._multimodal_preprocess_limiter
             if limiter is not None:
                 try:
-                    admission = await limiter.acquire(
-                        request_id,
-                        workload_key,
-                        payload_mb,
-                    )
+                    with TimeMeasure("vLLM admission wait"):
+                        admission = await limiter.acquire(
+                            request_id,
+                            workload_key,
+                            payload_mb,
+                        )
                     memory_sampler_task = asyncio.create_task(sample_memory_until_release())
                 except PreprocessAdmissionTimeout as exc:
                     snapshot = limiter.snapshot()
@@ -2276,19 +2327,20 @@ class VllmCompatible(BaseVlmModel):
                 limiter is None or limiter.config.shadow_mode
             )
             try:
-                if use_legacy_gate:
-                    async with self._ensure_legacy_preprocess_semaphore():
+                with TimeMeasure("vLLM add request"):
+                    if use_legacy_gate:
+                        async with self._ensure_legacy_preprocess_semaphore():
+                            output_queue = await self._add_multimodal_request(
+                                request_id,
+                                llm_inputs,
+                                vllm_sampling_params,
+                            )
+                    else:
                         output_queue = await self._add_multimodal_request(
                             request_id,
                             llm_inputs,
                             vllm_sampling_params,
                         )
-                else:
-                    output_queue = await self._add_multimodal_request(
-                        request_id,
-                        llm_inputs,
-                        vllm_sampling_params,
-                    )
                 preprocess_success = True
             except Exception as exc:
                 preprocess_memory_pressure = _is_cuda_oom_error(exc)
@@ -2307,16 +2359,17 @@ class VllmCompatible(BaseVlmModel):
                 multi_modal_data.clear()
             llm_inputs.clear()
 
-            finished = False
-            while not finished:
-                output = output_queue.get_nowait() or await output_queue.get()
-                finished = output.finished
-                if output is not STREAM_FINISHED:
-                    await release_admission()
-                    self._finish_preprocess_submission(request_id)
-                    if self._use_cuda_mm_tensor_ipc:
-                        self._release_cuda_mm_residency(request_id)
-                    yield output
+            with TimeMeasure("vLLM output consumption"):
+                finished = False
+                while not finished:
+                    output = output_queue.get_nowait() or await output_queue.get()
+                    finished = output.finished
+                    if output is not STREAM_FINISHED:
+                        await release_admission()
+                        self._finish_preprocess_submission(request_id)
+                        if self._use_cuda_mm_tensor_ipc:
+                            self._release_cuda_mm_residency(request_id)
+                        yield output
         except (asyncio.CancelledError, GeneratorExit):
             preprocess_success = False
             if output_queue is not None:
@@ -2344,8 +2397,12 @@ class VllmCompatible(BaseVlmModel):
                 output_queue.close()
 
     @staticmethod
-    def _should_use_preprocess_admission(use_tensor_ipc, limiter) -> bool:
-        return use_tensor_ipc or limiter is not None
+    def _should_use_preprocess_admission(
+        use_tensor_ipc,
+        limiter,
+        offload_input_processing=False,
+    ) -> bool:
+        return use_tensor_ipc or limiter is not None or offload_input_processing
 
     def _register_live_request(self, stream_id: str, request_id: str) -> None:
         lock = getattr(self, "_live_request_ids_lock", None)
@@ -2543,6 +2600,8 @@ class VllmCompatible(BaseVlmModel):
                 if self._should_use_preprocess_admission(
                     use_tensor_ipc,
                     preprocess_limiter,
+                    hasattr(self._llm, "input_processor")
+                    and getattr(self._llm, "_preprocess_executor", None) is None,
                 ):
                     output_stream = self._generate_with_preprocess_admission(
                         llm_inputs,
@@ -3700,13 +3759,6 @@ class VllmCompatible(BaseVlmModel):
             "temperature": config.temperature,
         }
 
-        # Set the seed
-        seed = config.seed
-        random.seed(seed)
-        numpy.random.seed(seed)
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-
         # Handle system prompt
         system_prompt = self._resolve_system_prompt(config)
 
@@ -4009,38 +4061,54 @@ class VllmCompatible(BaseVlmModel):
             if stream_id:
                 self._register_live_request(stream_id, request_id)
 
-            generation_future = asyncio.run_coroutine_threadsafe(
-                self.process_async_vllm(
-                    llm_inputs,
-                    vllm_sampling_params,
-                    video_frames_times,
-                    request_id,
-                    chunk=chunks[0],
-                    preserve_reasoning_tags=config.preserve_reasoning_tags,
-                    stream_id=stream_id,
-                    generation_config=config,
-                ),
-                self._event_loop,
-            )
-            if stream_id:
-                self._attach_live_request_future(stream_id, request_id, generation_future)
+            request_state_lock = threading.Lock()
+            request_started = False
+            request_finished = False
+            cancelled_before_start = False
 
-            # A live-stream teardown can cancel the concurrent future before
-            # process_async_vllm starts (or while cancellation is propagating).
-            # In that case neither the coroutine body nor the async generator's
-            # finally block is guaranteed to run, leaving the logical inflight
-            # count or weighted CUDA-IPC residency permanently full.  Subsequent
-            # streams then remain queued while EngineCore and the GPU are idle.
-            # Normal completions release residency at first encoder output; this
-            # callback is therefore a no-op on the hot path and a final safety
-            # net for cancellation and submission failures.
-            def _cleanup_request_tracking(_future):
+            def _cleanup_request_tracking():
                 self._finish_preprocess_submission(request_id)
                 self._finish_cuda_mm_submission(request_id)
                 self._release_cuda_mm_residency(request_id)
                 self._release_live_request(stream_id, request_id)
 
-            generation_future.add_done_callback(_cleanup_request_tracking)
+            async def _run_tracked_generation():
+                nonlocal request_started, request_finished
+                with request_state_lock:
+                    if cancelled_before_start:
+                        raise asyncio.CancelledError
+                    request_started = True
+                try:
+                    return await self.process_async_vllm(
+                        llm_inputs,
+                        vllm_sampling_params,
+                        video_frames_times,
+                        request_id,
+                        chunk=chunks[0],
+                        preserve_reasoning_tags=config.preserve_reasoning_tags,
+                        stream_id=stream_id,
+                        generation_config=config,
+                    )
+                finally:
+                    with request_state_lock:
+                        request_finished = True
+                        _cleanup_request_tracking()
+
+            def _cleanup_unstarted_request(_future):
+                nonlocal cancelled_before_start
+                # Public Future cancellation precedes asynchronous worker drain.
+                with request_state_lock:
+                    if request_started and not request_finished:
+                        return
+                    cancelled_before_start = not request_started
+                    _cleanup_request_tracking()
+
+            generation_future = asyncio.run_coroutine_threadsafe(
+                _run_tracked_generation(), self._event_loop
+            )
+            if stream_id:
+                self._attach_live_request_future(stream_id, request_id, generation_future)
+            generation_future.add_done_callback(_cleanup_unstarted_request)
             return generation_future
 
         except Exception as e:

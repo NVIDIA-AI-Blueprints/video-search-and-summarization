@@ -881,6 +881,10 @@ RTVI_VLLM_MM_PROCESSOR_CACHE_GB=1
 
 When disabled (default), each request reprocesses video frames from scratch. This uses less memory but increases latency.
 
+On supported vLLM runtimes without a native preprocessing executor, RTVI offloads synchronous input processing from the output event loop. Uncached processing uses the existing `VLLM_NUM_PREPROCESS_WORKERS` bound; cached or unknown cache state stays serialized. Supported renderers initialize independent tokenizer copies before live admission. This increases startup CPU time and memory without changing frame selection or generation parameters. Warmup errors stop initialization; older runtimes keep their existing initialization path.
+
+Request seeds stay in `SamplingParams`; caption generation does not reset process-global RNGs. Cancelling a public generation future retains request ownership until an already-started preprocessing worker drains, preventing premature idle-resource cleanup. Cancellation before startup clears reservations without starting model work.
+
 ### Troubleshooting System Memory Growth
 
 If host system memory or container RSS grows over time during long-running workloads, especially with many distinct videos or streams, keep the multimodal preprocessor cache disabled.
