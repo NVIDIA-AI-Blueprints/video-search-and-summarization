@@ -540,13 +540,12 @@ def _parse_verdict_json(text: str) -> dict | None:
     response body into `matched`). Returns the **last** decoded object
     that has a `"pass"` key; the system prompt mandates that key, so
     objects without it are treated as incidental quotes (trajectory
-    snippets, API bodies) and discarded — no fallback. None means the
-    judge did not emit a compliant verdict; caller should surface raw
-    text for triage."""
-    # Judge evidence can contain literal control characters copied from tool
-    # output (for example, a tab between a container name and status). Keep
-    # normal JSON syntax checks, but permit those characters inside strings.
-    decoder = json.JSONDecoder(strict=False)
+    snippets, API bodies) and discarded. Literal control characters inside
+    strings are tolerated only when strict decoding rejects that character;
+    all other JSON syntax remains required. None means the judge did not emit
+    a compliant verdict; caller should surface raw text for triage."""
+    decoder = json.JSONDecoder()
+    control_character_decoder = json.JSONDecoder(strict=False)
     candidates: list[dict] = []
     idx = 0
     while True:
@@ -555,9 +554,17 @@ def _parse_verdict_json(text: str) -> dict | None:
             break
         try:
             obj, end = decoder.raw_decode(text, idx)
-        except ValueError:
-            idx += 1
-            continue
+        except json.JSONDecodeError as exc:
+            if not exc.msg.startswith("Invalid control character"):
+                idx += 1
+                continue
+            # Tool evidence can contain literal tabs/newlines inside strings.
+            # Retry only this decoding error, without repairing other syntax.
+            try:
+                obj, end = control_character_decoder.raw_decode(text, idx)
+            except json.JSONDecodeError:
+                idx += 1
+                continue
         if isinstance(obj, dict) and "pass" in obj:
             candidates.append(obj)
         idx = end if isinstance(obj, dict) else idx + 1

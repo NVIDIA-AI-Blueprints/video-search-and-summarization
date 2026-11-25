@@ -1,7 +1,11 @@
 # Deployment
 
 Use the same build artifacts and resolved Compose lifecycle for stock and delta
-builds. Before resolving:
+builds. Never invoke `deploy/docker/scripts/dev-profile.sh` or
+`deploy/docker/scripts/blueprint-deploy.sh`, and never write or deploy from
+`developer-profiles/*/generated.env` or `user-overrides.env` — stock builds
+retaining `vss-agent` materialize and deploy `_builds/<name>/resolved.yml` just
+like delta builds. Before resolving:
 
 - confirm Docker, the NVIDIA runtime, and the requested GPUs are available;
 - export `NGC_CLI_API_KEY` for local NVIDIA images/models;

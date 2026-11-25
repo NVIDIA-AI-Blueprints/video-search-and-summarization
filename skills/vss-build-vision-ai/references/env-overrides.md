@@ -54,8 +54,8 @@ Credential variables are mode-scoped. Validate them with
 
 | User intent | Required values |
 |---|---|
-| Remote LLM | `LLM_MODE=remote`, `LLM_NAME_SLUG=none`, `LLM_BASE_URL=<host>`, `LLM_NAME=<model>`, and `NVIDIA_API_KEY` when required |
-| Remote VLM through RT-VLM | `VLM_MODE=remote`, `VLM_NAME_SLUG=none`, `VLM_MODEL_TYPE=rtvi`, `VLM_BASE_URL=<host>`, `VLM_NAME=<model>`, `RTVI_VLM_ENDPOINT=<host>/v1`, `RTVI_VLM_MODEL_TO_USE=openai-compat`, `RTVI_VLM_MODEL_PATH=none`, and `NVIDIA_API_KEY` when required |
+| Remote LLM | `LLM_MODE=remote`, `LLM_NAME_SLUG=none`, `LLM_BASE_URL=<host>`, `LLM_NAME=<model>`, and `LLM_MODEL_TYPE=openai` + `OPENAI_API_KEY` for an OpenAI-compatible endpoint (or `LLM_MODEL_TYPE=nim` + `NVIDIA_API_KEY` for `build.nvidia.com`) |
+| Remote VLM through RT-VLM | `VLM_MODE=remote`, `VLM_NAME_SLUG=none`, `VLM_MODEL_TYPE=rtvi`, `VLM_BASE_URL=<host>`, `VLM_NAME=<model>`, `RTVI_VLM_ENDPOINT=<host>/v1`, `RTVI_VLM_MODEL_TO_USE=openai-compat`, `RTVI_VLM_MODEL_PATH=none`, `RTVI_VLM_API_KEY=<vlm-endpoint-key>` (set explicitly from `OPENAI_API_KEY` or `NVIDIA_API_KEY` when required — leaving `RTVI_VLM_API_KEY` unset makes Compose fall back `VIA_VLM_API_KEY` to `NGC_CLI_API_KEY` and fail remote VLM calls with HTTP 401), and `RT_VLM_DEVICE_ID=0` on single-GPU hosts |
 | Dedicated local models | `LLM_MODE=local`, `VLM_MODE=local`, and explicit LLM/RT-VLM device IDs |
 | Shared local models | `LLM_MODE=local_shared`, `VLM_MODE=local_shared`, shared device IDs, and explicit utilization limits |
 | Different model | Model name, matching slug, model type, serving path, and any derived endpoint or artifact path |

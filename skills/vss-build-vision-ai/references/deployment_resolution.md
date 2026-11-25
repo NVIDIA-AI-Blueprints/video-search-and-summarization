@@ -239,11 +239,13 @@ Alerts operate skills for the docs walkthrough (real-time mode):
 ## Docker Compose
 
 Resolve the deployment once with `vss configure`, then read the endpoints back
-from the recorded config. The profile must have both its checked-in `.env` and a
-runtime `generated.env` from the profile deploy workflow.
+from the recorded config. Use the actual origin supplied by the deployment
+workflow or operator; operating the stack does not require profile env files.
+Build Vision AI records its deployment model in `_builds/<name>/resolved.yml`.
 
 ```bash
-VSS_ORIGIN="${VSS_ORIGIN:-http://${HOST_IP:-127.0.0.1}:${HAPROXY_HOST_PORT:-7777}}"
+VSS_ORIGIN="${VSS_ORIGIN:-${VSS_PUBLIC_URL:-}}"
+: "${VSS_ORIGIN:?Set to the actual origin supplied by the deployment workflow or operator}"
 VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
 
 "${VSS[@]}" configure --base-url "${VSS_ORIGIN}"
@@ -268,11 +270,15 @@ VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 NVSTREAMER_ENDPOINT="http://${HOST_IP:-127.0.0.1}:${NVSTREAMER_HTTP_PORT:-31000}"
 ```
 
-For Docker shareable-media origin checks, read the deploy-minted
-`VST_EXTERNAL_URL` from `generated.env` (Brev HTTPS, not localhost). That
-variable is a Compose/deploy runtime detail, not a Kubernetes operate input;
-when `VSS_PUBLIC_URL` is set, ignore `VST_EXTERNAL_URL` and use
-`VSS_PUBLIC_URL`.
+For Docker shareable-media origin checks, use the deployment's published
+`VSS_PUBLIC_URL`. If only the actual deployed Compose model is available,
+inspect its materialized public URLs, such as
+`vss-ui.environment.NEXT_PUBLIC_VIOS_API_URL` or, when the agent is selected,
+`vss-agent.environment.VST_EXTERNAL_URL`. These VIOS URLs include a service
+path; extract the public origin rather than appending another `/vst` to them.
+On Brev, use the secure-link origin supplied by that deployment, never an
+invented hostname or a checked-in env template. If no browser-reachable origin
+is available, report that limitation instead of claiming a public media link.
 
 `vss configure` probes each known route on the origin and records only the ones
 that answer, so a route the deployment does not expose is absent from the config
