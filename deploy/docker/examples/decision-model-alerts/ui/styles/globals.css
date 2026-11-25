@@ -1,0 +1,18 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0 */
+@import "tailwindcss";
+@source "../components";
+@source "../pages";
+@custom-variant dark (&:where(.dark, .dark *));
+html { color-scheme: light; background: #fff; font-family: system-ui, -apple-system, sans-serif; }
+html.dark { color-scheme: dark; background: #171717; }
+body { margin: 0; }
+button, input, textarea, select { font: inherit; }
+.brand-header { height: 75px; display: flex; align-items: center; gap: 20px; padding: 0 24px; border-bottom: 1px solid #d4d4d4; background: #fff; color: #262626; }
+.dark .brand-header { background: #050505; color: #eee; border-color: #383838; }
+.brand-header img { width: 110px; height: auto; }
+.brand-title { font-size: 21px; font-weight: 600; padding-left: 20px; border-left: 2px solid currentColor; }
+.brand-subtitle { font-size: 13px; opacity: .8; }
+.theme-button { margin-left: auto; border: 1px solid #888; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+.embedded { min-height: 100dvh; }
+@media (max-width: 760px) { .brand-subtitle { display: none; } .brand-header { gap: 12px; padding: 0 16px; } .brand-title { font-size: 17px; padding-left: 12px; } }

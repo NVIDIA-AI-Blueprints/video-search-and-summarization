@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+**
+!deploy/docker/examples/decision-model-alerts/runtime/model-lock.json
+!deploy/docker/examples/decision-model-alerts/runtime/d1_protocol.py
+!deploy/docker/examples/decision-model-alerts/runtime/d1_runtime.py
+!deploy/docker/examples/decision-model-alerts/runtime/model_entrypoint.py
+!deploy/docker/examples/decision-model-alerts/runtime/server.py
