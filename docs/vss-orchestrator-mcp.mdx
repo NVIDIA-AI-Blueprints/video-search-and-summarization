@@ -3,9 +3,9 @@ title: "VSS Orchestrator MCP"
 description: ""
 position: 2
 ---
-The **VSS Orchestrator MCP server** is the host-side process that NemoClaw's agent calls to deploy and operate VSS. It exposes a Model Context Protocol function group named `vss_orchestrator` that generates Docker Compose artifacts, runs `docker compose` operations in the background, lists containers, and fetches logs.
+The **VSS Orchestrator MCP server** is the host-side process the [OpenClaw](/vision-agent/agent-harnesses#openclaw) sandbox's agent calls to deploy and operate VSS. It exposes a Model Context Protocol function group named `vss_orchestrator` that generates Docker Compose artifacts, runs `docker compose` operations in the background, lists containers, and fetches logs.
 
-The server is packaged with the VSS agent and started via `uv run nat mcp serve`. In the [notebook flow](/vision-agent/agent-harnesses/nemo-claw/setup-vss-and-skills), Section 6.1 starts it on port `9988` and polls the `profiles` tool until healthy.
+The server is packaged with the VSS agent and started via `uv run nat mcp serve`. In the `deploy_vss_orchestrator.ipynb` notebook flow, Section 4 starts it on port `9988` and polls the `profiles` tool until healthy.
 
 ## Configuration
 
@@ -29,7 +29,7 @@ If any path is invalid or non-writable, startup or artifact generation fails ear
 
 ### Environment variables
 
-This section documents the environment variables read by the MCP server process. In the notebook flow, users set the `VSS_*` notebook variables in Section 1.3; Section 6.1 maps them to these unprefixed MCP process environment variables before launch.
+This section documents the environment variables read by the MCP server process. In the notebook flow, users set the `VSS_*` notebook variables in Section 1.2; Section 4 maps them to these unprefixed MCP process environment variables before launch.
 
 `docker_generate` resolves profile values from lowest to highest precedence:
 

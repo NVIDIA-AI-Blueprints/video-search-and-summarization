@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# A vLLM, NIM or Ollama server on this host. Ports are the profile's to
+# declare, so a server on any other port needs an entry here before it is
+# reachable.
+#
+# REST rather than TCP, so the proxy checks each method and path on the
+# credentialed path instead of passing the port whole: a TCP entry on 11434
+# would also hand the agent Ollama's model management (/api/pull, /api/delete).
+# /api/show is Hermes' read-only context-length probe; a server without it
+# answers the denial the same way it answers a 404, and Hermes falls back.
+
+id: agent-inference-local
+display_name: Agent inference (host-local server)
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    env_vars: [HARNESS_API_KEY]
+    required: false
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: host.openshell.internal   # vLLM, NIM
+    port: 8000
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow: {method: GET, path: "/v1/**"}
+      - allow: {method: POST, path: "/v1/**"}
+  - host: host.openshell.internal   # Ollama
+    port: 11434
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow: {method: GET, path: "/v1/**"}
+      - allow: {method: POST, path: "/v1/**"}
+      - allow: {method: POST, path: "/api/show"}
+binaries:
+  - {path: /usr/bin/python3.13}
