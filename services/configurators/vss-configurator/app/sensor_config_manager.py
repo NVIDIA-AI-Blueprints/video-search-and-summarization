@@ -305,6 +305,21 @@ def _sensor_already_registered(response, error_message):
     )
 
 
+def add_sensors_staggered(sensors):
+    """Add sensors to VST/VMS one at a time, VIDEO_UPLOAD_DELAY seconds apart.
+
+    Without a delay every sensor is added back to back, so all streams start in
+    VST and downstream services at the same moment. VIDEO_UPLOAD_DELAY is the
+    same setting that spaces the NVStreamer video uploads (0 = no delay).
+    """
+    delay = CONFIG['VIDEO_UPLOAD_DELAY']
+    for index, sensor_info in enumerate(sensors):
+        if index and delay > 0:
+            logger.info(f"Waiting {delay}s before adding sensor {sensor_info.name} (VIDEO_UPLOAD_DELAY)")
+            time.sleep(delay)
+        add_sensor(sensor_info)
+
+
 def add_sensor(sensor_info: Sensor, delay=30, timeout=None):
     logger.debug(f"Adding sensor: {sensor_info.name} to VMS endpoint: {CONFIG['VST_CAMERA_ADD_ENDPOINT']}")
     headers = {"Content-Type": "application/json"}
@@ -490,7 +505,7 @@ def process_sensor_info_from_msb():
         #     logger.error(f"Error sending message via {CONFIG['MESSAGE_BROKER_TYPE']}: {e}")
     if CONFIG['CALL_SENSOR_ADD_API']:
         logger.info(CALLING_SENSOR_ADD_API_LOG)
-        [add_sensor(sensor_info) for sensor_info in sensor_mapping.sensors.values()]
+        add_sensors_staggered(sensor_mapping.sensors.values())
         logger.info(f"Successfully called sensor add API for {len(sensor_mapping.sensors)} sensors")
     else:
         logger.info(SKIPPING_SENSOR_ADD_API_LOG)
@@ -617,7 +632,7 @@ def process_sensor_info_from_file():
     
     if CONFIG['CALL_SENSOR_ADD_API']:
         logger.info(CALLING_SENSOR_ADD_API_LOG)
-        [add_sensor(sensor_info) for sensor_info in sensor_mapping.sensors.values()]
+        add_sensors_staggered(sensor_mapping.sensors.values())
         logger.info(f"Successfully called sensor add API for {len(sensor_mapping.sensors)} sensors")
     else:
         logger.info(SKIPPING_SENSOR_ADD_API_LOG)
@@ -1173,7 +1188,7 @@ def process_sensor_info_from_nvstreamer():
 
     if CONFIG['CALL_SENSOR_ADD_API']:
         logger.info(CALLING_SENSOR_ADD_API_LOG)
-        [add_sensor(sensor_info) for sensor_info in sensor_mapping.sensors.values()]
+        add_sensors_staggered(sensor_mapping.sensors.values())
         added_count = len(sensor_mapping.sensors)
         expected_count = CONFIG.get('NUM_STREAMS', 0) or 0
         if expected_count > 0 and added_count < expected_count:

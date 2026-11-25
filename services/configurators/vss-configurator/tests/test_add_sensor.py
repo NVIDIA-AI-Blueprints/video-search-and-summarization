@@ -216,3 +216,35 @@ def test_add_sensor_uses_generous_default_timeout(monkeypatch):
 
     _, kwargs = post.call_args
     assert kwargs["timeout"] >= 15
+
+
+def test_add_sensors_staggered_waits_between_sensors(monkeypatch):
+    """With VIDEO_UPLOAD_DELAY=5, sensors are added in order with a 5s wait between them, none before the first."""
+    import sensor_config_manager as mod
+
+    events = []
+    monkeypatch.setitem(mod.CONFIG, "VIDEO_UPLOAD_DELAY", 5)
+    monkeypatch.setattr(mod, "add_sensor", lambda sensor_info: events.append(("add", sensor_info.name)))
+    monkeypatch.setattr(mod.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    mod.add_sensors_staggered([_sensor_info("cam_a"), _sensor_info("cam_b"), _sensor_info("cam_c")])
+
+    assert events == [
+        ("add", "cam_a"), ("sleep", 5), ("add", "cam_b"), ("sleep", 5), ("add", "cam_c"),
+    ]
+
+
+def test_add_sensors_staggered_no_delay_by_default(monkeypatch):
+    """VIDEO_UPLOAD_DELAY=0 keeps the old behaviour: every sensor added, never sleeping."""
+    import sensor_config_manager as mod
+
+    added = []
+    sleep = MagicMock()
+    monkeypatch.setitem(mod.CONFIG, "VIDEO_UPLOAD_DELAY", 0)
+    monkeypatch.setattr(mod, "add_sensor", lambda sensor_info: added.append(sensor_info.name))
+    monkeypatch.setattr(mod.time, "sleep", sleep)
+
+    mod.add_sensors_staggered([_sensor_info("cam_a"), _sensor_info("cam_b")])
+
+    assert added == ["cam_a", "cam_b"]
+    sleep.assert_not_called()
