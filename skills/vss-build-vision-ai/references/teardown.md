@@ -56,7 +56,7 @@ The harness image survives.
 
 The name comes from the build's `sandbox` file and nowhere else: a sandbox
 carries no Compose project label, so neither the build directory nor the
-`vss-harness-hermes` default identifies the one this build owns. A sandbox no
+`hermes` default identifies the one this build owns. A sandbox no
 build recorded — one a user created by following the Quickstart themselves, or
 one left by a build directory since deleted — survives every teardown here.
 `openshell sandbox list` shows it, and the next bring-up is where it gets

@@ -302,7 +302,7 @@ replacing what holds it, discarding that sandbox's agent sessions.
 
 Record the name in `_builds/<name>/sandbox` **before** bring-up, so a run that
 fails midway still leaves teardown a handle. That record is also this build's
-only claim on the name: the `vss-harness-hermes` default proves nothing, since a
+only claim on the name: the `hermes` default proves nothing, since a
 hand-run Quickstart and every sibling build take it too.
 
 So at Q3, list the sandboxes and compare against the name this build will take.
@@ -410,7 +410,7 @@ then apply this build's values over them:
 | `VSS_PUBLIC_URL` | `http://host.openshell.internal:7777` — the `openshell.env` default, unchanged for a Compose build | the origin as **the sandbox** sees it, not `HOST_IP`. Set it only for a Kubernetes deployment, to that cluster's Ingress origin, which then also needs a policy entry |
 | `HARNESS_BASE_URL`, `HARNESS_MODEL`, `PROVIDER` | the Q3a answers | the model values and the profile that authorizes them; a model change is a re-create, not a rebuild |
 | `HARNESS_API_KEY` | from the environment or the secret store | the selected provider's credential, unquoted. Never into `openshell.env`, `override.env`, a transcript, or a summary |
-| sandbox name | `vss-harness-hermes` unless this host already holds that name | in place of the README's `hermes` on `sandbox create`, `sandbox delete` and `sandbox exec`; settled at Q3, per [Sandbox names on a shared host](#sandbox-names-on-a-shared-host) |
+| sandbox name | `hermes`, the README's own default, unless this host already holds that name | the handle `sandbox create`, `sandbox delete` and `sandbox exec` take; settled at Q3, per [Sandbox names on a shared host](#sandbox-names-on-a-shared-host) |
 
 Record the name before the run, not on success — `create` is not the last step,
 and a failure in a later one still leaves a live sandbox that teardown reaches
