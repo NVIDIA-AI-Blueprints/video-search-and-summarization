@@ -21,7 +21,7 @@
         "camera_status_change": "camera_streaming",
         "request": [
           {
-            "url": "http://__RTVI_CV_ADDRESS__/api/v1/stream/add",
+            "url": "http://__SDRC_RTVI_CV_ADDRESS__/api/v1/stream/add",
             "method": "POST",
             "headers": {
               "Content-Type": "application/json",
@@ -101,7 +101,7 @@
         "camera_status_change": "camera_remove",
         "request": [
           {
-            "url": "http://__RTVI_CV_ADDRESS__/api/v1/stream/remove",
+            "url": "http://__SDRC_RTVI_CV_ADDRESS__/api/v1/stream/remove",
             "method": "POST",
             "headers": {
               "Content-Type": "application/json",
