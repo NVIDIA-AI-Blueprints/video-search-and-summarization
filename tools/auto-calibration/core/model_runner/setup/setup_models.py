@@ -64,24 +64,26 @@ def load_manifest(manifest_path: Path) -> dict:
 
 
 def _is_valid_repo(dest: Path) -> bool:
-    """Check if dest contains actual repo content (not just a submodule pointer)."""
-    if not dest.exists():
+    """Recognize supported source checkouts independently of Git metadata."""
+    if not dest.is_dir():
         return False
-    # A git submodule pointer has .git as a file, not a directory
-    git_path = dest / ".git"
-    if git_path.is_file():
-        return False
-    return any(p for p in dest.iterdir() if not p.name.startswith("."))
+    # These are the implementation modules imported by the model adapters.
+    return any((dest / source).is_file() for source in (
+        "geocalib/extractor.py", "vggt/models/vggt.py", "moge/model/v2.py",
+    ))
 
 
 def clone_repo(url: str, dest: Path) -> None:
     if _is_valid_repo(dest):
         logger.info(f"  Repo already exists at {dest}, skipping clone")
         return
-    if dest.exists():
-        logger.info(f"  {dest} exists but is not a valid repo, removing before clone")
-        import shutil
-        shutil.rmtree(dest)
+    if dest.is_symlink() or (
+        dest.exists() and (not dest.is_dir() or any(dest.iterdir()))
+    ):
+        raise RuntimeError(
+            f"Refusing to replace existing checkout or non-empty path: {dest}. "
+            "Initialize or repair the model sources explicitly."
+        )
     dest.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"  Cloning {url} -> {dest}")
     subprocess.check_call(["git", "clone", url, str(dest)])

@@ -25,6 +25,7 @@ from fastapi.background import BackgroundTasks
 from typing import Dict, Any, Union, List, Optional, NoReturn
 import subprocess
 import shutil
+import tempfile
 from random import randint
 import os
 from pathlib import Path
@@ -1246,28 +1247,25 @@ async def upload_gt_file(project_id: str, gt_file: UploadFile = File(...)) -> Pr
     if app.state.projects[project_id]["groundtruth_file"]:
         raise HTTPException(status_code = 400, detail = "Groundtruth file already uploaded. Please delete the existing groundtruth file first.")
         # return {"message": "Groundtruth file already uploaded. Please delete the existing groundtruth file first."}
-    if not gt_file.filename.endswith(".zip"):
+    if not gt_file.filename or not gt_file.filename.endswith(".zip"):
         raise HTTPException(status_code = 400, detail = "Groundtruth file must be a zip file")
         # return {"message": "Groundtruth file must be a zip file"}
     upload_path = Path(app.state.projects[project_id]["project_dir"]) / Path("groundtruth")
-    gt_path = upload_path / Path(gt_file.filename) 
     try:
         upload_path.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         raise HTTPException(status_code = 500, detail = f"Failed to create groundtruth directory: {e}")
         # return {"message": f"Failed to create groundtruth directory: {e}"}
     try:
-        with open(gt_path, "wb") as buffer:
+        # Never use the client filename as a path. TemporaryFile also avoids
+        # overwriting existing archives or following a client-named symlink.
+        with tempfile.TemporaryFile(dir=upload_path) as buffer:
             buffer.write(gt_file.file.read())
+            buffer.seek(0)
+            with ZipFile(buffer, "r") as zip_ref:
+                zip_ref.extractall(upload_path)
     except Exception as e:
-        raise HTTPException(status_code = 500, detail = f"Failed to upload groundtruth file {gt_file.filename}: {e}")
-        # return {"message": f"Failed to upload groundtruth file {gt_file.filename}: {e}"}
-    try:
-        with ZipFile(gt_path, "r") as zip_ref:
-            zip_ref.extractall(upload_path)
-    except Exception as e:
-        raise HTTPException(status_code = 500, detail = f"Failed to extract groundtruth data from {gt_file.filename}: {e}")
-        # return {"message": f"Failed to extract groundtruth data from {gt_file.filename}: {e}"}
+        raise HTTPException(status_code = 500, detail = f"Failed to upload or extract groundtruth data from {gt_file.filename}: {e}")
     app.state.projects[project_id]["groundtruth_file"] = True
     _invalidate_calibration_state(project_id)
     return ProjectInfoResponse(
