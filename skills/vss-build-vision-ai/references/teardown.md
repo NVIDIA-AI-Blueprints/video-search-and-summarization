@@ -41,10 +41,13 @@ if [ ! -s "$BUILD_DIR/sandbox" ]; then
   exit 0
 fi
 SANDBOX="$(cat "$BUILD_DIR/sandbox")"
+# The registration naming the endpoint, as setup resolves it; a reused
+# registration carries whatever name it already had.
+GW="$(openshell gateway list | awk 'NF>4 && $(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')"
 
 # Only a build that wired the Web UI has a forward; `|| true` covers the rest.
-openshell forward stop 8642 "$SANDBOX" 2>/dev/null || true
-openshell sandbox delete "$SANDBOX"
+openshell -g "$GW" forward stop 8642 "$SANDBOX" 2>/dev/null || true
+openshell -g "$GW" sandbox delete "$SANDBOX"
 ```
 
 `delete` removes both of the sandbox's containers and their volumes. A name
@@ -87,10 +90,13 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
 if [ -n "$(docker ps -aq \
       --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
       --filter "label=com.docker.compose.service=openshell-gateway")" ]; then
+  # The same registration the sandbox section deletes through; no registration
+  # for the endpoint leaves it empty, and `list` then fails into the gate below.
+  GW="$(openshell gateway list | awk 'NF>4 && $(NF-3)=="http://127.0.0.1:8080"{print $(NF-4)}')"
   # -g and --all-workspaces, so the gate asks this gateway rather than
   # whichever is active, and sees every workspace's sandboxes, not `default`'s.
   # --all-workspaces prints `<workspace>/<name>`.
-  NAMES="$(openshell -g openshell-gateway sandbox list --names --all-workspaces)" \
+  NAMES="$(openshell -g "$GW" sandbox list --names --all-workspaces)" \
     || { echo "cannot list the gateway's sandboxes; keeping it" >&2; exit 1; }
   # A deleted sandbox stays listed while its cleanup finishes.
   OTHERS="$(printf '%s\n' "$NAMES" | grep -vxF -e "default/$(cat "$BUILD_DIR/sandbox" 2>/dev/null)" -e '' || true)"
