@@ -2263,7 +2263,7 @@
                             {
                                 "type": "string",
                                 "maxLength": 24,
-                                "minLength": 24,
+                                "minLength": 20,
                                 "pattern": "^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{3})?Z$"
                             },
                             {
@@ -2644,7 +2644,7 @@
                             {
                                 "type": "string",
                                 "maxLength": 24,
-                                "minLength": 24,
+                                "minLength": 20,
                                 "pattern": "^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{3})?Z$"
                             },
                             {
@@ -4092,7 +4092,7 @@
                             {
                                 "type": "string",
                                 "maxLength": 24,
-                                "minLength": 24,
+                                "minLength": 20,
                                 "pattern": "^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{3})?Z$"
                             },
                             {

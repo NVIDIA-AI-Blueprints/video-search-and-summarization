@@ -659,6 +659,7 @@ class AssetManager:
         file_id: Optional[str],
         sensor_name: str = "",
         camera_id: Optional[str] = None,
+        on_asset_created: Optional[Callable[[str], None]] = None,
     ):
         """Download an S3 asset and record its transfer metrics."""
         tracker = _AssetDownloadTracker(self._download_metrics, "s3")
@@ -673,6 +674,7 @@ class AssetManager:
                 tracker,
                 sensor_name,
                 camera_id,
+                on_asset_created=on_asset_created,
             )
             tracker.finish("success")
             return asset_id
@@ -691,6 +693,7 @@ class AssetManager:
         download_tracker: _AssetDownloadTracker,
         sensor_name: str = "",
         camera_id: Optional[str] = None,
+        on_asset_created: Optional[Callable[[str], None]] = None,
     ):
         """Download a file from a URL and save it as a file.
         Args:
@@ -833,6 +836,7 @@ class AssetManager:
                 url,
                 sensor_name,
                 camera_id,
+                on_asset_created=on_asset_created,
             )
             logger.info(f"Saved file to temporary file - asset_id: {asset_id}")
 
@@ -849,6 +853,7 @@ class AssetManager:
         url_headers: Optional[dict] = None,
         sensor_name: str = "",
         camera_id: Optional[str] = None,
+        on_asset_created: Optional[Callable[[str], None]] = None,
     ):
         """Download an HTTP(S) asset and record its transfer metrics."""
         source = urlparse(url).scheme.lower()
@@ -867,6 +872,7 @@ class AssetManager:
                 url_headers,
                 sensor_name,
                 camera_id,
+                on_asset_created=on_asset_created,
             )
             tracker.finish("success")
             return asset_id
@@ -886,6 +892,7 @@ class AssetManager:
         url_headers: Optional[dict] = None,
         sensor_name: str = "",
         camera_id: Optional[str] = None,
+        on_asset_created: Optional[Callable[[str], None]] = None,
     ):
         """Download a file from a URL and save it as a file.
         Args:
@@ -1171,6 +1178,7 @@ class AssetManager:
                 url,
                 sensor_name,
                 camera_id,
+                on_asset_created=on_asset_created,
             )
             logger.info(f"Saved file to temporary file - asset_id: {asset_id}")
 
@@ -1187,6 +1195,7 @@ class AssetManager:
         url: Optional[str] = None,
         sensor_name: str = "",
         camera_id: Optional[str] = None,
+        on_asset_created: Optional[Callable[[str], None]] = None,
     ):
         """Save the uploaded as a file.
 
@@ -1201,6 +1210,7 @@ class AssetManager:
             sensor_name: User-defined sensor name. Defaults to empty string.
             camera_id: External camera identifier for CV-compatible lookups.
                 Defaults to None.
+            on_asset_created: Synchronous non-raising ownership callback after publication.
         Returns:
             A unique id for the asset.
         """
@@ -1273,6 +1283,9 @@ class AssetManager:
             )
 
             self._publish_asset(asset)
+            # Record ownership before the downloader's temporary-file teardown can suspend.
+            if on_asset_created is not None:
+                on_asset_created(asset_id)
         except BaseException:
             self._release_asset_slot(asset_id, camera_id)
             raise
