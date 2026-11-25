@@ -1543,6 +1543,144 @@ class RunInvocations(unittest.TestCase):
         self.assertNotIn("SKILL_EVAL_LOCAL_NIM_API_KEY", seen_env[0])
         self.assertEqual(seen_env[0]["NVIDIA_API_KEY"], "runner-global-key")
 
+    def test_non_operational_hosted_leg_exports_compatible_api_key(self):
+        for label, extra_env, expected_key in (
+            (
+                "pr-default",
+                {"EVAL_AGENT": "nemoclaw"},
+                "test-secret",
+            ),
+            (
+                "daily-codex",
+                {
+                    "EVAL_AGENT": "codex",
+                    "SKILLS_EVAL_CODING_HARNESS": "codex",
+                    "SKILLS_EVAL_OPERATIONAL_HARNESS": "codex",
+                },
+                "test-secret",
+            ),
+            (
+                "explicit-compatible",
+                {"COMPATIBLE_API_KEY": "explicit-compatible-key"},
+                "explicit-compatible-key",
+            ),
+        ):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                invocation = run_leg.HarborInvocation(
+                    harbor_root=root / "dataset",
+                    include_task_name="step-3",
+                    chain_key="vdr-1",
+                    step_index=3,
+                    step_count=3,
+                )
+                env = {
+                    **self.ENV,
+                    "EVAL_SKILL": "vss-build-vision-ai",
+                    "EVAL_SPEC_PATH": (
+                        "skills/vss-build-vision-ai/evals/"
+                        "vdr_1_quickstart_vision_agent.json"
+                    ),
+                    **extra_env,
+                }
+                seen_env = []
+
+                def run_command(_cmd, child_env, _timeout):
+                    seen_env.append(child_env.copy())
+                    return 0
+
+                with (
+                    mock.patch.dict(run_leg.os.environ, env, clear=True),
+                    mock.patch.object(
+                        run_leg,
+                        "harbor_env",
+                        return_value={"COMPATIBLE_API_KEY": "stale-key"},
+                    ),
+                    mock.patch.object(
+                        run_leg, "build_harbor_command", return_value=["harbor"]
+                    ),
+                    mock.patch.object(
+                        run_leg, "run_command", side_effect=run_command
+                    ),
+                    mock.patch.object(
+                        run_leg, "latest_reward", return_value="1.0"
+                    ),
+                    mock.patch.object(
+                        run_leg, "publish_trace", return_value=None
+                    ),
+                ):
+                    rc = run_leg.run_invocations(
+                        [invocation],
+                        "vss-eval-box",
+                        root / "results",
+                        root / "scratch",
+                        "vdr_1_quickstart_vision_agent",
+                        "RTXPRO6000BW",
+                        run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                        self.config(env),
+                    )
+
+                self.assertEqual(rc, 0)
+                self.assertEqual(seen_env[0]["COMPATIBLE_API_KEY"], expected_key)
+                self.assertNotIn("NEMOCLAW_GATEWAY_PORT", seen_env[0])
+
+    def test_non_operational_local_nim_leg_strips_hosted_compatible_api_key(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/spec"),
+            include_task_name="rtxpro6000bw",
+            chain_key="spec",
+        )
+        env = {
+            **self.ENV,
+            "COMPATIBLE_API_KEY": "hosted-secret",
+            "NGC_API_KEY": "registry-secret",
+            "EVAL_SKILL": "vss-build-vision-ai",
+            "EVAL_SPEC_PATH": (
+                "skills/vss-build-vision-ai/evals/"
+                "vdr_1_quickstart_vision_agent.json"
+            ),
+            "SKILLS_EVAL_CODING_HARNESS": "codex",
+            "SKILLS_EVAL_CODING_DEPLOYMENT": "local-nim",
+            "SKILLS_EVAL_CODING_MODEL": "nvidia/test-model",
+        }
+        seen_env = []
+
+        def run_command(_cmd, child_env, _timeout):
+            seen_env.append(child_env.copy())
+            return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(
+                    run_leg,
+                    "harbor_env",
+                    return_value={"COMPATIBLE_API_KEY": "hosted-secret"},
+                ),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ),
+                mock.patch.object(
+                    run_leg, "run_command", side_effect=run_command
+                ),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "cleanup_local_nims"),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation],
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "vdr_1_quickstart_vision_agent",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    self.config(env),
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertNotIn("COMPATIBLE_API_KEY", seen_env[0])
+
     def test_operational_claude_uses_independent_models(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
