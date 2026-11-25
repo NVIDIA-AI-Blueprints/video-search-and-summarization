@@ -357,7 +357,7 @@ def test_stock_alerts_compose_includes_agent_mcp_tools(tmp_path: Path) -> None:
 
 
 @requires_docker_compose
-def test_nemoclaw_alerts_lvs_resolves_without_agent_or_va_mcp(
+def test_harness_alerts_lvs_resolves_without_agent_or_va_mcp(
     tmp_path: Path,
 ) -> None:
     profiles = resolve_service_profiles(
@@ -429,18 +429,14 @@ def test_query_skill_uses_cli_without_legacy_endpoint_commands() -> None:
         assert forbidden not in skill
 
 
-def test_nemoclaw_workspace_and_eval_adapter_route_to_cli() -> None:
-    paths = [
-        REPOSITORY / ".openclaw/workspace/AGENTS.md",
-        REPOSITORY / ".openclaw/workspace/_nemoclaw/AGENTS.md",
-        REPOSITORY / ".github/skill-eval/adapters/vss-query-analytics/generate.py",
-    ]
-    for path in paths:
-        content = path.read_text()
-        assert "vss-query-analytics" in content
-        assert "vss analytics" in content
-        for forbidden in ("http://${HOST_IP:-localhost}:9901/mcp", "method=initialize"):
-            assert forbidden not in content
+def test_eval_adapter_routes_to_cli() -> None:
+    content = (
+        REPOSITORY / ".github/skill-eval/adapters/vss-query-analytics/generate.py"
+    ).read_text()
+    assert "vss-query-analytics" in content
+    assert "vss analytics" in content
+    for forbidden in ("http://${HOST_IP:-localhost}:9901/mcp", "method=initialize"):
+        assert forbidden not in content
 
 
 def test_incident_report_mode_b_uses_cli_and_mode_c_keeps_legacy_mcp() -> None:

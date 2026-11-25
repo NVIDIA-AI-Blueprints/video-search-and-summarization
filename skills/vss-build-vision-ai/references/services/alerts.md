@@ -12,7 +12,7 @@ container name across all Foundations. Include that key when the build needs the
 REST query surface; never add a Foundation-specific alias or a second API
 instance.
 
-Host-CLI and NemoClaw analytics do not require `vss-va-mcp`; they use
+Host-CLI and sandbox analytics do not require `vss-va-mcp`; they use
 `vss analytics` through `vss-video-analytics-api`. Stock Alerts still ships
 `vss-agent`, whose `config.yml` points `incident_report_agent` and
 `rtvi_vlm_alert` at `video_analytics_mcp`, so keep `vss-va-mcp` beside
@@ -112,7 +112,7 @@ read it before writing the parser.
   path (`2d_vlm`) never calls a parser: say so and offer a CV build instead of
   building a parser that would never run.
 - **Host coding agent only.** The build writes host files and recreates a
-  container; a NemoClaw sandbox can do neither, so hand the build to the user or
+  container; the harness sandbox can do neither, so hand the build to the user or
   a host agent.
 - **Global.** One parser serves every alert type. It replaces the Yes/No verdict
   for all of them, not only the one the request named: each verified alert gets

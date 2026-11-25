@@ -162,7 +162,7 @@ PYTHONPATH="{baseDir}/.pip-packages:${PYTHONPATH:-}" python3 -c "import fastapi,
 
 If either command fails, do NOT proceed to Step 4. Report the error to the user.
 
-> **Why `--target`?** The NemoClaw sandbox mounts `/usr` as read-only. System-wide `pip install` and `--break-system-packages` both fail. Installing into a writable directory under `{baseDir}` avoids the restriction without elevated permissions.
+> **Why `--target`?** The harness sandbox mounts `/usr` as read-only. System-wide `pip install` and `--break-system-packages` both fail. Installing into a writable directory under `{baseDir}` avoids the restriction without elevated permissions.
 >
 > **Why `env -u ...proxy`?** The sandbox proxy (`10.200.0.1:3128`) blocks CONNECT tunnels to `pypi.org` regardless of network policy. Unsetting the proxy variables lets pip connect directly — the sandbox network allows outbound HTTPS to PyPI.
 
