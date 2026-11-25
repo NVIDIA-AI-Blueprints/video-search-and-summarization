@@ -93,6 +93,11 @@ carries the resolver's values, so never regenerate it for this:
 
 Leave `AGENT_BACKEND_PATH` unset; `/v1/responses` is the `responses` default.
 
+Once the overlay exists it is part of the build's deployment model: every later
+command that creates or recreates a service passes
+`-f resolved.yml -f ui-hermes.override.yml`, because `resolved.yml` alone brings
+`vss-ui` back with the adapter off ([`deployment.md`](deployment.md#review-and-deploy)).
+
 This connects the chat sidebar and Chat tab. It does not restore the Search tab
 or the ingress `/api`, `/chat`, `/websocket` routes, which address the in-stack
 agent directly.

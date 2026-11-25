@@ -102,6 +102,13 @@ already self-contained, and re-reading any env file or supplying a profile flag
 re-injects `COMPOSE_PROFILES`/`FOUNDATION` and breaks the runtime deploy
 contract.
 
+Once a build has wired the Web UI adapter to a harness sandbox, its
+`ui-hermes.override.yml` is a second file in the model — add
+`-f "$BUILD_DIR/ui-hermes.override.yml"` after `resolved.yml` on every command
+that creates or recreates a service from then on, including a re-run of the
+deploy above. The adapter's endpoint and per-sandbox token exist in no env layer
+([`agent-harness.md`](agent-harness.md#connecting-the-web-ui-to-the-sandbox)).
+
 `COMPOSE_PROFILES` has already filtered the source graph during resolution, and
 `docker compose config` baked the project `name`, each service `env_file`, and
 all interpolation into the file. Normalization removes the remaining service
