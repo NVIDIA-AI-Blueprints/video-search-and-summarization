@@ -16,7 +16,6 @@
 from collections.abc import AsyncGenerator
 import json
 import logging
-import os
 
 import aiohttp
 from nat.builder.builder import Builder
@@ -29,6 +28,7 @@ from pydantic import Field
 
 from vss_agents.tools.vst.utils import VSTError
 from vss_agents.tools.vst.utils import get_stream_id
+from vss_agents.tools.vst.utils import resolve_vst_internal_url
 from vss_agents.utils.retry import create_retry_strategy
 from vss_agents.utils.time_convert import iso8601_to_datetime
 
@@ -77,7 +77,7 @@ async def get_timeline(stream_id: str, vst_internal_url: str | None = None) -> t
 
     Args:
         stream_id: The stream ID of the sensor/video, note it also works with sensor name(sensor id), internally it will be converted to stream id.
-        vst_internal_url: Internal VST URL for API calls (defaults to VST_INTERNAL_URL env var or http://localhost:30888)
+        vst_internal_url: Internal VST URL for API calls (defaults to VST_INTERNAL_URL env var)
 
     Returns:
         ISO timestamp string (e.g., "2025-01-01T00:10:28.000Z")
@@ -85,13 +85,8 @@ async def get_timeline(stream_id: str, vst_internal_url: str | None = None) -> t
     Raises:
         RuntimeError: If the video is not found or API calls fail
     """
-    if vst_internal_url is None:
-        vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
-
-    # Remove /vst suffix if present
-    if vst_internal_url.endswith("/vst"):
-        vst_internal_url = vst_internal_url[:-4]
-    timelines_url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/timelines"
+    vst_internal_url = resolve_vst_internal_url(vst_internal_url)
+    timelines_url = f"{vst_internal_url}/vst/api/v1/storage/timelines"
 
     async with aiohttp.ClientSession() as session:
         async for retry in create_retry_strategy(retries=3, exceptions=(Exception,)):
