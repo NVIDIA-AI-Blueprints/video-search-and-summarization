@@ -330,10 +330,15 @@ follow the model change with no edit.
 A provider authorizes only its profile's host, so the sandbox refuses a base URL
 on any other host.
 
-First re-read the settings:
+First re-read the settings and the sandbox's current provider:
 
 ```bash
 set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
+PROVIDER=$(openshell sandbox get hermes -o json |
+  jq -er '.policy.network_policies | keys[] |
+    select(startswith("_provider_")) |
+    sub("^_provider_"; "") | gsub("_"; "-")')
+: "${PROVIDER:?sandbox hermes has no inference provider}"
 ```
 
 Then follow the one change you made:
@@ -344,7 +349,7 @@ Then follow the one change you made:
   old one until the sandbox restarts.
 
   ```bash
-  openshell provider update agent-inference --credential HARNESS_API_KEY --wait
+  openshell provider update "$PROVIDER" --credential HARNESS_API_KEY --wait
   openshell sandbox stop hermes && openshell sandbox start hermes   # API server only
   ```
 
@@ -352,11 +357,7 @@ Then follow the one change you made:
   route, and ends any port forward; start that again afterwards. Nothing below
   applies.
 
-- **Model:** keep the Quickstart's provider, then recreate the sandbox below.
-
-  ```bash
-  PROVIDER=agent-inference
-  ```
+- **Model:** keep the sandbox's current provider, then recreate it below.
 
 - **Endpoint:** create a provider from the profile in `providers/` that
   authorizes the new host, then recreate the sandbox below. Set `PROVIDER` to
