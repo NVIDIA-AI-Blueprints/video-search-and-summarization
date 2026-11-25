@@ -1,0 +1,6 @@
+[submodule "auto-calibration-GeoCalib"]
+	path = tools/auto-calibration/submodules/GeoCalib
+	url = https://github.com/cvg/GeoCalib.git
+[submodule "auto-calibration-vggt"]
+	path = tools/auto-calibration/submodules/vggt
+	url = https://github.com/facebookresearch/vggt.git

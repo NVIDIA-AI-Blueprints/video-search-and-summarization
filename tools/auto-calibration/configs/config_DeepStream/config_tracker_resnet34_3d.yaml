@@ -1,0 +1,162 @@
+%YAML:1.0
+# SPDX-License-Identifier: Apache-2.0
+################################################################################
+# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
+################################################################################
+
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+BaseConfig:
+  #minDetectorConfidence: 0.1894    # If the confidence of a detector bbox is lower than this, then it won't be considered for tracking
+  minDetectorConfidence: 0.4 # If the confidence of a detector bbox is lower than this, then it won't be considered for tracking
+
+TargetManagement:
+  enableBboxUnClipping: 1    # In case the bbox is likely to be clipped by image border, unclip bbox
+  preserveStreamUpdateOrder: 0    # When assigning new target ids, preserve input streams' order to keep target ids in a deterministic order over multuple runs
+  maxTargetsPerStream: 150    # Max number of targets to track per stream. Recommended to set >10. Note: this value should account for the targets being tracked in shadow mode as well. Max value depends on the GPU memory capacity
+
+  # [Creation & Termination Policy]
+  minIouDiff4NewTarget: 0.3686    # If the IOU between the newly detected object and any of the existing targets is higher than this threshold, this newly detected object will be discarded.
+  minTrackerConfidence: 0.1513    # If the confidence of an object tracker is lower than this on the fly, then it will be tracked in shadow mode. Valid Range: [0.0, 1.0]
+  #probationAge: 2    # If the target's age exceeds this, the target will be considered to be valid.
+  probationAge: 4    # If the target's age exceeds this, the target will be considered to be valid.
+  maxShadowTrackingAge: 42    # Max length of shadow tracking. If the shadowTrackingAge exceeds this limit, the tracker will be terminated.
+  earlyTerminationAge: 1    # If the shadowTrackingAge reaches this threshold while in TENTATIVE period, the target will be terminated prematurely.
+
+  # dump tracklets in txt file
+  outputTerminatedTracks: 1 # save terminated tracklets
+  terminatedTrackFilename: "trajDump_Stream_" # file name: "terminatedTrackFilename"0.txt, "terminatedTrackFilename"1_2.txt, ...
+
+TrajectoryManagement:
+  useUniqueID: 0    # Use 64-bit long Unique ID when assignining tracker ID. Default is [true]
+  enableReAssoc: 1    # Enable Re-Assoc
+
+  # [Re-Assoc Metric: Thresholds for valid candidates]
+  minMatchingScore4Overall: 0.6622    # min matching score for overall
+  minTrackletMatchingScore: 0.2940    # min tracklet similarity score for re-assoc
+  minMatchingScore4ReidSimilarity: 0.0771    # min reid similarity score for re-assoc
+
+  # [Re-Assoc Metric: Weights]
+  matchingScoreWeight4TrackletSimilarity: 0.7981    # weight for tracklet similarity score
+  matchingScoreWeight4ReidSimilarity: 0.3848    # weight for reid similarity score
+
+  # [Re-Assoc: Motion-based]
+  minTrajectoryLength4Projection: 34    # min trajectory length required to make projected trajectory
+  prepLength4TrajectoryProjection: 58    # the length of the trajectory during which the state estimator is updated to make projections
+  trajectoryProjectionLength: 33    # the length of the projected trajectory
+  maxAngle4TrackletMatching: 67    # max angle difference for tracklet matching [degree]
+  minSpeedSimilarity4TrackletMatching: 0.0574    # min speed similarity for tracklet matching
+  minBboxSizeSimilarity4TrackletMatching: 0.1013    # min bbox size similarity for tracklet matching
+  maxTrackletMatchingTimeSearchRange: 27    # the search space in time for max tracklet similarity
+  trajectoryProjectionProcessNoiseScale: 0.0100    # trajectory projector's process noise scale w.r.t. state estimator
+  trajectoryProjectionMeasurementNoiseScale: 100    # trajectory projector's measurement noise scale w.r.t. state estimator
+  trackletSpacialSearchRegionScale: 0.0100    # the search region scale for peer tracklet
+
+  # [Re-Assoc: Reid based. Reid model params are set in ReID section]
+  reidExtractionInterval: 8    # frame interval to extract reid features per target
+
+DataAssociator:
+  dataAssociatorType: 0    # the type of data associator among { DEFAULT= 0 }
+  associationMatcherType: 1    # the type of matching algorithm among { GREEDY=0, CASCADED=1 }
+  checkClassMatch: 1    # If checked, only the same-class objects are associated with each other. Default: true
+
+  # [Association Metric: Thresholds for valid candidates]
+  minMatchingScore4Overall: 0.0222    # Min total score
+  minMatchingScore4SizeSimilarity: 0.3552    # Min bbox size similarity score
+  minMatchingScore4Iou: 0.0548   # Min IOU score
+  minMatchingScore4VisualSimilarity: 0.5043    # Min visual similarity score
+
+  # [Association Metric: Weights]
+  matchingScoreWeight4VisualSimilarity: 0.3951    # Weight for the visual similarity (in terms of correlation response ratio)
+  matchingScoreWeight4SizeSimilarity: 0.6003    # Weight for the Size-similarity score
+  matchingScoreWeight4Iou: 0.4033    # Weight for the IOU score
+
+  # [Association Metric: Tentative detections] only uses iou similarity for tentative detections
+  tentativeDetectorConfidence: 0.1024    # If a detection's confidence is lower than this but higher than minDetectorConfidence, then it's considered as a tentative detection
+  minMatchingScore4TentativeIou: 0.2852    # Min iou threshold to match targets and tentative detection
+
+StateEstimator:
+  stateEstimatorType: 3    # the type of state estimator among { DUMMY_ESTIMATOR=0, BBOX_ESTIMATOR_SIMPLE=1, BBOX_ESTIMATOR=2, LOCATION_ESTIMATOR_SIMPLE=3 }
+
+  # [Dynamics Modeling]
+  processNoiseVar4Loc: 6810.8668    # Process noise variance for bbox center
+  processNoiseVar4Size: 1541.8647    # Process noise variance for bbox size
+  processNoiseVar4Vel: 1348.4874    # Process noise variance for velocity
+  measurementNoiseVar4Detector: 100.0000    # Measurement noise variance for detector's detection
+  measurementNoiseVar4Tracker: 293.3238    # Measurement noise variance for tracker's localization
+
+ObjectModelProjection:
+  outputFootLocation: 1
+  outputVisibility: 1
+  outputConvexHull: 1
+  cameraModelFilepath:  # In order of the source streams
+     - './camInfo-temp.yaml'
+
+VisualTracker:
+  visualTrackerType: 1    # the type of visual tracker among { DUMMY=0, NvDCF=1 }
+
+  # [NvDCF: Feature Extraction]
+  useColorNames: 1    # Use ColorNames feature
+  useHog: 1    # Use Histogram-of-Oriented-Gradient (HOG) feature
+  featureImgSizeLevel: 3    # Size of a feature image. Valid range: {1, 2, 3, 4, 5}, from the smallest to the largest
+  featureFocusOffsetFactor_y: -0.1054    # The offset for the center of hanning window relative to the feature height. The center of hanning window would move by (featureFocusOffsetFactor_y*featureMatSize.height) in vertical direction
+
+  # [NvDCF: Correlation Filter]
+  filterLr: 0.0767    # learning rate for DCF filter in exponential moving average. Valid Range: [0.0, 1.0]
+  filterChannelWeightsLr: 0.0339    # learning rate for the channel weights among feature channels. Valid Range: [0.0, 1.0]
+  gaussianSigma: 0.5687    # Standard deviation for Gaussian for desired response when creating DCF filter [pixels]
+
+ReID:
+  reidType: 2    # The type of reid among { DUMMY=0, NvDEEPSORT=1, Reid based reassoc=2, both NvDEEPSORT and reid based reassoc=3}
+
+  # [Reid Network Info]
+  batchSize: 100    # Batch size of reid network
+  workspaceSize: 1000    # Workspace size to be used by reid engine, in MB
+  reidFeatureSize: 256    # Size of reid feature
+  reidHistorySize: 100    # Max number of reid features kept for one object
+  inferDims: [3, 256, 128]    # Reid network input dimension CHW or HWC based on inputOrder
+  networkMode: 1    # Reid network inference precision mode among {fp32=0, fp16=1, int8=2 }
+
+  # [Input Preprocessing]
+  inputOrder: 0    # Reid network input order among { NCHW=0, NHWC=1 }. Batch will be converted to the specified order before reid input.
+  colorFormat: 0    # Reid network input color format among {RGB=0, BGR=1 }. Batch will be converted to the specified color before reid input.
+  offsets: [123.6750, 116.2800, 103.5300]    # Array of values to be subtracted from each input channel, with length equal to number of channels
+  netScaleFactor: 0.01735207    # Scaling factor for reid network input after substracting offsets
+  keepAspc: 1    # Whether to keep aspc ratio when resizing input objects for reid
+
+  # [Output Postprocessing]
+  addFeatureNormalization: 1 # If reid feature is not normalized in network, adding normalization on output so each reid feature has l2 norm equal to 1
+
+  # [Paths and Names]
+  onnxFile: ../models/resnet50_market1501_aicity156.onnx
+  modelEngineFile: ../models/resnet50_market1501_aicity156.onnx_b100_gpu0_fp16.engine

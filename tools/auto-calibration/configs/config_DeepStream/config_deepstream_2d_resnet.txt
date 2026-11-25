@@ -1,0 +1,120 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[application]
+#kitti-track-output-dir=kitti_tracker
+gie-kitti-output-dir=kitti_detector
+perf-measurement-interval-sec=1
+enable-perf-measurement=1
+
+[osd]
+enable=1
+nvbuf-memory-type=0
+clock-color=1;0;0;0
+clock-text-size=12
+show-clock=0
+font=Serif
+text-size=10
+text-bg-color=0.3;0.3;0.3;1
+text-color=1;1;1;1
+border-width=1
+clock-x-offset=800
+clock-y-offset=820
+gpu-id=0
+display-text=1
+
+[source0]
+type=3
+enable=1
+cudadec-memtype=0
+gpu-id=0
+num-sources=1
+
+uri=file://video.mp4
+
+[sink0]
+enable=1
+qos=0
+gpu-id=0
+nvbuf-memory-type=0
+source-id=0
+sync=0
+type=1
+
+[sink1]
+enable=1
+#Type - 1=FakeSink 2=EglSink 3=File 4=RTSPStreaming
+type=3
+#1=mp4 2=mkv
+container=1
+#1=h264 2=h265
+codec=1
+#encoder type 0=Hardware 1=Software
+enc-type=0
+sync=0
+#iframeinterval=10
+bitrate=2000000
+#H264 Profile - 0=Baseline 2=Main 4=High
+#H265 Profile - 0=Main 1=Main10
+profile=0
+
+output-file=peoplenet_out_2d.mp4
+
+[streammux]
+enable-padding=0
+nvbuf-memory-type=0
+width=1920
+height=1080
+batched-push-timeout=40000
+batch-size=1
+live-source=0
+gpu-id=0
+
+[tiled-display]
+enable=1
+gpu-id=0
+width=1920
+height=1080
+nvbuf-memory-type=0
+rows=1
+columns=1
+
+[primary-gie]
+enable=1
+nvbuf-memory-type=0
+bbox-border-color3=0;1;0;1
+bbox-border-color2=0;0;1;1
+bbox-border-color1=0;1;1;1
+bbox-border-color0=1;0;0;1
+gpu-id=0
+gie-unique-id=1
+interval=0
+
+batch-size=1
+model-engine-file=../../models/resnet34_peoplenet.onnx_b1_gpu0_int8.engine
+config-file=config_pgie_resnet34.txt
+
+# [tracker]
+# enable=0
+# tracker-width=1920
+# tracker-height=1088
+# gpu-id=0
+# ll-lib-file=/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so
+# ll-config-file=config_tracker_resnet34.yaml
+# display-tracking-id=1
+
+[tests]
+file-loop=0
+

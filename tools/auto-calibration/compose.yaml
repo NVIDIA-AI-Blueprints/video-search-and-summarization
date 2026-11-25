@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: amc-oss-subset
+services:
+  ms:
+    image: amc-oss-ms:813f1dea
+    build:
+      context: .
+      dockerfile: server/docker/Dockerfile
+      target: release
+      network: host
+    runtime: nvidia
+    ipc: host
+    ports:
+      - "${AMC_MS_PORT:-8006}:8000"
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
+      VIOS_BASE_URL: "${VIOS_BASE_URL:-}"
+    volumes:
+      - projects:/home/auto-calibration-ms/server/projects
+      - models:/home/auto-calibration-ms/models
+    # Test AMC-only startup without fetching optional VGGT or MoGe checkpoints.
+    # The upstream entrypoint currently does not forward --disable-vggt.
+    entrypoint:
+      - bash
+      - -c
+      - 'bash ../service_scripts/setup_in_docker.sh --disable-vggt --disable-moge && exec "$@"'
+      - --
+    command: [uvicorn, main:app, --host, 0.0.0.0, --port, "8000"]
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost:8000/v1/ready]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15m
+  ui:
+    image: amc-oss-ui:813f1dea
+    build:
+      context: UI
+      dockerfile: Dockerfile
+    ports:
+      - "${AMC_UI_PORT:-5007}:5000"
+    environment:
+      API_URL: "http://${AMC_HOST:-localhost}:${AMC_MS_PORT:-8006}/v1"
+    depends_on:
+      ms:
+        condition: service_healthy
+
+volumes:
+  projects:
+  models:
