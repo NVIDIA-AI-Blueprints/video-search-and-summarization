@@ -26,6 +26,7 @@ from typing import Dict, Any, Union, List, Optional, NoReturn
 import subprocess
 import shutil
 import tempfile
+import shlex
 from random import randint
 import os
 from pathlib import Path
@@ -3604,36 +3605,34 @@ async def run_bash_script(project_id: str, request: CalibrateRequest, background
         raise HTTPException(status_code = 500, detail = f"Failed to update config file: {e}")
         # return {"message": f"Failed to update config file: {e}"}
 
-    # Build command with proper argument handling
-    command = "bash launch_EndToEndCalib.sh"
+    # Pass paths as literal arguments, never as shell command text.
+    command = ["bash", "launch_EndToEndCalib.sh"]
     if app.state.projects[project_id]["video_directory"] is not None:
-        command += f" -v {app.state.projects[project_id]['video_directory']}"
+        command.extend(["-v", app.state.projects[project_id]["video_directory"]])
     else:
-        command += f" -v ../server/{project_dir}"
-    command += f" -o ../server/{project_dir}/output"
+        command.extend(["-v", f"../server/{project_dir}"])
+    command.extend(["-o", f"../server/{project_dir}/output"])
     if app.state.projects[project_id]["groundtruth_file"]:
-        command += f" -g ../server/{project_dir}/groundtruth"
-    command += f" -l ../server/{project_dir}/manual_adjustment/layout.png"
+        command.extend(["-g", f"../server/{project_dir}/groundtruth"])
+    command.extend(["-l", f"../server/{project_dir}/manual_adjustment/layout.png"])
     if (len(app.state.projects[project_id]["focal_length"]) > 0):
-        command += f" -f {','.join(str(focal_length) for focal_length in app.state.projects[project_id]['focal_length'])}"
-    command += f" -d {request.detector_type}"
-    command += " -m local"
+        command.extend(["-f", ','.join(str(focal_length) for focal_length in app.state.projects[project_id]['focal_length'])])
+    command.extend(["-d", request.detector_type, "-m", "local"])
     # Single-view calibration when only one camera is uploaded
     if app.state.projects[project_id]["video_files_count"] == 1:
-        command += " --single-cam"
+        command.append("--single-cam")
 
     # Run command
     log_file_path = Path(app.state.projects[project_id]["project_dir"]) / Path("calibration.log")
     log_file = open(log_file_path, "w")
-    log_file.write(f"Running command: {command}\n")
+    log_file.write(f"Running command: {shlex.join(command)}\n")
     app.state.projects[project_id]["calibration_log"] = log_file
     app.state.projects[project_id]["project_state"] = "RUNNING"
     app.state.projects[project_id]["amc_state"] = "RUNNING"
     # Re-runs overwrite derived artifacts; require a fresh post-process afterward.
     app.state.projects[project_id]["postprocess_state"] = "INIT"
     try:
-        # ret = subprocess.run(command, cwd="../service_scripts/")
-        ret = subprocess.Popen(["bash", "-c", command], cwd="../service_scripts/", text=True, bufsize=1,
+        ret = subprocess.Popen(command, cwd="../service_scripts/", text=True, bufsize=1,
             stdout=log_file, stderr=subprocess.STDOUT, preexec_fn=os.setsid)
     except Exception as e:
         app.state.running_calibration = False
@@ -3701,17 +3700,19 @@ async def run_vggt_calibration(project_id: str, background_tasks: BackgroundTask
     project_dir = project["project_dir"]
     
     # Build VGGT command
-    command = "bash launch_VggtCalib.sh"
-    command += f" -a ../server/{project_dir}/output"
-    command += f" -l ../server/{project_dir}/manual_adjustment/layout.png"
+    command = [
+        "bash", "launch_VggtCalib.sh",
+        "-a", f"../server/{project_dir}/output",
+        "-l", f"../server/{project_dir}/manual_adjustment/layout.png",
+    ]
     if app.state.projects[project_id]["groundtruth_file"]:
-        command += f" -g ../server/{project_dir}/groundtruth"
-    command += " -m local"
+        command.extend(["-g", f"../server/{project_dir}/groundtruth"])
+    command.extend(["-m", "local"])
 
     # Run command
     log_file_path = Path(app.state.projects[project_id]["project_dir"]) / Path("vggt_calibration.log")
     log_file = open(log_file_path, "w")
-    log_file.write(f"Running command: {command}\n")
+    log_file.write(f"Running command: {shlex.join(command)}\n")
     app.state.projects[project_id]["vggt_calibration_log"] = log_file
     app.state.projects[project_id]["vggt_state"] = "RUNNING"
     app.state.projects[project_id]["project_state"] = "RUNNING"
@@ -3719,7 +3720,7 @@ async def run_vggt_calibration(project_id: str, background_tasks: BackgroundTask
     app.state.projects[project_id]["postprocess_state"] = "INIT"
     app.state.running_calibration = True
     try:
-        ret = subprocess.Popen(["bash", "-c", command], cwd="../service_scripts/", text=True, bufsize=1,
+        ret = subprocess.Popen(command, cwd="../service_scripts/", text=True, bufsize=1,
             stdout=log_file, stderr=subprocess.STDOUT, preexec_fn=os.setsid)
     except Exception as e:
         app.state.running_calibration = False
@@ -3801,16 +3802,18 @@ async def run_layout_postprocess(
         raise HTTPException(status_code=500, detail=f"Failed to update config file: {e}")
 
     project_dir = project["project_dir"]
-    command = "bash launch_LayoutPostProcess.sh"
-    command += f" -a ../server/{project_dir}/output"
-    command += f" -l ../server/{project_dir}/output/alignment_data/layout.png"
+    command = [
+        "bash", "launch_LayoutPostProcess.sh",
+        "-a", f"../server/{project_dir}/output",
+        "-l", f"../server/{project_dir}/output/alignment_data/layout.png",
+    ]
     if project["groundtruth_file"]:
-        command += f" -g ../server/{project_dir}/groundtruth"
-    command += " -m local --no-plot"
+        command.extend(["-g", f"../server/{project_dir}/groundtruth"])
+    command.extend(["-m", "local", "--no-plot"])
 
     log_file_path = Path(project_dir) / "postprocess.log"
     log_file = open(log_file_path, "w")
-    log_file.write(f"Running command: {command}\n")
+    log_file.write(f"Running command: {shlex.join(command)}\n")
     log_file.flush()
 
     project["postprocess_log"] = log_file
@@ -3819,7 +3822,7 @@ async def run_layout_postprocess(
     app.state.running_calibration = True
     try:
         process = subprocess.Popen(
-            ["bash", "-c", command],
+            command,
             cwd="../service_scripts/",
             text=True,
             bufsize=1,
