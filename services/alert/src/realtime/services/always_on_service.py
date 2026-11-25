@@ -512,10 +512,8 @@ class AlwaysOnService:
         # ``stop_alert`` returns 200 on clean teardown and 404 when the
         # rule is already gone from the core registry. Both are valid
         # end-states for ``camera_remove``: SDR wants the rule gone, and
-        # it is. The core also already tolerates RTVI HTTP failures
-        # internally (warns + removes anyway → 200), so any status
-        # outside {200, 404} indicates a real core-side issue worth
-        # surfacing as 502 so SDR can retry.
+        # it is. Any status outside {200, 404} indicates incomplete
+        # cleanup worth surfacing as 502 so SDR can retry.
         remove_details: List[Dict[str, Any]] = []
         rule_ids_to_drop: List[str] = []
         for rule_id, alert_rule_id in tracked.items():
@@ -562,6 +560,22 @@ class AlwaysOnService:
                     inner.pop(rule_id, None)
                 if not inner:
                     self._camera_rules.pop(camera_id, None)
+
+        # Always-on rules register RTVI streams under sensor_id=camera_id.
+        # A camera with nothing tracked may still have an orphaned RTVI
+        # stream from an earlier failed teardown. Reconcile directly and
+        # surface upstream failure so SDR retries camera_remove instead
+        # of accepting a false success while the stream remains live.
+        reconcile_result = await self._realtime.reconcile_orphaned_stream(
+            camera_id
+        )
+        if reconcile_result is None:
+            remove_details.append({
+                "stream_id": camera_id,
+                "status": 502,
+                "result": "error",
+                "error": "RTVI stream reconciliation failed; retry required",
+            })
 
         failed = [e for e in remove_details if e["result"] == "error"]
         if failed:
