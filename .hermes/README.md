@@ -44,9 +44,9 @@ a branch, and the tag on the CLI's version, which is the one every create in
 | `VSS_PACKAGE_VERSION` | `0.0.0+local` | the version the `vss` CLI wheels report, since a build context has no `.git` |
 
 The toolchain purge is by construction rather than by removal: the runtime
-stage installs no compiler, no node and no network client beyond `git`, so
-there is nothing to strip afterwards. Every build happens in an earlier stage
-and only its output is copied.
+stage installs no compiler and no node, so there is nothing to strip
+afterwards. Every build happens in an earlier stage and only its output is
+copied.
 
 The image needs no CA setup. OpenShell points `SSL_CERT_FILE`,
 `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` at its own bundle

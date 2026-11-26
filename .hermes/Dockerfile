@@ -127,8 +127,8 @@ RUN mkdir -p /opt/vss-assets/wheels \
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
 # The toolchain purge is by construction rather than by removal: this stage
-# installs no compiler, no node and no network client beyond git, so there is
-# nothing to strip afterwards. Every build happens in a stage above and only its output
+# installs no compiler and no node, so there is nothing to strip afterwards.
+# Every build happens in a stage above and only its output
 # is copied; uv is bind-mounted for the one RUN that makes the vss venv, so
 # neither the binary nor its cache reaches a layer.
 FROM ${BASE_IMAGE} AS runtime
@@ -136,7 +136,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HERMES_HOME=/sandbox/.hermes \
     PATH=/usr/local/vss/bin:/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git \
+# curl: the operation skills' REST calls where the CLI has no command.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git curl \
     && rm -rf /var/lib/apt/lists/* \
     # 998:999 is the process identity policy.yaml requires.
     && groupadd -g 999 sandbox \

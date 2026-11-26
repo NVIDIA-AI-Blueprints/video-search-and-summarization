@@ -129,9 +129,7 @@ def command_availability(vss_bin: str, run: Runner = _default_run) -> Availabili
 def http_answers(url: str) -> bool:
     """The service answered: the ingress 404s a route it does not declare and
     5xxs one whose backend is absent, and every other status (an auth challenge
-    included) proves something is serving. urllib, not curl: the Hermes image
-    ships no HTTP client and its policy grants the deployment to
-    /usr/bin/python3.13 alone."""
+    included) proves something is serving."""
     try:
         with urllib.request.urlopen(url, timeout=PROBE_TIMEOUT_SEC) as r:
             code = r.status
