@@ -165,6 +165,20 @@ class TestStreamMetadataValidation:
 class TestStreamAddRequest:
     """Test StreamAddRequest construction and validation."""
 
+    @staticmethod
+    def _shared_frame_source(**overrides):
+        defaults = {
+            "type": "shared_decode",
+            "protocol_version": "1.0",
+            "control_socket": "/run/vss/frame-broker/job-123.sock",
+            "session_token": "ephemeral-token",
+            "consumer_id": "rtvi-embed",
+            "transport": "cuda_ipc",
+            "device_id": 0,
+        }
+        defaults.update(overrides)
+        return defaults
+
     def _make_value(self, **overrides):
         defaults = {
             "camera_id": "camera-001",
@@ -218,10 +232,54 @@ class TestStreamAddRequest:
             )
 
     def test_missing_camera_url(self):
-        with pytest.raises(ValidationError, match="camera_url"):
+        with pytest.raises(ValidationError, match="exactly one"):
             StreamAddRequest(
                 key="sensor",
                 value={"camera_id": "cam1", "change": "camera_add"},
+            )
+
+    def test_valid_shared_decode_frame_source(self):
+        req = StreamAddRequest(
+            key="sensor",
+            value={
+                "camera_id": "camera-001",
+                "frame_source": self._shared_frame_source(),
+                "change": "camera_add",
+            },
+        )
+
+        assert req.value.camera_url is None
+        assert req.value.frame_source.type == "shared_decode"
+        assert req.value.frame_source.consumer_id == "rtvi-embed"
+
+    def test_camera_url_and_frame_source_are_mutually_exclusive(self):
+        with pytest.raises(ValidationError, match="exactly one"):
+            StreamAddRequest(
+                key="sensor",
+                value=self._make_value(frame_source=self._shared_frame_source()),
+            )
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("type", "rtsp"),
+            ("protocol_version", "2.0"),
+            ("control_socket", "relative/broker.sock"),
+            ("session_token", ""),
+            ("consumer_id", ""),
+            ("transport", "owned_cpu"),
+            ("device_id", -1),
+        ],
+    )
+    def test_invalid_shared_decode_frame_source(self, field, value):
+        with pytest.raises(ValidationError):
+            StreamAddRequest(
+                key="sensor",
+                value={
+                    "camera_id": "camera-001",
+                    "frame_source": self._shared_frame_source(**{field: value}),
+                    "change": "camera_add",
+                },
             )
 
     def test_invalid_url_scheme_ftp(self):
