@@ -102,26 +102,6 @@ services:
     container_name: mdx-calibration-toolkit
     command: "deploy.sh 8003"
 
-  vss-video-analytics-ui-smartcities:
-    image: ${VSS_VIDEO_ANALYTICS_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-analytics-ui}:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
-    profiles: ["vss-video-analytics-ui-smartcities"]
-    ports:
-      - ${VIDEO_ANALYTICS_UI_HOST_PORT:-3002}:3002
-    volumes:
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/vss-video-analytics-ui/config/vss-video-analytics-ui-config.json:/config/${VIDEO_ANALYTICS_UI_APP_NAME}/default-ui-config.json
-    environment:
-      APP_NAME: ${VIDEO_ANALYTICS_UI_APP_NAME}
-      REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS: ${REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS:-false}
-      REACT_APP_MEDIA_STREAMING_URL_BASE: http://$EXTERNAL_IP:30888/vst/api/v1
-      REACT_APP_GOOGLE_MAPS_API_KEY: $GOOGLE_MAPS_API_KEY
-      REACT_APP_API_URL_BASE: http://$EXTERNAL_IP:${VIDEO_ANALYTICS_API_HOST_PORT}
-      PORT: "3002"
-    container_name: vss-video-analytics-ui-smc
-    restart: always
-    depends_on:
-      - vss-video-analytics-api
-      - sensor-ms
-
 volumes:
   calibration-toolkit-alerts:
     driver: local

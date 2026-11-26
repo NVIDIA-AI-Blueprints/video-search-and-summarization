@@ -1,39 +1,89 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
+import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { MapComponent } from '../lib-src/MapComponent';
+import { getMapTabApp, MAP_TAB_APP_TRAFFIC_LIGHT } from '../lib-src/mapTabApp';
+
+jest.mock('../lib-src/mapTabApp', () => ({
+  MAP_TAB_APP_TRAFFIC_LIGHT: 'traffic-light',
+  getMapTabApp: jest.fn(() => 'warehouse'),
+}));
+
+jest.mock('../lib-src/warehouse/WarehouseAnalyticsComponent', () => ({
+  WarehouseAnalyticsComponent: ({
+    theme,
+    mapData,
+    warehouseData,
+  }: {
+    theme?: string;
+    mapData?: { apiUrl?: string | null };
+    warehouseData?: { apiUrl?: string | null };
+  }) => (
+    <div
+      data-testid="warehouse-analytics"
+      className={theme === 'dark' ? 'bg-black' : 'bg-white'}
+    >
+      Warehouse Analytics {(warehouseData || mapData)?.apiUrl}
+    </div>
+  ),
+  WarehouseAnalyticsSidebarControls: () => null,
+}));
+
+jest.mock('../lib-src/traffic-light/TrafficLightComponent', () => ({
+  TrafficLightComponent: ({
+    theme,
+    mapData,
+    warehouseData,
+  }: {
+    theme?: string;
+    mapData?: { apiUrl?: string | null };
+    warehouseData?: { apiUrl?: string | null };
+  }) => (
+    <div
+      data-testid="traffic-light"
+      className={theme === 'dark' ? 'bg-black' : 'bg-white'}
+    >
+      Traffic Light {(warehouseData || mapData)?.apiUrl}
+    </div>
+  ),
+}));
+
+const mockedGetMapTabApp = getMapTabApp as jest.MockedFunction<typeof getMapTabApp>;
 
 describe('MapComponent', () => {
-  it('shows error when mapUrl is not configured', () => {
-    render(<MapComponent mapData={{ mapUrl: '' }} />);
-    expect(
-      screen.getByText(/environment variables/i),
-    ).toBeInTheDocument();
+  beforeEach(() => {
+    mockedGetMapTabApp.mockReturnValue('warehouse');
   });
 
-  it('shows error when mapUrl is invalid', () => {
-    render(<MapComponent mapData={{ mapUrl: 'not-a-url' }} />);
-    expect(
-      screen.getByText(/Map URL is invalid/i),
-    ).toBeInTheDocument();
+  it('renders warehouse analytics natively by default', () => {
+    render(
+      <MapComponent mapData={{ apiUrl: 'http://example.test/video-analytics-api' }} />,
+    );
+    expect(screen.getByTestId('warehouse-analytics')).toHaveTextContent(
+      'Warehouse Analytics',
+    );
+    expect(screen.getByTestId('warehouse-analytics')).toHaveTextContent(
+      'http://example.test/video-analytics-api',
+    );
   });
 
-  it('renders loading state with a valid URL', () => {
-    render(<MapComponent mapData={{ mapUrl: 'https://maps.example.com' }} />);
-    expect(screen.getByText('Loading map...')).toBeInTheDocument();
+  it('renders traffic-light when NEXT_PUBLIC_MAP_TAB_APP selects it', () => {
+    mockedGetMapTabApp.mockReturnValue(MAP_TAB_APP_TRAFFIC_LIGHT);
+    render(
+      <MapComponent mapData={{ apiUrl: 'http://example.test/video-analytics-api' }} />,
+    );
+    expect(screen.getByTestId('traffic-light')).toHaveTextContent('Traffic Light');
+    expect(screen.queryByTestId('warehouse-analytics')).not.toBeInTheDocument();
   });
 
   it('applies dark theme classes', () => {
-    const { container } = render(
-      <MapComponent theme="dark" mapData={{ mapUrl: '' }} />,
-    );
+    const { container } = render(<MapComponent theme="dark" />);
     expect(container.firstChild).toHaveClass('bg-black');
   });
 
   it('applies light theme classes by default', () => {
-    const { container } = render(
-      <MapComponent mapData={{ mapUrl: '' }} />,
-    );
+    const { container } = render(<MapComponent />);
     expect(container.firstChild).toHaveClass('bg-white');
   });
 });

@@ -1,0 +1,27 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+/**
+ * Pulse animation for overlapping markers using opacity
+ */
+@keyframes marker-pulse-opacity {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.overlapping-marker-pulse {
+  animation: marker-pulse-opacity 0.5s ease-in-out infinite;
+}
+
+

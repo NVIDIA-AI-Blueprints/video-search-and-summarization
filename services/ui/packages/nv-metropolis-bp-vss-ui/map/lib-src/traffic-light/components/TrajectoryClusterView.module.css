@@ -1,0 +1,15 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+.container {
+  position: absolute;
+  /* PlaceHeader is an overlay at top: 0 / 2.25rem. Fill the rest. */
+  top: 2.25rem;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}

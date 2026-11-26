@@ -1,0 +1,94 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * Copyright (c) 2009-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+/* Overlay the map. Original ITS `.container` was missing from CSS, so
+ * Widgets positioned against the app shell. A relative 100% box after
+ * the map is clipped by the Map tab's overflow. */
+.container,
+.bodycontainer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 15;
+}
+
+.replayOverlay {
+  position: absolute;
+  /* PlaceHeader is 2.25rem; keep this banner under it, not through it. */
+  top: 2.25rem;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(221, 221, 221, 0.85);
+  z-index: 20;
+  pointer-events: none;
+}
+
+.mapcontainer {
+  margin-top: 54px;
+  position: relative;
+  height: calc(100vh - 132px);
+}
+
+.kpi {
+  top: 100px;
+  left: 50px;
+}
+
+/* entire container, keeps perspective */
+.flipContainer {
+  perspective: 1000px;
+}
+/* flip the pane when hovered */
+/* .flipContainer:hover .flipper, .flipContainer.hover .flipper {
+		transform: rotateY(180deg);
+    } */
+.flip .flipper {
+  transform: rotate(180deg);
+}
+
+.flipContainer,
+.front,
+.back {
+  width: 430px;
+  height: 750px;
+}
+
+/* flip speed goes here */
+.flipper {
+  transition: 0.6s;
+  transform-style: preserve-3d;
+
+  position: relative;
+}
+
+/* hide back of pane during swap */
+.front,
+.back {
+  backface-visibility: hidden;
+
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* front pane, placed above back */
+.front {
+  /* for firefox 31 */
+  transform: rotateY(0deg);
+}
+
+/* back, initially hidden pane */
+.back {
+  transform: rotateY(180deg);
+}

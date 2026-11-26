@@ -63,7 +63,7 @@
       "name": "vss-agent-ui",
       "strategy": "build",
       "ghcr_build": true,
-      "source_path": ["services/ui", "LICENSE"],
+      "source_path": ["services/ui", "LICENSE", "services/vios/ui/streaming-lib"],
       "context": ".",
       "dockerfile": "services/ui/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
@@ -342,13 +342,6 @@
       "platforms": ["linux/amd64"],
       "compose_image_names": ["calibration"],
       "tag_variables": ["CALIBRATION_TOOLKIT_IMAGE_TAG"]
-    },
-    {
-      "name": "vss-video-analytics-ui",
-      "strategy": "mirror",
-      "platforms": ["linux/amd64"],
-      "compose_image_names": ["vss-video-analytics-ui"],
-      "tag_variables": ["VIDEO_ANALYTICS_UI_IMAGE_TAG"]
     },
     {
       "name": "vss-rt-cv-mv3dt-bev-fusion",

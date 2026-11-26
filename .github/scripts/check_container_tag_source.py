@@ -99,8 +99,12 @@ IMAGE_CONFIGS = {
     "vss-agent-ui": ImageConfig(
         image_name="vss-agent-ui",
         source_path=Path("services/ui"),
-        # services/ui/Dockerfile COPYs the repository LICENSE into the image.
-        extra_source_paths=(Path("LICENSE"),),
+        # The UI image COPYs the repository LICENSE and the map package's
+        # file: dependency at services/vios/ui/streaming-lib.
+        extra_source_paths=(
+            Path("LICENSE"),
+            Path("services/vios/ui/streaming-lib"),
+        ),
     ),
     "vss-alert-ms": ImageConfig(
         image_name="vss-alert-ms",
