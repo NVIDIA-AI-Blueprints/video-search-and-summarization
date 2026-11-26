@@ -136,8 +136,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HERMES_HOME=/sandbox/.hermes \
     PATH=/usr/local/vss/bin:/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-# curl: the operation skills' REST calls where the CLI has no command.
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git curl \
+# curl and jq: the operation skills' REST calls where the CLI has no command.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git curl jq \
     && rm -rf /var/lib/apt/lists/* \
     # 998:999 is the process identity policy.yaml requires.
     && groupadd -g 999 sandbox \

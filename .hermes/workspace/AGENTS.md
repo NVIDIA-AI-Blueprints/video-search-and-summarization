@@ -7,8 +7,9 @@
 ## VSS operations
 
 - Every VSS skill reaches the deployment through the `vss_cli` tool or
-  `/usr/local/bin/vss`. No checkout, no `uv run`, and never raw HTTP in place
-  of a command that failed.
+  `/usr/local/bin/vss`, except the `curl` calls a skill documents for an
+  endpoint the CLI has no command for. No checkout, no `uv run`, and never raw
+  HTTP in place of a command that failed.
 - The CLI knows the deployment from its own recording: `vss configure show`
   inspects it and `vss configure check` reports which command groups it can
   serve. Record `VSS_PUBLIC_URL` with `vss configure --base-url` only when

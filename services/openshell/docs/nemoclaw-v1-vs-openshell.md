@@ -588,7 +588,7 @@ workspace docs, the plugin and the policy in the same build.
 | Size, built image | 2.15 GB | **0.67 GB** |
 | Python packages in Hermes' venv | 248 | **72** |
 | `config.yaml` | 175 lines, patched by `sed` | **11 lines, authored** |
-| Build and network tools | `node`, `npm`, `ssh`, `curl` present; `gcc` purged | **`git` and `curl`** |
+| Build and network tools | `node`, `npm`, `ssh`, `curl` present; `gcc` purged | **`git`, `curl`, `jq`** |
 | NemoClaw artifacts on the build | base image | **none** |
 
 Three properties make this cheaper than its line count suggests:
