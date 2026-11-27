@@ -451,6 +451,7 @@ jobs:
           CLEANUP_JOB_STATUS: ${{ job.status }}
           CLEANUP_WORKER: ${{ github.event_name == 'schedule' && 'true' || (inputs.cleanup_worker && 'true' || 'false') }}
           ARTIFACT_PREFIX: ${{ inputs.artifact_prefix || 'skills-eval-daily-results' }}
+          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           # This leg's harbor output lives under its own scratch scope,
           # /tmp/skill-eval/results/<slug>/<run_id>/, so the artifact
@@ -461,20 +462,33 @@ jobs:
             echo "no results dir for this leg — blocked before running a trial (expected for blocker outcomes)"
             exit 0
           fi
+          # Load coordinator + CI secrets on EVERY leg (not only operations/
+          # nemoclaw legs) before redact_secrets.py runs, so _env_secret_values()
+          # masks COMPATIBLE_API_KEY, NGC_*, NVIDIA_API_KEY, ANTHROPIC_API_KEY,
+          # etc. inside agent/trajectory.json and verifier files even when the
+          # agent step timed out or was cancelled before leg_report.py ran.
+          saved_slug="$EVAL_SLUG"
+          saved_spec_path="$EVAL_SPEC_PATH"
+          saved_run_id="$GITHUB_RUN_ID"
+          saved_run_attempt="$GITHUB_RUN_ATTEMPT"
+          saved_ci_anthropic="${CI_ANTHROPIC_API_KEY:-}"
+          if [ -f /home/ubuntu/eval-coordinator/.env ]; then
+            set -a
+            source /home/ubuntu/eval-coordinator/.env
+            set +a
+          fi
+          export EVAL_SLUG="$saved_slug" EVAL_SPEC_PATH="$saved_spec_path"
+          export GITHUB_RUN_ID="$saved_run_id" GITHUB_RUN_ATTEMPT="$saved_run_attempt"
+          if [ -n "$saved_ci_anthropic" ]; then
+            export ANTHROPIC_API_KEY="$saved_ci_anthropic"
+          fi
           # A cancelled outer agent can bypass run_leg.py's finalizer. Reclaim
           # only this leg's NemoClaw gateway receipt under the same worker lock
           # before packaging results; ordinary successful cleanup is idempotent.
           if [ "$OPERATIONAL_HARNESS" = nemoclaw ] && [[ "$EVAL_SPEC_PATH" == skills/operations/* ]]; then
             cleanup_python="$SKILL_EVAL_VENV/bin/python"
             cleanup_pythonpath="$PWD/.github/skill-eval"
-            cleanup_slug="$EVAL_SLUG"
-            cleanup_run_id="$GITHUB_RUN_ID"
-            cleanup_attempt="$GITHUB_RUN_ATTEMPT"
             cleanup_status="$CLEANUP_JOB_STATUS"
-            set -a
-            source /home/ubuntu/eval-coordinator/.env
-            set +a
-            export EVAL_SLUG="$cleanup_slug" GITHUB_RUN_ID="$cleanup_run_id" GITHUB_RUN_ATTEMPT="$cleanup_attempt"
             export SKILLS_EVAL_CLEAN_WORKER_AFTER_LEG="$CLEANUP_WORKER"
             eval "$(ssh-agent -s)" > /dev/null
             trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
@@ -483,45 +497,15 @@ jobs:
             PYTHONPATH="$cleanup_pythonpath:${PYTHONPATH:-}" "$cleanup_python" -c "$cleanup_code" "$LEG_RESULTS" "$cleanup_status" || \
               echo 'Gateway cleanup failed; continuing result collection'
           fi
-          # Exclude per-trial agent/ trajectory subdirs from the tarball
-          # (NOT from the on-disk tree the Harbor viewer serves). Those
-          # files capture every tool_use/tool_result verbatim, so a `.env`
-          # read or `docker compose config` dump would otherwise carry
-          # secret values into the public artifact (PR #516 leaked
-          # NGC_CLI_API_KEY this way). Reward / judge / result.json — what
-          # the report consumes — stay in.
-          # Per-leg tarball path scoped by slug + run_id. `max-parallel`
-          # places multiple legs on one runner host, so a fixed
-          # /tmp/skills-eval-results.tar.gz would let overlapping legs
-          # overwrite each other's archive before upload — each leg then
-          # uploads whichever sibling wrote last. The slug makes the path
-          # unique per (skill,spec,platform).
-          # Redact secrets from the tree before packing: TruffleHog
-          # (--no-verification --fail-on-scan-errors, scan -> replace ->
-          # quarantine -> verify) plus builtin nvapi-/env-value layers
-          # (redact_secrets.py). The verifier files stay in the tarball
-          # because the report consumes them, and a judge explaining "the
-          # agent printed the key" by quoting it would otherwise ship the
-          # credential (PR #1647 run 32535909071), exactly as agent/
-          # trajectories once did (PR #516). leg_report.py runs the same
-          # gate before the PR comment renders; this one covers the artifact
-          # for legs that never reached a report. Fail closed: a scanner
-          # failure exits nonzero and the step stops before tar. The tarball
-          # is removed FIRST — reruns reuse GITHUB_RUN_ID on the same
-          # self-hosted runner, and `if: always()` upload would otherwise
-          # ship a stale, unredacted archive from a previous attempt when
-          # this attempt's scan fails.
+          # Per-leg tarball path scoped by slug + run_id so concurrent matrix
+          # legs on one runner host never overwrite each other's archive.
+          # `redact_secrets.py --tarball` unlinks any stale archive FIRST, runs
+          # fail-closed TruffleHog + builtin/env/JSON-escaped secret redaction
+          # over the tree, and packs verifier/result metadata plus allowlisted
+          # `agent/trajectory.json` (while excluding raw `agent/sessions/`,
+          # `agent/setup/`, `codex.txt`, `claude-code.txt`, and `openclaw*`).
           LEG_TARBALL="/tmp/${ARTIFACT_PREFIX}-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
-          rm -f "$LEG_TARBALL"
-          python3 .github/skill-eval/redact_secrets.py --tree "$LEG_RESULTS"
-          RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
-          if [ -n "$RESULTS" ]; then
-            tar czf "$LEG_TARBALL" \
-              -C "/tmp/skill-eval/results/${EVAL_SLUG}" --exclude='agent' "$GITHUB_RUN_ID"
-            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded)"
-          else
-            echo "results dir exists but empty — nothing to archive"
-          fi
+          python3 .github/skill-eval/redact_secrets.py --tree "$LEG_RESULTS" --tarball "$LEG_TARBALL"
 
       - name: Upload results artifact
         if: always()

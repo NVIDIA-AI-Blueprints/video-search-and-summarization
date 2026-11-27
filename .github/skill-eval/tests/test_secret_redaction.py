@@ -14,6 +14,7 @@ through all of them (PR #1647 run 32535909071).
 import importlib.util
 import json
 import sys
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -371,3 +372,226 @@ class TestRoundFiveGuards:
     def test_judge_marker_idempotent(self, monkeypatch):
         monkeypatch.setenv("WEIRD_TOKEN", "REDACTED")
         assert judge._scrub_secrets("[REDACTED]") == "[REDACTED]"
+
+
+class TestTrajectoryArtifactPackaging:
+    def test_archive_includes_redacted_trajectory_and_excludes_raw_agent_files(
+        self, tmp_path, monkeypatch
+    ):
+        run_id = "45599274929"
+        leg_results = tmp_path / run_id
+        trial = leg_results / "2026-11-25__12-19-13" / "step-3__abc123"
+        (trial / "verifier").mkdir(parents=True)
+        (trial / "artifacts" / "logs" / "artifacts" / "nemoclaw").mkdir(parents=True)
+        (trial / "agent" / "sessions" / "session-env").mkdir(parents=True)
+        (trial / "agent" / "sessions" / "shell-snapshots").mkdir(parents=True)
+        (trial / "agent" / "setup").mkdir(parents=True)
+
+        compat_secret = "compat-hub-secret-987654321"  # pragma: allowlist secret
+        anth_secret = "anth-ci-secret-1234567890"  # pragma: allowlist secret
+        escaped_secret = 'pa"ss\\word-escaped-4242'  # pragma: allowlist secret
+        gw_url_tok = "a1b2c3d4e5f60718293a4b5c6d7e8f9011223344556"  # pragma: allowlist secret
+        bearer_tok = "bearer-tok-abcdef0123456789xyz"  # pragma: allowlist secret
+        json_field_tok = "openclaw-hook-tok-9988776655443322"  # pragma: allowlist secret
+        env_dump_tok = "worker-generated-backend-tok-77665544"  # pragma: allowlist secret
+        fake_sk = "sk-proj-" + "Z9y8X7w6" * 4  # pragma: allowlist secret
+        fake_hf = "hf_" + "Q1w2E3r4" * 4  # pragma: allowlist secret
+        fake_gh = "ghs_" + "M5n6B7v8" * 4  # pragma: allowlist secret
+
+        monkeypatch.setenv("COMPATIBLE_API_KEY", compat_secret)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", anth_secret)
+        monkeypatch.setenv("ESCAPED_SECRET", escaped_secret)
+
+        nested_tool_json = json.dumps({"nested_secret": escaped_secret, "token": json_field_tok})
+        trajectory_doc = {
+            "schema_version": "ATIF-v1.2",
+            "steps": [
+                {
+                    "source": "agent",
+                    "message": "Onboarded NemoClaw and verified stack.",
+                    "observation": (
+                        f"compat={compat_secret} anth={anth_secret} ngc={FAKE_KEY}\n"
+                        f"{fake_sk}\n{fake_hf}\n{fake_gh}\n"
+                        f"dashboard=http://127.0.0.1:18789/#token={gw_url_tok}\n"
+                        f"Authorization: Bearer {bearer_tok}\n"
+                        f"AGENT_BACKEND_TOKEN={env_dump_tok}\n"
+                        f"tool_json={nested_tool_json}"
+                    ),
+                }
+            ],
+        }
+        (trial / "agent" / "trajectory.json").write_text(
+            json.dumps(trajectory_doc), encoding="utf-8"
+        )
+        (trial / "result.json").write_text('{"reward": 1.0}\n', encoding="utf-8")
+        (trial.parent / "result.json").write_text('{"trials": 1}\n', encoding="utf-8")
+        (trial / "verifier" / "judge.json").write_text(
+            json.dumps({"reward": 1.0, "note": f"checked {compat_secret}"}),
+            encoding="utf-8",
+        )
+        (
+            trial / "artifacts" / "logs" / "artifacts" / "nemoclaw" / "readiness.json"
+        ).write_text('{"stages": [{"stage": "gateway_health", "status": "passed"}]}\n')
+
+        # Raw agent scratch/session files that MUST stay excluded from public tarballs.
+        (trial / "agent" / "codex.txt").write_text("raw codex stream\n")
+        (trial / "agent" / "claude-code.txt").write_text("raw claude stream\n")
+        (trial / "agent" / "openclaw.txt").write_text("raw openclaw stream\n")
+        (trial / "agent" / "openclaw.session.jsonl").write_text("{}\n")
+        (trial / "agent" / "instruction.txt").write_text("prompt\n")
+        (trial / "agent" / "readiness.json").write_text("stale readiness\n")
+        (trial / "agent" / "sessions" / ".claude.json").write_text("{}\n")
+        (trial / "agent" / "sessions" / "session-env" / "env.sh").write_text("SECRET=1\n")
+        (trial / "agent" / "sessions" / "shell-snapshots" / "snap.sh").write_text("alias x=y\n")
+        (trial / "agent" / "setup" / "setup.log").write_text("setup\n")
+
+        trial2 = leg_results / "2026-11-25__12-25-00" / "step-4__def456"
+        (trial2 / "agent").mkdir(parents=True)
+        (trial2 / "result.json").write_text('{"reward": 1.0}\n')
+        (trial2 / "agent" / "trajectory.jsonl").write_text(
+            json.dumps({"event": "turn", "secret": compat_secret}) + "\n"
+        )
+
+        monkeypatch.setattr(redact_secrets, "_scan", lambda root: [])
+        tarball = tmp_path / "skills-eval-results.tar.gz"
+        rc = redact_secrets.main(
+            ["--tree", str(leg_results), "--tarball", str(tarball)]
+        )
+        assert rc == 0
+        assert tarball.is_file()
+
+        with tarfile.open(tarball, "r:gz") as tf:
+            names = set(tf.getnames())
+            traj_member = f"{run_id}/2026-11-25__12-19-13/step-3__abc123/agent/trajectory.json"
+            trajl_member = f"{run_id}/2026-11-25__12-25-00/step-4__def456/agent/trajectory.jsonl"
+            assert traj_member in names
+            assert trajl_member in names
+            assert f"{run_id}/2026-11-25__12-19-13/step-3__abc123/result.json" in names
+            assert f"{run_id}/2026-11-25__12-19-13/step-3__abc123/verifier/judge.json" in names
+            assert (
+                f"{run_id}/2026-11-25__12-19-13/step-3__abc123/"
+                "artifacts/logs/artifacts/nemoclaw/readiness.json"
+            ) in names
+
+            # Every non-trajectory file under `<trial>/agent/` must be excluded.
+            agent_members = [n for n in names if "/agent/" in n]
+            assert sorted(agent_members) == sorted([traj_member, trajl_member])
+
+            # Trajectory must remain valid JSON with all turns preserved and zero secrets.
+            extracted_traj = tf.extractfile(traj_member).read().decode("utf-8")
+            parsed_traj = json.loads(extracted_traj)
+            assert len(parsed_traj["steps"]) == 1
+            assert "#token=[REDACTED]" in parsed_traj["steps"][0]["observation"]
+
+            all_payloads = "\n".join(
+                tf.extractfile(m).read().decode("utf-8", errors="replace")
+                for m in tf.getmembers()
+                if m.isfile()
+            )
+            for secret in (
+                compat_secret,
+                anth_secret,
+                escaped_secret,
+                json.dumps(escaped_secret)[1:-1],
+                FAKE_KEY,
+                gw_url_tok,
+                bearer_tok,
+                json_field_tok,
+                env_dump_tok,
+                fake_sk,
+                fake_hf,
+                fake_gh,
+            ):
+                assert secret not in all_payloads, f"leaked {secret!r}"
+
+    def test_archive_fails_closed_and_deletes_stale_tarball_on_scan_error(
+        self, tmp_path, monkeypatch
+    ):
+        leg_results = tmp_path / "run-123"
+        trial = leg_results / "step-1"
+        (trial / "agent").mkdir(parents=True)
+        (trial / "result.json").write_text('{"reward": 1.0}\n')
+        (trial / "agent" / "trajectory.json").write_text('{"steps": []}\n')
+
+        tarball = tmp_path / "stale.tar.gz"
+        tarball.write_bytes(b"stale-unredacted-tarball")
+        monkeypatch.setattr(redact_secrets.shutil, "which", lambda name: None)
+
+        rc = redact_secrets.main(
+            ["--tree", str(leg_results), "--tarball", str(tarball)]
+        )
+        assert rc == 2
+        assert not tarball.exists(), "stale tarball must be removed before scan"
+
+    def test_archive_skips_empty_results_dir_without_result_json(
+        self, tmp_path, monkeypatch
+    ):
+        leg_results = tmp_path / "run-empty"
+        leg_results.mkdir()
+        (leg_results / "notes.txt").write_text("no trials ran\n")
+        tarball = tmp_path / "out.tar.gz"
+        monkeypatch.setattr(redact_secrets, "_scan", lambda root: [])
+
+        rc = redact_secrets.main(
+            ["--tree", str(leg_results), "--tarball", str(tarball)]
+        )
+        assert rc == 0
+        assert not tarball.exists()
+
+    def test_json_escaped_scanner_finding_redacted_without_quarantine(
+        self, tmp_path, monkeypatch
+    ):
+        """TruffleHog's JSON decoder can emit unescaped Raw while on disk
+        trajectory.json stores the JSON-escaped string; literal+escaped
+        matching must clean it in place without quarantining trajectory.json."""
+        traj = tmp_path / "step-1" / "agent" / "trajectory.json"
+        traj.parent.mkdir(parents=True)
+        raw_secret = 'sec"ret\\val-987654321'  # pragma: allowlist secret
+        traj.write_text(json.dumps({"steps": [{"source": "agent", "out": raw_secret}]}))
+        calls = {"n": 0}
+
+        def fake_scan(root):
+            calls["n"] += 1
+            return [_finding(traj, raw_secret, "CustomJSON")] if calls["n"] == 1 else []
+
+        monkeypatch.setattr(redact_secrets, "_scan", fake_scan)
+        lines = redact_secrets.redact_tree(tmp_path)
+        parsed = json.loads(traj.read_text())
+        assert "steps" in parsed and "redacted" not in parsed
+        assert parsed["steps"][0]["out"] == "[REDACTED]"
+        assert not any(l.startswith("quarantined:") for l in lines)
+
+
+class TestWorkflowArtifactRedactionContract:
+    @pytest.mark.parametrize(
+        "workflow_rel",
+        [
+            ".github/workflows/skills-eval.yml",
+            ".github/workflows/skills-eval-daily.yml",
+        ],
+    )
+    def test_collect_results_loads_secrets_unconditionally_and_uses_tarball_gate(
+        self, workflow_rel
+    ):
+        repo_root = HARNESS.parents[1]
+        text = (repo_root / workflow_rel).read_text(encoding="utf-8")
+        marker = "- name: Collect results for workflow artifact"
+        start = text.index(marker)
+        end = text.index("- name: Upload results artifact", start)
+        block = text[start:end]
+
+        assert "CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}" in block
+        source_idx = block.index("source /home/ubuntu/eval-coordinator/.env")
+        anth_idx = block.index('export ANTHROPIC_API_KEY="$saved_ci_anthropic"')
+        nemo_if_idx = block.index('if [ "$OPERATIONAL_HARNESS" = nemoclaw ]')
+        redact_idx = block.index(
+            'python3 .github/skill-eval/redact_secrets.py --tree "$LEG_RESULTS" --tarball "$LEG_TARBALL"'
+        )
+        assert source_idx < nemo_if_idx < redact_idx, (
+            f"{workflow_rel}: coordinator .env must load on EVERY leg before "
+            "both gateway cleanup and redact_secrets.py"
+        )
+        assert anth_idx < redact_idx
+        assert "tar czf" not in block, (
+            f"{workflow_rel}: archiving must go through redact_secrets.py --tarball"
+        )
