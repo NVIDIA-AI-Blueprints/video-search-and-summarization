@@ -288,21 +288,10 @@ def test_cli_error_exits_one(tmp_path, monkeypatch, capsys):
 
 # --- pin lockstep ---------------------------------------------------------------
 
-def test_vss_ref_default_is_readable():
-    """`.openclaw/Dockerfile` fetches its skills, docs and CLI from a ref, since
-    NemoClaw builds it with the Dockerfile's own directory as the context. The
-    default is a ref a person can read: the `develop` branch, or a `v*` release
-    tag; a bare commit sha is an override for a reproducible rebuild, never the
-    default. The OpenShell harness image takes no ref — it builds from the tree."""
-    import re as _re
-    repo = Path(__file__).resolve().parents[4]
-    df = repo / ".openclaw" / "Dockerfile"
-    m = _re.search(r"^ARG VSS_REF=(\S+)$", df.read_text(), _re.M)
-    assert m, f"{df} has no VSS_REF default"
-    ref = m.group(1)
-    assert ref == "develop" or _re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", ref), (
-        f"VSS_REF default {ref!r} is neither `develop` nor a v* release tag")
-    hermes_df = (repo / ".hermes" / "Dockerfile").read_text()
+def test_harness_image_takes_no_ref():
+    """The harness image carries this tree's skills, docs and CLI from the build
+    context, so a ref would let the image and the checkout disagree."""
+    hermes_df = (Path(__file__).resolve().parents[4] / ".hermes" / "Dockerfile").read_text()
     assert "ARG VSS_REF" not in hermes_df, "the OpenShell harness image must not fetch a ref"
 
 

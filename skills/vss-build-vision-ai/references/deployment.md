@@ -102,6 +102,13 @@ already self-contained, and re-reading any env file or supplying a profile flag
 re-injects `COMPOSE_PROFILES`/`FOUNDATION` and breaks the runtime deploy
 contract.
 
+Once a build has wired the Web UI adapter to a harness sandbox, its
+`ui-hermes.override.yml` is a second file in the model — add
+`-f "$BUILD_DIR/ui-hermes.override.yml"` after `resolved.yml` on every command
+that creates or recreates a service from then on, including a re-run of the
+deploy above. The adapter's endpoint and per-sandbox token exist in no env layer
+([`agent-harness.md`](agent-harness.md#connecting-the-web-ui-to-the-sandbox)).
+
 `COMPOSE_PROFILES` has already filtered the source graph during resolution, and
 `docker compose config` baked the project `name`, each service `env_file`, and
 all interpolation into the file. Normalization removes the remaining service
@@ -156,23 +163,12 @@ source to prove the stack works is not a readiness check.
 
 ## Stop
 
-A harnessed build starts with
-[`teardown.md`](teardown.md#nemoclaw-harness--before-compose) instead — the
-harness is outside the Compose project, and stopping the build first leaves it
-pointed at a dead origin. That covers a build holding a `sandbox` file and an
-older one that carries only `nemoclaw-setup.log`; that section resolves the
-name from either.
-
-Clean the complete Compose project (`COMPOSE_PROJECT_NAME`, default `vss`) and its named volumes by default:
-
-```bash
-COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
-docker compose -p "${COMPOSE_PROJECT_NAME}" -f "$BUILD_DIR/resolved.yml" down -v --remove-orphans
-```
-
-This removes data volumes and model caches. Use the cache-preserving path only
-when the user explicitly requests it. Follow [`teardown.md`](teardown.md) for
-leftover containers, stale volumes, and bind-mounted data cleanup.
+Every stop runs [`teardown.md`](teardown.md) from the top, in its order. The
+Compose command there is the same one, but the two sections ahead of it are
+not optional: the harness sandbox is outside the Compose project, so stopping
+the build first leaves it pointed at a dead origin, and `--remove-orphans`
+removes a gateway that other builds' sandboxes still run on unless the shared
+gateway gate has cleared it.
 
 ## Sources
 

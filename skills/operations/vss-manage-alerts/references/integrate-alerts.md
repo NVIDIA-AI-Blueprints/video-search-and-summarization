@@ -43,7 +43,7 @@ The official Alert Verification workflow's "what's being deployed" set, mapped t
 
 - **VSS Agent / legacy Video-Analytics MCP** — `vss-agent` (`:8000`) and
   `vss-va-mcp` (`:9901`) are independent optional surfaces, not part of the core
-  verify data path. Host-side and NemoClaw analytics use `vss analytics` through
+  verify data path. Host-side and sandbox analytics use `vss analytics` through
   `vss-video-analytics-api`; include `vss-va-mcp` only for an explicitly
   requested legacy MCP workflow such as SOP reporting. Nothing in
   `alert-bridge`, `perception-alerts`, or `vss-behavior-analytics` depends on

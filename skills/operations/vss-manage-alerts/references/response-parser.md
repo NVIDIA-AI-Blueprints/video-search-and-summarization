@@ -438,7 +438,7 @@ so the build's keys outlive a prompt-only `PUT`. Keep `patches/vlm-as-verifier/`
 - **A parser per alert type.** One parser serves the whole deployment.
 - **Turning parser output into `confirmed` / `rejected`.** Not on this path.
 - **Real-time alerts** (`2d_vlm`). The real-time rule path never calls a parser.
-- **NemoClaw sandbox.** Building a parser writes host files and recreates a
+- **Harness sandbox.** Building a parser writes host files and recreates a
   container; the sandbox can do neither. A host coding agent, or the user, runs
   the build.
 - **Kubernetes.** The Helm chart has no parser mount.

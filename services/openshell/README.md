@@ -74,7 +74,7 @@ docker build -f .hermes/Dockerfile \
   -t "$HARNESS_IMAGE" .
 ```
 
-To use a published GHCR build instead, set `HARNESS_IMAGE="ghcr.io/nvidia-ai-blueprints/video-search-and-summarization/openshell-hermes-vss:<tag>"` and `docker pull "$HARNESS_IMAGE"`.
+To use a published GHCR build instead, set `HARNESS_IMAGE="ghcr.io/nvidia-ai-blueprints/vss/openshell-hermes-vss:<tag>"` and `docker pull "$HARNESS_IMAGE"`.
 
 ### 4. Register the inference provider and create the sandbox
 
@@ -174,6 +174,10 @@ Edit `harness.env` at the repo root and reload:
 
 ```bash
 set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
+RUNNING_PROVIDER="$(openshell sandbox get hermes -o json 2>/dev/null |
+  jq -er '.policy.network_policies | keys[] | select(startswith("_provider_")) |
+    sub("^_provider_"; "") | gsub("_"; "-")' 2>/dev/null || true)"
+HARNESS_PROVIDER="${RUNNING_PROVIDER:-$HARNESS_PROVIDER}"
 ```
 
 - **Key only** (preserves `/sandbox` and `API_SERVER_KEY`; restart any `openshell forward` afterwards):

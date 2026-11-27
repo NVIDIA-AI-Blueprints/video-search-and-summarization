@@ -6,13 +6,17 @@
 
 ## VSS operations
 
-- Every VSS skill reaches the deployment through the `vss_cli` tool,
-  `/usr/local/bin/vss`, or the REST routes documented in that skill's `SKILL.md`
-  — never ad-hoc HTTP in place of a CLI command that failed.
+- Every VSS skill reaches the deployment through the `vss_cli` tool or
+  `/usr/local/bin/vss`, except the `curl` calls a skill documents for an
+  endpoint the CLI has no command for. No checkout, no `uv run`, and never raw
+  HTTP in place of a command that failed.
 - The CLI knows the deployment from its own recording: `vss configure show`
   inspects it and `vss configure check` reports which command groups it can
   serve. Record `VSS_PUBLIC_URL` with `vss configure --base-url` only when
   nothing is recorded or the recording names another origin.
+- The sandbox ships no `ngc` CLI (`harness.ngc-cli="false"`). Stage sample
+  videos on the host and copy them in with `openshell sandbox upload`; do not
+  run `ngc` inside the sandbox.
 - Missing configuration is not authorization to deploy a stack. When a skill
   routes to `/vss-build-vision-ai`, which is not installed here, report what
   the request needs — the profile, the hardware, the origin — and stop.
