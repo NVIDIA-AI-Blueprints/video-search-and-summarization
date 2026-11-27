@@ -961,13 +961,11 @@ run_dry_run_test "up alerts dry-run with mode verification" up -p alerts -i 127.
 run_dry_run_up_and_check_generated_env "alerts verification disables always-on" "alerts" \
   -i 127.0.0.1 -m verification -d -- \
   "ALERT_AGENT_ALWAYS_ON" "false" \
-  "MODE" "2d_cv" \
-  "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
+  "MODE" "2d_cv"
 run_dry_run_up_and_check_generated_env "alerts real-time enables always-on" "alerts" \
   -i 127.0.0.1 -m real-time -d -- \
   "ALERT_AGENT_ALWAYS_ON" "true" \
-  "MODE" "2d_vlm" \
-  "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
+  "MODE" "2d_vlm"
 run_negative_test "up base with hardware-profile RTXPRO4500BW is rejected" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
@@ -1022,10 +1020,10 @@ unset VSS_CONTAINER_TAG
 if [[ ${_ghcr_channel_exit} -ne 0 ]]; then
   echo "FAIL: dry-run with VSS_CONTAINER_TAG only exited ${_ghcr_channel_exit}"
   ((TESTS_FAILED++)) || true
-elif ! grep -Fq "ghcr.io/nvidia-ai-blueprints/vss/vss-agent:pr-ghcr-channel-test" "${_out_ghcr_channel}"; then
+elif ! grep -Fq "ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:pr-ghcr-channel-test" "${_out_ghcr_channel}"; then
   echo "FAIL: resolved compose images should use GHCR when only VSS_CONTAINER_TAG is exported"
   ((TESTS_FAILED++)) || true
-elif grep -Fq "nvcr.io/nvstaging/vss-core/vss-agent:pr-ghcr-channel-test" "${_out_ghcr_channel}"; then
+elif grep -Fq "nvcr.io/nvstaging/vss-core/vss-agent-ui:pr-ghcr-channel-test" "${_out_ghcr_channel}"; then
   echo "FAIL: resolved compose images should not use nvstaging when GHCR acceptance tag is set"
   ((TESTS_FAILED++)) || true
 else
@@ -1556,8 +1554,8 @@ _common_overrides_env_keys=(
   VLM_NAME VLM_NAME_SLUG VLM_ENV_FILE VLM_BASE_URL VLM_MODEL_TYPE
   VSS_APPS_DIR VSS_DATA_DIR HOST_IP EXTERNAL_IP
   HAPROXY_PORT HAPROXY_HOST_PORT VSS_PUBLIC_HTTP_PROTOCOL VSS_PUBLIC_WS_PROTOCOL VSS_PUBLIC_HOST VSS_PUBLIC_PORT
-  VST_CONFIG_PATH VST_EXTERNAL_URL VST_BASE_URL VSS_AGENT_REPORTS_BASE_URL VSS_AGENT_EXTERNAL_URL
-  VSS_UI_HOST_PORT VSS_AGENT_HOST_PORT PHOENIX_HOST_PORT REDIS_HOST_PORT
+  VST_CONFIG_PATH VST_EXTERNAL_URL VST_BASE_URL
+  VSS_UI_HOST_PORT PHOENIX_HOST_PORT REDIS_HOST_PORT
   VST_INGRESS_HOST_PORT SENSOR_HTTP_HOST_PORT STREAM_PROCESSOR_HTTP_HOST_PORT RTSP_SERVER_HOST_PORT RTSP_SERVER_HOST_PORT_END
   NGC_CLI_API_KEY NVIDIA_API_KEY OPENAI_API_KEY
 )
@@ -1574,17 +1572,17 @@ for _profile in base lvs search alerts; do
   _allowed_duplicate_keys=()
   case "${_profile}" in
     base)
-      _expected_override_keys+=(EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RTVI_VLM_PORT RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
+      _expected_override_keys+=(RTVI_VLM_PORT RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_stable_keys=(MODE RTVI_VLM_MAX_MODEL_LEN)
       _allowed_duplicate_keys=(RTVI_VLM_MAX_MODEL_LEN)
       ;;
     lvs)
-      _expected_override_keys+=(RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH NVSTREAMER_CONFIG_DIR RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
+      _expected_override_keys+=(RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT SDR_CONTROLLER_CONFIG_PATH NVSTREAMER_CONFIG_DIR RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_override_keys+=(NVSTREAMER_HTTP_HOST_PORT BACKEND_HOST_PORT LVS_MCP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT DCGM_EXPORTER_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
       _expected_stable_keys=(MODE LVS_TAG)
       ;;
     search)
-      _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL NVSTREAMER_CONFIG_DIR RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
+      _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL NVSTREAMER_CONFIG_DIR RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT)
       # VSS_RT_CV_TAG and VSS_RT_EMBED_TAG are not pinned for search: the managed
       # images inherit their tag from containers.env, and the only entries are the
@@ -1593,7 +1591,7 @@ for _profile in base lvs search alerts; do
       ;;
     alerts)
       _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE VSS_RT_CV_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME)
-      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT)
+      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT)
       _expected_stable_keys=()
       ;;
   esac
@@ -2297,10 +2295,6 @@ run_dry_run_up_and_check_generated_env "generated.env search --vlm cosmos3-reaso
 
 # Docker Compose commands use these .env defaults directly, so agent config paths must be container paths.
 for _env in \
-  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-base/.env" \
-  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env" \
-  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-lvs/.env" \
-  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" \
   "${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/.env"; do
   if grep -q "^VSS_AGENT_CONFIG_FILE=/vss-agent/deploy/docker/" "${_env}"; then
     echo "PASS: ${_env} uses an in-container VSS_AGENT_CONFIG_FILE path"
@@ -2320,30 +2314,17 @@ for _env in \
   fi
 done
 
-# Search vss-agent config validates RTVI_CV_ENDPOINT at startup; compose must export it.
-if grep -q "RTVI_CV_ENDPOINT: \${RTVI_CV_ENDPOINT:-http://vss-rtvi-cv:\${RTVI_CV_PORT:-9000}}" "${REPO_ROOT}/deploy/docker/services/agent/compose.yml"; then
-  echo "PASS: vss-agent compose exports RTVI_CV_ENDPOINT for search config"
-  ((TESTS_PASSED++)) || true
-else
-  echo "FAIL: vss-agent compose should export RTVI_CV_ENDPOINT for search config"
-  ((TESTS_FAILED++)) || true
-fi
-
-# Alerts stream registration: VIOS webhooks (not Agent rtvi_cv_base_url).
-_alerts_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
+# Alerts stream registration: VIOS webhooks.
 _alerts_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"
 _alerts_cv_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_2d_cv.json"
 _alerts_vlm_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_2d_vlm.json"
-if [[ -f "${_alerts_agent_config}" ]] \
-  && [[ ! -e "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml" ]] \
-  && ! grep -q 'rtvi_cv_base_url:' "${_alerts_agent_config}" \
-  && grep -q 'notification_config_${MODE}.json' "${_alerts_overrides}" \
+if grep -q 'notification_config_${MODE}.json' "${_alerts_overrides}" \
   && grep -q 'vss-rtvi-cv:9010/api/v1/stream/add' "${_alerts_cv_webhook}" \
   && grep -q 'vss-alert-bridge:9080/api/v1/realtime/always-on' "${_alerts_vlm_webhook}"; then
   echo "PASS: alerts uses MODE-selected VIOS webhooks for stream registration"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts should use notification_config_\${MODE}.json webhooks (no Agent rtvi_cv_base_url)"
+  echo "FAIL: alerts should use notification_config_\${MODE}.json webhooks"
   ((TESTS_FAILED++)) || true
 fi
 
@@ -2457,8 +2438,8 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
  -i 127.0.0.1 -H OTHER -m real-time --use-remote-llm --llm my-llm --use-remote-vlm --vlm my-vlm -d -- \
   "VLM_MODE" "remote" "VLM_PORT" "30082" "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 
-_expected_lvs_compose_profiles='kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,dcgm-exporter,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
-_expected_search_compose_profiles='kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-api,nvstreamer-2d-fusion,perception-2d-fusion,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,rtvi-embed,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+_expected_lvs_compose_profiles='kibana-init-container-lvs,nvstreamer-lvs,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,dcgm-exporter,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+_expected_search_compose_profiles='kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-api,nvstreamer-2d-fusion,perception-2d-fusion,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,rtvi-embed,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
 
 # Docker search: direct VIOS — no SDRC chain in Foundation env / COMPOSE_PROFILES.
 _search_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env"

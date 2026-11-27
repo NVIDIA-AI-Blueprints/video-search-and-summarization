@@ -78,7 +78,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   Ingress is ENABLED. Services are exposed via host/path routing:
 
   VSS UI (Search):      http://{{ $mainHost }}
-  VSS Agent API:        http://{{ $mainHost }}/api
   VST API:              http://{{ $mainHost }}/vst/api
   Video Analytics API:  http://{{ $mainHost }}/video-analytics-api
   RT-VLM (OpenAI API):  http://{{ $mainHost }}/rtvi-vlm/v1
@@ -100,7 +99,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   Use kubectl port-forward or create your own Ingress/LoadBalancer:
 
   kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent-ui") }} 3000:3000 -n {{ .Release.Namespace }}
-  kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }} 8000:8000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-ingress") }} 8000:8000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-video-analytics-api") }} 8081:8081 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "kibana") }} 5601:5601 -n {{ .Release.Namespace }}

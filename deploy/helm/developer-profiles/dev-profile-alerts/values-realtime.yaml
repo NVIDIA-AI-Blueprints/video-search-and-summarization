@@ -49,17 +49,6 @@ infra:
   sdrc:
     configFilePath: configs/sdrc/config-realtime.yml
 
-# Real-time mode disables perception/behavior analytics, keeps alert-bridge,
-# and enables vss-rtvi-vlm.
-# agent.vss-agent: wire RTVI_VLM_BASE_URL to in-cluster vss-rtvi-vlm (rtviVlmEnabled + rtviVlmServiceName; image override optional).
-# COSMOS_EMBED_ENDPOINT stays empty — alerts profile does not ship vss-rtvi-embed (same as reference; search profile uses embed).
-agent:
-  vss-agent:
-    rtviVlmEnabled: true
-    rtviVlmServiceName: "vss-rtvi-vlm"
-    cosmosEmbedEnabled: false
-    vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-
 vss-agent-ui:
   appSubtitle: "Vision (Alerts - VLM)"
   alertsRealtimeEnabled: true
@@ -98,12 +87,10 @@ vssIngress:
   ingressClassName: haproxy
   host: ""
   vssUiPort: 3000
-  vssAgentPort: 8000
   vstIngressPort: 30888
   videoAnalyticsApiPort: 8081
   behaviorAnalyticsPort: 8080
   alertBridgePort: 9080
-  vaMcpPort: 9901
   elasticsearchPort: 9200
   rtviCvPort: 9010
   kibanaPort: 5601
