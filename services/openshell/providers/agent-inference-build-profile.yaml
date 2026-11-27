@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# build.nvidia.com, with an nvapi- key.
+# NVIDIA API Catalog profile (integrate.api.nvidia.com, nvapi-* key).
 
 id: agent-inference-build
 display_name: Agent inference (build.nvidia.com)
@@ -19,7 +19,7 @@ endpoints:
     protocol: rest
     enforcement: enforce
     rules:
-      - allow: {method: GET, path: "/v1/models"}   # Hermes probes this each turn
+      - allow: {method: GET, path: "/v1/models"}
       - allow: {method: POST, path: "/v1/**"}
 binaries:
   - {path: /usr/bin/python3.13}

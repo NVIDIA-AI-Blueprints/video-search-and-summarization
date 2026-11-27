@@ -1,10 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# The NVIDIA Inference Hub, the Quickstart's default endpoint. Gateway 0.1.6
-# ships no built-in profiles, so this has to be imported before
-# `provider create` has a type to name. Every profile here declares the key as
-# HARNESS_API_KEY, the name the harness config reads.
+# Default NVIDIA Inference Hub profile (inference-api.nvidia.com).
 
 id: agent-inference
 display_name: Agent inference
@@ -22,7 +19,7 @@ endpoints:
     protocol: rest
     enforcement: enforce
     rules:
-      - allow: {method: GET, path: "/v1/models"}   # Hermes probes this each turn
+      - allow: {method: GET, path: "/v1/models"}
       - allow: {method: POST, path: "/v1/**"}
 binaries:
   - {path: /usr/bin/python3.13}

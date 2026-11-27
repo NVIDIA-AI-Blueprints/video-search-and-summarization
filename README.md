@@ -95,7 +95,7 @@ This blueprint is designed for ease of setup with extensive configuration option
 | `libs/analytics/spatialai-data-utils/` | Spatial AI Data Utils (SDU): NVSchema / ground-truth / calibration / Sparse4D loaders, camera calibration + grouping (BEV group-origin / per-group fan-out), 3D&#x2194;2D geometry, multi-cam 3D-bbox visualization, detection (mAP) + tracking (HOTA, CLEAR, identity, count) evaluators, NVSchema result converters, and video&#x2194;frame utilities. See [libs/analytics/spatialai-data-utils/README.md](libs/analytics/spatialai-data-utils/README.md). |
 | `libs/vss/` | The `vss` command-line interface (`cli/`) and its shared core (`core/`) — the host-side entry point to a deployed stack, used by the skills above. See [libs/vss/cli/README.md](libs/vss/cli/README.md). |
 | `libs/nvschema/` | Protobuf schema shared by the services that publish and consume VSS metadata. See [libs/nvschema/README.md](libs/nvschema/README.md). |
-| `.openclaw/`, `.hermes/` | Self-contained agent harnesses for OpenClaw and Hermes. Each image packages the harness-neutral `skills/` tree the way its harness loads skills. See [.openclaw/README.md](.openclaw/README.md) and [.hermes/README.md](.hermes/README.md). |
+| `.openclaw/`, `.hermes/` | Self-contained agent harnesses that package the harness-neutral `skills/` tree for OpenClaw and Hermes. See [.openclaw/README.md](.openclaw/README.md) and [.hermes/README.md](.hermes/README.md). |
 
 ## Documentation
 

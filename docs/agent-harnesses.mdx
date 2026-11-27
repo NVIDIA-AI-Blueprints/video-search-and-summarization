@@ -15,8 +15,8 @@ The following harnesses are validated against the VSS Agent Skills:
 - **OpenAI Codex** - OpenAI's CLI coding agent.
 - **OpenClaw** - the open agent sandbox that exposes an `agentskills.io`-compatible
   host with a chat UI.
-- **OpenShell** - NVIDIA's agent sandbox, running the Hermes harness against a
-  policy boundary the agent cannot switch off.
+- **NemoClaw** - NVIDIA's open-source reference stack for running always-on AI agents (such as Hermes and OpenClaw) more safely inside NVIDIA OpenShell sandboxes.
+- **OpenShell** - NVIDIA OpenShell running the Hermes agent harness directly as a sandboxed workload with provable egress policy and supervisor-injected credentials.
 
 <Note>
 Agent harnesses are a developer-side tool for working with the VSS Blueprint. They
@@ -47,7 +47,7 @@ in two complementary ways:
 
 - **Deployment.** A coding agent such as Claude Code or Codex loads the Skills and stands
   up a VSS profile from a request like *"Deploy VSS for video search"*.
-- **Runtime.** An always-on sandbox such as OpenShell loads the same Skills and acts as the
+- **Runtime.** An always-on sandbox such as NemoClaw loads the same Skills and acts as the
   operational chat interface to a running deployment.
 
 ## Claude Code
@@ -72,34 +72,30 @@ catalog is used, so the available capabilities and example prompts are unchanged
 
 OpenClaw is an open agent sandbox that exposes an `agentskills.io`-compatible host with
 a chat UI. As a generic compatible host, it loads VSS Skills from `~/.agents/skills/<name>/`.
+OpenClaw is the foundation that [NemoClaw](/vision-agent/agent-harnesses#nemoclaw) builds on:
+NemoClaw packages OpenClaw together with the VSS plugin, VSS policy preset, and the VSS
+Orchestrator MCP server so that Skills, safety policy, and host orchestration are
+preconfigured rather than installed by hand.
 
-VSS brings one up through NemoClaw, from two notebooks in the blueprint repository:
-[`deploy_nemoclaw.ipynb`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/docker/scripts/deploy_nemoclaw.ipynb)
-onboards the sandbox with the Skills, the workspace docs, and the `vss` CLI, and
-[`deploy_vss_orchestrator.ipynb`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/docker/scripts/deploy_vss_orchestrator.ipynb)
-deploys VSS from that chat UI through the [VSS Orchestrator MCP](/vision-agent/agent-harnesses/vss-orchestrator-mcp)
-server. The same flow as canonical commands, to run by hand, is in
-[`deploy/docker/scripts/nemoclaw/README.md`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/docker/scripts/nemoclaw/README.md).
+## NemoClaw
+
+[NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw) is an open-source reference stack for running always-on AI agents more safely inside NVIDIA OpenShell sandboxes.
+Instead of installing Skills by hand, the bundled `deploy_nemoclaw.ipynb` and
+`deploy_vss_orchestrator.ipynb` notebooks apply the VSS policy, install the repository's
+VSS Skills and workspace docs into the sandbox, register the VSS Orchestrator MCP, and
+start the [VSS Orchestrator MCP server](/vision-agent/agent-harnesses/nemo-claw/vss-orchestrator-mcp) on the
+host. From the chat UI you can deploy profiles, manage cameras and streams, query
+incidents, run searches, summarize videos, and pull logs - with confirmation prompts
+before destructive actions. For setup, configuration, and troubleshooting, see
+[NemoClaw](/vision-agent/agent-harnesses/nemo-claw).
+
+<Note>
+The NemoClaw notebooks are released as an Early Access feature.
+</Note>
 
 ## OpenShell
 
-[NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/) is an agent sandbox, and
-VSS drives it directly to run the Hermes harness. The gateway is declared as a Docker
-Compose service alongside the rest of the stack, and the harness image carries the `vss`
-CLI, the VSS operation Skills, and the one network grant that lets the agent reach a
-deployment.
-
-What this route gives you over installing Skills into a coding agent is a boundary the
-agent cannot switch off: the workload container has no network at all, the supervisor
-opens every connection only when its destination *and* calling binary match the policy,
-and the real credential is added at egress so the agent never holds a key. The policy is
-checked against a boundary ceiling with `openshell-prover`.
-
-The [Build Vision AI Skill](/vision-agent/build-vision-ai-skill#agent-harness) brings
-the sandbox up as the default harness of a developer-profile build; you can also bring it
-up by hand with the `openshell` CLI against a deployment that is already running. See
-[OpenShell](/vision-agent/agent-harnesses/open-shell) for the architecture, setup,
-configuration, and troubleshooting.
+[NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/) can also run the Hermes agent harness directly against a VSS deployment. The OpenShell gateway runs as an opt-in Docker Compose service (`--profile openshell`), while the `openshell-hermes-vss` image packages the `vss` CLI, VSS operational Skills, the `vss_cli` tool plugin, and a verifiable sandbox policy (`openshell-prover check`). For architecture, setup, provider profiles, and operations, see [OpenShell](/vision-agent/agent-harnesses/open-shell).
 
 ## Related Documentation
 
