@@ -98,3 +98,23 @@ def test_new_targets_render_exact_image_and_gpu_assignment(platform, overlay):
     llm_service = "nemotron-nano-9b-v2" if platform == "RTXPRO4500BW" else "nemotron-nano-9b-v2-dgx-spark"
     for service in ["rtvi-vlm", llm_service]:
         assert services[service]["deploy"]["resources"]["reservations"]["devices"][0]["device_ids"] == ["0"]
+
+
+@pytest.mark.parametrize("overlay,overrides,expected", [
+    ("gpu-rtx-pro-4500.yaml", {}, ("2048", "adaptive")),
+    ("gpu-rtx-pro-4500.yaml", {"RTVI_VLLM_MAX_NUM_BATCHED_TOKENS": "4096",
+                              "RTVI_VLM_ADMISSION_MODE": "off"}, ("4096", "off")),
+    ("gpu-rtx-pro-6000.yaml", {}, ("", "off")),
+])
+def test_rtx4500_memory_tuning_is_scoped_and_overridable(overlay, overrides, expected):
+    if not shutil.which("docker"):
+        pytest.skip("Docker Compose CLI required for offline rendering")
+    images = yaml.safe_load((PERF / "setup/configs/images.yaml").read_text())["images"]
+    result = subprocess.run(
+        ["docker", "compose", "-f", str(COMPOSE / "x86-rtvi-cr-nemotron-9b_1gpu.yaml"),
+         "-f", str(COMPOSE / "overlays" / overlay), "config", "--format", "json"],
+        env={"PATH": os.environ["PATH"], **images, **overrides},
+        text=True, capture_output=True, check=True)
+    environment = json.loads(result.stdout)["services"]["rtvi-vlm"]["environment"]
+    assert (environment["VLLM_MAX_NUM_BATCHED_TOKENS"],
+            environment["RTVI_VLM_ADMISSION_MODE"]) == expected
