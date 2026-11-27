@@ -9,46 +9,59 @@ position: 2
 
 ## Architecture
 
-- **Gateway (`openshell-gateway`)**: Declared in `deploy/docker/services/openshell/compose.yml` behind `--profile openshell` on `127.0.0.1:8080`. Creates and manages sandboxes via `/var/run/docker.sock`.
+- **Gateway (`openshell-gateway`)**: Declared in `deploy/docker/services/openshell/compose.yml` behind `--profile openshell` (`127.0.0.1:8080`, health on `127.0.0.1:8082`). Creates and manages sandboxes via `/var/run/docker.sock`.
 - **Workload + Supervisor**: Each sandbox runs as two containers sharing a network namespace. The Hermes workload runs unprivileged (`998:999`) with no direct network access and sees only `openshell:resolve:env:HARNESS_API_KEY` placeholders; the supervisor enforces `.hermes/policy.yaml` (Landlock, process identity, binary paths, L4/REST rules) and injects real credentials at egress.
 - **Provable Boundary**: `.hermes/policy.yaml` is verified offline against `.hermes/boundary.yaml` with `openshell-prover check`.
 
 ## Prerequisites
 
-- Linux host (`x86_64` or `aarch64`) with Docker Engine + Compose v2 (`docker info` without `sudo`).
-- `openshell` CLI `0.1.6` (and optional `openshell-prover` `0.1.6`) installed from [NVIDIA/OpenShell releases](https://github.com/NVIDIA/OpenShell/releases/tag/v0.1.6).
-- An inference API key exported as `HARNESS_API_KEY` (or placed in gitignored `harness.env` at the repository root).
+- Linux host (`x86_64` or `aarch64`) with Docker Engine + Compose v2 (`docker info` without `sudo`), `curl`, and `jq`.
+- Put `HARNESS_API_KEY` (unquoted; for `agent-inference-local`, use a non-empty placeholder such as `HARNESS_API_KEY=not-used`) and any overrides for `HARNESS_PROVIDER`, `HARNESS_BASE_URL`, `HARNESS_MODEL`, or `VSS_PUBLIC_URL` in gitignored `harness.env` at the repository root. Setup commands source `openshell.env` first and `harness.env` second, so `harness.env` wins without clobbering overrides or dirtying tracked `openshell.env`.
 
 ## Setup
 
 Run from the repository root (`video-search-and-summarization`):
 
-### 1. Load environment defaults and verify the policy
+### 1. Install CLI tools, load settings, and verify the policy
 
 ```bash
-set -a
-source deploy/docker/services/openshell/openshell.env
-[ -f harness.env ] && source harness.env
-set +a
+mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
+command -v uvx >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 
+set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
+case "$HARNESS_API_KEY" in ''|\"*|\'*) echo "HARNESS_API_KEY must be set unquoted" >&2; false;; esac
+
+( cd "$(mktemp -d)" && V="$OPENSHELL_TAG" A="$(uname -m)" &&
+  for p in openshell openshell-prover; do
+    curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-$A-unknown-linux-musl.tar.gz"
+    curl -fsSLO "https://github.com/NVIDIA/OpenShell/releases/download/v$V/$p-checksums-sha256.txt"
+    grep " $p-$A-unknown-linux-musl.tar.gz\$" "$p-checksums-sha256.txt" | sha256sum -c - &&
+    tar -xzf "$p-$A-unknown-linux-musl.tar.gz" -C ~/.local/bin
+  done )
+openshell --version && openshell-prover --version
 openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
 ```
 
-### 2. Start the OpenShell gateway and register it
+### 2. Start and select the OpenShell gateway
 
 ```bash
-docker compose \
-  --env-file deploy/docker/services/openshell/openshell.env \
-  -f deploy/docker/services/openshell/compose.yml \
-  --profile openshell up -d
+docker compose --env-file deploy/docker/services/openshell/openshell.env \
+  -f deploy/docker/services/openshell/compose.yml --profile openshell up -d
+timeout 30 sh -c 'until curl -fs -o /dev/null http://127.0.0.1:8082/health; do sleep 1; done'
 
-openshell gateway add --name vss "$OPENSHELL_GATEWAY_ENDPOINT"
-openshell status
+GW=$(openshell gateway list | awk -v ep="$OPENSHELL_GATEWAY_ENDPOINT" 'NF>4 && $(NF-3)==ep {print $(NF-4)}')
+[ -n "$GW" ] || {
+  openshell gateway add "$OPENSHELL_GATEWAY_ENDPOINT" --local --name openshell-gateway
+  GW=openshell-gateway
+}
+openshell gateway select "$GW"
 ```
 
-### 3. Build or pull the Hermes harness image
+<Note>
+A VSS developer profile can start the gateway itself by appending `openshell` to `COMPOSE_PROFILES` in its `overrides.env` (on `dev-profile-alerts`, append `openshell` to both `COMPOSE_PROFILES_CV` and `COMPOSE_PROFILES_VLM`). When a profile already runs the gateway under its own `COMPOSE_PROJECT_NAME`, skip `docker compose ... up -d` above so a second container does not compete for `127.0.0.1:8080`, and run only the health wait and `openshell gateway` selection commands.
+</Note>
 
-To build from your checkout:
+### 3. Build or pull the Hermes harness image
 
 ```bash
 VERSION="$(cd libs/vss/cli && uvx --with hatch-vcs hatch version)"
@@ -59,9 +72,11 @@ docker build -f .hermes/Dockerfile \
   -t "$HARNESS_IMAGE" .
 ```
 
-### 4. Import the inference provider profile and create the sandbox
+To use a published GHCR build instead, set `HARNESS_IMAGE="ghcr.io/nvidia-ai-blueprints/video-search-and-summarization/openshell-hermes-vss:<tag>"` and `docker pull "$HARNESS_IMAGE"`.
 
-`HARNESS_PROVIDER` in `openshell.env` selects `services/openshell/providers/<HARNESS_PROVIDER>-profile.yaml`:
+### 4. Register the inference provider and create the sandbox
+
+`HARNESS_PROVIDER` selects `services/openshell/providers/<HARNESS_PROVIDER>-profile.yaml`:
 
 | `HARNESS_PROVIDER` | Host | Example `HARNESS_BASE_URL` |
 |---|---|---|
@@ -71,55 +86,125 @@ docker build -f .hermes/Dockerfile \
 
 ```bash
 openshell profile import -f "services/openshell/providers/$HARNESS_PROVIDER-profile.yaml"
-openshell provider create --name "$HARNESS_PROVIDER" --type "$HARNESS_PROVIDER" --credential HARNESS_API_KEY
+openshell provider create --name "$HARNESS_PROVIDER" --type "$HARNESS_PROVIDER" \
+  --credential HARNESS_API_KEY
 
-API_SERVER_KEY="$(openssl rand -hex 32)"
-openshell sandbox create --name hermes \
+openshell sandbox create \
+  --name hermes \
   --from "$HARNESS_IMAGE" \
   --policy .hermes/policy.yaml \
   --provider "$HARNESS_PROVIDER" \
-  --env "HARNESS_BASE_URL=$HARNESS_BASE_URL" \
-  --env "HARNESS_MODEL=$HARNESS_MODEL" \
-  --env "API_SERVER_KEY=$API_SERVER_KEY" \
-  --port 8642:http --no-tty -- sleep infinity
+  --env HARNESS_BASE_URL="$HARNESS_BASE_URL" \
+  --env HARNESS_MODEL="$HARNESS_MODEL" \
+  --env VSS_PUBLIC_URL="$VSS_PUBLIC_URL" \
+  --restart-policy on-failure \
+  --expose 8642 --expose-authorization-mode bearer-passthrough --detach \
+  -- sh -c 'E=/sandbox/.hermes/.env
+            grep -q "^API_SERVER_KEY=" "$E" 2>/dev/null || {
+              K=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")
+              printf "API_SERVER_KEY=%s\n" "$K" >> "$E"; }
+            chmod 640 "$E"
+            exec hermes gateway run'
 ```
 
-### 5. Connect to a running VSS deployment
+### 5. Verify and connect to a running VSS deployment
 
-Once a VSS deployment is serving on `VSS_PUBLIC_URL` (default `http://host.openshell.internal:7777`):
+Once a VSS deployment is serving at `VSS_PUBLIC_URL` (default `http://host.openshell.internal:7777`):
 
 ```bash
-openshell sandbox exec -n hermes -- vss configure "$VSS_PUBLIC_URL"
+openshell sandbox exec -n hermes -- hermes chat -Q -q 'Reply with the single word: pong'
+openshell sandbox exec -n hermes -- sh -c 'vss configure --base-url "$VSS_PUBLIC_URL"'
 openshell sandbox exec -n hermes -- vss configure check
 openshell sandbox exec -n hermes -- vss-hermes-sync
 openshell sandbox exec -n hermes -- hermes chat -q "Which VSS capabilities are available?"
 ```
 
-To drive the sandbox from the VSS UI chat tab (`http://<host>:9100`), recreate `vss-ui` with `OPENAI_API_BASE="$(openshell sandbox get hermes -o json | jq -r '.ports[0].url')/v1"`, `OPENAI_API_KEY="$API_SERVER_KEY"`, and `VSS_AGENT_MODEL=hermes-agent`.
+To copy a host video file into the sandbox workspace, run `openshell sandbox upload hermes <path/to/video.mp4> /sandbox/`.
+
+## Optional: Connect the VSS Web UI Chat
+
+`vss-ui` runs on a Docker bridge network and cannot reach the gateway's host-loopback listener (`127.0.0.1:8080`). Publish the sandbox's `:8642` API server on the Docker bridge gateway address (`host.docker.internal` inside `vss-ui`) and print the sandbox's `API_SERVER_KEY`:
+
+```bash
+HG=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
+openshell forward start -d "$HG:8642" hermes   # do not pipe: -d holds stdout open
+openshell sandbox exec -n hermes --no-tty -- \
+  sh -c '. /sandbox/.hermes/.env; printf "AGENT_BACKEND_TOKEN: \"%s\"\n" "$API_SERVER_KEY"'
+```
+
+For an already-running `_builds/<build>` stack, create `_builds/<build>/ui-hermes.override.yml` (substituting `<API_SERVER_KEY>`) and recreate `vss-ui`:
+
+```yaml
+# _builds/<build>/ui-hermes.override.yml
+services:
+  vss-ui:
+    environment:
+      AGENT_ADAPTER_ENABLED: "true"
+      AGENT_BACKEND_PROTOCOL: responses
+      AGENT_BACKEND_URL: http://host.docker.internal:8642
+      AGENT_BACKEND_MODEL: hermes-agent
+      AGENT_BACKEND_TOKEN: "<API_SERVER_KEY>"
+      NEXT_PUBLIC_AGENT_ADAPTER_ENABLED: "true"
+      NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT: "true"
+      NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR: "true"
+      NEXT_PUBLIC_ENABLE_CHAT_TAB: "true"
+```
+
+```bash
+cd _builds/<build>
+docker compose -p "$(docker inspect vss-agent-ui \
+  --format '{{index .Config.Labels "com.docker.compose.project"}}')" \
+  -f resolved.yml -f ui-hermes.override.yml up -d --no-deps vss-ui
+```
+
+Before starting a new build, add `VSS_AGENT_ADAPTER_ENABLED=true`, `VSS_AGENT_BACKEND_PROTOCOL=responses`, `VSS_AGENT_BACKEND_URL=http://host.docker.internal:8642`, `VSS_AGENT_BACKEND_MODEL=hermes-agent`, `VSS_AGENT_BACKEND_TOKEN=<API_SERVER_KEY>`, `NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR=true`, and `NEXT_PUBLIC_ENABLE_CHAT_TAB=true` to `_builds/<build>/override.env` instead.
 
 ## Rotating Keys, Models, or Endpoints
 
-- **Rotate `HARNESS_API_KEY` only** (no sandbox recreate needed):
+Edit `harness.env` at the repository root and reload:
+
+```bash
+set -a; . deploy/docker/services/openshell/openshell.env; [ ! -f harness.env ] || . ./harness.env; set +a
+```
+
+- **Rotate `HARNESS_API_KEY` only** (keeps `/sandbox` and `API_SERVER_KEY`; restart any `openshell forward` afterwards):
   ```bash
   openshell provider update "$HARNESS_PROVIDER" --credential HARNESS_API_KEY --wait
   openshell sandbox stop hermes && openshell sandbox start hermes
   ```
-- **Change `HARNESS_MODEL` or `HARNESS_BASE_URL` / `HARNESS_PROVIDER`**: update `openshell.env`, re-source it, import/create the new `$HARNESS_PROVIDER` if changed, resolve the existing image if needed:
+- **Change `HARNESS_MODEL`, `HARNESS_BASE_URL` / `HARNESS_PROVIDER`, or `VSS_PUBLIC_URL`**: if switching to a new `$HARNESS_PROVIDER`, import its profile and create the provider first (use `HARNESS_API_KEY=not-used` for `agent-inference-local`). Resolve the running image if `HARNESS_IMAGE` is unset, delete the sandbox, re-run `openshell sandbox create` from Step 4, then **re-run Step 5 (`vss configure --base-url` + `vss-hermes-sync`) and the UI forward + `AGENT_BACKEND_TOKEN` update** (recreating the sandbox wipes `/sandbox` and mints a fresh `API_SERVER_KEY`):
   ```bash
-  ID="$(docker inspect "$(docker ps -aqf label=openshell.sandbox=hermes)" --format '{{.Config.Image}}')"
-  HARNESS_IMAGE="$(docker images --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | awk -v id="$ID" '$1 == id {print $2; exit}')"
-  openshell sandbox delete hermes
+  ID=$(docker ps -a --format '{{.Image}}' \
+    --filter label=openshell.ai/sandbox-name=hermes \
+    --filter label=openshell.ai/isolation-role=sandbox)
+  HARNESS_IMAGE="${HARNESS_IMAGE:-$(docker images --format '{{.ID}} {{.Repository}}:{{.Tag}}' |
+    awk -v id="$ID" '$1 == id || $2 == id {print $2; exit}')}"
+  : "${HARNESS_IMAGE:?set HARNESS_IMAGE to an openshell-hermes-vss:<tag> image}"
+  docker image inspect "$HARNESS_IMAGE" >/dev/null && openshell sandbox delete hermes
   ```
-  and re-run `openshell sandbox create` above.
+
+## Troubleshooting
+
+- **Sandbox status, active policy, and workload logs**: `openshell sandbox list`, `openshell policy get hermes --full`, and `openshell logs hermes`.
+- **Policy / egress `Connection error` or `403`**: inspect the sibling supervisor container's log (names the blocked host and rule):
+  ```bash
+  docker logs "$(docker ps -q \
+    --filter label=openshell.ai/isolation-role=supervisor \
+    --filter label=openshell.ai/sandbox-name=hermes)"
+  ```
+- **Gateway startup**: `docker compose --env-file deploy/docker/services/openshell/openshell.env -f deploy/docker/services/openshell/compose.yml --profile openshell logs openshell-gateway`.
+- **UI `/api/agent/connection` reports `connected` but chat runs fail**: on `responses`, `/api/agent/connection` does not dial Hermes. Check `openshell forward list` (forwards do not survive host reboots or sandbox recreation) and verify `AGENT_BACKEND_TOKEN` matches `/sandbox/.hermes/.env`.
 
 ## Teardown
 
+Delete sandboxes via `openshell` **before** running `dev-profile.sh down` or `docker compose down -v` (sandbox containers are gateway siblings, and `-v` wipes `openshell-data` along with sealed provider keys):
+
 ```bash
+openshell forward stop 8642 hermes 2>/dev/null || true
 openshell sandbox delete hermes
+# Only if no other sandboxes share this gateway (check: openshell sandbox list --all-workspaces):
 openshell provider delete "$HARNESS_PROVIDER"
-openshell gateway remove vss
-docker compose \
-  --env-file deploy/docker/services/openshell/openshell.env \
-  -f deploy/docker/services/openshell/compose.yml \
-  --profile openshell stop
+openshell gateway remove "${GW:-openshell-gateway}"
+docker compose --env-file deploy/docker/services/openshell/openshell.env \
+  -f deploy/docker/services/openshell/compose.yml --profile openshell stop
 ```

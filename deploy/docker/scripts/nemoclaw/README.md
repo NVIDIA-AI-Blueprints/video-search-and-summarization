@@ -35,15 +35,14 @@ document is the equivalent command reference for running it by hand.
   build.nvidia.com path instead, and a NemoClaw-managed local model needs no key
   at all. Notebook section 1.2 stays the authority on which variables each
   provider reads.
-- This repo checked out so the policy, the harness image definition for the
-  runtime you pick (`.openclaw/` or `.hermes/`), skills, and workspace docs are
-  available.
+- This repo checked out so the policy, the harness image definition
+  (`.openclaw/`), skills, and workspace docs are available.
 
 ## Canonical flow
 
 ```bash
 SB="${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}"
-RUNTIME="${AGENT_RUNTIME:-openclaw}"          # openclaw (default) or hermes
+RUNTIME="${AGENT_RUNTIME:-openclaw}"
 REPO="$(git rev-parse --show-toplevel)"
 
 # 1. Install NemoClaw (pinned). The installer auto-onboards a sandbox from the
@@ -68,8 +67,7 @@ curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL
 # custom-image workflow, `--from`; the Dockerfile's directory is the build
 # context). .openclaw extends NemoClaw's managed OpenClaw runtime
 # with the VSS OpenClaw plugin (the `vss` CLI as a tool, the operation skills,
-# the workspace docs); .hermes extends the managed Hermes runtime
-# with the same skills, docs and CLI. Nothing is installed into the sandbox
+# the workspace docs). Nothing is installed into the sandbox
 # afterwards except the policy and, for Kubernetes, a rendered ENV.md.
 BREV_CTX="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
 # /etc/brev is 0700 root:root, hence the sudo read. Resolve the fqdn in its own
@@ -96,14 +94,14 @@ nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --
 VSS_PUBLIC_URL="${VSS_PUBLIC_URL:-http://host.openshell.internal:7777}"
 openshell sandbox exec -n "$SB" -- vss configure --base-url "$VSS_PUBLIC_URL"
 openshell sandbox exec -n "$SB" -- vss configure check
-openshell sandbox exec -n "$SB" -- vss-openclaw-sync    # vss-hermes-sync on Hermes
+openshell sandbox exec -n "$SB" -- vss-openclaw-sync
 
 # 4. Deployment origin (Kubernetes only): render VSS_PUBLIC_URL into ENV.md and
 #    upload it over the image's copy. Compose deployments leave it as shipped.
 # NOTE: the destination is a DIRECTORY (OpenShell mkdir + tar-extracts into it)
 # sed "s|^export VSS_PUBLIC_URL=.*|export VSS_PUBLIC_URL=\"$VSS_PUBLIC_URL\"|" \
 #   "$REPO/.openclaw/workspace/_nemoclaw/ENV.md" > /tmp/ENV.md
-# nemoclaw "$SB" upload /tmp/ENV.md /sandbox/.openclaw/workspace/   # hermes: /sandbox/
+# nemoclaw "$SB" upload /tmp/ENV.md /sandbox/.openclaw/workspace/
 
 # The checked-in NemoClaw ENV.md defaults HITL_ENABLED=false. In this mode the
 # agent asks required questions in its normal response, ends the turn, and
