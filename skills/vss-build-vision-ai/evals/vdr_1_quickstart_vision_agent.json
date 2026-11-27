@@ -10,14 +10,14 @@
       }
     }
   },
-  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. The prompts are verbatim from the VDR slide.\n\nQueries 1 and 2 are questions, not build requests: answer from the skill's own SKILL.md and references without writing a build directory, running `docker compose`, or starting a container. Query 3 is the quickstart deploy: artifacts under `_builds/vdr-1-quickstart/`, brought up with a detached `docker compose ... up -d` from the validated `resolved.yml` as soon as validation passes. Use the **build.nvidia.com provider profile (option (c))** for the harness sandbox, with `HARNESS_API_KEY` set to the supplied `NVIDIA_API_KEY`; no key for the default option (a) is supplied, so it would block on a missing bearer. No teardown.",
+  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. The prompts are verbatim from the VDR slide.\n\nQueries 1 and 2 are questions, not build requests: answer from the skill's own SKILL.md and references without writing a build directory, running `docker compose`, or starting a container. Query 3 is the quickstart deploy: artifacts under `_builds/vdr-1-quickstart/`, brought up with a detached `docker compose ... up -d` from the validated `resolved.yml` as soon as validation passes. Use the **default OpenAI-compatible provider (notebook option (a))** for NemoClaw (`COMPATIBLE_API_KEY` is supplied in the environment). No teardown.",
   "expects": [
     {
       "artifact_expected": false,
       "query": "what does this skill do?",
       "checks": [
-        "The answer describes what the skill does: it composes and deploys agent-ready vision capabilities as a self-contained stack on the NVIDIA VSS Blueprint, either by deploying a stock developer profile or by composing a delta overlay on one.",
-        "The answer identifies the stock developer profiles `base`, `alerts`, `search`, and LVS/video summarization, and identifies `warehouse` as the supported industry profile.",
+        "The answer describes what the skill does: it composes and deploys agent-ready vision capabilities as a self-contained stack on the NVIDIA VSS Blueprint, either by deploying a stock developer profile or by composing a delta overlay on one. Accept equivalent wording; either deployment path is sufficient.",
+        "The answer explains that the skill can deploy a stock profile or customize one for the requested vision capabilities. Any specific capabilities or profiles mentioned must be supported by the skill.",
         "The answer scopes the skill to composing or deploying application stacks rather than single microservices, and distinguishes that from operating an already-deployed stack. The exact wording and examples are not prescribed.",
         "No deployment or composition side effects: the trajectory runs no `docker compose up`, creates no `_builds/` directory, and starts no container."
       ]

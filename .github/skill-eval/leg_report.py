@@ -188,10 +188,10 @@ def _clean_reward(value: object) -> float | None:
 def _trial_metrics(trial_dir: Path) -> dict:
     """Agent turn count for one trial, from the trajectory when it is there.
 
-    The trajectory is excluded from the uploaded artifact but present on the
-    box. Token counts come from `agent_result` in the caller: Harbor's
-    FinalMetrics forbids extra fields, so the trajectory carries no per-model
-    usage to prefer over it.
+    `agent/trajectory.json` is redacted in place before reading and before
+    artifact packaging. Token counts come from `agent_result` in the caller:
+    Harbor's FinalMetrics forbids extra fields, so the trajectory carries no
+    per-model usage to prefer over it.
     """
     out: dict = {"turns": None}
     traj = _load_json(trial_dir / "agent" / "trajectory.json")

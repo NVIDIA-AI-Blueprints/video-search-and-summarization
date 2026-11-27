@@ -8,9 +8,11 @@ workflow tars into the run artifact, and the Markdown/JSON that leg_report.py
 renders into the PR comment and leg summary. A judge that proves "the agent
 printed NGC_CLI_API_KEY" by quoting the key publishes a live credential
 through both (PR #1647 run 32535909071 — full 70-char key in the public
-artifact and, for six days, in the PR comment). The tarball already excludes
-`agent/` trajectories for exactly this reason (PR #516); this module covers
-the verifier files and rendered reports that stayed in.
+artifact and, for six days, in the PR comment). Within per-trial `agent/`
+directories, `archive_results_tree` allowlists only structured trajectories
+(`trajectory.json` / `trajectory.jsonl`) after fail-closed redaction, while
+excluding raw `sessions/`, `setup/`, and unparsed CLI logs (`codex.txt`,
+`claude-code.txt`, `openclaw*`).
 
 The scanner is TruffleHog — the same tool the repo's pre-commit hook trusts —
 run with `--no-verification` (verification would send candidate secrets to
@@ -50,13 +52,44 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
+
+#: Word boundary that also fires immediately after JSON-escaped `\n`/`\r`/`\t`
+#: inside `trajectory.json` tool-output strings (`\nFOO_TOKEN=...` has ASCII `n`
+#: before `F`, which defeats `\b`).
+_BOUNDARY = r"(?:(?<![A-Za-z0-9_])|(?<=\\[nrt]))"
+_BOUNDARY_BYTES = rb"(?:(?<![A-Za-z0-9_])|(?<=\\[nrt]))"
 
 MARKER = "[REDACTED]"
 #: Keep the prefix so a rationale still says what kind of secret it saw.
 NVAPI = re.compile(r"nvapi-[A-Za-z0-9_-]{16,}")
 _NVAPI_BYTES = re.compile(rb"nvapi-[A-Za-z0-9_-]{16,}")
+_SK_TOKEN = re.compile(_BOUNDARY + r"sk-(?:proj-|ant-[A-Za-z0-9-]+-)?[A-Za-z0-9_-]{20,}")
+_SK_TOKEN_BYTES = re.compile(_BOUNDARY_BYTES + rb"sk-(?:proj-|ant-[A-Za-z0-9-]+-)?[A-Za-z0-9_-]{20,}")
+_HF_TOKEN = re.compile(_BOUNDARY + r"hf_[A-Za-z0-9]{20,}")
+_HF_TOKEN_BYTES = re.compile(_BOUNDARY_BYTES + rb"hf_[A-Za-z0-9]{20,}")
+_GH_TOKEN = re.compile(_BOUNDARY + r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})")
+_GH_TOKEN_BYTES = re.compile(_BOUNDARY_BYTES + rb"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})")
+#: Ephemeral worker/gateway tokens that never exist in coordinator .env (e.g.
+#: OpenClaw dashboard `#token=<hex>`, `Authorization: Bearer ...`, `openclaw.json`
+#: token fields, or `.env` / `docker compose config` dumps in trajectory.json).
+_URL_TOKEN = re.compile(r"([#?&]token=)(?!\[REDACTED\])[A-Za-z0-9._~+/-]{16,}")
+_BEARER_HEADER = re.compile(
+    r"(" + _BOUNDARY + r"Authorization\s*:\s*Bearer\s+)(?!\[REDACTED\])[A-Za-z0-9._~+/-]{16,}",
+    re.IGNORECASE,
+)
+_JSON_SECRET_FIELD = re.compile(
+    r'(\\?"(?:token|gateway_token|auth_token|api_key|apiKey|secret|password)\\?"'
+    r'\s*:\s*\\?")(?!\[REDACTED\])[A-Za-z0-9._~+/-]{16,}(\\?")'
+)
+_ENV_SECRET_ASSIGN = re.compile(
+    r"(" + _BOUNDARY + r"[A-Z][A-Z0-9_]*(?:_KEY|_TOKEN|_SECRET|_PASSWORD|_CREDENTIAL)="
+    r'(?:\\?[\x27"])?)(?!\[REDACTED\])(?!\$)[A-Za-z0-9._~+/-]{16,}'
+)
+#: Only structured trajectories may leave `<trial>/agent/` for the public artifact.
+_AGENT_ARTIFACT_ALLOWLIST = frozenset({"trajectory.json", "trajectory.jsonl"})
 #: Component match, not substring: NGC_CLI_API_KEY yes, KEYCLOAK_URL no.
 _SECRET_NAME = re.compile(
     r"(^|_)(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|CREDENTIALS)(_|$)", re.IGNORECASE)
@@ -202,15 +235,40 @@ def _neutralize_symlinks(root: Path) -> list[str]:
     return lines
 
 
+def _secret_variants(value: str) -> list[str]:
+    """Literal and JSON-escaped forms of `value`, longest first.
+
+    `trajectory.json` serializes tool inputs/outputs as JSON strings (and often
+    nests serialized JSON inside tool outputs), escaping quotes, backslashes,
+    and control characters so the raw secret no longer occurs as a literal
+    substring on disk.
+    """
+    esc1 = json.dumps(value)[1:-1]
+    esc2 = json.dumps(esc1)[1:-1]
+    return sorted({value, esc1, esc2}, key=len, reverse=True)
+
+
 def redact_text(text: str, extra_secrets: list[str] | None = None) -> str:
     """Mask known secret values and secret-shaped tokens in one string."""
     for value in (extra_secrets or []):
-        if isinstance(value, str) and len(value) >= _MIN_SECRET_LEN and value in text:
-            text = text.replace(value, MARKER)
+        if (isinstance(value, str) and len(value) >= _MIN_SECRET_LEN
+                and value not in MARKER):
+            for variant in _secret_variants(value):
+                if variant in text:
+                    text = text.replace(variant, MARKER)
     for value in _env_secret_values():
-        if value in text:
-            text = text.replace(value, MARKER)
-    return NVAPI.sub(f"nvapi-{MARKER}", text)
+        for variant in _secret_variants(value):
+            if variant in text:
+                text = text.replace(variant, MARKER)
+    text = NVAPI.sub(f"nvapi-{MARKER}", text)
+    text = _SK_TOKEN.sub(f"sk-{MARKER}", text)
+    text = _HF_TOKEN.sub(f"hf_{MARKER}", text)
+    text = _GH_TOKEN.sub(MARKER, text)
+    text = _URL_TOKEN.sub(rf"\1{MARKER}", text)
+    text = _BEARER_HEADER.sub(rf"\1{MARKER}", text)
+    text = _JSON_SECRET_FIELD.sub(rf"\1{MARKER}\2", text)
+    text = _ENV_SECRET_ASSIGN.sub(rf"\1{MARKER}", text)
+    return text
 
 
 def redact_obj(obj, extra_secrets: list[str] | None = None):
@@ -231,10 +289,15 @@ def redact_obj(obj, extra_secrets: list[str] | None = None):
 
 
 def _binary_has_builtin_hit(data: bytes, secrets: list[str]) -> bool:
-    if _NVAPI_BYTES.search(data):
+    if any(rx.search(data) for rx in (
+        _NVAPI_BYTES, _SK_TOKEN_BYTES, _HF_TOKEN_BYTES, _GH_TOKEN_BYTES
+    )):
         return True
-    return any(s.encode("utf-8", "ignore") in data
-               for s in [*secrets, *_env_secret_values()])
+    return any(
+        variant.encode("utf-8", "ignore") in data
+        for s in [*secrets, *_env_secret_values()]
+        for variant in _secret_variants(s)
+    )
 
 
 def _replace_literals(root: Path, secrets: list[str]) -> tuple[list[str], set[str]]:
@@ -264,8 +327,12 @@ def _replace_literals(root: Path, secrets: list[str]) -> tuple[list[str], set[st
             continue
         cleaned = original
         for value in secrets:
-            if value in cleaned:
-                cleaned = cleaned.replace(value, MARKER)
+            matched = False
+            for variant in _secret_variants(value):
+                if variant in cleaned:
+                    cleaned = cleaned.replace(variant, MARKER)
+                    matched = True
+            if matched:
                 replaced.add(value)
         cleaned = redact_text(cleaned)
         if cleaned != original:
@@ -355,17 +422,89 @@ def redact_tree(root: Path) -> list[str]:
     return summary
 
 
+def _should_archive(rel_path: Path) -> bool:
+    """Allowlist only structured trajectories inside per-trial `agent/` dirs.
+
+    Everything outside per-trial `agent/` (`result.json`, `config.json`,
+    `trial.log`, `verifier/**`, `artifacts/**`, `trace-urls.tsv`, ...) stays in.
+    Under `agent/` (outside `artifacts/`), only `trajectory.json` and
+    `trajectory.jsonl` may enter the public artifact — raw `sessions/`
+    (including `session-env` and `shell-snapshots`), `setup/`, `codex.txt`,
+    `claude-code.txt`, `openclaw*`, and any future CLI scratch stay excluded.
+    """
+    for idx, part in enumerate(rel_path.parts):
+        if part == "agent" and "artifacts" not in rel_path.parts[:idx]:
+            tail = rel_path.parts[idx + 1:]
+            return len(tail) == 1 and tail[0] in _AGENT_ARTIFACT_ALLOWLIST
+    return True
+
+
+def archive_results_tree(root: Path, tarball: Path) -> list[str]:
+    """Redact `root` fail-closed, then pack allowlisted files into `tarball`.
+
+    Unlinks `tarball` FIRST so a failed scan on a persistent self-hosted runner
+    rerun can never leave a previous attempt's stale archive behind for
+    `if: always()` upload. Skips creating `tarball` when `root` holds no
+    `result.json` within depth 3.
+    """
+    root = Path(root)
+    tarball = Path(tarball)
+    tarball.unlink(missing_ok=True)
+    summary = redact_tree(root)
+    results = [
+        p for p in sorted(root.rglob("result.json"))
+        if p.is_file() and not p.is_symlink()
+        and len(p.relative_to(root).parts) <= 3
+    ]
+    if not results:
+        summary.append("archive: results dir exists but empty — nothing to archive")
+        return summary
+    tarball.parent.mkdir(parents=True, exist_ok=True)
+    tmp_tar = tarball.parent / f".{tarball.name}.tmp.{os.getpid()}"
+    tmp_tar.unlink(missing_ok=True)
+    prefix = Path(root.name)
+    traj_count = 0
+    try:
+        with tarfile.open(tmp_tar, "w:gz", dereference=False) as tf:
+            for path in sorted(root.rglob("*")):
+                if not path.is_file() or path.is_symlink():
+                    continue
+                rel = path.relative_to(root)
+                if not _should_archive(rel):
+                    continue
+                if path.name in _AGENT_ARTIFACT_ALLOWLIST and "agent" in rel.parts:
+                    traj_count += 1
+                tf.add(path, arcname=str(prefix / rel), recursive=False)
+        os.replace(tmp_tar, tarball)
+    finally:
+        tmp_tar.unlink(missing_ok=True)
+    summary.append(
+        f"archived {len(results)} result.json file(s) and "
+        f"{traj_count} redacted agent trajectory file(s) -> {tarball}"
+    )
+    return summary
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--tree", type=Path, required=True,
                     help="Directory to redact in place before it is packed/posted")
+    ap.add_argument("--tarball", type=Path, default=None,
+                    help="Optional .tar.gz path to write after fail-closed redaction")
     args = ap.parse_args(argv)
     if not args.tree.is_dir():
+        if args.tarball is not None:
+            args.tarball.unlink(missing_ok=True)
         print(f"redact_secrets: {args.tree} is not a directory", file=sys.stderr)
         return 1
     try:
-        for line in redact_tree(args.tree):
+        lines = (
+            archive_results_tree(args.tree, args.tarball)
+            if args.tarball is not None
+            else redact_tree(args.tree)
+        )
+        for line in lines:
             print(f"redact_secrets: {line}")
     except (ScannerUnavailable, RuntimeError) as exc:
         print(f"redact_secrets: FATAL: {exc}", file=sys.stderr)
