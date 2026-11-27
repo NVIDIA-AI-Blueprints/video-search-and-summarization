@@ -44,7 +44,7 @@ openshell-prover check .hermes/policy.yaml --boundary .hermes/boundary.yaml
 
 ## Skill Sync & Sandbox Contract
 
-- Bundled operational skills live read-only under `/opt/vss-skills/skills` and are pre-activated in `/opt/hermes/skills/vss`. After pointing the CLI at a live deployment (`vss configure <url>`), run `vss-hermes-sync` inside the sandbox to filter `$HERMES_HOME/skills/vss` against `vss configure check`.
+- Bundled operational skills live read-only under `/opt/vss-skills/skills` and are pre-activated in `/opt/hermes/skills/vss`. After pointing the CLI at a live deployment (`vss configure --base-url <url>`), run `vss-hermes-sync` inside the sandbox to filter `$HERMES_HOME/skills/vss` against `vss configure check`.
 - Runs as `sandbox` (`998:999`) with `WORKDIR /sandbox` and `CMD ["sleep", "infinity"]`.
 - Pre-creates writable Harbor trial directories (`/task`, `/output`, `/logs`, `/tests`, `/solution`) listed in `policy.yaml` (`LABEL harness.contract=harbor-trial-v1`).
 - Declares empty `VSS_VLM_*` environment defaults (`VSS_VLM_LOCKED=false`); see [`libs/vss/cli/README.md`](../libs/vss/cli/README.md#configure-vlm-requests).
