@@ -17,7 +17,8 @@ process, read, write, edit, apply_patch, memory_search, memory_get.
     (see Memory below).
 
 Memory: on by default, matching the vss-plugin's vss_cli tool also being
-preloaded in this base. group:memory's built-ins (memory_search, memory_get) and
+preloaded in this base (../.hermes/base-config.py keeps the two harnesses'
+bases in lockstep). group:memory's built-ins (memory_search, memory_get) and
 the memory-core bundled plugin both stay enabled — an agent extended with VSS
 skills and plugins should retain memory across turns out of the box, not
 silently lose it because it started from the base image.

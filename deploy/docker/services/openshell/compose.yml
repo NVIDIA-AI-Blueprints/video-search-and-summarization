@@ -1,31 +1,27 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# The VSS project, which an include gives it regardless, so starting this file
-# on its own reaches the same gateway and volume as a developer profile under
-# the default COMPOSE_PROJECT_NAME. A profile under another name runs its own.
 name: vss
 
 services:
-  openshell-init:                # one-shot: writes the sandbox JWT signing
-    image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_TAG}  # keys the Docker
-    profiles: [openshell]                                       # driver requires
+  openshell-init:
+    image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_TAG}
+    profiles: [openshell]
     command: [generate-certs, --output-dir, /var/lib/openshell/tls]
-    user: "0"                    # a fresh named volume is root-owned
+    user: "0"
     environment: { HOME: /var/lib/openshell }
     volumes: [openshell-data:/var/lib/openshell]
   openshell-gateway:
     image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_TAG}
-    profiles: [openshell]          # never materialises for a no-harness build
+    profiles: [openshell]
     depends_on: { openshell-init: { condition: service_completed_successfully } }
     restart: unless-stopped
-    network_mode: host           # the supervisor dials the host's own loopback
+    network_mode: host
     command: ["--bind-address", "127.0.0.1", "--port", "8080"]
-    user: "0"                    # as upstream: uid 1000 can't read the keys or socket
+    user: "0"
     environment:
       OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
-      OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"  # barred from the TOML
-      # Both must match the gateway's release.
+      OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"
       OPENSHELL_SUPERVISOR_IMAGE: ghcr.io/nvidia/openshell/supervisor:${OPENSHELL_TAG}
       OPENSHELL_SANDBOX_RUNTIME_IMAGE: ghcr.io/nvidia/openshell/sandbox:${OPENSHELL_TAG}
       XDG_DATA_HOME: /var/lib/openshell

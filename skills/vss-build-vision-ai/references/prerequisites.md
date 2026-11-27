@@ -563,14 +563,11 @@ Re-run the `docker run` check to confirm before continuing.
 Required minimum: **`4.10.0+`**. Follow [`ngc.md`](ngc.md) to check NGC CLI
 and API-key access.
 
-**A NemoClaw build needs no host install.**
-[`.openclaw/Dockerfile`](../../../.openclaw/Dockerfile) ships the CLI
+**A NemoClaw build needs no host install.** Both harness images —
+[`.openclaw/Dockerfile`](../../../.openclaw/Dockerfile) and
+[`.hermes/Dockerfile`](../../../.hermes/Dockerfile) — ship the CLI
 unconditionally, and the sandbox is where the operation skills run. Verify it
 there if anything looks off (`ngc --version` in the sandbox), not here.
-
-**The OpenShell sandbox ships no NGC CLI** — both its images label
-`harness.ngc-cli="false"` — so an operation skill cannot resolve a sample video
-by name from inside it; fetch the sample on this host.
 
 **On every other harness, install it on this host**, since the `vss` CLI and the
 operation skills' sample-data and fixture bootstraps run here:

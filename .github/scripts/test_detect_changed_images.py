@@ -769,7 +769,7 @@ class HermesHarnessSelectionTest(unittest.TestCase):
             ".hermes/Dockerfile": {"openshell-hermes-vss"},
             ".hermes/policy.yaml": {"openshell-hermes-vss"},
             ".hermes/plugin/__init__.py": {"openshell-hermes-vss"},
-            "skills/vss-ask-video/SKILL.md": {"openshell-hermes-vss"},
+            "skills/operations/vss-ask-video/SKILL.md": {"openshell-hermes-vss"},
             "libs/vss/cli/src/vss_cli/configure.py": {"openshell-hermes-vss"},
             ".hermes/workspace/AGENTS.md": {"openshell-hermes-vss"},
         }

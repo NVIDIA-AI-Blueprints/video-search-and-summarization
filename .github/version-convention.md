@@ -232,9 +232,9 @@ build, so the agent never keeps reporting `3.3.0-rc0` after `v3.3.0`.
 
 **Deploying a harness from a specific revision** (a nightly or a release
 rather than `develop`) is the vss-build-vision-ai skill's *harness source ref*:
-it builds the sandbox from a worktree of that ref, so the skills, CLI and
-plugin all come from the one revision — see
-`skills/vss-build-vision-ai/references/agent-harness.md`.
+it builds the sandbox from a worktree of that ref staged with
+`stage_vss_src.py`, so the skills, CLI and plugin all come from the one
+revision — see `skills/vss-build-vision-ai/references/agent-harness.md`.
 
 ## Docs
 
