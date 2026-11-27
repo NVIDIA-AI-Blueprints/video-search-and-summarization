@@ -1129,6 +1129,7 @@ patch_direct_vst_image_refs "nvstreamer" "${VST_NVSTREAMER_IMAGE}"
 # Validate the actual VIOS image on Thor, including driver libraries, CUDA
 # initialization and selected GPU identity. No driver installation, daemon
 # modification, privileged container or guessed device mounts are performed.
+_thor_compose_args=()
 if [[ "${PLATFORM}" == "jetson" ]]; then
     [[ -f "${VST_DIR}/.compose-project" ]] \
         || die "Thor runtime validation requires repository VIOS staging; unset VST_LOCAL_PACKAGE."
@@ -1136,8 +1137,13 @@ if [[ "${PLATFORM}" == "jetson" ]]; then
     _runtime_report="${PERF_DIAGNOSTICS_DIR:-$(dirname "${BENCHMARK_CONFIG}")}/vst-runtime.json"
     python3 "${_runtime_helper}" --root "${VST_DIR}" --devices "${NVIDIA_VISIBLE_DEVICES}" \
         --image "${VST_NVSTREAMER_IMAGE}" --rtvi-image "${RTVI_IMAGE}" --report "${_runtime_report}" \
+        --sensor-image "${VST_SENSOR_IMAGE}" --stream-image "${VST_STREAMPROCESSING_IMAGE}" \
+        --rtvi-compose-output "${VST_DIR}/rtvi-thor-runtime.json" \
         || die "Thor VIOS runtime preflight failed; see ${_runtime_report}."
     export RTVI_DOCKER_RUNTIME="${PERF_THOR_DOCKER_RUNTIME:-nvidia}"
+    if [[ -f "${VST_DIR}/rtvi-thor-runtime.json" ]]; then
+        _thor_compose_args=(-f "${VST_DIR}/rtvi-thor-runtime.json")
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -1908,7 +1914,7 @@ EOF
     _compose_project="${COMPOSE_PROJECT_NAME:-$(basename "$(dirname "${COMPOSE_PERF_YAML}")" | tr '[:upper:]' '[:lower:]')}"
 
     log "  Launching RTVI VLM (this may take several minutes for model download/load)..."
-    docker compose -f "${COMPOSE_PERF_YAML}" --env-file "${ENV_PERF_FILE}" up -d "${_compose_services[@]}" \
+    docker compose -f "${COMPOSE_PERF_YAML}" "${_thor_compose_args[@]}" --env-file "${ENV_PERF_FILE}" up -d "${_compose_services[@]}" \
         || die "Failed to start RTVI VLM service"
     RTVI_STARTED=true
 

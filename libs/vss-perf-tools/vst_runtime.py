@@ -14,6 +14,9 @@ import sys
 import uuid
 
 
+THOR_DRIVER_LIBRARY_DIR = '/usr/lib/aarch64-linux-gnu/nvidia'
+
+
 CUDA_PROBE = r'''
 import ctypes, json
 cuda = ctypes.CDLL("libcuda.so.1")
@@ -71,7 +74,7 @@ def selected_thor(devices, machine=None):
     return {"host_gpu": chosen[0], "name": thor[0]}
 
 
-def probe_image(image, runtime, devices, docker=command, *, vios=True):
+def inspect_image(image, docker=command):
     inspected = docker(["docker", "image", "inspect", image,
                         "--format", "{{json .}}"])
     if inspected.returncode:
@@ -84,6 +87,29 @@ def probe_image(image, runtime, devices, docker=command, *, vios=True):
     identity = json.loads(inspected.stdout)
     if identity.get("Architecture") != "arm64" or identity.get("Os") != "linux":
         raise RuntimeError("Thor requires a linux/arm64 VIOS image: " + image)
+    return identity
+
+
+def thor_library_path(identity):
+    """Prepend the injected Thor driver directory, retaining image search paths."""
+    existing = ''
+    for entry in (identity.get('Config') or {}).get('Env') or []:
+        if entry.startswith('LD_LIBRARY_PATH='):
+            existing = entry.partition('=')[2]
+    if existing.split(':', 1)[0] == THOR_DRIVER_LIBRARY_DIR:
+        return existing
+    return THOR_DRIVER_LIBRARY_DIR + (':' + existing if existing else '')
+
+
+def compose_library_environment(path):
+    # Compose interpolates dollar signs even inside JSON/YAML string values.
+    # Escape them so image paths such as $ORIGIN reach the container literally.
+    return {'LD_LIBRARY_PATH': path.replace('$', '$$')}
+
+
+def probe_image(image, runtime, devices, docker=command, *, vios=True):
+    identity = inspect_image(image, docker)
+    library_path = thor_library_path(identity)
     name = "vss-perf-cuda-probe-" + uuid.uuid4().hex
     try:
         probe = docker([
@@ -92,6 +118,7 @@ def probe_image(image, runtime, devices, docker=command, *, vios=True):
             "-e", "NVIDIA_VISIBLE_DEVICES=" + devices,
             "-e", "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video",
             "-e", "CUDA_VISIBLE_DEVICES=0",
+            "-e", "LD_LIBRARY_PATH=" + library_path,
             "-e", "PERF_PROBE_VIOS=" + ("true" if vios else "false"),
             "--entrypoint", "python3", image, "-c", CUDA_PROBE,
         ], timeout=60)
@@ -110,10 +137,11 @@ def probe_image(image, runtime, devices, docker=command, *, vios=True):
     if len(names) != 1 or not re.search(r"thor|t5000|t7000", names[0], re.I):
         raise RuntimeError("CUDA probe must expose only the selected Thor GPU; got " + repr(names))
     return {"image": image, "image_id": identity["Id"],
-            "architecture": "linux/arm64", **payload}
+            "architecture": "linux/arm64", "ld_library_path": library_path, **payload}
 
 
-def prepare(root, devices, images, report, runtime="nvidia", rtvi_image=None):
+def prepare(root, devices, images, report, runtime="nvidia", rtvi_image=None,
+            *, sensor_image=None, stream_image=None, rtvi_overlay=None):
     identity = selected_thor(devices)
     if identity is None:
         return
@@ -129,6 +157,15 @@ def prepare(root, devices, images, report, runtime="nvidia", rtvi_image=None):
             result["images"].append(probe_image(image, runtime, devices))
         if rtvi_image:
             result["images"].append(probe_image(rtvi_image, runtime, devices, vios=False))
+        library_paths = {entry['image']: entry['ld_library_path']
+                         for entry in result['images']}
+        service_images = {'nvstreamer-1': images[0],
+                          'sensor-ms': sensor_image or images[0],
+                          'streamprocessing-ms-1': stream_image or images[0]}
+        for image in dict.fromkeys(service_images.values()):
+            if image not in library_paths:
+                library_paths[image] = thor_library_path(inspect_image(image))
+        overlays = {}
         for component, services in (
             ("nvstreamer", ["nvstreamer-1"]),
             ("stream-processing", ["sensor-ms", "streamprocessing-ms-1"]),
@@ -139,9 +176,18 @@ def prepare(root, devices, images, report, runtime="nvidia", rtvi_image=None):
                     "NVIDIA_VISIBLE_DEVICES": devices,
                     "NVIDIA_DRIVER_CAPABILITIES": "compute,utility,video",
                     "CUDA_VISIBLE_DEVICES": "0",
+                    **compose_library_environment(library_paths[service_images[service]]),
                 },
             } for service in services}}
-            (root / component / "thor-runtime.json").write_text(json.dumps(overlay, indent=2) + "\n")
+            overlays[root / component / "thor-runtime.json"] = overlay
+        if rtvi_overlay is not None:
+            if not rtvi_image:
+                raise ValueError('RTVI image is required for its Thor runtime overlay')
+            overlays[rtvi_overlay] = {'services': {'rtvi-server': {
+                'environment': compose_library_environment(library_paths[rtvi_image]),
+            }}}
+        for destination, overlay in overlays.items():
+            destination.write_text(json.dumps(overlay, indent=2) + "\n")
         result["status"] = "PASS"
     except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError) as exc:
         result.update(status="ERROR", reason=str(exc))
@@ -160,10 +206,15 @@ def main():
     parser.add_argument("--devices", required=True)
     parser.add_argument("--image", action="append", required=True)
     parser.add_argument("--rtvi-image")
+    parser.add_argument("--sensor-image")
+    parser.add_argument("--stream-image")
+    parser.add_argument("--rtvi-compose-output", type=Path)
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
     prepare(args.root, args.devices, args.image, args.report,
-            os.environ.get("PERF_THOR_DOCKER_RUNTIME", "nvidia"), args.rtvi_image)
+            os.environ.get("PERF_THOR_DOCKER_RUNTIME", "nvidia"), args.rtvi_image,
+            sensor_image=args.sensor_image, stream_image=args.stream_image,
+            rtvi_overlay=args.rtvi_compose_output)
 
 
 if __name__ == "__main__":

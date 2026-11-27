@@ -122,7 +122,9 @@ def test_non_thor_runtime_is_unchanged(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("Non-Thor must not inspect, pull or launch any probe containers")
     monkeypatch.setattr(runtime, "probe_image", forbidden)
-    runtime.prepare(tmp_path, "0", ["example:3.2.0"], tmp_path / "report.json")
+    runtime.prepare(tmp_path, "0", ["example:3.2.0"], tmp_path / "report.json",
+                    rtvi_image="rtvi:test", sensor_image="sensor:test", stream_image="stream:test",
+                    rtvi_overlay=tmp_path / "rtvi-thor-runtime.json")
     assert not list(tmp_path.iterdir())
 
 
@@ -130,7 +132,7 @@ def test_runtime_selection_applies_only_after_successful_thor_probe(tmp_path, mo
     runtime = module("vst_runtime")
     monkeypatch.setattr(runtime, "selected_thor", lambda _: {"host_gpu": "0", "name": "NVIDIA Thor"})
     monkeypatch.setattr(runtime, "command", lambda _: completed('{"nvidia-thor": {}}'))
-    monkeypatch.setattr(runtime, "probe_image", lambda *args: {"image_id": "sha256:test", "devices": ["NVIDIA Thor"]})
+    monkeypatch.setattr(runtime, "probe_image", lambda *args: {"image": args[0], "image_id": "sha256:test", "devices": ["NVIDIA Thor"], "ld_library_path": "/usr/lib/aarch64-linux-gnu/nvidia:/existing"})
     for directory in ["stream-processing", "nvstreamer"]:
         (tmp_path / directory).mkdir()
     report = tmp_path / "report.json"
@@ -198,3 +200,102 @@ def test_rtvi_failure_does_not_leave_vios_runtime_overrides(tmp_path, monkeypatc
     assert calls[-1] == ("rtvi:test", {"vios": False})
     assert not list(tmp_path.glob("*/thor-runtime.json"))
     assert json.loads((tmp_path / "report.json").read_text())["status"] == "ERROR"
+
+
+@pytest.mark.parametrize('existing', ['', '/usr/local/cuda/lib64:/opt/rtvi/lib',
+                                      '/usr/lib/aarch64-linux-gnu/nvidia:/opt/rtvi/lib',
+                                      '$ORIGIN:/opt/path with spaces'])
+def test_thor_probe_retains_image_library_paths(existing):
+    runtime = module('vst_runtime')
+    calls = []
+    def docker(args, **kwargs):
+        calls.append(args)
+        if args[1:3] == ['image', 'inspect']:
+            return completed(json.dumps({'Architecture': 'arm64', 'Os': 'linux', 'Id': 'sha256:test',
+                                         'Config': {'Env': ['LD_LIBRARY_PATH=' + existing]}}))
+        if args[1] == 'run':
+            return completed('{"devices":["NVIDIA Thor"]}')
+        return completed()
+    result = runtime.probe_image('example:3.2.0', 'nvidia', '0', docker)
+    expected = existing if existing.startswith(runtime.THOR_DRIVER_LIBRARY_DIR + ':') else (
+        runtime.THOR_DRIVER_LIBRARY_DIR + (':' + existing if existing else ''))
+    run = next(args for args in calls if args[1] == 'run')
+    assert 'LD_LIBRARY_PATH=' + expected in run
+    assert result['ld_library_path'] == expected
+    assert all('--privileged' not in args for args in calls)
+
+
+@pytest.mark.parametrize('service', ['rt-vlm', 'rt-embed'])
+def test_thor_startup_matches_preflight_and_preserves_compose_configuration(tmp_path, monkeypatch, service):
+    if not shutil.which('docker'):
+        pytest.skip('Compose CLI required for offline configuration rendering')
+    runtime = module('vst_runtime')
+    monkeypatch.setenv('VST_DIR', str(tmp_path))
+    module('stage_vst').stage()
+    images = {
+        'nvstreamer': 'nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.2.0',
+        'sensor': 'nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.0',
+        'stream': 'nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.0',
+        'rtvi': 'example/rtvi:test',
+    }
+    existing = {image: f'/opt/{key}/lib:$ORIGIN' for key, image in images.items()}
+    def inspect(image, docker=None):
+        return {'Architecture': 'arm64', 'Os': 'linux', 'Id': 'sha256:' + image,
+                'Config': {'Env': ['LD_LIBRARY_PATH=' + existing[image]]}}
+    monkeypatch.setattr(runtime, 'inspect_image', inspect)
+    monkeypatch.setattr(runtime, 'selected_thor', lambda _: {'host_gpu': '0', 'name': 'NVIDIA Thor'})
+    monkeypatch.setattr(runtime, 'command', lambda _: completed('{"nvidia": {}}'))
+    actual_probe = runtime.probe_image
+    probe_paths = {}
+    def docker(args, **kwargs):
+        if args[1] == 'run':
+            image = args[args.index('--entrypoint') + 2]
+            probe_paths[image] = next(arg.partition('=')[2] for arg in args if arg.startswith('LD_LIBRARY_PATH='))
+            return completed('{"devices":["NVIDIA Thor"]}')
+        return completed()
+    monkeypatch.setattr(runtime, 'probe_image', lambda image, mode, devices, **kwargs:
+                        actual_probe(image, mode, devices, docker, **kwargs))
+    rtvi_overlay = tmp_path / 'rtvi-thor-runtime.json'
+    runtime.prepare(tmp_path, '0', [images['nvstreamer']], tmp_path / 'report.json',
+                    rtvi_image=images['rtvi'], sensor_image=images['sensor'],
+                    stream_image=images['stream'], rtvi_overlay=rtvi_overlay)
+
+    def render(base, overlay=None, env_file=None, env=None):
+        args = ['docker', 'compose']
+        if env_file:
+            args += ['--env-file', str(env_file)]
+        args += ['-f', str(base)]
+        if overlay:
+            args += ['-f', str(overlay)]
+        result = subprocess.run(args + ['config', '--format', 'json'], check=True, capture_output=True,
+                                text=True, env={'PATH': os.environ['PATH'], **(env or {})})
+        # Compose config escapes dollars again so its output can be reloaded.
+        return json.loads(result.stdout.replace('$$', '$'))
+
+    for component, selected in [('nvstreamer', {'nvstreamer-1': images['nvstreamer']}),
+                                ('stream-processing', {'sensor-ms': images['sensor'],
+                                                       'streamprocessing-ms-1': images['stream']})]:
+        directory = tmp_path / component
+        before = render(directory / 'docker-compose.yaml', env_file=directory / 'compose.env')
+        after = render(directory / 'docker-compose.yaml', directory / 'thor-runtime.json', directory / 'compose.env')
+        for name, image in selected.items():
+            target = after['services'][name]
+            expected = runtime.THOR_DRIVER_LIBRARY_DIR + ':' + existing[image]
+            assert target['environment']['LD_LIBRARY_PATH'] == expected
+            assert target['entrypoint'] == before['services'][name]['entrypoint']
+            if image in probe_paths:
+                assert target['environment']['LD_LIBRARY_PATH'] == probe_paths[image]
+
+    base = ROOT / f'services/rtvi/{service}/perf/setup/compose/compose.perf.yaml'
+    env = {'RTVI_IMAGE': images['rtvi'], 'BACKEND_PORT': '8017', 'USER': 'tester',
+           'PERF_PROMETHEUS_IMAGE': 'example/prometheus:test', 'PERF_DCGM_EXPORTER_IMAGE': 'example/dcgm:test',
+           'PERF_NODE_EXPORTER_IMAGE': 'example/node:test'}
+    before = render(base, env=env)
+    after = render(base, rtvi_overlay, env=env)
+    assert after['services']['rtvi-server']['environment'].pop('LD_LIBRARY_PATH') == probe_paths[images['rtvi']]
+    assert after == before  # No entrypoint, workload, GPU or monitoring changes.
+
+    setup = (ROOT / f'services/rtvi/{service}/perf/scripts/native_setup_perf_env.sh').read_text()
+    assert '_thor_compose_args=()\nif [[ "${PLATFORM}" == "jetson" ]]' in setup
+    assert '--rtvi-compose-output "${VST_DIR}/rtvi-thor-runtime.json"' in setup
+    assert '"${_thor_compose_args[@]}" --env-file "${ENV_PERF_FILE}" up -d' in setup
