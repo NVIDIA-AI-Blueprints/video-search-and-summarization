@@ -130,7 +130,7 @@ class BCDRouteTest(unittest.TestCase):
 
 class SetupSelectionTest(unittest.TestCase):
     def select(self, urls, source_id=""):
-        source = (HERE.parent / "setup_perf_env.sh").read_text()
+        source = (HERE.parent / "scripts/native_setup_perf_env.sh").read_text()
         block = source[source.index('RTSP_URLS=""\nELAPSED=0'):]
         block = block[:block.index('\n# ---------------------------------------------------------------------------')]
         prelude = '''set -Eeuo pipefail

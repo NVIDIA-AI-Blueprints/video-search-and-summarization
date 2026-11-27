@@ -27,7 +27,7 @@ SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_released_vios_image_defaults_preserve_explicit_overrides():
-    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    setup = (SERVICE_ROOT / "perf/scripts/native_setup_perf_env.sh").read_text()
     start = setup.index('VST_IMAGE_REGISTRY="')
     end = setup.index('\nVIDEOS_URL=', start)
     command = setup[start:end] + '\nprintf "%s\\n" "$VST_STREAMPROCESSING_IMAGE" "$VST_SENSOR_IMAGE" "$VST_INGRESS_IMAGE" "$VST_NVSTREAMER_IMAGE"'
@@ -52,10 +52,10 @@ def test_released_vios_image_defaults_preserve_explicit_overrides():
 
 def test_bcd_3_2_vlm_release_is_complete():
     required_paths = [
-        "docker/compose.perf.yaml",
-        "docker/prometheus.perf.yml",
-        "perf/setup_perf_env.sh",
-        "perf/teardown_perf_env.sh",
+        "perf/setup/compose/compose.perf.yaml",
+        "perf/setup/compose/prometheus.perf.yml",
+        "perf/scripts/native_setup_perf_env.sh",
+        "perf/scripts/native_teardown_perf_env.sh",
         "perf/benchmark/base.py",
         "perf/benchmark/concurrent_live_streams_benchmark.py",
         "perf/benchmark/file_burst_benchmark.py",
@@ -86,7 +86,7 @@ def test_bcd_3_2_vlm_release_is_complete():
 
 
 def test_perf_compose_tracks_github_runtime_controls():
-    compose = yaml.safe_load((SERVICE_ROOT / "docker/compose.perf.yaml").read_text())
+    compose = yaml.safe_load((SERVICE_ROOT / "perf/setup/compose/compose.perf.yaml").read_text())
     service = compose["services"]["rtvi-server"]
     image = service["image"]
     environment = service["environment"]
@@ -122,7 +122,7 @@ def test_perf_compose_tracks_github_runtime_controls():
     assert "/tmp/rtvi:size=2g,mode=1777" in service["tmpfs"]
     assert any("RTVI_IPC_SOCKET_HOST_DIR" in volume for volume in service["volumes"])
 
-    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    setup = (SERVICE_ROOT / "perf/scripts/native_setup_perf_env.sh").read_text()
     assert 'RTVI_IMAGE="${RTVI_IMAGE:-}"' in setup
     assert setup.index('if [[ -z "${RTVI_IMAGE}" ]]') > setup.index('PLATFORM="unknown"')
     assert 'if [[ "${PLATFORM}" == "dgx_spark" ]]; then' in setup
@@ -154,7 +154,7 @@ def test_perf_compose_tracks_github_runtime_controls():
 
 
 def test_setup_derives_bcd_videos_from_lvs_source():
-    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    setup = (SERVICE_ROOT / "perf/scripts/native_setup_perf_env.sh").read_text()
     assert "vss-benchmark-video-summarization/scripts/fetch-videos.sh" in setup
     assert "\nVIDEOS_URL=" in setup
     assert (
@@ -231,7 +231,7 @@ def test_lvs_fetch_configures_ngc_scope_and_accepts_download_layout(tmp_path):
 
 
 def test_bcd_video_validation_rejects_wrong_duration(tmp_path):
-    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    setup = (SERVICE_ROOT / "perf/scripts/native_setup_perf_env.sh").read_text()
     start = setup.index("validate_bcd_video() {")
     end = setup.index("\n}\n\n# Returns", start) + 3
     validator = setup[start:end]
@@ -259,7 +259,7 @@ def test_bcd_video_validation_rejects_wrong_duration(tmp_path):
 
 
 def test_nvstreamer_readiness_requires_each_bcd_fixture():
-    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    setup = (SERVICE_ROOT / "perf/scripts/native_setup_perf_env.sh").read_text()
     start = setup.index("nvstreamer_has_bcd_streams() {")
     end = setup.index("\n}\n", start) + 3
     checker = setup[start:end]
@@ -320,8 +320,8 @@ def test_nvstreamer_readiness_requires_each_bcd_fixture():
 
 
 def test_read_only_source_mount_uses_package_without_mutating_source(tmp_path):
-    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
-    compose = (SERVICE_ROOT / "docker/compose.perf.yaml").read_text()
+    setup = (SERVICE_ROOT / "perf/scripts/native_setup_perf_env.sh").read_text()
+    compose = (SERVICE_ROOT / "perf/setup/compose/compose.perf.yaml").read_text()
     start = setup.index("prepare_source_mountpoints() {")
     end = setup.index("\n}\n", start) + 3
     prepare = setup[start:end]
@@ -337,7 +337,7 @@ def test_read_only_source_mount_uses_package_without_mutating_source(tmp_path):
 
 
 def test_jetson_telemetry_fallback_omits_dcgm_at_compose_start(tmp_path):
-    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    setup = (SERVICE_ROOT / "perf/scripts/native_setup_perf_env.sh").read_text()
     config = tmp_path / "benchmark.yaml"
     config.write_text("global:\n  gpu_monitoring:\n    prometheus:\n      enabled: false\n      node_exporter_enabled: true\n")
     start = setup.index("    _compose_services=()")
@@ -357,11 +357,11 @@ def test_jetson_telemetry_fallback_omits_dcgm_at_compose_start(tmp_path):
 
 
 def test_generated_env_perf_is_ignored_and_forced_private():
-    env_file = SERVICE_ROOT / "docker/.env.perf"
+    env_file = SERVICE_ROOT / "perf/setup/compose/.env.perf"
     ignored = subprocess.run(
         ["git", "check-ignore", "-q", str(env_file)], cwd=SERVICE_ROOT
     )
     assert ignored.returncode == 0
 
-    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    setup = (SERVICE_ROOT / "perf/scripts/native_setup_perf_env.sh").read_text()
     assert 'install -m 600 /dev/null "${ENV_PERF_FILE}"' in setup

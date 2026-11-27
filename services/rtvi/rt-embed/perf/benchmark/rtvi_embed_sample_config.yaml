@@ -1,0 +1,214 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+######################################################################################################
+
+# RTVI Embed Sample Performance Test Configuration
+# This file demonstrates all benchmark modes using videos available in the RTVI container
+
+# Global test settings
+global:
+  # RTVI Embed backend URL for the API (can be overridden by RTVI_BACKEND env var)
+  rtvi_backend: "http://localhost:8000/v1"
+
+  # Backend type - set to "rtvi_embed" to use embedding API
+  backend_type: "rtvi_embed"
+
+  # Output directory for test results
+  output_dir: "rtvi-embed-sample-perf-report"
+
+  # GPU configuration for embedding workloads
+  vlm_gpus: [0]  # Adjust based on your system
+
+  # GPU monitoring settings
+  gpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+    # Optional: Prometheus/DCGM exporter (runs alongside legacy pynvml monitoring)
+    # Requires DCGM Exporter container exposing /metrics (default port 9400)
+    prometheus:
+      enabled: true
+      dcgm_exporter_url: "http://localhost:9400/metrics"
+      node_exporter_enabled: true
+      node_exporter_url: "http://localhost:9102/metrics"
+      scrape_interval_seconds: 1  # defaults to gpu_monitoring.interval_seconds
+
+  # Default embedding model
+  model: "cosmos-embed1-448p"
+
+  # /generate_video_embeddings API parameters
+  generate_video_embeddings_params:
+    model: "cosmos-embed1-448p"
+    chunk_duration: 10
+
+  # /generate_text_embeddings API parameters
+  generate_text_embeddings_params:
+    model: "cosmos-embed1-448p"
+
+# Test scenarios
+test_scenarios:
+
+  # Quick test scenario - Single file with minimal iterations
+  quick_test:
+    description: "Quick embedding test with single video"
+    benchmark_mode: "single_file"
+    iterations: 1
+    videos:
+      - filepath: "/opt/nvidia/rtvi/streams/its.mp4"
+        chunk_sizes: [10]
+
+  # Mode 1: Single File Mode - Testing each video type
+  single_file_test:
+    description: "Demo single file embedding generation with RTVI sample videos"
+    benchmark_mode: "single_file"
+    iterations: 2
+    videos:
+      # Traffic monitoring video
+      - filepath: "/opt/nvidia/rtvi/streams/its.mp4"
+        chunk_sizes: [5, 10]
+
+      # Bridge inspection video
+      - filepath: "/opt/nvidia/rtvi/streams/bridge.mp4"
+        chunk_sizes: [10]
+
+      # Warehouse monitoring video
+      - filepath: "/opt/nvidia/rtvi/streams/warehouse.mp4"
+        chunk_sizes: [10]
+
+      # Conference/presentation video
+      - filepath: "/opt/nvidia/rtvi/streams/Jensen_AI_Summit_India_2024_clip.mp4"
+        chunk_sizes: [10]
+
+  # Mode 2: File Burst Mode - Testing concurrent processing
+  file_burst_test:
+    description: "Demo concurrent file embedding processing with varying loads"
+    benchmark_mode: "file_burst"
+    videos:
+      # Short video for higher concurrency testing
+      - filepath: "/opt/nvidia/rtvi/streams/its.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4, 8]
+        target_latency_seconds: 60.0
+        target_latency_tolerance: 5.0
+
+      # Medium video for moderate concurrency
+      - filepath: "/opt/nvidia/rtvi/streams/bridge.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4]
+
+      # Longer video for lower concurrency
+      - filepath: "/opt/nvidia/rtvi/streams/warehouse.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2]
+
+      # Conference video for diverse content testing
+      - filepath: "/opt/nvidia/rtvi/streams/Jensen_AI_Summit_India_2024_clip.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 3]
+
+  # Mode 3: Max Live Streams Mode - Testing stream capacity
+  # Note: These use hypothetical RTSP URLs for demonstration
+  # In production, replace with actual RTSP stream URLs
+  max_live_streams_test:
+    description: "Demo maximum concurrent live streams capacity"
+    benchmark_mode: "max_live_streams"
+    generate_video_embeddings_params:
+      model: "cosmos-embed1-448p"
+    videos:
+      # Traffic monitoring stream
+      - name: "warehouse_cam_1"
+        rtsp_url: "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/concat_wh_52.mp4"
+        unique_rtsp_url_per_stream: false
+        chunk_sizes: [10]
+        latency_threshold_seconds: 10
+        stability_check_interval: 30  # Seconds between stability checks (default: 60)
+        initial_stream_count: 25
+        binary_search_refinement: true
+        add_stream_count: 2
+
+  # Single Live Stream Test with rtvi_embed backend
+  single_live_stream_test:
+    description: "Test single live stream embeddings generation with iterations"
+    benchmark_mode: "single_live_stream"
+    backend_type: "rtvi_embed"
+    iterations: 2
+    # Duration in seconds to monitor the stream
+    duration_seconds: 45
+
+    videos:
+      - name: "video_stream"
+        rtsp_url: "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/concat_wh_52.mp4"
+        chunk_sizes: [10]
+        # Optional stream-specific parameters for embeddings:
+        # generate_video_embeddings_params:
+        #   chunk_overlap_duration: 2
+
+  # Mode: Concurrent Live Streams - Fixed N streams, measure latencies
+  # Note: Replace rtsp_url with an actual looping RTSP stream URL
+  concurrent_live_streams_test:
+    description: "Test N concurrent live streams and measure latencies"
+    benchmark_mode: "concurrent_live_streams"
+    generate_video_embeddings_params:
+      model: "cosmos-embed1-448p"
+    videos:
+      - name: "traffic_cam_concurrent"
+        rtsp_url: "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/concat_wh_52.mp4"  # Replace with actual RTSP URL
+        unique_rtsp_url_per_stream: false
+        chunk_sizes: [10]
+        stream_count: [1, 4, 16]              # Number of concurrent streams to run simultaneously
+        duration_seconds: 120        # How long to run the test (seconds)
+
+  # Text Embedding Concurrency Test
+  text_embedding_concurrency_test:
+    description: "Test concurrent batched text embedding requests"
+    benchmark_mode: "text_embedding_concurrency"
+    generate_text_embeddings_params:
+      model: "cosmos-embed1-448p"
+    text_inputs:
+      - name: "mixed_scenarios"
+        texts:
+          - "a person riding a motorcycle on a city street"
+        # concurrency_level = total texts; auto-batched into ≤100 texts per API call
+        # e.g., 256 → 3 parallel calls: [100, 100, 56]
+        concurrency_levels: [1, 32, 64, 128, 256, 512]
+
+  # Text Embedding Concurrency with target latency Test
+  text_embedding_concurrency_target_latency:
+    description: "Test concurrent batched text embedding requests"
+    benchmark_mode: "text_embedding_concurrency"
+    generate_text_embeddings_params:
+      model: "cosmos-embed1-448p"
+    text_inputs:
+      - name: "mixed_scenarios"
+        texts:
+          - "a person riding a motorcycle on a city street"
+        # concurrency_level = total texts; auto-batched into ≤100 texts per API call
+        # e.g., 256 → 3 parallel calls: [100, 100, 56]
+        concurrency_levels: [1, 32, 64]
+        target_latency_seconds: 1.0
+        target_latency_tolerance: 0.5
+
+  # Video Embeddings Burst Test
+  concurrency_test:
+    description: "Test video embeddings generation performance with concurrent requests"
+    benchmark_mode: "concurrency"
+    generate_video_embeddings_params:
+      model: "cosmos-embed1-448p"
+    videos:
+      - filepath: "/opt/nvidia/rtvi/streams/15sec_h265.mp4"
+        chunk_sizes: [0]
+        concurrency_levels: [1, 2, 4]    # Test values to derive optimal concurrency for target latency
+        target_latency_seconds: 5.0
+        target_latency_tolerance: 1.0

@@ -1,0 +1,55 @@
+perf_configs:
+  - &rtvi_vlm_baseline
+    id: rtvi-vlm-rtxpro6000bw-se-1gpu
+    nodeLabel: RTXPRO6000BW-SE
+    imageArch: amd64
+    enabled: true
+    composePath: perf/setup/compose/compose.perf.yaml
+    vlmGpus: "0"
+    llmGpus: "unused"
+    vlmModel: "cr3-super-reasoner-nvfp4"
+    llmModel: "unused"
+    vision_input_tokens: "2k"
+    checkoutPaths:
+      - libs/vss-perf-tools/
+      - services/vios/deployment/stream-processing/docker-compose/
+      - libs/vss-perf-reporting/
+      - skills/benchmarking/vss-benchmark-video-summarization/
+
+# Profile paths are relative to this perf directory. All rows use one GPU.
+  - <<: *rtvi_vlm_baseline
+    id: rtvi-vlm-h100-sxm-1gpu
+    nodeLabel: H100-SXM
+    imageArch: amd64
+    benchmarkConfig: benchmark/rtvi_vlm_bcd_3_3_h100_sxm_config.yaml
+    vlmModel: "cr3-super-reasoner-fp8"
+
+  - <<: *rtvi_vlm_baseline
+    id: rtvi-vlm-rtxpro4500bw-1gpu
+    nodeLabel: RTXPRO4500BW
+    imageArch: amd64
+    benchmarkConfig: benchmark/rtvi_vlm_bcd_3_3_rtx_pro_4500_config.yaml
+    vlmModel: "cr3-nano-reasoner-nvfp4"
+
+  - <<: *rtvi_vlm_baseline
+    id: rtvi-vlm-dgx-spark-1gpu
+    nodeLabel: DGX-SPARK
+    imageArch: arm64-sbsa
+    benchmarkConfig: benchmark/rtvi_vlm_bcd_3_3_dgx_spark_config.yaml
+    vlmModel: "cr3-nano-reasoner-nvfp4"
+
+  # Jenkins allocates IGX-T7000; IGX-THOR remains the report/config platform.
+  - <<: *rtvi_vlm_baseline
+    id: rtvi-vlm-igx-thor-1gpu
+    nodeLabel: IGX-THOR
+    imageArch: arm64-igpu
+    # Owner-approved initial IGX workload; native validation remains required.
+    benchmarkConfig: benchmark/rtvi_vlm_bcd_3_3_agx_thor_t5000_config.yaml
+    vlmModel: "cr3-nano-reasoner-nvfp4"
+
+  - <<: *rtvi_vlm_baseline
+    id: rtvi-vlm-gb300-1gpu
+    nodeLabel: GB300
+    imageArch: arm64-sbsa
+    benchmarkConfig: benchmark/rtvi_vlm_bcd_3_3_gb300_config.yaml
+    vlmModel: "cr3-super-reasoner-nvfp4"

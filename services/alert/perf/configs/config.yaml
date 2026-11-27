@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+global:
+  supporting_images: setup/configs/images.yaml
+  deployment:
+    agent_host_port: 8001
+  dataset:
+    name: Metropolis-Short-Video-Event-Verification
+    tenant_id: "0573334707593577"
+    group_id: vss-bp-team
+    videos_subpath: warehouse_chunks
+    ground_truth_subpath: test_annotation.json
+  workload: &workload
+    num_sensors: 1
+    latency_duration: 5m
+    latency_source_video: warehouse_1_540_7.mp4
+    alert_category: FOV Count Violation
+    workers: 30
+    synthetic_alerts_per_minute: 1
+    synthetic_event_duration_ms: 30000
+    summary_buffer_seconds: 90
+    min_coverage_ratio: 0.99
+test_scenarios:
+  synthetic_alerts:
+    enabled: true
+    description: Synthetic Kafka verification latency smoke test
+    benchmark_mode: synthetic_kafka
+    workload: *workload
+  e2e_alerts_eval:
+    enabled: false
+    description: Full alerts profile latency including Behavior Analytics
+    benchmark_mode: e2e_kafka
+    workload:
+      <<: *workload
+      summary_buffer_seconds: 0

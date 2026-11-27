@@ -1,0 +1,110 @@
+{
+  "schema_version": "0.1",
+  "metadata": {
+    "service": "LVS",
+    "run_info": {
+      "run_id": "lvs_tp1-9k_20250203_120000",
+      "timestamp": "2025-02-03T12:00:00Z",
+      "duration_seconds": 120.0,
+      "triggered_by": "manual",
+      "release": "EA2"
+    },
+    "platform": {
+      "gpu": {
+        "model": "H100",
+        "full_name": "",
+        "count": 4,
+        "memory_gb": 0.0,
+        "driver_version": "",
+        "cuda_version": ""
+      },
+      "cpu": {"model": "Intel Xeon", "cores": 64},
+      "memory_gb": 512.0,
+      "os": "Ubuntu 22.04"
+    },
+    "config": {"config_id": "tp1-9k"},
+    "benchmark_name": "sample_run",
+    "benchmark_mode": "single_file"
+  },
+  "summary": {
+    "total_tests": 2,
+    "passed": 2,
+    "failed": 0,
+    "pass_rate": 100.0,
+    "overall_status": "PASS"
+  },
+  "test_cases": [
+    {
+      "test_case_id": "single_file_video1_30sec",
+      "description": "video1 video summarization",
+      "status": "PASS",
+      "config": {
+        "video_duration": "video1"
+      },
+      "metrics": {
+        "latency": {
+          "e2e_seconds": 45.2,
+          "vlm_pipeline_seconds": 38.1,
+          "ca_rag_seconds": 4.0,
+          "decode_seconds": 2.1
+        },
+        "gpu": {
+          "vlm_gpu_usage_mean": 78.5,
+          "vlm_gpu_memory_mean": 65.0,
+          "llm_gpu_usage_mean": 12.0,
+          "llm_gpu_memory_mean": 8.0
+        }
+      }
+    },
+    {
+      "test_case_id": "file_burst_video1_30sec",
+      "description": "video1.mp4 @ 30s",
+      "config": {
+        "video_url": "/path/to/video1.mp4",
+        "chunk_size_seconds": 30,
+        "concurrency_levels_tested": [1, 2, 4, 8],
+        "target_latency_seconds": 60.0
+      },
+      "metrics": {
+        "concurrency_results": [
+          {
+            "concurrency_level": 1,
+            "e2e_seconds": 120.0,
+            "completed_files": 10,
+            "failed_files": 0,
+            "throughput_files_per_second": 0.083,
+            "avg_latency": 12.0,
+            "p90_latency": 14.0,
+            "gpu": {
+              "vlm_gpu_usage_mean": 65.0,
+              "vlm_gpu_memory_mean": 60.0,
+              "llm_gpu_usage_mean": 10.0,
+              "llm_gpu_memory_mean": 8.0
+            }
+          },
+          {
+            "concurrency_level": 4,
+            "e2e_seconds": 95.0,
+            "completed_files": 10,
+            "failed_files": 0,
+            "throughput_files_per_second": 0.105,
+            "avg_latency": 9.5,
+            "p90_latency": 11.0,
+            "gpu": {
+              "vlm_gpu_usage_mean": 85.0,
+              "vlm_gpu_memory_mean": 70.0,
+              "llm_gpu_usage_mean": 12.0,
+              "llm_gpu_memory_mean": 9.0
+            }
+          }
+        ],
+        "optimal_target_concurrency": {
+          "concurrency_level": 4,
+          "throughput_files_per_second": 0.105,
+          "avg_latency_seconds": 9.5,
+          "p90_latency_seconds": 11.0
+        }
+      }
+    }
+  ]
+}
