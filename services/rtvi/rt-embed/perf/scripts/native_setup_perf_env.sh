@@ -21,7 +21,7 @@
 #   1. Validates required environment variables and tools
 #   2. Checks NTP clock synchronization via chrony (warns if offset > 100ms)
 #   3. Detects platform and starts sys_cache_cleaner (DGX Spark / Jetson Thor only)
-#   4. Downloads and extracts the VST package from Artifactory
+#   4. Stages the repository VIOS deployment (or an explicit local package)
 #   5. Patches VST image tags and makes Redis port configurable via $REDIS_PORT
 #   6. Downloads benchmark test videos
 #   7. Detects the host IP for RTSP stream URLs
@@ -44,8 +44,7 @@
 #   BACKEND_PORT        — Host port for the RTVI Embed service (default: 8017)
 #   HF_TOKEN            — HuggingFace token for private model repos (optional)
 #   ARTIFACTORY_BASE    — Base Artifactory URL
-#   VST_PKG_URL         — Full URL to vst_package.tar.gz
-#   VST_LOCAL_PACKAGE   — Local vst_package.tar.gz to use before Artifactory download
+#   VST_LOCAL_PACKAGE   — Explicit local VST tarball instead of repository files
 #   VST_IMAGE_REGISTRY  — Registry/repository prefix for VST images
 #   VST_IMAGE_TAG       — Tag for VST images
 #   VST_STREAMPROCESSING_IMAGE — Full image override for stream-processing
@@ -77,7 +76,7 @@ usage() {
 Usage: bash perf/scripts/native_setup_perf_env.sh [-h|--help]
 
 End-to-end setup script for the RTVI Embed performance benchmark environment.
-Runs 12 steps: VST download → nvstreamer → VST → test videos → .env.perf
+Runs 12 steps: VST staging → nvstreamer → VST → test videos → .env.perf
 generation → RTVI Embed startup → Python venv → RTSP URL injection.
 
 Required environment variables (must be exported before running):
@@ -109,13 +108,13 @@ Optional environment variables (sensible defaults shown):
   MODEL_PATH            Model source path                  (default: HuggingFace Cosmos-Embed1-448p )
   HF_TOKEN              HuggingFace token for private repos (default: empty)
   ARTIFACTORY_BASE      Base Artifactory URL
-  VST_PKG_URL           Full URL to vst_package.tar.gz
-  VST_LOCAL_PACKAGE     Local vst_package.tar.gz override  (default: perf/vst_package.tar.gz)
-  VST_IMAGE_REGISTRY    VST image registry/repo prefix     (default: nvcr.io/rxczgrvsg8nx/vst-dev)
-  VST_IMAGE_TAG         VST image tag                      (default: 2.1.0-26.04.1)
+  VST_LOCAL_PACKAGE     Explicit local tarball override (default: repository deployment)
+  VST_IMAGE_REGISTRY    VST image registry/repo prefix     (default: nvcr.io/nvidia/vss-core)
+  VST_IMAGE_TAG         VST image tag                      (default: 3.2.0)
   VST_STREAMPROCESSING_IMAGE  Full stream-processing image override
   VST_SENSOR_IMAGE      Full sensor-ms image override
   VST_INGRESS_IMAGE     Full ingress image override
+  PERF_THOR_DOCKER_RUNTIME  Registered Thor runtime (default: nvidia)
   VST_NVSTREAMER_IMAGE  Full nvstreamer image override
   VIDEOS_URL            Base URL for test video downloads
   VST_DIR               Local directory for VST package    (default: ~/rtvi-perf/vst_package)
@@ -165,13 +164,12 @@ done
 ARTIFACTORY_BASE="${ARTIFACTORY_BASE:-https://artifactory.nvidia.com/artifactory}"
 ARTIFACTORY_USER="${ARTIFACTORY_USER:-}"
 ARTIFACTORY_TOKEN="${ARTIFACTORY_TOKEN:-}"
-VST_PKG_URL="${VST_PKG_URL:-${ARTIFACTORY_BASE}/sw-ds-generic-bld-local/lmm/build/vst_package.tar.gz}"
-VST_IMAGE_REGISTRY="${VST_IMAGE_REGISTRY:-nvcr.io/rxczgrvsg8nx/vst-dev}"
-VST_IMAGE_TAG="${VST_IMAGE_TAG:-2.1.0-26.04.1}"
-VST_STREAMPROCESSING_IMAGE="${VST_STREAMPROCESSING_IMAGE:-${VST_IMAGE_REGISTRY}/vst-streamprocessing:${VST_IMAGE_TAG}}"
-VST_SENSOR_IMAGE="${VST_SENSOR_IMAGE:-${VST_IMAGE_REGISTRY}/vst-sensor:${VST_IMAGE_TAG}}"
-VST_INGRESS_IMAGE="${VST_INGRESS_IMAGE:-${VST_IMAGE_REGISTRY}/vst-ingress:${VST_IMAGE_TAG}}"
-VST_NVSTREAMER_IMAGE="${VST_NVSTREAMER_IMAGE:-${VST_IMAGE_REGISTRY}/nvstreamer:${VST_IMAGE_TAG}}"
+VST_IMAGE_REGISTRY="${VST_IMAGE_REGISTRY:-nvcr.io/nvidia/vss-core}"
+VST_IMAGE_TAG="${VST_IMAGE_TAG:-3.2.0}"
+VST_STREAMPROCESSING_IMAGE="${VST_STREAMPROCESSING_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-streamprocessing:${VST_IMAGE_TAG}}"
+VST_SENSOR_IMAGE="${VST_SENSOR_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-sensor:${VST_IMAGE_TAG}}"
+VST_INGRESS_IMAGE="${VST_INGRESS_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-ingress:${VST_IMAGE_TAG}}"
+VST_NVSTREAMER_IMAGE="${VST_NVSTREAMER_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-nvstreamer:${VST_IMAGE_TAG}}"
 VIDEOS_URL="${VIDEOS_URL:-${ARTIFACTORY_BASE}/sw-ds-generic-bld-local/via-engine/media/perf}"
 VST_DIR="${VST_DIR:-${HOME}/rtvi-perf/vst_package}"
 # Base namespace; deploy.sh uses separate -vst and -nvstreamer Compose projects.
@@ -230,7 +228,7 @@ else
     BENCHMARK_CONFIG="${BENCHMARK_DIR}/rtvi_embed_bcd_config.yaml"
 fi
 REQUIREMENTS_FILE="${BENCHMARK_DIR}/requirements.txt"
-VST_LOCAL_PACKAGE="${VST_LOCAL_PACKAGE:-${SCRIPT_DIR}/vst_package.tar.gz}"
+VST_LOCAL_PACKAGE="${VST_LOCAL_PACKAGE:-}"
 
 # RTVI Embed service (compose.perf.yaml)
 COMPOSE_PERF_YAML="${COMPOSE_PERF_YAML:-${SCRIPT_DIR}/setup/compose/compose.perf.yaml}"
@@ -599,9 +597,19 @@ if [[ "$(uname -m)" == "aarch64" ]]; then
     if [[ -r /proc/device-tree/model ]]; then
         DT_MODEL=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || true)
     fi
-    if echo "${DT_MODEL}" | grep -qi "jetson"; then
+    if echo "${DT_MODEL}" | grep -qiE "jetson|thor"; then
         PLATFORM="jetson"
         log "  Jetson platform detected: ${DT_MODEL}"
+    fi
+fi
+
+# IGX boards need not identify themselves as Jetson in device-tree.
+if [[ "${PLATFORM}" == "unknown" && "$(uname -m)" == "aarch64" ]] && command -v nvidia-smi >/dev/null 2>&1; then
+    _selected_gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader \
+        -i "${NVIDIA_VISIBLE_DEVICES}" 2>/dev/null || true)
+    if grep -qiE 'thor|t5000|t7000' <<< "${_selected_gpu_name}"; then
+        PLATFORM="jetson"
+        log "  Thor platform detected from selected GPU: ${_selected_gpu_name}"
     fi
 fi
 
@@ -648,57 +656,28 @@ fi
 section "Stream Download"
 
 # ---------------------------------------------------------------------------
-# Step 4: Download and extract VST package
+# Step 4: Stage the same repository VIOS deployment used by RTVI VLM
 # ---------------------------------------------------------------------------
-log "Step 4/12: Downloading VST package..."
+log "Step 4/12: Staging VST deployment..."
 
 mkdir -p "${VST_DIR}"
-
-VST_TARBALL="${VST_DIR}/vst_package.tar.gz"
-
-if [[ -f "${VST_LOCAL_PACKAGE}" ]]; then
-    log "  Using local VST package: ${VST_LOCAL_PACKAGE}"
-    if [[ -f "${VST_TARBALL}" ]] && cmp -s "${VST_LOCAL_PACKAGE}" "${VST_TARBALL}"; then
-        log "  Local VST package already staged at ${VST_TARBALL}."
-    else
-        cp -f "${VST_LOCAL_PACKAGE}" "${VST_TARBALL}" \
-            || die "Failed to stage local VST package from ${VST_LOCAL_PACKAGE}"
-    fi
-elif [[ -f "${VST_TARBALL}" ]]; then
-    log "  vst_package.tar.gz already present, skipping download."
+if [[ -n "${VST_LOCAL_PACKAGE}" ]]; then
+    [[ -f "${VST_LOCAL_PACKAGE}" ]] || die "VST_LOCAL_PACKAGE does not exist: ${VST_LOCAL_PACKAGE}"
+    for _entry in stream-processing nvstreamer scripts deploy.sh; do
+        [[ ! -e "${VST_DIR}/${_entry}" && ! -L "${VST_DIR}/${_entry}" ]] \
+            || die "Use a fresh VST_DIR; refusing to overwrite ${VST_DIR}/${_entry}"
+    done
+    log "  Extracting explicit local VST package: ${VST_LOCAL_PACKAGE}"
+    tar -xzf "${VST_LOCAL_PACKAGE}" -C "${VST_DIR}" --strip-components=1
 else
-    log "  Downloading from ${VST_PKG_URL} ..."
-    curl -fsSL \
-        -u "${ARTIFACTORY_USER}:${ARTIFACTORY_TOKEN}" \
-        -o "${VST_TARBALL}" \
-        "${VST_PKG_URL}" \
-        || die "Failed to download VST package from ${VST_PKG_URL}"
+    VST_DIR="${VST_DIR}" PERF_VIDEOS_DIR="${PERF_VIDEOS_DIR}" \
+        VST_COMPOSE_PROJECT="${VST_COMPOSE_PROJECT}" \
+        REDIS_PORT="${REDIS_PORT}" CENTRALIZE_DB_PORT="${CENTRALIZE_DB_PORT}" \
+        VST_SENSOR_PORT="${VST_SENSOR_PORT}" VST_STREAM_PROC_PORT="${VST_STREAM_PROC_PORT}" \
+        VST_INGRESS_PORT="${VST_INGRESS_PORT}" VST_RTSP_PORT="${VST_RTSP_PORT}" \
+        NVSTREAMER_HTTP_PORT="${NVSTREAMER_HTTP_PORT}" NVSTREAMER_RTSP_PORT="${NVSTREAMER_RTSP_PORT}" \
+        python3 "${SCRIPT_DIR}/scripts/stage_vst.py" || die "Failed to stage repository VST deployment"
 fi
-
-# Stop any previously running VST containers BEFORE overwriting deploy.sh.
-# The tarball re-extraction below replaces deploy.sh with a fresh copy and
-# then patches it with the new COMPOSE_PROJECT_NAME prefix, so by Step 8 the
-# patched deploy.sh can only stop containers from the *current* project.
-# Running down here (against the *previous* deploy.sh, which may have an older
-# or unprefixed project name) ensures no stale containers hold ports 6379 etc.
-if [[ -f "${VST_DIR}/deploy.sh" ]]; then
-    log "  Stopping pre-existing VST containers before re-extraction..."
-    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-vst" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-vst" bash deploy.sh down vst       2>/dev/null) || true
-    (cd "${VST_DIR}" && COMPOSE_PROJECT_NAME="${VST_COMPOSE_PROJECT}-nvstreamer" PERF_VST_COMPONENT_PROJECT="${VST_COMPOSE_PROJECT}-nvstreamer" bash deploy.sh down nvstreamer 2>/dev/null) || true
-fi
-# Belt-and-suspenders: force-remove any container whose name contains the project
-# prefix, regardless of which project name deploy.sh used internally.  This catches
-# auto-named containers (e.g. the base 'redis' service) from prior runs where the
-# project suffix differed.  Safe here because nvstreamer/VST are not yet running
-# for the current invocation — they are started in Step 8 after re-extraction.
-_stale_vst=$(docker ps -aq --filter "name=${VST_COMPOSE_PROJECT}" 2>/dev/null || true)
-if [[ -n "${_stale_vst}" ]]; then
-    log "  Force-removing remaining ${VST_COMPOSE_PROJECT} containers (project-name drift)..."
-    echo "${_stale_vst}" | xargs docker rm -f 2>/dev/null || true
-fi
-
-log "  Extracting VST package to ${VST_DIR} ..."
-tar -xzf "${VST_TARBALL}" -C "${VST_DIR}" --strip-components=1
 
 set_compose_env_value() {
     local env_file="$1"
@@ -768,28 +747,18 @@ patch_direct_vst_image_refs "vst-sensor" "${VST_SENSOR_IMAGE}"
 patch_direct_vst_image_refs "vst-ingress" "${VST_INGRESS_IMAGE}"
 patch_direct_vst_image_refs "nvstreamer" "${VST_NVSTREAMER_IMAGE}"
 
-# Thor exposes libcuda under /opt/nvidia/l4t-gpu-libs, while these VST
-# binaries dlopen the absolute path /usr/lib/aarch64-linux-gnu/libcuda.so.
+# Validate the actual VIOS image on Thor, including driver libraries, CUDA
+# initialization and selected GPU identity. No driver installation, daemon
+# modification, privileged container or guessed device mounts are performed.
 if [[ "${PLATFORM}" == "jetson" ]]; then
-    _host_libcuda=$(readlink -f /usr/lib/aarch64-linux-gnu/libcuda.so 2>/dev/null || true)
-    if [[ "${_host_libcuda}" != /opt/nvidia/l4t-gpu-libs/libcuda.so* &&
-        "${_host_libcuda}" != /opt/nvidia/l4t-gpu-libs/*/libcuda.so* ]]; then
-        _host_libcuda=$(ldconfig -p 2>/dev/null | awk '/libcuda\.so \(.*AArch64/ {print $NF; exit}' || true)
-    fi
-    if [[ "${_host_libcuda}" == /opt/nvidia/l4t-gpu-libs/libcuda.so* ||
-        "${_host_libcuda}" == /opt/nvidia/l4t-gpu-libs/*/libcuda.so* ]]; then
-        for _vst_yaml in "${_vst_yaml_files[@]}"; do
-            if grep -q 'exec /home/vst/vst_release/launch_vst' "${_vst_yaml}" && \
-                ! grep -q 'ln -sf .* /usr/lib/aarch64-linux-gnu/libcuda.so && exec /home/vst/vst_release/launch_vst' "${_vst_yaml}"; then
-                sed -i \
-                    "s|exec /home/vst/vst_release/launch_vst|ln -sf ${_host_libcuda} /usr/lib/aarch64-linux-gnu/libcuda.so \&\& exec /home/vst/vst_release/launch_vst|g" \
-                    "${_vst_yaml}" || die "Failed to patch Thor libcuda path in ${_vst_yaml}"
-            fi
-        done
-        log "  Patched Thor VST launchers to expose ${_host_libcuda} at the libcuda path they expect."
-    else
-        die "Thor libcuda target is unavailable: ${_host_libcuda:-not found}"
-    fi
+    [[ -f "${VST_DIR}/.compose-project" ]] \
+        || die "Thor runtime validation requires repository VIOS staging; unset VST_LOCAL_PACKAGE."
+    _runtime_helper="$(cd "${SCRIPT_DIR}/../../../.." && pwd)/libs/vss-perf-tools/vst_runtime.py"
+    _runtime_report="${PERF_DIAGNOSTICS_DIR:-$(dirname "${BENCHMARK_CONFIG}")}/vst-runtime.json"
+    python3 "${_runtime_helper}" --root "${VST_DIR}" --devices "${NVIDIA_VISIBLE_DEVICES}" \
+        --image "${VST_NVSTREAMER_IMAGE}" --rtvi-image "${RTVI_IMAGE}" --report "${_runtime_report}" \
+        || die "Thor VIOS runtime preflight failed; see ${_runtime_report}."
+    export RTVI_DOCKER_RUNTIME="${PERF_THOR_DOCKER_RUNTIME:-nvidia}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -993,7 +962,7 @@ for _compose_file in "${_compose_files[@]}"; do
 done
 
 # Keep package-provided project overrides from merging VST and NVStreamer.
-if [[ -f "${VST_DEPLOY_SH}" ]]; then
+if [[ -f "${VST_DEPLOY_SH}" && ! -f "${VST_DIR}/.compose-project" ]]; then
     python3 "${SCRIPT_DIR}/scripts/isolate_vst_projects.py" "${VST_DEPLOY_SH}" \
         || die "Failed to isolate VST and NVStreamer Compose projects"
 fi
@@ -1139,6 +1108,21 @@ else
         sleep 5
     done
     log "  ${_C_GREEN}nvstreamer is up.${_C_RESET}"
+
+    # VST imports the stream list on startup. Wait for the same 60-minute
+    # source the Embed setup already selects; do not substitute VLM's videos.
+    _ns_streams_api="http://localhost:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/streams"
+    _ns_start=$SECONDS
+    until _ns_response=$(curl --connect-timeout 3 --max-time 5 -sf "${_ns_streams_api}" 2>/dev/null) &&
+        jq -e '.. | objects | select(.name? == "warehouse_gopro_60m") |
+            select((.url? // "") | startswith("rtsp://"))' \
+            <<< "${_ns_response}" >/dev/null 2>&1; do
+        if (( SECONDS - _ns_start >= NVSTREAMER_POLL_TIMEOUT )); then
+            die "nvstreamer did not index Embed's warehouse_gopro_60m stream before VST startup"
+        fi
+        sleep 5
+    done
+    log "  Embed's warehouse_gopro_60m stream is indexed."
 
     section "VST"
     log "  Stopping any existing VST containers..."
@@ -1357,6 +1341,7 @@ else
 
 BACKEND_PORT=${BACKEND_PORT}
 RTVI_IMAGE=${RTVI_IMAGE}
+RTVI_DOCKER_RUNTIME=${RTVI_DOCKER_RUNTIME:-nvidia}
 NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES}
 HF_TOKEN=${HF_TOKEN}
 MODEL_PATH=${MODEL_PATH}

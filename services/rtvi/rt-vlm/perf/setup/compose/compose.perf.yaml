@@ -49,7 +49,7 @@ services:
   rtvi-server:
     image: ${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest}
     shm_size: '16gb'
-    runtime: nvidia
+    runtime: ${RTVI_DOCKER_RUNTIME:-nvidia}
     cap_drop:
       - ALL
     cap_add:

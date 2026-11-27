@@ -6,7 +6,7 @@
 # docker/rtvi_embed/deploy/compose.perf.yaml and perf/setup_perf_env_rtvi_embed.sh.
 # Developer-confirmed integration exception: use public VIOS 3.2.0 images.
 # Previous private VST references are retained as comments for rollback.
-# Additional VST package images remain package-managed.
+# Repository VIOS staging is shared with RTVI VLM.
 schema_version: 1
 images:
   PERF_PROMETHEUS_IMAGE: prom/prometheus:latest
@@ -20,4 +20,5 @@ images:
   VST_INGRESS_IMAGE: nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.0
   # Previous: VST_NVSTREAMER_IMAGE: nvcr.io/rxczgrvsg8nx/vst-dev/nvstreamer:2.1.0-26.04.1
   VST_NVSTREAMER_IMAGE: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.2.0
-package_managed_images: Additional images from the downloaded VST package remain unverified; the four explicit overrides above use public VIOS 3.2.0.
+  POSTGRES_IMAGE: postgres:17.10-alpine
+  REDIS_IMAGE: redis:8.10.0-alpine

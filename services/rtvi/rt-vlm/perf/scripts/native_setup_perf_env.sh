@@ -134,6 +134,7 @@ Optional environment variables (sensible defaults shown):
   VST_STREAMPROCESSING_IMAGE  Full stream-processing image override
   VST_SENSOR_IMAGE      Full sensor-ms image override
   VST_INGRESS_IMAGE     Full ingress image override
+  PERF_THOR_DOCKER_RUNTIME  Registered Thor runtime (default: nvidia)
   VST_NVSTREAMER_IMAGE  Full nvstreamer image override
   BCD_VST_SOURCE_ID     Verified VST ID for the BCD 60-minute source when its
                         /live/<source-id> path is opaque; no direct fallback.
@@ -946,9 +947,19 @@ if [[ "$(uname -m)" == "aarch64" ]]; then
     if [[ -r /proc/device-tree/model ]]; then
         DT_MODEL=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || true)
     fi
-    if echo "${DT_MODEL}" | grep -qi "jetson"; then
+    if echo "${DT_MODEL}" | grep -qiE "jetson|thor"; then
         PLATFORM="jetson"
         log "  Jetson platform detected: ${DT_MODEL}"
+    fi
+fi
+
+# IGX boards need not identify themselves as Jetson in device-tree.
+if [[ "${PLATFORM}" == "unknown" && "$(uname -m)" == "aarch64" ]] && command -v nvidia-smi >/dev/null 2>&1; then
+    _selected_gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader \
+        -i "${NVIDIA_VISIBLE_DEVICES}" 2>/dev/null || true)
+    if grep -qiE 'thor|t5000|t7000' <<< "${_selected_gpu_name}"; then
+        PLATFORM="jetson"
+        log "  Thor platform detected from selected GPU: ${_selected_gpu_name}"
     fi
 fi
 
@@ -1115,22 +1126,18 @@ patch_direct_vst_image_refs "vst-sensor" "${VST_SENSOR_IMAGE}"
 patch_direct_vst_image_refs "vst-ingress" "${VST_INGRESS_IMAGE}"
 patch_direct_vst_image_refs "nvstreamer" "${VST_NVSTREAMER_IMAGE}"
 
-# Thor exposes libcuda under /opt/nvidia/l4t-gpu-libs, while these VST
-# binaries dlopen the absolute path /usr/lib/aarch64-linux-gnu/libcuda.so.
+# Validate the actual VIOS image on Thor, including driver libraries, CUDA
+# initialization and selected GPU identity. No driver installation, daemon
+# modification, privileged container or guessed device mounts are performed.
 if [[ "${PLATFORM}" == "jetson" ]]; then
-    _host_libcuda=$(readlink -f /usr/lib/aarch64-linux-gnu/libcuda.so 2>/dev/null || true)
-    if [[ "${_host_libcuda}" == /opt/nvidia/l4t-gpu-libs/*/libcuda.so* ]]; then
-        for _vst_yaml in "${_vst_yaml_files[@]}"; do
-            if grep -q 'exec /home/vst/vst_release/launch_vst' "${_vst_yaml}"; then
-                sed -i \
-                    "s|exec /home/vst/vst_release/launch_vst|ln -sf ${_host_libcuda} /usr/lib/aarch64-linux-gnu/libcuda.so \&\& exec /home/vst/vst_release/launch_vst|g" \
-                    "${_vst_yaml}" || die "Failed to patch Thor libcuda path in ${_vst_yaml}"
-            fi
-        done
-        log "  Patched Thor VST launchers to expose ${_host_libcuda} at the libcuda path they expect."
-    else
-        die "Thor libcuda target is unavailable: ${_host_libcuda:-not found}"
-    fi
+    [[ -f "${VST_DIR}/.compose-project" ]] \
+        || die "Thor runtime validation requires repository VIOS staging; unset VST_LOCAL_PACKAGE."
+    _runtime_helper="$(cd "${SCRIPT_DIR}/../../../.." && pwd)/libs/vss-perf-tools/vst_runtime.py"
+    _runtime_report="${PERF_DIAGNOSTICS_DIR:-$(dirname "${BENCHMARK_CONFIG}")}/vst-runtime.json"
+    python3 "${_runtime_helper}" --root "${VST_DIR}" --devices "${NVIDIA_VISIBLE_DEVICES}" \
+        --image "${VST_NVSTREAMER_IMAGE}" --rtvi-image "${RTVI_IMAGE}" --report "${_runtime_report}" \
+        || die "Thor VIOS runtime preflight failed; see ${_runtime_report}."
+    export RTVI_DOCKER_RUNTIME="${PERF_THOR_DOCKER_RUNTIME:-nvidia}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1821,6 +1828,7 @@ else
 
 BACKEND_PORT=${BACKEND_PORT}
 RTVI_IMAGE=${RTVI_IMAGE}
+RTVI_DOCKER_RUNTIME=${RTVI_DOCKER_RUNTIME:-nvidia}
 NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES}
 NGC_API_KEY=${NGC_API_KEY}
 NVIDIA_API_KEY=${NVIDIA_API_KEY}

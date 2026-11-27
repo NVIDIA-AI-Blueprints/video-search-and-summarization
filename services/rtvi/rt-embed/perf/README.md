@@ -88,16 +88,20 @@ run output. Image values preserve existing references and do not certify OSRB
 approval or record the immutable digests pulled by Docker.
 
 The VST image settings retain the variable names expected by the native setup
-scripts. Native package staging, port configuration, and compatibility handling
-remain unchanged.
+scripts. Both RTVI services stage the same repository-owned VIOS deployment
+through `libs/vss-perf-tools/stage_vst.py`, including the NVStreamer configs,
+startup scripts, video mounts and port configuration. Embed no longer downloads
+the mutable VST package by default. Its videos, workload configuration and
+measurement code remain unchanged.
 
-Embed still consumes its existing VST package. Only its four explicit VST image
-overrides and perf monitoring images are inventoried here. Any other package
-references remain package-managed until the package contents are verified.
+The four public VIOS images remain pinned to `3.2.0`. PostgreSQL `17.10-alpine`
+and Redis `8.10.0-alpine` match the repository deployment defaults and are
+listed in `setup/configs/images.yaml`. An explicit `VST_LOCAL_PACKAGE` override
+remains available for non-Thor setups; use a fresh `VST_DIR`.
 
 VST and NVStreamer use separate Compose projects derived from the
 `VST_COMPOSE_PROJECT` namespace: `<namespace>-vst` and
-`<namespace>-nvstreamer`. Setup scopes the staged package's Compose commands to
+`<namespace>-nvstreamer`. Setup scopes the shared deployment helper’s Compose commands to
 the selected component, so VST cleanup preserves the running NVStreamer.
 Diagnostics cover both projects; normal and failure teardown stop both.
 
@@ -107,3 +111,18 @@ IGX; Spark and GB300 keep `arm64-sbsa`. Supplying a full `-sbsa` image reference
 still selects that exact image, so use separate artifact runs for IGX and the
 SBSA platforms. This changes image selection only; workloads and model profiles
 remain unchanged. Image/runtime compatibility still requires a hardware run.
+
+### Thor runtime validation
+
+Both RTVI services use the same Thor-only CUDA preflight before deploying VIOS.
+It checks the actual image architecture, CUDA initialization and selected GPU
+identity, and saves image IDs and errors in `vst-runtime.json` under
+`PERF_DIAGNOSTICS_DIR` (or beside the benchmark configuration). The staged
+Compose overrides apply only to this run’s VIOS containers. Other hardware
+keeps its existing runtime settings.
+
+The default runtime remains `nvidia`. If the node administrator provides a
+separate Thor-compatible Docker runtime, `PERF_THOR_DOCKER_RUNTIME` selects it
+for both VIOS and the RTVI container. This setting does not provision a runtime
+or change the Docker daemon. A host with broken CUDA library/device injection
+still requires node repair; the preflight reports that failure before deployment.

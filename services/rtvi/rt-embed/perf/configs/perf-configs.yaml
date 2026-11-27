@@ -13,6 +13,7 @@ perf_configs:
     checkoutPaths:
       - libs/vss-perf-reporting/
       - libs/vss-perf-tools/
+      - services/vios/deployment/stream-processing/docker-compose/
 
 # Profile paths are relative to this perf directory. All rows use one GPU.
   - <<: *rtvi_embed_baseline

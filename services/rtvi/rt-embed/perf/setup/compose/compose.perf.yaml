@@ -14,7 +14,7 @@ services:
     image: ${RTVI_IMAGE:-gitlab-master.nvidia.com:5005/via/rtvi-microservices/rtvi_embed:main}
     container_name: "rtvi-server-${USER}"
     shm_size: '16gb'
-    runtime: nvidia
+    runtime: ${RTVI_DOCKER_RUNTIME:-nvidia}
     user: "1001:1001"
     ports:
       - "${BACKEND_PORT?}:8000"
