@@ -2110,11 +2110,11 @@ jest-validate,30.4.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json
 jest-watcher,30.4.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 jest-worker,30.4.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 jinja2,3.1.4,BSD-3-Clause,services/sdrc,python,container;lockfile;manifest,services/sdrc/envoy/Dockerfile.wdm-router;services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,container-pip;declared-manifest,None
-jinja2,3.1.6,BSD License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
+jinja2,3.1.6,BSD-3-Clause,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 jinja2,3.1.6,BSD License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 jinja2,3.1.6,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 jinja2,3.1.6,BSD-3-Clause,services/configurators/vss-rt-config-adaptor,python,lockfile,services/configurators/vss-rt-config-adaptor/uv.lock,runtime,no,no,no,declared-manifest,None
-jinja2,3.1.6,BSD License,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
+jinja2,3.1.6,BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 jiter,0.10.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 jiter,0.16.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 jiter,0.16.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -3059,14 +3059,14 @@ picomatch,4.0.7,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runt
 pillow,12.2.0,MIT-CMU,services/rtvi/rt-cv,python,container,services/rtvi/rt-cv/docker/Dockerfile,runtime,no,no,yes,container-pip,None
 pillow,12.2.0,MIT-CMU,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pillow,12.3.0,MIT (HPND / MIT-CMU (CMU variant of MIT)),libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
-pillow,12.3.0,MIT-CMU,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
+pillow,12.3.0,MIT (HPND / MIT-CMU (CMU variant of MIT)),libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 pillow,12.3.0,MIT-CMU,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pillow,12.3.0,CMU License (MIT-CMU),services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,Unknown
 pillow,12.3.0,MIT-CMU,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
-pillow,12.3.0,MIT-CMU,services/rtvi/rt-cv-3d/reid-embed,python,container;manifest,services/rtvi/rt-cv-3d/reid-embed/docker/Dockerfile;services/rtvi/rt-cv-3d/reid-embed/docker/py_deps/pyproject.toml,runtime,no,no,no,container-pip;declared-manifest,None
-pillow,12.3.0,MIT-CMU,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-pillow,12.3.0,MIT-CMU,services/video-summarization,python,lockfile;manifest,services/video-summarization/docker/base/py_deps/pyproject.toml;services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,None
-pillow,12.3.0,MIT-CMU,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
+pillow,12.3.0,MIT (HPND / MIT-CMU (CMU variant of MIT)),services/rtvi/rt-cv-3d/reid-embed,python,container;manifest,services/rtvi/rt-cv-3d/reid-embed/docker/Dockerfile;services/rtvi/rt-cv-3d/reid-embed/docker/py_deps/pyproject.toml,runtime,no,no,no,container-pip;declared-manifest,Unknown
+pillow,12.3.0,MIT (HPND / MIT-CMU (CMU variant of MIT)),services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
+pillow,12.3.0,MIT (HPND / MIT-CMU (CMU variant of MIT)),services/video-summarization,python,lockfile;manifest,services/video-summarization/docker/base/py_deps/pyproject.toml;services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,Unknown
+pillow,12.3.0,MIT (HPND / MIT-CMU (CMU variant of MIT)),tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 pip,26.1.2,MIT,libs/analytics/spatialai-data-utils,python,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-pip,None
 pip,26.1.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pip,UNKNOWN,MIT,libs/analytics/spatialai-data-utils,python,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-pip,None
@@ -3311,13 +3311,13 @@ python-arango,8.3.3,MIT License,services/agent,python,lockfile,services/agent/uv
 python-bidi,0.6.11,LGPL-3.0-or-later,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Medium
 python-dateutil,2.8.2,Dual License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytics/spatialai-data-utils/Pipfile.lock,runtime,no,no,no,declared-manifest,None
-python-dateutil,2.9.0.post0,Apache-2.0 AND BSD-3-Clause,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
+python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 python-dateutil,2.9.0.post0,Dual License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause.,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 python-dateutil,2.9.0.post0,Apache-2.0,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
-python-dateutil,2.9.0.post0,Apache-2.0 AND BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 python-dateutil,2.9.0.post0,Apache-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
-python-dateutil,2.9.0.post0,Apache-2.0 AND BSD-3-Clause,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
+python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
 python-discovery,1.6.1,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 python-dotenv,1.0.1,BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,None
 python-dotenv,1.2.2,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None

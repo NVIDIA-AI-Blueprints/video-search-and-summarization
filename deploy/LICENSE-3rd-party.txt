@@ -337,45 +337,6 @@ and for Python packages installed at runtime.
     See: https://www.apache.org/licenses/LICENSE-2.0
 
 
-27. ghcr.io/nvidia/openshell/gateway:0.1.6
-    Image: ghcr.io/nvidia/openshell/gateway:0.1.6
-    License: Apache License 2.0
-    Registry: https://ghcr.io/nvidia/openshell/gateway
-    Source: https://github.com/NVIDIA/OpenShell
-    License URL: https://github.com/NVIDIA/OpenShell/blob/v0.1.6/LICENSE
-    Description: NVIDIA OpenShell gateway that creates and governs agent
-                 sandboxes (openshell profile). Pinned by OPENSHELL_TAG.
-    Full License Text:
-
-    See: https://www.apache.org/licenses/LICENSE-2.0
-
-
-28. ghcr.io/nvidia/openshell/supervisor:0.1.6
-    Image: ghcr.io/nvidia/openshell/supervisor:0.1.6
-    License: Apache License 2.0
-    Registry: https://ghcr.io/nvidia/openshell/supervisor
-    Source: https://github.com/NVIDIA/OpenShell
-    License URL: https://github.com/NVIDIA/OpenShell/blob/v0.1.6/LICENSE
-    Description: OpenShell sandbox supervisor, pulled by the gateway at the
-                 gateway's release when it creates a sandbox.
-    Full License Text:
-
-    See: https://www.apache.org/licenses/LICENSE-2.0
-
-
-29. ghcr.io/nvidia/openshell/sandbox:0.1.6
-    Image: ghcr.io/nvidia/openshell/sandbox:0.1.6
-    License: Apache License 2.0
-    Registry: https://ghcr.io/nvidia/openshell/sandbox
-    Source: https://github.com/NVIDIA/OpenShell
-    License URL: https://github.com/NVIDIA/OpenShell/blob/v0.1.6/LICENSE
-    Description: OpenShell sandbox runtime, pulled by the gateway and copied
-                 into each sandbox workload as PID 1.
-    Full License Text:
-
-    See: https://www.apache.org/licenses/LICENSE-2.0
-
-
 ================================================================================
 
 Full License Texts / References:
