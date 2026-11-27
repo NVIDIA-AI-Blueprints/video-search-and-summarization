@@ -185,6 +185,8 @@ navigation:
                 path: ./nemoclaw-configuration.mdx
               - page: "Troubleshooting"
                 path: ./nemoclaw-troubleshooting.mdx
+          - page: "OpenShell"
+            path: ./openshell.mdx
       - section: "VSS Agents"
         path: ./VSS-Agents.mdx
         contents:

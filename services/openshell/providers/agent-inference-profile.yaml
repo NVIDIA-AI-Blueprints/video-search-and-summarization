@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Default NVIDIA Inference Hub profile (inference-api.nvidia.com).
+
+id: agent-inference
+display_name: Agent inference
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    env_vars: [HARNESS_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: inference-api.nvidia.com
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow: {method: GET, path: "/v1/models"}
+      - allow: {method: POST, path: "/v1/**"}
+binaries:
+  - {path: /usr/bin/python3.13}

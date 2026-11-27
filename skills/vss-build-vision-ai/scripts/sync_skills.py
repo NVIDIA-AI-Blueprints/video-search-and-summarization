@@ -34,10 +34,13 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import re
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -123,34 +126,28 @@ def command_availability(vss_bin: str, run: Runner = _default_run) -> Availabili
     return Availability(configured=True, available=available, base_url=base.group(1) if base else "")
 
 
-def http_answers(url: str, run: Runner = _default_run) -> bool:
-    """curl is in every runtime; any HTTP status but 404 means "something is
-    routed there", the vss CLI's own presence rule for ingress probes."""
+def http_answers(url: str) -> bool:
+    """Return True if `url` responds with a non-404 status below 500."""
     try:
-        r = run(
-            ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-             "--max-time", str(PROBE_TIMEOUT_SEC), url],
-            timeout=PROBE_TIMEOUT_SEC + 5,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+        with urllib.request.urlopen(url, timeout=PROBE_TIMEOUT_SEC) as r:
+            code = r.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    except (OSError, ValueError, http.client.HTTPException):
         return False
-    try:
-        code = int((r.stdout or "").strip())
-    except ValueError:
-        return False
-    return code > 0 and code != 404
+    return code != 404 and code < 500
 
 
-def alerts_available(base_url: str, run: Runner = _default_run) -> bool:
+def alerts_available(base_url: str) -> bool:
     if not base_url:
         return False
-    if http_answers(f"{base_url.rstrip('/')}/alert-bridge/health", run):
+    if http_answers(f"{base_url.rstrip('/')}/alert-bridge/health"):
         return True
     try:
         u = urlsplit(base_url)
         if not u.scheme or not u.hostname:
             return False
-        return http_answers(f"{u.scheme}://{u.hostname}:9080/health", run)
+        return http_answers(f"{u.scheme}://{u.hostname}:9080/health")
     except ValueError:
         return False
 
@@ -166,7 +163,7 @@ def select(specs: list[SkillSpec], *, all_skills: bool = False, vss_bin: str = "
         why = (f"vss configure check failed ({availability.error})"
                if availability.error else "no deployment recorded by `vss configure`")
         return Selection([s.name for s in specs], {}, f"{why}; all shipped skills active")
-    alerts = (alerts_available(availability.base_url, run)
+    alerts = (alerts_available(availability.base_url)
               if any("alerts" in n.split("|") for s in specs for n in s.needs) else False)
     active: list[str] = []
     inactive: dict[str, str] = {}

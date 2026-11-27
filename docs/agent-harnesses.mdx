@@ -16,6 +16,7 @@ The following harnesses are validated against the VSS Agent Skills:
 - **OpenClaw** - the open agent sandbox that exposes an `agentskills.io`-compatible
   host with a chat UI.
 - **NemoClaw** - NVIDIA's open-source reference stack for running always-on AI agents (such as Hermes and OpenClaw) more safely inside NVIDIA OpenShell sandboxes.
+- **OpenShell** - NVIDIA OpenShell running the Hermes agent harness directly as a sandboxed workload with provable egress policy and supervisor-injected credentials.
 
 <Note>
 Agent harnesses are a developer-side tool for working with the VSS Blueprint. They
@@ -91,6 +92,10 @@ before destructive actions. For setup, configuration, and troubleshooting, see
 <Note>
 The NemoClaw notebooks are released as an Early Access feature.
 </Note>
+
+## OpenShell
+
+[NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/) can also run the Hermes agent harness directly against a VSS deployment. The OpenShell gateway runs as an opt-in Docker Compose service (`--profile openshell`), while the `openshell-hermes-vss` image packages the `vss` CLI, VSS operational Skills, the `vss_cli` tool plugin, and a verifiable sandbox policy (`openshell-prover check`). For architecture, setup, provider profiles, and operations, see [OpenShell](/vision-agent/agent-harnesses/open-shell).
 
 ## Related Documentation
 

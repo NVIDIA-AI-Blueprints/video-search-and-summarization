@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Host-local inference server (vLLM/NIM on :8000, Ollama on :11434).
+
+id: agent-inference-local
+display_name: Agent inference (host-local server)
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    env_vars: [HARNESS_API_KEY]
+    required: false
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: host.openshell.internal
+    port: 8000
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow: {method: GET, path: "/v1/**"}
+      - allow: {method: POST, path: "/v1/**"}
+  - host: host.openshell.internal
+    port: 11434
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow: {method: GET, path: "/v1/**"}
+      - allow: {method: POST, path: "/v1/**"}
+      - allow: {method: POST, path: "/api/show"}
+binaries:
+  - {path: /usr/bin/python3.13}
