@@ -7,8 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 
 Everything VSS needs to run on OpenClaw, in one place: Each agent harness has its own self-contained
 top-level directory (`.openclaw/`, `.hermes/`); the `SKILL.md` tree at the repo
-root (`skills/`) stays harness-neutral, and each directory packages it the way
-that harness loads skills.
+root (`skills/`) stays harness-neutral, and this directory packages it the way
+OpenClaw loads skills.
 
 | Path | What it is |
 |---|---|

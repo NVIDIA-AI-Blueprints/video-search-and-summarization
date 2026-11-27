@@ -21,7 +21,7 @@
 # COPYd from ./plugin and the OpenClaw workspace instructions from ./workspace;
 # the skills and the vss CLI come from a pinned commit of this repo so the two
 # always match — or, dev loop, from a `.vss-src/` working-tree snapshot placed
-# here by skills/vss-build-vision-ai/scripts/stage_vss_src.py, which wins over
+# here by a dev-loop staging helper, which wins over
 # the pin when present.
 #
 #   docker build -t <registry>/vss-harness-openclaw:<tag> .openclaw
@@ -104,7 +104,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
     && rm -rf /var/lib/apt/lists/*
 COPY --from=uv /uv /usr/local/bin/uv
 # Dev-loop override: a .vss-src/ snapshot in the build context (staged by
-# stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
+# a dev-loop staging helper) wins over the pinned fetch, so a local skill or CLI edit
 # reaches the image without a push. The READM[E].md glob keeps this COPY
 # valid when nothing is staged — the README always matches.
 # Use the stable README as the fallback COPY match. Onboarding rewrites the

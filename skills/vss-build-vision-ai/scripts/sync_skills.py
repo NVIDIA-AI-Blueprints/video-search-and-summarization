@@ -127,7 +127,9 @@ def command_availability(vss_bin: str, run: Runner = _default_run) -> Availabili
 
 
 def http_answers(url: str) -> bool:
-    """Return True if `url` responds with a non-404 status below 500."""
+    """The service answered: the ingress 404s a route it does not declare and
+    5xxs one whose backend is absent, and every other status (an auth challenge
+    included) proves something is serving."""
     try:
         with urllib.request.urlopen(url, timeout=PROBE_TIMEOUT_SEC) as r:
             code = r.status
