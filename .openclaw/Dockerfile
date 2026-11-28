@@ -34,9 +34,12 @@
 # the node cached first. Move it deliberately, together with OPENCLAW_VERSION
 # and the notebook's NEMOCLAW_INSTALL_REF.
 ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:959d1255717b54f724248eb282dbb049d3cd785d5aa4eddb0da2a03839ad6fca
-# The OpenClaw the base carries. The plugin's devDependency must match it, so
-# the compiled plugin links against the runtime it will actually load in.
-ARG OPENCLAW_VERSION=2026.7.1
+# The OpenClaw the plugin is built against. The compiled plugin links against
+# the runtime it will actually load in, so this and the plugin's devDependency
+# are one number. It is ahead of BASE_IMAGE, which still carries 2026.7.1:
+# move BASE_IMAGE to a NemoClaw release that carries this version, together
+# with the notebook's NEMOCLAW_INSTALL_REF, to close the gap.
+ARG OPENCLAW_VERSION=2026.9.2
 # Same builder image NemoClaw's Dockerfile uses for its plugin stages.
 ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
 # uv 0.12.10, by index digest (multi-arch).
