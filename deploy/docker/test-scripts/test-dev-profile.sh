@@ -2369,13 +2369,14 @@ fi
 # A profile notification config carrying several stream-driven capabilities is a
 # projection superset: one item per capability per event, each with an id, so a
 # build resolves the fan-out by setting `enabled` and never by editing receivers.
-# Guard the item inventory and the stock enable vector an inheriting build gets.
+# Guard the item inventory and the stock enable vector an inheriting build gets,
+# and keep file sources away from the RTSP-only Alert Bridge receivers.
 if python3 "${REPO_ROOT}/deploy/docker/test-scripts/check_notification_supersets.py" \
   "${REPO_ROOT}/deploy/docker"; then
-  echo "PASS: notification configs carry the expected items and stock enable vector"
+  echo "PASS: notification configs carry the expected items, stock enable vector, and RTSP-only Alert Bridge filter"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: notification config items or stock enable vector drifted"
+  echo "FAIL: notification config items, stock enable vector, or Alert Bridge camera_type filter drifted"
   ((TESTS_FAILED++)) || true
 fi
 
