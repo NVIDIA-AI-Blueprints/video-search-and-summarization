@@ -122,6 +122,27 @@ services:
       - vss-video-analytics-api
       - sensor-ms
 
+  # VST sits on the Compose bridge, so its host ICE candidate is a container IP that
+  # remote browsers cannot reach. Relay WebRTC media through the bundled coturn.
+  streamprocessing-ms-smartcities:
+    extends:
+      file: ${VSS_APPS_DIR}/services/vios/streamprocessing/docker-compose.yaml
+      service: streamprocessing-ms
+    profiles: ["streamprocessing-ms-smartcities"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && bash /home/vst/vst_release/tools/apply_turn_config.sh && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - VST_STATIC_TURNURL_LIST=${VST_STATIC_TURNURL_LIST:-}
+      - TURN_USERNAME=${TURN_USERNAME:-vss}
+      - TURN_PASSWORD_FILE=/run/secrets/vss-turn/turn-password
+      - TURN_PUBLIC_HOST=${TURN_PUBLIC_HOST:-${EXTERNAL_IP:-${HOST_IP}}}
+      - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
+    volumes:
+      - vss-turn-password:/run/secrets/vss-turn:ro
+      - ${VSS_APPS_DIR}/services/vios/scripts/apply_turn_config.sh:/home/vst/vst_release/tools/apply_turn_config.sh:ro
+    depends_on:
+      turnserver-init:
+        condition: service_completed_successfully
+
 volumes:
   calibration-toolkit-alerts:
     driver: local
