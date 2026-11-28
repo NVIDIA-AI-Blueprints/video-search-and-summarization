@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+perf_configs:
+  - id: warehouse-2d-kafka
+    nodeLabel: RTXPRO6000BW-SE
+    imageArch: amd64
+    enabled: true
+    hardwareProfile: RTXPRO6000BW-SE
+    profile: warehouse_2d
+    broker: kafka
+    # Jenkins runServicePerfSequence exports COMPOSE_FILE from this path. Empty
+    # makes `set -u` fail at `if [ -n "${COMPOSE_FILE}" ]`.
+    composePath: deploy/docker/compose.yml
+    checkoutPaths:
+      - deploy/
+      - perf/
+    # Jenkins withEnv omits empty values; dummy strings keep the LVS wrapper
+    # from dying on `set -u`.
+    vlmGpus: "unused"
+    llmGpus: "unused"
+    vlmModel: "unused"
+    llmModel: "unused"
+    vision_input_tokens: "unused"

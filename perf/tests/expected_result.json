@@ -1,0 +1,32 @@
+{
+  "schema_version": "0.1",
+  "benchmark_type": "devx_profile",
+  "service": "warehouse-bp",
+  "profile_name": "warehouse-operations",
+  "mode": "2d",
+  "bp_profile": "bp_wh_kafka",
+  "setup": "industry_example_warehouse_2d_kafka",
+  "scenario": "quick_test",
+  "config_id": "warehouse-2d-kafka",
+  "success": true,
+  "behavior_analytics": {
+    "service": "behavior-analytics",
+    "correction": "topic_summary_minus_raw",
+    "raw": { "count": 100 },
+    "topics": {
+      "frames": { "present": true },
+      "behavior": { "present": true },
+      "events": { "present": true },
+      "incidents": { "present": true }
+    }
+  },
+  "video_analytics_api": {
+    "endpoints": {
+      "livez": { "present": true },
+      "frames": { "present": true },
+      "behavior": { "present": true },
+      "events": { "present": true },
+      "incidents": { "present": true }
+    }
+  }
+}

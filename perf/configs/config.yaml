@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+global:
+  minio:
+    endpoint: "10.111.52.248:9000"
+    bucket: "perf-results-dev"
+    service: "warehouse-bp"
+  dataset:
+    resource: "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026"
+  profile:
+    name: "warehouse-operations"
+    mode: "2d"
+    bp_profile: "bp_wh_kafka"
+    hardware_profile: "RTXPRO6000BW-SE"
+
+scenarios: &scenarios
+  quick_test:
+    duration_seconds: 60
+    warmup_seconds: 15
+    profile: warehouse_2d
+    broker: kafka
+    request_count: 20
+    warmup_requests: 2
+    sensor_id: Camera
+    place: "building=Warehouse/room=Room-1"
+    topics:
+      - raw
+      - frames
+      - behavior
+      - events
+      - incidents
+    percentiles:
+      - 50
+      - 95
+      - 99
+    endpoints:
+      - livez
+      - frames
+      - frames_enhanced
+      - frames_bev
+      - frames_proximity_detection
+      - behavior
+      - events
+      - incidents
+      - incidents_severe
+      - alerts
+      - alerts_severe
+      - metrics_tripwire_counts
+      - metrics_occupancy_roi
+      - metrics_occupancy_fov
+      - metrics_last_processed_timestamp
+      - config_calibration
+
+# Jenkins compose-base runner reads this key.
+test_scenarios: *scenarios
