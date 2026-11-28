@@ -1,0 +1,18 @@
+.env
+.runtime/
+.venv*/
+build/
+dist/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+artifacts/
+reproduction/
+
+# Required loader; the repository ignores general checkpoint source filenames.
+!src/cosmos_reranker/evaluation/embedders/siglip_v2_checkpoint.py
+!src/cosmos_reranker/finetuning/checkpoint.py
+
+# Reassembled from the two tracked language weight parts.
+checkpoints/finetuned-cr3/language/adapter_model.safetensors

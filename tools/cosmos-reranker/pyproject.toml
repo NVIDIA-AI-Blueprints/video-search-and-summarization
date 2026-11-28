@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cosmos-nano-reranker"
+version = "0.1.0"
+description = "Cosmos Nano reranker and its fine-tuning recipe"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = ["numpy>=1.24", "pillow>=10", "tqdm>=4.66", "huggingface-hub>=0.34"]
+
+[project.optional-dependencies]
+train = [
+    "torch==2.11.0", "torchvision==0.26.0",
+    "toml>=0.10", "filelock>=3.12",
+    "transformers==4.57.5", "peft==0.17.1", "safetensors==0.8.0",
+    "qwen-vl-utils==0.0.14", "wandb==0.28.1", "einops>=0.8",
+]
+eval = [
+    "vllm==0.23.0", "transformers==5.14.1", "qwen-vl-utils==0.0.14",
+    "opencv-python-headless>=4.8", "accelerate>=0.30", "einops>=0.8",
+]
+dev = ["pytest>=8", "ruff==0.12.7"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"cosmos_reranker.finetuning" = ["*.sh", "configs/*.toml", "runtime/*.patch"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

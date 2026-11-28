@@ -1,0 +1,56 @@
+--- gst-nvmultiurisrcbincreator.cpp
++++ gst-nvmultiurisrcbincreator.cpp
+@@ -22,6 +22,7 @@
+ #include "gst-nvquery-internal.h"
+ #include "nvdsmeta.h"
+ #include "gstnvdsmeta.h"
++#include "source_identity_meta.h"
+ #include <thread>
+ 
+ //#define NVMULTIURISRCBIN_CREATOR_DEBUG
+@@ -988,18 +989,16 @@
+   NvDsMetaList * l_frame = NULL;
+   for (l_frame = batch_meta->frame_meta_list; l_frame != NULL; l_frame = l_frame->next) {
+     NvDsFrameMeta *frame_meta = (NvDsFrameMeta *) (l_frame->data);
+-    NvDsUriSourceInfo *srcInfo =
+-      (NvDsUriSourceInfo *) g_hash_table_lookup (nvmultiurisrcbinCreator->sourceInfoHash, frame_meta->source_id + (gchar *) NULL);
+-
+-    /* Skip if source not found, being removed, or pads not properly linked */
+-    if (srcInfo == NULL || srcInfo->is_removing || !srcInfo->uribin || !srcInfo->uribin_src_pad || !srcInfo->muxSinkPad || !gst_pad_is_linked(srcInfo->uribin_src_pad))  {
+-        continue;
+-    }
+-
+-    frame_meta->sensorInfo_meta.source_id = srcInfo->config->source_id;
+-    frame_meta->sensorInfo_meta.sensor_id = srcInfo->config->sensorId ? (gchar const*)g_strdup(srcInfo->config->sensorId) : (gchar const*)g_strdup("");
+-    frame_meta->sensorInfo_meta.sensor_name = srcInfo->config->sensorName ? (gchar const*)g_strdup(srcInfo->config->sensorName) : (gchar const*)g_strdup("");
+-    frame_meta->sensorInfo_meta.uri = srcInfo->config->uri ? (gchar const*)g_strdup(srcInfo->config->uri) : (gchar const*)g_strdup("");
++    const NvDsSensorInfo_meta *identity = SourceIdentity::read(frame_meta);
++    if (!identity) {
++      GST_WARNING("Missing source identity before batching: source %u frame %u",
++                  frame_meta->source_id, frame_meta->frame_num);
++      continue;
++    }
++    frame_meta->sensorInfo_meta.source_id = identity->source_id;
++    frame_meta->sensorInfo_meta.sensor_id = g_strdup(identity->sensor_id);
++    frame_meta->sensorInfo_meta.sensor_name = g_strdup(identity->sensor_name);
++    frame_meta->sensorInfo_meta.uri = g_strdup(identity->uri);
+ 
+   }
+ 
+@@ -1050,6 +1049,16 @@
+           && !strncmp (GST_PAD_NAME (pad), "vsrc_", 5))
+       || (nvmultiurisrcbinCreator->mode == NVDS_MULTIURISRCBIN_MODE_AUDIO
+           && !strncmp (GST_PAD_NAME (pad), "asrc_", 5))) {
++    /* Capture this source generation before buffers enter the mux queues.
++     * The probe owns a copy; EOS may free sourceInfo before queued frames exit. */
++    NvDsSensorInfo_meta identity = {};
++    identity.source_id = sourceInfo->config->source_id;
++    identity.sensor_id = sourceInfo->config->sensorId;
++    identity.sensor_name = sourceInfo->config->sensorName;
++    identity.uri = sourceInfo->config->uri;
++    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, SourceIdentity::attach,
++                     SourceIdentity::copy(&identity, NULL), SourceIdentity::destroy);
++
+     //Get sink_%d pad from nvstreammux and link to it
+     if (!s_nvmultiurisrcbincreator_link_element_to_streammux_sink_pad (sourceInfo,
+       nvmultiurisrcbinCreator->streammux, pad, sourceInfo->config->source_id)) {

@@ -50,6 +50,9 @@ class InputConfig:
     use_jpeg_encoding: bool = False
     width: int = 0
     height: int = 0
+    # File-only requirements; live streams keep their existing preprocessing.
+    file_index_sampling: bool = False
+    file_resize_antialias: bool = False
 
 
 @dataclass

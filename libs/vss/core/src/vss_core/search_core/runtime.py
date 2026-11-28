@@ -125,6 +125,7 @@ class SearchRuntime:
     # for the RTSP frames-index wildcard. Extracted for the same reason.
     frames_index_wildcard: str = "mdx-raw-*"
     enable_frame_lookup: bool = True  # mirrors attribute_search.py:190
+    attribute_representative_weight: float = 0.0
 
     # ---- Behavior knobs ----
     # Search orchestrator default from functions.search.default_max_results.
@@ -164,6 +165,11 @@ class SearchRuntime:
             raise ConfigurationError("request_timeout_seconds must be >= 1")
         if self.rrf_k < 1:
             raise ConfigurationError("rrf_k must be >= 1")
+        if (
+            not math.isfinite(self.attribute_representative_weight)
+            or not 0 <= self.attribute_representative_weight <= 1
+        ):
+            raise ConfigurationError("attribute_representative_weight must be finite and between 0 and 1")
         if self.fusion_method not in {None, "weighted_rrf", "rrf"}:
             raise ConfigurationError(f"unsupported fusion_method: {self.fusion_method!r}")
         for name in ("embed_confidence_threshold", "w_attribute", "w_embed", "w_tag", "rrf_w"):

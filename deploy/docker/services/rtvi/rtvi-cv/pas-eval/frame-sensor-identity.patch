@@ -1,0 +1,94 @@
+--- metropolis_perception_app.c
++++ metropolis_perception_app.c
+@@ -158,8 +158,6 @@
+ static gboolean quit = FALSE;
+ static gboolean use_tracker_reid = FALSE;
+ static gboolean show_sensor_id = FALSE;
+-#define MAX_SENSOR_CACHE 1024
+-static gchar *g_last_sensor_str[MAX_SENSOR_CACHE] = { NULL };
+ static guint tracker_reid_store_age = 0;
+ static gint return_value = 0;
+ static guint num_instances;
+@@ -984,20 +982,19 @@
+   /** tracking ID */
+   meta->trackingId = obj_params->object_id;
+ 
+-  /** sensor ID when streams are added using nvmultiurisrcbin REST API */
+-  NvDsSensorInfo *sensorInfo = get_sensor_info(appCtx, stream_id);
+-  if (sensorInfo) {
+-    /** this stream was added using REST API; we have Sensor Info!
+-     * Note: using NvDsSensorInfo->sensor_name instead of sensor_id
+-     * to use camera_name field from the stream/add REST API
+-     */
+-    // g_print(
+-    //     "this stream [%d:%s] was added using REST API; we have Sensor
+-    //     Info\n", sensorInfo->source_id, sensorInfo->sensor_id);
+-    meta->sensorStr = g_strdup(sensorInfo->sensor_name);
+-    if (stream_id < MAX_SENSOR_CACHE) { g_free(g_last_sensor_str[stream_id]); g_last_sensor_str[stream_id] = g_strdup(sensorInfo->sensor_name); }
+-  } else if (stream_id < MAX_SENSOR_CACHE && g_last_sensor_str[stream_id]) {
+-    meta->sensorStr = g_strdup(g_last_sensor_str[stream_id]);
++  /* Source slots can be reused while frames from the previous source are
++   * still queued. Resolve identity from this frame, never the current slot or
++   * a slot cache, or an old crop can be indexed under a newly added camera. */
++  const NvDsSensorInfo_meta *sensor_info = &frame_meta->sensorInfo_meta;
++  const gchar *sensor_name = sensor_info->sensor_name;
++  const gchar *sensor_id_str = sensor_info->sensor_id;
++  if (sensor_name && *sensor_name) {
++    meta->sensorStr = g_strdup(sensor_name);
++  } else if (sensor_id_str && *sensor_id_str) {
++    meta->sensorStr = g_strdup(sensor_id_str);
++  } else if (appCtx->config.use_nvmultiurisrcbin) {
++    g_warning("No per-frame sensor identity for source %u frame %u",
++              frame_meta->source_id, frame_meta->frame_num);
+   }
+ 
+   (void)ts_generated;
+@@ -1105,17 +1102,17 @@
+ 
+   nanoseconds_to_rfc3339(frame_meta->ntp_timestamp, meta->ts, MAX_TIME_STAMP_LEN+1);
+ 
+-  /** sensor ID when streams are added using nvmultiurisrcbin REST API */
+-  NvDsSensorInfo* sensorInfo = get_sensor_info(appCtx, stream_id);
+-  if(sensorInfo) {
+-    /** this stream was added using REST API; we have Sensor Info! */
+-    LOGD("this stream [%d:%s] was added using REST API; we have Sensor Info\n",
+-        sensorInfo->source_id, sensorInfo->sensor_id);
+-    meta->sensorStr = g_strdup (sensorInfo->sensor_id);
+-    if (stream_id < MAX_SENSOR_CACHE) { g_free(g_last_sensor_str[stream_id]); g_last_sensor_str[stream_id] = g_strdup(sensorInfo->sensor_id); }
+-  } else if (stream_id < MAX_SENSOR_CACHE && g_last_sensor_str[stream_id]) {
+-    meta->sensorStr = g_strdup(g_last_sensor_str[stream_id]);
+-  }
++  /* Empty frames must use the same immutable source identity as objects. */
++  const NvDsSensorInfo_meta *sensor_info = &frame_meta->sensorInfo_meta;
++  const gchar *identity = sensor_info->sensor_name;
++  if (!identity || !*identity) identity = sensor_info->sensor_id;
++  if (identity && *identity) {
++    meta->sensorStr = g_strdup(identity);
++  } else if (appCtx->config.use_nvmultiurisrcbin) {
++    g_warning("No per-frame sensor identity for source %u frame %u",
++              frame_meta->source_id, frame_meta->frame_num);
++  }
++
+   (void) ts_generated;
+ }
+ 
+@@ -1174,6 +1171,19 @@
+       NvDsFrameMeta *frame_meta = (NvDsFrameMeta *)l_frame->data;
+       valid_class_id=0;
+       stream_id = frame_meta->source_id;
++
++      /* An EOS frame may lack source metadata. Publishing it with a numeric
++       * slot identity would create a foreign source in the search index.
++       * Never substitute another generation's name for an unidentified frame. */
++      if (appCtx->config.use_nvmultiurisrcbin &&
++          (!frame_meta->sensorInfo_meta.sensor_name ||
++           !*frame_meta->sensorInfo_meta.sensor_name) &&
++          (!frame_meta->sensorInfo_meta.sensor_id ||
++           !*frame_meta->sensorInfo_meta.sensor_id)) {
++        g_warning("Skipping unattributed frame: source %u frame %u",
++                  frame_meta->source_id, frame_meta->frame_num);
++        continue;
++      }
+ 
+       //! DEBUGGER_START for ending at 5mins
+       if (log_level >= 100) {

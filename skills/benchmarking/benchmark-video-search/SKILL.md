@@ -276,6 +276,14 @@ not immediately after upload. See `references/flags.md` for ingest options.
 
 ## Step 5 — Run the benchmark
 
+For an explicitly requested raw clip mAP@10 experiment against an existing
+gallery, use `scripts/run_raw_clip_eval.py --execution-backend cli|sdk`; see
+[the raw SDK runner guide](references/raw-sdk-runner.md). This command supports
+embed, attribute, and live-routed evaluation with the existing clip scorer.
+To measure the Cosmos 3 Nano reranker on a finished run, with and without
+reranking on every path, see [the reranker guide](references/cosmos-reranker-eval.md).
+The generic benchmark command below retains its CLI backend and annotation format.
+
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET --subset SUBSET \
