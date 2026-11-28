@@ -147,7 +147,7 @@ NVFP4 models only work on Blackwell platforms.
 
 #### Enable Efficient Video Sampling
 
-You can enable Efficient Video Sampling (EVS++) to prune redundant video tokens and reduce VLM inference latency. Add the following settings to `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env` before
+You can enable Adaptive Efficient Video Sampling (Adaptive EVS) to prune redundant video tokens and reduce VLM inference latency. Add the following settings to `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env` before
 starting the profile:
 
 ```ini
@@ -164,7 +164,7 @@ configuration reduced VLM latency by approximately 20% with an approximately
 `VLLM_EVS_SIMILARITY_THRESHOLD` can be tuned for the characteristics of the
 input streams to improve the accuracy/latency tradeoff. For
 compatibility details and additional configuration options, see
-[Efficient Video Sampling (EVS and EVS++)](/system-components/vision-microservices/real-time-vlm#efficient-video-sampling-evs-and-evs).
+[Efficient Video Sampling (EVS and Adaptive EVS)](/system-components/vision-microservices/real-time-vlm#efficient-video-sampling-evs-and-adaptive-evs).
 </Note>
 
 #### Enable Real-Time Alerts Alongside Alert Verification

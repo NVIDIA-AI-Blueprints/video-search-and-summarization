@@ -220,9 +220,9 @@ RTVI_EMPTY_CUDA_CACHE_ON_RESULT=false
 
 # VLLM_MAX_NUM_BATCHED_TOKENS=    # tune for throughput
 
-# EVS++ (optional, off by default). Uncomment to benchmark session mode.
+# Adaptive EVS (optional, off by default). Uncomment to benchmark session mode.
 # All EVS variables are already passed through by compose.perf.yaml.
-# See "EVS / EVS++ Configuration" in PERF_GUIDE.RTVI_VLM.md for the full list.
+# See "EVS / Adaptive EVS Configuration" in PERF_GUIDE.RTVI_VLM.md for the full list.
 # VIA_EVS_SESSION=true
 # VLM_VIDEO_PRUNING_RATE=0.5          # required: activates pruning in vLLM
 # VLLM_EVS_SIMILARITY_THRESHOLD=0.4

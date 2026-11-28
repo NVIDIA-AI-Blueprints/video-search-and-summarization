@@ -792,21 +792,13 @@ RTVI VLM supports two frame selection modes for sampling frames from video chunk
 
 ### EVS (Efficient Video Sampling)
 
-EVS++ session deletion rejects new operations and waits for active clip encoding,
-merging, and generation before releasing cached embeddings. Concurrent deletes
-share cleanup; cancelling a delete caller does not cancel it. Active or closing
-sessions are excluded from TTL expiry, and failed cache release can be retried.
-
-The lifecycle regression tests exercise the native modules shipped in the RT-VLM
-image. Run from this service's `tests/` directory inside that image:
-
-```bash
-PYTHONPATH=../src:.. python3 -m pytest -q model/vllm_compatible/test_evs_session_lifecycle.py
-```
-
 EVS prunes redundant video tokens at the vLLM engine level to reduce computation while retaining caption accuracy. This significantly speeds up inference for video-heavy workloads.
 
-**Supported models:** Nemotron Nano VL, Qwen 2.5 VL (not supported on Cosmos Reason1/2)
+There are two modes. Fixed-rate EVS, described below, prunes the same fraction
+of video tokens from every chunk. Adaptive EVS prunes per token based on
+content and keeps a video session per stream; see [Adaptive EVS](#adaptive-evs).
+
+**Supported models:** Nemotron Nano VL, Qwen 2.5-VL, and Qwen3-VL/Cosmos3-style models
 
 **Enable EVS:**
 ```bash
@@ -867,6 +859,36 @@ curl -s -X POST $BACKEND/v1/chat/completions \
 ```bash
 docker logs rtvi-vlm 2>&1 | grep "VLM result:" | tail -1
 # Shows total_prompt_tokens (text+visual) — compare with/without EVS
+```
+
+#### Adaptive EVS
+
+Adaptive EVS compares each video token with the token at the same position in
+the preceding frame and prunes it when their cosine dissimilarity is below
+`VLLM_EVS_SIMILARITY_THRESHOLD`, so static scenes are pruned heavily and busy
+scenes lightly. It is supported only for local Qwen3-VL-based models, and
+startup fails if it is enabled with `NemotronH_Nano_Omni_Reasoning_V3`.
+
+```bash
+VIA_EVS_SESSION=true
+VLM_VIDEO_PRUNING_RATE=0.5          # required: turns on pruning in the engine
+VLLM_EVS_SIMILARITY_THRESHOLD=0.4   # optional; higher prunes more
+```
+
+Without `VLM_VIDEO_PRUNING_RATE`, sessions are created but the engine never
+prunes. For tuning and behavior changes, see *Efficient Video Sampling (EVS and
+Adaptive EVS)* in the Real-Time VLM documentation.
+
+Adaptive EVS session deletion rejects new operations and waits for active clip encoding,
+merging, and generation before releasing cached embeddings. Concurrent deletes
+share cleanup; cancelling a delete caller does not cancel it. Active or closing
+sessions are excluded from TTL expiry, and failed cache release can be retried.
+
+The lifecycle regression tests exercise the native modules shipped in the RT-VLM
+image. Run from this service's `tests/` directory inside that image:
+
+```bash
+PYTHONPATH=../src:.. python3 -m pytest -q model/vllm_compatible/test_evs_session_lifecycle.py
 ```
 
 ### Disabling Multimodal Preprocessor Cache
