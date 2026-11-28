@@ -9,6 +9,8 @@ metadata:
   tags: "nvidia blueprint orchestration deployment compose code-generation"
 ---
 
+<!-- Dummy runner check: documentation-only marker so skills-eval sees a skills/** change. No behavior change. Do not merge. -->
+
 # Build Vision Agent
 
 `build-vision-ai` gives agents and developers **agent-ready vision capabilities through a customizable, self-contained application stack** built on the **NVIDIA VSS Blueprint**. A developer or agent adds vision to their application by selecting the capabilities they want (guided intake) or describing them in natural language, and the skill routes to a validated developer profile — or composes the smallest delta overlay on top of one — and deploys it. Use it whenever the user wants vision capabilities composed for them: deploying a stock profile, extending a running deployment, or building a lean custom combination.
