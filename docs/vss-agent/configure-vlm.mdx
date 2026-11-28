@@ -63,7 +63,7 @@ It is also recommended to review the different parameters described in the [Quic
 
 3. Ensure you are logged in to the NGC registry for docker to pull container images:
 
-   ```bash
+   ```bash title="Run in the deployment host terminal"
    docker login nvcr.io
    Username: $oauthtoken
    Password: <PASTE_NGC_API_KEY_HERE>
@@ -71,7 +71,7 @@ It is also recommended to review the different parameters described in the [Quic
 
 4. Ensure you have `NGC_CLI_API_KEY` set in your environment for the agent workflow to pull NIM containers:
 
-   ```bash
+   ```bash title="Run in the deployment host terminal"
    export NGC_CLI_API_KEY=<PASTE_NGC_API_KEY_HERE>
    ```
 
@@ -82,7 +82,7 @@ and credentials are not committed. This guide uses `user-overrides.env` as a
 concrete example; if you choose another name, use it consistently in the
 deployment commands:
 
-```bash
+```bash title="Run in the deployment host terminal"
 cp deploy/docker/developer-profiles/dev-profile-base/overrides.env \
   deploy/docker/developer-profiles/dev-profile-base/user-overrides.env
 ```
@@ -133,7 +133,7 @@ Examples of compatible openAI models:
 
 3. Create a custom VSS Agent configuration from the shipped base profile configuration, then set `VSS_AGENT_CONFIG_FILE` to point to that custom file:
 
-   ```bash
+   ```bash title="Run in the deployment host terminal"
    cp ./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml /path/to/config_reka.yml
    # Edit /path/to/config_reka.yml for the Reka VLM settings.
    ```
@@ -168,13 +168,13 @@ Examples of compatible openAI models:
 
 2. Set `NGC_API_KEY` in your environment to be passed to the containers so they can pull model weights:
 
-   ```bash
+   ```bash title="Run in the VLM host terminal"
    export NGC_API_KEY=<PASTE_NGC_API_KEY_HERE>
    ```
 
 3. On the compatible remote machine within your own infrastructure, start the VLM NIM container and ensure it is reachable by the VSS agent workflow machine:
 
-   ```bash
+   ```bash title="Run in the VLM host terminal"
    export LOCAL_NIM_CACHE=~/.cache/nim
    mkdir -p "$LOCAL_NIM_CACHE"
    chmod -R 777 "$LOCAL_NIM_CACHE"
@@ -226,7 +226,7 @@ Check the [NVIDIA vLLM container documentation](https://catalog.ngc.nvidia.com/o
 
 2. On the compatible remote machine within your own infrastructure, start the NVIDIA vLLM container with a Hugging Face model and ensure it is reachable by the VSS agent workflow machine:
 
-   ```bash
+   ```bash title="Run in the VLM host terminal"
    docker run --gpus 'device=0' -it --rm -p 30082:8000 nvcr.io/nvidia/vllm:26.01-py3 \
        python3 -m vllm.entrypoints.openai.api_server \
        --model Qwen/Qwen3-VL-8B-Instruct \
@@ -330,7 +330,7 @@ While some models support up to 256K tokens, VSS agent requests typically use un
 
    On the VLM host, set `VLM_HOST` to an IP or hostname reachable from the VSS host, pin a GPU, and start the OpenAI-compatible server:
 
-   ```bash
+   ```bash title="Run in the VLM host terminal"
    VLM_HOST=<ip-reachable-from-vss-host>
    
    CUDA_VISIBLE_DEVICES=1 vllm serve nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4 \
@@ -351,7 +351,7 @@ While some models support up to 256K tokens, VSS agent requests typically use un
 
    **Get model id** (use for `VLM_NAME`):
 
-   ```bash
+   ```bash title="Run in the VLM host terminal"
    curl -s "http://${VLM_HOST}:30082/v1/models" | jq -r '.data[].id'
    ```
 
@@ -361,13 +361,13 @@ A mismatch between `VLM_NAME` and the `id` from `/v1/models` produces **HTTP 404
 
    **Reachability from the VSS host:**
 
-   ```bash
+   ```bash title="Run in the deployment host terminal"
    curl -s "http://${VLM_HOST}:30082/v1/models"
    ```
 
    **If step 1 ran before vLLM was ready** — set `VLM_NAME` in `user-overrides.env` to the returned `id`, then recreate `vss-agent`:
 
-   ```bash
+   ```bash title="Run in the deployment host terminal"
    cd /path/to/video-search-and-summarization/deploy/docker
    export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
    

@@ -24,7 +24,7 @@ numbered-section recovery steps below apply when you ran the notebook manually.
 
 **Solution**: Fix the Node.js version manually in a host terminal, then restart the Jupyter kernel and re-run the failed Section 3.1 cell:
 
-```bash
+```bash title="Run in the NemoClaw host terminal"
 # Install nvm + Node 22 (skip the curl line if nvm is already installed)
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"
@@ -47,13 +47,13 @@ Launching Cursor from a terminal where `node -v` reports `v22.x` makes the kerne
 
 1. Check the local health endpoint:
 
-   ```bash
+   ```bash title="Run in the NemoClaw host terminal"
    curl -fsS http://127.0.0.1:18789/health
    ```
 
 2. List active forwards:
 
-   ```bash
+   ```bash title="Run in the NemoClaw host terminal"
    openshell forward list
    ```
 
@@ -61,14 +61,14 @@ Launching Cursor from a terminal where `node -v` reports `v22.x` makes the kerne
 
 3. Restart the forward:
 
-   ```bash
+   ```bash title="Run in the NemoClaw host terminal"
    openshell forward stop 18789 <sandbox>
    openshell forward start --background 18789 <sandbox>
    ```
 
 4. If you are not on the Brev instance directly, keep an SSH tunnel open from your laptop:
 
-   ```bash
+   ```bash title="Run in your local terminal"
    ssh -L 18789:127.0.0.1:18789 <user>@<nemoclaw-host>
    ```
 
@@ -84,7 +84,7 @@ The auto-allocation range (`18789`–`18799`) includes the relay's own default, 
 
 **Solution**: Identify the owner, then clear it yourself — neither the Skill nor the notebook will destroy a sandbox it does not own:
 
-```bash
+```bash title="Run in the NemoClaw host terminal"
 # Absent until notebook Section 3.1 installs it, so do not let it fail the probe.
 command -v openshell >/dev/null \
   && openshell sandbox list                         # compare against NEMOCLAW_SANDBOX_NAME
@@ -125,7 +125,7 @@ checkout's own relay will look like yours when Section 3.5 will reject it. With
 `VSS_REPO_DIR` unset the notebook uses `$HOME/video-search-and-summarization`,
 so export it when your checkout lives elsewhere.
 
-```bash
+```bash title="Run in the NemoClaw host terminal"
 # Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay
 # last: `destroy` releases the forward, never the relay. Drop the `destroy`
 # when `openshell sandbox list` no longer shows <other>.
@@ -151,13 +151,13 @@ Each port must be free, or held by your own sandbox name — which Section 3.1 r
 
 2. Check the MCP log:
 
-   ```bash
+   ```bash title="Run in the VSS host terminal"
    tail -n 100 ~/video-search-and-summarization/.orchestrator-artifacts/vss_orchestrator_mcp.log
    ```
 
 3. From `services/agent/` on the VSS host, call the health tool directly:
 
-   ```bash
+   ```bash title="Run in the VSS host terminal"
    uv run nat mcp client tool call vss_orchestrator__profiles \
      --url http://127.0.0.1:9988/mcp \
      --transport streamable-http
@@ -182,7 +182,7 @@ Each port must be free, or held by your own sandbox name — which Section 3.1 r
 
 If the sandbox still keeps stale provider state, destroy and recreate it:
 
-```bash
+```bash title="Run in the NemoClaw host terminal"
 nemoclaw <sandbox> destroy
 nemoclaw gc
 ```
@@ -201,7 +201,7 @@ The following diagnostic commands apply to OpenClaw. If you onboarded Hermes or 
 
 2. Check skills from the host:
 
-   ```bash
+   ```bash title="Run in the NemoClaw host terminal"
    openshell sandbox exec -n <sandbox> -- sh -lc 'openclaw skills list --json'
    ```
 
@@ -236,7 +236,7 @@ The following diagnostic commands apply to OpenClaw. If you onboarded Hermes or 
 
 **Solution**: Destroy the sandbox, garbage-collect leftover state, then recreate it from the notebook.
 
-```bash
+```bash title="Run in the NemoClaw host terminal"
 nemoclaw <sandbox> destroy
 nemoclaw gc
 ```
@@ -255,7 +255,7 @@ Section 3.5 to generate a fresh Agent UI link.
 
 1. Run the bundled NemoClaw uninstaller from the source checkout created by the installer:
 
-   ```bash
+   ```bash title="Run in the NemoClaw host terminal"
    bash ~/.nemoclaw/source/uninstall.sh
    ```
 

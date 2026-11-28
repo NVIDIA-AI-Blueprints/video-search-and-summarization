@@ -61,7 +61,7 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
 
    On Brev, the repository is cloned automatically. Click **Open Notebook** on the instance page, then open a terminal in JupyterLab and check out the [repository reference selected for this documentation build](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}):
 
-   ```bash
+   ```bash title="Run in the VSS host terminal"
    cd ~/video-search-and-summarization
    git fetch origin "${VSS_DOCS_GIT_REF:-develop}"
    git checkout --detach FETCH_HEAD
@@ -69,7 +69,7 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
 
    On your own host, clone the repository and check out the same reference:
 
-   ```bash
+   ```bash title="Run in the VSS host terminal"
    git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git ~/video-search-and-summarization
    cd ~/video-search-and-summarization
    git checkout "${VSS_DOCS_GIT_REF:-develop}"
@@ -100,7 +100,7 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
 
    If you are not running on Brev, forward the gateway port from your local machine before opening the UI:
 
-   ```bash
+   ```bash title="Run in your local terminal"
    ssh -L 18789:127.0.0.1:18789 <user>@<nemoclaw-host>
    ```
 
@@ -141,7 +141,7 @@ DGX Spark is a single-GPU edge system, so it needs a few adjustments before you 
 
 1. **Select the DGX Spark hardware profile** (Section 1.1):
 
-   ```python
+   ```python title="Set in deploy_vss_orchestrator.ipynb"
    HARDWARE_PROFILE = "DGX-SPARK"
    ```
 
@@ -149,7 +149,7 @@ DGX Spark is a single-GPU edge system, so it needs a few adjustments before you 
 
 3. **Point the VSS LLM at a remote endpoint** (Section 1.2). A single GPU can run both a local LLM and the local VLM, but sharing the device often exhausts GPU memory. A remote LLM is recommended:
 
-   ```python
+   ```python title="Set in deploy_vss_orchestrator.ipynb"
    LLM_NAME = "nvidia/nemotron-3.5-lightning-30b-a3b"
    LLM_ENDPOINT_URL = "https://integrate.api.nvidia.com"
    LLM_MODEL_TYPE = "openai"
@@ -160,7 +160,7 @@ DGX Spark is a single-GPU edge system, so it needs a few adjustments before you 
 
 4. **Share the single GPU** (Section 1.2). With a remote LLM from the previous step, set `VLM_DEVICE_ID` to GPU `0` so the local VLM uses the only available GPU:
 
-   ```python
+   ```python title="Set in deploy_vss_orchestrator.ipynb"
    LLM_DEVICE_ID = "0"  # ignored when LLM_ENDPOINT_URL is set (no local LLM NIM)
    VLM_DEVICE_ID = "0"  # meaningful setting: place the local VLM on the single GPU
    ```

@@ -63,7 +63,7 @@ workflow:
 
 You can discover available tools from an MCP server before configuring:
 
-```bash
+```bash title="Run in the deployment host terminal"
 # List all tools from an MCP server
 nat mcp client tool list --url http://localhost:9000/mcp
 
@@ -144,7 +144,7 @@ node_a/a1 --related_to--> node_b/b1
 
 Start ArangoDB for local testing:
 
-```bash
+```bash title="Run in the deployment host terminal"
 docker run -d \
   --name vss-arango-example \
   -p 8529:8529 \
@@ -155,7 +155,7 @@ docker run -d \
 If the VSS Agent runs in the `mdx_default` Docker network, attach the
 container to that network:
 
-```bash
+```bash title="Run in the deployment host terminal"
 docker network connect mdx_default vss-arango-example
 ```
 
@@ -168,7 +168,7 @@ for other environments.
 From the `services/agent` directory, run the following script to create
 the example graph:
 
-```bash
+```bash title="Run in the deployment host terminal"
 uv run --extra arango-graph python - <<'PY'
 from arango import ArangoClient
 
@@ -290,7 +290,7 @@ data.
 
 After you restart the VSS Agent with the updated config, test the retriever with:
 
-```text
+```text title="Paste into the in-stack VSS Agent chat"
 Which node_b records are related to node_a a1?
 ```
 

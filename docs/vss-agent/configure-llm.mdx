@@ -41,7 +41,7 @@ It is also recommended to review the different parameters described in the [Quic
 
 3. Ensure you are logged in to the NGC registry for docker to pull container images:
 
-   ```bash
+   ```bash title="Run in the deployment host terminal"
    docker login nvcr.io
    Username: $oauthtoken
    Password: <PASTE_NGC_API_KEY_HERE>
@@ -49,7 +49,7 @@ It is also recommended to review the different parameters described in the [Quic
 
 4. Ensure you have `NGC_CLI_API_KEY` set in your environment for the agent workflow to pull NIM containers:
 
-   ```bash
+   ```bash title="Run in the deployment host terminal"
    export NGC_CLI_API_KEY=<PASTE_NGC_API_KEY_HERE>
    ```
 
@@ -60,7 +60,7 @@ and credentials are not committed. This guide uses `user-overrides.env` as a
 concrete example; if you choose another name, use it consistently in the
 deployment commands:
 
-```bash
+```bash title="Run in the deployment host terminal"
 cp deploy/docker/developer-profiles/dev-profile-base/overrides.env \
   deploy/docker/developer-profiles/dev-profile-base/user-overrides.env
 ```
@@ -143,13 +143,13 @@ Examples of compatible openAI models:
 
 2. Set `NGC_API_KEY` in your environment to be passed to the containers so they can pull model weights:
 
-   ```bash
+   ```bash title="Run in the LLM host terminal"
    export NGC_API_KEY=<PASTE_NGC_API_KEY_HERE>
    ```
 
 3. On the compatible remote machine within your own infrastructure, start the LLM NIM container and ensure it is reachable by the VSS agent workflow machine:
 
-   ```bash
+   ```bash title="Run in the LLM host terminal"
    export LOCAL_NIM_CACHE=~/.cache/nim
    mkdir -p "$LOCAL_NIM_CACHE"
    chmod -R 777 "$LOCAL_NIM_CACHE"
@@ -173,7 +173,7 @@ For instance, you might see errors like `torch.OutOfMemoryError: CUDA out of mem
 This error indicates that your GPU does not have sufficient VRAM to run the selected model. To resolve these kinds of errors, you can choose a smaller model, adjust the command with parameter arguments inspired from hardware profiles, or leverage multiple GPUs.
 </Note>
 
-   ```bash
+   ```bash title="Run in the LLM host terminal"
    # Example: leveraging multiple GPUs by setting --gpus and tensor parallelism (NIM_TENSOR_PARALLEL_SIZE)
    export LOCAL_NIM_CACHE=~/.cache/nim
    mkdir -p "$LOCAL_NIM_CACHE"
@@ -218,7 +218,7 @@ Check the [NVIDIA vLLM container documentation](https://catalog.ngc.nvidia.com/o
 
 2. On the compatible remote machine within your own infrastructure, start the NVIDIA vLLM container with a Hugging Face model and ensure it is reachable by the VSS agent workflow machine:
 
-   ```bash
+   ```bash title="Run in the LLM host terminal"
    docker run --gpus 'device=0' -it --rm -p 30081:8000 nvcr.io/nvidia/vllm:26.01-py3 \
        python3 -m vllm.entrypoints.openai.api_server \
        --model OpenAI/gpt-oss-20b \
